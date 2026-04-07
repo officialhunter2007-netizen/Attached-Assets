@@ -265,9 +265,19 @@ function SubjectPathChat({
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [planHtml, setPlanHtml] = useState<string | null>(initialPath?.planHtml || null);
+  const [stages, setStages] = useState<string[]>([]);
+  const [currentStage, setCurrentStage] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const savePathMutation = useSaveLearningPath();
+
+  const extractStages = (html: string): string[] => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const headings = Array.from(doc.querySelectorAll('h2, h3'));
+    const names = headings.map(h => h.textContent?.trim() || '').filter(Boolean);
+    if (names.length >= 2) return names.slice(0, 6);
+    return ["المقدمة والأساسيات", "المفاهيم الجوهرية", "التطبيق العملي", "التحديات والتعمق"];
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -279,7 +289,10 @@ function SubjectPathChat({
     if (phase === "INTERVIEWING" && messages.length === 0) {
       sendInterviewMessage("");
     } else if (phase === "TEACHING" && messages.length === 0) {
-      sendTeachMessage("");
+      const s = planHtml ? extractStages(planHtml) : ["المقدمة والأساسيات", "المفاهيم الجوهرية", "التطبيق العملي", "التحديات"];
+      setStages(s);
+      setCurrentStage(0);
+      sendTeachMessage("", s, 0);
     }
   }, [phase]);
 
@@ -399,12 +412,14 @@ function SubjectPathChat({
     }
   };
 
-  const sendTeachMessage = async (text: string) => {
+  const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number) => {
     setIsStreaming(true);
     if (text) {
       setMessages(prev => [...prev, { role: "user", content: text }]);
     }
     setInput("");
+    const usedStages = stagesParam ?? stages;
+    const usedStage = stageParam ?? currentStage;
 
     try {
       const response = await fetch('/api/ai/teach', {
@@ -412,11 +427,12 @@ function SubjectPathChat({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          subjectId: subject.id,
           subjectName: subject.name,
           userMessage: text,
           history: messages,
-          planContext: planHtml
+          planContext: planHtml,
+          stages: usedStages,
+          currentStage: usedStage,
         })
       });
 
@@ -425,28 +441,36 @@ function SubjectPathChat({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantMsg = "";
+      let buffer = "";
 
       setMessages(prev => [...prev, { role: "assistant", content: "" }]);
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || "";
+
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (!line.startsWith('data: ')) continue;
+          try {
             const data = JSON.parse(line.slice(6));
-            if (data.done) break;
+            if (data.done) {
+              if (data.stageComplete && data.nextStage !== undefined && data.nextStage < usedStages.length) {
+                setCurrentStage(data.nextStage);
+              }
+              break;
+            }
             if (data.content) {
               assistantMsg += data.content;
               setMessages(prev => {
                 const newMessages = [...prev];
-                newMessages[newMessages.length - 1].content = assistantMsg;
+                newMessages[newMessages.length - 1] = { role: "assistant", content: assistantMsg };
                 return newMessages;
               });
             }
-          }
+          } catch {}
         }
       }
     } catch (e) {
@@ -514,6 +538,35 @@ function SubjectPathChat({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
+      {phase === "TEACHING" && stages.length > 0 && (
+        <div className="shrink-0 px-4 py-3 border-b border-white/10 bg-black/20">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs text-muted-foreground">تقدمك في الجلسة</span>
+              <span className="text-xs font-bold text-gold">{Math.round(((currentStage) / stages.length) * 100)}%</span>
+            </div>
+            <div className="flex gap-1.5">
+              {stages.map((s, i) => (
+                <div key={i} className="flex-1 group relative">
+                  <div className={`h-1.5 rounded-full transition-all duration-500 ${
+                    i < currentStage ? 'bg-emerald' : i === currentStage ? 'bg-gold' : 'bg-white/10'
+                  }`} />
+                  <div className={`absolute bottom-3 right-0 hidden group-hover:block z-20 bg-black/90 border border-white/10 rounded-lg px-2 py-1 text-xs whitespace-nowrap ${
+                    i < currentStage ? 'text-emerald' : i === currentStage ? 'text-gold' : 'text-muted-foreground'
+                  }`}>{s}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 mt-1.5">
+              {stages[currentStage] && (
+                <span className="text-xs text-gold font-medium">
+                  {currentStage + 1}/{stages.length} — {stages[currentStage]}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="max-w-3xl mx-auto space-y-6 pb-4">
           <AnimatePresence initial={false}>

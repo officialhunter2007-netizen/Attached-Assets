@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
 
@@ -210,73 +211,72 @@ router.post("/ai/build-plan", async (req, res): Promise<void> => {
 });
 
 router.post("/ai/teach", async (req, res): Promise<void> => {
-  const { subjectId, subjectName, userMessage, history, planContext } = req.body;
+  const { subjectName, userMessage, history, planContext, stages, currentStage } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  const systemPrompt = `أنت معلم خاص سقراطي متمكن في مادة: ${subjectName}. فلسفتك: الطالب لا يتعلم بالاستماع بل باكتشاف الفكرة بنفسه.
+  const stageCount = stages?.length || 3;
+  const stageIdx = currentStage ?? 0;
+  const currentStageName = stages?.[stageIdx] || `المرحلة ${stageIdx + 1}`;
+  const nextStageName = stages?.[stageIdx + 1];
 
-${planContext ? `السياق الشخصي للطالب والخطة: ${planContext}
+  const systemPrompt = `أنت معلم خاص سقراطي متمكن في مادة: ${subjectName}. فلسفتك: الطالب يتعلم باكتشاف الفكرة بنفسه.
 
-استخدم هذا السياق دائماً: ربط كل مثال بهدف الطالب الشخصي المذكور أعلاه وبالأمثلة التي يعرفها.` : ""}
+${planContext ? `--- خطة الطالب الشخصية ---\n${planContext}\n---\n` : ""}
 
-**أسلوبك السقراطي في كل رد:**
+**الجلسة الحالية:**
+- المرحلة الحالية (${stageIdx + 1}/${stageCount}): "${currentStageName}"
+${nextStageName ? `- المرحلة التالية: "${nextStageName}" (لا تنتقل إليها حتى يُتقن الطالب الحالية)` : "- هذه المرحلة الأخيرة"}
 
-عند تقديم مفهوم جديد:
-- لا تبدأ بالشرح أبداً. ابدأ بسؤال استكشافي: "ماذا تتوقع أن يحدث لو...؟" أو "قبل أن أشرح، أخبرني..."
-- قدّم مثالاً أو سيناريو مثيراً وانتظر توقع الطالب قبل الكشف
-- اربط كل مثال بهدف الطالب الشخصي المذكور في السياق أعلاه إذا توفر
+**أسلوبك السقراطي (التزم به دائماً):**
 
-عند إجابة الطالب بشكل صحيح:
-- استشهد بكلامه تحديداً: "لاحظت بنفسك أن..." أو "قلت قبل قليل إن... وهذا بالضبط ما يعنيه..."
-- أشِد بالملاحظة الدقيقة باستخدام class="praise"، ثم وسّع الفكرة التي اكتشفها
+1. عند تقديم مفهوم جديد: ابدأ بسؤال استكشافي "ماذا تتوقع أن يحدث لو...؟" قبل الشرح
+2. عند الإجابة الصحيحة: قل "لاحظت بنفسك أن..." واستشهد بكلام الطالب تحديداً
+3. عند الإجابة الخاطئة: لا تصحح مباشرة، ادفعه لاختبار فكرته: "جرّب X وأخبرني ماذا حدث"
+4. إذا أجاب الطالب على تحديين متتاليين بشكل صحيح → ضع [STAGE_COMPLETE] في آخر ردك ثم قل بوضوح "انتهينا من هذه المرحلة!"
 
-عند إجابة الطالب بشكل خاطئ:
-- لا تصحح مباشرة أبداً
-- ادفعه لاختبار فكرته: "جرّب هذا الكود وأخبرني ماذا حدث" أو "ماذا يحدث لو غيّرت X إلى Y؟"
-- أو اسأله: "لو كنت تشرح هذا لصديقك، كيف ستشرحه؟"
+**قواعد التنسيق (مهم جداً):**
+- كل ردودك HTML داخل <div> واحد فقط. لا Markdown أبداً.
+- class="question-box" → للأسئلة والتحديات (إطار ذهبي)
+- class="praise" → للإشادة بالطالب (أخضر)
+- class="discover-box" → لطلبات الاكتشاف (بنفسجي)
+- class="tip-box" → للتلميحات والنصائح
+- الكود البرمجي داخل <pre><code> واتجاهه LTR
+- لا تستخدم ** أو # أو أي Markdown`;
 
-الانتقال لمفهوم جديد:
-- لا تنتقل إلا بعد تحدٍّ صغير يثبت فهم الطالب (سؤال في class="question-box")
-- إذا أجاب الطالب بشكل صحيح على التحدي، فقط عندها انتقل
-
-**قواعد التنسيق:**
-${TEACHER_CSS}
-
-كل ردودك HTML داخل div واحد. لا Markdown أبداً.
-اتجاه الكود البرمجي: LTR (يسار لليمين).
-استخدم class="question-box" للأسئلة والتحديات، class="praise" للإشادة، class="discover-box" لطلبات الاكتشاف.
-
-**ضبط مستوى التعقيد:**
-- راقب طول إجابات الطالب ودقتها: إجابات قصيرة وعامة → بسّط أكثر؛ إجابات تفصيلية ودقيقة → ارفع مستوى التحدي
-- إذا أجاب الطالب على سؤالين متتاليين بشكل صحيح وسريع، أشر إلى ذلك وانتقل لتحدٍّ أصعب`;
-
-  const messages = [
-    { role: "system" as const, content: systemPrompt },
-    ...history.map((m: any) => ({ role: m.role as "user" | "assistant", content: m.content })),
-    { role: "user" as const, content: userMessage },
-  ];
-
-  const stream = await openai.chat.completions.create({
-    model: "gpt-5.2",
-    max_completion_tokens: 4096,
-    messages,
-    stream: true,
-  });
+  const claudeMessages = history.map((m: any) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content || " ",
+  }));
+  if (userMessage) {
+    claudeMessages.push({ role: "user" as const, content: userMessage });
+  } else if (claudeMessages.length === 0) {
+    claudeMessages.push({ role: "user" as const, content: `ابدأ تدريسي في مرحلة: ${currentStageName}` });
+  }
 
   let fullResponse = "";
+  let stageComplete = false;
 
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content;
-    if (content) {
-      fullResponse += content;
-      res.write(`data: ${JSON.stringify({ content })}\n\n`);
+  const stream = anthropic.messages.stream({
+    model: "claude-sonnet-4-6",
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: claudeMessages,
+  });
+
+  for await (const event of stream) {
+    if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+      const text = event.delta.text;
+      fullResponse += text;
+      const clean = text.replace("[STAGE_COMPLETE]", "");
+      if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
     }
   }
 
-  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
+  res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx })}\n\n`);
   res.end();
 });
 
