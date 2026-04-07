@@ -78,6 +78,7 @@ export default function Lesson() {
       const response = await fetch('/api/ai/lesson', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           subjectId: subjectId!,
           unitId: unitId!,

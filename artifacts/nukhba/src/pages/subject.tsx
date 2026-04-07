@@ -211,6 +211,7 @@ function SubjectPathChat({
       const response = await fetch('/api/ai/interview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           subjectId: subject.id,
           subjectName: subject.name,
@@ -270,6 +271,7 @@ function SubjectPathChat({
       const response = await fetch('/api/ai/build-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           subjectId: subject.id,
           subjectName: subject.name,
@@ -325,6 +327,7 @@ function SubjectPathChat({
       const response = await fetch('/api/ai/teach', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           subjectId: subject.id,
           subjectName: subject.name,
@@ -450,35 +453,7 @@ function SubjectPathChat({
                     {msg.role === 'user' ? (
                       msg.content
                     ) : (
-                       phase === "TEACHING" ? (
-                        <iframe 
-                          srcDoc={`
-                            <html dir="rtl">
-                              <head>
-                                <style>
-                                  body { font-family: 'Cairo', 'Tajawal', sans-serif; color: #e8d5a3; background: transparent; margin: 0; line-height: 1.7; font-size: 16px; }
-                                  h1, h2, h3 { color: #F59E0B; margin-top: 0;}
-                                  code { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: #10B981; direction: ltr; display: inline-block;}
-                                  pre { background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; direction: ltr; text-align: left; border: 1px solid rgba(255,255,255,0.1); overflow-x: auto;}
-                                  ul, ol { padding-right: 20px; }
-                                  li { margin-bottom: 8px; }
-                                </style>
-                              </head>
-                              <body>${msg.content}</body>
-                            </html>
-                          `}
-                          className="w-full border-none"
-                          style={{ minHeight: "60px" }}
-                          onLoad={(e) => {
-                            const target = e.target as HTMLIFrameElement;
-                            if (target.contentWindow?.document.body) {
-                              target.style.height = target.contentWindow.document.body.scrollHeight + 20 + 'px';
-                            }
-                          }}
-                        />
-                       ) : (
-                         <div dangerouslySetContent={{__html: msg.content.replace(/\n/g, '<br/>')}} />
-                       )
+                      <div dangerouslySetInnerHTML={{ __html: msg.content.replace(/\n/g, '<br/>') }} />
                     )}
                   </div>
                 </div>
