@@ -1,8 +1,8 @@
-# Workspace
+# نُخبة — Nukhba Educational Platform
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+AI-powered Yemeni educational platform with personalized learning paths, gamification, paywall, and an admin panel. RTL Arabic UI.
 
 ## Stack
 
@@ -14,14 +14,50 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Database**: PostgreSQL + Drizzle ORM
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **Build**: esbuild (bundle)
+- **Frontend**: React + Vite + Tailwind CSS + Framer Motion
+- **AI**: OpenAI gpt-5.2 via Replit AI integration (SSE streaming)
+- **Auth**: Cookie-based sessions (base64 JSON, SHA-256 hashed passwords)
+
+## Artifacts
+
+- **nukhba** (`/`): React-Vite web app — full educational platform frontend
+- **api-server**: Express API server on port 8080, proxied via `/api/`
 
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+## Features
+
+- **AI Learning Sessions**: 3-phase (interview → plan → teaching) using SSE streaming
+- **Curriculum**: High school (chemistry, biology, Arabic, English × 3 grades), University (10 specializations), Skills (web, programming, OS, networking, security)
+- **Gamification**: 5 levels (مبتدئ→أسطورة), points (+15 lesson, +25 challenge), badges, streaks
+- **Paywall**: 2 free lessons → subscription or 10 referrals
+- **Subscriptions**: Silver/Gold/نُخبة plans via Karimi wallet (regional pricing North/South Yemen)
+- **Admin Panel**: Approve/reject subscription requests, view activation cards, stats
+
+## DB Schema
+
+Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subscription_requests, activation_cards, referrals, conversations, messages
+
+## API Routes
+
+- `GET/POST /api/auth/*` — auth (login, register, logout, me, update)
+- `GET/POST /api/lessons/*` — lessons (cache, views, challenge)
+- `GET/POST /api/progress` — user progress
+- `POST /api/subscriptions/*` — subscription requests & activation
+- `GET/POST /api/admin/*` — admin panel (subscription requests, activation cards, stats)
+- `GET/POST /api/referrals/*` — referral system
+- `POST /api/ai/*` — AI endpoints (lesson, interview, build-plan, teach) — SSE streaming
+
+## Design System
+
+- Dark luxury theme: background hsl(222,28%,7%), cards hsl(222,24%,10%)
+- Gold: #F59E0B, Emerald: #10B981
+- Fonts: Tajawal + Cairo (Arabic RTL throughout)
+- Glassmorphism cards, glow effects

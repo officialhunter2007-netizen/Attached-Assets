@@ -3,13 +3,27 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: نُخبة - Nukhba Educational Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: User authentication and profile
+  - name: lessons
+    description: Lesson content and caching
+  - name: progress
+    description: User learning progress
+  - name: subscriptions
+    description: Subscription requests and activation
+  - name: admin
+    description: Admin panel operations
+  - name: referrals
+    description: Referral system
+  - name: ai
+    description: AI-powered learning sessions
 paths:
   /healthz:
     get:
@@ -24,6 +38,475 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user profile
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Unauthorized
+    patch:
+      operationId: updateMe
+      tags: [auth]
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileBody"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+
+  /auth/register:
+    post:
+      operationId: registerUser
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterBody"
+      responses:
+        "201":
+          description: Registered user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+
+  /auth/login:
+    post:
+      operationId: loginUser
+      tags: [auth]
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Login success with session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      operationId: logoutUser
+      tags: [auth]
+      summary: Logout user
+      responses:
+        "200":
+          description: Logged out
+
+  /lessons/cached:
+    get:
+      operationId: getCachedLesson
+      tags: [lessons]
+      summary: Get a cached lesson by key
+      parameters:
+        - name: lesson_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cached lesson content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CachedLesson"
+        "404":
+          description: Not found
+
+  /lessons/cached/save:
+    post:
+      operationId: saveCachedLesson
+      tags: [lessons]
+      summary: Save a lesson to cache
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveCachedLessonBody"
+      responses:
+        "201":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CachedLesson"
+
+  /lessons/views:
+    get:
+      operationId: getLessonViews
+      tags: [lessons]
+      summary: Get user's lesson view history
+      responses:
+        "200":
+          description: Lesson views list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LessonView"
+    post:
+      operationId: recordLessonView
+      tags: [lessons]
+      summary: Record a lesson view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordLessonViewBody"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LessonView"
+
+  /lessons/views/{id}/challenge:
+    patch:
+      operationId: markChallengeAnswered
+      tags: [lessons]
+      summary: Mark challenge as answered and award points
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LessonView"
+
+  /progress:
+    get:
+      operationId: getUserProgress
+      tags: [progress]
+      summary: Get all user progress records
+      responses:
+        "200":
+          description: Progress list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserProgress"
+    post:
+      operationId: upsertUserProgress
+      tags: [progress]
+      summary: Upsert user progress for a subject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertProgressBody"
+      responses:
+        "200":
+          description: Progress record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProgress"
+
+  /learning-paths:
+    get:
+      operationId: getLearningPaths
+      tags: [progress]
+      summary: Get user's learning paths
+      responses:
+        "200":
+          description: Learning paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LearningPath"
+    post:
+      operationId: saveLearningPath
+      tags: [progress]
+      summary: Save a learning path
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveLearningPathBody"
+      responses:
+        "201":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LearningPath"
+
+  /learning-paths/{subjectId}:
+    get:
+      operationId: getLearningPathBySubject
+      tags: [progress]
+      summary: Get learning path for a specific subject
+      parameters:
+        - name: subjectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Learning path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LearningPath"
+        "404":
+          description: Not found
+
+  /subscriptions/request:
+    post:
+      operationId: createSubscriptionRequest
+      tags: [subscriptions]
+      summary: Submit a subscription payment request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSubscriptionRequestBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionRequest"
+
+  /subscriptions/activate:
+    post:
+      operationId: activateSubscription
+      tags: [subscriptions]
+      summary: Activate subscription using a code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivateSubscriptionBody"
+      responses:
+        "200":
+          description: Activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivationResult"
+        "400":
+          description: Invalid code
+
+  /admin/subscription-requests:
+    get:
+      operationId: getAdminSubscriptionRequests
+      tags: [admin]
+      summary: Get all subscription requests (admin)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+      responses:
+        "200":
+          description: Subscription requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SubscriptionRequest"
+
+  /admin/subscription-requests/{id}/approve:
+    post:
+      operationId: approveSubscriptionRequest
+      tags: [admin]
+      summary: Approve a subscription request and generate activation code
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved with activation code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivationCard"
+
+  /admin/subscription-requests/{id}/reject:
+    post:
+      operationId: rejectSubscriptionRequest
+      tags: [admin]
+      summary: Reject a subscription request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Rejected
+
+  /admin/activation-cards:
+    get:
+      operationId: getActivationCards
+      tags: [admin]
+      summary: Get all activation cards (admin)
+      responses:
+        "200":
+          description: Activation cards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivationCard"
+
+  /admin/stats:
+    get:
+      operationId: getAdminStats
+      tags: [admin]
+      summary: Get admin dashboard statistics
+      responses:
+        "200":
+          description: Statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /referrals/info:
+    get:
+      operationId: getReferralInfo
+      tags: [referrals]
+      summary: Get current user's referral info and count
+      responses:
+        "200":
+          description: Referral info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralInfo"
+
+  /referrals/register:
+    post:
+      operationId: registerReferral
+      tags: [referrals]
+      summary: Register a referral after signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterReferralBody"
+      responses:
+        "200":
+          description: Registered
+
+  /ai/lesson:
+    post:
+      operationId: generateLesson
+      tags: [ai]
+      summary: Generate lesson content with AI (SSE streaming)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateLessonBody"
+      responses:
+        "200":
+          description: SSE stream of lesson content
+
+  /ai/interview:
+    post:
+      operationId: sendInterviewMessage
+      tags: [ai]
+      summary: Send a message in the subject interview phase
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InterviewMessageBody"
+      responses:
+        "200":
+          description: AI response (SSE stream)
+
+  /ai/build-plan:
+    post:
+      operationId: buildLearningPlan
+      tags: [ai]
+      summary: Build a personalized HTML learning plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuildPlanBody"
+      responses:
+        "200":
+          description: HTML plan content
+
+  /ai/teach:
+    post:
+      operationId: sendTeachMessage
+      tags: [ai]
+      summary: Send a message in the live teaching session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeachMessageBody"
+      responses:
+        "200":
+          description: AI teacher response (SSE stream)
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +517,548 @@ components:
       required:
         - status
 
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        displayName:
+          type: ["string", "null"]
+        role:
+          type: string
+          enum: [admin, user]
+        onboardingDone:
+          type: boolean
+        points:
+          type: integer
+        streakDays:
+          type: integer
+        lastActive:
+          type: ["string", "null"]
+        badges:
+          type: array
+          items:
+            type: string
+        nukhbaPlan:
+          type: ["string", "null"]
+        referralCode:
+          type: ["string", "null"]
+      required:
+        - id
+        - email
+        - role
+        - onboardingDone
+        - points
+        - streakDays
+        - badges
+
+    UpdateProfileBody:
+      type: object
+      properties:
+        displayName:
+          type: ["string", "null"]
+        onboardingDone:
+          type: ["boolean", "null"]
+        points:
+          type: ["integer", "null"]
+        streakDays:
+          type: ["integer", "null"]
+        lastActive:
+          type: ["string", "null"]
+        badges:
+          type: ["array", "null"]
+          items:
+            type: string
+        nukhbaPlan:
+          type: ["string", "null"]
+
+    RegisterBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+        displayName:
+          type: string
+        referralCode:
+          type: ["string", "null"]
+      required:
+        - email
+        - password
+
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    CachedLesson:
+      type: object
+      properties:
+        id:
+          type: integer
+        lessonKey:
+          type: string
+        section:
+          type: string
+        gradeOrSpecialization:
+          type: ["string", "null"]
+        subject:
+          type: string
+        unitTitle:
+          type: string
+        lessonTitle:
+          type: string
+        contentAr:
+          type: string
+        viewCount:
+          type: integer
+        isFree:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - lessonKey
+        - section
+        - subject
+        - unitTitle
+        - lessonTitle
+        - contentAr
+        - viewCount
+        - isFree
+
+    SaveCachedLessonBody:
+      type: object
+      properties:
+        lessonKey:
+          type: string
+        section:
+          type: string
+        gradeOrSpecialization:
+          type: ["string", "null"]
+        subject:
+          type: string
+        unitTitle:
+          type: string
+        lessonTitle:
+          type: string
+        contentAr:
+          type: string
+        isFree:
+          type: boolean
+      required:
+        - lessonKey
+        - section
+        - subject
+        - unitTitle
+        - lessonTitle
+        - contentAr
+
+    LessonView:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        subjectId:
+          type: string
+        unitId:
+          type: string
+        lessonId:
+          type: string
+        lessonTitle:
+          type: string
+        subjectName:
+          type: string
+        pointsEarned:
+          type: integer
+        challengeAnswered:
+          type: boolean
+        viewedAt:
+          type: string
+      required:
+        - id
+        - userId
+        - subjectId
+        - unitId
+        - lessonId
+        - lessonTitle
+        - subjectName
+        - pointsEarned
+        - challengeAnswered
+
+    RecordLessonViewBody:
+      type: object
+      properties:
+        subjectId:
+          type: string
+        unitId:
+          type: string
+        lessonId:
+          type: string
+        lessonTitle:
+          type: string
+        subjectName:
+          type: string
+      required:
+        - subjectId
+        - unitId
+        - lessonId
+        - lessonTitle
+        - subjectName
+
+    UserProgress:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        section:
+          type: string
+        subjectOrSpecialization:
+          type: string
+        gradeOrTrack:
+          type: ["string", "null"]
+        completedLessons:
+          type: integer
+        totalLessons:
+          type: integer
+        masteryPercentage:
+          type: integer
+        lastAccessedLesson:
+          type: ["string", "null"]
+        lastAccessedUnit:
+          type: ["string", "null"]
+        updatedAt:
+          type: string
+      required:
+        - id
+        - userId
+        - section
+        - subjectOrSpecialization
+        - completedLessons
+        - totalLessons
+        - masteryPercentage
+
+    UpsertProgressBody:
+      type: object
+      properties:
+        section:
+          type: string
+        subjectOrSpecialization:
+          type: string
+        gradeOrTrack:
+          type: ["string", "null"]
+        completedLessons:
+          type: integer
+        totalLessons:
+          type: integer
+        masteryPercentage:
+          type: integer
+        lastAccessedLesson:
+          type: ["string", "null"]
+        lastAccessedUnit:
+          type: ["string", "null"]
+      required:
+        - section
+        - subjectOrSpecialization
+        - completedLessons
+        - totalLessons
+        - masteryPercentage
+
+    LearningPath:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        subjectId:
+          type: string
+        motivation:
+          type: ["string", "null"]
+        duration:
+          type: ["string", "null"]
+        outcome:
+          type: ["string", "null"]
+        planHtml:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - userId
+        - subjectId
+
+    SaveLearningPathBody:
+      type: object
+      properties:
+        subjectId:
+          type: string
+        motivation:
+          type: ["string", "null"]
+        duration:
+          type: ["string", "null"]
+        outcome:
+          type: ["string", "null"]
+        planHtml:
+          type: ["string", "null"]
+      required:
+        - subjectId
+
+    SubscriptionRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        userEmail:
+          type: string
+        userName:
+          type: ["string", "null"]
+        transactionId:
+          type: string
+        planType:
+          type: string
+          enum: [silver, gold, nukhba]
+        region:
+          type: string
+          enum: [north, south]
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        activationCode:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - userId
+        - userEmail
+        - transactionId
+        - planType
+        - region
+        - status
+
+    CreateSubscriptionRequestBody:
+      type: object
+      properties:
+        transactionId:
+          type: string
+        planType:
+          type: string
+          enum: [silver, gold, nukhba]
+        region:
+          type: string
+          enum: [north, south]
+        notes:
+          type: ["string", "null"]
+      required:
+        - transactionId
+        - planType
+        - region
+
+    ActivateSubscriptionBody:
+      type: object
+      properties:
+        code:
+          type: string
+      required:
+        - code
+
+    ActivationResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        planType:
+          type: string
+        message:
+          type: string
+      required:
+        - success
+        - message
+
+    ActivationCard:
+      type: object
+      properties:
+        id:
+          type: integer
+        activationCode:
+          type: string
+        planType:
+          type: string
+          enum: [silver, gold, nukhba, influencer]
+        region:
+          type: ["string", "null"]
+        isUsed:
+          type: boolean
+        usedByUserId:
+          type: ["integer", "null"]
+        usedAt:
+          type: ["string", "null"]
+        expiresAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        subscriptionRequestId:
+          type: ["integer", "null"]
+      required:
+        - id
+        - activationCode
+        - planType
+        - isUsed
+
+    AdminStats:
+      type: object
+      properties:
+        pendingRequests:
+          type: integer
+        activeSubscriptions:
+          type: integer
+        totalCards:
+          type: integer
+        totalUsers:
+          type: integer
+      required:
+        - pendingRequests
+        - activeSubscriptions
+        - totalCards
+        - totalUsers
+
+    ReferralInfo:
+      type: object
+      properties:
+        referralCode:
+          type: string
+        referralCount:
+          type: integer
+        referralGoal:
+          type: integer
+      required:
+        - referralCode
+        - referralCount
+        - referralGoal
+
+    RegisterReferralBody:
+      type: object
+      properties:
+        referralCode:
+          type: string
+      required:
+        - referralCode
+
+    GenerateLessonBody:
+      type: object
+      properties:
+        subjectId:
+          type: string
+        unitId:
+          type: string
+        lessonId:
+          type: string
+        lessonTitle:
+          type: string
+        subjectName:
+          type: string
+        section:
+          type: string
+        grade:
+          type: ["string", "null"]
+        isSkill:
+          type: boolean
+      required:
+        - subjectId
+        - unitId
+        - lessonId
+        - lessonTitle
+        - subjectName
+        - section
+
+    InterviewMessageBody:
+      type: object
+      properties:
+        subjectId:
+          type: string
+        subjectName:
+          type: string
+        userMessage:
+          type: string
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        questionCount:
+          type: integer
+      required:
+        - subjectId
+        - subjectName
+        - userMessage
+        - history
+        - questionCount
+
+    BuildPlanBody:
+      type: object
+      properties:
+        subjectId:
+          type: string
+        subjectName:
+          type: string
+        userName:
+          type: string
+        interviewSummary:
+          type: string
+      required:
+        - subjectId
+        - subjectName
+        - userName
+        - interviewSummary
+
+    TeachMessageBody:
+      type: object
+      properties:
+        subjectId:
+          type: string
+        subjectName:
+          type: string
+        userMessage:
+          type: string
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        planContext:
+          type: ["string", "null"]
+      required:
+        - subjectId
+        - subjectName
+        - userMessage
+        - history
+
+    ChatMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+      required:
+        - role
+        - content
