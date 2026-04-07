@@ -166,6 +166,89 @@ export default function Subject() {
   );
 }
 
+const TEACHER_STYLES = `
+  body { 
+    background: transparent; 
+    font-family: 'Tajawal', 'Cairo', sans-serif; 
+    direction: rtl; 
+    padding: 16px 20px; 
+    color: #e8d5a3; 
+    margin: 0; 
+    line-height: 1.75;
+    font-size: 15px;
+  }
+  h3 { color: #F59E0B; font-size: 1.15em; margin: 14px 0 8px; }
+  h4 { color: #10B981; font-size: 1.05em; margin: 10px 0 6px; }
+  strong { color: #fde68a; }
+  em { color: #6ee7b7; font-style: normal; }
+  pre { background: #0d1117; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 14px; overflow-x: auto; margin: 12px 0; }
+  pre > code { background: transparent; color: #89ddff; direction: ltr; text-align: left; display: block; font-family: 'Fira Code', 'Consolas', monospace; font-size: 13px; white-space: pre; }
+  code { background: rgba(245,158,11,0.15); color: #fde68a; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 0.9em; direction: ltr; display: inline-block; }
+  .question-box { border-right: 3px solid #F59E0B; background: rgba(245,158,11,0.08); padding: 12px 16px; margin: 12px 0; border-radius: 4px; }
+  .tip-box { border-right: 3px solid #10B981; background: rgba(16,185,129,0.08); padding: 12px 16px; margin: 12px 0; border-radius: 4px; }
+  .discover-box { border-right: 3px solid #8B5CF6; background: rgba(139,92,246,0.08); padding: 12px 16px; margin: 12px 0; border-radius: 4px; }
+  .praise { color: #10B981; font-weight: bold; }
+  ul, ol { padding-right: 22px; margin: 8px 0; }
+  li { margin-bottom: 6px; }
+  p { margin: 8px 0; }
+`;
+
+function AIMessage({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [iframeKey, setIframeKey] = useState(0);
+
+  const srcDoc = `<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>${TEACHER_STYLES}</style></head><body>${content}</body></html>`;
+
+  const adjustHeight = () => {
+    const iframe = iframeRef.current;
+    if (iframe?.contentWindow?.document?.body) {
+      const h = iframe.contentWindow.document.body.scrollHeight;
+      if (h > 0) iframe.style.height = (h + 8) + 'px';
+    }
+  };
+
+  useEffect(() => {
+    if (!isStreaming && content) {
+      setIframeKey(k => k + 1);
+      const t = setTimeout(adjustHeight, 300);
+      return () => clearTimeout(t);
+    }
+  }, [isStreaming]);
+
+  if (isStreaming) {
+    const plainText = content
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return (
+      <div className="w-full rounded-2xl border border-gold/20 bg-white/5 p-4">
+        <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap text-sm">{plainText}</p>
+        <div className="flex items-center gap-1 mt-3">
+          <div className="w-1.5 h-1.5 bg-gold rounded-full animate-bounce" />
+          <div className="w-1.5 h-1.5 bg-gold rounded-full animate-bounce" style={{animationDelay:'0.15s'}} />
+          <div className="w-1.5 h-1.5 bg-gold rounded-full animate-bounce" style={{animationDelay:'0.3s'}} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full rounded-2xl overflow-hidden border border-white/10 bg-white/5">
+      <iframe
+        key={iframeKey}
+        ref={iframeRef}
+        srcDoc={srcDoc}
+        className="w-full border-none block"
+        style={{ minHeight: '80px', height: '150px' }}
+        onLoad={adjustHeight}
+        scrolling="no"
+      />
+    </div>
+  );
+}
+
 function SubjectPathChat({ 
   subject, 
   phase, 
@@ -445,17 +528,13 @@ function SubjectPathChat({
                   {msg.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-6 h-6" />}
                 </div>
                 <div className={`flex-1 ${msg.role === 'user' ? 'text-left' : 'text-right'}`}>
-                  <div className={`inline-block max-w-[85%] rounded-2xl p-4 ${
-                    msg.role === 'user' 
-                      ? 'bg-gold/10 border border-gold/20 text-foreground' 
-                      : 'bg-white/5 border border-white/10 text-foreground prose prose-invert prose-p:leading-relaxed'
-                  }`}>
-                    {msg.role === 'user' ? (
-                      msg.content
-                    ) : (
-                      <div dangerouslySetInnerHTML={{ __html: msg.content.replace(/\n/g, '<br/>') }} />
-                    )}
-                  </div>
+                  {msg.role === 'user' ? (
+                    <div className="inline-block max-w-[85%] rounded-2xl p-4 bg-gold/10 border border-gold/20 text-foreground text-base leading-relaxed">
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <AIMessage content={msg.content} isStreaming={isStreaming && i === messages.length - 1} />
+                  )}
                 </div>
               </motion.div>
             ))}
