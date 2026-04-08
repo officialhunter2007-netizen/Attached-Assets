@@ -133,3 +133,25 @@
   .text-gold { color: #F59E0B; }
   .text-emerald { color: #10B981; }
 }
+
+.ai-msg {
+  color: #e8d5a3;
+  font-family: 'Tajawal', 'Cairo', sans-serif;
+  font-size: 15px;
+  line-height: 1.75;
+  direction: rtl;
+}
+.ai-msg h3 { color: #F59E0B; font-size: 1.1em; margin: 14px 0 8px; font-weight: 700; }
+.ai-msg h4 { color: #10B981; font-size: 1.0em; margin: 10px 0 6px; font-weight: 700; }
+.ai-msg strong { color: #fde68a; font-weight: 700; }
+.ai-msg em { color: #6ee7b7; font-style: normal; }
+.ai-msg p { margin: 8px 0; }
+.ai-msg ul, .ai-msg ol { padding-right: 22px; margin: 8px 0; }
+.ai-msg li { margin-bottom: 6px; }
+.ai-msg pre { background: #0d1117; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 14px; overflow-x: auto; margin: 12px 0; }
+.ai-msg pre > code { background: transparent !important; color: #89ddff; direction: ltr; text-align: left; display: block; font-family: 'Fira Code','Consolas',monospace; font-size: 13px; white-space: pre; }
+.ai-msg code { background: rgba(245,158,11,0.2); color: #fde68a; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 0.9em; direction: ltr; display: inline-block; }
+.ai-msg .question-box { border-right: 3px solid #F59E0B; background: rgba(245,158,11,0.1); padding: 12px 16px; margin: 12px 0; border-radius: 6px; }
+.ai-msg .tip-box { border-right: 3px solid #10B981; background: rgba(16,185,129,0.1); padding: 12px 16px; margin: 12px 0; border-radius: 6px; }
+.ai-msg .discover-box { border-right: 3px solid #8B5CF6; background: rgba(139,92,246,0.1); padding: 12px 16px; margin: 12px 0; border-radius: 6px; }
+.ai-msg .praise { color: #10B981; font-weight: bold; }
