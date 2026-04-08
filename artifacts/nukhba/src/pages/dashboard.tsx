@@ -55,7 +55,7 @@ function SummaryCard({ summary }: { summary: LessonSummary }) {
                 srcDoc={`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-  body{background:transparent;font-family:'Tajawal',sans-serif;direction:rtl;padding:8px 0;color:#e8d5a3;margin:0;font-size:14px;line-height:1.6}
+  html,body{background:hsl(222,24%,10%);font-family:'Tajawal',sans-serif;direction:rtl;padding:8px 0;color:#e8d5a3;margin:0;font-size:14px;line-height:1.6}
   h3{color:#F59E0B;font-size:1.1em;margin:12px 0 6px}h4{color:#10B981;font-size:1em;margin:8px 0 4px}
   strong{color:#fde68a}ul,ol{padding-right:18px;margin:6px 0}li{margin-bottom:4px}p{margin:6px 0}
 </style></head><body>${summary.summaryHtml}</body></html>`}

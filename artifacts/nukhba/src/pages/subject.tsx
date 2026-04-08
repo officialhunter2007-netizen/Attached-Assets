@@ -23,7 +23,7 @@ interface LessonSummary {
 }
 
 const SUMMARY_IFRAME_STYLES = `
-  body{background:transparent;font-family:'Tajawal',sans-serif;direction:rtl;padding:8px 0;color:#e8d5a3;margin:0;font-size:14px;line-height:1.65}
+  html,body{background:hsl(222,24%,10%);font-family:'Tajawal',sans-serif;direction:rtl;padding:8px 0;color:#e8d5a3;margin:0;font-size:14px;line-height:1.65}
   h3{color:#F59E0B;font-size:1.05em;margin:10px 0 5px}h4{color:#10B981;font-size:1em;margin:8px 0 4px}
   strong{color:#fde68a}ul,ol{padding-right:18px;margin:6px 0}li{margin-bottom:4px}p{margin:6px 0}
 `;
@@ -262,8 +262,9 @@ export default function Subject() {
 }
 
 const TEACHER_STYLES = `
+  html { background: hsl(222,24%,10%); }
   body { 
-    background: transparent; 
+    background: hsl(222,24%,10%); 
     font-family: 'Tajawal', 'Cairo', sans-serif; 
     direction: rtl; 
     padding: 16px 20px; 
@@ -608,7 +609,7 @@ function SubjectPathChat({
                 </div>
                 <div className={`flex-1 ${msg.role === 'user' ? 'text-left' : 'text-right'}`}>
                   {msg.role === 'user' ? (
-                    <div className="inline-block max-w-[85%] rounded-2xl p-4 bg-gold/10 border border-gold/20 text-foreground text-base leading-relaxed">
+                    <div className="inline-block max-w-[85%] rounded-2xl p-4 bg-gold/20 border border-gold/30 text-[#fef3c7] text-base leading-relaxed">
                       {msg.content}
                     </div>
                   ) : (
