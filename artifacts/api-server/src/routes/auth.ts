@@ -180,9 +180,14 @@ router.post("/auth/complete-first-lesson", async (req, res): Promise<void> => {
   res.json({ success: true });
 });
 
+function getAppDomain(): string {
+  const prodDomains = process.env.REPLIT_DOMAINS;
+  if (prodDomains) return prodDomains.split(",")[0].trim();
+  return process.env.REPLIT_DEV_DOMAIN ?? "";
+}
+
 function getGoogleClient() {
-  const domain = process.env.REPLIT_DEV_DOMAIN;
-  const callbackUrl = `https://${domain}/api/auth/google/callback`;
+  const callbackUrl = `https://${getAppDomain()}/api/auth/google/callback`;
   return new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
@@ -191,8 +196,7 @@ function getGoogleClient() {
 }
 
 function getFrontendUrl(path = "") {
-  const domain = process.env.REPLIT_DEV_DOMAIN;
-  return `https://${domain}${path}`;
+  return `https://${getAppDomain()}${path}`;
 }
 
 function setSessionCookie(res: any, userId: number) {
