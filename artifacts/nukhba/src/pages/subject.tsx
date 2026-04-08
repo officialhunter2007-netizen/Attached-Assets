@@ -9,8 +9,93 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
-import { Send, Bot, User, Sparkles, Loader2, RefreshCw, PlayCircle, Lock } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, PlayCircle, Lock, FileText, ChevronDown, ChevronUp, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
+interface LessonSummary {
+  id: number;
+  subjectId: string;
+  subjectName: string;
+  title: string;
+  summaryHtml: string;
+  conversationDate: string;
+  messagesCount: number;
+}
+
+const SUMMARY_IFRAME_STYLES = `
+  body{background:transparent;font-family:'Tajawal',sans-serif;direction:rtl;padding:8px 0;color:#e8d5a3;margin:0;font-size:14px;line-height:1.65}
+  h3{color:#F59E0B;font-size:1.05em;margin:10px 0 5px}h4{color:#10B981;font-size:1em;margin:8px 0 4px}
+  strong{color:#fde68a}ul,ol{padding-right:18px;margin:6px 0}li{margin-bottom:4px}p{margin:6px 0}
+`;
+
+function SubjectSummaryCard({ summary }: { summary: LessonSummary }) {
+  const [expanded, setExpanded] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const date = new Date(summary.conversationDate).toLocaleDateString("ar-SA", {
+    year: "numeric", month: "long", day: "numeric"
+  });
+
+  const srcDoc = `<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+<style>${SUMMARY_IFRAME_STYLES}</style></head><body>${summary.summaryHtml}</body></html>`;
+
+  const adjustHeight = () => {
+    const iframe = iframeRef.current;
+    if (iframe?.contentWindow?.document?.body) {
+      const h = iframe.contentWindow.document.body.scrollHeight;
+      if (h > 0) iframe.style.height = (h + 16) + "px";
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass border border-white/5 rounded-2xl overflow-hidden"
+    >
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full text-right p-5 flex items-center justify-between hover:bg-white/5 transition-colors"
+      >
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center shrink-0">
+            <FileText className="w-5 h-5 text-gold" />
+          </div>
+          <div className="text-right">
+            <h4 className="font-bold text-base">{summary.title || `جلسة ${summary.subjectName}`}</h4>
+            <p className="text-xs text-muted-foreground mt-0.5">{date} · {summary.messagesCount} رسالة</p>
+          </div>
+        </div>
+        {expanded
+          ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
+          : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-5 border-t border-white/5 pt-4">
+              <iframe
+                ref={iframeRef}
+                srcDoc={srcDoc}
+                sandbox="allow-same-origin"
+                className="w-full border-none"
+                style={{ minHeight: "180px", height: "250px" }}
+                onLoad={adjustHeight}
+                scrolling="no"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
 
 export default function Subject() {
   const { subjectId } = useParams();
@@ -30,53 +115,91 @@ export default function Subject() {
   }
 
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [summaries, setSummaries] = useState<LessonSummary[]>([]);
+  const [summariesLoading, setSummariesLoading] = useState(true);
 
-  const startChat = () => {
-    setIsChatOpen(true);
+  const loadSummaries = () => {
+    fetch(`/api/lesson-summaries?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" })
+      .then(r => r.json())
+      .then(data => setSummaries(Array.isArray(data) ? data : []))
+      .catch(() => setSummaries([]))
+      .finally(() => setSummariesLoading(false));
+  };
+
+  useEffect(() => { loadSummaries(); }, [subject.id]);
+
+  const handleSessionComplete = () => {
+    setIsChatOpen(false);
+    setSummariesLoading(true);
+    loadSummaries();
   };
 
   return (
     <AppLayout>
       <div className="container mx-auto px-4 py-12 max-w-4xl">
-        <div className="glass p-8 rounded-3xl border-white/5 mb-10 relative overflow-hidden">
+        {/* Subject Header */}
+        <div className="glass p-6 rounded-3xl border-white/5 mb-8 relative overflow-hidden">
           <div className={`absolute top-0 right-0 w-40 h-40 bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} opacity-10 rounded-bl-full`} />
-          <div className="flex items-center gap-6 relative z-10">
-            <div className={`w-24 h-24 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center text-5xl shadow-lg`}>
-              {subject.emoji}
+          <div className="flex items-center justify-between relative z-10">
+            <div className="flex items-center gap-5">
+              <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center text-4xl shadow-lg`}>
+                {subject.emoji}
+              </div>
+              <div>
+                <h1 className="text-3xl font-black mb-1">{subject.name}</h1>
+                <p className="text-muted-foreground text-sm">{subject.units.length} وحدات • {subject.units.reduce((acc, u) => acc + u.lessons.length, 0)} دروس</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl font-black mb-2">{subject.name}</h1>
-              <p className="text-muted-foreground">{subject.units.length} وحدات • {subject.units.reduce((acc, u) => acc + u.lessons.length, 0)} دروس</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="glass-gold p-8 rounded-3xl border-gold/20 mb-12 text-center shadow-lg shadow-gold/5 relative overflow-hidden">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gold/5 blur-3xl -z-10" />
-          <Sparkles className="w-12 h-12 text-gold mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-4">جلستك التعليمية المخصصة</h2>
-          <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
-            يرافقك معلمك الذكي خطوة بخطوة عبر {subject.defaultStages.length} مراحل تعليمية مُصممة خصيصاً لمادة {subject.name}.
-          </p>
-
-          <div className="flex flex-wrap gap-2 justify-center mb-8">
-            {subject.defaultStages.map((stage, i) => (
-              <span key={i} className="text-xs bg-white/5 border border-white/10 rounded-full px-3 py-1 text-muted-foreground">
-                {i + 1}. {stage}
-              </span>
-            ))}
-          </div>
-
-          <div className="flex justify-center gap-4">
-            <Button onClick={startChat} size="lg" className="gradient-gold text-primary-foreground font-bold px-8 h-12 rounded-xl text-lg shadow-lg shadow-gold/20">
-              <Sparkles className="w-5 h-5 ml-2" />
-              ابدأ الجلسة التعليمية
+            <Button
+              onClick={() => setIsChatOpen(true)}
+              className="gradient-gold text-primary-foreground font-bold px-6 h-11 rounded-xl shadow-lg shadow-gold/20 flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              جلسة جديدة
             </Button>
           </div>
         </div>
 
-        <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
-          <div className="w-2 h-8 bg-gold rounded-full" />
+        {/* Summaries Section */}
+        <div className="mb-12">
+          <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
+            <div className="w-2 h-7 bg-gold rounded-full" />
+            ملخصات الجلسات السابقة
+          </h3>
+
+          {summariesLoading ? (
+            <div className="flex items-center justify-center p-12 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin ml-2" />
+              جاري التحميل...
+            </div>
+          ) : summaries.length === 0 ? (
+            <div className="glass-gold p-10 rounded-3xl border-gold/20 text-center shadow-lg shadow-gold/5 relative overflow-hidden">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gold/5 blur-3xl -z-10" />
+              <Sparkles className="w-12 h-12 text-gold mx-auto mb-4" />
+              <h2 className="text-xl font-bold mb-3">لا توجد جلسات سابقة</h2>
+              <p className="text-muted-foreground mb-6 max-w-md mx-auto text-sm">
+                ابدأ جلستك الأولى مع معلم {subject.name} الذكي. بعد إكمالها سيظهر ملخصها هنا تلقائياً.
+              </p>
+              <Button
+                onClick={() => setIsChatOpen(true)}
+                className="gradient-gold text-primary-foreground font-bold px-8 h-11 rounded-xl shadow-lg shadow-gold/20"
+              >
+                <Sparkles className="w-5 h-5 ml-2" />
+                ابدأ أول جلسة
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {summaries.map(s => (
+                <SubjectSummaryCard key={s.id} summary={s} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Curriculum */}
+        <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
+          <div className="w-2 h-7 bg-white/20 rounded-full" />
           المنهج الدراسي
         </h3>
 
@@ -111,10 +234,10 @@ export default function Subject() {
           ))}
         </Accordion>
 
+        {/* Chat Dialog */}
         <Dialog open={isChatOpen} onOpenChange={setIsChatOpen}>
           <DialogContent className="sm:max-w-[800px] h-[85vh] p-0 flex flex-col glass border-gold/20 gap-0 overflow-hidden bg-background/95">
             <DialogTitle className="sr-only">المعلم الذكي</DialogTitle>
-            
             <div className="p-4 border-b border-white/10 flex items-center justify-between bg-black/20 shrink-0">
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg`}>
@@ -126,10 +249,10 @@ export default function Subject() {
                 </div>
               </div>
             </div>
-
-            <SubjectPathChat 
+            <SubjectPathChat
               subject={subject}
               onAccessDenied={() => { setIsChatOpen(false); setLocation("/subscription"); }}
+              onSessionComplete={handleSessionComplete}
             />
           </DialogContent>
         </Dialog>
@@ -224,9 +347,11 @@ function AIMessage({ content, isStreaming }: { content: string; isStreaming: boo
 function SubjectPathChat({ 
   subject,
   onAccessDenied,
+  onSessionComplete,
 }: { 
   subject: any;
   onAccessDenied: () => void;
+  onSessionComplete?: () => void;
 }) {
   const { user, refreshUser } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -422,9 +547,13 @@ function SubjectPathChat({
             <p className="text-sm text-emerald mb-8">تم حفظ ملخص الجلسة في لوحة التحكم ✓</p>
           )}
           <div className="flex flex-col gap-3 w-full max-w-xs mx-auto">
-            <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
+            <Button
+              onClick={() => onSessionComplete ? onSessionComplete() : onAccessDenied()}
+              disabled={isSummarizing}
+              className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl"
+            >
               <Sparkles className="w-5 h-5 ml-2" />
-              استمر في التعلم
+              {isSummarizing ? "جاري الحفظ..." : "عرض الملخص"}
             </Button>
           </div>
         </motion.div>

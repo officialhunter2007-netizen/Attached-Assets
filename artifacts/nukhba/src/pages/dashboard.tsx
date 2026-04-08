@@ -12,6 +12,7 @@ interface LessonSummary {
   id: number;
   subjectId: string;
   subjectName: string;
+  title: string;
   summaryHtml: string;
   conversationDate: string;
   messagesCount: number;
@@ -33,9 +34,9 @@ function SummaryCard({ summary }: { summary: LessonSummary }) {
           <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center">
             <FileText className="w-5 h-5 text-gold" />
           </div>
-          <div>
-            <h4 className="font-bold">{summary.subjectName}</h4>
-            <p className="text-xs text-muted-foreground">{date} · {summary.messagesCount} رسالة</p>
+          <div className="text-right">
+            <h4 className="font-bold text-sm">{summary.title || `جلسة ${summary.subjectName}`}</h4>
+            <p className="text-xs text-muted-foreground mt-0.5">{summary.subjectName} · {date} · {summary.messagesCount} رسالة</p>
           </div>
         </div>
         {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}

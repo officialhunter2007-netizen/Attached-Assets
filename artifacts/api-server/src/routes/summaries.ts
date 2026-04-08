@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
-import { db, usersTable, lessonSummariesTable } from "@workspace/db";
+import { eq, desc, and } from "drizzle-orm";
+import { db, lessonSummariesTable } from "@workspace/db";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
@@ -46,16 +46,15 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
     .join("\n");
 
   const systemPrompt = `أنت خبير تعليمي تلخص جلسات تعليمية باللغة العربية.
-اكتب ملخصاً احترافياً ومنظماً بـ HTML داخل <div> واحد.
+أجب بـ JSON فقط بهذا الشكل (بدون أي نص خارجه):
+{
+  "title": "عنوان قصير معبر عن موضوع الجلسة (لا يتجاوز 8 كلمات)",
+  "summaryHtml": "HTML داخل div واحد يشمل: ما تعلمه الطالب، أبرز الأمثلة، نقاط القوة، وأهم ما يجب تذكره"
+}
 
-الملخص يجب أن يشمل:
-1. **ما تعلمه الطالب** — المفاهيم والأفكار الرئيسية (نقاط)
-2. **أبرز الأمثلة والتطبيقات** — التي مر عليها في الجلسة
-3. **نقاط القوة** — ما أجاده الطالب
-4. **للمراجعة لاحقاً** — أهم ما يجب تذكره
-
-التنسيق HTML داخل div واحد. ألوان: عناوين #F59E0B، نقاط الإنجاز #10B981.
-لا Markdown. لا ** أو #. كل شيء HTML فقط.`;
+قواعد التنسيق للـ summaryHtml:
+- HTML داخل div واحد فقط، ألوان: عناوين #F59E0B، إنجازات #10B981
+- لا Markdown. لا ** أو #. كل شيء HTML`;
 
   try {
     const response = await anthropic.messages.create({
@@ -65,17 +64,34 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
       messages: [
         {
           role: "user",
-          content: `المادة: ${subjectName}\n\nمحادثة الجلسة:\n${conversationText}\n\nاكتب ملخصاً شاملاً لهذه الجلسة.`,
+          content: `المادة: ${subjectName}\n\nمحادثة الجلسة:\n${conversationText}\n\nاكتب الملخص والعنوان.`,
         },
       ],
     });
 
-    const summaryHtml = response.content[0]?.type === "text" ? response.content[0].text : "";
+    const rawText = response.content[0]?.type === "text" ? response.content[0].text : "{}";
+    let title = `جلسة ${subjectName}`;
+    let summaryHtml = "";
+
+    try {
+      const jsonStart = rawText.indexOf("{");
+      const jsonEnd = rawText.lastIndexOf("}");
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        const parsed = JSON.parse(rawText.slice(jsonStart, jsonEnd + 1));
+        title = parsed.title || title;
+        summaryHtml = parsed.summaryHtml || rawText;
+      } else {
+        summaryHtml = rawText;
+      }
+    } catch {
+      summaryHtml = rawText;
+    }
 
     const [saved] = await db.insert(lessonSummariesTable).values({
       userId,
       subjectId,
       subjectName,
+      title,
       summaryHtml,
       messagesCount: messagesCount ?? messages.length,
       conversationDate: parsedDate,
@@ -95,10 +111,16 @@ router.get("/lesson-summaries", async (req, res): Promise<void> => {
     return;
   }
 
+  const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId : null;
+
   const summaries = await db
     .select()
     .from(lessonSummariesTable)
-    .where(eq(lessonSummariesTable.userId, userId))
+    .where(
+      subjectId
+        ? and(eq(lessonSummariesTable.userId, userId), eq(lessonSummariesTable.subjectId, subjectId))
+        : eq(lessonSummariesTable.userId, userId)
+    )
     .orderBy(desc(lessonSummariesTable.conversationDate));
 
   res.json(summaries);
