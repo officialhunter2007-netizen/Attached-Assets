@@ -144,21 +144,12 @@ export default function Subject() {
               <div className="flex flex-wrap gap-3">
                 <Button
                   onClick={() => setIsChatOpen(true)}
-                  className="gradient-gold text-primary-foreground font-bold px-6 h-10 rounded-xl shadow-md shadow-gold/20 flex items-center gap-2"
+                  variant="outline"
+                  className="border-gold/30 text-gold hover:bg-gold/10 h-10 rounded-xl px-5 flex items-center gap-2"
                 >
-                  <Sparkles className="w-4 h-4" />
-                  ابدأ جلسة تعليمية
+                  <Plus className="w-4 h-4" />
+                  جلسة جديدة
                 </Button>
-                {summaries.length > 0 && (
-                  <Button
-                    onClick={() => setIsChatOpen(true)}
-                    variant="outline"
-                    className="border-gold/30 text-gold hover:bg-gold/10 h-10 rounded-xl px-5 flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    جلسة جديدة
-                  </Button>
-                )}
               </div>
             </div>
           </div>
