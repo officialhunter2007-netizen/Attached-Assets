@@ -241,9 +241,17 @@ export default function Subject() {
 }
 
 
+function stripInlineStyles(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/\sstyle\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\sbackground(?:-color)?\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\scolor\s*=\s*["'][^"']*["']/gi, '');
+}
+
 function AIMessage({ content, isStreaming }: { content: string; isStreaming: boolean }) {
   const plainText = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const safe = content.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  const safe = stripInlineStyles(content);
 
   return (
     <div className="rounded-2xl rounded-bl-none bg-[hsl(222,24%,16%)] border border-white/8 p-4 max-w-[90%] shadow-sm">
