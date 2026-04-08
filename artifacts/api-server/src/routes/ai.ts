@@ -22,6 +22,11 @@ function hasSubscriptionAccess(user: any): boolean {
   return notExpired && hasMessages;
 }
 
+function hasActiveSubscription(user: any): boolean {
+  if (!user.nukhbaPlan || !user.subscriptionExpiresAt) return false;
+  return new Date(user.subscriptionExpiresAt) > new Date();
+}
+
 function hasReferralAccess(user: any): boolean {
   if (!user.referralAccessUntil) return false;
   return new Date(user.referralAccessUntil) > new Date();
@@ -263,23 +268,38 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
+  const { subjectName, userMessage, history, planContext, stages, currentStage } = req.body;
+
   const isFirstLesson = !user.firstLessonComplete;
   const canAccessViaSubscription = hasSubscriptionAccess(user);
   const canAccessViaReferral = hasReferralAccess(user);
+  const hasActiveSub = hasActiveSubscription(user);
+  const quotaExhausted = hasActiveSub && !canAccessViaSubscription;
 
+  // Block new sessions if access is denied (quota exhausted or no subscription)
+  const isNewSession = !userMessage;
   if (!isFirstLesson && !canAccessViaSubscription && !canAccessViaReferral) {
-    res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
+    if (isNewSession || !quotaExhausted) {
+      res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
+      return;
+    }
+    // Mid-session quota exhausted (Option B): send graceful closing via SSE
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    const stagesArr = stages ?? [];
+    const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا الشهر 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك أو ادعُ أصدقاءك.</p></div>`;
+    res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length })}\n\n`);
+    res.end();
     return;
   }
 
-  const shouldIncrementMessages = canAccessViaSubscription;
-  if (shouldIncrementMessages) {
+  if (canAccessViaSubscription) {
     await db.update(usersTable)
       .set({ messagesUsed: (user.messagesUsed ?? 0) + 1 })
       .where(eq(usersTable.id, userId));
   }
-
-  const { subjectName, userMessage, history, planContext, stages, currentStage } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -350,7 +370,11 @@ ${nextStageName ? `- المرحلة التالية: "${nextStageName}" (لا ت�
   }
 
   stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
-  res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx })}\n\n`);
+  const updatedUsed = canAccessViaSubscription ? (user.messagesUsed ?? 0) + 1 : (user.messagesUsed ?? 0);
+  const messagesRemaining = canAccessViaSubscription
+    ? Math.max(0, (user.messagesLimit ?? 0) - updatedUsed)
+    : null;
+  res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining })}\n\n`);
   res.end();
 });
 

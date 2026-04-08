@@ -265,6 +265,7 @@ function SubjectPathChat({
   const [sessionComplete, setSessionComplete] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState(false);
+  const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -353,6 +354,9 @@ function SubjectPathChat({
           try {
             const data = JSON.parse(line.slice(6));
             if (data.done) {
+              if (data.messagesRemaining !== null && data.messagesRemaining !== undefined) {
+                setMessagesRemaining(data.messagesRemaining);
+              }
               if (data.stageComplete && data.nextStage !== undefined) {
                 if (data.nextStage >= usedStages.length) {
                   setCurrentStage(usedStages.length);
@@ -471,6 +475,13 @@ function SubjectPathChat({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
+      {messagesRemaining !== null && messagesRemaining <= 5 && messagesRemaining > 0 && (
+        <div className="shrink-0 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-center">
+          <p className="text-xs text-amber-400 font-medium">
+            تبقّى لك <strong>{messagesRemaining}</strong> {messagesRemaining === 1 ? 'رسالة' : 'رسائل'} في خطتك هذا الشهر
+          </p>
+        </div>
+      )}
       {stages.length > 0 && (
         <div className="shrink-0 px-4 py-3 border-b border-white/10 bg-black/20">
           <div className="max-w-3xl mx-auto">
