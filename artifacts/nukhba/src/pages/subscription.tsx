@@ -171,9 +171,9 @@ export default function Subscription() {
                 <p className="text-xs text-muted-foreground mb-4">{plan.desc}</p>
                 <div className="mb-2">
                   <span className={`text-3xl font-black ${isSelected ? 'text-gold' : ''}`}>{price}</span>
-                  <span className="text-sm text-muted-foreground mr-1">ريال / شهر</span>
+                  <span className="text-sm text-muted-foreground mr-1">ريال / أسبوعين</span>
                 </div>
-                <div className="text-xs text-emerald font-bold mb-6">{plan.messages} رسالة شهرياً</div>
+                <div className="text-xs text-emerald font-bold mb-6">{plan.messages} رسالة كل أسبوعين</div>
                 <ul className="space-y-2 text-sm">
                   {plan.features.map((f, fi) => (
                     <li key={fi} className="flex items-center gap-2">
