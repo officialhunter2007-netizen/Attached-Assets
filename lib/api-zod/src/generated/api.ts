@@ -48,6 +48,7 @@ export const UpdateMeBody = zod.object({
   lastActive: zod.string().nullish(),
   badges: zod.array(zod.string()).nullish(),
   nukhbaPlan: zod.string().nullish(),
+  region: zod.string().nullish(),
 });
 
 export const UpdateMeResponse = zod.object({

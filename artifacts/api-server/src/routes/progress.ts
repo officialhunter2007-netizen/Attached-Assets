@@ -1,12 +1,29 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, userProgressTable, learningPathsTable } from "@workspace/db";
+import { db, userProgressTable, learningPathsTable, usersTable } from "@workspace/db";
 import { UpsertUserProgressBody, SaveLearningPathBody } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
 function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
+}
+
+async function checkAccess(userId: number): Promise<boolean> {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!user) return false;
+
+  if (!user.firstLessonComplete) return true;
+
+  const hasSubscriptionAccess = !!user.nukhbaPlan &&
+    !!user.subscriptionExpiresAt &&
+    new Date(user.subscriptionExpiresAt) > new Date() &&
+    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0);
+
+  const hasReferralAccess = !!user.referralAccessUntil &&
+    new Date(user.referralAccessUntil) > new Date();
+
+  return hasSubscriptionAccess || hasReferralAccess;
 }
 
 router.get("/progress", async (req, res): Promise<void> => {
@@ -28,6 +45,12 @@ router.post("/progress", async (req, res): Promise<void> => {
   const userId = getUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const canAccess = await checkAccess(userId);
+  if (!canAccess) {
+    res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }
 
