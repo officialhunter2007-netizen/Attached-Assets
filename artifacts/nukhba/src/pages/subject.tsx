@@ -124,8 +124,7 @@ export default function Subject() {
               {subject.emoji}
             </div>
             <div>
-              <h1 className="text-3xl font-black mb-1">{subject.name}</h1>
-              <p className="text-muted-foreground text-sm">{subject.units.length} وحدات • {subject.units.reduce((acc, u) => acc + u.lessons.length, 0)} دروس</p>
+              <h1 className="text-3xl font-black">{subject.name}</h1>
             </div>
           </div>
         </div>
