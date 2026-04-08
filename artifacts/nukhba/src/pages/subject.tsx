@@ -137,65 +137,76 @@ export default function Subject() {
   return (
     <AppLayout>
       <div className="container mx-auto px-4 py-12 max-w-4xl">
+
         {/* Subject Header */}
         <div className="glass p-6 rounded-3xl border-white/5 mb-8 relative overflow-hidden">
           <div className={`absolute top-0 right-0 w-40 h-40 bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} opacity-10 rounded-bl-full`} />
-          <div className="flex items-center justify-between relative z-10">
-            <div className="flex items-center gap-5">
-              <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center text-4xl shadow-lg`}>
-                {subject.emoji}
-              </div>
-              <div>
-                <h1 className="text-3xl font-black mb-1">{subject.name}</h1>
-                <p className="text-muted-foreground text-sm">{subject.units.length} وحدات • {subject.units.reduce((acc, u) => acc + u.lessons.length, 0)} دروس</p>
-              </div>
+          <div className="flex items-center gap-5 relative z-10">
+            <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center text-4xl shadow-lg`}>
+              {subject.emoji}
             </div>
-            <Button
-              onClick={() => setIsChatOpen(true)}
-              className="gradient-gold text-primary-foreground font-bold px-6 h-11 rounded-xl shadow-lg shadow-gold/20 flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              جلسة جديدة
-            </Button>
+            <div>
+              <h1 className="text-3xl font-black mb-1">{subject.name}</h1>
+              <p className="text-muted-foreground text-sm">{subject.units.length} وحدات • {subject.units.reduce((acc, u) => acc + u.lessons.length, 0)} دروس</p>
+            </div>
           </div>
         </div>
 
-        {/* Summaries Section */}
-        <div className="mb-12">
-          <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
-            <div className="w-2 h-7 bg-gold rounded-full" />
-            ملخصات الجلسات السابقة
-          </h3>
-
-          {summariesLoading ? (
-            <div className="flex items-center justify-center p-12 text-muted-foreground">
-              <Loader2 className="w-5 h-5 animate-spin ml-2" />
-              جاري التحميل...
+        {/* ── الأسئلة التوجيهية الأولية ── Gold session intro card (RESTORED) */}
+        <div className="glass-gold p-8 rounded-3xl border-gold/20 mb-10 shadow-lg shadow-gold/5 relative overflow-hidden">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gold/5 blur-3xl -z-10" />
+          <div className="flex items-start gap-5">
+            <div className="w-14 h-14 rounded-2xl gradient-gold flex items-center justify-center shrink-0 shadow-md">
+              <Sparkles className="w-7 h-7 text-primary-foreground" />
             </div>
-          ) : summaries.length === 0 ? (
-            <div className="glass-gold p-10 rounded-3xl border-gold/20 text-center shadow-lg shadow-gold/5 relative overflow-hidden">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gold/5 blur-3xl -z-10" />
-              <Sparkles className="w-12 h-12 text-gold mx-auto mb-4" />
-              <h2 className="text-xl font-bold mb-3">لا توجد جلسات سابقة</h2>
-              <p className="text-muted-foreground mb-6 max-w-md mx-auto text-sm">
-                ابدأ جلستك الأولى مع معلم {subject.name} الذكي. بعد إكمالها سيظهر ملخصها هنا تلقائياً.
+            <div className="flex-1">
+              <h2 className="text-2xl font-bold mb-2">جلستك التعليمية المخصصة</h2>
+              <p className="text-muted-foreground text-sm leading-relaxed mb-5">
+                يرافقك معلمك الذكي خطوة بخطوة، يشرح المفهوم أولاً بمثال واقعي، ثم يطرح عليك سؤالاً توجيهياً للتثبيت قبل الانتقال للمرحلة التالية.
               </p>
-              <Button
-                onClick={() => setIsChatOpen(true)}
-                className="gradient-gold text-primary-foreground font-bold px-8 h-11 rounded-xl shadow-lg shadow-gold/20"
-              >
-                <Sparkles className="w-5 h-5 ml-2" />
-                ابدأ أول جلسة
-              </Button>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={() => setIsChatOpen(true)}
+                  className="gradient-gold text-primary-foreground font-bold px-6 h-10 rounded-xl shadow-md shadow-gold/20 flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  ابدأ جلسة تعليمية
+                </Button>
+                {summaries.length > 0 && (
+                  <Button
+                    onClick={() => setIsChatOpen(true)}
+                    variant="outline"
+                    className="border-gold/30 text-gold hover:bg-gold/10 h-10 rounded-xl px-5 flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    جلسة جديدة
+                  </Button>
+                )}
+              </div>
             </div>
-          ) : (
+          </div>
+        </div>
+
+        {/* ── ملخصات الجلسات السابقة (بدلاً من المسار الجاهز) ── */}
+        {!summariesLoading && summaries.length > 0 && (
+          <div className="mb-10">
+            <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
+              <div className="w-2 h-7 bg-gold rounded-full" />
+              ملخصات جلساتك السابقة
+            </h3>
             <div className="space-y-4">
               {summaries.map(s => (
                 <SubjectSummaryCard key={s.id} summary={s} />
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+        {summariesLoading && (
+          <div className="flex items-center justify-center py-8 text-muted-foreground mb-6">
+            <Loader2 className="w-4 h-4 animate-spin ml-2" />
+            جاري تحميل الملخصات...
+          </div>
+        )}
 
         {/* Curriculum */}
         <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
@@ -267,13 +278,13 @@ function AIMessage({ content, isStreaming }: { content: string; isStreaming: boo
   const safe = content.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
 
   return (
-    <div className="rounded-2xl bg-[hsl(222,22%,14%)] border border-white/10 p-4 max-w-[88%]">
+    <div className="rounded-2xl rounded-tl-sm bg-[hsl(222,22%,14%)] border border-white/10 border-l-2 border-l-gold/50 p-4 max-w-[88%]">
       <div className="ai-msg" dangerouslySetInnerHTML={{ __html: isStreaming ? `<p>${plainText}</p>` : safe }} />
       {isStreaming && (
         <div className="flex items-center gap-1 mt-2">
-          <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" />
-          <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{animationDelay:'0.15s'}} />
-          <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{animationDelay:'0.3s'}} />
+          <div className="w-1.5 h-1.5 bg-gold/50 rounded-full animate-bounce" />
+          <div className="w-1.5 h-1.5 bg-gold/50 rounded-full animate-bounce" style={{animationDelay:'0.15s'}} />
+          <div className="w-1.5 h-1.5 bg-gold/50 rounded-full animate-bounce" style={{animationDelay:'0.3s'}} />
         </div>
       )}
     </div>
@@ -551,7 +562,7 @@ function SubjectPathChat({
                 {/* Bubble */}
                 <div style={{ direction: 'rtl' }}>
                   {msg.role === 'user' ? (
-                    <div className="rounded-2xl rounded-bl-sm px-4 py-3 bg-white/10 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm">
+                    <div className="rounded-2xl rounded-tr-sm px-4 py-3 bg-gold/15 border border-gold/25 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm">
                       {msg.content}
                     </div>
                   ) : (
