@@ -601,9 +601,9 @@ function SubjectPathChat({
         <p className="text-muted-foreground mb-4 max-w-sm">
           لقد استخدمت جلستك التعليمية المجانية. اشترك الآن للاستمرار في التعلم، أو ادعُ 5 أصدقاء للحصول على 3 أيام مجاناً.
         </p>
-        <div className="flex items-center gap-2 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground">
-          <span className="text-base">💳</span>
-          الدفع عبر <strong className="text-foreground">كريمي</strong> — حوالة سريعة بدون بطاقة بنكية
+        <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground">
+          <span className="inline-flex items-center justify-center bg-[#00A651] text-white font-black text-xs rounded-lg px-2.5 py-1 shrink-0 tracking-wide">كريمي</span>
+          الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية
         </div>
         <div className="flex flex-col gap-3 w-full max-w-xs">
           <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
