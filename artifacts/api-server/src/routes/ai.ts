@@ -69,12 +69,6 @@ router.post("/ai/lesson", async (req, res): Promise<void> => {
     return;
   }
 
-  if (isFirstLesson) {
-    await db.update(usersTable)
-      .set({ firstLessonComplete: true })
-      .where(eq(usersTable.id, userId));
-  }
-
   const { subjectId, unitId, lessonId, lessonTitle, subjectName, section, grade, isSkill } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");

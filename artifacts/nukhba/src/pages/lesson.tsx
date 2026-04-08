@@ -101,6 +101,11 @@ export default function Lesson() {
         })
       });
 
+      if (response.status === 403) {
+        await refreshUser();
+        setShowPaywall(true);
+        return;
+      }
       if (!response.body) return;
 
       const reader = response.body.getReader();

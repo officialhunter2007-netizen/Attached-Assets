@@ -137,10 +137,12 @@ router.post("/lessons/views", async (req, res): Promise<void> => {
     challengeAnswered: false,
   }).returning();
 
-  await db
-    .update(usersTable)
-    .set({ points: (await db.select({ p: usersTable.points }).from(usersTable).where(eq(usersTable.id, userId)))[0]?.p + 15 ?? 15 })
-    .where(eq(usersTable.id, userId));
+  const [currentUser] = await db.select({ points: usersTable.points }).from(usersTable).where(eq(usersTable.id, userId));
+  const updateFields: Record<string, any> = { points: (currentUser?.points ?? 0) + 15 };
+  if (access.isFirstLesson) {
+    updateFields.firstLessonComplete = true;
+  }
+  await db.update(usersTable).set(updateFields).where(eq(usersTable.id, userId));
 
   res.status(201).json(view);
 });
