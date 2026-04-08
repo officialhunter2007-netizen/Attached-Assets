@@ -21,30 +21,17 @@ interface LessonSummary {
   messagesCount: number;
 }
 
-const SUMMARY_IFRAME_STYLES = `
-  html,body{background:hsl(222,24%,10%);font-family:'Tajawal',sans-serif;direction:rtl;padding:8px 0;color:#e8d5a3;margin:0;font-size:14px;line-height:1.65}
-  h3{color:#F59E0B;font-size:1.05em;margin:10px 0 5px}h4{color:#10B981;font-size:1em;margin:8px 0 4px}
-  strong{color:#fde68a}ul,ol{padding-right:18px;margin:6px 0}li{margin-bottom:4px}p{margin:6px 0}
-`;
-
 function SubjectSummaryCard({ summary }: { summary: LessonSummary }) {
   const [expanded, setExpanded] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const date = new Date(summary.conversationDate).toLocaleDateString("ar-SA", {
     year: "numeric", month: "long", day: "numeric"
   });
 
-  const srcDoc = `<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
-<style>${SUMMARY_IFRAME_STYLES}</style></head><body>${summary.summaryHtml}</body></html>`;
-
-  const adjustHeight = () => {
-    const iframe = iframeRef.current;
-    if (iframe?.contentWindow?.document?.body) {
-      const h = iframe.contentWindow.document.body.scrollHeight;
-      if (h > 0) iframe.style.height = (h + 16) + "px";
-    }
-  };
+  const safeHtml = summary.summaryHtml
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/\sstyle\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\sbackground(?:-color)?\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\scolor\s*=\s*["'][^"']*["']/gi, '');
 
   return (
     <motion.div
@@ -79,15 +66,7 @@ function SubjectSummaryCard({ summary }: { summary: LessonSummary }) {
             className="overflow-hidden"
           >
             <div className="px-5 pb-5 border-t border-white/5 pt-4">
-              <iframe
-                ref={iframeRef}
-                srcDoc={srcDoc}
-                sandbox="allow-same-origin"
-                className="w-full border-none"
-                style={{ minHeight: "180px", height: "250px" }}
-                onLoad={adjustHeight}
-                scrolling="no"
-              />
+              <div className="ai-msg" dangerouslySetInnerHTML={{ __html: safeHtml }} />
             </div>
           </motion.div>
         )}
