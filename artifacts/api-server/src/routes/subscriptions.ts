@@ -241,6 +241,39 @@ router.get("/admin/activation-cards", async (req, res): Promise<void> => {
   res.json(cards);
 });
 
+router.post("/admin/cards/create", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const user = await getUser(userId);
+  if (user?.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  const { planType } = req.body;
+  if (!planType || !PLAN_MESSAGE_LIMITS[planType]) {
+    res.status(400).json({ error: "Invalid plan type" });
+    return;
+  }
+
+  const code = generateActivationCode();
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 14);
+
+  const [card] = await db.insert(activationCardsTable).values({
+    activationCode: code,
+    planType,
+    isUsed: false,
+    expiresAt,
+  }).returning();
+
+  res.json(card);
+});
+
 router.get("/admin/stats", async (req, res): Promise<void> => {
   const userId = getUserId(req);
   if (!userId) {
