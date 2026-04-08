@@ -272,15 +272,14 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  const updateFields: Record<string, any> = {};
-  if (canAccessViaSubscription) {
-    updateFields.messagesUsed = (user.messagesUsed ?? 0) + 1;
-  }
-  if (isFirstLesson) {
-    updateFields.firstLessonComplete = true;
-  }
-  if (Object.keys(updateFields).length > 0) {
-    await db.update(usersTable).set(updateFields).where(eq(usersTable.id, userId));
+  const shouldIncrementMessages = canAccessViaSubscription;
+  if (shouldIncrementMessages || isFirstLesson) {
+    await db.update(usersTable)
+      .set({
+        ...(shouldIncrementMessages ? { messagesUsed: (user.messagesUsed ?? 0) + 1 } : {}),
+        ...(isFirstLesson ? { firstLessonComplete: true } : {}),
+      })
+      .where(eq(usersTable.id, userId));
   }
 
   const { subjectName, userMessage, history, planContext, stages, currentStage } = req.body;
