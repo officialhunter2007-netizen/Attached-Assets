@@ -695,35 +695,6 @@ function SubjectPathChat({
           </p>
         </div>
       )}
-      {chatPhase === 'teaching' && stages.length > 0 && (
-        <div className="shrink-0 px-4 py-3 border-b border-white/10 bg-black/20">
-          <div className="max-w-3xl mx-auto">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs text-muted-foreground">تقدمك في الجلسة</span>
-              <span className="text-xs font-bold text-gold">{Math.round(((currentStage) / stages.length) * 100)}%</span>
-            </div>
-            <div className="flex gap-1.5">
-              {stages.map((s, i) => (
-                <div key={i} className="flex-1 group relative">
-                  <div className={`h-1.5 rounded-full transition-all duration-500 ${
-                    i < currentStage ? 'bg-emerald' : i === currentStage ? 'bg-gold' : 'bg-white/10'
-                  }`} />
-                  <div className={`absolute bottom-3 right-0 hidden group-hover:block z-20 bg-black/90 border border-white/10 rounded-lg px-2 py-1 text-xs whitespace-nowrap ${
-                    i < currentStage ? 'text-emerald' : i === currentStage ? 'text-gold' : 'text-muted-foreground'
-                  }`}>{s}</div>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 mt-1.5">
-              {stages[currentStage] && (
-                <span className="text-xs text-gold font-medium">
-                  {currentStage + 1}/{stages.length} — {stages[currentStage]}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       <ScrollArea className="flex-1 px-4 py-5" ref={scrollRef}>
         <div className="max-w-2xl mx-auto space-y-4 pb-4">
