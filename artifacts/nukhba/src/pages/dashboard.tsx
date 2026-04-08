@@ -230,17 +230,45 @@ export default function Dashboard() {
           <div className="space-y-6">
             <div className="glass p-6 rounded-3xl border-emerald/20 relative overflow-hidden">
               <div className="absolute top-0 left-0 w-32 h-32 bg-emerald/10 rounded-br-full -z-10" />
-              <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+              <h3 className="font-bold text-lg mb-1 flex items-center gap-2">
                 <Users className="w-5 h-5 text-emerald" />
                 سفير نُخبة
               </h3>
-              <p className="text-sm text-muted-foreground mb-4">ادعُ ٥ أصدقاء واحصل على ٣ أيام مجانية من منصة نُخبة</p>
-              <div className="mb-2 flex justify-between text-xs text-emerald font-bold">
-                <span>{refInfo?.referralCount || 0} أصدقاء سجلوا</span>
-                <span>الهدف: {refInfo?.referralGoal || 5}</span>
-              </div>
-              <Progress value={((refInfo?.referralCount || 0) / (refInfo?.referralGoal || 5)) * 100} className="h-2 bg-black/40 [&>div]:bg-emerald mb-4" />
-              <Button className="w-full bg-emerald-500 hover:bg-emerald-600 text-white" onClick={() => {
+
+              {(() => {
+                const ri = refInfo as any;
+                const sessionsLeft: number = ri?.referralSessionsLeft ?? 0;
+                const rewardClaimed: boolean = ri?.rewardClaimed ?? false;
+                return (
+                  <>
+                    {sessionsLeft > 0 && (
+                      <div className="mb-3 bg-emerald/10 border border-emerald/30 rounded-xl px-3 py-2 flex items-center gap-2">
+                        <span className="text-2xl font-black text-emerald">{sessionsLeft}</span>
+                        <span className="text-xs text-emerald/80">جلسات برونز مجانية متبقية</span>
+                      </div>
+                    )}
+                    {rewardClaimed && sessionsLeft === 0 && (
+                      <div className="mb-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-muted-foreground">
+                        ✓ استخدمت مكافأة الدعوة — شكراً على مساهمتك!
+                      </div>
+                    )}
+                    {!rewardClaimed && (
+                      <p className="text-sm text-muted-foreground mb-3">ادعُ ٥ أصدقاء واحصل على ٣ جلسات مجانية بنظام البرونز — مرة واحدة فقط</p>
+                    )}
+                    {!rewardClaimed && (
+                      <>
+                        <div className="mb-2 flex justify-between text-xs text-emerald font-bold">
+                          <span>{refInfo?.referralCount || 0} أصدقاء سجلوا</span>
+                          <span>الهدف: {refInfo?.referralGoal || 5}</span>
+                        </div>
+                        <Progress value={((refInfo?.referralCount || 0) / (refInfo?.referralGoal || 5)) * 100} className="h-2 bg-black/40 [&>div]:bg-emerald mb-4" />
+                      </>
+                    )}
+                  </>
+                );
+              })()}
+
+              <Button className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-sm" onClick={() => {
                 navigator.clipboard.writeText(`${window.location.origin}/register?ref=${refInfo?.referralCode}`);
               }}>انسخ رابط الدعوة</Button>
             </div>

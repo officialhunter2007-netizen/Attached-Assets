@@ -116,23 +116,19 @@ router.post("/auth/register", async (req, res): Promise<void> => {
           .where(eq(referralsTable.referrerUserId, referrer.id));
 
         const newCount = existingReferrals.length + 1;
-        const grantsAccess = newCount % 5 === 0;
-        const accessDaysGranted = grantsAccess ? 3 : 0;
+        // Grant reward ONLY on the very first 5 referrals — never again
+        const grantsAccess = newCount === 5 && (referrer.referralSessionsLeft ?? 0) === 0;
 
         await db.insert(referralsTable).values({
           referrerUserId: referrer.id,
           referredUserId: user.id,
           referralCode: referralCode.toUpperCase(),
-          accessDaysGranted,
+          accessDaysGranted: grantsAccess ? 3 : 0,
         });
 
         if (grantsAccess) {
-          const base = referrer.referralAccessUntil && new Date(referrer.referralAccessUntil) > new Date()
-            ? new Date(referrer.referralAccessUntil)
-            : new Date();
-          base.setDate(base.getDate() + 3);
           await db.update(usersTable)
-            .set({ referralAccessUntil: base })
+            .set({ referralSessionsLeft: 3 })
             .where(eq(usersTable.id, referrer.id));
         }
       }

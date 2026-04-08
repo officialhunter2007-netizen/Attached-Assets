@@ -28,8 +28,7 @@ function hasActiveSubscription(user: any): boolean {
 }
 
 function hasReferralAccess(user: any): boolean {
-  if (!user.referralAccessUntil) return false;
-  return new Date(user.referralAccessUntil) > new Date();
+  return (user.referralSessionsLeft ?? 0) > 0;
 }
 
 // Yemen is UTC+3
@@ -306,8 +305,16 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
       return;
     }
+    const updates: Record<string, unknown> = {
+      lastSessionDate: getYemenDateString(),
+      lastSessionAt: new Date(),
+    };
+    // Decrement referral sessions if using referral access (not subscription)
+    if (canAccessViaReferral && !canAccessViaSubscription) {
+      updates.referralSessionsLeft = Math.max(0, (user.referralSessionsLeft ?? 0) - 1);
+    }
     await db.update(usersTable)
-      .set({ lastSessionDate: getYemenDateString(), lastSessionAt: new Date() })
+      .set(updates)
       .where(eq(usersTable.id, userId));
   }
 

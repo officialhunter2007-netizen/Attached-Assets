@@ -323,8 +323,9 @@ router.get("/referrals/info", async (req, res): Promise<void> => {
     referralCode: user.referralCode ?? "",
     referralCount: referrals.length,
     referralGoal: 5,
-    hasReferralAccess: user.referralAccessUntil ? new Date(user.referralAccessUntil) > new Date() : false,
-    referralAccessUntil: user.referralAccessUntil,
+    hasReferralAccess: (user.referralSessionsLeft ?? 0) > 0,
+    referralSessionsLeft: user.referralSessionsLeft ?? 0,
+    rewardClaimed: referrals.length >= 5,
   });
 });
 
@@ -372,27 +373,23 @@ router.post("/referrals/register", async (req, res): Promise<void> => {
     .where(eq(referralsTable.referrerUserId, referrer.id));
 
   const newCount = referralsBefore.length + 1;
-  const grantsAccess = newCount % 5 === 0;
-  const accessDaysGranted = grantsAccess ? 3 : 0;
+  // Grant reward ONLY on the very first 5 referrals — never again
+  const grantsAccess = newCount === 5 && referrer.referralSessionsLeft === 0;
 
   await db.insert(referralsTable).values({
     referrerUserId: referrer.id,
     referredUserId: userId,
     referralCode: referralCode.toUpperCase(),
-    accessDaysGranted,
+    accessDaysGranted: grantsAccess ? 3 : 0,
   });
 
   if (grantsAccess) {
-    const base = referrer.referralAccessUntil && new Date(referrer.referralAccessUntil) > new Date()
-      ? new Date(referrer.referralAccessUntil)
-      : new Date();
-    base.setDate(base.getDate() + 3);
     await db.update(usersTable)
-      .set({ referralAccessUntil: base })
+      .set({ referralSessionsLeft: 3 })
       .where(eq(usersTable.id, referrer.id));
   }
 
-  res.json({ success: true });
+  res.json({ success: true, grantsAccess });
 });
 
 export default router;

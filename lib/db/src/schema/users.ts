@@ -23,6 +23,7 @@ export const usersTable = pgTable("users", {
   referralCode: text("referral_code"),
   lastSessionDate: text("last_session_date"),
   lastSessionAt: timestamp("last_session_at", { withTimezone: true }),
+  referralSessionsLeft: integer("referral_sessions_left").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
