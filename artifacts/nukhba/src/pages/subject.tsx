@@ -235,6 +235,8 @@ function SubjectPathChat({
   const [stages] = useState<string[]>(subject.defaultStages);
   const [currentStage, setCurrentStage] = useState(0);
   const [accessDenied, setAccessDenied] = useState(false);
+  const [sessionComplete, setSessionComplete] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -249,16 +251,22 @@ function SubjectPathChat({
     }
   }, []);
 
-  const markFirstLessonComplete = async () => {
-    if (!user?.firstLessonComplete) {
-      try {
-        await fetch('/api/auth/complete-first-lesson', {
-          method: 'POST',
-          credentials: 'include',
-        });
-        if (refreshUser) await refreshUser();
-      } catch {}
-    }
+  const triggerSummary = async (allMessages: ChatMessage[]) => {
+    setIsSummarizing(true);
+    try {
+      await fetch('/api/ai/summarize-lesson', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          subjectId: subject.id,
+          subjectName: subject.name,
+          messages: allMessages,
+          messagesCount: allMessages.length,
+        }),
+      });
+    } catch {}
+    setIsSummarizing(false);
   };
 
   const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number) => {
@@ -293,8 +301,6 @@ function SubjectPathChat({
 
       if (!response.body) return;
 
-      await markFirstLessonComplete();
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantMsg = "";
@@ -314,8 +320,19 @@ function SubjectPathChat({
           try {
             const data = JSON.parse(line.slice(6));
             if (data.done) {
-              if (data.stageComplete && data.nextStage !== undefined && data.nextStage < usedStages.length) {
-                setCurrentStage(data.nextStage);
+              if (data.stageComplete && data.nextStage !== undefined) {
+                if (data.nextStage >= usedStages.length) {
+                  setCurrentStage(usedStages.length);
+                  setSessionComplete(true);
+                  setMessages(prev => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = { role: "assistant", content: assistantMsg };
+                    triggerSummary(updated);
+                    return updated;
+                  });
+                } else {
+                  setCurrentStage(data.nextStage);
+                }
               }
               break;
             }
@@ -361,6 +378,36 @@ function SubjectPathChat({
             دعوة أصدقاء (5 دعوات = 3 أيام)
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  if (sessionComplete) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring" }}>
+          <div className="w-24 h-24 rounded-full bg-emerald/10 border-2 border-emerald/30 flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(16,185,129,0.2)]">
+            <Sparkles className="w-12 h-12 text-emerald" />
+          </div>
+          <h3 className="text-3xl font-black mb-3 text-emerald">أحسنت! اكتملت الجلسة 🎉</h3>
+          <p className="text-muted-foreground mb-4 max-w-sm">
+            أتممت جميع مراحل جلسة <strong className="text-foreground">{subject.name}</strong>.
+          </p>
+          {isSummarizing ? (
+            <div className="flex items-center gap-2 justify-center text-gold mb-8">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">جاري حفظ ملخص الجلسة...</span>
+            </div>
+          ) : (
+            <p className="text-sm text-emerald mb-8">تم حفظ ملخص الجلسة في لوحة التحكم ✓</p>
+          )}
+          <div className="flex flex-col gap-3 w-full max-w-xs mx-auto">
+            <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
+              <Sparkles className="w-5 h-5 ml-2" />
+              استمر في التعلم
+            </Button>
+          </div>
+        </motion.div>
       </div>
     );
   }
