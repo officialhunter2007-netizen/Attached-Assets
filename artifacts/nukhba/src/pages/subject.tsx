@@ -595,10 +595,10 @@ function SubjectPathChat({
           <Button
             variant="outline"
             className="border-white/10 h-10 rounded-xl text-sm"
-            onClick={() => setDailyLimitUntil(null)}
+            onClick={() => onSessionComplete ? onSessionComplete() : setDailyLimitUntil(null)}
           >
-            <RefreshCw className="w-4 h-4 ml-2" />
-            تحقق مجدداً
+            <FileText className="w-4 h-4 ml-2" />
+            عرض الملخصات
           </Button>
         </motion.div>
       </div>
