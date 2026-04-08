@@ -134,44 +134,48 @@ export default function Home() {
         <section id="pricing" className="container mx-auto px-4 py-32">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold mb-4">باقات الاشتراك</h2>
-            <p className="text-muted-foreground">استثمر في مستقبلك بأقل التكاليف</p>
+            <p className="text-muted-foreground">الدفع عبر محفظة كريمي — اختر ما يناسبك</p>
           </div>
           
           <div className="grid md:grid-cols-4 gap-6 max-w-6xl mx-auto">
             {/* Free */}
             <div className="glass p-8 rounded-3xl border-white/10 flex flex-col">
               <h3 className="text-xl font-bold mb-2">مجاني</h3>
-              <div className="text-3xl font-bold mb-6">٠ <span className="text-lg text-muted-foreground font-normal">ريال</span></div>
+              <div className="text-3xl font-bold mb-1">٠ <span className="text-lg text-muted-foreground font-normal">ريال</span></div>
+              <p className="text-xs text-muted-foreground mb-6">للبداية</p>
               <ul className="space-y-4 mb-8 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-emerald" /> درسان مجانيان للاختبار</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-emerald" /> تصفح المنهج</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-emerald flex-shrink-0" /> درس واحد مجاني للتجربة</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-emerald flex-shrink-0" /> تصفح المنهج الدراسي</li>
               </ul>
               <Link href="/register" className="w-full">
                 <Button className="w-full" variant="outline">جرب الآن</Button>
               </Link>
             </div>
             
-            {/* Influencer */}
+            {/* Referral */}
             <div className="glass p-8 rounded-3xl border-purple-500/30 flex flex-col relative overflow-hidden">
-              <div className="absolute top-4 left-4 bg-purple-500/20 text-purple-300 text-xs px-3 py-1 rounded-full">سفير نُخبة</div>
-              <h3 className="text-xl font-bold mb-2 text-purple-400">مؤثر</h3>
-              <div className="text-3xl font-bold mb-6">شهر مجاني</div>
+              <div className="absolute top-4 left-4 bg-purple-500/20 text-purple-300 text-xs px-3 py-1 rounded-full">مجاناً</div>
+              <h3 className="text-xl font-bold mb-2 text-purple-400">الإحالة</h3>
+              <div className="text-2xl font-bold mb-1">٣ دروس</div>
+              <p className="text-xs text-muted-foreground mb-6">مقابل كل ٥ إحالات</p>
               <ul className="space-y-4 mb-8 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-purple-400" /> دعوة ١٠ أصدقاء</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-purple-400" /> وصول كامل للمنصة</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-purple-400 flex-shrink-0" /> ادعُ ٥ أصدقاء عبر رابطك</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-purple-400 flex-shrink-0" /> احصل على ٣ دروس برونزية مجاناً</li>
               </ul>
               <Link href="/register" className="w-full">
-                <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white">انسخ الرابط</Button>
+                <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white">احصل على رابطك</Button>
               </Link>
             </div>
             
             {/* Silver */}
             <div className="glass p-8 rounded-3xl border-zinc-400/30 flex flex-col">
               <h3 className="text-xl font-bold mb-2 text-zinc-300">الفضية</h3>
-              <div className="text-3xl font-bold mb-6 text-zinc-100">٢٠٠٠ <span className="text-lg text-muted-foreground font-normal">ريال / شهر</span></div>
+              <div className="text-3xl font-bold mb-1 text-zinc-100">٦٠ <span className="text-lg text-muted-foreground font-normal">رسالة</span></div>
+              <p className="text-xs text-muted-foreground mb-6">كل ١٤ يوم • عبر كريمي</p>
               <ul className="space-y-4 mb-8 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400" /> وصول كامل للمنصة</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400" /> مسارات ذكية لا محدودة</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> ٦٠ رسالة مع المعلم الذكي</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> ملخصات الدروس التلقائية</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> جميع المواد والمسارات</li>
               </ul>
               <Link href="/register" className="w-full">
                 <Button className="w-full bg-zinc-700 hover:bg-zinc-600 text-white">اشترك الآن</Button>
@@ -182,20 +186,28 @@ export default function Home() {
             <div className="glass-gold p-8 rounded-3xl flex flex-col relative scale-105 z-10 shadow-2xl shadow-gold/10">
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gold text-primary-foreground font-bold text-xs px-4 py-1 rounded-full w-max">الأكثر طلباً</div>
               <h3 className="text-xl font-bold mb-2 text-gold">الذهبية</h3>
-              <div className="text-3xl font-bold mb-6">٥٠٠٠ <span className="text-lg text-gold/60 font-normal">ريال / ٣ أشهر</span></div>
+              <div className="text-3xl font-bold mb-1">١٠٠ <span className="text-lg text-gold/60 font-normal">رسالة</span></div>
+              <p className="text-xs text-gold/60 mb-6">كل ١٤ يوم • عبر كريمي</p>
               <ul className="space-y-4 mb-8 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold" /> كل ميزات الفضية</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold" /> توفير ٢٠٪</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold" /> أولوية الدعم الفني</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> ١٠٠ رسالة مع المعلم الذكي</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> ملخصات الدروس التلقائية</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> جميع المواد والمسارات</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> أولوية الدعم الفني</li>
               </ul>
               <Link href="/register" className="w-full">
                 <Button className="w-full gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20">اشترك الذهبية</Button>
               </Link>
             </div>
           </div>
-          
-          <div className="mt-8 text-center">
-            <p className="text-sm text-muted-foreground mb-4">تبحث عن التميز المطلق؟ باقة <span className="text-emerald font-bold">نُخبة</span> السنوية بـ ١٥,٠٠٠ ريال فقط</p>
+
+          {/* Bronze note */}
+          <div className="mt-10 max-w-2xl mx-auto glass p-6 rounded-2xl border-amber-700/30 text-center">
+            <p className="text-sm text-muted-foreground">
+              هل تريد البداية بتكلفة أقل؟ باقة{" "}
+              <span className="text-amber-600 font-bold">البرونزية</span>{" "}
+              تمنحك ٣٠ رسالة كل ١٤ يوم عبر محفظة كريمي.{" "}
+              <Link href="/register" className="text-gold underline underline-offset-2">سجّل واطلب الاشتراك</Link>
+            </p>
           </div>
         </section>
       </main>
