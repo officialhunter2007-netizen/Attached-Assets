@@ -13,6 +13,7 @@ export const subscriptionRequestsTable = pgTable("subscription_requests", {
   status: text("status").notNull().default("pending"),
   activationCode: text("activation_code"),
   notes: text("notes"),
+  phone: text("phone"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
