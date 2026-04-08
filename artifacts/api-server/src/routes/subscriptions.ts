@@ -92,7 +92,7 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
   }
 
   const messagesLimit = PLAN_MESSAGE_LIMITS[card.planType] ?? 30;
-  const subscriptionExpiresAt = card.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const subscriptionExpiresAt = card.expiresAt ?? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
 
   await db.update(activationCardsTable).set({
     isUsed: true,
@@ -171,7 +171,7 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
 
   const code = generateActivationCode();
   const expiresAt = new Date();
-  expiresAt.setMonth(expiresAt.getMonth() + 1);
+  expiresAt.setDate(expiresAt.getDate() + 14);
 
   const messagesLimit = PLAN_MESSAGE_LIMITS[request.planType] ?? 30;
 
