@@ -263,6 +263,7 @@ function SubjectPathChat({
           subjectName: subject.name,
           messages: allMessages,
           messagesCount: allMessages.length,
+          conversationDate: new Date().toISOString(),
         }),
       });
     } catch {}

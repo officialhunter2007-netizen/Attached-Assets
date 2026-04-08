@@ -16,11 +16,17 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectId, subjectName, messages, messagesCount } = req.body;
+  const { subjectId, subjectName, messages, messagesCount, conversationDate } = req.body;
 
   if (!subjectId || !subjectName || !messages || !Array.isArray(messages)) {
     res.status(400).json({ error: "Missing required fields" });
     return;
+  }
+
+  let parsedDate = new Date();
+  if (conversationDate) {
+    const d = new Date(conversationDate);
+    if (!isNaN(d.getTime())) parsedDate = d;
   }
 
   const conversationText = messages
@@ -67,7 +73,7 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
       subjectName,
       summaryHtml,
       messagesCount: messagesCount ?? messages.length,
-      conversationDate: new Date(),
+      conversationDate: parsedDate,
     }).returning();
 
     res.json(saved);
