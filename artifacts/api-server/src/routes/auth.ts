@@ -7,7 +7,7 @@ import { OAuth2Client } from "google-auth-library";
 
 const router: IRouter = Router();
 
-const ADMIN_EMAILS = ["amr@gmail.com"];
+const ADMIN_EMAILS = ["officialhunter2007@gmail.com"];
 
 declare module "express-serve-static-core" {
   interface Request {
