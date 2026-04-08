@@ -42,6 +42,7 @@ export const referralsTable = pgTable("referrals", {
   referrerUserId: integer("referrer_user_id").notNull(),
   referredUserId: integer("referred_user_id").notNull(),
   referralCode: text("referral_code").notNull(),
+  accessDaysGranted: integer("access_days_granted").default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

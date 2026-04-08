@@ -14,6 +14,24 @@ function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
 }
 
+async function getUserWithAccess(userId: number) {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!user) return null;
+
+  const hasSubscriptionAccess = !!user.nukhbaPlan &&
+    !!user.subscriptionExpiresAt &&
+    new Date(user.subscriptionExpiresAt) > new Date() &&
+    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0);
+
+  const hasReferralAccess = !!user.referralAccessUntil &&
+    new Date(user.referralAccessUntil) > new Date();
+
+  const isFirstLesson = !user.firstLessonComplete;
+  const canAccess = isFirstLesson || hasSubscriptionAccess || hasReferralAccess;
+
+  return { user, canAccess, isFirstLesson, hasSubscriptionAccess, hasReferralAccess };
+}
+
 router.get("/lessons/cached", async (req, res): Promise<void> => {
   const params = GetCachedLessonQueryParams.safeParse(req.query);
   if (!params.success) {
@@ -103,6 +121,12 @@ router.post("/lessons/views", async (req, res): Promise<void> => {
 
   if (existing.length > 0) {
     res.status(201).json(existing[0]);
+    return;
+  }
+
+  const access = await getUserWithAccess(userId);
+  if (!access || !access.canAccess) {
+    res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }
 

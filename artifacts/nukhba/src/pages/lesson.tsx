@@ -26,7 +26,7 @@ export default function Lesson() {
   const unit = subject?.units.find(u => u.id === unitId);
   const lesson = unit?.lessons.find(l => l.id === lessonId);
   
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -34,8 +34,19 @@ export default function Lesson() {
 
   // Access Control
   const { data: views } = useGetLessonViews();
-  const uniqueLessonsViewed = new Set(views?.map(v => v.lessonId)).size || 0;
-  const hasAccess = user?.nukhbaPlan || uniqueLessonsViewed < 1 || views?.some(v => v.lessonId === lessonId);
+
+  const hasSubscriptionAccess = !!user?.nukhbaPlan &&
+    !!user?.subscriptionExpiresAt &&
+    new Date(user.subscriptionExpiresAt) > new Date() &&
+    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 1);
+
+  const hasReferralAccess = !!user?.referralAccessUntil &&
+    new Date(user.referralAccessUntil as string) > new Date();
+
+  const isFirstLesson = !user?.firstLessonComplete;
+  const alreadyViewed = views?.some(v => v.lessonId === lessonId) ?? false;
+
+  const hasAccess = isFirstLesson || hasSubscriptionAccess || hasReferralAccess || alreadyViewed;
   
   const [showPaywall, setShowPaywall] = useState(!hasAccess);
 
@@ -147,6 +158,10 @@ export default function Lesson() {
             subjectName: subject?.name || "مادة"
           }
         });
+        if (!user?.firstLessonComplete) {
+          await fetch('/api/auth/complete-first-lesson', { method: 'POST', credentials: 'include' });
+          await refreshUser();
+        }
       } catch (e) {}
     }
   };

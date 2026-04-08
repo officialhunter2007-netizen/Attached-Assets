@@ -55,6 +55,7 @@ router.patch("/auth/me", async (req, res): Promise<void> => {
   if (data.lastActive !== undefined) updates.lastActive = data.lastActive;
   if (data.badges !== undefined) updates.badges = data.badges;
   if (data.nukhbaPlan !== undefined) updates.nukhbaPlan = data.nukhbaPlan;
+  if (data.region !== undefined) updates.region = data.region;
 
   const [updated] = await db
     .update(usersTable)

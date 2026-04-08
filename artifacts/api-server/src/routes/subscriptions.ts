@@ -333,22 +333,29 @@ router.post("/referrals/register", async (req, res): Promise<void> => {
     return;
   }
 
-  await db.insert(referralsTable).values({
-    referrerUserId: referrer.id,
-    referredUserId: userId,
-    referralCode: referralCode.toUpperCase(),
-  });
-
-  const referrals = await db
+  const referralsBefore = await db
     .select()
     .from(referralsTable)
     .where(eq(referralsTable.referrerUserId, referrer.id));
 
-  if (referrals.length >= 5) {
-    const accessUntil = new Date();
-    accessUntil.setDate(accessUntil.getDate() + 3);
+  const newCount = referralsBefore.length + 1;
+  const grantsAccess = newCount % 5 === 0;
+  const accessDaysGranted = grantsAccess ? 3 : 0;
+
+  await db.insert(referralsTable).values({
+    referrerUserId: referrer.id,
+    referredUserId: userId,
+    referralCode: referralCode.toUpperCase(),
+    accessDaysGranted,
+  });
+
+  if (grantsAccess) {
+    const base = referrer.referralAccessUntil && new Date(referrer.referralAccessUntil) > new Date()
+      ? new Date(referrer.referralAccessUntil)
+      : new Date();
+    base.setDate(base.getDate() + 3);
     await db.update(usersTable)
-      .set({ referralAccessUntil: accessUntil })
+      .set({ referralAccessUntil: base })
       .where(eq(usersTable.id, referrer.id));
   }
 
