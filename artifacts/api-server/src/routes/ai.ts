@@ -273,12 +273,9 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   }
 
   const shouldIncrementMessages = canAccessViaSubscription;
-  if (shouldIncrementMessages || isFirstLesson) {
+  if (shouldIncrementMessages) {
     await db.update(usersTable)
-      .set({
-        ...(shouldIncrementMessages ? { messagesUsed: (user.messagesUsed ?? 0) + 1 } : {}),
-        ...(isFirstLesson ? { firstLessonComplete: true } : {}),
-      })
+      .set({ messagesUsed: (user.messagesUsed ?? 0) + 1 })
       .where(eq(usersTable.id, userId));
   }
 

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and } from "drizzle-orm";
-import { db, lessonSummariesTable } from "@workspace/db";
+import { db, lessonSummariesTable, usersTable } from "@workspace/db";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
@@ -96,6 +96,10 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
       messagesCount: messagesCount ?? messages.length,
       conversationDate: parsedDate,
     }).returning();
+
+    await db.update(usersTable)
+      .set({ firstLessonComplete: true })
+      .where(eq(usersTable.id, userId));
 
     res.json(saved);
   } catch (err: any) {
