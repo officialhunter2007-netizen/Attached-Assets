@@ -186,26 +186,32 @@ export default function Subject() {
           </div>
         </div>
 
-        {/* ── ملخصات الجلسات السابقة (بدلاً من المسار الجاهز) ── */}
-        {!summariesLoading && summaries.length > 0 && (
-          <div className="mb-10">
-            <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
-              <div className="w-2 h-7 bg-gold rounded-full" />
-              ملخصات جلساتك السابقة
-            </h3>
+        {/* ── ملخصات الجلسات السابقة ── */}
+        <div className="mb-10">
+          <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
+            <div className="w-2 h-7 bg-gold rounded-full" />
+            ملخصات جلساتك السابقة
+          </h3>
+
+          {summariesLoading ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin ml-2" />
+              جاري التحميل...
+            </div>
+          ) : summaries.length === 0 ? (
+            <div className="glass border border-white/5 rounded-2xl p-8 text-center text-muted-foreground">
+              <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">لا توجد ملخصات بعد</p>
+              <p className="text-sm mt-1 opacity-70">بعد إكمال أول جلسة سيظهر ملخصها هنا تلقائياً للمراجعة</p>
+            </div>
+          ) : (
             <div className="space-y-4">
               {summaries.map(s => (
                 <SubjectSummaryCard key={s.id} summary={s} />
               ))}
             </div>
-          </div>
-        )}
-        {summariesLoading && (
-          <div className="flex items-center justify-center py-8 text-muted-foreground mb-6">
-            <Loader2 className="w-4 h-4 animate-spin ml-2" />
-            جاري تحميل الملخصات...
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Chat Dialog */}
         <Dialog open={isChatOpen} onOpenChange={setIsChatOpen}>
