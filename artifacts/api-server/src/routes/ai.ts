@@ -37,12 +37,7 @@ function getYemenDateString(): string {
   return new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-function getTomorrowYemenMidnightUTC(): Date {
-  const todayYemen = getYemenDateString();
-  const [y, m, d] = todayYemen.split('-').map(Number);
-  const tomorrowStr = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
-  return new Date(`${tomorrowStr}T00:00:00+03:00`);
-}
+const SESSION_GAP_HOURS = 20;
 
 const TEACHER_CSS = `
 <style>
@@ -301,16 +296,18 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const quotaExhausted = hasActiveSub && !canAccessViaSubscription;
   const isNewSession = !userMessage;
 
-  // ── Daily session limit (1 session per day per subscriber) ──
+  // ── Session limit (1 session per 20 hours) ──
   if (isNewSession && (canAccessViaSubscription || canAccessViaReferral)) {
-    const todayYemen = getYemenDateString();
-    if (user.lastSessionDate === todayYemen) {
-      const nextSessionAt = getTomorrowYemenMidnightUTC().toISOString();
+    const now = Date.now();
+    const lastAt = user.lastSessionAt ? new Date(user.lastSessionAt).getTime() : 0;
+    const gapMs = SESSION_GAP_HOURS * 60 * 60 * 1000;
+    if (lastAt && now - lastAt < gapMs) {
+      const nextSessionAt = new Date(lastAt + gapMs).toISOString();
       res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
       return;
     }
     await db.update(usersTable)
-      .set({ lastSessionDate: todayYemen })
+      .set({ lastSessionDate: getYemenDateString(), lastSessionAt: new Date() })
       .where(eq(usersTable.id, userId));
   }
 

@@ -22,6 +22,7 @@ export const usersTable = pgTable("users", {
   firstLessonComplete: boolean("first_lesson_complete").notNull().default(false),
   referralCode: text("referral_code"),
   lastSessionDate: text("last_session_date"),
+  lastSessionAt: timestamp("last_session_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
