@@ -15,8 +15,14 @@ export default function Register() {
     const params = referralCode.trim()
       ? `?ref=${encodeURIComponent(referralCode.trim())}`
       : "";
-    const target = window.top || window;
-    target.location.href = `${window.location.origin}/api/auth/google${params}`;
+    const url = `${window.location.origin}/api/auth/google${params}`;
+    let inIframe = false;
+    try { inIframe = window.self !== window.top; } catch { inIframe = true; }
+    if (inIframe) {
+      window.open(url, "_blank");
+    } else {
+      window.location.href = url;
+    }
   };
 
   return (

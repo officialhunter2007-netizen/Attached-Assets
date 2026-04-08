@@ -251,8 +251,6 @@ router.get("/auth/google", (req, res): void => {
     prompt: "select_account",
   });
 
-  console.log("[Google OAuth] Redirecting to:", url);
-  console.log("[Google OAuth] Callback URL:", `https://${process.env.REPLIT_DEV_DOMAIN}/api/auth/google/callback`);
   res.redirect(url);
 });
 

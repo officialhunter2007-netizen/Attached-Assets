@@ -4,8 +4,14 @@ import { motion } from "framer-motion";
 
 export default function Login() {
   const handleGoogleLogin = () => {
-    const target = window.top || window;
-    target.location.href = `${window.location.origin}/api/auth/google`;
+    const url = `${window.location.origin}/api/auth/google`;
+    let inIframe = false;
+    try { inIframe = window.self !== window.top; } catch { inIframe = true; }
+    if (inIframe) {
+      window.open(url, "_blank");
+    } else {
+      window.location.href = url;
+    }
   };
 
   return (
