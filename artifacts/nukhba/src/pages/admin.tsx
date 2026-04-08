@@ -34,6 +34,13 @@ export default function Admin() {
   const [createdCard, setCreatedCard] = useState<{ code: string; planType: string } | null>(null);
   const [isCreatingCard, setIsCreatingCard] = useState(false);
 
+  const { data: stats, refetch: refetchStats } = useGetAdminStats();
+  const { data: requests, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
+  const { data: cards, refetch: refetchCards } = useGetActivationCards();
+
+  const approveMutation = useApproveSubscriptionRequest();
+  const rejectMutation = useRejectSubscriptionRequest();
+
   if (user?.role !== 'admin') {
     return (
       <AppLayout>
@@ -46,13 +53,6 @@ export default function Admin() {
       </AppLayout>
     );
   }
-
-  const { data: stats, refetch: refetchStats } = useGetAdminStats();
-  const { data: requests, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
-  const { data: cards, refetch: refetchCards } = useGetActivationCards();
-
-  const approveMutation = useApproveSubscriptionRequest();
-  const rejectMutation = useRejectSubscriptionRequest();
 
   const planLabels: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
   const regionLabels: Record<string, string> = { north: "شمال", south: "جنوب" };

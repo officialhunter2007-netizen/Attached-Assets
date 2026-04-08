@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, referralsTable } from "@workspace/db";
 import { RegisterUserBody, LoginUserBody, UpdateMeBody } from "@workspace/api-zod";
 import { hashPassword, verifyPassword, generateReferralCode } from "../lib/auth";
 
@@ -100,6 +100,46 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }).returning();
 
   (req as any).session = { userId: user.id };
+
+  // ── Process referral code if provided ──
+  if (referralCode) {
+    try {
+      const [referrer] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.referralCode, referralCode.toUpperCase()));
+
+      if (referrer && referrer.id !== user.id) {
+        const existingReferrals = await db
+          .select()
+          .from(referralsTable)
+          .where(eq(referralsTable.referrerUserId, referrer.id));
+
+        const newCount = existingReferrals.length + 1;
+        const grantsAccess = newCount % 5 === 0;
+        const accessDaysGranted = grantsAccess ? 3 : 0;
+
+        await db.insert(referralsTable).values({
+          referrerUserId: referrer.id,
+          referredUserId: user.id,
+          referralCode: referralCode.toUpperCase(),
+          accessDaysGranted,
+        });
+
+        if (grantsAccess) {
+          const base = referrer.referralAccessUntil && new Date(referrer.referralAccessUntil) > new Date()
+            ? new Date(referrer.referralAccessUntil)
+            : new Date();
+          base.setDate(base.getDate() + 3);
+          await db.update(usersTable)
+            .set({ referralAccessUntil: base })
+            .where(eq(usersTable.id, referrer.id));
+        }
+      }
+    } catch {
+      // referral processing failure should not block registration
+    }
+  }
 
   const { passwordHash: _, ...profile } = user;
   res.status(201).json({ ...profile, badges: user.badges ?? [] });
