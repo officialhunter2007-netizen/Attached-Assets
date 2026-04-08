@@ -85,12 +85,14 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   const passwordHash = hashPassword(password);
   const myReferralCode = generateReferralCode();
 
+  const ADMIN_EMAILS = ["amr@gmail.com"];
+
   const [user] = await db.insert(usersTable).values({
     email,
     passwordHash,
     displayName: displayName ?? null,
     referralCode: myReferralCode,
-    role: "user",
+    role: ADMIN_EMAILS.includes(email.toLowerCase()) ? "admin" : "user",
     onboardingDone: false,
     points: 0,
     streakDays: 0,
