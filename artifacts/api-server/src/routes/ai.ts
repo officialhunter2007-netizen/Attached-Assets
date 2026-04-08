@@ -48,6 +48,33 @@ const TEACHER_CSS = `
 `;
 
 router.post("/ai/lesson", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const user = await getUser(userId);
+  if (!user) {
+    res.status(401).json({ error: "User not found" });
+    return;
+  }
+
+  const isFirstLesson = !user.firstLessonComplete;
+  const canAccessViaSubscription = hasSubscriptionAccess(user);
+  const canAccessViaReferral = hasReferralAccess(user);
+
+  if (!isFirstLesson && !canAccessViaSubscription && !canAccessViaReferral) {
+    res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
+    return;
+  }
+
+  if (isFirstLesson) {
+    await db.update(usersTable)
+      .set({ firstLessonComplete: true })
+      .where(eq(usersTable.id, userId));
+  }
+
   const { subjectId, unitId, lessonId, lessonTitle, subjectName, section, grade, isSkill } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");

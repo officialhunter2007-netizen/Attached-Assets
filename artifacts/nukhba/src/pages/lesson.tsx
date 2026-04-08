@@ -158,10 +158,7 @@ export default function Lesson() {
             subjectName: subject?.name || "مادة"
           }
         });
-        if (!user?.firstLessonComplete) {
-          await fetch('/api/auth/complete-first-lesson', { method: 'POST', credentials: 'include' });
-          await refreshUser();
-        }
+        await refreshUser();
       } catch (e) {}
     }
   };
