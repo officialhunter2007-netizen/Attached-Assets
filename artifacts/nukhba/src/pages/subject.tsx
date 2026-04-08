@@ -184,17 +184,6 @@ export default function Subject() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
 
-  if (!subject) {
-    return (
-      <AppLayout>
-        <div className="container mx-auto px-4 py-12 text-center">
-          <h1 className="text-2xl font-bold mb-4">المادة غير موجودة</h1>
-          <Button onClick={() => setLocation("/learn")}>العودة للتعلم</Button>
-        </div>
-      </AppLayout>
-    );
-  }
-
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(true);
@@ -207,6 +196,7 @@ export default function Subject() {
   );
 
   const loadSummaries = () => {
+    if (!subject) return;
     fetch(`/api/lesson-summaries?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" })
       .then(r => r.json())
       .then(data => setSummaries(Array.isArray(data) ? data : []))
@@ -214,7 +204,9 @@ export default function Subject() {
       .finally(() => setSummariesLoading(false));
   };
 
-  useEffect(() => { loadSummaries(); }, [subject.id]);
+  useEffect(() => {
+    if (subject) loadSummaries();
+  }, [subject?.id]);
 
   useEffect(() => {
     if (isSubscriptionExpired) {
@@ -230,6 +222,17 @@ export default function Subject() {
     setSummariesLoading(true);
     loadSummaries();
   };
+
+  if (!subject) {
+    return (
+      <AppLayout>
+        <div className="container mx-auto px-4 py-12 text-center">
+          <h1 className="text-2xl font-bold mb-4">المادة غير موجودة</h1>
+          <Button onClick={() => setLocation("/learn")}>العودة للتعلم</Button>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -409,7 +412,7 @@ function SubjectPathChat({
   onAccessDenied: () => void;
   onSessionComplete?: () => void;
 }) {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);

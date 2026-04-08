@@ -154,6 +154,12 @@ ${grade ? `الصف: ${grade}` : ""}
 });
 
 router.post("/ai/interview", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const { subjectId, subjectName, userMessage, history, questionCount } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -211,6 +217,12 @@ router.post("/ai/interview", async (req, res): Promise<void> => {
 });
 
 router.post("/ai/build-plan", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const { subjectId, subjectName, userName, interviewSummary } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");

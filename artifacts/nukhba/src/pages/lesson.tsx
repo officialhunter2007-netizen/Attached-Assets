@@ -268,7 +268,7 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, vie
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.3 }}
-            dangerouslySetContent={{ __html: section.content }}
+            dangerouslySetInnerHTML={{ __html: section.content }}
           />
         </AnimatePresence>
 
