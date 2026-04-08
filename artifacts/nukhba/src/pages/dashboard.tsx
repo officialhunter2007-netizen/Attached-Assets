@@ -4,9 +4,10 @@ import { useAuth } from "@/lib/auth-context";
 import { useGetLessonViews, useGetReferralInfo } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, Flame, Target, Users, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Trophy, Flame, Target, Users, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
+import { useToast } from "@/hooks/use-toast";
 
 interface LessonSummary {
   id: number;
@@ -68,10 +69,12 @@ function SummaryCard({ summary }: { summary: LessonSummary }) {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const { data: views } = useGetLessonViews();
   const { data: refInfo } = useGetReferralInfo();
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch("/api/lesson-summaries", { credentials: "include" })
@@ -268,9 +271,19 @@ export default function Dashboard() {
                 );
               })()}
 
-              <Button className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-sm" onClick={() => {
-                navigator.clipboard.writeText(`${window.location.origin}/register?ref=${refInfo?.referralCode}`);
-              }}>انسخ رابط الدعوة</Button>
+              <Button
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-sm gap-2"
+                onClick={() => {
+                  const link = `${window.location.origin}/register?ref=${refInfo?.referralCode}`;
+                  navigator.clipboard.writeText(link);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                  toast({ title: "✓ تم نسخ رابط الدعوة", description: link, className: "bg-emerald-700 border-none text-white" });
+                }}
+              >
+                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                {copied ? "تم النسخ!" : "انسخ رابط الدعوة"}
+              </Button>
             </div>
 
             <div className="glass p-6 rounded-3xl border-gold/20">
