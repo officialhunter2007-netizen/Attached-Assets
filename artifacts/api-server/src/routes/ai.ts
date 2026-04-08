@@ -32,6 +32,18 @@ function hasReferralAccess(user: any): boolean {
   return new Date(user.referralAccessUntil) > new Date();
 }
 
+// Yemen is UTC+3
+function getYemenDateString(): string {
+  return new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function getTomorrowYemenMidnightUTC(): Date {
+  const todayYemen = getYemenDateString();
+  const [y, m, d] = todayYemen.split('-').map(Number);
+  const tomorrowStr = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  return new Date(`${tomorrowStr}T00:00:00+03:00`);
+}
+
 const TEACHER_CSS = `
 <style>
   body { background: transparent; font-family: 'Tajawal', 'Cairo', sans-serif; direction: rtl; padding: 20px; color: #e8d5a3; margin: 0; }
@@ -275,9 +287,22 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const canAccessViaReferral = hasReferralAccess(user);
   const hasActiveSub = hasActiveSubscription(user);
   const quotaExhausted = hasActiveSub && !canAccessViaSubscription;
+  const isNewSession = !userMessage;
+
+  // ── Daily session limit (1 session per day per subscriber) ──
+  if (isNewSession && (canAccessViaSubscription || canAccessViaReferral)) {
+    const todayYemen = getYemenDateString();
+    if (user.lastSessionDate === todayYemen) {
+      const nextSessionAt = getTomorrowYemenMidnightUTC().toISOString();
+      res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
+      return;
+    }
+    await db.update(usersTable)
+      .set({ lastSessionDate: todayYemen })
+      .where(eq(usersTable.id, userId));
+  }
 
   // Block new sessions if access is denied (quota exhausted or no subscription)
-  const isNewSession = !userMessage;
   if (!isFirstLesson && !canAccessViaSubscription && !canAccessViaReferral) {
     if (isNewSession || !quotaExhausted) {
       res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });

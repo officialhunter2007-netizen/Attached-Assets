@@ -21,6 +21,7 @@ export const usersTable = pgTable("users", {
   referralAccessUntil: timestamp("referral_access_until", { withTimezone: true }),
   firstLessonComplete: boolean("first_lesson_complete").notNull().default(false),
   referralCode: text("referral_code"),
+  lastSessionDate: text("last_session_date"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

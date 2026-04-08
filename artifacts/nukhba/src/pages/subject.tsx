@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface LessonSummary {
@@ -75,6 +75,109 @@ function SubjectSummaryCard({ summary }: { summary: LessonSummary }) {
   );
 }
 
+function SubscriptionExpiredWall({
+  subject,
+  allSummaries,
+  onRenew,
+}: {
+  subject: any;
+  allSummaries: LessonSummary[];
+  onRenew: () => void;
+}) {
+  const uniqueSubjects = [...new Set(allSummaries.map(s => s.subjectName))];
+  const nextStages = subject.defaultStages?.slice(0, 3) ?? [];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass border border-gold/20 rounded-3xl p-8 mb-10 relative overflow-hidden shadow-lg shadow-gold/5"
+    >
+      <div className="absolute top-0 left-0 w-64 h-64 bg-gold/5 rounded-full blur-3xl -z-10" />
+
+      {/* Achievement summary */}
+      <div className="flex items-center gap-4 mb-6">
+        <div className="w-14 h-14 rounded-2xl bg-gold/10 border border-gold/20 flex items-center justify-center shrink-0">
+          <Trophy className="w-7 h-7 text-gold" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold">انتهت فترة اشتراكك</h2>
+          <p className="text-sm text-muted-foreground">إليك ما أنجزته خلال الأسبوعين الماضيين</p>
+        </div>
+      </div>
+
+      {allSummaries.length > 0 ? (
+        <div className="bg-black/30 rounded-2xl p-5 mb-6 border border-white/5">
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="text-center">
+              <div className="text-3xl font-black text-gold">{allSummaries.length}</div>
+              <div className="text-xs text-muted-foreground mt-1">جلسة تعليمية مكتملة</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-black text-emerald">{uniqueSubjects.length}</div>
+              <div className="text-xs text-muted-foreground mt-1">مادة درستها</div>
+            </div>
+          </div>
+          {uniqueSubjects.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {uniqueSubjects.map(name => (
+                <span key={name} className="text-xs bg-white/5 border border-white/10 rounded-full px-3 py-1 text-muted-foreground">
+                  {name}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-black/30 rounded-2xl p-5 mb-6 border border-white/5 text-center text-muted-foreground text-sm">
+          لم تُكمل جلسات بعد — ابدأ اشتراكاً جديداً وابنِ مسارك التعليمي
+        </div>
+      )}
+
+      {/* What they'll learn next */}
+      {nextStages.length > 0 && (
+        <div className="mb-6">
+          <p className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-gold" />
+            ستتعلم في {subject.name} خلال اشتراكك القادم:
+          </p>
+          <ul className="space-y-1.5">
+            {nextStages.map((stage: string, i: number) => (
+              <li key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="w-1.5 h-1.5 rounded-full bg-gold/60 shrink-0" />
+                {stage}
+              </li>
+            ))}
+            {subject.defaultStages?.length > 3 && (
+              <li className="text-xs text-muted-foreground/60 mr-3.5">
+                و{subject.defaultStages.length - 3} مرحلة أخرى...
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      {/* CTAs */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Button
+          onClick={onRenew}
+          className="flex-1 gradient-gold text-primary-foreground font-bold h-12 rounded-xl shadow-md shadow-gold/20 flex items-center justify-center gap-2"
+        >
+          <Sparkles className="w-5 h-5" />
+          جدّد اشتراكك الآن
+        </Button>
+        <Button
+          variant="outline"
+          className="flex-1 border-white/10 h-12 rounded-xl flex items-center justify-center gap-2"
+          onClick={onRenew}
+        >
+          دعوة أصدقاء (5 دعوات = 3 أيام)
+        </Button>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function Subject() {
   const { subjectId } = useParams();
   const subject = getSubjectById(subjectId || "");
@@ -95,6 +198,13 @@ export default function Subject() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(true);
+  const [allSummaries, setAllSummaries] = useState<LessonSummary[]>([]);
+
+  const isSubscriptionExpired = !!(
+    user?.nukhbaPlan &&
+    user?.subscriptionExpiresAt &&
+    new Date(user.subscriptionExpiresAt) < new Date()
+  );
 
   const loadSummaries = () => {
     fetch(`/api/lesson-summaries?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" })
@@ -105,6 +215,15 @@ export default function Subject() {
   };
 
   useEffect(() => { loadSummaries(); }, [subject.id]);
+
+  useEffect(() => {
+    if (isSubscriptionExpired) {
+      fetch('/api/lesson-summaries', { credentials: 'include' })
+        .then(r => r.json())
+        .then(data => setAllSummaries(Array.isArray(data) ? data : []))
+        .catch(() => {});
+    }
+  }, [isSubscriptionExpired]);
 
   const handleSessionComplete = () => {
     setIsChatOpen(false);
@@ -129,7 +248,17 @@ export default function Subject() {
           </div>
         </div>
 
+        {/* ── جدار انتهاء الاشتراك ── */}
+        {isSubscriptionExpired && (
+          <SubscriptionExpiredWall
+            subject={subject}
+            allSummaries={allSummaries}
+            onRenew={() => setLocation("/subscription")}
+          />
+        )}
+
         {/* ── الأسئلة التوجيهية الأولية ── Gold session intro card (RESTORED) */}
+        {!isSubscriptionExpired && (
         <div className="glass-gold p-8 rounded-3xl border-gold/20 mb-10 shadow-lg shadow-gold/5 relative overflow-hidden">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gold/5 blur-3xl -z-10" />
           <div className="flex items-start gap-5">
@@ -154,6 +283,7 @@ export default function Subject() {
             </div>
           </div>
         </div>
+        )}
 
         {/* ── ملخصات الجلسات السابقة ── */}
         <div className="mb-10">
@@ -210,6 +340,37 @@ export default function Subject() {
 }
 
 
+function Countdown({ until, onExpired }: { until: string; onExpired?: () => void }) {
+  const [timeLeft, setTimeLeft] = useState(() => Math.max(0, new Date(until).getTime() - Date.now()));
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const remaining = Math.max(0, new Date(until).getTime() - Date.now());
+      setTimeLeft(remaining);
+      if (remaining === 0) onExpired?.();
+    }, 1000);
+    return () => clearInterval(id);
+  }, [until]);
+
+  const hours = Math.floor(timeLeft / 3600000);
+  const minutes = Math.floor((timeLeft % 3600000) / 60000);
+  const seconds = Math.floor((timeLeft % 60000) / 1000);
+
+  return (
+    <div className="flex items-center justify-center gap-3" dir="ltr">
+      {[{ v: hours, l: "ساعة" }, { v: minutes, l: "دقيقة" }, { v: seconds, l: "ثانية" }].map((item, i, arr) => (
+        <div key={item.l} className="flex items-center gap-3">
+          <div className="bg-black/40 border border-gold/20 rounded-2xl px-5 py-3 text-center min-w-[72px]">
+            <div className="text-4xl font-black text-gold font-mono">{String(item.v).padStart(2, '0')}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">{item.l}</div>
+          </div>
+          {i < arr.length - 1 && <span className="text-2xl font-bold text-gold/50">:</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function stripInlineStyles(html: string): string {
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -256,6 +417,7 @@ function SubjectPathChat({
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
+  const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -316,6 +478,15 @@ function SubjectPathChat({
           currentStage: usedStage,
         })
       });
+
+      if (response.status === 429) {
+        const data = await response.json().catch(() => ({}));
+        if (data.code === "DAILY_LIMIT" && data.nextSessionAt) {
+          setDailyLimitUntil(data.nextSessionAt);
+        }
+        setIsStreaming(false);
+        return;
+      }
 
       if (response.status === 403) {
         setAccessDenied(true);
@@ -391,6 +562,34 @@ function SubjectPathChat({
     setSessionComplete(true);
     triggerSummary(messages);
   };
+
+  if (dailyLimitUntil) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring" }}>
+          <div className="w-24 h-24 rounded-full bg-gold/10 border-2 border-gold/30 flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(245,158,11,0.15)]">
+            <Clock className="w-12 h-12 text-gold" />
+          </div>
+          <h3 className="text-2xl font-bold mb-2">أحسنت! أتممت جلستك اليوم 🎯</h3>
+          <p className="text-muted-foreground mb-8 max-w-sm text-sm leading-relaxed">
+            يُفتح لك الدرس التالي تلقائياً في نهاية العد التنازلي — التعلم المنتظم يُرسّخ المعلومة أكثر من الحفظ دفعةً واحدة.
+          </p>
+          <div className="mb-8">
+            <p className="text-xs text-muted-foreground mb-4">الجلسة القادمة تبدأ خلال</p>
+            <Countdown until={dailyLimitUntil} onExpired={() => setDailyLimitUntil(null)} />
+          </div>
+          <Button
+            variant="outline"
+            className="border-white/10 h-10 rounded-xl text-sm"
+            onClick={() => setDailyLimitUntil(null)}
+          >
+            <RefreshCw className="w-4 h-4 ml-2" />
+            تحقق مجدداً
+          </Button>
+        </motion.div>
+      </div>
+    );
+  }
 
   if (accessDenied) {
     return (

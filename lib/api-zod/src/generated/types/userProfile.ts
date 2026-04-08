@@ -32,4 +32,6 @@ export interface UserProfile {
   subscriptionExpiresAt?: string | null;
   /** @nullable */
   referralAccessUntil?: string | null;
+  /** @nullable */
+  lastSessionDate?: string | null;
 }
