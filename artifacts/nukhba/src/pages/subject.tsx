@@ -246,13 +246,13 @@ function AIMessage({ content, isStreaming }: { content: string; isStreaming: boo
   const safe = content.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
 
   return (
-    <div className="rounded-2xl rounded-tl-sm bg-[hsl(222,22%,14%)] border border-white/10 border-l-2 border-l-gold/50 p-4 max-w-[88%]">
+    <div className="rounded-2xl rounded-bl-none bg-[hsl(222,24%,16%)] border border-white/8 p-4 max-w-[90%] shadow-sm">
       <div className="ai-msg" dangerouslySetInnerHTML={{ __html: isStreaming ? `<p>${plainText}</p>` : safe }} />
       {isStreaming && (
-        <div className="flex items-center gap-1 mt-2">
-          <div className="w-1.5 h-1.5 bg-gold/50 rounded-full animate-bounce" />
-          <div className="w-1.5 h-1.5 bg-gold/50 rounded-full animate-bounce" style={{animationDelay:'0.15s'}} />
-          <div className="w-1.5 h-1.5 bg-gold/50 rounded-full animate-bounce" style={{animationDelay:'0.3s'}} />
+        <div className="flex items-center gap-1 mt-3">
+          <div className="w-2 h-2 bg-white/25 rounded-full animate-bounce" />
+          <div className="w-2 h-2 bg-white/25 rounded-full animate-bounce" style={{animationDelay:'0.18s'}} />
+          <div className="w-2 h-2 bg-white/25 rounded-full animate-bounce" style={{animationDelay:'0.36s'}} />
         </div>
       )}
     </div>
@@ -530,7 +530,7 @@ function SubjectPathChat({
                 {/* Bubble */}
                 <div style={{ direction: 'rtl' }}>
                   {msg.role === 'user' ? (
-                    <div className="rounded-2xl rounded-tr-sm px-4 py-3 bg-gold/15 border border-gold/25 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm">
+                    <div className="rounded-2xl rounded-br-none px-4 py-3 bg-white/10 border border-white/15 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm">
                       {msg.content}
                     </div>
                   ) : (
@@ -549,10 +549,10 @@ function SubjectPathChat({
                 <div className="w-8 h-8 shrink-0 rounded-full gradient-gold flex items-center justify-center text-primary-foreground shadow">
                   <Bot className="w-4 h-4" />
                 </div>
-                <div className="rounded-2xl rounded-br-sm bg-[hsl(222,22%,14%)] border border-white/10 px-4 py-3 flex items-center gap-1.5">
-                  <div className="w-2 h-2 bg-white/30 rounded-full animate-bounce" />
-                  <div className="w-2 h-2 bg-white/30 rounded-full animate-bounce" style={{animationDelay:'0.2s'}} />
-                  <div className="w-2 h-2 bg-white/30 rounded-full animate-bounce" style={{animationDelay:'0.4s'}} />
+                <div className="rounded-2xl rounded-bl-none bg-[hsl(222,24%,16%)] border border-white/8 px-5 py-3.5 flex items-center gap-2">
+                  <div className="w-2 h-2 bg-white/35 rounded-full animate-bounce" />
+                  <div className="w-2 h-2 bg-white/35 rounded-full animate-bounce" style={{animationDelay:'0.18s'}} />
+                  <div className="w-2 h-2 bg-white/35 rounded-full animate-bounce" style={{animationDelay:'0.36s'}} />
                 </div>
               </motion.div>
             )}

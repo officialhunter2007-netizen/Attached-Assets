@@ -135,23 +135,23 @@
 }
 
 .ai-msg {
-  color: #f1f1f1;
+  color: #e8e8e8;
   font-family: 'Tajawal', 'Cairo', sans-serif;
   font-size: 15px;
-  line-height: 1.8;
+  line-height: 1.9;
   direction: rtl;
 }
-.ai-msg h3 { color: #F59E0B; font-size: 1.05em; margin: 12px 0 6px; font-weight: 700; }
-.ai-msg h4 { color: #F59E0B; font-size: 1.0em; margin: 10px 0 5px; font-weight: 600; }
+.ai-msg h3 { color: #ffffff; font-size: 1.05em; margin: 14px 0 6px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 4px; }
+.ai-msg h4 { color: #f0f0f0; font-size: 1.0em; margin: 10px 0 5px; font-weight: 600; }
 .ai-msg strong { color: #fff; font-weight: 700; }
-.ai-msg em { font-style: italic; color: #f1f1f1; }
-.ai-msg p { margin: 6px 0; }
-.ai-msg ul, .ai-msg ol { padding-right: 20px; margin: 6px 0; }
-.ai-msg li { margin-bottom: 5px; }
-.ai-msg pre { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px; overflow-x: auto; margin: 10px 0; }
+.ai-msg em { font-style: italic; color: #d0d0d0; }
+.ai-msg p { margin: 8px 0; }
+.ai-msg ul, .ai-msg ol { padding-right: 22px; margin: 8px 0; }
+.ai-msg li { margin-bottom: 6px; color: #e0e0e0; }
+.ai-msg pre { background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 12px; overflow-x: auto; margin: 10px 0; }
 .ai-msg pre > code { background: transparent !important; color: #e2e8f0; direction: ltr; text-align: left; display: block; font-family: 'Fira Code','Consolas',monospace; font-size: 13px; white-space: pre; }
-.ai-msg code { background: rgba(255,255,255,0.1); color: #fde68a; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 0.88em; direction: ltr; display: inline-block; }
-.ai-msg .question-box { border-right: 3px solid #F59E0B; padding: 10px 14px; margin: 10px 0; border-radius: 4px; background: rgba(245,158,11,0.06); }
-.ai-msg .tip-box { border-right: 3px solid rgba(255,255,255,0.3); padding: 10px 14px; margin: 10px 0; border-radius: 4px; }
-.ai-msg .discover-box { border-right: 3px solid rgba(255,255,255,0.3); padding: 10px 14px; margin: 10px 0; border-radius: 4px; }
-.ai-msg .praise { color: #f1f1f1; font-weight: bold; }
+.ai-msg code { background: rgba(255,255,255,0.08); color: #e2e8f0; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 0.88em; direction: ltr; display: inline-block; }
+.ai-msg .question-box { border-right: 3px solid rgba(255,255,255,0.2); padding: 10px 14px; margin: 10px 0; border-radius: 4px; background: rgba(255,255,255,0.04); }
+.ai-msg .tip-box { border-right: 3px solid rgba(255,255,255,0.15); padding: 10px 14px; margin: 10px 0; border-radius: 4px; }
+.ai-msg .discover-box { border-right: 3px solid rgba(255,255,255,0.15); padding: 10px 14px; margin: 10px 0; border-radius: 4px; }
+.ai-msg .praise { color: #ffffff; font-weight: bold; }
