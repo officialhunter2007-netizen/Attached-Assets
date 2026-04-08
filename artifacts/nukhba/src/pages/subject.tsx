@@ -1,15 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, Link, useLocation } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
-import { Send, Bot, User, Sparkles, Loader2, PlayCircle, Lock, FileText, ChevronDown, ChevronUp, Plus } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface LessonSummary {
@@ -207,43 +206,6 @@ export default function Subject() {
             جاري تحميل الملخصات...
           </div>
         )}
-
-        {/* Curriculum */}
-        <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
-          <div className="w-2 h-7 bg-white/20 rounded-full" />
-          المنهج الدراسي
-        </h3>
-
-        <Accordion type="single" collapsible className="w-full space-y-4">
-          {subject.units.map((unit, uIdx) => (
-            <AccordionItem key={unit.id} value={unit.id} className="glass border border-white/5 rounded-2xl overflow-hidden px-2">
-              <AccordionTrigger className="hover:no-underline px-4 py-4 data-[state=open]:text-gold transition-colors">
-                <div className="flex items-center gap-4 text-right">
-                  <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center font-bold text-lg">
-                    {uIdx + 1}
-                  </div>
-                  <span className="text-lg font-bold">{unit.name}</span>
-                  {unit.hasPractical && <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full border border-blue-500/20">عملي</span>}
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="px-4 pb-4">
-                <div className="space-y-2 mt-2">
-                  {unit.lessons.map((lesson, lIdx) => (
-                    <Link key={lesson.id} href={`/lesson/${subject.id}/${unit.id}/${lesson.id}`}>
-                      <div className="flex items-center gap-4 p-4 rounded-xl hover:bg-white/5 transition-colors cursor-pointer border border-transparent hover:border-white/10 group">
-                        <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-sm text-muted-foreground group-hover:text-gold transition-colors">
-                          {uIdx + 1}.{lIdx + 1}
-                        </div>
-                        <span className="flex-1 font-medium group-hover:text-gold transition-colors">{lesson.title}</span>
-                        <PlayCircle className="w-5 h-5 text-muted-foreground group-hover:text-gold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0" />
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
 
         {/* Chat Dialog */}
         <Dialog open={isChatOpen} onOpenChange={setIsChatOpen}>
