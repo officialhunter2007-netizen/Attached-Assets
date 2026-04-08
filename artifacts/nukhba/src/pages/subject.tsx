@@ -778,8 +778,9 @@ function SubjectPathChat({
           <div className="max-w-3xl mx-auto mt-2 flex justify-center">
             <button
               onClick={handleEndSession}
-              className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors border border-white/5 hover:border-white/15 rounded-lg px-3 py-1.5"
+              className="text-sm font-medium text-gold/80 hover:text-gold transition-colors border border-gold/20 hover:border-gold/40 hover:bg-gold/5 rounded-xl px-5 py-2 flex items-center gap-2"
             >
+              <FileText className="w-4 h-4" />
               إنهاء جلسة اليوم وحفظ الملخص
             </button>
           </div>
