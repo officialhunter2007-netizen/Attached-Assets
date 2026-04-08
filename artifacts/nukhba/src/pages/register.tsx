@@ -15,7 +15,8 @@ export default function Register() {
     const params = referralCode.trim()
       ? `?ref=${encodeURIComponent(referralCode.trim())}`
       : "";
-    window.location.href = `/api/auth/google${params}`;
+    const target = window.top || window;
+    target.location.href = `${window.location.origin}/api/auth/google${params}`;
   };
 
   return (

@@ -4,7 +4,8 @@ import { motion } from "framer-motion";
 
 export default function Login() {
   const handleGoogleLogin = () => {
-    window.location.href = "/api/auth/google";
+    const target = window.top || window;
+    target.location.href = `${window.location.origin}/api/auth/google`;
   };
 
   return (
