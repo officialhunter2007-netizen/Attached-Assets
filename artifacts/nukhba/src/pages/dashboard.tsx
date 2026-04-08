@@ -121,12 +121,12 @@ export default function Dashboard() {
                 <Users className="w-5 h-5 text-emerald" />
                 سفير نُخبة
               </h3>
-              <p className="text-sm text-muted-foreground mb-4">ادعُ ١٠ أصدقاء واحصل على شهر مجاني من باقة النخبة</p>
+              <p className="text-sm text-muted-foreground mb-4">ادعُ ٥ أصدقاء واحصل على ٣ أيام مجانية من منصة نُخبة</p>
               <div className="mb-2 flex justify-between text-xs text-emerald font-bold">
                 <span>{refInfo?.referralCount || 0} أصدقاء سجلوا</span>
-                <span>الهدف: 10</span>
+                <span>الهدف: {refInfo?.referralGoal || 5}</span>
               </div>
-              <Progress value={((refInfo?.referralCount || 0) / 10) * 100} className="h-2 bg-black/40 [&>div]:bg-emerald mb-4" />
+              <Progress value={((refInfo?.referralCount || 0) / (refInfo?.referralGoal || 5)) * 100} className="h-2 bg-black/40 [&>div]:bg-emerald mb-4" />
               <Button className="w-full bg-emerald-500 hover:bg-emerald-600 text-white" onClick={() => {
                 navigator.clipboard.writeText(`${window.location.origin}/register?ref=${refInfo?.referralCode}`);
               }}>انسخ رابط الدعوة</Button>
