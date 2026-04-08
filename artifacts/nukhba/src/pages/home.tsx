@@ -29,7 +29,15 @@ export default function Home() {
             className="max-w-4xl mx-auto"
           >
             <h1 className="text-5xl md:text-7xl font-black mb-6 leading-tight">
-              تعلّم بطريقة <span className="text-transparent bg-clip-text gradient-gold">مختلفة تماماً</span>
+              تعلّم بطريقة{" "}
+              <span className="relative inline-block">
+                <span className="text-transparent bg-clip-text bg-gradient-to-l from-amber-300 via-yellow-400 to-orange-400 animate-pulse drop-shadow-[0_0_30px_rgba(245,158,11,0.8)]">
+                  مختلفة تماماً
+                </span>
+                <span className="absolute inset-0 text-transparent bg-clip-text bg-gradient-to-l from-amber-300 via-yellow-400 to-orange-400 blur-sm opacity-60 select-none" aria-hidden="true">
+                  مختلفة تماماً
+                </span>
+              </span>
             </h1>
             <p className="text-xl md:text-2xl text-muted-foreground mb-10 leading-relaxed">
               منصة نُخبة توفر لك مسارات تعليمية مخصصة بالذكاء الاصطناعي لتناسب مستواك وطموحك. كأن لديك معلم خاص من النخبة.
