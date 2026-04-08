@@ -413,6 +413,12 @@ function SubjectPathChat({
     sendTeachMessage(input);
   };
 
+  const handleEndSession = () => {
+    if (messages.length < 2 || isStreaming) return;
+    setSessionComplete(true);
+    triggerSummary(messages);
+  };
+
   if (accessDenied) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
@@ -589,6 +595,16 @@ function SubjectPathChat({
             <Send className="w-5 h-5" />
           </Button>
         </form>
+        {messages.length >= 2 && !isStreaming && (
+          <div className="max-w-3xl mx-auto mt-2 flex justify-center">
+            <button
+              onClick={handleEndSession}
+              className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors border border-white/5 hover:border-white/15 rounded-lg px-3 py-1.5"
+            >
+              إنهاء جلسة اليوم وحفظ الملخص
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
