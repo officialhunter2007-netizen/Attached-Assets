@@ -329,6 +329,7 @@ export default function Subject() {
             </div>
             <SubjectPathChat
               subject={subject}
+              isFirstSession={!summariesLoading && summaries.length === 0}
               onAccessDenied={() => { setIsChatOpen(false); setLocation("/subscription"); }}
               onSessionComplete={handleSessionComplete}
             />
@@ -399,10 +400,12 @@ function AIMessage({ content, isStreaming }: { content: string; isStreaming: boo
 
 function SubjectPathChat({ 
   subject,
+  isFirstSession,
   onAccessDenied,
   onSessionComplete,
 }: { 
   subject: any;
+  isFirstSession?: boolean;
   onAccessDenied: () => void;
   onSessionComplete?: () => void;
 }) {
@@ -418,6 +421,8 @@ function SubjectPathChat({
   const [summaryError, setSummaryError] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
+  const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
+  const [customPlan, setCustomPlan] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -428,7 +433,7 @@ function SubjectPathChat({
 
   useEffect(() => {
     if (messages.length === 0) {
-      sendTeachMessage("", stages, 0);
+      sendTeachMessage("", stages, 0, chatPhase === 'diagnostic');
     }
   }, []);
 
@@ -455,7 +460,7 @@ function SubjectPathChat({
     setIsSummarizing(false);
   };
 
-  const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number) => {
+  const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean) => {
     setIsStreaming(true);
     if (text) {
       setMessages(prev => [...prev, { role: "user", content: text }]);
@@ -463,6 +468,7 @@ function SubjectPathChat({
     setInput("");
     const usedStages = stagesParam ?? stages;
     const usedStage = stageParam ?? currentStage;
+    const diagMode = isDiagnostic ?? (chatPhase === 'diagnostic');
 
     try {
       const response = await fetch('/api/ai/teach', {
@@ -473,9 +479,10 @@ function SubjectPathChat({
           subjectName: subject.name,
           userMessage: text,
           history: messages,
-          planContext: null,
+          planContext: customPlan,
           stages: usedStages,
           currentStage: usedStage,
+          isDiagnosticPhase: diagMode,
         })
       });
 
@@ -518,7 +525,11 @@ function SubjectPathChat({
               if (data.messagesRemaining !== null && data.messagesRemaining !== undefined) {
                 setMessagesRemaining(data.messagesRemaining);
               }
-              if (data.stageComplete && data.nextStage !== undefined) {
+              if (data.planReady) {
+                setCustomPlan(assistantMsg);
+                setChatPhase('teaching');
+              }
+              if (!diagMode && data.stageComplete && data.nextStage !== undefined) {
                 if (data.nextStage >= usedStages.length) {
                   setCurrentStage(usedStages.length);
                   setSessionComplete(true);
@@ -668,6 +679,12 @@ function SubjectPathChat({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
+      {chatPhase === 'diagnostic' && (
+        <div className="shrink-0 px-4 py-2.5 bg-purple-500/10 border-b border-purple-500/20 flex items-center justify-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+          <p className="text-xs text-purple-300 font-medium">مرحلة التشخيص — سيبني معلمك خطتك الشخصية بعد 3 أسئلة</p>
+        </div>
+      )}
       {messagesRemaining !== null && messagesRemaining <= 5 && messagesRemaining > 0 && (
         <div className="shrink-0 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-center">
           <p className="text-xs text-amber-400 font-medium">
@@ -675,7 +692,7 @@ function SubjectPathChat({
           </p>
         </div>
       )}
-      {stages.length > 0 && (
+      {chatPhase === 'teaching' && stages.length > 0 && (
         <div className="shrink-0 px-4 py-3 border-b border-white/10 bg-black/20">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-center gap-2 mb-2">
