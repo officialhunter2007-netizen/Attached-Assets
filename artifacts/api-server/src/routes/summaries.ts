@@ -23,6 +23,11 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
     return;
   }
 
+  if (messages.length > 200) {
+    res.status(400).json({ error: "Too many messages (max 200)" });
+    return;
+  }
+
   let parsedDate = new Date();
   if (conversationDate) {
     const d = new Date(conversationDate);

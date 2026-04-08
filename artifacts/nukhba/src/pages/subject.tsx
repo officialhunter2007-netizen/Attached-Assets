@@ -237,6 +237,7 @@ function SubjectPathChat({
   const [accessDenied, setAccessDenied] = useState(false);
   const [sessionComplete, setSessionComplete] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -253,8 +254,9 @@ function SubjectPathChat({
 
   const triggerSummary = async (allMessages: ChatMessage[]) => {
     setIsSummarizing(true);
+    setSummaryError(false);
     try {
-      await fetch('/api/ai/summarize-lesson', {
+      const res = await fetch('/api/ai/summarize-lesson', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -266,7 +268,10 @@ function SubjectPathChat({
           conversationDate: new Date().toISOString(),
         }),
       });
-    } catch {}
+      if (!res.ok) setSummaryError(true);
+    } catch {
+      setSummaryError(true);
+    }
     setIsSummarizing(false);
   };
 
@@ -398,6 +403,20 @@ function SubjectPathChat({
             <div className="flex items-center gap-2 justify-center text-gold mb-8">
               <Loader2 className="w-4 h-4 animate-spin" />
               <span className="text-sm">جاري حفظ ملخص الجلسة...</span>
+            </div>
+          ) : summaryError ? (
+            <div className="flex flex-col items-center gap-2 mb-8">
+              <p className="text-sm text-red-400">لم يتم حفظ الملخص — تحقق من اتصالك</p>
+              <button
+                onClick={() => {
+                  const msgs = messages;
+                  setMessages(msgs);
+                  triggerSummary(msgs);
+                }}
+                className="text-xs text-gold underline hover:no-underline"
+              >
+                إعادة المحاولة
+              </button>
             </div>
           ) : (
             <p className="text-sm text-emerald mb-8">تم حفظ ملخص الجلسة في لوحة التحكم ✓</p>
