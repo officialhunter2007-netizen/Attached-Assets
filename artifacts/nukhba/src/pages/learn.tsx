@@ -48,9 +48,6 @@ export default function Learn() {
                         {subject.emoji}
                       </div>
                       <h3 className="text-lg font-bold mb-2">{subject.name}</h3>
-                      <div className="mt-auto pt-2 text-xs text-muted-foreground w-full">
-                        {subject.units.length} مسارات
-                      </div>
                     </div>
                   </motion.div>
                 </Link>
@@ -80,9 +77,6 @@ export default function Learn() {
                             {subject.emoji}
                           </div>
                           <h3 className="text-lg font-bold mb-2">{subject.name}</h3>
-                          <div className="mt-auto pt-2 text-xs text-muted-foreground w-full">
-                            {subject.units.length} مستويات
-                          </div>
                         </div>
                       </motion.div>
                     </Link>
