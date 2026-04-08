@@ -1,8 +1,31 @@
 import { Router, type IRouter } from "express";
+import { eq } from "drizzle-orm";
+import { db, usersTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
+
+function getUserId(req: any): number | null {
+  return req.session?.userId ?? null;
+}
+
+async function getUser(userId: number) {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  return user ?? null;
+}
+
+function hasSubscriptionAccess(user: any): boolean {
+  if (!user.nukhbaPlan || !user.subscriptionExpiresAt) return false;
+  const notExpired = new Date(user.subscriptionExpiresAt) > new Date();
+  const hasMessages = (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0);
+  return notExpired && hasMessages;
+}
+
+function hasReferralAccess(user: any): boolean {
+  if (!user.referralAccessUntil) return false;
+  return new Date(user.referralAccessUntil) > new Date();
+}
 
 const TEACHER_CSS = `
 <style>
@@ -23,10 +46,6 @@ const TEACHER_CSS = `
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
 `;
-
-function getUserId(req: any): number | null {
-  return req.session?.userId ?? null;
-}
 
 router.post("/ai/lesson", async (req, res): Promise<void> => {
   const { subjectId, unitId, lessonId, lessonTitle, subjectName, section, grade, isSkill } = req.body;
@@ -211,6 +230,33 @@ router.post("/ai/build-plan", async (req, res): Promise<void> => {
 });
 
 router.post("/ai/teach", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const user = await getUser(userId);
+  if (!user) {
+    res.status(401).json({ error: "User not found" });
+    return;
+  }
+
+  const isFirstLesson = !user.firstLessonComplete;
+  const canAccessViaSubscription = hasSubscriptionAccess(user);
+  const canAccessViaReferral = hasReferralAccess(user);
+
+  if (!isFirstLesson && !canAccessViaSubscription && !canAccessViaReferral) {
+    res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
+    return;
+  }
+
+  if (canAccessViaSubscription) {
+    await db.update(usersTable)
+      .set({ messagesUsed: (user.messagesUsed ?? 0) + 1 })
+      .where(eq(usersTable.id, userId));
+  }
+
   const { subjectName, userMessage, history, planContext, stages, currentStage } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");

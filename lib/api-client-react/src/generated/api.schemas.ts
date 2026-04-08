@@ -32,6 +32,15 @@ export interface UserProfile {
   /** @nullable */
   nukhbaPlan?: string | null;
   /** @nullable */
+  region?: string | null;
+  messagesUsed?: number;
+  messagesLimit?: number;
+  /** @nullable */
+  subscriptionExpiresAt?: string | null;
+  /** @nullable */
+  referralAccessUntil?: string | null;
+  firstLessonComplete?: boolean;
+  /** @nullable */
   referralCode?: string | null;
 }
 
@@ -176,9 +185,9 @@ export type SubscriptionRequestPlanType =
   (typeof SubscriptionRequestPlanType)[keyof typeof SubscriptionRequestPlanType];
 
 export const SubscriptionRequestPlanType = {
+  bronze: "bronze",
   silver: "silver",
   gold: "gold",
-  nukhba: "nukhba",
 } as const;
 
 export type SubscriptionRequestRegion =
@@ -219,9 +228,9 @@ export type CreateSubscriptionRequestBodyPlanType =
   (typeof CreateSubscriptionRequestBodyPlanType)[keyof typeof CreateSubscriptionRequestBodyPlanType];
 
 export const CreateSubscriptionRequestBodyPlanType = {
+  bronze: "bronze",
   silver: "silver",
   gold: "gold",
-  nukhba: "nukhba",
 } as const;
 
 export type CreateSubscriptionRequestBodyRegion =
@@ -254,10 +263,9 @@ export type ActivationCardPlanType =
   (typeof ActivationCardPlanType)[keyof typeof ActivationCardPlanType];
 
 export const ActivationCardPlanType = {
+  bronze: "bronze",
   silver: "silver",
   gold: "gold",
-  nukhba: "nukhba",
-  influencer: "influencer",
 } as const;
 
 export interface ActivationCard {

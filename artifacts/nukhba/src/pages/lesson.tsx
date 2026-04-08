@@ -35,7 +35,7 @@ export default function Lesson() {
   // Access Control
   const { data: views } = useGetLessonViews();
   const uniqueLessonsViewed = new Set(views?.map(v => v.lessonId)).size || 0;
-  const hasAccess = user?.nukhbaPlan || uniqueLessonsViewed < 2 || views?.some(v => v.lessonId === lessonId);
+  const hasAccess = user?.nukhbaPlan || uniqueLessonsViewed < 1 || views?.some(v => v.lessonId === lessonId);
   
   const [showPaywall, setShowPaywall] = useState(!hasAccess);
 
@@ -85,7 +85,8 @@ export default function Lesson() {
           lessonId: lessonId!,
           lessonTitle: lesson?.title || "درس",
           subjectName: subject?.name || "مادة",
-          section: "highschool"
+          section: "university",
+          isSkill: subjectId?.startsWith("skill-")
         })
       });
 
@@ -102,7 +103,7 @@ export default function Lesson() {
           await saveCacheMutation.mutateAsync({
             data: {
               lessonKey,
-              section: "highschool",
+              section: "university",
               subject: subject?.name || "",
               unitTitle: unit?.name || "",
               lessonTitle: lesson?.title || "",
@@ -331,7 +332,7 @@ function PaywallModal({ open, onOpenChange }: { open: boolean, onOpenChange: (op
         </div>
 
         <div className="p-8 text-center">
-          <h2 className="text-3xl font-black mb-4">لقد استنفدت الدروس المجانية</h2>
+          <h2 className="text-3xl font-black mb-4">انتهى الدرس المجاني</h2>
           <p className="text-muted-foreground mb-8">
             لديك خياران لمتابعة التعلم مع النخبة:
           </p>
@@ -339,7 +340,7 @@ function PaywallModal({ open, onOpenChange }: { open: boolean, onOpenChange: (op
           <div className="grid md:grid-cols-2 gap-6">
             <div className="glass p-6 rounded-2xl border-emerald/20 text-center">
               <h3 className="font-bold text-lg text-emerald mb-2">١. ادعُ أصدقاءك (مجاناً)</h3>
-              <p className="text-sm text-muted-foreground mb-4">ادعُ ١٠ أصدقاء واحصل على شهر مجاني من باقة النخبة</p>
+              <p className="text-sm text-muted-foreground mb-4">ادعُ ٥ أصدقاء واحصل على ٣ أيام مجانية</p>
               
               <div className="bg-black/40 rounded-lg p-3 mb-4 flex items-center justify-between">
                 <span className="text-xs text-muted-foreground truncate ml-2" dir="ltr">
@@ -352,14 +353,14 @@ function PaywallModal({ open, onOpenChange }: { open: boolean, onOpenChange: (op
               
               <div className="mb-2 flex justify-between text-xs text-muted-foreground">
                 <span>التقدم</span>
-                <span>{refInfo?.referralCount || 0} / 10</span>
+                <span>{refInfo?.referralCount || 0} / 5</span>
               </div>
-              <Progress value={((refInfo?.referralCount || 0) / 10) * 100} className="h-1.5 bg-white/5 [&>div]:bg-emerald" />
+              <Progress value={((refInfo?.referralCount || 0) / 5) * 100} className="h-1.5 bg-white/5 [&>div]:bg-emerald" />
             </div>
 
             <div className="glass-gold p-6 rounded-2xl text-center flex flex-col justify-center">
               <h3 className="font-bold text-lg text-gold mb-2">٢. اشترك الآن</h3>
-              <p className="text-sm text-muted-foreground mb-6">باقات تبدأ من ٢٠٠٠ ريال فقط</p>
+              <p className="text-sm text-muted-foreground mb-6">باقات تبدأ من ١٠٠٠ ريال فقط</p>
               <Button onClick={() => setLocation("/subscription")} className="w-full gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20">
                 عرض الباقات
               </Button>

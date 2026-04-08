@@ -12,6 +12,12 @@ import { generateActivationCode } from "../lib/auth";
 
 const router: IRouter = Router();
 
+const PLAN_MESSAGE_LIMITS: Record<string, number> = {
+  bronze: 30,
+  silver: 60,
+  gold: 100,
+};
+
 function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
 }
@@ -85,6 +91,9 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     return;
   }
 
+  const messagesLimit = PLAN_MESSAGE_LIMITS[card.planType] ?? 30;
+  const subscriptionExpiresAt = card.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
   await db.update(activationCardsTable).set({
     isUsed: true,
     usedByUserId: userId,
@@ -93,6 +102,9 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
 
   await db.update(usersTable).set({
     nukhbaPlan: card.planType,
+    messagesLimit,
+    messagesUsed: 0,
+    subscriptionExpiresAt,
   }).where(eq(usersTable.id, userId));
 
   res.json({
@@ -159,20 +171,17 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
 
   const code = generateActivationCode();
   const expiresAt = new Date();
+  expiresAt.setMonth(expiresAt.getMonth() + 1);
 
-  if (request.planType === "silver") {
-    expiresAt.setMonth(expiresAt.getMonth() + 1);
-  } else if (request.planType === "gold") {
-    expiresAt.setMonth(expiresAt.getMonth() + 3);
-  } else {
-    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-  }
+  const messagesLimit = PLAN_MESSAGE_LIMITS[request.planType] ?? 30;
 
   const [card] = await db.insert(activationCardsTable).values({
     activationCode: code,
     planType: request.planType,
     region: request.region,
-    isUsed: false,
+    isUsed: true,
+    usedByUserId: request.userId,
+    usedAt: new Date(),
     expiresAt,
     subscriptionRequestId: id,
   }).returning();
@@ -181,6 +190,13 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
     status: "approved",
     activationCode: code,
   }).where(eq(subscriptionRequestsTable.id, id));
+
+  await db.update(usersTable).set({
+    nukhbaPlan: request.planType,
+    messagesLimit,
+    messagesUsed: 0,
+    subscriptionExpiresAt: expiresAt,
+  }).where(eq(usersTable.id, request.userId));
 
   res.json(card);
 });
@@ -273,7 +289,9 @@ router.get("/referrals/info", async (req, res): Promise<void> => {
   res.json({
     referralCode: user.referralCode ?? "",
     referralCount: referrals.length,
-    referralGoal: 10,
+    referralGoal: 5,
+    hasReferralAccess: user.referralAccessUntil ? new Date(user.referralAccessUntil) > new Date() : false,
+    referralAccessUntil: user.referralAccessUntil,
   });
 });
 
@@ -326,8 +344,12 @@ router.post("/referrals/register", async (req, res): Promise<void> => {
     .from(referralsTable)
     .where(eq(referralsTable.referrerUserId, referrer.id));
 
-  if (referrals.length >= 10) {
-    await db.update(usersTable).set({ nukhbaPlan: "influencer" }).where(eq(usersTable.id, referrer.id));
+  if (referrals.length >= 5) {
+    const accessUntil = new Date();
+    accessUntil.setDate(accessUntil.getDate() + 3);
+    await db.update(usersTable)
+      .set({ referralAccessUntil: accessUntil })
+      .where(eq(usersTable.id, referrer.id));
   }
 
   res.json({ success: true });

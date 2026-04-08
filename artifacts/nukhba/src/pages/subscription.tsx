@@ -6,27 +6,71 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Crown, Shield, CreditCard, Key, CheckCircle2 } from "lucide-react";
+import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
+
+type PlanKey = "bronze" | "silver" | "gold";
+
+const plans: Record<PlanKey, {
+  name: string;
+  icon: React.ReactNode;
+  messages: number;
+  priceNorth: string;
+  priceSouth: string;
+  priceNorthNum: string;
+  priceSouthNum: string;
+  desc: string;
+  features: string[];
+  popular?: boolean;
+}> = {
+  bronze: {
+    name: "البرونزية",
+    icon: <Zap className="w-7 h-7 text-orange-400" />,
+    messages: 30,
+    priceNorth: "١٬٠٠٠ ريال",
+    priceSouth: "٣٬٠٠٠ ريال",
+    priceNorthNum: "١٬٠٠٠",
+    priceSouthNum: "٣٬٠٠٠",
+    desc: "مثالية للبداية وتجربة المنصة",
+    features: ["٣٠ رسالة مع المعلم الذكي", "جميع مسارات التعلم", "تتبع التقدم"],
+  },
+  silver: {
+    name: "الفضية",
+    icon: <Star className="w-7 h-7 text-slate-300" />,
+    messages: 60,
+    priceNorth: "٢٬٠٠٠ ريال",
+    priceSouth: "٦٬٠٠٠ ريال",
+    priceNorthNum: "٢٬٠٠٠",
+    priceSouthNum: "٦٬٠٠٠",
+    desc: "للمتعلم الجاد الذي يريد التقدم",
+    features: ["٦٠ رسالة مع المعلم الذكي", "جميع مسارات التعلم", "تتبع التقدم", "أولوية الدعم"],
+    popular: true,
+  },
+  gold: {
+    name: "الذهبية",
+    icon: <Gem className="w-7 h-7 text-gold" />,
+    messages: 100,
+    priceNorth: "٣٬٠٠٠ ريال",
+    priceSouth: "٩٬٠٠٠ ريال",
+    priceNorthNum: "٣٬٠٠٠",
+    priceSouthNum: "٩٬٠٠٠",
+    desc: "الخيار الأمثل لأقصى فائدة تعليمية",
+    features: ["١٠٠ رسالة مع المعلم الذكي", "جميع مسارات التعلم", "تتبع التقدم", "أولوية الدعم", "الميزات المستقبلية"],
+  },
+};
 
 export default function Subscription() {
   const { user, setUser } = useAuth();
   const { toast } = useToast();
   
   const [region, setRegion] = useState<"north" | "south">("north");
-  const [selectedPlan, setSelectedPlan] = useState<"silver" | "gold" | "nukhba" | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<PlanKey | null>(null);
   const [transactionId, setTransactionId] = useState("");
   const [notes, setNotes] = useState("");
   const [activationCode, setActivationCode] = useState("");
 
   const createReqMutation = useCreateSubscriptionRequest();
   const activateMutation = useActivateSubscription();
-
-  const plans = {
-    silver: { name: "الفضية", desc: "وصول كامل، مسارات غير محدودة", priceNorth: "٢٠٠٠ ريال / شهر", priceSouth: "١٨٠٠ ريال / شهر" },
-    gold: { name: "الذهبية", desc: "توفير ٢٠٪ + أولوية الدعم", priceNorth: "٥٠٠٠ ريال / ٣ أشهر", priceSouth: "٤٥٠٠ ريال / ٣ أشهر" },
-    nukhba: { name: "نُخبة", desc: "توفير ٤٠٪ + جميع الميزات المستقبلية", priceNorth: "١٥٠٠٠ ريال / سنة", priceSouth: "١٣٥٠٠ ريال / سنة" }
-  };
 
   const handlePaymentSubmit = async () => {
     if (!selectedPlan || !transactionId) return;
@@ -46,6 +90,7 @@ export default function Subscription() {
       });
       setSelectedPlan(null);
       setTransactionId("");
+      setNotes("");
     } catch (e: any) {
       toast({ variant: "destructive", title: "خطأ", description: e.message });
     }
@@ -60,7 +105,7 @@ export default function Subscription() {
       if (res.success) {
         toast({
           title: "تم التفعيل بنجاح!",
-          description: `تم تفعيل باقة ${res.planType} لحسابك.`,
+          description: `تم تفعيل باقة ${plans[res.planType as PlanKey]?.name || res.planType} لحسابك.`,
           className: "bg-emerald-600 border-none text-white"
         });
         if (user) {
@@ -78,7 +123,7 @@ export default function Subscription() {
       <div className="container mx-auto px-4 py-12 max-w-5xl">
         <div className="text-center mb-12">
           <Crown className="w-16 h-16 text-gold mx-auto mb-4" />
-          <h1 className="text-4xl font-black mb-4">الاشتراكات والباقات</h1>
+          <h1 className="text-4xl font-black mb-4">اختر باقتك</h1>
           <p className="text-xl text-muted-foreground">استثمر في مستقبلك مع أقوى منصة تعليمية ذكية في اليمن</p>
         </div>
 
@@ -102,32 +147,40 @@ export default function Subscription() {
 
         {/* Plans Grid */}
         <div className="grid md:grid-cols-3 gap-6 mb-16">
-          {(Object.keys(plans) as Array<keyof typeof plans>).map(key => {
+          {(Object.keys(plans) as PlanKey[]).map(key => {
             const plan = plans[key];
             const isSelected = selectedPlan === key;
+            const price = region === 'north' ? plan.priceNorthNum : plan.priceSouthNum;
             return (
               <div 
-                key={key} 
+                key={key}
                 onClick={() => setSelectedPlan(key)}
-                className={`cursor-pointer rounded-3xl p-8 transition-all duration-300 border-2 ${
+                className={`cursor-pointer rounded-3xl p-8 transition-all duration-300 border-2 relative ${
                   isSelected 
-                    ? 'border-gold bg-gold/5 shadow-[0_0_30px_rgba(245,158,11,0.2)] transform scale-105 z-10 relative' 
+                    ? 'border-gold bg-gold/5 shadow-[0_0_30px_rgba(245,158,11,0.2)] transform scale-105 z-10' 
                     : 'glass border-white/5 hover:border-gold/30'
                 }`}
               >
-                {key === 'gold' && <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gold text-primary-foreground font-bold text-xs px-4 py-1 rounded-full">الأكثر طلباً</div>}
-                <h3 className={`text-2xl font-bold mb-2 ${isSelected ? 'text-gold' : ''}`}>{plan.name}</h3>
-                <div className="text-3xl font-black mb-4">
-                  {region === 'north' ? plan.priceNorth.split(' ')[0] : plan.priceSouth.split(' ')[0]}
-                  <span className="text-lg text-muted-foreground font-normal mr-2">
-                    {region === 'north' ? plan.priceNorth.substring(plan.priceNorth.indexOf(' ')) : plan.priceSouth.substring(plan.priceSouth.indexOf(' '))}
-                  </span>
+                {plan.popular && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gold text-primary-foreground font-bold text-xs px-4 py-1 rounded-full whitespace-nowrap">
+                    الأكثر طلباً
+                  </div>
+                )}
+                <div className="mb-4">{plan.icon}</div>
+                <h3 className={`text-2xl font-bold mb-1 ${isSelected ? 'text-gold' : ''}`}>{plan.name}</h3>
+                <p className="text-xs text-muted-foreground mb-4">{plan.desc}</p>
+                <div className="mb-2">
+                  <span className={`text-3xl font-black ${isSelected ? 'text-gold' : ''}`}>{price}</span>
+                  <span className="text-sm text-muted-foreground mr-1">ريال / شهر</span>
                 </div>
-                <p className="text-muted-foreground text-sm mb-6">{plan.desc}</p>
-                <ul className="space-y-3 text-sm">
-                  <li className="flex items-center gap-2"><CheckCircle2 className={`w-4 h-4 ${isSelected ? 'text-gold' : 'text-emerald'}`} /> مسارات ذكية مخصصة</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className={`w-4 h-4 ${isSelected ? 'text-gold' : 'text-emerald'}`} /> محادثات مع المعلم الذكي</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className={`w-4 h-4 ${isSelected ? 'text-gold' : 'text-emerald'}`} /> بيئة تطبيق مدمجة</li>
+                <div className="text-xs text-emerald font-bold mb-6">{plan.messages} رسالة شهرياً</div>
+                <ul className="space-y-2 text-sm">
+                  {plan.features.map((f, fi) => (
+                    <li key={fi} className="flex items-center gap-2">
+                      <CheckCircle2 className={`w-4 h-4 shrink-0 ${isSelected ? 'text-gold' : 'text-emerald'}`} />
+                      {f}
+                    </li>
+                  ))}
                 </ul>
               </div>
             );
@@ -149,6 +202,10 @@ export default function Subscription() {
             ) : (
               <div className="space-y-6">
                 <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
+                  <p className="text-sm text-muted-foreground mb-1">المبلغ المطلوب:</p>
+                  <p className="text-gold font-bold text-lg mb-3">
+                    {region === 'north' ? plans[selectedPlan].priceNorth : plans[selectedPlan].priceSouth} ريال
+                  </p>
                   <p className="text-sm text-muted-foreground mb-2">قم بتحويل المبلغ إلى حسابنا في الكريمي:</p>
                   <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-3 rounded-xl border border-gold/20" dir="ltr">
                     712345678
@@ -205,7 +262,7 @@ export default function Subscription() {
                 className="bg-black/40 h-14 text-center tracking-widest text-lg font-mono uppercase focus-visible:ring-emerald focus-visible:border-emerald" 
                 dir="ltr"
                 value={activationCode}
-                onChange={(e) => setActivationCode(e.target.value)}
+                onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
               />
               <Button 
                 className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-12 rounded-xl text-lg shadow-lg shadow-emerald/20"

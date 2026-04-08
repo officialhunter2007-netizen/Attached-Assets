@@ -3,15 +3,13 @@ import { useParams, Link, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { getSubjectById } from "@/lib/curriculum";
-import { useGetLearningPathBySubject, useSaveLearningPath, getGetLearningPathBySubjectQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { ChatMessage, ChatMessageRole } from "@workspace/api-client-react/generated/api.schemas";
-import { Send, Bot, User, Sparkles, Loader2, RefreshCw, PlayCircle } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
+import { Send, Bot, User, Sparkles, Loader2, RefreshCw, PlayCircle, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function Subject() {
@@ -31,28 +29,9 @@ export default function Subject() {
     );
   }
 
-  const { data: path, isLoading: pathLoading } = useGetLearningPathBySubject(subject.id, {
-    query: {
-      enabled: !!subject.id && !!user,
-      queryKey: getGetLearningPathBySubjectQueryKey(subject.id),
-      retry: false
-    }
-  });
-
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatPhase, setChatPhase] = useState<"INTERVIEWING" | "BUILDING" | "TEACHING">("INTERVIEWING");
 
   const startChat = () => {
-    if (path?.planHtml) {
-      setChatPhase("TEACHING");
-    } else {
-      setChatPhase("INTERVIEWING");
-    }
-    setIsChatOpen(true);
-  };
-
-  const restartChat = () => {
-    setChatPhase("INTERVIEWING");
     setIsChatOpen(true);
   };
 
@@ -76,29 +55,24 @@ export default function Subject() {
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gold/5 blur-3xl -z-10" />
           <Sparkles className="w-12 h-12 text-gold mx-auto mb-4" />
           <h2 className="text-2xl font-bold mb-4">جلستك التعليمية المخصصة</h2>
-          <p className="text-muted-foreground mb-8 max-w-lg mx-auto">
-            يقوم معلمك الذكي ببناء مسار مخصص لك بناءً على مستواك الحالي وأهدافك، ثم يرافقك خطوة بخطوة في رحلة التعلم.
+          <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
+            يرافقك معلمك الذكي خطوة بخطوة عبر {subject.defaultStages.length} مراحل تعليمية مُصممة خصيصاً لمادة {subject.name}.
           </p>
-          
-          {pathLoading ? (
-            <Loader2 className="w-8 h-8 animate-spin mx-auto text-gold" />
-          ) : path?.planHtml ? (
-            <div className="flex justify-center gap-4">
-              <Button onClick={startChat} size="lg" className="gradient-gold text-primary-foreground font-bold px-8 h-12 rounded-xl text-lg shadow-lg shadow-gold/20">
-                <PlayCircle className="w-5 h-5 ml-2" />
-                استمر في جلستك
-              </Button>
-              <Button onClick={restartChat} variant="outline" size="lg" className="border-white/10 hover:bg-white/5 h-12 rounded-xl">
-                <RefreshCw className="w-5 h-5 ml-2" />
-                إعادة البدء
-              </Button>
-            </div>
-          ) : (
+
+          <div className="flex flex-wrap gap-2 justify-center mb-8">
+            {subject.defaultStages.map((stage, i) => (
+              <span key={i} className="text-xs bg-white/5 border border-white/10 rounded-full px-3 py-1 text-muted-foreground">
+                {i + 1}. {stage}
+              </span>
+            ))}
+          </div>
+
+          <div className="flex justify-center gap-4">
             <Button onClick={startChat} size="lg" className="gradient-gold text-primary-foreground font-bold px-8 h-12 rounded-xl text-lg shadow-lg shadow-gold/20">
               <Sparkles className="w-5 h-5 ml-2" />
-              ابدأ جلستي التعليمية المخصصة
+              ابدأ الجلسة التعليمية
             </Button>
-          )}
+          </div>
         </div>
 
         <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
@@ -154,10 +128,8 @@ export default function Subject() {
             </div>
 
             <SubjectPathChat 
-              subject={subject} 
-              phase={chatPhase} 
-              setPhase={setChatPhase} 
-              initialPath={path}
+              subject={subject}
+              onAccessDenied={() => { setIsChatOpen(false); setLocation("/subscription"); }}
             />
           </DialogContent>
         </Dialog>
@@ -250,165 +222,42 @@ function AIMessage({ content, isStreaming }: { content: string; isStreaming: boo
 }
 
 function SubjectPathChat({ 
-  subject, 
-  phase, 
-  setPhase,
-  initialPath
+  subject,
+  onAccessDenied,
 }: { 
-  subject: any; 
-  phase: string; 
-  setPhase: (p: any) => void;
-  initialPath: any;
+  subject: any;
+  onAccessDenied: () => void;
 }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [planHtml, setPlanHtml] = useState<string | null>(initialPath?.planHtml || null);
-  const [stages, setStages] = useState<string[]>([]);
+  const [stages] = useState<string[]>(subject.defaultStages);
   const [currentStage, setCurrentStage] = useState(0);
+  const [accessDenied, setAccessDenied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const queryClient = useQueryClient();
-  const savePathMutation = useSaveLearningPath();
-
-  const extractStages = (html: string): string[] => {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    const headings = Array.from(doc.querySelectorAll('h2, h3'));
-    const names = headings.map(h => h.textContent?.trim() || '').filter(Boolean);
-    if (names.length >= 2) return names.slice(0, 6);
-    return ["المقدمة والأساسيات", "المفاهيم الجوهرية", "التطبيق العملي", "التحديات والتعمق"];
-  };
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, planHtml, phase]);
+  }, [messages]);
 
   useEffect(() => {
-    if (phase === "INTERVIEWING" && messages.length === 0) {
-      sendInterviewMessage("");
-    } else if (phase === "TEACHING" && messages.length === 0) {
-      const s = planHtml ? extractStages(planHtml) : ["المقدمة والأساسيات", "المفاهيم الجوهرية", "التطبيق العملي", "التحديات"];
-      setStages(s);
-      setCurrentStage(0);
-      sendTeachMessage("", s, 0);
+    if (messages.length === 0) {
+      sendTeachMessage("", stages, 0);
     }
-  }, [phase]);
+  }, []);
 
-  const sendInterviewMessage = async (text: string) => {
-    setIsStreaming(true);
-    if (text) {
-      setMessages(prev => [...prev, { role: "user", content: text }]);
-    }
-    setInput("");
-
-    try {
-      const response = await fetch('/api/ai/interview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          subjectId: subject.id,
-          subjectName: subject.name,
-          userMessage: text,
-          history: messages,
-          questionCount: messages.filter(m => m.role === 'assistant').length
-        })
-      });
-
-      if (!response.body) return;
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantMsg = "";
-
-      setMessages(prev => [...prev, { role: "assistant", content: "" }]);
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6));
-            if (data.done) {
-              if (data.isReady) {
-                setPhase("BUILDING");
-                buildPlan();
-              }
-              break;
-            }
-            if (data.content) {
-              assistantMsg += data.content;
-              setMessages(prev => {
-                const newMessages = [...prev];
-                newMessages[newMessages.length - 1].content = assistantMsg;
-                return newMessages;
-              });
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsStreaming(false);
-    }
-  };
-
-  const buildPlan = async () => {
-    setMessages([]);
-    setIsStreaming(true);
-    try {
-      const interviewSummary = messages.map(m => `${m.role}: ${m.content}`).join("\n");
-      const response = await fetch('/api/ai/build-plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          subjectId: subject.id,
-          subjectName: subject.name,
-          userName: user?.displayName || user?.email || "طالب",
-          interviewSummary
-        })
-      });
-
-      if (!response.body) return;
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let html = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6));
-            if (data.done) {
-              await savePathMutation.mutateAsync({
-                data: { subjectId: subject.id, planHtml: html }
-              });
-              queryClient.invalidateQueries({ queryKey: getGetLearningPathBySubjectQueryKey(subject.id) });
-              break;
-            }
-            if (data.content) {
-              html += data.content;
-              setPlanHtml(html);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsStreaming(false);
+  const markFirstLessonComplete = async () => {
+    if (!user?.firstLessonComplete) {
+      try {
+        await fetch('/api/auth/complete-first-lesson', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (refreshUser) await refreshUser();
+      } catch {}
     }
   };
 
@@ -430,13 +279,21 @@ function SubjectPathChat({
           subjectName: subject.name,
           userMessage: text,
           history: messages,
-          planContext: planHtml,
+          planContext: null,
           stages: usedStages,
           currentStage: usedStage,
         })
       });
 
+      if (response.status === 403) {
+        setAccessDenied(true);
+        setIsStreaming(false);
+        return;
+      }
+
       if (!response.body) return;
+
+      await markFirstLessonComplete();
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -482,54 +339,26 @@ function SubjectPathChat({
 
   const handleSend = () => {
     if (!input.trim() || isStreaming) return;
-    if (phase === "INTERVIEWING") sendInterviewMessage(input);
-    if (phase === "TEACHING") sendTeachMessage(input);
+    sendTeachMessage(input);
   };
 
-  if (phase === "BUILDING" && !planHtml) {
+  if (accessDenied) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8">
-        <div className="w-24 h-24 mb-8 relative">
-          <div className="absolute inset-0 border-t-2 border-gold rounded-full animate-spin"></div>
-          <div className="absolute inset-2 border-r-2 border-emerald rounded-full animate-spin-reverse"></div>
-          <Bot className="w-10 h-10 text-gold absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <div className="w-20 h-20 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
+          <Lock className="w-10 h-10 text-gold" />
         </div>
-        <h3 className="text-2xl font-bold mb-2">جاري بناء مسارك المخصص...</h3>
-        <p className="text-muted-foreground text-center">يقوم معلمك الذكي بتحليل إجاباتك وتصميم خطة دراسية تناسبك تماماً</p>
-      </div>
-    );
-  }
-
-  if (phase === "BUILDING" && planHtml) {
-    return (
-      <div className="flex-1 flex flex-col overflow-hidden bg-background">
-        <ScrollArea className="flex-1 p-6" ref={scrollRef}>
-          <div className="max-w-3xl mx-auto">
-            <h2 className="text-2xl font-bold mb-6 text-gold text-center">خطتك الدراسية المخصصة</h2>
-            <iframe 
-              srcDoc={`
-                <html dir="rtl">
-                  <head>
-                    <style>
-                      body { font-family: 'Cairo', 'Tajawal', sans-serif; color: #e8d5a3; background: transparent; padding: 20px; line-height: 1.6; }
-                      h1, h2, h3 { color: #F59E0B; }
-                      .plan-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
-                    </style>
-                  </head>
-                  <body>${planHtml}</body>
-                </html>
-              `}
-              className="w-full min-h-[500px] border-none"
-              onLoad={(e) => {
-                const target = e.target as HTMLIFrameElement;
-                target.style.height = target.contentWindow?.document.body.scrollHeight + 'px';
-              }}
-            />
-          </div>
-        </ScrollArea>
-        <div className="p-4 border-t border-white/10 shrink-0 bg-black/20">
-          <Button onClick={() => setPhase("TEACHING")} className="w-full gradient-gold text-primary-foreground font-bold h-12 text-lg rounded-xl">
-            ابدأ الجلسة التعليمية
+        <h3 className="text-2xl font-bold mb-3">انتهت الجلسة المجانية</h3>
+        <p className="text-muted-foreground mb-8 max-w-sm">
+          لقد استخدمت جلستك التعليمية المجانية. اشترك الآن للاستمرار في التعلم، أو ادعُ 5 أصدقاء للحصول على 3 أيام مجاناً.
+        </p>
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
+            <Sparkles className="w-5 h-5 ml-2" />
+            اشترك الآن
+          </Button>
+          <Button variant="outline" onClick={onAccessDenied} className="border-white/10 h-12 rounded-xl">
+            دعوة أصدقاء (5 دعوات = 3 أيام)
           </Button>
         </div>
       </div>
@@ -538,7 +367,7 @@ function SubjectPathChat({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
-      {phase === "TEACHING" && stages.length > 0 && (
+      {stages.length > 0 && (
         <div className="shrink-0 px-4 py-3 border-b border-white/10 bg-black/20">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-center gap-2 mb-2">
@@ -567,6 +396,7 @@ function SubjectPathChat({
           </div>
         </div>
       )}
+
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="max-w-3xl mx-auto space-y-6 pb-4">
           <AnimatePresence initial={false}>
@@ -615,7 +445,7 @@ function SubjectPathChat({
           <Input 
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={phase === "INTERVIEWING" ? "أجب عن سؤال المعلم..." : "اسأل معلمك، ناقشه، أو اطلب توضيحاً..."}
+            placeholder="اسأل معلمك، ناقشه، أو اطلب توضيحاً..."
             className="w-full h-14 pl-14 pr-6 bg-black/40 border-white/10 rounded-2xl text-lg focus-visible:ring-gold focus-visible:border-gold/50"
             disabled={isStreaming}
           />

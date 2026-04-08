@@ -65,7 +65,7 @@ export default function Admin() {
     }
   };
 
-  const planLabels: Record<string, string> = { silver: "الفضية", gold: "الذهبية", nukhba: "نُخبة", influencer: "مؤثر" };
+  const planLabels: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية", nukhba: "نُخبة", influencer: "مؤثر" };
   const regionLabels: Record<string, string> = { north: "شمال", south: "جنوب" };
 
   return (

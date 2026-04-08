@@ -29,6 +29,11 @@ export const GetMeResponse = zod.object({
   lastActive: zod.string().nullish(),
   badges: zod.array(zod.string()),
   nukhbaPlan: zod.string().nullish(),
+  region: zod.string().nullish(),
+  messagesUsed: zod.number().optional(),
+  messagesLimit: zod.number().optional(),
+  subscriptionExpiresAt: zod.string().nullish(),
+  referralAccessUntil: zod.string().nullish(),
   referralCode: zod.string().nullish(),
 });
 
@@ -56,6 +61,11 @@ export const UpdateMeResponse = zod.object({
   lastActive: zod.string().nullish(),
   badges: zod.array(zod.string()),
   nukhbaPlan: zod.string().nullish(),
+  region: zod.string().nullish(),
+  messagesUsed: zod.number().optional(),
+  messagesLimit: zod.number().optional(),
+  subscriptionExpiresAt: zod.string().nullish(),
+  referralAccessUntil: zod.string().nullish(),
   referralCode: zod.string().nullish(),
 });
 
@@ -88,6 +98,11 @@ export const LoginUserResponse = zod.object({
   lastActive: zod.string().nullish(),
   badges: zod.array(zod.string()),
   nukhbaPlan: zod.string().nullish(),
+  region: zod.string().nullish(),
+  messagesUsed: zod.number().optional(),
+  messagesLimit: zod.number().optional(),
+  subscriptionExpiresAt: zod.string().nullish(),
+  referralAccessUntil: zod.string().nullish(),
   referralCode: zod.string().nullish(),
 });
 
@@ -271,7 +286,7 @@ export const GetLearningPathBySubjectResponse = zod.object({
  */
 export const CreateSubscriptionRequestBody = zod.object({
   transactionId: zod.string(),
-  planType: zod.enum(["silver", "gold", "nukhba"]),
+  planType: zod.enum(["bronze", "silver", "gold"]),
   region: zod.enum(["north", "south"]),
   notes: zod.string().nullish(),
 });
@@ -302,7 +317,7 @@ export const GetAdminSubscriptionRequestsResponseItem = zod.object({
   userEmail: zod.string(),
   userName: zod.string().nullish(),
   transactionId: zod.string(),
-  planType: zod.enum(["silver", "gold", "nukhba"]),
+  planType: zod.enum(["bronze", "silver", "gold"]),
   region: zod.enum(["north", "south"]),
   status: zod.enum(["pending", "approved", "rejected"]),
   activationCode: zod.string().nullish(),
@@ -323,7 +338,7 @@ export const ApproveSubscriptionRequestParams = zod.object({
 export const ApproveSubscriptionRequestResponse = zod.object({
   id: zod.number(),
   activationCode: zod.string(),
-  planType: zod.enum(["silver", "gold", "nukhba", "influencer"]),
+  planType: zod.enum(["bronze", "silver", "gold"]),
   region: zod.string().nullish(),
   isUsed: zod.boolean(),
   usedByUserId: zod.number().nullish(),
@@ -346,7 +361,7 @@ export const RejectSubscriptionRequestParams = zod.object({
 export const GetActivationCardsResponseItem = zod.object({
   id: zod.number(),
   activationCode: zod.string(),
-  planType: zod.enum(["silver", "gold", "nukhba", "influencer"]),
+  planType: zod.enum(["bronze", "silver", "gold"]),
   region: zod.string().nullish(),
   isUsed: zod.boolean(),
   usedByUserId: zod.number().nullish(),

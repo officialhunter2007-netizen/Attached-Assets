@@ -10,7 +10,7 @@ export type SubscriptionRequestPlanType =
   (typeof SubscriptionRequestPlanType)[keyof typeof SubscriptionRequestPlanType];
 
 export const SubscriptionRequestPlanType = {
+  bronze: "bronze",
   silver: "silver",
   gold: "gold",
-  nukhba: "nukhba",
 } as const;

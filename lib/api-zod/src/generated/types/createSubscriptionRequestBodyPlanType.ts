@@ -10,7 +10,7 @@ export type CreateSubscriptionRequestBodyPlanType =
   (typeof CreateSubscriptionRequestBodyPlanType)[keyof typeof CreateSubscriptionRequestBodyPlanType];
 
 export const CreateSubscriptionRequestBodyPlanType = {
+  bronze: "bronze",
   silver: "silver",
   gold: "gold",
-  nukhba: "nukhba",
 } as const;

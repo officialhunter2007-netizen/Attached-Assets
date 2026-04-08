@@ -128,4 +128,16 @@ router.post("/auth/logout", async (req, res): Promise<void> => {
   res.json({ success: true });
 });
 
+router.post("/auth/complete-first-lesson", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await db.update(usersTable)
+    .set({ firstLessonComplete: true })
+    .where(eq(usersTable.id, userId));
+  res.json({ success: true });
+});
+
 export default router;
