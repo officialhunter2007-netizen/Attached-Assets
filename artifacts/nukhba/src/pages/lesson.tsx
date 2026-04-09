@@ -183,10 +183,10 @@ export default function Lesson() {
         </div>
 
         {isGenerating || isCacheLoading ? (
-          <div className="glass p-16 rounded-3xl border-white/5 flex flex-col items-center justify-center text-center">
-            <Loader2 className="w-12 h-12 animate-spin text-gold mb-6" />
-            <h3 className="text-2xl font-bold mb-2">جاري تحضير الدرس...</h3>
-            <p className="text-muted-foreground">يقوم الذكاء الاصطناعي ببناء الشرح الأمثل لك</p>
+          <div className="glass p-8 md:p-16 rounded-3xl border-white/5 flex flex-col items-center justify-center text-center">
+            <Loader2 className="w-10 h-10 md:w-12 md:h-12 animate-spin text-gold mb-4 md:mb-6" />
+            <h3 className="text-xl md:text-2xl font-bold mb-2">جاري تحضير الدرس...</h3>
+            <p className="text-muted-foreground text-sm md:text-base">يقوم الذكاء الاصطناعي ببناء الشرح الأمثل لك</p>
           </div>
         ) : sections.length > 0 ? (
           <LessonViewer 
@@ -251,16 +251,16 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, vie
   };
 
   return (
-    <div className="flex flex-col h-[70vh]">
-      <div className="mb-6">
+    <div className="flex flex-col" style={{ minHeight: "calc(100dvh - 220px)" }}>
+      <div className="mb-4 md:mb-6">
         <div className="flex justify-between text-sm text-gold font-bold mb-2">
-          <span>{section.title}</span>
-          <span>{activeSection + 1} / {sections.length}</span>
+          <span className="truncate ml-4">{section.title}</span>
+          <span className="shrink-0">{activeSection + 1} / {sections.length}</span>
         </div>
         <Progress value={progress} className="h-2 bg-white/5 [&>div]:bg-gold" />
       </div>
 
-      <div className="glass flex-1 rounded-3xl border-white/5 p-6 md:p-10 overflow-y-auto mb-6 prose prose-invert max-w-none prose-headings:text-gold prose-a:text-emerald prose-p:leading-relaxed prose-lg">
+      <div className="glass flex-1 rounded-3xl border-white/5 p-4 md:p-10 overflow-y-auto mb-4 md:mb-6 prose prose-invert max-w-none prose-headings:text-gold prose-a:text-emerald prose-p:leading-relaxed prose-sm md:prose-lg">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeSection}

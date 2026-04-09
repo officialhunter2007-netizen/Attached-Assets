@@ -236,17 +236,17 @@ export default function Subject() {
 
   return (
     <AppLayout>
-      <div className="container mx-auto px-4 py-12 max-w-4xl">
+      <div className="container mx-auto px-4 py-6 md:py-12 max-w-4xl">
 
         {/* Subject Header */}
-        <div className="glass p-6 rounded-3xl border-white/5 mb-8 relative overflow-hidden">
+        <div className="glass p-4 md:p-6 rounded-3xl border-white/5 mb-6 md:mb-8 relative overflow-hidden">
           <div className={`absolute top-0 right-0 w-40 h-40 bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} opacity-10 rounded-bl-full`} />
-          <div className="flex items-center gap-5 relative z-10">
-            <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center text-4xl shadow-lg`}>
+          <div className="flex items-center gap-4 md:gap-5 relative z-10">
+            <div className={`w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center text-3xl md:text-4xl shadow-lg shrink-0`}>
               {subject.emoji}
             </div>
             <div>
-              <h1 className="text-3xl font-black">{subject.name}</h1>
+              <h1 className="text-2xl md:text-3xl font-black">{subject.name}</h1>
             </div>
           </div>
         </div>
@@ -262,14 +262,14 @@ export default function Subject() {
 
         {/* ── الأسئلة التوجيهية الأولية ── Gold session intro card (RESTORED) */}
         {!isSubscriptionExpired && (
-        <div className="glass-gold p-8 rounded-3xl border-gold/20 mb-10 shadow-lg shadow-gold/5 relative overflow-hidden">
+        <div className="glass-gold p-5 md:p-8 rounded-3xl border-gold/20 mb-8 md:mb-10 shadow-lg shadow-gold/5 relative overflow-hidden">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gold/5 blur-3xl -z-10" />
-          <div className="flex items-start gap-5">
-            <div className="w-14 h-14 rounded-2xl gradient-gold flex items-center justify-center shrink-0 shadow-md">
-              <Sparkles className="w-7 h-7 text-primary-foreground" />
+          <div className="flex items-start gap-4 md:gap-5">
+            <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl gradient-gold flex items-center justify-center shrink-0 shadow-md">
+              <Sparkles className="w-6 h-6 md:w-7 md:h-7 text-primary-foreground" />
             </div>
             <div className="flex-1">
-              <h2 className="text-2xl font-bold mb-2">جلستك التعليمية المخصصة</h2>
+              <h2 className="text-xl md:text-2xl font-bold mb-2">جلستك التعليمية المخصصة</h2>
               <p className="text-muted-foreground text-sm leading-relaxed mb-5">
                 يرافقك معلمك الذكي خطوة بخطوة، يشرح المفهوم أولاً بمثال واقعي، ثم يطرح عليك سؤالاً توجيهياً للتثبيت قبل الانتقال للمرحلة التالية.
               </p>
@@ -361,14 +361,14 @@ function Countdown({ until, onExpired }: { until: string; onExpired?: () => void
   const seconds = Math.floor((timeLeft % 60000) / 1000);
 
   return (
-    <div className="flex items-center justify-center gap-3" dir="ltr">
+    <div className="flex items-center justify-center gap-2 md:gap-3" dir="ltr">
       {[{ v: hours, l: "ساعة" }, { v: minutes, l: "دقيقة" }, { v: seconds, l: "ثانية" }].map((item, i, arr) => (
-        <div key={item.l} className="flex items-center gap-3">
-          <div className="bg-black/40 border border-gold/20 rounded-2xl px-5 py-3 text-center min-w-[72px]">
-            <div className="text-4xl font-black text-gold font-mono">{String(item.v).padStart(2, '0')}</div>
+        <div key={item.l} className="flex items-center gap-2 md:gap-3">
+          <div className="bg-black/40 border border-gold/20 rounded-xl md:rounded-2xl px-3 py-2 md:px-5 md:py-3 text-center min-w-[52px] md:min-w-[72px]">
+            <div className="text-2xl md:text-4xl font-black text-gold font-mono">{String(item.v).padStart(2, '0')}</div>
             <div className="text-xs text-muted-foreground mt-0.5">{item.l}</div>
           </div>
-          {i < arr.length - 1 && <span className="text-2xl font-bold text-gold/50">:</span>}
+          {i < arr.length - 1 && <span className="text-xl md:text-2xl font-bold text-gold/50">:</span>}
         </div>
       ))}
     </div>

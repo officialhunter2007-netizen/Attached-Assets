@@ -63,14 +63,14 @@ export default function Welcome() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -40 }}
             >
-              <h1 className="text-4xl md:text-5xl font-black mb-4">أهلاً بك في النخبة</h1>
-              <p className="text-xl text-muted-foreground mb-12">كيف تحب أن نناديك؟</p>
-              <form onSubmit={handleNameSubmit} className="space-y-6 max-w-sm mx-auto">
+              <h1 className="text-3xl md:text-5xl font-black mb-3 md:mb-4">أهلاً بك في النخبة</h1>
+              <p className="text-base md:text-xl text-muted-foreground mb-8 md:mb-12">كيف تحب أن نناديك؟</p>
+              <form onSubmit={handleNameSubmit} className="space-y-4 md:space-y-6 max-w-sm mx-auto">
                 <Input 
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="الاسم الأول أو اللقب..." 
-                  className="h-16 text-center text-2xl bg-black/40 border-gold/30 focus-visible:ring-gold rounded-2xl"
+                  className="h-12 md:h-16 text-center text-lg md:text-2xl bg-black/40 border-gold/30 focus-visible:ring-gold rounded-2xl"
                   autoFocus
                 />
                 <Button 
