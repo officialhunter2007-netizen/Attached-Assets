@@ -495,60 +495,56 @@ router.post("/ai/run-code", async (req, res) => {
   try {
     let result: { output: string; error: string; exitCode: number };
 
+    // ── Interpreted / direct-run languages ──────────────────────────────
     if (language === "python") {
-      result = await runInTempDir(
-        "main.py",
-        (_dir) => "true",
-        (dir) => `python3 ${join(dir, "main.py")}`
-      );
+      result = await runInTempDir("main.py", (_d) => "true", (d) => `python3 ${join(d, "main.py")}`);
     } else if (language === "javascript") {
-      result = await runInTempDir(
-        "main.js",
-        (_dir) => "true",
-        (dir) => `node ${join(dir, "main.js")}`
-      );
+      result = await runInTempDir("main.js", (_d) => "true", (d) => `node ${join(d, "main.js")}`);
+    } else if (language === "typescript") {
+      result = await runInTempDir("main.ts", (_d) => "true",
+        (d) => `npx --yes ts-node --skip-project --compiler-options '{"module":"commonjs","esModuleInterop":true}' ${join(d, "main.ts")}`);
     } else if (language === "ruby") {
-      result = await runInTempDir(
-        "main.rb",
-        (_dir) => "true",
-        (dir) => `ruby ${join(dir, "main.rb")}`
-      );
+      result = await runInTempDir("main.rb", (_d) => "true", (d) => `ruby ${join(d, "main.rb")}`);
     } else if (language === "php") {
-      result = await runInTempDir(
-        "main.php",
-        (_dir) => "true",
-        (dir) => `php ${join(dir, "main.php")}`
-      );
+      result = await runInTempDir("main.php", (_d) => "true", (d) => `php ${join(d, "main.php")}`);
     } else if (language === "bash") {
-      result = await runInTempDir(
-        "script.sh",
-        (_dir) => "true",
-        (dir) => `bash ${join(dir, "script.sh")}`
-      );
+      result = await runInTempDir("script.sh", (_d) => "true", (d) => `bash ${join(d, "script.sh")}`);
+    } else if (language === "perl") {
+      result = await runInTempDir("main.pl", (_d) => "true", (d) => `perl ${join(d, "main.pl")}`);
+    } else if (language === "lua") {
+      result = await runInTempDir("main.lua", (_d) => "true", (d) => `luajit ${join(d, "main.lua")}`);
+    } else if (language === "r") {
+      result = await runInTempDir("main.R", (_d) => "true", (d) => `Rscript ${join(d, "main.R")}`);
+    } else if (language === "elixir") {
+      result = await runInTempDir("main.exs", (_d) => "true", (d) => `elixir ${join(d, "main.exs")}`);
+    } else if (language === "swift") {
+      result = await runInTempDir("main.swift", (_d) => "true", (d) => `swift ${join(d, "main.swift")}`);
+    } else if (language === "dart") {
+      result = await runInTempDir("main.dart", (_d) => "true", (d) => `dart run ${join(d, "main.dart")}`);
+    } else if (language === "sql") {
+      result = await runInTempDir("main.sql", (_d) => "true", (d) => `sqlite3 :memory: < ${join(d, "main.sql")}`);
+    } else if (language === "awk") {
+      result = await runInTempDir("main.awk", (_d) => "true", (d) => `awk -f ${join(d, "main.awk")}`);
+
+    // ── Compiled languages ──────────────────────────────────────────────
     } else if (language === "cpp") {
-      result = await runInTempDir(
-        "main.cpp",
-        (dir) => `g++ -o ${join(dir, "out")} ${join(dir, "main.cpp")}`,
-        (dir) => join(dir, "out")
-      );
+      result = await runInTempDir("main.cpp",
+        (d) => `g++ -o ${join(d, "out")} ${join(d, "main.cpp")}`,
+        (d) => join(d, "out"));
     } else if (language === "c") {
-      result = await runInTempDir(
-        "main.c",
-        (dir) => `gcc -o ${join(dir, "out")} ${join(dir, "main.c")}`,
-        (dir) => join(dir, "out")
-      );
+      result = await runInTempDir("main.c",
+        (d) => `gcc -o ${join(d, "out")} ${join(d, "main.c")}`,
+        (d) => join(d, "out"));
     } else if (language === "go") {
-      result = await runInTempDir(
-        "main.go",
-        (dir) => `go build -o ${join(dir, "out")} ${join(dir, "main.go")}`,
-        (dir) => join(dir, "out")
-      );
+      result = await runInTempDir("main.go",
+        (d) => `go build -o ${join(d, "out")} ${join(d, "main.go")}`,
+        (d) => join(d, "out"));
     } else if (language === "rust") {
-      result = await runInTempDir(
-        "main.rs",
-        (dir) => `rustc -o ${join(dir, "out")} ${join(dir, "main.rs")}`,
-        (dir) => join(dir, "out")
-      );
+      result = await runInTempDir("main.rs",
+        (d) => `rustc -o ${join(d, "out")} ${join(d, "main.rs")}`,
+        (d) => join(d, "out"));
+
+    // ── JVM languages (Java / Kotlin) ────────────────────────────────────
     } else if (language === "java") {
       const dir = await mkdtemp(join(tmpdir(), "nukhba-"));
       try {
@@ -568,8 +564,28 @@ router.post("/ai/run-code", async (req, res) => {
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
+    } else if (language === "kotlin") {
+      const dir = await mkdtemp(join(tmpdir(), "nukhba-"));
+      try {
+        await writeFile(join(dir, "Main.kt"), code, "utf8");
+        try {
+          await execAsync(`kotlinc ${join(dir, "Main.kt")} -include-runtime -d ${join(dir, "out.jar")}`, { timeout: 45000, maxBuffer: MAX_BUF });
+        } catch (e: any) {
+          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+          return res.json(result);
+        }
+        try {
+          const { stdout, stderr } = await execAsync(`java -jar ${join(dir, "out.jar")}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+          result = { output: stdout, error: stderr, exitCode: 0 };
+        } catch (e: any) {
+          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+
     } else {
-      return res.status(400).json({ error: "Unsupported language" });
+      return res.status(400).json({ error: `اللغة غير مدعومة: ${language}` });
     }
 
     return res.json(result);
