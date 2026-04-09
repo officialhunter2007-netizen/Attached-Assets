@@ -73,14 +73,7 @@ export default function Home() {
 
         {/* Sections */}
         <section className="container mx-auto px-4 mb-16 md:mb-32">
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
-            <motion.div whileHover={{ y: -5 }} className="glass-gold p-6 md:p-8 rounded-3xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-gold/20 rounded-bl-full -z-10 group-hover:scale-150 transition-transform duration-500" />
-              <BookOpen className="w-10 h-10 md:w-12 md:h-12 text-gold mb-4 md:mb-6" />
-              <h3 className="text-xl md:text-2xl font-bold mb-2 md:mb-4">الثانوية</h3>
-              <p className="text-sm md:text-base text-muted-foreground">شروحات مبسطة، ملخصات ذكية، واختبارات تفاعلية لجميع مواد المرحلة الثانوية.</p>
-            </motion.div>
-            
+          <div className="grid grid-cols-2 gap-4 md:gap-6 max-w-3xl mx-auto">
             <motion.div whileHover={{ y: -5 }} className="glass-emerald p-6 md:p-8 rounded-3xl relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-emerald/20 rounded-bl-full -z-10 group-hover:scale-150 transition-transform duration-500" />
               <GraduationCap className="w-10 h-10 md:w-12 md:h-12 text-emerald mb-4 md:mb-6" />
@@ -88,7 +81,7 @@ export default function Home() {
               <p className="text-sm md:text-base text-muted-foreground">مسارات مخصصة لتخصصات تقنية المعلومات، الهندسة، وإدارة الأعمال.</p>
             </motion.div>
             
-            <motion.div whileHover={{ y: -5 }} className="glass p-6 md:p-8 rounded-3xl border-blue-500/20 relative overflow-hidden group sm:col-span-2 md:col-span-1">
+            <motion.div whileHover={{ y: -5 }} className="glass p-6 md:p-8 rounded-3xl border-blue-500/20 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-blue-500/20 rounded-bl-full -z-10 group-hover:scale-150 transition-transform duration-500" />
               <Terminal className="w-10 h-10 md:w-12 md:h-12 text-blue-400 mb-4 md:mb-6" />
               <h3 className="text-xl md:text-2xl font-bold mb-2 md:mb-4">المهارات</h3>
