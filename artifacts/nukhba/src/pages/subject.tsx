@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
 import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { CodeEditorPanel } from "@/components/code-editor-panel";
 
 interface LessonSummary {
   id: number;
@@ -383,6 +384,17 @@ function stripInlineStyles(html: string): string {
     .replace(/\scolor\s*=\s*["'][^"']*["']/gi, '');
 }
 
+function isCodingChallenge(content: string): boolean {
+  const lower = content.toLowerCase();
+  const hasCodeBlock = /<pre[^>]*><code|```/.test(content);
+  if (hasCodeBlock) return true;
+  const programmingLangs = ["python", "javascript", "java", "c++", "cpp", "go", "rust", "ruby", "php", "bash", "بايثون", "جافا", "كود", "code", "script"];
+  const actionKeywords = ["اكتب", "برمج", "جرّب", "جرب", "طبّق", "نفّذ", "حاول", "شارك", "أكمل", "أنشئ", "ابنِ", "صحّح"];
+  const hasLang = programmingLangs.some(kw => lower.includes(kw));
+  const hasAction = actionKeywords.some(kw => lower.includes(kw));
+  return hasLang && hasAction;
+}
+
 function AIMessage({ content, isStreaming }: { content: string; isStreaming: boolean }) {
   const plainText = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   const safe = stripInlineStyles(content);
@@ -699,34 +711,62 @@ function SubjectPathChat({
       <ScrollArea className="flex-1 px-4 py-5" ref={scrollRef}>
         <div className="max-w-2xl mx-auto space-y-4 pb-4">
           <AnimatePresence initial={false}>
-            {messages.map((msg, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                style={{ direction: 'ltr' }}
-                className={`flex gap-3 items-end ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
-              >
-                {/* Avatar */}
-                <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-bold shadow ${
-                  msg.role === 'user'
-                    ? 'bg-white/10 text-white/70'
-                    : 'gradient-gold text-primary-foreground'
-                }`}>
-                  {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-                </div>
-                {/* Bubble */}
-                <div style={{ direction: 'rtl' }}>
-                  {msg.role === 'user' ? (
-                    <div className="rounded-2xl rounded-br-none px-4 py-3 bg-white/10 border border-white/15 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm">
-                      {msg.content}
+            {messages.map((msg, i) => {
+              const isLastMsg = i === messages.length - 1;
+              const isAI = msg.role === 'assistant';
+              const isFinished = !isStreaming || !isLastMsg;
+              const showEditor = isAI && isFinished && msg.content.length > 0 && isCodingChallenge(msg.content);
+
+              return (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  style={{ direction: 'rtl' }}
+                  className="flex flex-col gap-3"
+                >
+                  <div
+                    style={{ direction: 'ltr' }}
+                    className={`flex gap-3 items-end ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+                  >
+                    {/* Avatar */}
+                    <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-bold shadow ${
+                      msg.role === 'user'
+                        ? 'bg-white/10 text-white/70'
+                        : 'gradient-gold text-primary-foreground'
+                    }`}>
+                      {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                     </div>
-                  ) : (
-                    <AIMessage content={msg.content} isStreaming={isStreaming && i === messages.length - 1} />
+                    {/* Bubble */}
+                    <div style={{ direction: 'rtl' }}>
+                      {msg.role === 'user' ? (
+                        <div className="rounded-2xl rounded-br-none px-4 py-3 bg-white/10 border border-white/15 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm">
+                          {msg.content}
+                        </div>
+                      ) : (
+                        <AIMessage content={msg.content} isStreaming={isStreaming && isLastMsg} />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Code Editor — shown inline after AI coding challenge messages */}
+                  {showEditor && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.3 }}
+                      className="mr-11"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-2 h-2 rounded-full bg-gold animate-pulse" />
+                        <span className="text-xs font-bold text-gold">بيئة التطبيق — اكتب وشغّل كودك مباشرة</span>
+                      </div>
+                      <CodeEditorPanel sectionContent={msg.content} subjectId={subject.id} />
+                    </motion.div>
                   )}
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
             {isStreaming && messages[messages.length - 1]?.role === 'user' && (
               <motion.div
                 initial={{ opacity: 0 }}

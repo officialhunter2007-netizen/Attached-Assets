@@ -358,6 +358,9 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
 - class="discover-box" → لطلبات الاكتشاف (بنفسجي)
 - class="tip-box" → للتلميحات والنصائح
 - الكود البرمجي داخل <pre><code> واتجاهه LTR
+- **مهم جداً — تحديات الكتابة:** عندما تطلب من الطالب كتابة كود أو تطبيق برمجي، ضع دائماً مثالاً أو هيكلاً للكود داخل <pre><code>...</code></pre> كنقطة بداية. مثال: <pre><code>def greet(name):
+    # اكتب كودك هنا
+    pass</code></pre>
 - لا تستخدم ** أو # أو أي Markdown`;
 
   const diagnosticSystemPrompt = `أنت معلم خاص متمكن في مادة: ${subjectName}. هذه أول جلسة للطالب في هذه المادة ومهمتك الآن معرفة مستواه وبناء خطة مخصصة له.
