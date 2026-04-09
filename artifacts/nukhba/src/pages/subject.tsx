@@ -839,12 +839,12 @@ function SubjectPathChat({
               e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 handleSend();
               }
             }}
-            placeholder="اسأل معلمك أو اكتب كودك هنا... (Enter للإرسال، Shift+Enter لسطر جديد)"
+            placeholder="اسأل معلمك أو اكتب كودك هنا... (Ctrl+Enter للإرسال)"
             disabled={isStreaming}
             style={{
               minHeight: "56px",
@@ -863,6 +863,9 @@ function SubjectPathChat({
             <Send className="w-5 h-5" />
           </Button>
         </form>
+        <p className="text-center text-[11px] text-white/20 mt-1.5 max-w-3xl mx-auto" style={{ direction: "rtl" }}>
+          Enter = سطر جديد &nbsp;·&nbsp; زر السهم للإرسال &nbsp;·&nbsp; <span className="hidden sm:inline">Ctrl+Enter للإرسال السريع &nbsp;·&nbsp;</span> يمكنك لصق كود مباشرةً هنا
+        </p>
         {messages.length >= 2 && !isStreaming && (
           <div className="max-w-3xl mx-auto mt-2 flex justify-center">
             <button
