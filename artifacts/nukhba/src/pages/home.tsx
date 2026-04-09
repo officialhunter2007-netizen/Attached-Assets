@@ -2,16 +2,14 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { BookOpen, GraduationCap, Terminal, Sparkles, Zap, Shield } from "lucide-react";
+import { NukhbaLogo } from "@/components/nukhba-logo";
 
 export default function Home() {
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground font-sans selection:bg-gold/30">
       <header className="fixed top-0 w-full z-50 glass">
         <div className="container mx-auto px-4 h-16 md:h-20 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 md:w-10 md:h-10 rounded-lg gradient-gold flex items-center justify-center text-primary-foreground font-black text-xl md:text-2xl shadow-lg shadow-gold/20">ن</div>
-            <span className="text-xl md:text-2xl font-bold text-gold tracking-tight">نُخبة</span>
-          </div>
+          <NukhbaLogo size="md" />
         </div>
       </header>
       <main className="flex-1 pt-24 md:pt-32 pb-12 md:pb-20">
@@ -207,9 +205,8 @@ export default function Home() {
       </main>
       <footer className="border-t border-white/10 py-8 md:py-12 bg-black/40">
         <div className="container mx-auto px-4 flex flex-col items-center justify-center">
-          <div className="flex items-center gap-2 mb-4 md:mb-6 opacity-50">
-             <div className="w-7 h-7 md:w-8 md:h-8 rounded-md gradient-gold flex items-center justify-center text-primary-foreground font-bold">ن</div>
-             <span className="font-bold text-lg md:text-xl text-gold">نُخبة</span>
+          <div className="mb-4 md:mb-6 opacity-60">
+            <NukhbaLogo size="sm" />
           </div>
           <p className="text-muted-foreground text-xs md:text-sm text-center">صُنع بشغف لطلاب اليمن. جميع الحقوق محفوظة {new Date().getFullYear()} ©</p>
         </div>

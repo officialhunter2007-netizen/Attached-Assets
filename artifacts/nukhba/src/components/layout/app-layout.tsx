@@ -4,6 +4,7 @@ import { LogOut, Menu, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ReactNode } from "react";
+import { NukhbaLogo } from "@/components/nukhba-logo";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -23,9 +24,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground font-sans">
       <header className="sticky top-0 z-50 w-full border-b border-border/40 glass">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href={user ? "/learn" : "/"} className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md gradient-gold flex items-center justify-center text-primary-foreground font-bold text-xl">ن</div>
-            <span className="text-xl font-bold text-gold">نُخبة</span>
+          <Link href={user ? "/learn" : "/"}>
+            <NukhbaLogo size="md" />
           </Link>
 
           {/* Desktop Nav */}
@@ -73,9 +73,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
       <footer className="border-t border-border/40 py-8 mt-auto">
         <div className="container mx-auto px-4 text-center text-muted-foreground">
-          <div className="flex justify-center items-center gap-2 mb-4">
-             <div className="w-6 h-6 rounded-md gradient-gold flex items-center justify-center text-primary-foreground font-bold text-sm">ن</div>
-             <span className="font-bold text-gold">نُخبة</span>
+          <div className="flex justify-center items-center mb-4">
+            <NukhbaLogo size="sm" />
           </div>
           <p>جميع الحقوق محفوظة {new Date().getFullYear()} © نُخبة</p>
         </div>
