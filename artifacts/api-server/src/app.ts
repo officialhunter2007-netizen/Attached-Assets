@@ -5,6 +5,8 @@ import cookieParser from "cookie-parser";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
+const isProd = process.env.NODE_ENV === "production";
+
 const app: Express = express();
 
 app.use(
@@ -26,6 +28,7 @@ app.use(
     },
   }),
 );
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser(process.env.SESSION_SECRET ?? "nukhba-secret"));
 app.use(express.json({ limit: "10mb" }));
@@ -55,6 +58,7 @@ app.use((_req: any, res: any, next: any) => {
         httpOnly: true,
         signed: false,
         sameSite: "lax",
+        secure: isProd,
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
     } else if ((_req as any).session === null) {
