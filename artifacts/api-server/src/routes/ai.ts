@@ -524,14 +524,12 @@ router.post("/ai/run-code", async (req, res) => {
       result = await runInTempDir("main.pl", (_d) => "true", (d) => `perl ${join(d, "main.pl")}`);
     } else if (language === "lua") {
       result = await runInTempDir("main.lua", (_d) => "true", (d) => `luajit ${join(d, "main.lua")}`);
-    } else if (language === "r") {
-      result = await runInTempDir("main.R", (_d) => "true", (d) => `Rscript ${join(d, "main.R")}`);
-    } else if (language === "elixir") {
-      result = await runInTempDir("main.exs", (_d) => "true", (d) => `elixir ${join(d, "main.exs")}`);
-    } else if (language === "swift") {
-      result = await runInTempDir("main.swift", (_d) => "true", (d) => `swift ${join(d, "main.swift")}`);
-    } else if (language === "dart") {
-      result = await runInTempDir("main.dart", (_d) => "true", (d) => `dart run ${join(d, "main.dart")}`);
+    } else if (language === "r" || language === "elixir" || language === "swift" || language === "dart") {
+      return res.json({
+        output: "",
+        error: `⚠️ لغة ${language} غير متاحة حالياً في بيئة التنفيذ. يمكنك تجربة الكود على Replit.com أو VS Code على جهازك.`,
+        exitCode: 1,
+      });
     } else if (language === "sql") {
       result = await runInTempDir("main.sql", (_d) => "true", (d) => `sqlite3 :memory: < ${join(d, "main.sql")}`);
     } else if (language === "awk") {
@@ -576,24 +574,11 @@ router.post("/ai/run-code", async (req, res) => {
         await rm(dir, { recursive: true, force: true });
       }
     } else if (language === "kotlin") {
-      const dir = await mkdtemp(join(tmpdir(), "nukhba-"));
-      try {
-        await writeFile(join(dir, "Main.kt"), code, "utf8");
-        try {
-          await execAsync(`kotlinc ${join(dir, "Main.kt")} -include-runtime -d ${join(dir, "out.jar")}`, { timeout: 45000, maxBuffer: MAX_BUF });
-        } catch (e: any) {
-          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-          return res.json(result);
-        }
-        try {
-          const { stdout, stderr } = await execAsync(`java -jar ${join(dir, "out.jar")}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-          result = { output: stdout, error: stderr, exitCode: 0 };
-        } catch (e: any) {
-          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-        }
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
+      return res.json({
+        output: "",
+        error: `⚠️ لغة Kotlin غير متاحة حالياً في بيئة التنفيذ. يمكنك تجربة الكود على Replit.com أو VS Code على جهازك.`,
+        exitCode: 1,
+      });
 
     } else {
       return res.status(400).json({ error: `اللغة غير مدعومة: ${language}` });
