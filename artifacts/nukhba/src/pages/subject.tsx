@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 
@@ -186,6 +186,7 @@ export default function Subject() {
   const [, setLocation] = useLocation();
 
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isIDEOpen, setIsIDEOpen] = useState(false);
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(true);
   const [allSummaries, setAllSummaries] = useState<LessonSummary[]>([]);
@@ -317,25 +318,61 @@ export default function Subject() {
         </div>
 
         {/* Chat Dialog */}
-        <Dialog open={isChatOpen} onOpenChange={setIsChatOpen}>
-          <DialogContent className="sm:max-w-[800px] h-[85vh] p-0 flex flex-col glass border-gold/20 gap-0 overflow-hidden bg-background/95">
+        <Dialog open={isChatOpen} onOpenChange={(open) => { setIsChatOpen(open); if (!open) setIsIDEOpen(false); }}>
+          <DialogContent className="sm:max-w-[900px] h-[90vh] p-0 flex flex-col glass border-gold/20 gap-0 overflow-hidden bg-background/95">
             <DialogTitle className="sr-only">المعلم الذكي</DialogTitle>
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-black/20 shrink-0">
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-black/20 shrink-0">
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg`}>
-                  <Bot className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg leading-tight">معلم {subject.name}</h3>
-                  <p className="text-xs text-gold">متصل الآن</p>
-                </div>
+                {isIDEOpen && (
+                  <button
+                    onClick={() => setIsIDEOpen(false)}
+                    className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-white transition-colors ml-1"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                    <span>المحادثة</span>
+                  </button>
+                )}
+                {!isIDEOpen && (
+                  <>
+                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg`}>
+                      <Bot className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-lg leading-tight">معلم {subject.name}</h3>
+                      <p className="text-xs text-gold">متصل الآن</p>
+                    </div>
+                  </>
+                )}
+                {isIDEOpen && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-[#1e1e2e] border border-white/10 flex items-center justify-center">
+                      <Code2 className="w-4 h-4 text-gold" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-base leading-tight">بيئة التطبيق</h3>
+                      <p className="text-xs text-muted-foreground">اكتب وشغّل كودك</p>
+                    </div>
+                  </div>
+                )}
               </div>
+              <button
+                onClick={() => setIsIDEOpen(v => !v)}
+                className={`flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-xl transition-all border ${
+                  isIDEOpen
+                    ? "bg-white/5 border-white/10 text-muted-foreground hover:text-white"
+                    : "bg-gold/10 border-gold/30 text-gold hover:bg-gold/20"
+                }`}
+              >
+                <Code2 className="w-4 h-4" />
+                <span>{isIDEOpen ? "إغلاق IDE" : "فتح IDE"}</span>
+              </button>
             </div>
             <SubjectPathChat
               subject={subject}
               isFirstSession={!summariesLoading && summaries.length === 0}
               onAccessDenied={() => { setIsChatOpen(false); setLocation("/subscription"); }}
               onSessionComplete={handleSessionComplete}
+              ideOpen={isIDEOpen}
             />
           </DialogContent>
         </Dialog>
@@ -384,9 +421,6 @@ function stripInlineStyles(html: string): string {
     .replace(/\scolor\s*=\s*["'][^"']*["']/gi, '');
 }
 
-function isCodingChallenge(content: string): boolean {
-  return /<pre[^>]*>\s*<code[^>]*>[\s\S]+?<\/code>\s*<\/pre>/i.test(content);
-}
 
 function AIMessage({ content, isStreaming }: { content: string; isStreaming: boolean }) {
   const plainText = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -411,11 +445,13 @@ function SubjectPathChat({
   isFirstSession,
   onAccessDenied,
   onSessionComplete,
+  ideOpen,
 }: { 
   subject: any;
   isFirstSession?: boolean;
   onAccessDenied: () => void;
   onSessionComplete?: () => void;
+  ideOpen?: boolean;
 }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -432,6 +468,17 @@ function SubjectPathChat({
   const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
   const [customPlan, setCustomPlan] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const handleShareWithTeacher = (code: string, language: string, output: string) => {
+    const langLabels: Record<string, string> = {
+      python: "Python 🐍", javascript: "JavaScript ⚡", java: "Java ☕",
+      cpp: "C++ ⚙️", c: "C 🔩", go: "Go 🐹", rust: "Rust 🦀",
+      ruby: "Ruby 💎", php: "PHP 🐘", bash: "Bash 🐚",
+    };
+    const label = langLabels[language] || language;
+    const msg = `كتبت هذا الكود بلغة ${label}:\n\`\`\`${language}\n${code}\n\`\`\`\nالناتج:\n${output || "(لا يوجد إخراج)"}`;
+    sendTeachMessage(msg);
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -685,6 +732,20 @@ function SubjectPathChat({
     );
   }
 
+  if (ideOpen) {
+    return (
+      <div className="flex-1 overflow-y-auto" style={{ direction: "ltr" }}>
+        <div className="p-4">
+          <CodeEditorPanel
+            sectionContent=""
+            subjectId={subject.id}
+            onShareWithTeacher={handleShareWithTeacher}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
       {chatPhase === 'diagnostic' && (
@@ -706,57 +767,32 @@ function SubjectPathChat({
           <AnimatePresence initial={false}>
             {messages.map((msg, i) => {
               const isLastMsg = i === messages.length - 1;
-              const isAI = msg.role === 'assistant';
-              const isFinished = !isStreaming || !isLastMsg;
-              const showEditor = isAI && isFinished && msg.content.length > 0 && isCodingChallenge(msg.content);
-
               return (
                 <motion.div
                   key={i}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  style={{ direction: 'rtl' }}
-                  className="flex flex-col gap-3"
+                  style={{ direction: 'ltr' }}
+                  className={`flex gap-3 items-end ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
                 >
-                  <div
-                    style={{ direction: 'ltr' }}
-                    className={`flex gap-3 items-end ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
-                  >
-                    {/* Avatar */}
-                    <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-bold shadow ${
-                      msg.role === 'user'
-                        ? 'bg-white/10 text-white/70'
-                        : 'gradient-gold text-primary-foreground'
-                    }`}>
-                      {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-                    </div>
-                    {/* Bubble */}
-                    <div style={{ direction: 'rtl' }}>
-                      {msg.role === 'user' ? (
-                        <div className="rounded-2xl rounded-br-none px-4 py-3 bg-white/10 border border-white/15 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm">
-                          {msg.content}
-                        </div>
-                      ) : (
-                        <AIMessage content={msg.content} isStreaming={isStreaming && isLastMsg} />
-                      )}
-                    </div>
+                  {/* Avatar */}
+                  <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-bold shadow ${
+                    msg.role === 'user'
+                      ? 'bg-white/10 text-white/70'
+                      : 'gradient-gold text-primary-foreground'
+                  }`}>
+                    {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                   </div>
-
-                  {/* Code Editor — shown inline after AI coding challenge messages */}
-                  {showEditor && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.3 }}
-                      className="mr-11"
-                    >
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-2 h-2 rounded-full bg-gold animate-pulse" />
-                        <span className="text-xs font-bold text-gold">بيئة التطبيق — اكتب وشغّل كودك مباشرة</span>
+                  {/* Bubble */}
+                  <div style={{ direction: 'rtl' }}>
+                    {msg.role === 'user' ? (
+                      <div className="rounded-2xl rounded-br-none px-4 py-3 bg-white/10 border border-white/15 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm">
+                        {msg.content}
                       </div>
-                      <CodeEditorPanel sectionContent={msg.content} subjectId={subject.id} />
-                    </motion.div>
-                  )}
+                    ) : (
+                      <AIMessage content={msg.content} isStreaming={isStreaming && isLastMsg} />
+                    )}
+                  </div>
                 </motion.div>
               );
             })}

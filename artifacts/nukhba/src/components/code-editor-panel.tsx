@@ -57,9 +57,10 @@ function detectLanguage(html: string, subjectId?: string): string {
 interface Props {
   sectionContent: string;
   subjectId?: string;
+  onShareWithTeacher?: (code: string, language: string, output: string) => void;
 }
 
-export function CodeEditorPanel({ sectionContent, subjectId }: Props) {
+export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher }: Props) {
   const starter = extractStarterCode(sectionContent);
   const detectedLang = detectLanguage(sectionContent, subjectId);
   const [language, setLanguage] = useState(detectedLang);
@@ -237,9 +238,21 @@ export function CodeEditorPanel({ sectionContent, subjectId }: Props) {
         </button>
         <div className="flex-1" />
         {output !== null && !running && (
-          <div className={`text-xs font-mono flex items-center gap-1.5 ${outputType === "success" ? "text-[#28c840]" : "text-[#ff5f57]"}`}>
-            <Circle className="w-2 h-2 fill-current" />
-            {outputType === "success" ? "نجح التنفيذ ✓" : "خطأ في التنفيذ ✗"}
+          <div className="flex items-center gap-3">
+            <div className={`text-xs font-mono flex items-center gap-1.5 ${outputType === "success" ? "text-[#28c840]" : "text-[#ff5f57]"}`}>
+              <Circle className="w-2 h-2 fill-current" />
+              {outputType === "success" ? "نجح التنفيذ ✓" : "خطأ في التنفيذ ✗"}
+            </div>
+            {onShareWithTeacher && (
+              <button
+                onClick={() => onShareWithTeacher(code, language, output ?? "")}
+                className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-all"
+                style={{ direction: "rtl" }}
+              >
+                <span>📤</span>
+                <span>شارك مع المعلم</span>
+              </button>
+            )}
           </div>
         )}
       </div>
