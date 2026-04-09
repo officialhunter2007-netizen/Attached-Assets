@@ -272,7 +272,7 @@ export default function Subscription() {
                       <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-3 rounded-xl border border-gold/20" dir="ltr">
                         3165778412
                       </div>
-                      <p className="text-center text-xs mt-2 text-muted-foreground">باسم: منصة نخبة التعليمية</p>
+                      <p className="text-center text-xs mt-2 text-muted-foreground">باسم: عمرو خالد عبد المولى</p>
                     </>
                   ) : (
                     <div className="bg-black/30 py-4 rounded-xl border border-white/10 text-center">
