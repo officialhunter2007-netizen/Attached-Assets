@@ -449,4 +449,36 @@ ${formattingRules}`;
   res.end();
 });
 
+router.post("/run-code", async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { code, language } = req.body as { code: string; language: string };
+  if (!code || !language) return res.status(400).json({ error: "Missing code or language" });
+
+  const { exec } = await import("child_process");
+  const { promisify } = await import("util");
+  const execAsync = promisify(exec);
+
+  let command: string;
+  if (language === "python") {
+    command = `python3 -c ${JSON.stringify(code)}`;
+  } else if (language === "javascript" || language === "js") {
+    command = `node --input-type=module -e ${JSON.stringify(code)}`;
+  } else {
+    return res.status(400).json({ error: "Unsupported language" });
+  }
+
+  try {
+    const { stdout, stderr } = await execAsync(command, { timeout: 6000, maxBuffer: 1024 * 100 });
+    return res.json({ output: stdout, error: stderr, exitCode: 0 });
+  } catch (e: any) {
+    return res.json({
+      output: e.stdout || "",
+      error: e.stderr || e.message || "خطأ غير معروف",
+      exitCode: e.code ?? 1
+    });
+  }
+});
+
 export default router;

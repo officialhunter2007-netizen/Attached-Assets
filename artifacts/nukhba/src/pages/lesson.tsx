@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Lock, ChevronRight, ChevronLeft, CheckCircle2, Shield, Copy, Trophy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import { CodeEditorPanel } from "@/components/code-editor-panel";
 
 export default function Lesson() {
   const { subjectId, unitId, lessonId } = useParams();
@@ -194,6 +195,7 @@ export default function Lesson() {
             activeSection={activeSection} 
             setActiveSection={setActiveSection}
             lessonId={lessonId!}
+            subjectId={subjectId!}
             viewId={views?.find(v => v.lessonId === lessonId)?.id}
           />
         ) : null}
@@ -227,10 +229,17 @@ function parseSections(html: string) {
   return sections;
 }
 
-function LessonViewer({ sections, activeSection, setActiveSection, lessonId, viewId }: any) {
+function isCodeChallenge(section: { title: string; content: string }, subjectId: string): boolean {
+  const combined = (section.title + section.content + subjectId).toLowerCase();
+  const codeKeywords = ["python", "javascript", "برمج", "كود", "code", "برمجة", "اكتب برنامج", "اكتب دالة", "اكتب كود"];
+  return codeKeywords.some(kw => combined.includes(kw));
+}
+
+function LessonViewer({ sections, activeSection, setActiveSection, lessonId, subjectId, viewId }: any) {
   const progress = ((activeSection + 1) / sections.length) * 100;
   const section = sections[activeSection];
-  const isChallenge = section.title.includes('تحد') || section.title.includes('سؤال');
+  const isChallenge = section.title.includes('تحد') || section.title.includes('سؤال') || section.title.includes('تمرين');
+  const showCodeEditor = isChallenge && isCodeChallenge(section, subjectId || "");
   const [answer, setAnswer] = useState("");
   const markChallenge = useMarkChallengeAnswered();
   const { toast } = useToast();
@@ -272,7 +281,25 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, vie
           />
         </AnimatePresence>
 
-        {isChallenge && (
+        {isChallenge && showCodeEditor && (
+          <div className="mt-6 not-prose">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 rounded-full bg-gold animate-pulse" />
+              <span className="text-sm font-bold text-gold">بيئة التطبيق — اكتب وشغّل كودك</span>
+            </div>
+            <CodeEditorPanel sectionContent={section.content} subjectId={subjectId} />
+            <Button
+              onClick={handleChallengeSubmit}
+              disabled={markChallenge.isPending}
+              className="mt-4 gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20"
+            >
+              <CheckCircle2 className="w-5 h-5 ml-2" />
+              إنهاء التحدي وكسب النقاط
+            </Button>
+          </div>
+        )}
+
+        {isChallenge && !showCodeEditor && (
           <div className="mt-8 p-6 rounded-2xl glass-gold border-gold/20">
             <h4 className="text-xl font-bold text-gold mb-4 mt-0">أجب عن التحدي</h4>
             <Textarea 
