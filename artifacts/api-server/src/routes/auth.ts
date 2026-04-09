@@ -181,6 +181,7 @@ router.post("/auth/complete-first-lesson", async (req, res): Promise<void> => {
 });
 
 function getAppDomain(): string {
+  if (process.env.APP_DOMAIN) return process.env.APP_DOMAIN.trim();
   const prodDomains = process.env.REPLIT_DOMAINS;
   if (prodDomains) return prodDomains.split(",")[0].trim();
   return process.env.REPLIT_DEV_DOMAIN ?? "";
