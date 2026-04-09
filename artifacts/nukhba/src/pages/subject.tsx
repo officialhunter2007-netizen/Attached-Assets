@@ -385,14 +385,7 @@ function stripInlineStyles(html: string): string {
 }
 
 function isCodingChallenge(content: string): boolean {
-  const lower = content.toLowerCase();
-  const hasCodeBlock = /<pre[^>]*><code|```/.test(content);
-  if (hasCodeBlock) return true;
-  const programmingLangs = ["python", "javascript", "java", "c++", "cpp", "go", "rust", "ruby", "php", "bash", "بايثون", "جافا", "كود", "code", "script"];
-  const actionKeywords = ["اكتب", "برمج", "جرّب", "جرب", "طبّق", "نفّذ", "حاول", "شارك", "أكمل", "أنشئ", "ابنِ", "صحّح"];
-  const hasLang = programmingLangs.some(kw => lower.includes(kw));
-  const hasAction = actionKeywords.some(kw => lower.includes(kw));
-  return hasLang && hasAction;
+  return /<pre[^>]*>\s*<code[^>]*>[\s\S]+?<\/code>\s*<\/pre>/i.test(content);
 }
 
 function AIMessage({ content, isStreaming }: { content: string; isStreaming: boolean }) {

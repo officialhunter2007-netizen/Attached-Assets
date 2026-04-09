@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import Editor from "@monaco-editor/react";
-import { Play, RotateCcw, Terminal, Circle, X } from "lucide-react";
+import { Play, RotateCcw, Terminal, Circle, X, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const LANGUAGES = [
@@ -200,6 +200,45 @@ export function CodeEditorPanel({ sectionContent, subjectId }: Props) {
             scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
           }}
         />
+      </div>
+
+      {/* Prominent Run Button Bar */}
+      <div className="bg-[#181825] px-4 py-3 border-t border-white/5 flex items-center gap-3">
+        <button
+          onClick={handleRun}
+          disabled={running}
+          className={`flex items-center gap-2 font-bold px-6 py-2.5 rounded-xl transition-all text-sm shadow-lg ${
+            running
+              ? "bg-[#F59E0B]/30 text-[#F59E0B]/60 cursor-not-allowed"
+              : "bg-[#F59E0B] text-black hover:bg-[#fbbf24] shadow-[#F59E0B]/30 active:scale-95"
+          }`}
+        >
+          {running ? (
+            <>
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              <span>جاري التنفيذ...</span>
+            </>
+          ) : (
+            <>
+              <Zap className="w-4 h-4 fill-current" />
+              <span>تشغيل الكود ▶</span>
+            </>
+          )}
+        </button>
+        <button
+          onClick={handleReset}
+          className="flex items-center gap-2 text-[#6e6a86] hover:text-white/70 transition-colors text-sm px-3 py-2.5 rounded-xl hover:bg-white/5"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          <span>إعادة تعيين</span>
+        </button>
+        <div className="flex-1" />
+        {output !== null && !running && (
+          <div className={`text-xs font-mono flex items-center gap-1.5 ${outputType === "success" ? "text-[#28c840]" : "text-[#ff5f57]"}`}>
+            <Circle className="w-2 h-2 fill-current" />
+            {outputType === "success" ? "نجح التنفيذ ✓" : "خطأ في التنفيذ ✗"}
+          </div>
+        )}
       </div>
 
       {/* Output Panel */}
