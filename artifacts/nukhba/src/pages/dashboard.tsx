@@ -109,17 +109,70 @@ export default function Dashboard() {
     return (
       <AppLayout>
         <div className="container mx-auto px-4 py-8 max-w-4xl">
-          <div className="glass p-6 rounded-3xl border-gold/20 mb-8 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
-              <Lock className="w-6 h-6 text-gold" />
+          <div className="glass p-5 rounded-3xl border-gold/20 mb-6 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
+              <Lock className="w-5 h-5 text-gold" />
             </div>
             <div className="flex-1">
-              <h2 className="font-bold text-lg">انتهت جلستك المجانية</h2>
-              <p className="text-sm text-muted-foreground">اشترك الآن للوصول لجميع الميزات، أو ادعُ 5 أصدقاء للحصول على 3 أيام مجاناً</p>
+              <h2 className="font-bold">انتهت جلستك المجانية</h2>
+              <p className="text-sm text-muted-foreground">اختر طريقتك للاستمرار أدناه</p>
             </div>
-            <Link href="/subscription">
-              <Button className="gradient-gold text-primary-foreground font-bold shrink-0">اشترك الآن</Button>
-            </Link>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4 mb-8">
+            {/* Referral Card */}
+            <div className="glass rounded-3xl border-emerald/20 overflow-hidden">
+              <div className="bg-emerald/10 px-5 py-4 border-b border-emerald/10 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald/20 flex items-center justify-center">
+                  <Users className="w-4 h-4 text-emerald" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-emerald text-sm">ادعُ أصدقاءك — مجاناً</h3>
+                  <p className="text-xs text-muted-foreground">٥ دعوات = ٣ جلسات مجانية</p>
+                </div>
+                <span className="mr-auto text-xs font-bold text-emerald">{refInfo?.referralCount || 0}/5</span>
+              </div>
+              <div className="p-5 space-y-3">
+                <Progress value={((refInfo?.referralCount || 0) / 5) * 100} className="h-2 bg-white/5 [&>div]:bg-emerald" />
+                <div className="bg-black/30 rounded-xl px-3 py-2 text-xs text-muted-foreground font-mono truncate" dir="ltr">
+                  {refInfo?.referralCode ? `${window.location.origin}/register?ref=${refInfo.referralCode}` : "جاري التحميل..."}
+                </div>
+                <Button
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold gap-2"
+                  onClick={() => {
+                    const link = `${window.location.origin}/register?ref=${refInfo?.referralCode}`;
+                    navigator.clipboard.writeText(link);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                    toast({ title: "✓ تم نسخ رابط الدعوة", description: "شاركه مع أصدقائك الآن!", className: "bg-emerald-700 border-none text-white" });
+                  }}
+                >
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {copied ? "تم النسخ!" : "انسخ رابط الدعوة"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Subscription Card */}
+            <div className="glass-gold rounded-3xl p-6 flex flex-col justify-between">
+              <div>
+                <div className="w-10 h-10 rounded-xl bg-gold/20 flex items-center justify-center mb-3">
+                  <Crown className="w-5 h-5 text-gold" />
+                </div>
+                <h3 className="font-bold text-gold mb-1">اشترك في نُخبة</h3>
+                <p className="text-sm text-muted-foreground mb-2">وصول غير محدود مع كل المواد والمسارات</p>
+                <div className="space-y-1 text-xs text-muted-foreground mb-4">
+                  <div>🟤 برونز — ٣٠ رسالة / ١٤ يوم</div>
+                  <div>⚪ فضة — ٦٠ رسالة / ١٤ يوم</div>
+                  <div>🟡 ذهب — ١٠٠ رسالة / ١٤ يوم</div>
+                </div>
+              </div>
+              <Link href="/subscription">
+                <Button className="w-full gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20">
+                  عرض الباقات والأسعار
+                </Button>
+              </Link>
+            </div>
           </div>
 
           <h1 className="text-2xl font-black mb-6 flex items-center gap-3">
