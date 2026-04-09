@@ -34,7 +34,10 @@ function extractStarterCode(html: string): string {
   if (!match) return "";
   return match[1]
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .trim();
 }
 
 function detectLanguage(html: string, subjectId?: string): string {

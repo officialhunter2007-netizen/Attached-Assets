@@ -496,40 +496,35 @@ router.post("/ai/run-code", async (req, res) => {
     let result: { output: string; error: string; exitCode: number };
 
     if (language === "python") {
-      try {
-        const { stdout, stderr } = await execAsync(`python3 -c ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-        result = { output: stdout, error: stderr, exitCode: 0 };
-      } catch (e: any) {
-        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-      }
+      result = await runInTempDir(
+        "main.py",
+        (_dir) => "true",
+        (dir) => `python3 ${join(dir, "main.py")}`
+      );
     } else if (language === "javascript") {
-      try {
-        const { stdout, stderr } = await execAsync(`node -e ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-        result = { output: stdout, error: stderr, exitCode: 0 };
-      } catch (e: any) {
-        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-      }
+      result = await runInTempDir(
+        "main.js",
+        (_dir) => "true",
+        (dir) => `node ${join(dir, "main.js")}`
+      );
     } else if (language === "ruby") {
-      try {
-        const { stdout, stderr } = await execAsync(`ruby -e ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-        result = { output: stdout, error: stderr, exitCode: 0 };
-      } catch (e: any) {
-        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-      }
+      result = await runInTempDir(
+        "main.rb",
+        (_dir) => "true",
+        (dir) => `ruby ${join(dir, "main.rb")}`
+      );
     } else if (language === "php") {
-      try {
-        const { stdout, stderr } = await execAsync(`php -r ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-        result = { output: stdout, error: stderr, exitCode: 0 };
-      } catch (e: any) {
-        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-      }
+      result = await runInTempDir(
+        "main.php",
+        (_dir) => "true",
+        (dir) => `php ${join(dir, "main.php")}`
+      );
     } else if (language === "bash") {
-      try {
-        const { stdout, stderr } = await execAsync(`bash -c ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-        result = { output: stdout, error: stderr, exitCode: 0 };
-      } catch (e: any) {
-        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-      }
+      result = await runInTempDir(
+        "script.sh",
+        (_dir) => "true",
+        (dir) => `bash ${join(dir, "script.sh")}`
+      );
     } else if (language === "cpp") {
       result = await runInTempDir(
         "main.cpp",
