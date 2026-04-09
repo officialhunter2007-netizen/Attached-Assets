@@ -305,9 +305,25 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
       return;
     }
+    const today = getYemenDateString();
+    const yesterdayMs = Date.now() + 3 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000;
+    const yesterday = new Date(yesterdayMs).toISOString().slice(0, 10);
+    const lastActive = user.lastActive ?? null;
+    let newStreak = user.streakDays ?? 0;
+
+    if (lastActive === today) {
+      // already active today — no streak change
+    } else if (lastActive === yesterday) {
+      newStreak = newStreak + 1;
+    } else {
+      newStreak = 1;
+    }
+
     const updates: Record<string, unknown> = {
-      lastSessionDate: getYemenDateString(),
+      lastSessionDate: today,
       lastSessionAt: new Date(),
+      streakDays: newStreak,
+      lastActive: today,
     };
     // Decrement referral sessions if using referral access (not subscription)
     if (canAccessViaReferral && !canAccessViaSubscription) {

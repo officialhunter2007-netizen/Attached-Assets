@@ -1,12 +1,24 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
-import { db, cachedLessonsTable, lessonViewsTable, usersTable } from "@workspace/db";
+import { eq, and, count } from "drizzle-orm";
+import { db, cachedLessonsTable, lessonViewsTable, usersTable, userProgressTable } from "@workspace/db";
 import {
   GetCachedLessonQueryParams,
   SaveCachedLessonBody,
   RecordLessonViewBody,
   MarkChallengeAnsweredParams,
 } from "@workspace/api-zod";
+
+function getYemenDateString(): string {
+  const yemenOffsetMs = 3 * 60 * 60 * 1000;
+  const yemenNow = new Date(Date.now() + yemenOffsetMs);
+  return yemenNow.toISOString().split("T")[0];
+}
+
+function getYesterdayYemenString(): string {
+  const yemenOffsetMs = 3 * 60 * 60 * 1000;
+  const yemenNow = new Date(Date.now() + yemenOffsetMs - 24 * 60 * 60 * 1000);
+  return yemenNow.toISOString().split("T")[0];
+}
 
 const router: IRouter = Router();
 
@@ -136,12 +148,72 @@ router.post("/lessons/views", async (req, res): Promise<void> => {
     challengeAnswered: false,
   }).returning();
 
-  const [currentUser] = await db.select({ points: usersTable.points }).from(usersTable).where(eq(usersTable.id, userId));
-  const updateFields: Record<string, any> = { points: (currentUser?.points ?? 0) + 15 };
+  const [currentUser] = await db
+    .select({ points: usersTable.points, streakDays: usersTable.streakDays, lastActive: usersTable.lastActive })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId));
+
+  const today = getYemenDateString();
+  const yesterday = getYesterdayYemenString();
+  const lastActive = currentUser?.lastActive ?? null;
+  let newStreak = currentUser?.streakDays ?? 0;
+
+  if (lastActive === today) {
+    // already tracked today — no streak change
+  } else if (lastActive === yesterday) {
+    newStreak = newStreak + 1;
+  } else {
+    newStreak = 1;
+  }
+
+  const updateFields: Record<string, any> = {
+    points: (currentUser?.points ?? 0) + 15,
+    streakDays: newStreak,
+    lastActive: today,
+  };
   if (access.isFirstLesson) {
     updateFields.firstLessonComplete = true;
   }
   await db.update(usersTable).set(updateFields).where(eq(usersTable.id, userId));
+
+  // Auto-update subject progress in userProgressTable
+  const [completedResult] = await db
+    .select({ completedLessons: count() })
+    .from(lessonViewsTable)
+    .where(and(eq(lessonViewsTable.userId, userId), eq(lessonViewsTable.subjectId, parsed.data.subjectId)));
+
+  const completedLessons = Number(completedResult?.completedLessons ?? 0);
+  const section = parsed.data.subjectId.startsWith("skill-") ? "skills" : "university";
+
+  const [existingProgress] = await db
+    .select()
+    .from(userProgressTable)
+    .where(and(
+      eq(userProgressTable.userId, userId),
+      eq(userProgressTable.subjectOrSpecialization, parsed.data.subjectId)
+    ));
+
+  if (existingProgress) {
+    await db
+      .update(userProgressTable)
+      .set({
+        completedLessons,
+        lastAccessedLesson: parsed.data.lessonId,
+        lastAccessedUnit: parsed.data.unitId,
+      })
+      .where(eq(userProgressTable.id, existingProgress.id));
+  } else {
+    await db.insert(userProgressTable).values({
+      userId,
+      section,
+      subjectOrSpecialization: parsed.data.subjectId,
+      completedLessons,
+      totalLessons: 0,
+      masteryPercentage: 0,
+      lastAccessedLesson: parsed.data.lessonId,
+      lastAccessedUnit: parsed.data.unitId,
+    });
+  }
 
   res.status(201).json(view);
 });

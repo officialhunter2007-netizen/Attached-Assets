@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight } from "lucide-react";
+import { useGetLessonViews } from "@workspace/api-client-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 
@@ -186,6 +187,8 @@ export default function Subject() {
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isIDEOpen, setIsIDEOpen] = useState(false);
+  const { data: lessonViews } = useGetLessonViews();
+
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(true);
   const [allSummaries, setAllSummaries] = useState<LessonSummary[]>([]);
@@ -242,13 +245,65 @@ export default function Subject() {
         {/* Subject Header */}
         <div className="glass p-4 md:p-6 rounded-3xl border-white/5 mb-6 md:mb-8 relative overflow-hidden">
           <div className={`absolute top-0 right-0 w-40 h-40 bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} opacity-10 rounded-bl-full`} />
-          <div className="flex items-center gap-4 md:gap-5 relative z-10">
-            <div className={`w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center text-3xl md:text-4xl shadow-lg shrink-0`}>
-              {subject.emoji}
+          <div className="relative z-10">
+            <div className="flex items-center gap-4 md:gap-5 mb-4">
+              <div className={`w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center text-3xl md:text-4xl shadow-lg shrink-0`}>
+                {subject.emoji}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-2xl md:text-3xl font-black">{subject.name}</h1>
+                {lessonViews && lessonViews.length > 0 && (() => {
+                  const subjectViews = lessonViews.filter(v => v.subjectId === subject.id);
+                  const totalLessons = subject.units.reduce((s, u) => s + u.lessons.length, 0);
+                  const completedIds = new Set(subjectViews.map(v => v.lessonId));
+                  const completed = subject.units.reduce((s, u) => s + u.lessons.filter(l => completedIds.has(l.id)).length, 0);
+                  if (completed === 0) return null;
+                  const pct = Math.round((completed / totalLessons) * 100);
+                  return (
+                    <div className="mt-2 flex items-center gap-3">
+                      <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-l from-emerald to-emerald/60 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-sm text-emerald font-bold shrink-0">{pct}%</span>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-black">{subject.name}</h1>
-            </div>
+
+            {/* Unit progress grid */}
+            {lessonViews && subject.units.length > 0 && (() => {
+              const subjectViews = lessonViews.filter(v => v.subjectId === subject.id);
+              const completedIds = new Set(subjectViews.map(v => v.lessonId));
+              const hasAnyProgress = subjectViews.length > 0;
+              if (!hasAnyProgress) return null;
+              return (
+                <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(subject.units.length, 4)}, 1fr)` }}>
+                  {subject.units.map(unit => {
+                    const done = unit.lessons.filter(l => completedIds.has(l.id)).length;
+                    const total = unit.lessons.length;
+                    const unitDone = done >= total;
+                    return (
+                      <div key={unit.id} className={`rounded-xl p-2.5 border ${unitDone ? "border-emerald/30 bg-emerald/5" : "border-white/5 bg-white/3"}`}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs text-muted-foreground truncate">{unit.name}</span>
+                          {unitDone && <CheckCircle2 className="w-3.5 h-3.5 text-emerald shrink-0" />}
+                        </div>
+                        <div className="flex gap-1">
+                          {unit.lessons.map(l => (
+                            <div
+                              key={l.id}
+                              className={`flex-1 h-1.5 rounded-full ${completedIds.has(l.id) ? "bg-emerald" : "bg-white/10"}`}
+                            />
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">{done}/{total}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         </div>
 

@@ -1,10 +1,55 @@
 import { Link } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { university, skills } from "@/lib/curriculum";
+import type { Subject } from "@/lib/curriculum";
 import { AppLayout } from "@/components/layout/app-layout";
 import { motion } from "framer-motion";
+import { useGetLessonViews } from "@workspace/api-client-react";
+import { CheckCircle2 } from "lucide-react";
+
+function SubjectProgressBadge({ subject, viewedLessonIds }: { subject: Subject; viewedLessonIds: Set<string> }) {
+  const totalLessons = subject.units.reduce((sum, u) => sum + u.lessons.length, 0);
+  const completedLessons = subject.units.reduce((sum, u) => {
+    return sum + u.lessons.filter(l => viewedLessonIds.has(`${subject.id}__${l.id}`)).length;
+  }, 0);
+
+  if (completedLessons === 0) return null;
+
+  const pct = Math.round((completedLessons / totalLessons) * 100);
+  const isDone = completedLessons >= totalLessons;
+
+  return (
+    <div className="w-full mt-2">
+      {isDone ? (
+        <div className="flex items-center justify-center gap-1 text-xs text-emerald font-bold">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          <span>مكتمل</span>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>{completedLessons}/{totalLessons} درس</span>
+            <span>{pct}%</span>
+          </div>
+          <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-l from-emerald to-emerald/60 rounded-full transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Learn() {
+  const { data: views } = useGetLessonViews();
+
+  const viewedLessonIds = new Set<string>(
+    (views ?? []).map(v => `${v.subjectId}__${v.lessonId}`)
+  );
+
   const container = {
     hidden: { opacity: 0 },
     show: {
@@ -48,6 +93,7 @@ export default function Learn() {
                         {subject.emoji}
                       </div>
                       <h3 className="text-lg font-bold mb-2">{subject.name}</h3>
+                      <SubjectProgressBadge subject={subject} viewedLessonIds={viewedLessonIds} />
                     </div>
                   </motion.div>
                 </Link>
@@ -77,6 +123,7 @@ export default function Learn() {
                             {subject.emoji}
                           </div>
                           <h3 className="text-lg font-bold mb-2">{subject.name}</h3>
+                          <SubjectProgressBadge subject={subject} viewedLessonIds={viewedLessonIds} />
                         </div>
                       </motion.div>
                     </Link>

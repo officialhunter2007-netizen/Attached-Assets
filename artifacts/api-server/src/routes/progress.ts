@@ -20,8 +20,7 @@ async function checkAccess(userId: number): Promise<boolean> {
     new Date(user.subscriptionExpiresAt) > new Date() &&
     (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0);
 
-  const hasReferralAccess = !!user.referralAccessUntil &&
-    new Date(user.referralAccessUntil) > new Date();
+  const hasReferralAccess = (user.referralSessionsLeft ?? 0) > 0;
 
   return hasSubscriptionAccess || hasReferralAccess;
 }
