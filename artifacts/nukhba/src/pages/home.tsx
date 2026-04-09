@@ -14,7 +14,6 @@ export default function Home() {
           </div>
         </div>
       </header>
-
       <main className="flex-1 pt-24 md:pt-32 pb-12 md:pb-20">
         {/* Hero */}
         <section className="container mx-auto px-4 text-center mb-16 md:mb-32 relative">
@@ -64,7 +63,8 @@ export default function Home() {
                 <div className="text-xs md:text-sm text-muted-foreground">درس تفاعلي</div>
               </div>
               <div>
-                <div className="text-2xl md:text-4xl font-bold text-white mb-1 md:mb-2">٣</div>
+                <div className="text-2xl md:text-4xl font-bold text-white mb-1 md:mb-2">2
+</div>
                 <div className="text-xs md:text-sm text-muted-foreground">أقسام رئيسية</div>
               </div>
             </div>
@@ -212,7 +212,6 @@ export default function Home() {
           </div>
         </section>
       </main>
-
       <footer className="border-t border-white/10 py-8 md:py-12 bg-black/40">
         <div className="container mx-auto px-4 flex flex-col items-center justify-center">
           <div className="flex items-center gap-2 mb-4 md:mb-6 opacity-50">
