@@ -455,6 +455,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/AdminStats"
 
+  /admin/users:
+    get:
+      operationId: getAdminUsers
+      tags: [admin]
+      summary: Get all users with activity info (admin)
+      responses:
+        "200":
+          description: Users list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminUser"
+
+  /admin/users/{id}/cancel-subscription:
+    post:
+      operationId: cancelUserSubscription
+      tags: [admin]
+      summary: Cancel a user's subscription (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
   /referrals/info:
     get:
       operationId: getReferralInfo
@@ -987,6 +1024,56 @@ components:
         - activeSubscriptions
         - totalCards
         - totalUsers
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        role:
+          type: string
+        nukhbaPlan:
+          type: string
+          nullable: true
+        messagesLeft:
+          type: integer
+          nullable: true
+        points:
+          type: integer
+        streakDays:
+          type: integer
+        lastActive:
+          type: string
+          nullable: true
+        firstLessonComplete:
+          type: boolean
+        createdAt:
+          type: string
+          nullable: true
+        totalSubscriptionRequests:
+          type: integer
+        lastRequestStatus:
+          type: string
+          nullable: true
+        lastRequestPlan:
+          type: string
+          nullable: true
+        lastRequestDate:
+          type: string
+          nullable: true
+      required:
+        - id
+        - email
+        - role
+        - points
+        - streakDays
+        - firstLessonComplete
+        - totalSubscriptionRequests
 
     ReferralInfo:
       type: object

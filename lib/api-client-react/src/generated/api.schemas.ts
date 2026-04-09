@@ -292,6 +292,24 @@ export interface AdminStats {
   totalUsers: number;
 }
 
+export interface AdminUser {
+  id: number;
+  email: string;
+  displayName?: string | null;
+  role: string;
+  nukhbaPlan?: string | null;
+  messagesLeft?: number | null;
+  points: number;
+  streakDays: number;
+  lastActive?: string | null;
+  firstLessonComplete: boolean;
+  createdAt?: string | null;
+  totalSubscriptionRequests: number;
+  lastRequestStatus?: string | null;
+  lastRequestPlan?: string | null;
+  lastRequestDate?: string | null;
+}
+
 export interface ReferralInfo {
   referralCode: string;
   referralCount: number;
@@ -368,3 +386,7 @@ export const GetAdminSubscriptionRequestsStatus = {
   rejected: "rejected",
   incomplete: "incomplete",
 } as const;
+
+export type CancelUserSubscription200 = {
+  success?: boolean;
+};

@@ -9,8 +9,11 @@ import {
   useApproveSubscriptionRequest,
   useRejectSubscriptionRequest,
   useMarkIncompleteSubscriptionRequest,
+  useGetAdminUsers,
+  useCancelUserSubscription,
   getGetAdminSubscriptionRequestsQueryKey,
   getGetAdminStatsQueryKey,
+  getGetAdminUsersQueryKey,
 } from "@workspace/api-client-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -23,7 +26,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   Check, X, ShieldAlert, Users, CreditCard, Ticket,
-  Copy, Plus, Filter, RefreshCw, AlertTriangle,
+  Copy, Plus, Filter, RefreshCw, AlertTriangle, Ban,
+  Zap, Star, Gem, MessageCircle, Activity, Search,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -43,13 +47,18 @@ export default function Admin() {
   const [incompleteTarget, setIncompleteTarget] = useState<{ id: number; userName: string } | null>(null);
   const [incompleteNote, setIncompleteNote] = useState("");
 
+  const [cancelTarget, setCancelTarget] = useState<{ id: number; name: string } | null>(null);
+  const [userSearch, setUserSearch] = useState("");
+
   const { data: stats, refetch: refetchStats } = useGetAdminStats();
   const { data: requests, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
   const { data: cards, refetch: refetchCards } = useGetActivationCards();
+  const { data: allUsers, refetch: refetchUsers } = useGetAdminUsers();
 
   const approveMutation = useApproveSubscriptionRequest();
   const rejectMutation = useRejectSubscriptionRequest();
   const incompleteMutation = useMarkIncompleteSubscriptionRequest();
+  const cancelSubMutation = useCancelUserSubscription();
 
   if (user?.role !== 'admin') {
     return (
@@ -67,10 +76,25 @@ export default function Admin() {
   const planLabels: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
   const regionLabels: Record<string, string> = { north: "شمال", south: "جنوب" };
 
+  const planIcons: Record<string, React.ReactNode> = {
+    bronze: <Zap className="w-3.5 h-3.5 text-orange-400" />,
+    silver: <Star className="w-3.5 h-3.5 text-slate-300" />,
+    gold: <Gem className="w-3.5 h-3.5 text-gold" />,
+  };
+
   const pendingCount = requests?.filter(r => r.status === 'pending').length ?? 0;
   const filteredRequests = filterStatus === 'all'
     ? requests
     : requests?.filter(r => r.status === filterStatus);
+
+  const filteredUsers = allUsers?.filter(u => {
+    if (!userSearch.trim()) return true;
+    const q = userSearch.toLowerCase();
+    return (
+      u.email.toLowerCase().includes(q) ||
+      (u.displayName ?? "").toLowerCase().includes(q)
+    );
+  });
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: getGetAdminSubscriptionRequestsQueryKey() });
@@ -83,10 +107,7 @@ export default function Admin() {
     try {
       await approveMutation.mutateAsync({ id: req.id });
       toast({ title: "تم تفعيل الاشتراك مباشرة", className: "bg-emerald-600 text-white border-none" });
-      setApprovedUser({
-        planType: req.planType,
-        userName: req.userName || req.userEmail,
-      });
+      setApprovedUser({ planType: req.planType, userName: req.userName || req.userEmail });
       invalidateAll();
       refetchCards();
     } catch {
@@ -125,6 +146,20 @@ export default function Admin() {
     }
   };
 
+  const handleCancelSubscription = async () => {
+    if (!cancelTarget) return;
+    try {
+      await cancelSubMutation.mutateAsync({ id: cancelTarget.id });
+      toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
+      setCancelTarget(null);
+      queryClient.invalidateQueries({ queryKey: getGetAdminUsersQueryKey() });
+      refetchUsers();
+      refetchStats();
+    } catch {
+      toast({ variant: "destructive", title: "حدث خطأ أثناء الإلغاء" });
+    }
+  };
+
   const handleCreateCard = async () => {
     setIsCreatingCard(true);
     try {
@@ -151,9 +186,7 @@ export default function Admin() {
   };
 
   const handleRefreshAll = () => {
-    refetchStats();
-    refetchRequests();
-    refetchCards();
+    refetchStats(); refetchRequests(); refetchCards(); refetchUsers();
     toast({ title: "تم التحديث", className: "bg-black border-white/10 text-white" });
   };
 
@@ -216,6 +249,10 @@ export default function Admin() {
               {pendingCount > 0 && (
                 <span className="mr-2 bg-orange-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold">{pendingCount}</span>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="users" className="flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" />
+              المستخدمون
             </TabsTrigger>
             <TabsTrigger value="cards">بطاقات التفعيل</TabsTrigger>
           </TabsList>
@@ -356,6 +393,116 @@ export default function Admin() {
             </div>
           </TabsContent>
 
+          {/* Users Tab */}
+          <TabsContent value="users">
+            <div className="mb-4">
+              <div className="relative max-w-sm">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="بحث بالاسم أو البريد..."
+                  className="bg-black/40 pr-10"
+                  value={userSearch}
+                  onChange={e => setUserSearch(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="glass rounded-3xl border-white/5 overflow-hidden">
+              <Table>
+                <TableHeader className="bg-black/40">
+                  <TableRow className="border-white/5">
+                    <TableHead className="text-right">المستخدم</TableHead>
+                    <TableHead className="text-right">الاشتراك</TableHead>
+                    <TableHead className="text-right">
+                      <div className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" /> الرسائل</div>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <div className="flex items-center gap-1"><Activity className="w-3.5 h-3.5" /> النشاط</div>
+                    </TableHead>
+                    <TableHead className="text-right">الطلبات</TableHead>
+                    <TableHead className="text-right">تاريخ التسجيل</TableHead>
+                    <TableHead className="text-center">إجراءات</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {!filteredUsers?.length ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                        {userSearch ? 'لا توجد نتائج' : 'لا يوجد مستخدمون'}
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredUsers.map((u) => (
+                    <TableRow key={u.id} className="border-white/5 hover:bg-white/3">
+                      <TableCell>
+                        <div className="font-bold text-sm">{u.displayName || 'بدون اسم'}</div>
+                        <div className="text-xs text-muted-foreground">{u.email}</div>
+                        {u.role === 'admin' && (
+                          <Badge className="bg-gold/20 text-gold border-0 text-xs mt-0.5">مشرف</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {u.nukhbaPlan ? (
+                          <div className="flex items-center gap-1.5">
+                            {planIcons[u.nukhbaPlan]}
+                            <span className="text-sm font-medium">{planLabels[u.nukhbaPlan] || u.nukhbaPlan}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">بدون اشتراك</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-sm font-bold ${(u.messagesLeft ?? 0) > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                          {u.messagesLeft ?? 0}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs space-y-0.5">
+                          <div className="text-muted-foreground">نقاط: <span className="text-foreground font-medium">{u.points}</span></div>
+                          <div className="text-muted-foreground">تتابع: <span className="text-foreground font-medium">{u.streakDays} يوم</span></div>
+                          {u.lastActive && (
+                            <div className="text-muted-foreground">آخر نشاط: <span className="text-foreground">{new Date(u.lastActive).toLocaleDateString('ar-YE')}</span></div>
+                          )}
+                          {u.firstLessonComplete && (
+                            <Badge className="bg-emerald-500/10 text-emerald-400 border-0 text-xs">أكمل الدرس الأول</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs space-y-0.5">
+                          <div className="text-muted-foreground">الإجمالي: <span className="text-foreground font-medium">{u.totalSubscriptionRequests}</span></div>
+                          {u.lastRequestStatus && (
+                            <div>
+                              {u.lastRequestStatus === 'approved' && <Badge className="bg-emerald-500/20 text-emerald-400 border-0 text-xs">مقبول</Badge>}
+                              {u.lastRequestStatus === 'pending' && <Badge className="bg-orange-500/20 text-orange-400 border-0 text-xs">معلق</Badge>}
+                              {u.lastRequestStatus === 'rejected' && <Badge className="bg-red-500/20 text-red-400 border-0 text-xs">مرفوض</Badge>}
+                              {u.lastRequestStatus === 'incomplete' && <Badge className="bg-yellow-500/20 text-yellow-400 border-0 text-xs">ناقص</Badge>}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString('ar-YE') : '—'}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {u.nukhbaPlan && u.role !== 'admin' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10 gap-1.5"
+                            onClick={() => setCancelTarget({ id: u.id, name: u.displayName || u.email })}
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            إلغاء الاشتراك
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
           {/* Cards Tab */}
           <TabsContent value="cards">
             <div className="flex justify-between items-center mb-4">
@@ -460,12 +607,36 @@ export default function Admin() {
               >
                 {incompleteMutation.isPending ? "جاري الإرسال..." : "إرسال الإشعار"}
               </Button>
-              <Button
-                variant="outline"
-                className="border-white/10"
-                onClick={() => setIncompleteTarget(null)}
-              >
+              <Button variant="outline" className="border-white/10" onClick={() => setIncompleteTarget(null)}>
                 إلغاء
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel Subscription Confirm Dialog */}
+      <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <DialogContent className="glass border-red-500/30 max-w-sm text-center">
+          <DialogTitle className="sr-only">إلغاء الاشتراك</DialogTitle>
+          <div className="p-4">
+            <div className="w-16 h-16 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center mx-auto mb-4">
+              <Ban className="w-8 h-8 text-red-400" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">إلغاء الاشتراك</h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              هل أنت متأكد من إلغاء اشتراك <strong className="text-foreground">{cancelTarget?.name}</strong>؟ سيفقد المستخدم الوصول فوراً.
+            </p>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-bold"
+                disabled={cancelSubMutation.isPending}
+                onClick={handleCancelSubscription}
+              >
+                {cancelSubMutation.isPending ? "جاري الإلغاء..." : "تأكيد الإلغاء"}
+              </Button>
+              <Button variant="outline" className="flex-1 border-white/10" onClick={() => setCancelTarget(null)}>
+                تراجع
               </Button>
             </div>
           </div>

@@ -405,6 +405,39 @@ export const GetAdminStatsResponse = zod.object({
 });
 
 /**
+ * @summary Get all users with activity info (admin)
+ */
+export const GetAdminUsersResponseItem = zod.object({
+  id: zod.number(),
+  email: zod.string(),
+  displayName: zod.string().nullish(),
+  role: zod.string(),
+  nukhbaPlan: zod.string().nullish(),
+  messagesLeft: zod.number().nullish(),
+  points: zod.number(),
+  streakDays: zod.number(),
+  lastActive: zod.string().nullish(),
+  firstLessonComplete: zod.boolean(),
+  createdAt: zod.string().nullish(),
+  totalSubscriptionRequests: zod.number(),
+  lastRequestStatus: zod.string().nullish(),
+  lastRequestPlan: zod.string().nullish(),
+  lastRequestDate: zod.string().nullish(),
+});
+export const GetAdminUsersResponse = zod.array(GetAdminUsersResponseItem);
+
+/**
+ * @summary Cancel a user's subscription (admin)
+ */
+export const CancelUserSubscriptionParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CancelUserSubscriptionResponse = zod.object({
+  success: zod.boolean().optional(),
+});
+
+/**
  * @summary Get current user's referral info and count
  */
 export const GetReferralInfoResponse = zod.object({

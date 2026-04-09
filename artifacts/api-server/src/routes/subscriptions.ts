@@ -348,6 +348,53 @@ router.get("/admin/stats", async (req, res): Promise<void> => {
   });
 });
 
+router.get("/admin/users", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const user = await getUser(userId);
+  if (user?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const users = await db.select().from(usersTable);
+  const allRequests = await db.select().from(subscriptionRequestsTable);
+
+  const result = users.map(u => {
+    const { passwordHash: _, ...safe } = u;
+    const userRequests = allRequests.filter(r => r.userId === u.id);
+    const lastRequest = userRequests.sort((a, b) =>
+      new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
+    )[0] ?? null;
+    return {
+      ...safe,
+      totalSubscriptionRequests: userRequests.length,
+      lastRequestStatus: lastRequest?.status ?? null,
+      lastRequestPlan: lastRequest?.planType ?? null,
+      lastRequestDate: lastRequest?.createdAt ?? null,
+    };
+  });
+
+  res.json(result);
+});
+
+router.post("/admin/users/:id/cancel-subscription", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const targetId = parseInt(req.params.id, 10);
+  if (isNaN(targetId)) { res.status(400).json({ error: "Invalid user id" }); return; }
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({ nukhbaPlan: null, messagesLeft: 0 })
+    .where(eq(usersTable.id, targetId))
+    .returning();
+
+  if (!updated) { res.status(404).json({ error: "User not found" }); return; }
+
+  res.json({ success: true });
+});
+
 router.get("/referrals/info", async (req, res): Promise<void> => {
   const userId = getUserId(req);
   if (!userId) {
