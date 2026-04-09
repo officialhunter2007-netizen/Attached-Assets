@@ -129,7 +129,7 @@ export default function Home() {
             <p className="text-sm md:text-base text-muted-foreground">الدفع عبر محفظة كريمي — اختر ما يناسبك</p>
           </div>
           
-          <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 max-w-6xl mx-auto">
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 max-w-5xl mx-auto">
             {/* Free */}
             <div className="glass p-6 md:p-8 rounded-3xl border-white/10 flex flex-col">
               <h3 className="text-lg md:text-xl font-bold mb-2">مجاني</h3>
@@ -139,23 +139,8 @@ export default function Home() {
                 <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-emerald flex-shrink-0" /> درس واحد مجاني للتجربة</li>
                 <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-emerald flex-shrink-0" /> تصفح المنهج الدراسي</li>
               </ul>
-              <Link href="/register" className="w-full">
+              <Link href="/learn" className="w-full">
                 <Button className="w-full" variant="outline">جرب الآن</Button>
-              </Link>
-            </div>
-            
-            {/* Referral */}
-            <div className="glass p-6 md:p-8 rounded-3xl border-purple-500/30 flex flex-col relative overflow-hidden">
-              <div className="absolute top-4 left-4 bg-purple-500/20 text-purple-300 text-xs px-3 py-1 rounded-full">مجاناً</div>
-              <h3 className="text-lg md:text-xl font-bold mb-2 text-purple-400">الإحالة</h3>
-              <div className="text-2xl font-bold mb-1">٣ دروس</div>
-              <p className="text-xs text-muted-foreground mb-5">مقابل كل ٥ إحالات</p>
-              <ul className="space-y-3 mb-6 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-purple-400 flex-shrink-0" /> ادعُ ٥ أصدقاء عبر رابطك</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-purple-400 flex-shrink-0" /> احصل على ٣ دروس برونزية</li>
-              </ul>
-              <Link href="/register" className="w-full">
-                <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white">احصل على رابطك</Button>
               </Link>
             </div>
             
@@ -169,7 +154,7 @@ export default function Home() {
                 <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> ملخصات الدروس التلقائية</li>
                 <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> جميع المواد والمسارات</li>
               </ul>
-              <Link href="/register" className="w-full">
+              <Link href="/subscription" className="w-full">
                 <Button className="w-full bg-zinc-700 hover:bg-zinc-600 text-white">اشترك الآن</Button>
               </Link>
             </div>
@@ -186,7 +171,7 @@ export default function Home() {
                 <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> جميع المواد والمسارات</li>
                 <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> أولوية الدعم الفني</li>
               </ul>
-              <Link href="/register" className="w-full">
+              <Link href="/subscription" className="w-full">
                 <Button className="w-full gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20">اشترك الذهبية</Button>
               </Link>
             </div>
@@ -198,7 +183,7 @@ export default function Home() {
               هل تريد البداية بتكلفة أقل؟ باقة{" "}
               <span className="text-amber-600 font-bold">البرونزية</span>{" "}
               تمنحك ٣٠ رسالة كل ١٤ يوم عبر محفظة كريمي.{" "}
-              <Link href="/register" className="text-gold underline underline-offset-2">سجّل واطلب الاشتراك</Link>
+              <Link href="/subscription" className="text-gold underline underline-offset-2">اطلب الاشتراك</Link>
             </p>
           </div>
         </section>
