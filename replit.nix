@@ -1,6 +1,8 @@
 {pkgs}: {
   deps = [
-    pkgs.luajit
+    pkgs.swift
+    pkgs.kotlin
+    pkgs.dart
     pkgs.sqlite
   ];
 }

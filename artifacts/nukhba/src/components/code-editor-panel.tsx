@@ -3,58 +3,50 @@ import Editor from "@monaco-editor/react";
 import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
+// Languages aligned with the Nukhba curriculum subjects and skills
 const LANGUAGES = [
-  { id: "python",     label: "Python",     ext: "py",    icon: "🐍", monacoLang: "python"     },
+  // Web Development track
   { id: "javascript", label: "JavaScript", ext: "js",    icon: "⚡", monacoLang: "javascript" },
   { id: "typescript", label: "TypeScript", ext: "ts",    icon: "💙", monacoLang: "typescript" },
+  // Programming skills track
+  { id: "python",     label: "Python",     ext: "py",    icon: "🐍", monacoLang: "python"     },
   { id: "java",       label: "Java",       ext: "java",  icon: "☕", monacoLang: "java"       },
   { id: "cpp",        label: "C++",        ext: "cpp",   icon: "⚙️", monacoLang: "cpp"        },
   { id: "c",          label: "C",          ext: "c",     icon: "🔩", monacoLang: "c"          },
-  { id: "go",         label: "Go",         ext: "go",    icon: "🐹", monacoLang: "go"         },
-  { id: "rust",       label: "Rust",       ext: "rs",    icon: "🦀", monacoLang: "rust"       },
-  { id: "kotlin",     label: "Kotlin",     ext: "kt",    icon: "🎯", monacoLang: "kotlin"     },
-  { id: "swift",      label: "Swift",      ext: "swift", icon: "🍎", monacoLang: "swift"      },
+  // Mobile Development track
   { id: "dart",       label: "Dart",       ext: "dart",  icon: "🎯", monacoLang: "dart"       },
-  { id: "ruby",       label: "Ruby",       ext: "rb",    icon: "💎", monacoLang: "ruby"       },
-  { id: "php",        label: "PHP",        ext: "php",   icon: "🐘", monacoLang: "php"        },
-  { id: "r",          label: "R",          ext: "r",     icon: "📊", monacoLang: "r"          },
-  { id: "elixir",     label: "Elixir",     ext: "exs",   icon: "💜", monacoLang: "elixir"     },
-  { id: "lua",        label: "Lua",        ext: "lua",   icon: "🌙", monacoLang: "lua"        },
-  { id: "perl",       label: "Perl",       ext: "pl",    icon: "🐪", monacoLang: "perl"       },
-  { id: "sql",        label: "SQL",        ext: "sql",   icon: "🗄️", monacoLang: "sql"        },
+  { id: "kotlin",     label: "Kotlin",     ext: "kt",    icon: "🤖", monacoLang: "kotlin"     },
+  { id: "swift",      label: "Swift",      ext: "swift", icon: "🍎", monacoLang: "swift"      },
+  // OS / Cloud / Security track
   { id: "bash",       label: "Bash",       ext: "sh",    icon: "🐚", monacoLang: "shell"      },
-  { id: "awk",        label: "AWK",        ext: "awk",   icon: "🔬", monacoLang: "plaintext"  },
+  // Data & Databases track
+  { id: "sql",        label: "SQL",        ext: "sql",   icon: "🗄️", monacoLang: "sql"        },
 ];
 
 const EXT_TO_LANG: Record<string, string> = {
   py: "python", js: "javascript", ts: "typescript", java: "java",
-  cpp: "cpp", cc: "cpp", cxx: "cpp", c: "c", go: "go", rs: "rust",
-  kt: "kotlin", swift: "swift", dart: "dart", rb: "ruby", php: "php",
-  r: "r", R: "r", exs: "elixir", ex: "elixir", lua: "lua", pl: "perl",
-  pm: "perl", sql: "sql", sh: "bash", bash: "bash", awk: "awk",
+  cpp: "cpp", cc: "cpp", cxx: "cpp", c: "c",
+  kt: "kotlin", swift: "swift", dart: "dart",
+  sql: "sql", sh: "bash", bash: "bash",
 };
 
 const DEFAULT_CODE: Record<string, string> = {
-  python:     `# مرحباً بك في بيئة نُخبة 🎓\nprint("مرحباً من نُخبة!")\n`,
+  // Web Development
   javascript: `// مرحباً بك في بيئة نُخبة 🎓\nconsole.log("مرحباً من نُخبة!");\n`,
   typescript: `// TypeScript في نُخبة 🎓\nconst greeting: string = "مرحباً من نُخبة!";\nconsole.log(greeting);\n`,
+  // Programming Skills
+  python:     `# مرحباً بك في بيئة نُخبة 🎓\nprint("مرحباً من نُخبة!")\n`,
   java:       `public class Main {\n    public static void main(String[] args) {\n        System.out.println("مرحباً من نُخبة! 🎓");\n    }\n}\n`,
   cpp:        `#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "مرحباً من نُخبة! 🎓" << endl;\n    return 0;\n}\n`,
   c:          `#include <stdio.h>\n\nint main() {\n    printf("مرحباً من نُخبة! 🎓\\n");\n    return 0;\n}\n`,
-  go:         `package main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("مرحباً من نُخبة! 🎓")\n}\n`,
-  rust:       `fn main() {\n    println!("مرحباً من نُخبة! 🎓");\n}\n`,
+  // Mobile Development
+  dart:       `void main() {\n    print("مرحباً من نُخبة! 🎓");\n}\n`,
   kotlin:     `fun main() {\n    println("مرحباً من نُخبة! 🎓")\n}\n`,
   swift:      `print("مرحباً من نُخبة! 🎓")\n`,
-  dart:       `void main() {\n    print("مرحباً من نُخبة! 🎓");\n}\n`,
-  ruby:       `# مرحباً بك\nputs "مرحباً من نُخبة! 🎓"\n`,
-  php:        `<?php\necho "مرحباً من نُخبة! 🎓\\n";\n`,
-  r:          `# R في نُخبة\ncat("مرحباً من نُخبة! 🎓\\n")\n`,
-  elixir:     `IO.puts("مرحباً من نُخبة! 🎓")\n`,
-  lua:        `-- مرحباً بك\nprint("مرحباً من نُخبة! 🎓")\n`,
-  perl:       `#!/usr/bin/perl\nprint "مرحباً من نُخبة! 🎓\\n";\n`,
-  sql:        `-- استعلام SQL تجريبي\nSELECT 'مرحباً من نُخبة! 🎓' AS greeting;\nSELECT 1+1 AS result;\n`,
+  // OS / Cloud / Security
   bash:       `#!/bin/bash\n# مرحباً بك\necho "مرحباً من نُخبة! 🎓"\n`,
-  awk:        `BEGIN {\n    print "مرحباً من نُخبة! 🎓"\n    exit\n}\n`,
+  // Data & Databases
+  sql:        `-- استعلام SQL تجريبي\nSELECT 'مرحباً من نُخبة! 🎓' AS greeting;\nSELECT 1+1 AS result;\n`,
 };
 
 interface IDEFile {

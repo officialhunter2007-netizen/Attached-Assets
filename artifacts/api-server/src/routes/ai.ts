@@ -358,8 +358,8 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     pass</code></pre>
 - **إرشاد الطالب لاستخدام IDE — إلزامي عند كل تحدٍّ برمجي:** في نهاية كل تحدٍّ برمجي، أضف دائماً فقرة إرشادية قصيرة تشرح له كيف يكتب الكود، مثل:
   <div class="tip-box">💡 <strong>كيف تكتب الكود؟</strong> اضغط على زر <strong>«فتح IDE»</strong> في أعلى نافذة المحادثة ← اضغط <strong>«+»</strong> لإنشاء ملف جديد ← اكتب اسم الملف بامتداد اللغة المطلوبة (مثلاً <code>main.py</code> لبايثون، أو <code>main.js</code> لجافاسكريبت، أو <code>main.kt</code> لكوتلن) ← سيتعرف IDE تلقائياً على لغة البرمجة من الامتداد ← اكتب كودك وانقر «تشغيل ▶».</div>
-- **اللغات المدعومة في IDE المنصة:** Python, JavaScript, TypeScript, Java, C++, C, Go, Rust, Kotlin, Swift, Dart, Ruby, PHP, R, Elixir, Lua, Perl, SQL, Bash, AWK فقط.
-- **إذا كان التحدي يتطلب لغة غير مدعومة** (مثل MATLAB, Assembly, Haskell, COBOL, وغيرها): اعترف بذلك واسأل الطالب سؤالاً واحداً: "هل أنت الآن على هاتف أم كمبيوتر؟" ثم:
+- **اللغات المدعومة في IDE المنصة (مرتبطة بالمنهج):** JavaScript, TypeScript, Python, Java, C++, C, Dart, Kotlin, Swift, Bash, SQL فقط.
+- **إذا كان التحدي يتطلب لغة غير مدعومة** (مثل Go, Rust, Ruby, PHP, R, Elixir, MATLAB, Assembly, Haskell, وغيرها): اعترف بذلك واسأل الطالب سؤالاً واحداً: "هل أنت الآن على هاتف أم كمبيوتر؟" ثم:
   - **إذا كمبيوتر:** أرشده بوضوح لتثبيت VS Code + امتداد اللغة، أو استخدام موقع مجاني مثل replit.com. مثال: <div class="tip-box">💻 <strong>على الكمبيوتر:</strong> ثبّت VS Code من code.visualstudio.com ثم ثبّت امتداد اللغة المطلوبة، أو استخدم replit.com مباشرةً من المتصفح بدون تثبيت.</div>
   - **إذا هاتف:** أرشده لتطبيقات مناسبة. مثال: <div class="tip-box">📱 <strong>على الهاتف:</strong> جرّب تطبيق <strong>Dcoder</strong> (Android/iOS) أو <strong>Replit</strong> — كلاهما مجاني ويدعم عشرات اللغات.</div>
   - **بديل دائم — المحاكاة داخل المحادثة:** بغض النظر عن الجهاز، اعرض على الطالب أن تسير معه خطوة بخطوة: "يمكنني أن أريك الكود كاملاً وأشرح كل سطر هنا في المحادثة، ثم تكتبه أنت في بيئتك وتخبرني بالنتيجة." إذا وافق، اشرح الكود سطراً سطراً واطلب منه لصق المخرجات أو وصفها هنا.` : `
@@ -514,26 +514,14 @@ router.post("/ai/run-code", async (req, res) => {
     } else if (language === "typescript") {
       result = await runInTempDir("main.ts", (_d) => "true",
         (d) => `npx --yes ts-node --skip-project --compiler-options '{"module":"commonjs","esModuleInterop":true}' ${join(d, "main.ts")}`);
-    } else if (language === "ruby") {
-      result = await runInTempDir("main.rb", (_d) => "true", (d) => `ruby ${join(d, "main.rb")}`);
-    } else if (language === "php") {
-      result = await runInTempDir("main.php", (_d) => "true", (d) => `php ${join(d, "main.php")}`);
     } else if (language === "bash") {
       result = await runInTempDir("script.sh", (_d) => "true", (d) => `bash ${join(d, "script.sh")}`);
-    } else if (language === "perl") {
-      result = await runInTempDir("main.pl", (_d) => "true", (d) => `perl ${join(d, "main.pl")}`);
-    } else if (language === "lua") {
-      result = await runInTempDir("main.lua", (_d) => "true", (d) => `luajit ${join(d, "main.lua")}`);
-    } else if (language === "r" || language === "elixir" || language === "swift" || language === "dart") {
-      return res.json({
-        output: "",
-        error: `⚠️ لغة ${language} غير متاحة حالياً في بيئة التنفيذ. يمكنك تجربة الكود على Replit.com أو VS Code على جهازك.`,
-        exitCode: 1,
-      });
     } else if (language === "sql") {
       result = await runInTempDir("main.sql", (_d) => "true", (d) => `sqlite3 :memory: < ${join(d, "main.sql")}`);
-    } else if (language === "awk") {
-      result = await runInTempDir("main.awk", (_d) => "true", (d) => `awk -f ${join(d, "main.awk")}`);
+    } else if (language === "dart") {
+      result = await runInTempDir("main.dart", (_d) => "true", (d) => `dart run ${join(d, "main.dart")}`);
+    } else if (language === "swift") {
+      result = await runInTempDir("main.swift", (_d) => "true", (d) => `swift ${join(d, "main.swift")}`);
 
     // ── Compiled languages ──────────────────────────────────────────────
     } else if (language === "cpp") {
@@ -543,14 +531,6 @@ router.post("/ai/run-code", async (req, res) => {
     } else if (language === "c") {
       result = await runInTempDir("main.c",
         (d) => `gcc -o ${join(d, "out")} ${join(d, "main.c")}`,
-        (d) => join(d, "out"));
-    } else if (language === "go") {
-      result = await runInTempDir("main.go",
-        (d) => `go build -o ${join(d, "out")} ${join(d, "main.go")}`,
-        (d) => join(d, "out"));
-    } else if (language === "rust") {
-      result = await runInTempDir("main.rs",
-        (d) => `rustc -o ${join(d, "out")} ${join(d, "main.rs")}`,
         (d) => join(d, "out"));
 
     // ── JVM languages (Java / Kotlin) ────────────────────────────────────
@@ -574,11 +554,24 @@ router.post("/ai/run-code", async (req, res) => {
         await rm(dir, { recursive: true, force: true });
       }
     } else if (language === "kotlin") {
-      return res.json({
-        output: "",
-        error: `⚠️ لغة Kotlin غير متاحة حالياً في بيئة التنفيذ. يمكنك تجربة الكود على Replit.com أو VS Code على جهازك.`,
-        exitCode: 1,
-      });
+      const dir = await mkdtemp(join(tmpdir(), "nukhba-"));
+      try {
+        await writeFile(join(dir, "Main.kt"), code, "utf8");
+        try {
+          await execAsync(`kotlinc ${join(dir, "Main.kt")} -include-runtime -d ${join(dir, "out.jar")}`, { timeout: 45000, maxBuffer: MAX_BUF });
+        } catch (e: any) {
+          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+          return res.json(result);
+        }
+        try {
+          const { stdout, stderr } = await execAsync(`java -jar ${join(dir, "out.jar")}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+          result = { output: stdout, error: stderr, exitCode: 0 };
+        } catch (e: any) {
+          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
 
     } else {
       return res.status(400).json({ error: `اللغة غير مدعومة: ${language}` });
