@@ -7,6 +7,8 @@ import {
   GetAdminSubscriptionRequestsQueryParams,
   ApproveSubscriptionRequestParams,
   RejectSubscriptionRequestParams,
+  MarkIncompleteSubscriptionRequestBody,
+  MarkIncompleteSubscriptionRequestParams,
 } from "@workspace/api-zod";
 import { generateActivationCode } from "../lib/auth";
 
@@ -46,7 +48,7 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
     userId,
     userEmail: user?.email ?? "",
     userName: user?.displayName ?? null,
-    transactionId: parsed.data.transactionId,
+    accountName: parsed.data.accountName,
     planType: parsed.data.planType,
     region: parsed.data.region,
     notes: parsed.data.notes ?? null,
@@ -54,6 +56,21 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
   }).returning();
 
   res.status(201).json(request);
+});
+
+router.get("/subscriptions/my-requests", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const requests = await db
+    .select()
+    .from(subscriptionRequestsTable)
+    .where(eq(subscriptionRequestsTable.userId, userId));
+
+  res.json(requests);
 });
 
 router.post("/subscriptions/activate", async (req, res): Promise<void> => {
@@ -128,7 +145,6 @@ router.get("/admin/subscription-requests", async (req, res): Promise<void> => {
   }
 
   const params = GetAdminSubscriptionRequestsQueryParams.safeParse(req.query);
-  let query = db.select().from(subscriptionRequestsTable);
 
   if (params.success && params.data.status) {
     const requests = await db
@@ -139,7 +155,7 @@ router.get("/admin/subscription-requests", async (req, res): Promise<void> => {
     return;
   }
 
-  const requests = await query;
+  const requests = await db.select().from(subscriptionRequestsTable);
   res.json(requests);
 });
 
@@ -189,6 +205,7 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
   await db.update(subscriptionRequestsTable).set({
     status: "approved",
     activationCode: code,
+    adminNote: null,
   }).where(eq(subscriptionRequestsTable.id, id));
 
   await db.update(usersTable).set({
@@ -219,6 +236,36 @@ router.post("/admin/subscription-requests/:id/reject", async (req, res): Promise
 
   await db.update(subscriptionRequestsTable).set({
     status: "rejected",
+  }).where(eq(subscriptionRequestsTable.id, id));
+
+  res.json({ success: true });
+});
+
+router.post("/admin/subscription-requests/:id/incomplete", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const user = await getUser(userId);
+  if (user?.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(rawId, 10);
+
+  const parsed = MarkIncompleteSubscriptionRequestBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "adminNote is required" });
+    return;
+  }
+
+  await db.update(subscriptionRequestsTable).set({
+    status: "incomplete",
+    adminNote: parsed.data.adminNote,
   }).where(eq(subscriptionRequestsTable.id, id));
 
   res.json({ success: true });
@@ -373,7 +420,6 @@ router.post("/referrals/register", async (req, res): Promise<void> => {
     .where(eq(referralsTable.referrerUserId, referrer.id));
 
   const newCount = referralsBefore.length + 1;
-  // Grant reward ONLY on the very first 5 referrals — never again
   const grantsAccess = newCount === 5 && referrer.referralSessionsLeft === 0;
 
   await db.insert(referralsTable).values({

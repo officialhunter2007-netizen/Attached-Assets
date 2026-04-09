@@ -23,15 +23,4 @@ export interface UserProfile {
   nukhbaPlan?: string | null;
   /** @nullable */
   referralCode?: string | null;
-  /** @nullable */
-  region?: string | null;
-  firstLessonComplete: boolean;
-  messagesUsed: number;
-  messagesLimit: number;
-  /** @nullable */
-  subscriptionExpiresAt?: string | null;
-  /** @nullable */
-  referralAccessUntil?: string | null;
-  /** @nullable */
-  lastSessionDate?: string | null;
 }

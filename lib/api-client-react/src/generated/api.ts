@@ -32,6 +32,7 @@ import type {
   LearningPath,
   LessonView,
   LoginBody,
+  MarkIncompleteSubscriptionRequestBody,
   RecordLessonViewBody,
   ReferralInfo,
   RegisterBody,
@@ -1820,6 +1821,172 @@ export const useRejectSubscriptionRequest = <
 > => {
   return useMutation(getRejectSubscriptionRequestMutationOptions(options));
 };
+
+/**
+ * @summary Mark subscription request as incomplete payment with a note
+ */
+export const getMarkIncompleteSubscriptionRequestUrl = (id: number) => {
+  return `/api/admin/subscription-requests/${id}/incomplete`;
+};
+
+export const markIncompleteSubscriptionRequest = async (
+  id: number,
+  markIncompleteSubscriptionRequestBody: MarkIncompleteSubscriptionRequestBody,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getMarkIncompleteSubscriptionRequestUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(markIncompleteSubscriptionRequestBody),
+  });
+};
+
+export const getMarkIncompleteSubscriptionRequestMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markIncompleteSubscriptionRequest>>,
+    TError,
+    { id: number; data: BodyType<MarkIncompleteSubscriptionRequestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markIncompleteSubscriptionRequest>>,
+  TError,
+  { id: number; data: BodyType<MarkIncompleteSubscriptionRequestBody> },
+  TContext
+> => {
+  const mutationKey = ["markIncompleteSubscriptionRequest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markIncompleteSubscriptionRequest>>,
+    { id: number; data: BodyType<MarkIncompleteSubscriptionRequestBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return markIncompleteSubscriptionRequest(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkIncompleteSubscriptionRequestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markIncompleteSubscriptionRequest>>
+>;
+export type MarkIncompleteSubscriptionRequestMutationBody =
+  BodyType<MarkIncompleteSubscriptionRequestBody>;
+export type MarkIncompleteSubscriptionRequestMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mark subscription request as incomplete payment with a note
+ */
+export const useMarkIncompleteSubscriptionRequest = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markIncompleteSubscriptionRequest>>,
+    TError,
+    { id: number; data: BodyType<MarkIncompleteSubscriptionRequestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markIncompleteSubscriptionRequest>>,
+  TError,
+  { id: number; data: BodyType<MarkIncompleteSubscriptionRequestBody> },
+  TContext
+> => {
+  return useMutation(
+    getMarkIncompleteSubscriptionRequestMutationOptions(options),
+  );
+};
+
+/**
+ * @summary Get the current user's subscription requests
+ */
+export const getGetMySubscriptionRequestsUrl = () => {
+  return `/api/subscriptions/my-requests`;
+};
+
+export const getMySubscriptionRequests = async (
+  options?: RequestInit,
+): Promise<SubscriptionRequest[]> => {
+  return customFetch<SubscriptionRequest[]>(getGetMySubscriptionRequestsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMySubscriptionRequestsQueryKey = () => {
+  return [`/api/subscriptions/my-requests`] as const;
+};
+
+export const getGetMySubscriptionRequestsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMySubscriptionRequests>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMySubscriptionRequests>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetMySubscriptionRequestsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMySubscriptionRequests>>
+  > = ({ signal }) => getMySubscriptionRequests({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMySubscriptionRequests>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMySubscriptionRequestsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMySubscriptionRequests>>
+>;
+export type GetMySubscriptionRequestsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get the current user's subscription requests
+ */
+
+export function useGetMySubscriptionRequests<
+  TData = Awaited<ReturnType<typeof getMySubscriptionRequests>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMySubscriptionRequests>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMySubscriptionRequestsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get all activation cards (admin)

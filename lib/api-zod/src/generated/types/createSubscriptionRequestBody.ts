@@ -9,7 +9,7 @@ import type { CreateSubscriptionRequestBodyPlanType } from "./createSubscription
 import type { CreateSubscriptionRequestBodyRegion } from "./createSubscriptionRequestBodyRegion";
 
 export interface CreateSubscriptionRequestBody {
-  transactionId: string;
+  accountName: string;
   planType: CreateSubscriptionRequestBodyPlanType;
   region: CreateSubscriptionRequestBodyRegion;
   /** @nullable */

@@ -13,4 +13,5 @@ export const GetAdminSubscriptionRequestsStatus = {
   pending: "pending",
   approved: "approved",
   rejected: "rejected",
+  incomplete: "incomplete",
 } as const;

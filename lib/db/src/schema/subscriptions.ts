@@ -7,12 +7,14 @@ export const subscriptionRequestsTable = pgTable("subscription_requests", {
   userId: integer("user_id").notNull(),
   userEmail: text("user_email").notNull(),
   userName: text("user_name"),
-  transactionId: text("transaction_id").notNull(),
+  accountName: text("account_name").notNull().default(""),
+  transactionId: text("transaction_id"),
   planType: text("plan_type").notNull(),
   region: text("region").notNull(),
   status: text("status").notNull().default("pending"),
   activationCode: text("activation_code"),
   notes: text("notes"),
+  adminNote: text("admin_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

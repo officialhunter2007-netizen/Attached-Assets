@@ -29,11 +29,6 @@ export const GetMeResponse = zod.object({
   lastActive: zod.string().nullish(),
   badges: zod.array(zod.string()),
   nukhbaPlan: zod.string().nullish(),
-  region: zod.string().nullish(),
-  messagesUsed: zod.number().optional(),
-  messagesLimit: zod.number().optional(),
-  subscriptionExpiresAt: zod.string().nullish(),
-  referralAccessUntil: zod.string().nullish(),
   referralCode: zod.string().nullish(),
 });
 
@@ -48,7 +43,6 @@ export const UpdateMeBody = zod.object({
   lastActive: zod.string().nullish(),
   badges: zod.array(zod.string()).nullish(),
   nukhbaPlan: zod.string().nullish(),
-  region: zod.string().nullish(),
 });
 
 export const UpdateMeResponse = zod.object({
@@ -62,11 +56,6 @@ export const UpdateMeResponse = zod.object({
   lastActive: zod.string().nullish(),
   badges: zod.array(zod.string()),
   nukhbaPlan: zod.string().nullish(),
-  region: zod.string().nullish(),
-  messagesUsed: zod.number().optional(),
-  messagesLimit: zod.number().optional(),
-  subscriptionExpiresAt: zod.string().nullish(),
-  referralAccessUntil: zod.string().nullish(),
   referralCode: zod.string().nullish(),
 });
 
@@ -99,11 +88,6 @@ export const LoginUserResponse = zod.object({
   lastActive: zod.string().nullish(),
   badges: zod.array(zod.string()),
   nukhbaPlan: zod.string().nullish(),
-  region: zod.string().nullish(),
-  messagesUsed: zod.number().optional(),
-  messagesLimit: zod.number().optional(),
-  subscriptionExpiresAt: zod.string().nullish(),
-  referralAccessUntil: zod.string().nullish(),
   referralCode: zod.string().nullish(),
 });
 
@@ -286,7 +270,7 @@ export const GetLearningPathBySubjectResponse = zod.object({
  * @summary Submit a subscription payment request
  */
 export const CreateSubscriptionRequestBody = zod.object({
-  transactionId: zod.string(),
+  accountName: zod.string(),
   planType: zod.enum(["bronze", "silver", "gold"]),
   region: zod.enum(["north", "south"]),
   notes: zod.string().nullish(),
@@ -309,7 +293,9 @@ export const ActivateSubscriptionResponse = zod.object({
  * @summary Get all subscription requests (admin)
  */
 export const GetAdminSubscriptionRequestsQueryParams = zod.object({
-  status: zod.enum(["pending", "approved", "rejected"]).optional(),
+  status: zod
+    .enum(["pending", "approved", "rejected", "incomplete"])
+    .optional(),
 });
 
 export const GetAdminSubscriptionRequestsResponseItem = zod.object({
@@ -317,12 +303,13 @@ export const GetAdminSubscriptionRequestsResponseItem = zod.object({
   userId: zod.number(),
   userEmail: zod.string(),
   userName: zod.string().nullish(),
-  transactionId: zod.string(),
+  accountName: zod.string(),
   planType: zod.enum(["bronze", "silver", "gold"]),
   region: zod.enum(["north", "south"]),
-  status: zod.enum(["pending", "approved", "rejected"]),
+  status: zod.enum(["pending", "approved", "rejected", "incomplete"]),
   activationCode: zod.string().nullish(),
   notes: zod.string().nullish(),
+  adminNote: zod.string().nullish(),
   createdAt: zod.string().optional(),
 });
 export const GetAdminSubscriptionRequestsResponse = zod.array(
@@ -339,7 +326,7 @@ export const ApproveSubscriptionRequestParams = zod.object({
 export const ApproveSubscriptionRequestResponse = zod.object({
   id: zod.number(),
   activationCode: zod.string(),
-  planType: zod.enum(["bronze", "silver", "gold"]),
+  planType: zod.enum(["silver", "gold", "nukhba", "influencer"]),
   region: zod.string().nullish(),
   isUsed: zod.boolean(),
   usedByUserId: zod.number().nullish(),
@@ -357,12 +344,44 @@ export const RejectSubscriptionRequestParams = zod.object({
 });
 
 /**
+ * @summary Mark subscription request as incomplete payment with a note
+ */
+export const MarkIncompleteSubscriptionRequestParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const MarkIncompleteSubscriptionRequestBody = zod.object({
+  adminNote: zod.string(),
+});
+
+/**
+ * @summary Get the current user's subscription requests
+ */
+export const GetMySubscriptionRequestsResponseItem = zod.object({
+  id: zod.number(),
+  userId: zod.number(),
+  userEmail: zod.string(),
+  userName: zod.string().nullish(),
+  accountName: zod.string(),
+  planType: zod.enum(["bronze", "silver", "gold"]),
+  region: zod.enum(["north", "south"]),
+  status: zod.enum(["pending", "approved", "rejected", "incomplete"]),
+  activationCode: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  adminNote: zod.string().nullish(),
+  createdAt: zod.string().optional(),
+});
+export const GetMySubscriptionRequestsResponse = zod.array(
+  GetMySubscriptionRequestsResponseItem,
+);
+
+/**
  * @summary Get all activation cards (admin)
  */
 export const GetActivationCardsResponseItem = zod.object({
   id: zod.number(),
   activationCode: zod.string(),
-  planType: zod.enum(["bronze", "silver", "gold"]),
+  planType: zod.enum(["silver", "gold", "nukhba", "influencer"]),
   region: zod.string().nullish(),
   isUsed: zod.boolean(),
   usedByUserId: zod.number().nullish(),

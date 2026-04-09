@@ -2,12 +2,15 @@ import { useState } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "wouter";
-import { 
-  useGetAdminStats, 
-  useGetAdminSubscriptionRequests, 
+import {
+  useGetAdminStats,
+  useGetAdminSubscriptionRequests,
   useGetActivationCards,
   useApproveSubscriptionRequest,
-  useRejectSubscriptionRequest
+  useRejectSubscriptionRequest,
+  useMarkIncompleteSubscriptionRequest,
+  getGetAdminSubscriptionRequestsQueryKey,
+  getGetAdminStatsQueryKey,
 } from "@workspace/api-client-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,11 +18,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Check, X, ShieldAlert, Users, CreditCard, Ticket, Copy, Plus, Filter, RefreshCw } from "lucide-react";
+import {
+  Check, X, ShieldAlert, Users, CreditCard, Ticket,
+  Copy, Plus, Filter, RefreshCw, AlertTriangle,
+} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getGetAdminSubscriptionRequestsQueryKey, getGetAdminStatsQueryKey } from "@workspace/api-client-react";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -27,12 +33,15 @@ export default function Admin() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "approved" | "rejected">("pending");
-  const [approvedCode, setApprovedCode] = useState<{ code: string; planType: string; userName: string } | null>(null);
+  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "approved" | "rejected" | "incomplete">("pending");
+  const [approvedUser, setApprovedUser] = useState<{ planType: string; userName: string } | null>(null);
   const [showCreateCard, setShowCreateCard] = useState(false);
   const [newCardPlan, setNewCardPlan] = useState<"bronze" | "silver" | "gold">("silver");
   const [createdCard, setCreatedCard] = useState<{ code: string; planType: string } | null>(null);
   const [isCreatingCard, setIsCreatingCard] = useState(false);
+
+  const [incompleteTarget, setIncompleteTarget] = useState<{ id: number; userName: string } | null>(null);
+  const [incompleteNote, setIncompleteNote] = useState("");
 
   const { data: stats, refetch: refetchStats } = useGetAdminStats();
   const { data: requests, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
@@ -40,6 +49,7 @@ export default function Admin() {
 
   const approveMutation = useApproveSubscriptionRequest();
   const rejectMutation = useRejectSubscriptionRequest();
+  const incompleteMutation = useMarkIncompleteSubscriptionRequest();
 
   if (user?.role !== 'admin') {
     return (
@@ -62,17 +72,22 @@ export default function Admin() {
     ? requests
     : requests?.filter(r => r.status === filterStatus);
 
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: getGetAdminSubscriptionRequestsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
+    refetchRequests();
+    refetchStats();
+  };
+
   const handleApprove = async (req: any) => {
     try {
-      const result: any = await approveMutation.mutateAsync({ id: req.id });
-      toast({ title: "✅ تم قبول الطلب وتفعيل الاشتراك", className: "bg-emerald-600 text-white border-none" });
-      setApprovedCode({
-        code: result.activationCode,
+      await approveMutation.mutateAsync({ id: req.id });
+      toast({ title: "تم تفعيل الاشتراك مباشرة", className: "bg-emerald-600 text-white border-none" });
+      setApprovedUser({
         planType: req.planType,
         userName: req.userName || req.userEmail,
       });
-      queryClient.invalidateQueries({ queryKey: getGetAdminSubscriptionRequestsQueryKey() });
-      queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
+      invalidateAll();
       refetchCards();
     } catch {
       toast({ variant: "destructive", title: "حدث خطأ أثناء القبول" });
@@ -83,7 +98,28 @@ export default function Admin() {
     try {
       await rejectMutation.mutateAsync({ id });
       toast({ title: "تم رفض الطلب" });
-      queryClient.invalidateQueries({ queryKey: getGetAdminSubscriptionRequestsQueryKey() });
+      invalidateAll();
+    } catch {
+      toast({ variant: "destructive", title: "حدث خطأ" });
+    }
+  };
+
+  const handleIncompleteOpen = (req: any) => {
+    setIncompleteTarget({ id: req.id, userName: req.userName || req.userEmail });
+    setIncompleteNote("");
+  };
+
+  const handleIncompleteSubmit = async () => {
+    if (!incompleteTarget || !incompleteNote.trim()) return;
+    try {
+      await incompleteMutation.mutateAsync({
+        id: incompleteTarget.id,
+        data: { adminNote: incompleteNote.trim() },
+      });
+      toast({ title: "تم إرسال إشعار المبلغ الناقص", className: "bg-orange-500 text-white border-none" });
+      setIncompleteTarget(null);
+      setIncompleteNote("");
+      invalidateAll();
     } catch {
       toast({ variant: "destructive", title: "حدث خطأ" });
     }
@@ -120,6 +156,14 @@ export default function Admin() {
     refetchCards();
     toast({ title: "تم التحديث", className: "bg-black border-white/10 text-white" });
   };
+
+  const filterOptions = [
+    { value: 'pending', label: 'معلق' },
+    { value: 'incomplete', label: 'ناقص' },
+    { value: 'approved', label: 'مقبول' },
+    { value: 'rejected', label: 'مرفوض' },
+    { value: 'all', label: 'الكل' },
+  ] as const;
 
   return (
     <AppLayout>
@@ -178,20 +222,19 @@ export default function Admin() {
 
           {/* Requests Tab */}
           <TabsContent value="requests">
-            {/* Filter Bar */}
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
               <Filter className="w-4 h-4 text-muted-foreground" />
-              {(['pending', 'approved', 'rejected', 'all'] as const).map(s => (
+              {filterOptions.map(opt => (
                 <button
-                  key={s}
-                  onClick={() => setFilterStatus(s)}
+                  key={opt.value}
+                  onClick={() => setFilterStatus(opt.value)}
                   className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                    filterStatus === s
+                    filterStatus === opt.value
                       ? 'bg-gold text-primary-foreground'
                       : 'bg-white/5 text-muted-foreground hover:bg-white/10'
                   }`}
                 >
-                  {{ pending: 'معلق', approved: 'مقبول', rejected: 'مرفوض', all: 'الكل' }[s]}
+                  {opt.label}
                 </button>
               ))}
             </div>
@@ -203,7 +246,7 @@ export default function Admin() {
                     <TableHead className="text-right">المستخدم</TableHead>
                     <TableHead className="text-right">الخطة</TableHead>
                     <TableHead className="text-right">المنطقة</TableHead>
-                    <TableHead className="text-right">رقم الحوالة</TableHead>
+                    <TableHead className="text-right">اسم الحساب المرسل</TableHead>
                     <TableHead className="text-right">ملاحظات</TableHead>
                     <TableHead className="text-right">التاريخ</TableHead>
                     <TableHead className="text-right">الحالة</TableHead>
@@ -220,7 +263,11 @@ export default function Admin() {
                   ) : filteredRequests.map((req) => (
                     <TableRow
                       key={req.id}
-                      className={`border-white/5 transition-colors ${req.status === 'pending' ? 'bg-orange-500/5 hover:bg-orange-500/10' : 'hover:bg-white/3'}`}
+                      className={`border-white/5 transition-colors ${
+                        req.status === 'pending' ? 'bg-orange-500/5 hover:bg-orange-500/10' :
+                        req.status === 'incomplete' ? 'bg-yellow-500/5 hover:bg-yellow-500/10' :
+                        'hover:bg-white/3'
+                      }`}
                     >
                       <TableCell>
                         <div className="font-bold text-sm">{req.userName || 'بدون اسم'}</div>
@@ -234,21 +281,25 @@ export default function Admin() {
                       <TableCell className="text-sm">{regionLabels[req.region] || req.region}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          <code className="font-mono text-xs bg-black/40 px-2 py-1 rounded border border-white/10" dir="ltr">
-                            {req.transactionId}
-                          </code>
-                          <button
-                            onClick={() => copyCode(req.transactionId)}
-                            className="text-muted-foreground hover:text-gold transition-colors"
-                          >
-                            <Copy className="w-3 h-3" />
-                          </button>
+                          <span className="text-sm font-medium text-foreground">
+                            {(req as any).accountName || '—'}
+                          </span>
+                          {(req as any).accountName && (
+                            <button
+                              onClick={() => copyCode((req as any).accountName)}
+                              className="text-muted-foreground hover:text-gold transition-colors"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="text-xs text-muted-foreground max-w-[140px] block truncate" title={(req as any).notes || ''}>
-                          {(req as any).notes || '—'}
-                        </span>
+                        <div className="text-xs text-muted-foreground max-w-[140px]">
+                          {(req as any).adminNote
+                            ? <span className="text-orange-400 font-medium">{(req as any).adminNote}</span>
+                            : (req as any).notes || '—'}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {req.createdAt ? new Date(req.createdAt).toLocaleDateString('ar-YE') : '-'}
@@ -257,18 +308,28 @@ export default function Admin() {
                         {req.status === 'pending' && <Badge className="bg-orange-500/20 text-orange-400 border-0">معلق</Badge>}
                         {req.status === 'approved' && <Badge className="bg-emerald-500/20 text-emerald-400 border-0">مقبول</Badge>}
                         {req.status === 'rejected' && <Badge className="bg-red-500/20 text-red-400 border-0">مرفوض</Badge>}
+                        {req.status === 'incomplete' && <Badge className="bg-yellow-500/20 text-yellow-400 border-0">ناقص</Badge>}
                       </TableCell>
                       <TableCell className="text-center">
-                        {req.status === 'pending' && (
-                          <div className="flex items-center justify-center gap-2">
+                        {(req.status === 'pending' || req.status === 'incomplete') && (
+                          <div className="flex items-center justify-center gap-1.5">
                             <Button
                               size="sm"
-                              className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 gap-1 h-8"
+                              className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 gap-1 h-8 text-xs"
                               disabled={approveMutation.isPending}
                               onClick={() => handleApprove(req)}
                             >
                               <Check className="w-3.5 h-3.5" />
                               قبول
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border border-yellow-500/30 gap-1 h-8 text-xs"
+                              disabled={incompleteMutation.isPending}
+                              onClick={() => handleIncompleteOpen(req)}
+                            >
+                              <AlertTriangle className="w-3 h-3" />
+                              ناقص
                             </Button>
                             <Button
                               size="icon"
@@ -281,14 +342,11 @@ export default function Admin() {
                             </Button>
                           </div>
                         )}
-                        {req.status === 'approved' && req.activationCode && (
-                          <button
-                            onClick={() => copyCode(req.activationCode!)}
-                            className="flex items-center gap-1 text-xs text-emerald font-mono hover:text-emerald/80 transition-colors mx-auto"
-                          >
-                            <Copy className="w-3 h-3" />
-                            {req.activationCode}
-                          </button>
+                        {req.status === 'approved' && (
+                          <span className="text-xs text-emerald-400 font-medium">✓ مفعّل</span>
+                        )}
+                        {req.status === 'rejected' && (
+                          <span className="text-xs text-red-400">✗ مرفوض</span>
                         )}
                       </TableCell>
                     </TableRow>
@@ -355,31 +413,61 @@ export default function Admin() {
       </div>
 
       {/* Approval Success Dialog */}
-      <Dialog open={!!approvedCode} onOpenChange={() => setApprovedCode(null)}>
+      <Dialog open={!!approvedUser} onOpenChange={() => setApprovedUser(null)}>
         <DialogContent className="glass border-emerald/30 max-w-sm text-center" hideCloseButton>
           <DialogTitle className="sr-only">تم القبول</DialogTitle>
           <div className="p-6">
             <div className="w-16 h-16 rounded-full bg-emerald/10 border-2 border-emerald/30 flex items-center justify-center mx-auto mb-4">
               <Check className="w-8 h-8 text-emerald" />
             </div>
-            <h3 className="text-xl font-bold mb-1">تم تفعيل الاشتراك!</h3>
+            <h3 className="text-xl font-bold mb-2">تم تفعيل الاشتراك!</h3>
             <p className="text-sm text-muted-foreground mb-5">
-              تم قبول طلب <strong className="text-foreground">{approvedCode?.userName}</strong> وتفعيل باقة {planLabels[approvedCode?.planType ?? ''] ?? ''} مباشرةً
+              تم قبول طلب <strong className="text-foreground">{approvedUser?.userName}</strong> وتفعيل باقة{" "}
+              <strong className="text-gold">{planLabels[approvedUser?.planType ?? ''] ?? ''}</strong> مباشرةً على حسابه.
             </p>
-            {approvedCode?.code && (
-              <div className="bg-black/40 border border-white/10 rounded-xl p-4 mb-5">
-                <p className="text-xs text-muted-foreground mb-2">كود التفعيل (للأرشفة)</p>
-                <div className="flex items-center justify-between gap-3">
-                  <code className="font-mono text-gold text-lg tracking-widest" dir="ltr">{approvedCode.code}</code>
-                  <button onClick={() => copyCode(approvedCode.code)} className="text-muted-foreground hover:text-gold transition-colors">
-                    <Copy className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )}
-            <Button className="w-full gradient-gold text-primary-foreground font-bold" onClick={() => setApprovedCode(null)}>
+            <Button className="w-full gradient-gold text-primary-foreground font-bold" onClick={() => setApprovedUser(null)}>
               إغلاق
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Incomplete Payment Dialog */}
+      <Dialog open={!!incompleteTarget} onOpenChange={(open) => { if (!open) setIncompleteTarget(null); }}>
+        <DialogContent className="glass border-yellow-500/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-yellow-400" />
+            إشعار مبلغ ناقص
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              سيتلقى <strong className="text-foreground">{incompleteTarget?.userName}</strong> إشعاراً بأن مبلغه ناقص مع رسالتك أدناه.
+            </p>
+            <div className="space-y-2">
+              <Label>الرسالة للمستخدم</Label>
+              <Textarea
+                placeholder="مثال: المبلغ المرسل ١٠٠٠ ريال فقط، والمطلوب ٢٠٠٠ ريال. يرجى إكمال المبلغ وإرسال طلب جديد."
+                className="bg-black/40 min-h-[100px]"
+                value={incompleteNote}
+                onChange={(e) => setIncompleteNote(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30 font-bold"
+                disabled={!incompleteNote.trim() || incompleteMutation.isPending}
+                onClick={handleIncompleteSubmit}
+              >
+                {incompleteMutation.isPending ? "جاري الإرسال..." : "إرسال الإشعار"}
+              </Button>
+              <Button
+                variant="outline"
+                className="border-white/10"
+                onClick={() => setIncompleteTarget(null)}
+              >
+                إلغاء
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

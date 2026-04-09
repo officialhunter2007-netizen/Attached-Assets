@@ -10,7 +10,8 @@ export type ActivationCardPlanType =
   (typeof ActivationCardPlanType)[keyof typeof ActivationCardPlanType];
 
 export const ActivationCardPlanType = {
-  bronze: "bronze",
   silver: "silver",
   gold: "gold",
+  nukhba: "nukhba",
+  influencer: "influencer",
 } as const;

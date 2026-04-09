@@ -27,6 +27,7 @@ export * from "./interviewMessageBody";
 export * from "./learningPath";
 export * from "./lessonView";
 export * from "./loginBody";
+export * from "./markIncompleteSubscriptionRequestBody";
 export * from "./recordLessonViewBody";
 export * from "./referralInfo";
 export * from "./registerBody";

@@ -15,7 +15,7 @@ export interface SubscriptionRequest {
   userEmail: string;
   /** @nullable */
   userName?: string | null;
-  transactionId: string;
+  accountName: string;
   planType: SubscriptionRequestPlanType;
   region: SubscriptionRequestRegion;
   status: SubscriptionRequestStatus;
@@ -23,5 +23,7 @@ export interface SubscriptionRequest {
   activationCode?: string | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  adminNote?: string | null;
   createdAt?: string;
 }

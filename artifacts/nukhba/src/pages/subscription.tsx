@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useCreateSubscriptionRequest, useActivateSubscription } from "@workspace/api-client-react";
+import {
+  useCreateSubscriptionRequest,
+  useActivateSubscription,
+  useGetMySubscriptionRequests,
+  getGetMySubscriptionRequestsQueryKey,
+} from "@workspace/api-client-react";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem } from "lucide-react";
+import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
+import { useQueryClient } from "@tanstack/react-query";
 
 type PlanKey = "bronze" | "silver" | "gold";
 
@@ -62,35 +68,47 @@ const plans: Record<PlanKey, {
 export default function Subscription() {
   const { user, setUser } = useAuth();
   const { toast } = useToast();
-  
+  const queryClient = useQueryClient();
+
   const [region, setRegion] = useState<"north" | "south">("north");
   const [selectedPlan, setSelectedPlan] = useState<PlanKey | null>(null);
-  const [transactionId, setTransactionId] = useState("");
+  const [accountName, setAccountName] = useState("");
   const [notes, setNotes] = useState("");
   const [activationCode, setActivationCode] = useState("");
+  const [submitted, setSubmitted] = useState(false);
 
   const createReqMutation = useCreateSubscriptionRequest();
   const activateMutation = useActivateSubscription();
+  const { data: myRequests, refetch: refetchMyRequests } = useGetMySubscriptionRequests();
+
+  const latestRequest = myRequests
+    ?.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0];
+
+  const hasPendingRequest = latestRequest?.status === "pending";
+  const hasIncompleteRequest = latestRequest?.status === "incomplete";
 
   const handlePaymentSubmit = async () => {
-    if (!selectedPlan || !transactionId) return;
+    if (!selectedPlan || !accountName.trim()) return;
     try {
       await createReqMutation.mutateAsync({
         data: {
           planType: selectedPlan,
           region,
-          transactionId,
-          notes
+          accountName: accountName.trim(),
+          notes: notes.trim() || null,
         }
       });
       toast({
         title: "تم إرسال الطلب",
-        description: "سيتم مراجعة طلبك وتفعيله خلال 24 ساعة",
+        description: "سيراجع المشرف طلبك ويفعّل الاشتراك خلال وقت قصير",
         className: "bg-emerald-600 border-none text-white"
       });
+      setSubmitted(true);
       setSelectedPlan(null);
-      setTransactionId("");
+      setAccountName("");
       setNotes("");
+      queryClient.invalidateQueries({ queryKey: getGetMySubscriptionRequestsQueryKey() });
+      refetchMyRequests();
     } catch (e: any) {
       toast({ variant: "destructive", title: "خطأ", description: e.message });
     }
@@ -127,16 +145,58 @@ export default function Subscription() {
           <p className="text-xl text-muted-foreground">استثمر في مستقبلك مع أقوى منصة تعليمية ذكية في اليمن</p>
         </div>
 
+        {/* Status Banners */}
+        {hasPendingRequest && !submitted && (
+          <div className="mb-8 p-5 rounded-2xl border border-orange-500/30 bg-orange-500/5 flex items-start gap-4">
+            <Clock className="w-6 h-6 text-orange-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-orange-400 mb-1">طلبك قيد المراجعة</p>
+              <p className="text-sm text-muted-foreground">
+                أرسلت طلب اشتراك باسم الحساب <strong className="text-foreground">{latestRequest.accountName}</strong> لباقة{" "}
+                <strong className="text-foreground">{plans[latestRequest.planType as PlanKey]?.name || latestRequest.planType}</strong>.
+                سيتم تفعيل اشتراكك فور موافقة المشرف.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {submitted && (
+          <div className="mb-8 p-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 flex items-start gap-4">
+            <CheckCircle className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-emerald-400 mb-1">تم إرسال طلبك بنجاح!</p>
+              <p className="text-sm text-muted-foreground">
+                سيراجع المشرف طلبك ويفعّل اشتراكك مباشرة بعد التحقق. سيظهر لك إشعار هنا في حال وجود أي ملاحظة.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {hasIncompleteRequest && (
+          <div className="mb-8 p-5 rounded-2xl border border-red-500/30 bg-red-500/5 flex items-start gap-4">
+            <AlertTriangle className="w-6 h-6 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-red-400 mb-2">المبلغ المرسل غير مكتمل</p>
+              <p className="text-sm text-muted-foreground mb-3">
+                رسالة من المشرف: <span className="text-foreground font-medium">{latestRequest.adminNote}</span>
+              </p>
+              <p className="text-sm text-orange-400 font-medium">
+                يرجى إكمال المبلغ وإرسال طلب جديد بعد الدفع.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Region Toggle */}
         <div className="flex justify-center mb-12">
           <div className="glass p-1 rounded-2xl flex gap-2 border-white/10">
-            <button 
+            <button
               className={`px-8 py-3 rounded-xl font-bold transition-all ${region === 'north' ? 'gradient-gold text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               onClick={() => setRegion('north')}
             >
               المحافظات الشمالية
             </button>
-            <button 
+            <button
               className={`px-8 py-3 rounded-xl font-bold transition-all ${region === 'south' ? 'gradient-gold text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               onClick={() => setRegion('south')}
             >
@@ -152,12 +212,12 @@ export default function Subscription() {
             const isSelected = selectedPlan === key;
             const price = region === 'north' ? plan.priceNorthNum : plan.priceSouthNum;
             return (
-              <div 
+              <div
                 key={key}
                 onClick={() => setSelectedPlan(key)}
                 className={`cursor-pointer rounded-3xl p-8 transition-all duration-300 border-2 relative ${
-                  isSelected 
-                    ? 'border-gold bg-gold/5 shadow-[0_0_30px_rgba(245,158,11,0.2)] transform scale-105 z-10' 
+                  isSelected
+                    ? 'border-gold bg-gold/5 shadow-[0_0_30px_rgba(245,158,11,0.2)] transform scale-105 z-10'
                     : 'glass border-white/5 hover:border-gold/30'
                 }`}
               >
@@ -194,10 +254,10 @@ export default function Subscription() {
               <CreditCard className="w-6 h-6 text-gold" />
               الدفع وتأكيد الاشتراك
             </h3>
-            
+
             {!selectedPlan ? (
               <div className="h-48 flex items-center justify-center text-muted-foreground text-center border-2 border-dashed border-white/10 rounded-2xl">
-                الرجاء اختيار إحدى الباقات في الأعلى<br/>لعرض تفاصيل الدفع
+                الرجاء اختيار إحدى الباقات في الأعلى<br />لعرض تفاصيل الدفع
               </div>
             ) : (
               <div className="space-y-6">
@@ -214,33 +274,42 @@ export default function Subscription() {
                 </div>
 
                 <div className="space-y-3">
-                  <Label>رقم الحوالة (Transaction ID)</Label>
-                  <Input 
-                    placeholder="أدخل رقم الحوالة المكون من 9-12 رقم" 
-                    className="bg-black/40 h-12 text-left" 
-                    dir="ltr"
-                    value={transactionId}
-                    onChange={(e) => setTransactionId(e.target.value)}
+                  <Label className="text-base font-semibold">
+                    اسم الحساب المرسل منه
+                  </Label>
+                  <p className="text-xs text-muted-foreground -mt-1">
+                    أدخل الاسم الظاهر في تطبيق الكريمي عند إرسال المبلغ
+                  </p>
+                  <Input
+                    placeholder="مثال: أحمد محمد علي"
+                    className="bg-black/40 h-12 text-right"
+                    dir="rtl"
+                    value={accountName}
+                    onChange={(e) => setAccountName(e.target.value)}
                   />
                 </div>
-                
+
                 <div className="space-y-3">
                   <Label>ملاحظات (اختياري)</Label>
-                  <Textarea 
-                    placeholder="أي ملاحظات إضافية حول التحويل..." 
+                  <Textarea
+                    placeholder="أي ملاحظات إضافية حول التحويل..."
                     className="bg-black/40"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                   />
                 </div>
 
-                <Button 
+                <Button
                   className="w-full gradient-gold text-primary-foreground font-bold h-12 rounded-xl text-lg shadow-lg shadow-gold/20"
-                  disabled={!transactionId || createReqMutation.isPending}
+                  disabled={!accountName.trim() || createReqMutation.isPending}
                   onClick={handlePaymentSubmit}
                 >
-                  {createReqMutation.isPending ? "جاري الإرسال..." : "تأكيد الدفع"}
+                  {createReqMutation.isPending ? "جاري الإرسال..." : "تأكيد الدفع وإرسال الطلب"}
                 </Button>
+
+                <p className="text-xs text-center text-muted-foreground">
+                  سيقوم المشرف بالتحقق من وصول المبلغ باسمك وتفعيل الاشتراك مباشرة
+                </p>
               </div>
             )}
           </div>
@@ -257,14 +326,14 @@ export default function Subscription() {
             </p>
 
             <div className="space-y-4">
-              <Input 
-                placeholder="أدخل كود التفعيل المكون من 16 حرف" 
-                className="bg-black/40 h-14 text-center tracking-widest text-lg font-mono uppercase focus-visible:ring-emerald focus-visible:border-emerald" 
+              <Input
+                placeholder="أدخل كود التفعيل المكون من 16 حرف"
+                className="bg-black/40 h-14 text-center tracking-widest text-lg font-mono uppercase focus-visible:ring-emerald focus-visible:border-emerald"
                 dir="ltr"
                 value={activationCode}
                 onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
               />
-              <Button 
+              <Button
                 className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-12 rounded-xl text-lg shadow-lg shadow-emerald/20"
                 disabled={!activationCode || activateMutation.isPending}
                 onClick={handleActivationSubmit}

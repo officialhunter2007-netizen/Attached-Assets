@@ -32,15 +32,6 @@ export interface UserProfile {
   /** @nullable */
   nukhbaPlan?: string | null;
   /** @nullable */
-  region?: string | null;
-  messagesUsed?: number;
-  messagesLimit?: number;
-  /** @nullable */
-  subscriptionExpiresAt?: string | null;
-  /** @nullable */
-  referralAccessUntil?: string | null;
-  firstLessonComplete?: boolean;
-  /** @nullable */
   referralCode?: string | null;
 }
 
@@ -205,6 +196,7 @@ export const SubscriptionRequestStatus = {
   pending: "pending",
   approved: "approved",
   rejected: "rejected",
+  incomplete: "incomplete",
 } as const;
 
 export interface SubscriptionRequest {
@@ -213,7 +205,7 @@ export interface SubscriptionRequest {
   userEmail: string;
   /** @nullable */
   userName?: string | null;
-  transactionId: string;
+  accountName: string;
   planType: SubscriptionRequestPlanType;
   region: SubscriptionRequestRegion;
   status: SubscriptionRequestStatus;
@@ -221,6 +213,8 @@ export interface SubscriptionRequest {
   activationCode?: string | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  adminNote?: string | null;
   createdAt?: string;
 }
 
@@ -242,11 +236,15 @@ export const CreateSubscriptionRequestBodyRegion = {
 } as const;
 
 export interface CreateSubscriptionRequestBody {
-  transactionId: string;
+  accountName: string;
   planType: CreateSubscriptionRequestBodyPlanType;
   region: CreateSubscriptionRequestBodyRegion;
   /** @nullable */
   notes?: string | null;
+}
+
+export interface MarkIncompleteSubscriptionRequestBody {
+  adminNote: string;
 }
 
 export interface ActivateSubscriptionBody {
@@ -263,9 +261,10 @@ export type ActivationCardPlanType =
   (typeof ActivationCardPlanType)[keyof typeof ActivationCardPlanType];
 
 export const ActivationCardPlanType = {
-  bronze: "bronze",
   silver: "silver",
   gold: "gold",
+  nukhba: "nukhba",
+  influencer: "influencer",
 } as const;
 
 export interface ActivationCard {
@@ -367,4 +366,5 @@ export const GetAdminSubscriptionRequestsStatus = {
   pending: "pending",
   approved: "approved",
   rejected: "rejected",
+  incomplete: "incomplete",
 } as const;

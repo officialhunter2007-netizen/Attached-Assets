@@ -346,7 +346,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [pending, approved, rejected]
+            enum: [pending, approved, rejected, incomplete]
       responses:
         "200":
           description: Subscription requests
@@ -390,6 +390,42 @@ paths:
       responses:
         "200":
           description: Rejected
+
+  /admin/subscription-requests/{id}/incomplete:
+    post:
+      operationId: markIncompleteSubscriptionRequest
+      tags: [admin]
+      summary: Mark subscription request as incomplete payment with a note
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkIncompleteSubscriptionRequestBody"
+      responses:
+        "200":
+          description: Marked as incomplete
+
+  /subscriptions/my-requests:
+    get:
+      operationId: getMySubscriptionRequests
+      tags: [subscriptions]
+      summary: Get the current user's subscription requests
+      responses:
+        "200":
+          description: User subscription requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SubscriptionRequest"
 
   /admin/activation-cards:
     get:
@@ -830,20 +866,22 @@ components:
           type: string
         userName:
           type: ["string", "null"]
-        transactionId:
+        accountName:
           type: string
         planType:
           type: string
-          enum: [silver, gold, nukhba]
+          enum: [bronze, silver, gold]
         region:
           type: string
           enum: [north, south]
         status:
           type: string
-          enum: [pending, approved, rejected]
+          enum: [pending, approved, rejected, incomplete]
         activationCode:
           type: ["string", "null"]
         notes:
+          type: ["string", "null"]
+        adminNote:
           type: ["string", "null"]
         createdAt:
           type: string
@@ -851,7 +889,7 @@ components:
         - id
         - userId
         - userEmail
-        - transactionId
+        - accountName
         - planType
         - region
         - status
@@ -859,20 +897,28 @@ components:
     CreateSubscriptionRequestBody:
       type: object
       properties:
-        transactionId:
+        accountName:
           type: string
         planType:
           type: string
-          enum: [silver, gold, nukhba]
+          enum: [bronze, silver, gold]
         region:
           type: string
           enum: [north, south]
         notes:
           type: ["string", "null"]
       required:
-        - transactionId
+        - accountName
         - planType
         - region
+
+    MarkIncompleteSubscriptionRequestBody:
+      type: object
+      properties:
+        adminNote:
+          type: string
+      required:
+        - adminNote
 
     ActivateSubscriptionBody:
       type: object
