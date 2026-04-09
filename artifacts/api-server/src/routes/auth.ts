@@ -245,6 +245,13 @@ async function processReferral(referralCode: string, newUserId: number) {
 }
 
 router.get("/auth/google", (req, res): void => {
+  const domain = getAppDomain();
+  const callbackUrl = `https://${domain}/api/auth/google/callback`;
+  console.log("[OAuth] APP_DOMAIN env:", process.env.APP_DOMAIN);
+  console.log("[OAuth] REPLIT_DOMAINS env:", process.env.REPLIT_DOMAINS);
+  console.log("[OAuth] Resolved domain:", domain);
+  console.log("[OAuth] Callback URL:", callbackUrl);
+
   const client = getGoogleClient();
   const ref = (req.query.ref as string) || "";
   const state = Buffer.from(JSON.stringify({ ref })).toString("base64");
