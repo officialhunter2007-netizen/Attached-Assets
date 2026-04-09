@@ -373,6 +373,7 @@ export default function Subject() {
               onAccessDenied={() => { setIsChatOpen(false); setLocation("/subscription"); }}
               onSessionComplete={handleSessionComplete}
               ideOpen={isIDEOpen}
+              onCloseIDE={() => setIsIDEOpen(false)}
             />
           </DialogContent>
         </Dialog>
@@ -446,12 +447,14 @@ function SubjectPathChat({
   onAccessDenied,
   onSessionComplete,
   ideOpen,
+  onCloseIDE,
 }: { 
   subject: any;
   isFirstSession?: boolean;
   onAccessDenied: () => void;
   onSessionComplete?: () => void;
   ideOpen?: boolean;
+  onCloseIDE?: () => void;
 }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -477,6 +480,7 @@ function SubjectPathChat({
     };
     const label = langLabels[language] || language;
     const msg = `كتبت هذا الكود بلغة ${label}:\n\`\`\`${language}\n${code}\n\`\`\`\nالناتج:\n${output || "(لا يوجد إخراج)"}`;
+    onCloseIDE?.();
     sendTeachMessage(msg);
   };
 
