@@ -452,7 +452,7 @@ ${formattingRules}`;
   res.end();
 });
 
-router.post("/run-code", async (req, res) => {
+router.post("/ai/run-code", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
