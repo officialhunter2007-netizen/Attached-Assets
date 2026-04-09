@@ -172,7 +172,7 @@ export default function Subscription() {
               <div className="bg-black/30 rounded-2xl p-4 mb-6 flex items-center justify-center gap-3">
                 <MessageCircle className="w-5 h-5 text-gold" />
                 <span className="text-lg font-bold">
-                  {user?.messagesLeft ?? currentPlan.messages} رسالة متبقية
+                  {((user?.messagesLimit ?? currentPlan.messages) - (user?.messagesUsed ?? 0))} رسالة متبقية
                 </span>
               </div>
 

@@ -386,7 +386,7 @@ router.post("/admin/users/:id/cancel-subscription", async (req, res): Promise<vo
 
   const [updated] = await db
     .update(usersTable)
-    .set({ nukhbaPlan: null, messagesLeft: 0 })
+    .set({ nukhbaPlan: null, messagesLimit: 0, messagesUsed: 0, subscriptionExpiresAt: null })
     .where(eq(usersTable.id, targetId))
     .returning();
 

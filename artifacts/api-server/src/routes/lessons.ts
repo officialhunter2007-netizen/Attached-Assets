@@ -23,8 +23,7 @@ async function getUserWithAccess(userId: number) {
     new Date(user.subscriptionExpiresAt) > new Date() &&
     (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0);
 
-  const hasReferralAccess = !!user.referralAccessUntil &&
-    new Date(user.referralAccessUntil) > new Date();
+  const hasReferralAccess = (user.referralSessionsLeft ?? 0) > 0;
 
   const isFirstLesson = !user.firstLessonComplete;
   const canAccess = isFirstLesson || hasSubscriptionAccess || hasReferralAccess;

@@ -92,8 +92,7 @@ export default function Dashboard() {
     && user?.subscriptionExpiresAt
     && new Date(user.subscriptionExpiresAt) > new Date()
     && (user?.messagesUsed ?? 0) < (user?.messagesLimit ?? 0);
-  const hasReferralAccess = user?.referralAccessUntil
-    && new Date(user.referralAccessUntil) > new Date();
+  const hasReferralAccess = (user?.referralSessionsLeft ?? 0) > 0;
   const isBlocked = user?.firstLessonComplete && !hasSubscriptionAccess && !hasReferralAccess;
 
   let level = "مبتدئ";
