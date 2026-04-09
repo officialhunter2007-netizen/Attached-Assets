@@ -267,10 +267,19 @@ export default function Subscription() {
                     {region === 'north' ? plans[selectedPlan].priceNorth : plans[selectedPlan].priceSouth} ريال
                   </p>
                   <p className="text-sm text-muted-foreground mb-2">قم بتحويل المبلغ إلى حسابنا في الكريمي:</p>
-                  <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-3 rounded-xl border border-gold/20" dir="ltr">
-                    712345678
-                  </div>
-                  <p className="text-center text-xs mt-2 text-muted-foreground">باسم: منصة نخبة التعليمية</p>
+                  {region === 'north' ? (
+                    <>
+                      <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-3 rounded-xl border border-gold/20" dir="ltr">
+                        3165778412
+                      </div>
+                      <p className="text-center text-xs mt-2 text-muted-foreground">باسم: منصة نخبة التعليمية</p>
+                    </>
+                  ) : (
+                    <div className="bg-black/30 py-4 rounded-xl border border-white/10 text-center">
+                      <p className="text-sm text-muted-foreground">سيتم إضافة حساب المحافظات الجنوبية قريباً</p>
+                      <p className="text-xs text-muted-foreground mt-1">تواصل معنا للدفع في الوقت الحالي</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3">
