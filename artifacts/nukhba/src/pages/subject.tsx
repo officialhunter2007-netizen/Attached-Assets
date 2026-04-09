@@ -354,17 +354,19 @@ export default function Subject() {
                   </div>
                 )}
               </div>
-              <button
-                onClick={() => setIsIDEOpen(v => !v)}
-                className={`flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-xl transition-all border ${
-                  isIDEOpen
-                    ? "bg-white/5 border-white/10 text-muted-foreground hover:text-white"
-                    : "bg-gold/10 border-gold/30 text-gold hover:bg-gold/20"
-                }`}
-              >
-                <Code2 className="w-4 h-4" />
-                <span>{isIDEOpen ? "إغلاق IDE" : "فتح IDE"}</span>
-              </button>
+              {subject.hasCoding && (
+                <button
+                  onClick={() => setIsIDEOpen(v => !v)}
+                  className={`flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-xl transition-all border ${
+                    isIDEOpen
+                      ? "bg-white/5 border-white/10 text-muted-foreground hover:text-white"
+                      : "bg-gold/10 border-gold/30 text-gold hover:bg-gold/20"
+                  }`}
+                >
+                  <Code2 className="w-4 h-4" />
+                  <span>{isIDEOpen ? "إغلاق IDE" : "فتح IDE"}</span>
+                </button>
+              )}
             </div>
             <SubjectPathChat
               subject={subject}
@@ -542,6 +544,7 @@ function SubjectPathChat({
           stages: usedStages,
           currentStage: usedStage,
           isDiagnosticPhase: diagMode,
+          hasCoding: subject.hasCoding,
         })
       });
 

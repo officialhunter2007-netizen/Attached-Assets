@@ -18,6 +18,7 @@ export interface Subject {
   colorTo: string;
   units: Unit[];
   defaultStages: string[];
+  hasCoding: boolean;
 }
 
 export interface Category {
@@ -50,7 +51,8 @@ export const university: Subject[] = [
     colorFrom: "from-blue-600",
     colorTo: "to-blue-400",
     units: generateUnits("it", 4, 4),
-    defaultStages: ["أساسيات الحاسوب والأنظمة", "قواعد البيانات والشبكات", "البرمجة والتطبيقات", "المشروع التطبيقي"]
+    defaultStages: ["أساسيات الحاسوب والأنظمة", "قواعد البيانات والشبكات", "البرمجة والتطبيقات", "المشروع التطبيقي"],
+    hasCoding: true
   },
   {
     id: "uni-cybersecurity",
@@ -59,7 +61,8 @@ export const university: Subject[] = [
     colorFrom: "from-red-600",
     colorTo: "to-red-400",
     units: generateUnits("cyber", 4, 4),
-    defaultStages: ["مفاهيم الأمن والتهديدات", "التشفير والحماية", "اختبار الاختراق والأدوات", "الاستجابة للحوادث"]
+    defaultStages: ["مفاهيم الأمن والتهديدات", "التشفير والحماية", "اختبار الاختراق والأدوات", "الاستجابة للحوادث"],
+    hasCoding: true
   },
   {
     id: "uni-data-science",
@@ -68,7 +71,8 @@ export const university: Subject[] = [
     colorFrom: "from-green-600",
     colorTo: "to-green-400",
     units: generateUnits("data", 4, 4),
-    defaultStages: ["إحصاء وتحليل البيانات", "Python للبيانات ومكتبات NumPy/Pandas", "تصور البيانات والتنبؤ", "نماذج التعلم الآلي"]
+    defaultStages: ["إحصاء وتحليل البيانات", "Python للبيانات ومكتبات NumPy/Pandas", "تصور البيانات والتنبؤ", "نماذج التعلم الآلي"],
+    hasCoding: true
   },
   {
     id: "uni-accounting",
@@ -77,7 +81,8 @@ export const university: Subject[] = [
     colorFrom: "from-yellow-600",
     colorTo: "to-yellow-400",
     units: generateUnits("acc", 4, 4),
-    defaultStages: ["أساسيات المحاسبة والقيد المزدوج", "الميزانية والتقارير المالية", "محاسبة التكاليف", "التدقيق والضريبة"]
+    defaultStages: ["أساسيات المحاسبة والقيد المزدوج", "الميزانية والتقارير المالية", "محاسبة التكاليف", "التدقيق والضريبة"],
+    hasCoding: false
   },
   {
     id: "uni-business",
@@ -86,7 +91,8 @@ export const university: Subject[] = [
     colorFrom: "from-orange-600",
     colorTo: "to-orange-400",
     units: generateUnits("bus", 4, 4),
-    defaultStages: ["مبادئ الإدارة والتخطيط الاستراتيجي", "التسويق وبناء العلامة", "الموارد البشرية والقيادة", "ريادة الأعمال والمشاريع"]
+    defaultStages: ["مبادئ الإدارة والتخطيط الاستراتيجي", "التسويق وبناء العلامة", "الموارد البشرية والقيادة", "ريادة الأعمال والمشاريع"],
+    hasCoding: false
   },
   {
     id: "uni-software-eng",
@@ -95,7 +101,8 @@ export const university: Subject[] = [
     colorFrom: "from-indigo-600",
     colorTo: "to-indigo-400",
     units: generateUnits("se", 4, 4),
-    defaultStages: ["هندسة المتطلبات والتصميم", "أنماط التصميم والبرمجة الكائنية", "الاختبار وضمان الجودة", "نشر التطبيقات وCI/CD"]
+    defaultStages: ["هندسة المتطلبات والتصميم", "أنماط التصميم والبرمجة الكائنية", "الاختبار وضمان الجودة", "نشر التطبيقات وCI/CD"],
+    hasCoding: true
   },
   {
     id: "uni-ai",
@@ -104,7 +111,8 @@ export const university: Subject[] = [
     colorFrom: "from-purple-600",
     colorTo: "to-purple-400",
     units: generateUnits("ai", 4, 4),
-    defaultStages: ["أساسيات الذكاء الاصطناعي والمنطق", "تعلم الآلة والشبكات العصبية", "معالجة اللغة الطبيعية", "تطبيقات الذكاء الاصطناعي الحديثة"]
+    defaultStages: ["أساسيات الذكاء الاصطناعي والمنطق", "تعلم الآلة والشبكات العصبية", "معالجة اللغة الطبيعية", "تطبيقات الذكاء الاصطناعي الحديثة"],
+    hasCoding: true
   },
   {
     id: "uni-mobile",
@@ -113,7 +121,8 @@ export const university: Subject[] = [
     colorFrom: "from-teal-600",
     colorTo: "to-teal-400",
     units: generateUnits("mob", 4, 4),
-    defaultStages: ["أساسيات تطوير المحمول", "واجهة المستخدم وتجربة UX", "إدارة الحالة والبيانات", "النشر على المتاجر"]
+    defaultStages: ["أساسيات تطوير المحمول", "واجهة المستخدم وتجربة UX", "إدارة الحالة والبيانات", "النشر على المتاجر"],
+    hasCoding: true
   },
   {
     id: "uni-cloud",
@@ -122,7 +131,8 @@ export const university: Subject[] = [
     colorFrom: "from-sky-600",
     colorTo: "to-sky-400",
     units: generateUnits("cloud", 4, 4),
-    defaultStages: ["مفاهيم الحوسبة السحابية", "AWS/Azure الأساسيات", "الحاويات وKubernetes", "الأمن السحابي والتكاليف"]
+    defaultStages: ["مفاهيم الحوسبة السحابية", "AWS/Azure الأساسيات", "الحاويات وKubernetes", "الأمن السحابي والتكاليف"],
+    hasCoding: true
   },
   {
     id: "uni-networks",
@@ -131,7 +141,8 @@ export const university: Subject[] = [
     colorFrom: "from-cyan-600",
     colorTo: "to-cyan-400",
     units: generateUnits("net", 4, 4),
-    defaultStages: ["نموذج OSI وبروتوكولات TCP/IP", "تصميم الشبكات والتوجيه", "الشبكات اللاسلكية والأمن", "إدارة الشبكات والمراقبة"]
+    defaultStages: ["نموذج OSI وبروتوكولات TCP/IP", "تصميم الشبكات والتوجيه", "الشبكات اللاسلكية والأمن", "إدارة الشبكات والمراقبة"],
+    hasCoding: false
   },
 ];
 
@@ -147,7 +158,8 @@ export const skills: Category[] = [
         colorFrom: "from-orange-500",
         colorTo: "to-orange-300",
         units: generateUnits("html", 3, 4),
-        defaultStages: ["هيكل صفحة HTML وعناصرها", "النماذج والوسائط والروابط", "HTML5 والعناصر الدلالية"]
+        defaultStages: ["هيكل صفحة HTML وعناصرها", "النماذج والوسائط والروابط", "HTML5 والعناصر الدلالية"],
+        hasCoding: true
       },
       {
         id: "skill-css",
@@ -156,7 +168,8 @@ export const skills: Category[] = [
         colorFrom: "from-blue-500",
         colorTo: "to-blue-300",
         units: generateUnits("css", 3, 4),
-        defaultStages: ["المحددات والألوان والخطوط", "Box Model والتخطيط Flexbox", "Grid وResponsive Design"]
+        defaultStages: ["المحددات والألوان والخطوط", "Box Model والتخطيط Flexbox", "Grid وResponsive Design"],
+        hasCoding: true
       },
       {
         id: "skill-js",
@@ -165,7 +178,8 @@ export const skills: Category[] = [
         colorFrom: "from-yellow-400",
         colorTo: "to-yellow-200",
         units: generateUnits("js", 4, 5),
-        defaultStages: ["أساسيات JavaScript والمتغيرات", "الدوال والمصفوفات والكائنات", "DOM والأحداث والتفاعل", "Async/Await والـ APIs"]
+        defaultStages: ["أساسيات JavaScript والمتغيرات", "الدوال والمصفوفات والكائنات", "DOM والأحداث والتفاعل", "Async/Await والـ APIs"],
+        hasCoding: true
       },
     ]
   },
@@ -180,7 +194,8 @@ export const skills: Category[] = [
         colorFrom: "from-blue-400",
         colorTo: "to-yellow-400",
         units: generateUnits("py", 5, 5),
-        defaultStages: ["أساسيات Python والمتغيرات", "الدوال والقوائم والقواميس", "البرمجة الكائنية OOP", "الملفات والمكتبات الأساسية", "المشروع التطبيقي"]
+        defaultStages: ["أساسيات Python والمتغيرات", "الدوال والقوائم والقواميس", "البرمجة الكائنية OOP", "الملفات والمكتبات الأساسية", "المشروع التطبيقي"],
+        hasCoding: true
       },
       {
         id: "skill-cpp",
@@ -189,7 +204,8 @@ export const skills: Category[] = [
         colorFrom: "from-blue-600",
         colorTo: "to-blue-400",
         units: generateUnits("cpp", 5, 5),
-        defaultStages: ["أساسيات C++ والمتغيرات", "المؤشرات والذاكرة", "البرمجة الكائنية", "القوالب وSTL", "تطبيقات متقدمة"]
+        defaultStages: ["أساسيات C++ والمتغيرات", "المؤشرات والذاكرة", "البرمجة الكائنية", "القوالب وSTL", "تطبيقات متقدمة"],
+        hasCoding: true
       },
       {
         id: "skill-c",
@@ -198,7 +214,8 @@ export const skills: Category[] = [
         colorFrom: "from-gray-600",
         colorTo: "to-gray-400",
         units: generateUnits("c", 4, 5),
-        defaultStages: ["أساسيات C والمتغيرات", "المؤشرات والمصفوفات", "الدوال وإدارة الذاكرة", "هياكل البيانات"]
+        defaultStages: ["أساسيات C والمتغيرات", "المؤشرات والمصفوفات", "الدوال وإدارة الذاكرة", "هياكل البيانات"],
+        hasCoding: true
       },
       {
         id: "skill-java",
@@ -207,7 +224,8 @@ export const skills: Category[] = [
         colorFrom: "from-red-500",
         colorTo: "to-red-300",
         units: generateUnits("java", 5, 5),
-        defaultStages: ["أساسيات Java والكلاسات", "الوراثة والتعددية الشكلية", "المجموعات والمكتبات", "البرمجة المتزامنة", "تطبيقات عملية"]
+        defaultStages: ["أساسيات Java والكلاسات", "الوراثة والتعددية الشكلية", "المجموعات والمكتبات", "البرمجة المتزامنة", "تطبيقات عملية"],
+        hasCoding: true
       },
     ]
   },
@@ -222,7 +240,8 @@ export const skills: Category[] = [
         colorFrom: "from-yellow-500",
         colorTo: "to-yellow-300",
         units: generateUnits("linux", 4, 4),
-        defaultStages: ["أساسيات Linux والأوامر الأساسية", "إدارة الملفات والمستخدمين", "Shell Scripting والأتمتة", "الشبكات والأمن في Linux"]
+        defaultStages: ["أساسيات Linux والأوامر الأساسية", "إدارة الملفات والمستخدمين", "Shell Scripting والأتمتة", "الشبكات والأمن في Linux"],
+        hasCoding: true
       },
       {
         id: "skill-windows",
@@ -231,7 +250,8 @@ export const skills: Category[] = [
         colorFrom: "from-blue-500",
         colorTo: "to-blue-300",
         units: generateUnits("win", 3, 4),
-        defaultStages: ["إدارة نظام Windows", "PowerShell والأتمتة", "أمن Windows والـ Active Directory"]
+        defaultStages: ["إدارة نظام Windows", "PowerShell والأتمتة", "أمن Windows والـ Active Directory"],
+        hasCoding: true
       },
     ]
   },
@@ -246,7 +266,8 @@ export const skills: Category[] = [
         colorFrom: "from-green-500",
         colorTo: "to-green-300",
         units: generateUnits("net", 4, 4),
-        defaultStages: ["نموذج OSI وTCP/IP", "عناوين IP والـ Subnetting", "البروتوكولات الأساسية", "تكوين الشبكات وحل المشكلات"]
+        defaultStages: ["نموذج OSI وTCP/IP", "عناوين IP والـ Subnetting", "البروتوكولات الأساسية", "تكوين الشبكات وحل المشكلات"],
+        hasCoding: false
       },
     ]
   },
@@ -261,7 +282,8 @@ export const skills: Category[] = [
         colorFrom: "from-slate-600",
         colorTo: "to-slate-400",
         units: generateUnits("nmap", 3, 4),
-        defaultStages: ["مبادئ Nmap ومسح المنافذ", "أنواع المسح والتقنيات المتقدمة", "تحليل النتائج وكتابة التقارير"]
+        defaultStages: ["مبادئ Nmap ومسح المنافذ", "أنواع المسح والتقنيات المتقدمة", "تحليل النتائج وكتابة التقارير"],
+        hasCoding: false
       },
       {
         id: "skill-wireshark",
@@ -270,7 +292,8 @@ export const skills: Category[] = [
         colorFrom: "from-blue-400",
         colorTo: "to-blue-200",
         units: generateUnits("ws", 3, 4),
-        defaultStages: ["تثبيت Wireshark والتقاط الحزم", "تحليل البروتوكولات والتصفية", "تحليل الهجمات وحركة المرور الشبكي"]
+        defaultStages: ["تثبيت Wireshark والتقاط الحزم", "تحليل البروتوكولات والتصفية", "تحليل الهجمات وحركة المرور الشبكي"],
+        hasCoding: false
       },
     ]
   }

@@ -286,7 +286,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase } = req.body;
+  const { subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = req.body;
 
   const isFirstLesson = !user.firstLessonComplete;
   const canAccessViaSubscription = hasSubscriptionAccess(user);
@@ -351,12 +351,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const currentStageName = stages?.[stageIdx] || `المرحلة ${stageIdx + 1}`;
   const nextStageName = stages?.[stageIdx + 1];
 
-  const formattingRules = `**قواعد التنسيق (مهم جداً):**
-- كل ردودك HTML داخل <div> واحد فقط. لا Markdown أبداً.
-- class="question-box" → للأسئلة والتحديات (إطار ذهبي)
-- class="praise" → للإشادة بالطالب (أخضر)
-- class="discover-box" → لطلبات الاكتشاف (بنفسجي)
-- class="tip-box" → للتلميحات والنصائح
+  const codingRules = hasCoding ? `
 - الكود البرمجي داخل <pre><code> واتجاهه LTR
 - **مهم جداً — تحديات الكتابة:** عندما تطلب من الطالب كتابة كود أو تطبيق برمجي، ضع دائماً مثالاً أو هيكلاً للكود داخل <pre><code>...</code></pre> كنقطة بداية. مثال: <pre><code>def greet(name):
     # اكتب كودك هنا
@@ -367,7 +362,16 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
 - **إذا كان التحدي يتطلب لغة غير مدعومة** (مثل MATLAB, Assembly, Haskell, COBOL, وغيرها): اعترف بذلك واسأل الطالب سؤالاً واحداً: "هل أنت الآن على هاتف أم كمبيوتر؟" ثم:
   - **إذا كمبيوتر:** أرشده بوضوح لتثبيت VS Code + امتداد اللغة، أو استخدام موقع مجاني مثل replit.com. مثال: <div class="tip-box">💻 <strong>على الكمبيوتر:</strong> ثبّت VS Code من code.visualstudio.com ثم ثبّت امتداد اللغة المطلوبة، أو استخدم replit.com مباشرةً من المتصفح بدون تثبيت.</div>
   - **إذا هاتف:** أرشده لتطبيقات مناسبة. مثال: <div class="tip-box">📱 <strong>على الهاتف:</strong> جرّب تطبيق <strong>Dcoder</strong> (Android/iOS) أو <strong>Replit</strong> — كلاهما مجاني ويدعم عشرات اللغات.</div>
-  - **بديل دائم — المحاكاة داخل المحادثة:** بغض النظر عن الجهاز، اعرض على الطالب أن تسير معه خطوة بخطوة: "يمكنني أن أريك الكود كاملاً وأشرح كل سطر هنا في المحادثة، ثم تكتبه أنت في بيئتك وتخبرني بالنتيجة." إذا وافق، اشرح الكود سطراً سطراً واطلب منه لصق المخرجات أو وصفها هنا.
+  - **بديل دائم — المحاكاة داخل المحادثة:** بغض النظر عن الجهاز، اعرض على الطالب أن تسير معه خطوة بخطوة: "يمكنني أن أريك الكود كاملاً وأشرح كل سطر هنا في المحادثة، ثم تكتبه أنت في بيئتك وتخبرني بالنتيجة." إذا وافق، اشرح الكود سطراً سطراً واطلب منه لصق المخرجات أو وصفها هنا.` : `
+- **هذه المادة ليست برمجية:** لا تُعطِ أي تحدٍّ يتطلب كتابة كود برمجي أو استخدام بيئة برمجة. ركّز على الفهم النظري والتطبيق العملي في سياق المادة فقط.`;
+
+  const formattingRules = `**قواعد التنسيق (مهم جداً):**
+- كل ردودك HTML داخل <div> واحد فقط. لا Markdown أبداً.
+- class="question-box" → للأسئلة والتحديات (إطار ذهبي)
+- class="praise" → للإشادة بالطالب (أخضر)
+- class="discover-box" → لطلبات الاكتشاف (بنفسجي)
+- class="tip-box" → للتلميحات والنصائح
+${codingRules}
 - لا تستخدم ** أو # أو أي Markdown`;
 
   const diagnosticSystemPrompt = `أنت معلم خاص متمكن في مادة: ${subjectName}. هذه أول جلسة للطالب في هذه المادة ومهمتك الآن معرفة مستواه وبناء خطة مخصصة له.
