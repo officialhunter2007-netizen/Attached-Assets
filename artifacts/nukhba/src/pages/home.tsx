@@ -12,9 +12,6 @@ export default function Home() {
             <div className="w-9 h-9 md:w-10 md:h-10 rounded-lg gradient-gold flex items-center justify-center text-primary-foreground font-black text-xl md:text-2xl shadow-lg shadow-gold/20">ن</div>
             <span className="text-xl md:text-2xl font-bold text-gold tracking-tight">نُخبة</span>
           </div>
-          <Link href="/login">
-            <Button className="gradient-gold text-primary-foreground font-bold hover:opacity-90 shadow-lg shadow-gold/20 transition-all rounded-full px-5 md:px-8 text-sm md:text-base h-9 md:h-10">ابدأ مجاناً</Button>
-          </Link>
         </div>
       </header>
 
