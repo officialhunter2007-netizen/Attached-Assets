@@ -458,26 +458,125 @@ router.post("/run-code", async (req, res) => {
 
   const { exec } = await import("child_process");
   const { promisify } = await import("util");
+  const { mkdtemp, writeFile, rm } = await import("fs/promises");
+  const { tmpdir } = await import("os");
+  const { join } = await import("path");
   const execAsync = promisify(exec);
+  const TIMEOUT = 8000;
+  const MAX_BUF = 1024 * 100;
 
-  let command: string;
-  if (language === "python") {
-    command = `python3 -c ${JSON.stringify(code)}`;
-  } else if (language === "javascript" || language === "js") {
-    command = `node --input-type=module -e ${JSON.stringify(code)}`;
-  } else {
-    return res.status(400).json({ error: "Unsupported language" });
+  async function runInTempDir(
+    filename: string,
+    buildCmd: (dir: string) => string,
+    runCmd: (dir: string) => string
+  ) {
+    const dir = await mkdtemp(join(tmpdir(), "nukhba-"));
+    try {
+      await writeFile(join(dir, filename), code, "utf8");
+      try {
+        await execAsync(buildCmd(dir), { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+      } catch (e: any) {
+        return { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+      }
+      try {
+        const { stdout, stderr } = await execAsync(runCmd(dir), { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+        return { output: stdout, error: stderr, exitCode: 0 };
+      } catch (e: any) {
+        return { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 
   try {
-    const { stdout, stderr } = await execAsync(command, { timeout: 6000, maxBuffer: 1024 * 100 });
-    return res.json({ output: stdout, error: stderr, exitCode: 0 });
+    let result: { output: string; error: string; exitCode: number };
+
+    if (language === "python") {
+      try {
+        const { stdout, stderr } = await execAsync(`python3 -c ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+        result = { output: stdout, error: stderr, exitCode: 0 };
+      } catch (e: any) {
+        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+      }
+    } else if (language === "javascript") {
+      try {
+        const { stdout, stderr } = await execAsync(`node -e ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+        result = { output: stdout, error: stderr, exitCode: 0 };
+      } catch (e: any) {
+        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+      }
+    } else if (language === "ruby") {
+      try {
+        const { stdout, stderr } = await execAsync(`ruby -e ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+        result = { output: stdout, error: stderr, exitCode: 0 };
+      } catch (e: any) {
+        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+      }
+    } else if (language === "php") {
+      try {
+        const { stdout, stderr } = await execAsync(`php -r ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+        result = { output: stdout, error: stderr, exitCode: 0 };
+      } catch (e: any) {
+        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+      }
+    } else if (language === "bash") {
+      try {
+        const { stdout, stderr } = await execAsync(`bash -c ${JSON.stringify(code)}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+        result = { output: stdout, error: stderr, exitCode: 0 };
+      } catch (e: any) {
+        result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+      }
+    } else if (language === "cpp") {
+      result = await runInTempDir(
+        "main.cpp",
+        (dir) => `g++ -o ${join(dir, "out")} ${join(dir, "main.cpp")}`,
+        (dir) => join(dir, "out")
+      );
+    } else if (language === "c") {
+      result = await runInTempDir(
+        "main.c",
+        (dir) => `gcc -o ${join(dir, "out")} ${join(dir, "main.c")}`,
+        (dir) => join(dir, "out")
+      );
+    } else if (language === "go") {
+      result = await runInTempDir(
+        "main.go",
+        (dir) => `go build -o ${join(dir, "out")} ${join(dir, "main.go")}`,
+        (dir) => join(dir, "out")
+      );
+    } else if (language === "rust") {
+      result = await runInTempDir(
+        "main.rs",
+        (dir) => `rustc -o ${join(dir, "out")} ${join(dir, "main.rs")}`,
+        (dir) => join(dir, "out")
+      );
+    } else if (language === "java") {
+      const dir = await mkdtemp(join(tmpdir(), "nukhba-"));
+      try {
+        await writeFile(join(dir, "Main.java"), code, "utf8");
+        try {
+          await execAsync(`javac ${join(dir, "Main.java")}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+        } catch (e: any) {
+          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+          return res.json(result);
+        }
+        try {
+          const { stdout, stderr } = await execAsync(`java -cp ${dir} Main`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
+          result = { output: stdout, error: stderr, exitCode: 0 };
+        } catch (e: any) {
+          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    } else {
+      return res.status(400).json({ error: "Unsupported language" });
+    }
+
+    return res.json(result);
   } catch (e: any) {
-    return res.json({
-      output: e.stdout || "",
-      error: e.stderr || e.message || "خطأ غير معروف",
-      exitCode: e.code ?? 1
-    });
+    return res.json({ output: "", error: e.message || "خطأ غير معروف", exitCode: 1 });
   }
 });
 
