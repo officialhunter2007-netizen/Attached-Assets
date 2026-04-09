@@ -358,8 +358,8 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     pass</code></pre>
 - **إرشاد الطالب لاستخدام IDE — إلزامي عند كل تحدٍّ برمجي:** في نهاية كل تحدٍّ برمجي، أضف دائماً فقرة إرشادية قصيرة تشرح له كيف يكتب الكود، مثل:
   <div class="tip-box">💡 <strong>كيف تكتب الكود؟</strong> اضغط على زر <strong>«فتح IDE»</strong> في أعلى نافذة المحادثة ← اضغط <strong>«+»</strong> لإنشاء ملف جديد ← اكتب اسم الملف بامتداد اللغة المطلوبة (مثلاً <code>main.py</code> لبايثون، أو <code>main.js</code> لجافاسكريبت، أو <code>main.kt</code> لكوتلن) ← سيتعرف IDE تلقائياً على لغة البرمجة من الامتداد ← اكتب كودك وانقر «تشغيل ▶».</div>
-- **اللغات المدعومة في IDE المنصة (مرتبطة بالمنهج):** JavaScript, TypeScript, Python, Java, C++, C, Dart, Kotlin, Swift, Bash, SQL فقط.
-- **إذا كان التحدي يتطلب لغة غير مدعومة** (مثل Go, Rust, Ruby, PHP, R, Elixir, MATLAB, Assembly, Haskell, وغيرها): اعترف بذلك واسأل الطالب سؤالاً واحداً: "هل أنت الآن على هاتف أم كمبيوتر؟" ثم:
+- **اللغات المدعومة في IDE المنصة (مرتبطة بالمنهج):** JavaScript, TypeScript, Python, Java, C++, C, Dart, Kotlin, Bash, SQL فقط.
+- **إذا كان التحدي يتطلب لغة غير مدعومة** (مثل Swift, Go, Rust, Ruby, PHP, R, Elixir, MATLAB, Assembly, Haskell, وغيرها): اعترف بذلك واسأل الطالب سؤالاً واحداً: "هل أنت الآن على هاتف أم كمبيوتر؟" ثم:
   - **إذا كمبيوتر:** أرشده بوضوح لتثبيت VS Code + امتداد اللغة، أو استخدام موقع مجاني مثل replit.com. مثال: <div class="tip-box">💻 <strong>على الكمبيوتر:</strong> ثبّت VS Code من code.visualstudio.com ثم ثبّت امتداد اللغة المطلوبة، أو استخدم replit.com مباشرةً من المتصفح بدون تثبيت.</div>
   - **إذا هاتف:** أرشده لتطبيقات مناسبة. مثال: <div class="tip-box">📱 <strong>على الهاتف:</strong> جرّب تطبيق <strong>Dcoder</strong> (Android/iOS) أو <strong>Replit</strong> — كلاهما مجاني ويدعم عشرات اللغات.</div>
   - **بديل دائم — المحاكاة داخل المحادثة:** بغض النظر عن الجهاز، اعرض على الطالب أن تسير معه خطوة بخطوة: "يمكنني أن أريك الكود كاملاً وأشرح كل سطر هنا في المحادثة، ثم تكتبه أنت في بيئتك وتخبرني بالنتيجة." إذا وافق، اشرح الكود سطراً سطراً واطلب منه لصق المخرجات أو وصفها هنا.` : `
@@ -520,8 +520,6 @@ router.post("/ai/run-code", async (req, res) => {
       result = await runInTempDir("main.sql", (_d) => "true", (d) => `sqlite3 :memory: < ${join(d, "main.sql")}`);
     } else if (language === "dart") {
       result = await runInTempDir("main.dart", (_d) => "true", (d) => `dart run ${join(d, "main.dart")}`);
-    } else if (language === "swift") {
-      result = await runInTempDir("main.swift", (_d) => "true", (d) => `swift ${join(d, "main.swift")}`);
 
     // ── Compiled languages ──────────────────────────────────────────────
     } else if (language === "cpp") {

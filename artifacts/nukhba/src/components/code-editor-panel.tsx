@@ -16,7 +16,6 @@ const LANGUAGES = [
   // Mobile Development track
   { id: "dart",       label: "Dart",       ext: "dart",  icon: "🎯", monacoLang: "dart"       },
   { id: "kotlin",     label: "Kotlin",     ext: "kt",    icon: "🤖", monacoLang: "kotlin"     },
-  { id: "swift",      label: "Swift",      ext: "swift", icon: "🍎", monacoLang: "swift"      },
   // OS / Cloud / Security track
   { id: "bash",       label: "Bash",       ext: "sh",    icon: "🐚", monacoLang: "shell"      },
   // Data & Databases track
@@ -26,7 +25,7 @@ const LANGUAGES = [
 const EXT_TO_LANG: Record<string, string> = {
   py: "python", js: "javascript", ts: "typescript", java: "java",
   cpp: "cpp", cc: "cpp", cxx: "cpp", c: "c",
-  kt: "kotlin", swift: "swift", dart: "dart",
+  kt: "kotlin", dart: "dart",
   sql: "sql", sh: "bash", bash: "bash",
 };
 
@@ -42,7 +41,6 @@ const DEFAULT_CODE: Record<string, string> = {
   // Mobile Development
   dart:       `void main() {\n    print("مرحباً من نُخبة! 🎓");\n}\n`,
   kotlin:     `fun main() {\n    println("مرحباً من نُخبة! 🎓")\n}\n`,
-  swift:      `print("مرحباً من نُخبة! 🎓")\n`,
   // OS / Cloud / Security
   bash:       `#!/bin/bash\n# مرحباً بك\necho "مرحباً من نُخبة! 🎓"\n`,
   // Data & Databases
