@@ -1,6 +1,6 @@
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
-import { LogOut, Menu, User } from "lucide-react";
+import { LogOut, LogIn, Menu, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ReactNode } from "react";
@@ -8,6 +8,8 @@ import { NukhbaLogo } from "@/components/nukhba-logo";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
+
+  const loginUrl = "/api/auth/google";
 
   const NavLinks = () => (
     <>
@@ -32,16 +34,25 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <nav className="hidden md:flex items-center gap-6">
             <NavLinks />
             <div className="h-6 w-px bg-border/50 mx-2" />
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <User className="w-4 h-4" />
-                <span>{user?.displayName || user?.email}</span>
+            {user ? (
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <User className="w-4 h-4" />
+                  <span>{user.displayName || user.email}</span>
+                </div>
+                <Button variant="ghost" size="sm" onClick={logout} className="text-destructive hover:text-destructive hover:bg-destructive/10">
+                  <LogOut className="w-4 h-4 ml-2" />
+                  خروج
+                </Button>
               </div>
-              <Button variant="ghost" size="sm" onClick={logout} className="text-destructive hover:text-destructive hover:bg-destructive/10">
-                <LogOut className="w-4 h-4 ml-2" />
-                خروج
+            ) : (
+              <Button asChild size="sm" className="gradient-gold text-primary-foreground font-bold">
+                <a href={loginUrl}>
+                  <LogIn className="w-4 h-4 ml-2" />
+                  تسجيل الدخول
+                </a>
               </Button>
-            </div>
+            )}
           </nav>
 
           {/* Mobile Nav */}
@@ -56,10 +67,19 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 <div className="flex flex-col gap-6 mt-8">
                   <NavLinks />
                   <div className="h-px w-full bg-border/50" />
-                  <Button variant="destructive" onClick={logout} className="w-full justify-start">
-                    <LogOut className="w-4 h-4 ml-2" />
-                    تسجيل الخروج
-                  </Button>
+                  {user ? (
+                    <Button variant="destructive" onClick={logout} className="w-full justify-start">
+                      <LogOut className="w-4 h-4 ml-2" />
+                      تسجيل الخروج
+                    </Button>
+                  ) : (
+                    <Button asChild className="w-full gradient-gold text-primary-foreground font-bold justify-start">
+                      <a href={loginUrl}>
+                        <LogIn className="w-4 h-4 ml-2" />
+                        تسجيل الدخول
+                      </a>
+                    </Button>
+                  )}
                 </div>
               </SheetContent>
             </Sheet>
