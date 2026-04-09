@@ -4,7 +4,6 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
@@ -471,6 +470,7 @@ function SubjectPathChat({
   const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
   const [customPlan, setCustomPlan] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const handleShareWithTeacher = (code: string, language: string, output: string) => {
     const langLabels: Record<string, string> = {
@@ -625,6 +625,9 @@ function SubjectPathChat({
   const handleSend = () => {
     if (!input.trim() || isStreaming) return;
     sendTeachMessage(input);
+    if (inputRef.current) {
+      inputRef.current.style.height = "56px";
+    }
   };
 
   const handleEndSession = () => {
@@ -826,18 +829,36 @@ function SubjectPathChat({
           className="relative max-w-3xl mx-auto"
           onSubmit={(e) => { e.preventDefault(); handleSend(); }}
         >
-          <Input 
+          <textarea
+            ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="اسأل معلمك، ناقشه، أو اطلب توضيحاً..."
-            className="w-full h-14 pl-14 pr-6 bg-black/40 border-white/10 rounded-2xl text-lg focus-visible:ring-gold focus-visible:border-gold/50"
+            rows={1}
+            onChange={(e) => {
+              setInput(e.target.value);
+              e.target.style.height = "auto";
+              e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder="اسأل معلمك أو اكتب كودك هنا... (Enter للإرسال، Shift+Enter لسطر جديد)"
             disabled={isStreaming}
+            style={{
+              minHeight: "56px",
+              maxHeight: "160px",
+              resize: "none",
+              direction: "rtl",
+            }}
+            className="w-full pl-14 pr-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-base leading-relaxed outline-none focus:ring-2 focus:ring-gold focus:border-gold/50 disabled:opacity-50 text-white placeholder:text-white/30 overflow-y-auto scrollbar-thin"
           />
           <Button 
             type="submit" 
             size="icon" 
             disabled={!input.trim() || isStreaming}
-            className="absolute left-2 top-2 h-10 w-10 rounded-xl gradient-gold text-primary-foreground"
+            className="absolute left-2 bottom-2 h-10 w-10 rounded-xl gradient-gold text-primary-foreground"
           >
             <Send className="w-5 h-5" />
           </Button>
