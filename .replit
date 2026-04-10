@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "postgresql-16", "python-3.12", "java-graalvm22.3"]
+modules = ["nodejs-24", "python-3.12", "java-graalvm22.3", "postgresql-16"]
 
 [[artifacts]]
 id = "artifacts/api-server"
