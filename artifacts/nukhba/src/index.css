@@ -140,25 +140,32 @@
   font-size: 15px;
   line-height: 1.9;
   direction: rtl;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
+  max-width: 100%;
 }
 .ai-msg * {
   background-color: transparent !important;
   color: inherit !important;
   border-color: rgba(255,255,255,0.12) !important;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .ai-msg h1, .ai-msg h2, .ai-msg h3 { color: #ffffff !important; font-size: 1.05em; margin: 14px 0 6px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1) !important; padding-bottom: 4px; }
 .ai-msg h4, .ai-msg h5, .ai-msg h6 { color: #f0f0f0 !important; font-size: 1.0em; margin: 10px 0 5px; font-weight: 600; }
 .ai-msg strong, .ai-msg b { color: #fff !important; font-weight: 700; }
 .ai-msg em, .ai-msg i { font-style: italic; color: #d0d0d0 !important; }
-.ai-msg p { margin: 8px 0; }
+.ai-msg p { margin: 8px 0; word-break: break-word; overflow-wrap: break-word; }
 .ai-msg ul, .ai-msg ol { padding-right: 22px; margin: 8px 0; }
-.ai-msg li { margin-bottom: 6px; }
+.ai-msg li { margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; }
 .ai-msg div, .ai-msg span, .ai-msg section { color: #e8e8e8 !important; background: transparent !important; }
-.ai-msg pre { background: rgba(0,0,0,0.35) !important; border: 1px solid rgba(255,255,255,0.07) !important; border-radius: 8px; padding: 12px; overflow-x: auto; margin: 10px 0; }
-.ai-msg pre > code { background: transparent !important; color: #e2e8f0 !important; direction: ltr; text-align: left; display: block; font-family: 'Fira Code','Consolas',monospace; font-size: 13px; white-space: pre; }
-.ai-msg code { background: rgba(255,255,255,0.08) !important; color: #e2e8f0 !important; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 0.88em; direction: ltr; display: inline-block; }
-.ai-msg table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-.ai-msg th, .ai-msg td { border: 1px solid rgba(255,255,255,0.12) !important; padding: 6px 10px; text-align: right; color: #e8e8e8 !important; background: transparent !important; }
+.ai-msg pre { background: rgba(0,0,0,0.35) !important; border: 1px solid rgba(255,255,255,0.07) !important; border-radius: 8px; padding: 12px; overflow-x: auto; margin: 10px 0; max-width: 100%; -webkit-overflow-scrolling: touch; }
+.ai-msg pre > code { background: transparent !important; color: #e2e8f0 !important; direction: ltr; text-align: left; display: block; font-family: 'Fira Code','Consolas',monospace; font-size: 13px; white-space: pre; min-width: max-content; }
+.ai-msg code { background: rgba(255,255,255,0.08) !important; color: #e2e8f0 !important; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 0.88em; direction: ltr; display: inline-block; word-break: break-all; }
+.ai-msg table { width: 100%; max-width: 100%; border-collapse: collapse; margin: 10px 0; display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ai-msg thead, .ai-msg tbody, .ai-msg tr { display: table; width: 100%; table-layout: fixed; }
+.ai-msg th, .ai-msg td { border: 1px solid rgba(255,255,255,0.12) !important; padding: 6px 10px; text-align: right; color: #e8e8e8 !important; background: transparent !important; word-break: break-word; }
 .ai-msg th { background: rgba(255,255,255,0.05) !important; font-weight: 700; color: #fff !important; }
-.ai-msg a { color: #93c5fd !important; text-decoration: underline; }
+.ai-msg a { color: #93c5fd !important; text-decoration: underline; word-break: break-all; }
 .ai-msg blockquote { border-right: 3px solid rgba(255,255,255,0.2); padding: 8px 14px; margin: 10px 0; opacity: 0.85; }

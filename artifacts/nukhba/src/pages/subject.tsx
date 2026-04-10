@@ -489,7 +489,7 @@ function AIMessage({ content, isStreaming }: { content: string; isStreaming: boo
   const safe = stripInlineStyles(content);
 
   return (
-    <div className="rounded-2xl rounded-bl-none bg-[hsl(222,24%,16%)] border border-white/8 p-4 max-w-[90%] shadow-sm">
+    <div className="rounded-2xl rounded-bl-none bg-[hsl(222,24%,16%)] border border-white/8 p-4 max-w-[90%] min-w-0 shadow-sm overflow-x-hidden">
       <div className="ai-msg" dangerouslySetInnerHTML={{ __html: isStreaming ? `<p>${plainText}</p>` : safe }} />
       {isStreaming && (
         <div className="flex items-center gap-1 mt-3">
@@ -832,8 +832,8 @@ function SubjectPathChat({
         </div>
       )}
 
-      <ScrollArea className="flex-1 px-4 py-5" ref={scrollRef}>
-        <div className="max-w-2xl mx-auto space-y-4 pb-4">
+      <ScrollArea className="flex-1 px-4 py-5 overflow-x-hidden" ref={scrollRef}>
+        <div className="max-w-2xl mx-auto space-y-4 pb-4 overflow-x-hidden">
           <AnimatePresence initial={false}>
             {messages.map((msg, i) => {
               const isLastMsg = i === messages.length - 1;
@@ -856,7 +856,7 @@ function SubjectPathChat({
                   {/* Bubble */}
                   <div style={{ direction: 'rtl' }}>
                     {msg.role === 'user' ? (
-                      <div className="rounded-2xl rounded-br-none px-4 py-3 bg-white/10 border border-white/15 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm">
+                      <div className="rounded-2xl rounded-br-none px-4 py-3 bg-white/10 border border-white/15 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm break-words overflow-x-hidden">
                         {msg.content}
                       </div>
                     ) : (
