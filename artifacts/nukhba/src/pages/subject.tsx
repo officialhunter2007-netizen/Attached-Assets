@@ -373,7 +373,12 @@ export default function Subject() {
 
         {/* Chat Dialog */}
         <Dialog open={isChatOpen} onOpenChange={(open) => { setIsChatOpen(open); if (!open) setIsIDEOpen(false); }}>
-          <DialogContent className="sm:max-w-[900px] h-[90vh] p-0 flex flex-col glass border-gold/20 gap-0 overflow-hidden bg-background/95">
+          <DialogContent className="
+            max-sm:!left-0 max-sm:!top-0 max-sm:!translate-x-0 max-sm:!translate-y-0
+            max-sm:!w-full max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0
+            sm:max-w-[900px] sm:h-[90vh] sm:rounded-2xl
+            p-0 flex flex-col glass border-gold/20 gap-0 overflow-hidden bg-background/95
+          ">
             <DialogTitle className="sr-only">المعلم الذكي</DialogTitle>
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-black/20 shrink-0">
               <div className="flex items-center gap-3">
