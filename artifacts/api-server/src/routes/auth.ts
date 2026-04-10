@@ -201,11 +201,14 @@ function getFrontendUrl(path = "") {
 }
 
 function setSessionCookie(res: any, userId: number) {
+  const isProd = process.env.NODE_ENV === "production";
   const encoded = Buffer.from(JSON.stringify({ userId })).toString("base64");
   res.cookie("session", encoded, {
     httpOnly: true,
-    sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    sameSite: isProd ? "none" : "lax",
+    secure: isProd,
+    path: "/",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
   });
 }
 

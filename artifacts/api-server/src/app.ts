@@ -57,9 +57,10 @@ app.use((_req: any, res: any, next: any) => {
       res.cookie("session", encoded, {
         httpOnly: true,
         signed: false,
-        sameSite: "lax",
+        sameSite: isProd ? "none" : "lax",
         secure: isProd,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: "/",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
       });
     } else if ((_req as any).session === null) {
       res.clearCookie("session");

@@ -1,8 +1,9 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider } from "./lib/auth-context";
+import { AuthProvider, useAuth } from "./lib/auth-context";
+import { useEffect } from "react";
 import NotFound from "@/pages/not-found";
 
 import Home from "@/pages/home";
@@ -18,19 +19,65 @@ import Admin from "@/pages/admin";
 
 const queryClient = new QueryClient();
 
+function ProtectedRoute({ component: Component }: { component: React.ComponentType<any> }) {
+  const { user, isLoading } = useAuth();
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      navigate("/login");
+    }
+  }, [user, isLoading, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-background">
+        <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) return null;
+
+  return <Component />;
+}
+
+function GuestRoute({ component: Component }: { component: React.ComponentType<any> }) {
+  const { user, isLoading } = useAuth();
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    if (!isLoading && user) {
+      navigate("/learn");
+    }
+  }, [user, isLoading, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-background">
+        <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (user) return null;
+
+  return <Component />;
+}
+
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/login" component={Login} />
-      <Route path="/register" component={Register} />
-      <Route path="/welcome" component={Welcome} />
-      <Route path="/learn" component={Learn} />
-      <Route path="/subject/:subjectId" component={Subject} />
-      <Route path="/lesson/:subjectId/:unitId/:lessonId" component={Lesson} />
-      <Route path="/dashboard" component={Dashboard} />
-      <Route path="/subscription" component={Subscription} />
-      <Route path="/admin" component={Admin} />
+      <Route path="/login" component={() => <GuestRoute component={Login} />} />
+      <Route path="/register" component={() => <GuestRoute component={Register} />} />
+      <Route path="/welcome" component={() => <ProtectedRoute component={Welcome} />} />
+      <Route path="/learn" component={() => <ProtectedRoute component={Learn} />} />
+      <Route path="/subject/:subjectId" component={() => <ProtectedRoute component={Subject} />} />
+      <Route path="/lesson/:subjectId/:unitId/:lessonId" component={() => <ProtectedRoute component={Lesson} />} />
+      <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
+      <Route path="/subscription" component={() => <ProtectedRoute component={Subscription} />} />
+      <Route path="/admin" component={() => <ProtectedRoute component={Admin} />} />
       <Route component={NotFound} />
     </Switch>
   );
