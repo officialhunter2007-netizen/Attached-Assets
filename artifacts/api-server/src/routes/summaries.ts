@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { db, lessonSummariesTable, usersTable } from "@workspace/db";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
@@ -98,7 +98,10 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
     }).returning();
 
     await db.update(usersTable)
-      .set({ firstLessonComplete: true })
+      .set({
+        firstLessonComplete: true,
+        points: sql`${usersTable.points} + 15`,
+      })
       .where(eq(usersTable.id, userId));
 
     res.json(saved);

@@ -295,7 +295,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const quotaExhausted = hasActiveSub && !canAccessViaSubscription;
   const isNewSession = !userMessage;
 
-  // ── Session limit (1 session per 20 hours) ──
+  // ── Session limit (1 session per 20 hours) — paid/referral only ──
   if (isNewSession && (canAccessViaSubscription || canAccessViaReferral)) {
     const now = Date.now();
     const lastAt = user.lastSessionAt ? new Date(user.lastSessionAt).getTime() : 0;
@@ -305,6 +305,10 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
       return;
     }
+  }
+
+  // ── Streak + session tracking — all users (first-lesson, referral, subscription) ──
+  if (isNewSession && (isFirstLesson || canAccessViaSubscription || canAccessViaReferral)) {
     const today = getYemenDateString();
     const yesterdayMs = Date.now() + 3 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000;
     const yesterday = new Date(yesterdayMs).toISOString().slice(0, 10);
