@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { db, lessonSummariesTable, usersTable } from "@workspace/db";
+import { db, lessonSummariesTable, usersTable, userSubjectFirstLessonsTable } from "@workspace/db";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
@@ -97,6 +97,20 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
       conversationDate: parsedDate,
     }).returning();
 
+    // Mark per-subject first lesson as complete (if not already done)
+    const [existingFirstLesson] = await db
+      .select()
+      .from(userSubjectFirstLessonsTable)
+      .where(and(
+        eq(userSubjectFirstLessonsTable.userId, userId),
+        eq(userSubjectFirstLessonsTable.subjectId, subjectId)
+      ));
+
+    if (!existingFirstLesson) {
+      await db.insert(userSubjectFirstLessonsTable).values({ userId, subjectId });
+    }
+
+    // Also update global flag and award points
     await db.update(usersTable)
       .set({
         firstLessonComplete: true,

@@ -37,13 +37,13 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 - **AI Learning Sessions**: 3-phase (interview → plan → teaching) using SSE streaming
 - **Curriculum**: High school (chemistry, biology, Arabic, English × 3 grades), University (10 specializations), Skills (web, programming, OS, networking, security)
 - **Gamification**: 5 levels (مبتدئ→أسطورة), points (+15 lesson, +25 challenge), badges, streaks
-- **Paywall**: 2 free lessons → subscription or 10 referrals
-- **Subscriptions**: Silver/Gold/نُخبة plans via Karimi wallet (regional pricing North/South Yemen)
-- **Admin Panel**: Approve/reject subscription requests, view activation cards, stats
+- **Paywall**: 1 free lesson PER SUBJECT → subscription (per-subject) or referral sessions
+- **Subscriptions**: Bronze(30 msg)/Silver(60 msg)/Gold(100 msg) per subject, 14-day validity via Karimi wallet (regional pricing North/South Yemen)
+- **Admin Panel**: Approve/reject subscription requests, grant/revoke per-subject subscriptions, view activation cards, stats
 
 ## DB Schema
 
-Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subscription_requests, activation_cards, referrals, conversations, messages
+Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subscription_requests, activation_cards, referrals, conversations, messages, **user_subject_subscriptions** (per-subject sub tracking), **user_subject_first_lessons** (per-subject paywall)
 
 ## API Routes
 
@@ -51,7 +51,12 @@ Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subs
 - `GET/POST /api/lessons/*` — lessons (cache, views, challenge)
 - `GET/POST /api/progress` — user progress
 - `POST /api/subscriptions/*` — subscription requests & activation
+- `GET /api/subscriptions/my-subjects` — per-subject subscriptions for current user
+- `GET /api/subscriptions/subject-access/:subjectId` — check access for a specific subject
 - `GET/POST /api/admin/*` — admin panel (subscription requests, activation cards, stats)
+- `GET /api/admin/subject-subscriptions/:userId` — get user's subject subs
+- `POST /api/admin/grant-subject-subscription` — grant subject subscription
+- `DELETE /api/admin/revoke-subject-subscription/:subId` — revoke subject subscription
 - `GET/POST /api/referrals/*` — referral system
 - `POST /api/ai/*` — AI endpoints (lesson, interview, build-plan, teach) — SSE streaming
 

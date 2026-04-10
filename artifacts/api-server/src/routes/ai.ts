@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import { eq, and, desc } from "drizzle-orm";
+import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
@@ -15,18 +15,64 @@ async function getUser(userId: number) {
   return user ?? null;
 }
 
-function hasSubscriptionAccess(user: any): boolean {
-  if (!user.nukhbaPlan || !user.subscriptionExpiresAt) return false;
-  const notExpired = new Date(user.subscriptionExpiresAt) > new Date();
-  const hasMessages = (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0);
-  return notExpired && hasMessages;
+// ── Per-subject access check ───────────────────────────────────────────────────
+async function getSubjectAccess(userId: number, subjectId: string, user: any) {
+  const now = new Date();
+
+  // First lesson for THIS specific subject
+  const [firstLessonRecord] = await db
+    .select()
+    .from(userSubjectFirstLessonsTable)
+    .where(and(
+      eq(userSubjectFirstLessonsTable.userId, userId),
+      eq(userSubjectFirstLessonsTable.subjectId, subjectId)
+    ));
+  const isFirstLesson = !firstLessonRecord;
+
+  // Per-subject subscription (most recent active one)
+  const subjectSubs = await db
+    .select()
+    .from(userSubjectSubscriptionsTable)
+    .where(eq(userSubjectSubscriptionsTable.userId, userId))
+    .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
+
+  const subjectSub = subjectSubs.find(s => s.subjectId === subjectId) ?? null;
+  const canAccessViaSubjectSub = !!(
+    subjectSub &&
+    new Date(subjectSub.expiresAt) > now &&
+    subjectSub.messagesUsed < subjectSub.messagesLimit
+  );
+  const hasActiveSubjectSub = !!(subjectSub && new Date(subjectSub.expiresAt) > now);
+
+  // Legacy global subscription (backward compat for existing subscribers)
+  const canAccessViaLegacyGlobal = !!(
+    user.nukhbaPlan &&
+    user.subscriptionExpiresAt &&
+    new Date(user.subscriptionExpiresAt) > now &&
+    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0)
+  );
+  const hasActiveLegacyGlobal = !!(user.nukhbaPlan && user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt) > now);
+
+  // Referral access — global (any subject)
+  const canAccessViaReferral = (user.referralSessionsLeft ?? 0) > 0;
+
+  const canAccessViaSubscription = canAccessViaSubjectSub || canAccessViaLegacyGlobal;
+  const hasActiveSub = hasActiveSubjectSub || hasActiveLegacyGlobal;
+  const quotaExhausted = hasActiveSub && !canAccessViaSubscription;
+
+  return {
+    isFirstLesson,
+    canAccessViaSubjectSub,
+    canAccessViaLegacyGlobal,
+    canAccessViaSubscription,
+    canAccessViaReferral,
+    hasActiveSub,
+    quotaExhausted,
+    subjectSub,
+  };
 }
 
-function hasActiveSubscription(user: any): boolean {
-  if (!user.nukhbaPlan || !user.subscriptionExpiresAt) return false;
-  return new Date(user.subscriptionExpiresAt) > new Date();
-}
-
+// Legacy helpers kept for non-subject contexts
 function hasReferralAccess(user: any): boolean {
   return (user.referralSessionsLeft ?? 0) > 0;
 }
@@ -71,16 +117,14 @@ router.post("/ai/lesson", async (req, res): Promise<void> => {
     return;
   }
 
-  const isFirstLesson = !user.firstLessonComplete;
-  const canAccessViaSubscription = hasSubscriptionAccess(user);
-  const canAccessViaReferral = hasReferralAccess(user);
+  const { subjectId, unitId, lessonId, lessonTitle, subjectName, section, grade, isSkill } = req.body;
 
-  if (!isFirstLesson && !canAccessViaSubscription && !canAccessViaReferral) {
+  const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
+
+  if (!access.isFirstLesson && !access.canAccessViaSubscription && !access.canAccessViaReferral) {
     res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
     return;
   }
-
-  const { subjectId, unitId, lessonId, lessonTitle, subjectName, section, grade, isSkill } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -286,13 +330,10 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = req.body;
+  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = req.body;
 
-  const isFirstLesson = !user.firstLessonComplete;
-  const canAccessViaSubscription = hasSubscriptionAccess(user);
-  const canAccessViaReferral = hasReferralAccess(user);
-  const hasActiveSub = hasActiveSubscription(user);
-  const quotaExhausted = hasActiveSub && !canAccessViaSubscription;
+  const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
+  const { isFirstLesson, canAccessViaSubscription, canAccessViaReferral, hasActiveSub, quotaExhausted, subjectSub } = access;
   const isNewSession = !userMessage;
 
   // ── Session limit (1 session per 20 hours) — paid/referral only ──
@@ -344,22 +385,31 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
       return;
     }
-    // Mid-session quota exhausted (Option B): send graceful closing via SSE
+    // Mid-session quota exhausted: send graceful closing via SSE
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     const stagesArr = stages ?? [];
-    const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا الشهر 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك أو ادعُ أصدقاءك.</p></div>`;
+    const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا الشهر 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك لهذه المادة أو ادعُ أصدقاءك للحصول على جلسات مجانية.</p></div>`;
     res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
     res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length })}\n\n`);
     res.end();
     return;
   }
 
+  // ── Increment message counter ──────────────────────────────────────────────
   if (canAccessViaSubscription) {
-    await db.update(usersTable)
-      .set({ messagesUsed: (user.messagesUsed ?? 0) + 1 })
-      .where(eq(usersTable.id, userId));
+    if (access.canAccessViaSubjectSub && subjectSub) {
+      // New per-subject subscription → increment in user_subject_subscriptions
+      await db.update(userSubjectSubscriptionsTable)
+        .set({ messagesUsed: subjectSub.messagesUsed + 1 })
+        .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
+    } else if (access.canAccessViaLegacyGlobal) {
+      // Legacy global → increment in users table
+      await db.update(usersTable)
+        .set({ messagesUsed: (user.messagesUsed ?? 0) + 1 })
+        .where(eq(usersTable.id, userId));
+    }
   }
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -475,10 +525,14 @@ ${formattingRules}`;
 
   stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
   const planReady = fullResponse.includes("[PLAN_READY]");
-  const updatedUsed = canAccessViaSubscription ? (user.messagesUsed ?? 0) + 1 : (user.messagesUsed ?? 0);
-  const messagesRemaining = canAccessViaSubscription
-    ? Math.max(0, (user.messagesLimit ?? 0) - updatedUsed)
-    : null;
+  let messagesRemaining: number | null = null;
+  if (canAccessViaSubscription) {
+    if (access.canAccessViaSubjectSub && subjectSub) {
+      messagesRemaining = Math.max(0, subjectSub.messagesLimit - (subjectSub.messagesUsed + 1));
+    } else if (access.canAccessViaLegacyGlobal) {
+      messagesRemaining = Math.max(0, (user.messagesLimit ?? 0) - ((user.messagesUsed ?? 0) + 1));
+    }
+  }
   res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady })}\n\n`);
   res.end();
 });

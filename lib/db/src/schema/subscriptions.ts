@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -11,6 +11,8 @@ export const subscriptionRequestsTable = pgTable("subscription_requests", {
   transactionId: text("transaction_id"),
   planType: text("plan_type").notNull(),
   region: text("region").notNull(),
+  subjectId: text("subject_id").notNull().default("all"),
+  subjectName: text("subject_name"),
   status: text("status").notNull().default("pending"),
   activationCode: text("activation_code"),
   notes: text("notes"),
@@ -27,6 +29,8 @@ export const activationCardsTable = pgTable("activation_cards", {
   activationCode: text("activation_code").notNull().unique(),
   planType: text("plan_type").notNull(),
   region: text("region"),
+  subjectId: text("subject_id"),
+  subjectName: text("subject_name"),
   isUsed: boolean("is_used").notNull().default(false),
   usedByUserId: integer("used_by_user_id"),
   usedAt: timestamp("used_at", { withTimezone: true }),
@@ -51,3 +55,34 @@ export const referralsTable = pgTable("referrals", {
 export const insertReferralSchema = createInsertSchema(referralsTable).omit({ id: true, createdAt: true });
 export type InsertReferral = z.infer<typeof insertReferralSchema>;
 export type Referral = typeof referralsTable.$inferSelect;
+
+// Per-subject subscription table (new, replaces global plan on users table for new subscriptions)
+export const userSubjectSubscriptionsTable = pgTable("user_subject_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  subjectId: text("subject_id").notNull(),
+  subjectName: text("subject_name"),
+  plan: text("plan").notNull(),
+  messagesUsed: integer("messages_used").notNull().default(0),
+  messagesLimit: integer("messages_limit").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  activationCode: text("activation_code"),
+  subscriptionRequestId: integer("subscription_request_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertUserSubjectSubscriptionSchema = createInsertSchema(userSubjectSubscriptionsTable).omit({ id: true, createdAt: true });
+export type InsertUserSubjectSubscription = z.infer<typeof insertUserSubjectSubscriptionSchema>;
+export type UserSubjectSubscription = typeof userSubjectSubscriptionsTable.$inferSelect;
+
+// Per-subject first lesson tracking
+export const userSubjectFirstLessonsTable = pgTable("user_subject_first_lessons", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  subjectId: text("subject_id").notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertUserSubjectFirstLessonSchema = createInsertSchema(userSubjectFirstLessonsTable).omit({ id: true });
+export type InsertUserSubjectFirstLesson = z.infer<typeof insertUserSubjectFirstLessonSchema>;
+export type UserSubjectFirstLesson = typeof userSubjectFirstLessonsTable.$inferSelect;

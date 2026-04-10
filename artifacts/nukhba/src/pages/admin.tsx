@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "wouter";
@@ -28,6 +28,7 @@ import {
   Check, X, ShieldAlert, Users, CreditCard, Ticket,
   Copy, Plus, Filter, RefreshCw, AlertTriangle, Ban,
   Zap, Star, Gem, MessageCircle, Activity, Search,
+  BookOpen, Gift, Trash2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -49,6 +50,15 @@ export default function Admin() {
 
   const [cancelTarget, setCancelTarget] = useState<{ id: number; name: string } | null>(null);
   const [userSearch, setUserSearch] = useState("");
+
+  // Per-subject subscription management
+  const [grantTarget, setGrantTarget] = useState<{ userId: number; name: string } | null>(null);
+  const [grantPlan, setGrantPlan] = useState<"bronze" | "silver" | "gold">("silver");
+  const [grantSubjectId, setGrantSubjectId] = useState("");
+  const [grantSubjectName, setGrantSubjectName] = useState("");
+  const [isGranting, setIsGranting] = useState(false);
+  const [userSubjectSubs, setUserSubjectSubs] = useState<Record<number, any[]>>({});
+  const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
 
   const { data: stats, refetch: refetchStats } = useGetAdminStats();
   const { data: requests, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
@@ -190,6 +200,80 @@ export default function Admin() {
     toast({ title: "تم التحديث", className: "bg-black border-white/10 text-white" });
   };
 
+  const loadUserSubjectSubs = async (userId: number) => {
+    if (userSubjectSubs[userId]) return;
+    try {
+      const r = await fetch(`/api/admin/subject-subscriptions/${userId}`, { credentials: "include" });
+      if (r.ok) {
+        const data = await r.json();
+        setUserSubjectSubs(prev => ({ ...prev, [userId]: data }));
+      }
+    } catch {}
+  };
+
+  const handleToggleExpand = (userId: number) => {
+    if (expandedUserId === userId) {
+      setExpandedUserId(null);
+    } else {
+      setExpandedUserId(userId);
+      loadUserSubjectSubs(userId);
+    }
+  };
+
+  const handleGrantSubjectSubscription = async () => {
+    if (!grantTarget || !grantSubjectId.trim()) return;
+    setIsGranting(true);
+    try {
+      const r = await fetch("/api/admin/grant-subject-subscription", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          userId: grantTarget.userId,
+          subjectId: grantSubjectId.trim(),
+          subjectName: grantSubjectName.trim() || grantSubjectId.trim(),
+          plan: grantPlan,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      toast({ title: "تم منح الاشتراك بنجاح", className: "bg-emerald-600 text-white border-none" });
+      const targetUserId = grantTarget.userId;
+      setGrantTarget(null);
+      setGrantSubjectId("");
+      setGrantSubjectName("");
+      // Force refetch user's subject subs
+      try {
+        const r2 = await fetch(`/api/admin/subject-subscriptions/${targetUserId}`, { credentials: "include" });
+        if (r2.ok) {
+          const data = await r2.json();
+          setUserSubjectSubs(prev => ({ ...prev, [targetUserId]: data }));
+        }
+      } catch {}
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } finally {
+      setIsGranting(false);
+    }
+  };
+
+  const handleRevokeSubjectSubscription = async (subId: number, userId: number) => {
+    try {
+      const r = await fetch(`/api/admin/revoke-subject-subscription/${subId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error((await r.json()).error);
+      toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
+      setUserSubjectSubs(prev => ({
+        ...prev,
+        [userId]: (prev[userId] ?? []).filter(s => s.id !== subId),
+      }));
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    }
+  };
+
   const filterOptions = [
     { value: 'pending', label: 'معلق' },
     { value: 'incomplete', label: 'ناقص' },
@@ -282,6 +366,7 @@ export default function Admin() {
                   <TableRow className="border-white/5">
                     <TableHead className="text-right">المستخدم</TableHead>
                     <TableHead className="text-right">الخطة</TableHead>
+                    <TableHead className="text-right">المادة</TableHead>
                     <TableHead className="text-right">المنطقة</TableHead>
                     <TableHead className="text-right">اسم الحساب المرسل</TableHead>
                     <TableHead className="text-right">ملاحظات</TableHead>
@@ -293,7 +378,7 @@ export default function Admin() {
                 <TableBody>
                   {!filteredRequests?.length ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
                         {filterStatus === 'pending' ? 'لا توجد طلبات معلقة 🎉' : 'لا توجد طلبات'}
                       </TableCell>
                     </TableRow>
@@ -314,6 +399,18 @@ export default function Admin() {
                         <Badge variant="outline" className="border-gold text-gold text-xs">
                           {planLabels[req.planType] || req.planType}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {(req as any).subjectName ? (
+                          <div className="flex items-center gap-1.5">
+                            <BookOpen className="w-3.5 h-3.5 text-gold shrink-0" />
+                            <span className="text-xs font-medium">{(req as any).subjectName}</span>
+                          </div>
+                        ) : (req as any).subjectId && (req as any).subjectId !== 'all' ? (
+                          <span className="text-xs text-muted-foreground">{(req as any).subjectId}</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm">{regionLabels[req.region] || req.region}</TableCell>
                       <TableCell>
@@ -431,8 +528,10 @@ export default function Admin() {
                         {userSearch ? 'لا توجد نتائج' : 'لا يوجد مستخدمون'}
                       </TableCell>
                     </TableRow>
-                  ) : filteredUsers.map((u) => (
-                    <TableRow key={u.id} className="border-white/5 hover:bg-white/3">
+                  ) : filteredUsers.map((u) => {
+                    return (
+                    <React.Fragment key={u.id}>
+                    <TableRow className="border-white/5 hover:bg-white/3">
                       <TableCell>
                         <div className="font-bold text-sm">{u.displayName || 'بدون اسم'}</div>
                         <div className="text-xs text-muted-foreground">{u.email}</div>
@@ -484,20 +583,87 @@ export default function Admin() {
                         {u.createdAt ? new Date(u.createdAt).toLocaleDateString('ar-YE') : '—'}
                       </TableCell>
                       <TableCell className="text-center">
-                        {u.nukhbaPlan && u.role !== 'admin' && (
+                        <div className="flex flex-col gap-1.5 items-center">
+                          {u.role !== 'admin' && (
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs bg-gold/10 text-gold border border-gold/30 hover:bg-gold/20 gap-1"
+                              onClick={() => {
+                                setGrantTarget({ userId: u.id, name: u.displayName || u.email });
+                                setGrantPlan("silver");
+                                setGrantSubjectId("");
+                                setGrantSubjectName("");
+                              }}
+                            >
+                              <Gift className="w-3 h-3" />
+                              منح اشتراك مادة
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-8 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10 gap-1.5"
-                            onClick={() => setCancelTarget({ id: u.id, name: u.displayName || u.email })}
+                            className="h-7 text-xs border-white/10 text-muted-foreground hover:text-white gap-1"
+                            onClick={() => handleToggleExpand(u.id)}
                           >
-                            <Ban className="w-3.5 h-3.5" />
-                            إلغاء الاشتراك
+                            <BookOpen className="w-3 h-3" />
+                            {expandedUserId === u.id ? "إخفاء المواد" : "عرض المواد"}
                           </Button>
-                        )}
+                          {u.nukhbaPlan && u.role !== 'admin' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10 gap-1"
+                              onClick={() => setCancelTarget({ id: u.id, name: u.displayName || u.email })}
+                            >
+                              <Ban className="w-3 h-3" />
+                              إلغاء العالمي
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    {/* Expanded subject subscriptions row */}
+                    {expandedUserId === u.id && (
+                      <TableRow className="border-white/5 bg-black/20">
+                        <TableCell colSpan={7} className="py-3 px-6">
+                          <div className="text-sm font-semibold text-gold mb-2 flex items-center gap-2">
+                            <BookOpen className="w-4 h-4" />
+                            اشتراكات المواد الخاصة بـ {u.displayName || u.email}
+                          </div>
+                          {!userSubjectSubs[u.id] ? (
+                            <p className="text-xs text-muted-foreground">جاري التحميل...</p>
+                          ) : userSubjectSubs[u.id].length === 0 ? (
+                            <p className="text-xs text-muted-foreground">لا توجد اشتراكات مواد لهذا المستخدم</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {userSubjectSubs[u.id].map((s: any) => {
+                                const isActive = new Date(s.expiresAt) > new Date() && s.messagesUsed < s.messagesLimit;
+                                return (
+                                  <div key={s.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs ${isActive ? "border-gold/30 bg-gold/5" : "border-white/10 bg-white/3 opacity-60"}`}>
+                                    <span className="font-medium">{s.subjectName ?? s.subjectId}</span>
+                                    <span className={`font-bold ${s.plan === "gold" ? "text-gold" : s.plan === "silver" ? "text-slate-300" : "text-orange-400"}`}>
+                                      {planLabels[s.plan] ?? s.plan}
+                                    </span>
+                                    <span className="text-muted-foreground">{s.messagesLimit - s.messagesUsed}/{s.messagesLimit}</span>
+                                    {!isActive && <span className="text-red-400">منتهي</span>}
+                                    <button
+                                      className="text-red-400 hover:text-red-300 ml-1"
+                                      onClick={() => handleRevokeSubjectSubscription(s.id, u.id)}
+                                      title="إلغاء هذا الاشتراك"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </React.Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -637,6 +803,72 @@ export default function Admin() {
               </Button>
               <Button variant="outline" className="flex-1 border-white/10" onClick={() => setCancelTarget(null)}>
                 تراجع
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Grant Subject Subscription Dialog */}
+      <Dialog open={!!grantTarget} onOpenChange={(open) => { if (!open) setGrantTarget(null); }}>
+        <DialogContent className="glass border-gold/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <Gift className="w-5 h-5 text-gold" />
+            منح اشتراك مادة
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              سيحصل <strong className="text-foreground">{grantTarget?.name}</strong> على وصول لمادة معينة.
+            </p>
+            <div className="space-y-2">
+              <Label>معرف المادة (ID)</Label>
+              <Input
+                placeholder="مثال: math-grade10"
+                className="bg-black/40 text-left font-mono"
+                dir="ltr"
+                value={grantSubjectId}
+                onChange={(e) => setGrantSubjectId(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">هذا هو الـ ID الداخلي للمادة</p>
+            </div>
+            <div className="space-y-2">
+              <Label>اسم المادة (عربي) — اختياري</Label>
+              <Input
+                placeholder="مثال: الرياضيات — الصف العاشر"
+                className="bg-black/40"
+                dir="rtl"
+                value={grantSubjectName}
+                onChange={(e) => setGrantSubjectName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>الباقة</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {(['bronze', 'silver', 'gold'] as const).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setGrantPlan(p)}
+                    className={`py-2 rounded-xl text-sm font-bold border transition-all ${
+                      grantPlan === p
+                        ? 'border-gold bg-gold/10 text-gold'
+                        : 'border-white/10 text-muted-foreground hover:border-white/20'
+                    }`}
+                  >
+                    {planLabels[p]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 gradient-gold text-primary-foreground font-bold"
+                disabled={!grantSubjectId.trim() || isGranting}
+                onClick={handleGrantSubjectSubscription}
+              >
+                {isGranting ? "جاري المنح..." : "منح الاشتراك"}
+              </Button>
+              <Button variant="outline" className="border-white/10" onClick={() => setGrantTarget(null)}>
+                إلغاء
               </Button>
             </div>
           </div>

@@ -431,7 +431,10 @@ export default function Subject() {
             <SubjectPathChat
               subject={subject}
               isFirstSession={!summariesLoading && summaries.length === 0}
-              onAccessDenied={() => { setIsChatOpen(false); setLocation("/subscription"); }}
+              onAccessDenied={() => {
+                setIsChatOpen(false);
+                setLocation(`/subscription?subject=${encodeURIComponent(subject.id)}&subjectName=${encodeURIComponent(subject.name)}`);
+              }}
               onSessionComplete={handleSessionComplete}
               ideOpen={isIDEOpen}
               onCloseIDE={() => setIsIDEOpen(false)}
