@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { BookOpen, GraduationCap, Terminal, Sparkles, Zap, Shield, Users, Gift } from "lucide-react";
+import { BookOpen, GraduationCap, Terminal, Sparkles, Zap, Shield } from "lucide-react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
 
 export default function Home() {
@@ -178,54 +178,30 @@ export default function Home() {
           </div>
 
           {/* Bronze note */}
-          <div className="mt-8 max-w-2xl mx-auto glass p-5 rounded-2xl border-amber-700/30 text-center">
-            <p className="text-sm text-muted-foreground">
-              هل تريد البداية بتكلفة أقل؟ باقة{" "}
-              <span className="text-amber-600 font-bold">البرونزية</span>{" "}
-              تمنحك ٣٠ رسالة كل ١٤ يوم عبر محفظة كريمي.{" "}
-              <Link href="/subscription" className="text-gold underline underline-offset-2">اطلب الاشتراك</Link>
-            </p>
-          </div>
-
-          {/* Referral Card */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-            className="mt-10 max-w-3xl mx-auto"
+            transition={{ duration: 0.5 }}
+            className="mt-10 max-w-2xl mx-auto"
           >
-            <div className="glass rounded-3xl overflow-hidden border-emerald/20 relative">
-              <div className="absolute inset-0 bg-gradient-to-br from-emerald/5 via-transparent to-transparent pointer-events-none" />
-              <div className="absolute top-0 left-0 w-64 h-64 bg-emerald/10 rounded-br-full blur-3xl -z-10" />
-              <div className="p-8 md:p-10 flex flex-col md:flex-row items-center gap-8">
-                <div className="w-20 h-20 rounded-2xl bg-emerald/10 border border-emerald/30 flex items-center justify-center shrink-0">
-                  <Gift className="w-10 h-10 text-emerald" />
+            <div className="relative rounded-2xl overflow-hidden border border-amber-700/40 bg-amber-950/20 backdrop-blur-sm">
+              <div className="absolute inset-0 bg-gradient-to-l from-amber-900/10 to-transparent pointer-events-none" />
+              <div className="flex flex-col sm:flex-row items-center gap-5 px-6 py-5">
+                <div className="w-12 h-12 rounded-xl bg-amber-700/20 border border-amber-700/40 flex items-center justify-center shrink-0">
+                  <Shield className="w-6 h-6 text-amber-600" />
                 </div>
-                <div className="flex-1 text-center md:text-right">
-                  <div className="inline-flex items-center gap-2 bg-emerald/10 border border-emerald/30 rounded-full px-4 py-1.5 mb-4">
-                    <Users className="w-4 h-4 text-emerald" />
-                    <span className="text-xs font-bold text-emerald">برنامج سفراء نُخبة</span>
-                  </div>
-                  <h3 className="text-2xl md:text-3xl font-black mb-3">
-                    ادعُ أصدقاءك،{" "}
-                    <span className="text-emerald">احصل على جلسات مجانية</span>
-                  </h3>
-                  <p className="text-muted-foreground mb-2">
-                    ادعُ <strong className="text-foreground">٥ أصدقاء</strong> لينضموا إلى نُخبة عبر رابطك الخاص، واحصل على{" "}
-                    <strong className="text-emerald">٣ جلسات تعليمية مجانية</strong> كمكافأة لك — مرة واحدة فقط.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    سجّل حسابك للحصول على رابطك الشخصي وتتبع دعواتك من لوحة التحكم.
+                <div className="flex-1 text-center sm:text-right">
+                  <p className="text-sm font-bold text-amber-400 mb-0.5">ابدأ بأقل تكلفة — الباقة البرونزية</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    ٣٠ رسالة مع المعلم الذكي كل ١٤ يوم، عبر محفظة كريمي مباشرةً. مثالية للبداية.
                   </p>
                 </div>
-                <div className="shrink-0">
-                  <Link href="/register">
-                    <Button className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-8 h-12 rounded-xl shadow-lg shadow-emerald/20">
-                      احصل على رابطك
-                    </Button>
-                  </Link>
-                </div>
+                <Link href="/subscription" className="shrink-0">
+                  <Button size="sm" className="bg-amber-700/80 hover:bg-amber-700 text-white font-bold px-5 h-9 rounded-xl border border-amber-600/40 shadow-lg shadow-amber-900/20 whitespace-nowrap">
+                    اشترك الآن
+                  </Button>
+                </Link>
               </div>
             </div>
           </motion.div>
