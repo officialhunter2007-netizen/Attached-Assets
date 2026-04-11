@@ -4,11 +4,10 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 
@@ -367,60 +366,70 @@ export default function Subject() {
         {/* Chat Dialog */}
         <Dialog open={isChatOpen} onOpenChange={(open) => { setIsChatOpen(open); if (!open) setIsIDEOpen(false); }}>
           <DialogContent className="
-            max-sm:!left-0 max-sm:!top-0 max-sm:!translate-x-0 max-sm:!translate-y-0
+            max-sm:!inset-0 max-sm:!translate-x-0 max-sm:!translate-y-0
             max-sm:!w-full max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0
-            sm:max-w-[900px] sm:h-[90vh] sm:rounded-2xl
-            p-0 flex flex-col glass border-gold/20 gap-0 overflow-hidden bg-background/95
-          ">
+            sm:max-w-[860px] sm:h-[90vh] sm:rounded-3xl
+            p-0 flex flex-col gap-0 overflow-hidden
+            bg-[#080a11] border-white/8
+          " hideCloseButton>
             <DialogTitle className="sr-only">المعلم الذكي</DialogTitle>
-            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-black/20 shrink-0">
-              <div className="flex items-center gap-3">
-                {isIDEOpen && (
+
+            {/* Header */}
+            <div className="shrink-0 border-b border-white/8" style={{ background: "linear-gradient(180deg, #0f1220 0%, #080a11 100%)" }}>
+              {/* Top bar */}
+              <div className="px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {isIDEOpen ? (
+                    <>
+                      <button
+                        onClick={() => setIsIDEOpen(false)}
+                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                      <div className="w-8 h-8 rounded-lg bg-[#1e1e2e] border border-white/10 flex items-center justify-center">
+                        <Code2 className="w-4 h-4 text-gold" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm">بيئة التطبيق</p>
+                        <p className="text-[11px] text-muted-foreground">اكتب وشغّل كودك</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg shrink-0`}>
+                        <span className="text-lg">{subject.emoji}</span>
+                      </div>
+                      <div>
+                        <p className="font-bold text-base leading-tight">معلم {subject.name}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <p className="text-[11px] text-emerald-400 font-medium">متصل الآن</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {subject.hasCoding && !isIDEOpen && (
+                    <button
+                      onClick={() => setIsIDEOpen(true)}
+                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-gold/10 border border-gold/25 text-gold hover:bg-gold/20 transition-all"
+                    >
+                      <Code2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">IDE</span>
+                    </button>
+                  )}
                   <button
-                    onClick={() => setIsIDEOpen(false)}
-                    className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-white transition-colors ml-1"
+                    onClick={() => setIsChatOpen(false)}
+                    className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors text-muted-foreground hover:text-white"
                   >
-                    <ArrowRight className="w-4 h-4" />
-                    <span>المحادثة</span>
+                    <X className="w-4 h-4" />
                   </button>
-                )}
-                {!isIDEOpen && (
-                  <>
-                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg`}>
-                      <Bot className="w-6 h-6 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-lg leading-tight">معلم {subject.name}</h3>
-                      <p className="text-xs text-gold">متصل الآن</p>
-                    </div>
-                  </>
-                )}
-                {isIDEOpen && (
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-[#1e1e2e] border border-white/10 flex items-center justify-center">
-                      <Code2 className="w-4 h-4 text-gold" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-base leading-tight">بيئة التطبيق</h3>
-                      <p className="text-xs text-muted-foreground">اكتب وشغّل كودك</p>
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
-              {subject.hasCoding && (
-                <button
-                  onClick={() => setIsIDEOpen(v => !v)}
-                  className={`flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-xl transition-all border ${
-                    isIDEOpen
-                      ? "bg-white/5 border-white/10 text-muted-foreground hover:text-white"
-                      : "bg-gold/10 border-gold/30 text-gold hover:bg-gold/20"
-                  }`}
-                >
-                  <Code2 className="w-4 h-4" />
-                  <span>{isIDEOpen ? "إغلاق IDE" : "فتح IDE"}</span>
-                </button>
-              )}
             </div>
+
             <SubjectPathChat
               subject={subject}
               isFirstSession={!summariesLoading && summaries.length === 0}
@@ -490,15 +499,18 @@ const AIMessage = memo(function AIMessage({ content, isStreaming }: { content: s
     : safeRef.current;
 
   return (
-    <div className="rounded-2xl rounded-bl-none bg-[hsl(222,24%,16%)] border border-white/8 p-4 max-w-[90%] min-w-0 shadow-sm overflow-x-hidden">
-      <div className="ai-msg" dangerouslySetInnerHTML={{ __html: displayHtml }} />
-      {isStreaming && (
-        <div className="flex items-center gap-1 mt-3">
-          <span className="w-2 h-2 bg-white/25 rounded-full animate-bounce inline-block" />
-          <span className="w-2 h-2 bg-white/25 rounded-full animate-bounce inline-block" style={{animationDelay:'0.18s'}} />
-          <span className="w-2 h-2 bg-white/25 rounded-full animate-bounce inline-block" style={{animationDelay:'0.36s'}} />
-        </div>
-      )}
+    <div className="relative rounded-2xl rounded-tr-none overflow-hidden min-w-0 max-w-[92%] shadow-md"
+      style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)" }}>
+      <div className="px-4 py-3.5">
+        <div className="ai-msg" dangerouslySetInnerHTML={{ __html: displayHtml }} />
+        {isStreaming && (
+          <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-white/5">
+            <span className="w-2 h-2 bg-gold/50 rounded-full animate-bounce" />
+            <span className="w-2 h-2 bg-gold/50 rounded-full animate-bounce" style={{animationDelay:'0.15s'}} />
+            <span className="w-2 h-2 bg-gold/50 rounded-full animate-bounce" style={{animationDelay:'0.3s'}} />
+          </div>
+        )}
+      </div>
     </div>
   );
 });
@@ -836,70 +848,119 @@ function SubjectPathChat({
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden relative">
-      {chatPhase === 'diagnostic' && (
-        <div className="shrink-0 px-4 py-2.5 bg-purple-500/10 border-b border-purple-500/20 flex items-center justify-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-          <p className="text-xs text-purple-300 font-medium">مرحلة التشخيص — سيبني معلمك خطتك الشخصية بعد 3 أسئلة</p>
-        </div>
-      )}
-      {messagesRemaining !== null && messagesRemaining <= 5 && messagesRemaining > 0 && (
-        <div className="shrink-0 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-center">
-          <p className="text-xs text-amber-400 font-medium">
-            تبقّى لك <strong>{messagesRemaining}</strong> {messagesRemaining === 1 ? 'رسالة' : 'رسائل'} في خطتك هذا الشهر
-          </p>
-        </div>
-      )}
+    <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11" }}>
 
-      <ScrollArea className="flex-1 px-4 py-5 overflow-x-hidden" ref={scrollRef}>
-        <div className="max-w-2xl mx-auto space-y-4 pb-4 overflow-x-hidden">
-            {messages.map((msg, i) => {
-              const isLastMsg = i === messages.length - 1;
+      {/* Stage progress bar */}
+      {chatPhase === 'teaching' && stages.length > 0 && (
+        <div className="shrink-0 px-4 py-2.5 border-b border-white/5 flex items-center gap-3" style={{ background: "#0b0d17" }}>
+          <div className="flex items-center gap-1.5 flex-1">
+            {stages.map((s, idx) => {
+              const done = idx < currentStage;
+              const active = idx === currentStage;
               return (
-                <div
-                  key={i}
-                  style={{ direction: 'ltr', animation: 'msg-in 0.18s ease-out' }}
-                  className={`flex gap-3 items-end ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
-                >
-                  {/* Avatar */}
-                  <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-bold shadow ${
-                    msg.role === 'user'
-                      ? 'bg-white/10 text-white/70'
-                      : 'gradient-gold text-primary-foreground'
+                <div key={idx} className="flex items-center gap-1.5 flex-1 min-w-0">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 transition-all ${
+                    done ? "bg-emerald-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                    : active ? "bg-gold text-black shadow-[0_0_8px_rgba(245,158,11,0.5)]"
+                    : "bg-white/10 text-white/30"
                   }`}>
-                    {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                    {done ? "✓" : idx + 1}
                   </div>
-                  {/* Bubble */}
-                  <div style={{ direction: 'rtl' }}>
-                    {msg.role === 'user' ? (
-                      <div className="rounded-2xl rounded-br-none px-4 py-3 bg-white/10 border border-white/15 text-white text-[15px] leading-relaxed max-w-[75vw] md:max-w-sm break-words overflow-x-hidden">
-                        {msg.content}
-                      </div>
-                    ) : (
-                      <AIMessage content={msg.content} isStreaming={isStreaming && isLastMsg} />
-                    )}
+                  <div className="flex-1 hidden sm:block truncate">
+                    <span className={`text-[11px] truncate ${active ? "text-gold font-semibold" : done ? "text-emerald-400/70" : "text-white/25"}`}>{s}</span>
                   </div>
+                  {idx < stages.length - 1 && (
+                    <div className={`h-px flex-1 mx-1 transition-all ${done ? "bg-emerald-500/50" : "bg-white/8"}`} />
+                  )}
                 </div>
               );
             })}
-            {isStreaming && messages[messages.length - 1]?.role === 'user' && (
-              <div style={{ direction: 'ltr', animation: 'msg-in 0.18s ease-out' }} className="flex gap-3 items-end">
-                <div className="w-8 h-8 shrink-0 rounded-full gradient-gold flex items-center justify-center text-primary-foreground shadow">
-                  <Bot className="w-4 h-4" />
+          </div>
+          {messagesRemaining !== null && messagesRemaining <= 10 && messagesRemaining > 0 && (
+            <div className="shrink-0 flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1">
+              <span className="text-[11px] text-amber-400 font-bold">{messagesRemaining}</span>
+              <span className="text-[10px] text-amber-400/70 hidden sm:inline">رسالة</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Diagnostic phase banner */}
+      {chatPhase === 'diagnostic' && (
+        <div className="shrink-0 px-4 py-2.5 border-b border-purple-500/15 flex items-center justify-center gap-2" style={{ background: "rgba(139,92,246,0.06)" }}>
+          <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+          <p className="text-[12px] text-purple-300 font-medium">مرحلة التشخيص — يبني معلمك خطتك التعليمية الشخصية</p>
+        </div>
+      )}
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-5 py-5" ref={scrollRef}>
+        <div className="max-w-2xl mx-auto space-y-5 pb-4">
+          {messages.map((msg, i) => {
+            const isLastMsg = i === messages.length - 1;
+            return (
+              <div
+                key={i}
+                style={{ animation: 'msg-in 0.2s ease-out' }}
+                className={`flex items-end gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+              >
+                {/* Avatar */}
+                <div className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center shadow-lg mb-0.5 ${
+                  msg.role === 'user'
+                    ? 'bg-white/10 border border-white/15'
+                    : 'bg-gradient-to-br from-amber-400 to-amber-600'
+                }`}>
+                  {msg.role === 'user'
+                    ? <User className="w-3.5 h-3.5 text-white/60" />
+                    : <Bot className="w-3.5 h-3.5 text-black" />
+                  }
                 </div>
-                <div className="rounded-2xl rounded-bl-none bg-[hsl(222,24%,16%)] border border-white/8 px-5 py-3.5 flex items-center gap-2">
-                  <span className="w-2 h-2 bg-white/35 rounded-full animate-bounce inline-block" />
-                  <span className="w-2 h-2 bg-white/35 rounded-full animate-bounce inline-block" style={{animationDelay:'0.18s'}} />
-                  <span className="w-2 h-2 bg-white/35 rounded-full animate-bounce inline-block" style={{animationDelay:'0.36s'}} />
+                {/* Bubble */}
+                <div style={{ direction: 'rtl' }} className="min-w-0 flex-1">
+                  {msg.role === 'user' ? (
+                    <div className="mr-auto w-fit max-w-[80%] rounded-2xl rounded-br-none px-4 py-3 text-[15px] leading-relaxed break-words"
+                      style={{ background: "linear-gradient(135deg, #1e2235 0%, #191c2a 100%)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <AIMessage content={msg.content} isStreaming={isStreaming && isLastMsg} />
+                  )}
                 </div>
               </div>
-            )}
+            );
+          })}
+          {/* Typing indicator */}
+          {isStreaming && messages[messages.length - 1]?.role === 'user' && (
+            <div style={{ animation: 'msg-in 0.2s ease-out' }} className="flex items-end gap-2.5">
+              <div className="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg mb-0.5">
+                <Bot className="w-3.5 h-3.5 text-black" />
+              </div>
+              <div className="rounded-2xl rounded-tr-none px-5 py-3.5 flex items-center gap-2"
+                style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)" }}>
+                <span className="w-2 h-2 bg-gold/60 rounded-full animate-bounce" />
+                <span className="w-2 h-2 bg-gold/60 rounded-full animate-bounce" style={{animationDelay:'0.15s'}} />
+                <span className="w-2 h-2 bg-gold/60 rounded-full animate-bounce" style={{animationDelay:'0.3s'}} />
+              </div>
+            </div>
+          )}
         </div>
-      </ScrollArea>
+      </div>
 
-      <div className="p-4 border-t border-white/10 shrink-0 bg-background relative z-10">
-        <form 
-          className="relative max-w-3xl mx-auto"
+      {/* Input area */}
+      <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
+        {messages.length >= 2 && !isStreaming && (
+          <div className="max-w-2xl mx-auto mb-2.5 flex justify-end">
+            <button
+              onClick={handleEndSession}
+              className="text-[12px] font-medium text-gold/70 hover:text-gold transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-gold/5 border border-transparent hover:border-gold/15"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              إنهاء الجلسة وحفظ الملخص
+            </button>
+          </div>
+        )}
+        <form
+          className="max-w-2xl mx-auto flex items-end gap-2.5"
           onSubmit={(e) => { e.preventDefault(); handleSend(); }}
         >
           <textarea
@@ -909,7 +970,7 @@ function SubjectPathChat({
             onChange={(e) => {
               setInput(e.target.value);
               e.target.style.height = "auto";
-              e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+              e.target.style.height = Math.min(e.target.scrollHeight, 144) + "px";
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -917,39 +978,30 @@ function SubjectPathChat({
                 handleSend();
               }
             }}
-            placeholder="اسأل معلمك أو اكتب كودك هنا... (Ctrl+Enter للإرسال)"
+            placeholder="اكتب رسالتك للمعلم..."
             disabled={isStreaming}
             style={{
-              minHeight: "56px",
-              maxHeight: "160px",
+              minHeight: "48px",
+              maxHeight: "144px",
               resize: "none",
               direction: "rtl",
+              background: "#131726",
+              border: "1px solid rgba(255,255,255,0.1)",
             }}
-            className="w-full pl-14 pr-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-base leading-relaxed outline-none focus:ring-2 focus:ring-gold focus:border-gold/50 disabled:opacity-50 text-white placeholder:text-white/30 overflow-y-auto scrollbar-thin"
+            className="flex-1 px-4 py-3 rounded-2xl text-[15px] leading-relaxed outline-none focus:border-gold/50 focus:shadow-[0_0_0_3px_rgba(245,158,11,0.1)] disabled:opacity-40 text-white placeholder:text-white/25 overflow-y-auto transition-all"
           />
-          <Button 
-            type="submit" 
-            size="icon" 
+          <button
+            type="submit"
             disabled={!input.trim() || isStreaming}
-            className="absolute left-2 bottom-2 h-10 w-10 rounded-xl gradient-gold text-primary-foreground"
+            className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ background: input.trim() && !isStreaming ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(245,158,11,0.15)", boxShadow: input.trim() && !isStreaming ? "0 4px 15px rgba(245,158,11,0.3)" : "none" }}
           >
-            <Send className="w-5 h-5" />
-          </Button>
+            <Send className="w-4.5 h-4.5 text-black" style={{ width: "18px", height: "18px" }} />
+          </button>
         </form>
-        <p className="text-center text-[11px] text-white/20 mt-1.5 max-w-3xl mx-auto" style={{ direction: "rtl" }}>
-          Enter = سطر جديد &nbsp;·&nbsp; زر السهم للإرسال &nbsp;·&nbsp; <span className="hidden sm:inline">Ctrl+Enter للإرسال السريع &nbsp;·&nbsp;</span> يمكنك لصق كود مباشرةً هنا
+        <p className="text-center text-[10px] text-white/15 mt-1.5 max-w-2xl mx-auto" style={{ direction: "rtl" }}>
+          Ctrl+Enter للإرسال السريع
         </p>
-        {messages.length >= 2 && !isStreaming && (
-          <div className="max-w-3xl mx-auto mt-2 flex justify-center">
-            <button
-              onClick={handleEndSession}
-              className="text-sm font-medium text-gold/80 hover:text-gold transition-colors border border-gold/20 hover:border-gold/40 hover:bg-gold/5 rounded-xl px-5 py-2 flex items-center gap-2"
-            >
-              <FileText className="w-4 h-4" />
-              إنهاء جلسة اليوم وحفظ الملخص
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
