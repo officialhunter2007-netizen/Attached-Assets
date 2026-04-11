@@ -1,21 +1,10 @@
-import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
 
 export default function Register() {
-  const [referralCode, setReferralCode] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("ref") || "";
-  });
-
   const handleGoogleRegister = () => {
-    const params = referralCode.trim()
-      ? `?ref=${encodeURIComponent(referralCode.trim())}`
-      : "";
-    const url = `${window.location.origin}/api/auth/google${params}`;
+    const url = `${window.location.origin}/api/auth/google`;
     let inIframe = false;
     try { inIframe = window.self !== window.top; } catch { inIframe = true; }
     if (inIframe) {
@@ -41,18 +30,6 @@ export default function Register() {
         </div>
 
         <div className="space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="ref" className="text-sm font-medium">كود الدعوة (اختياري)</Label>
-            <Input
-              id="ref"
-              placeholder="إذا دعاك صديق، أدخل رمزه هنا"
-              value={referralCode}
-              onChange={(e) => setReferralCode(e.target.value)}
-              className="bg-background/50 border-white/10 h-12 text-left"
-              dir="ltr"
-            />
-          </div>
-
           <Button
             onClick={handleGoogleRegister}
             className="w-full h-14 rounded-xl text-base font-bold bg-white hover:bg-gray-100 text-gray-800 flex items-center justify-center gap-3 shadow-md transition-all"
@@ -64,9 +41,9 @@ export default function Register() {
 
         <div className="mt-8 text-center text-sm text-muted-foreground">
           لديك حساب بالفعل؟{" "}
-          <Link href="/login" className="text-emerald font-bold hover:underline">
+          <a href="/login" className="text-emerald font-bold hover:underline">
             سجل الدخول
-          </Link>
+          </a>
         </div>
       </motion.div>
     </div>

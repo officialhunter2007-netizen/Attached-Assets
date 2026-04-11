@@ -10,13 +10,12 @@ import {
   useRecordLessonView,
   useMarkChallengeAnswered,
   getGetCachedLessonQueryKey,
-  useGetReferralInfo
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Lock, ChevronRight, ChevronLeft, CheckCircle2, Shield, Copy, Trophy, Users, Crown } from "lucide-react";
+import { Loader2, Lock, ChevronRight, ChevronLeft, CheckCircle2, Shield, Trophy, Crown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
@@ -41,12 +40,10 @@ export default function Lesson() {
     new Date(user.subscriptionExpiresAt) > new Date() &&
     (user.messagesUsed ?? 0) < (user.messagesLimit ?? 1);
 
-  const hasReferralAccess = (user?.referralSessionsLeft ?? 0) > 0;
-
   const isFirstLesson = !user?.firstLessonComplete;
   const alreadyViewed = views?.some(v => v.lessonId === lessonId) ?? false;
 
-  const hasAccess = isFirstLesson || hasSubscriptionAccess || hasReferralAccess || alreadyViewed;
+  const hasAccess = isFirstLesson || hasSubscriptionAccess || alreadyViewed;
   
   const [showPaywall, setShowPaywall] = useState(!hasAccess);
 
@@ -354,32 +351,13 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, sub
 
 function PaywallModal({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) {
   const [, setLocation] = useLocation();
-  const { data: refInfo } = useGetReferralInfo({ query: { enabled: open } });
-  const { toast } = useToast();
-  const [copied, setCopied] = useState(false);
-
-  const referralLink = refInfo?.referralCode
-    ? `${window.location.origin}/register?ref=${refInfo.referralCode}`
-    : "";
-
-  const copyLink = () => {
-    if (!referralLink) return;
-    navigator.clipboard.writeText(referralLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    toast({
-      title: "✓ تم نسخ رابط الدعوة",
-      description: "شاركه مع أصدقائك الآن!",
-      className: "bg-emerald-700 border-none text-white"
-    });
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px] glass p-0 border-white/10 overflow-hidden" hideCloseButton>
+      <DialogContent className="sm:max-w-[480px] glass p-0 border-white/10 overflow-hidden" hideCloseButton>
         <DialogTitle className="sr-only">ترقية الحساب</DialogTitle>
 
-        <div className="h-28 bg-gradient-to-br from-gold/20 to-emerald/20 flex items-center justify-center relative">
+        <div className="h-28 bg-gradient-to-br from-gold/20 to-gold/10 flex items-center justify-center relative">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div className="relative z-10 text-center">
             <Lock className="w-10 h-10 text-white mx-auto mb-1" />
@@ -388,69 +366,25 @@ function PaywallModal({ open, onOpenChange }: { open: boolean, onOpenChange: (op
         </div>
 
         <div className="p-6">
-          <p className="text-center text-muted-foreground mb-6">اختر طريقتك للاستمرار:</p>
+          <p className="text-center text-muted-foreground mb-6">اشترك للاستمرار في التعلم مع المعلم الذكي</p>
 
-          <div className="space-y-4">
-            {/* Referral Option */}
-            <div className="glass rounded-2xl border-emerald/25 overflow-hidden">
-              <div className="bg-emerald/10 px-5 py-3 flex items-center gap-3 border-b border-emerald/10">
-                <div className="w-8 h-8 rounded-lg bg-emerald/20 flex items-center justify-center">
-                  <Users className="w-4 h-4 text-emerald" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-emerald text-sm">١. ادعُ أصدقاءك — مجاناً تماماً</h3>
-                  <p className="text-xs text-muted-foreground">ادعُ ٥ أصدقاء واحصل على ٣ جلسات مجانية</p>
-                </div>
-                <div className="mr-auto text-left">
-                  <div className="text-xs text-emerald font-bold">{refInfo?.referralCount || 0} / 5</div>
-                  <div className="text-xs text-muted-foreground">أصدقاء</div>
-                </div>
-              </div>
-              <div className="p-4 space-y-3">
-                <Progress value={((refInfo?.referralCount || 0) / 5) * 100} className="h-1.5 bg-white/5 [&>div]:bg-emerald" />
-                <div className="flex gap-2">
-                  <div className="flex-1 bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs text-muted-foreground truncate font-mono" dir="ltr">
-                    {referralLink || "جاري التحميل..."}
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={copyLink}
-                    className={`shrink-0 h-9 px-4 rounded-lg font-bold transition-all ${copied ? "bg-emerald-600 text-white" : "bg-emerald/20 text-emerald hover:bg-emerald/30 border border-emerald/30"}`}
-                  >
-                    {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    <span className="mr-1.5">{copied ? "تم!" : "نسخ"}</span>
-                  </Button>
-                </div>
-                <Button
-                  variant="outline"
-                  className="w-full h-9 text-sm border-emerald/30 text-emerald hover:bg-emerald/10"
-                  onClick={() => { onOpenChange(false); setLocation("/dashboard"); }}
-                >
-                  <Users className="w-4 h-4 ml-2" />
-                  عرض تقدم الدعوات في لوحة التحكم
-                </Button>
-              </div>
+          <div className="glass-gold rounded-2xl p-5 flex items-center gap-4 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-gold/20 flex items-center justify-center shrink-0">
+              <Crown className="w-5 h-5 text-gold" />
             </div>
-
-            {/* Subscription Option */}
-            <div className="glass-gold rounded-2xl p-5 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-gold/20 flex items-center justify-center shrink-0">
-                <Crown className="w-5 h-5 text-gold" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-gold text-sm mb-0.5">٢. اشترك الآن</h3>
-                <p className="text-xs text-muted-foreground">باقات تبدأ من ١٠٠٠ ريال كل ١٤ يوم عبر كريمي</p>
-              </div>
-              <Button
-                onClick={() => { onOpenChange(false); setLocation("/subscription"); }}
-                className="gradient-gold text-primary-foreground font-bold shrink-0 shadow-lg shadow-gold/20"
-              >
-                عرض الباقات
-              </Button>
+            <div className="flex-1">
+              <h3 className="font-bold text-gold text-sm mb-0.5">اشترك الآن</h3>
+              <p className="text-xs text-muted-foreground">باقات برونز وفضة وذهب عبر كريمي</p>
             </div>
+            <Button
+              onClick={() => { onOpenChange(false); setLocation("/subscription"); }}
+              className="gradient-gold text-primary-foreground font-bold shrink-0 shadow-lg shadow-gold/20"
+            >
+              عرض الباقات
+            </Button>
           </div>
 
-          <Button variant="ghost" className="w-full mt-4 text-muted-foreground text-sm" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" className="w-full mt-2 text-muted-foreground text-sm" onClick={() => onOpenChange(false)}>
             إغلاق
           </Button>
         </div>

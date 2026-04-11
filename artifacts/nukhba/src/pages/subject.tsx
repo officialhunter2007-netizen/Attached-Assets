@@ -167,13 +167,6 @@ function SubscriptionExpiredWall({
           <Sparkles className="w-5 h-5" />
           جدّد اشتراكك الآن
         </Button>
-        <Button
-          variant="outline"
-          className="flex-1 border-white/10 h-12 rounded-xl flex items-center justify-center gap-2"
-          onClick={onRenew}
-        >
-          دعوة أصدقاء (5 دعوات = 3 أيام)
-        </Button>
       </div>
     </motion.div>
   );
@@ -773,9 +766,6 @@ function SubjectPathChat({
           <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
             <Sparkles className="w-5 h-5 ml-2" />
             اشترك الآن
-          </Button>
-          <Button variant="outline" onClick={onAccessDenied} className="border-white/10 h-12 rounded-xl">
-            دعوة أصدقاء (5 دعوات = 3 أيام)
           </Button>
         </div>
       </div>

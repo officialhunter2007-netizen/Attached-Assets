@@ -53,9 +53,6 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   );
   const hasActiveLegacyGlobal = !!(user.nukhbaPlan && user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt) > now);
 
-  // Referral access — global (any subject)
-  const canAccessViaReferral = (user.referralSessionsLeft ?? 0) > 0;
-
   const canAccessViaSubscription = canAccessViaSubjectSub || canAccessViaLegacyGlobal;
   const hasActiveSub = hasActiveSubjectSub || hasActiveLegacyGlobal;
   const quotaExhausted = hasActiveSub && !canAccessViaSubscription;
@@ -65,16 +62,11 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     canAccessViaSubjectSub,
     canAccessViaLegacyGlobal,
     canAccessViaSubscription,
-    canAccessViaReferral,
+    canAccessViaReferral: false,
     hasActiveSub,
     quotaExhausted,
     subjectSub,
   };
-}
-
-// Legacy helpers kept for non-subject contexts
-function hasReferralAccess(user: any): boolean {
-  return (user.referralSessionsLeft ?? 0) > 0;
 }
 
 // Yemen is UTC+3
@@ -121,7 +113,7 @@ router.post("/ai/lesson", async (req, res): Promise<void> => {
 
   const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
 
-  if (!access.isFirstLesson && !access.canAccessViaSubscription && !access.canAccessViaReferral) {
+  if (!access.isFirstLesson && !access.canAccessViaSubscription) {
     res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
     return;
   }
@@ -333,11 +325,11 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = req.body;
 
   const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
-  const { isFirstLesson, canAccessViaSubscription, canAccessViaReferral, hasActiveSub, quotaExhausted, subjectSub } = access;
+  const { isFirstLesson, canAccessViaSubscription, hasActiveSub, quotaExhausted, subjectSub } = access;
   const isNewSession = !userMessage;
 
-  // ── Session limit (1 session per 20 hours) — paid/referral only ──
-  if (isNewSession && (canAccessViaSubscription || canAccessViaReferral)) {
+  // ── Session limit (1 session per 20 hours) — paid users only ──
+  if (isNewSession && canAccessViaSubscription) {
     const now = Date.now();
     const lastAt = user.lastSessionAt ? new Date(user.lastSessionAt).getTime() : 0;
     const gapMs = SESSION_GAP_HOURS * 60 * 60 * 1000;
@@ -348,8 +340,8 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     }
   }
 
-  // ── Streak + session tracking — all users (first-lesson, referral, subscription) ──
-  if (isNewSession && (isFirstLesson || canAccessViaSubscription || canAccessViaReferral)) {
+  // ── Streak + session tracking — all users (first-lesson, subscription) ──
+  if (isNewSession && (isFirstLesson || canAccessViaSubscription)) {
     const today = getYemenDateString();
     const yesterdayMs = Date.now() + 3 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000;
     const yesterday = new Date(yesterdayMs).toISOString().slice(0, 10);
@@ -364,23 +356,18 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       newStreak = 1;
     }
 
-    const updates: Record<string, unknown> = {
-      lastSessionDate: today,
-      lastSessionAt: new Date(),
-      streakDays: newStreak,
-      lastActive: today,
-    };
-    // Decrement referral sessions if using referral access (not subscription)
-    if (canAccessViaReferral && !canAccessViaSubscription) {
-      updates.referralSessionsLeft = Math.max(0, (user.referralSessionsLeft ?? 0) - 1);
-    }
     await db.update(usersTable)
-      .set(updates)
+      .set({
+        lastSessionDate: today,
+        lastSessionAt: new Date(),
+        streakDays: newStreak,
+        lastActive: today,
+      })
       .where(eq(usersTable.id, userId));
   }
 
   // Block new sessions if access is denied (quota exhausted or no subscription)
-  if (!isFirstLesson && !canAccessViaSubscription && !canAccessViaReferral) {
+  if (!isFirstLesson && !canAccessViaSubscription) {
     if (isNewSession || !quotaExhausted) {
       res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
       return;

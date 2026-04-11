@@ -5,7 +5,6 @@ import {
   subscriptionRequestsTable,
   activationCardsTable,
   usersTable,
-  referralsTable,
   userSubjectSubscriptionsTable,
   userSubjectFirstLessonsTable,
 } from "@workspace/db";
@@ -157,9 +156,7 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
     (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0)
   );
 
-  const hasReferral = (user.referralSessionsLeft ?? 0) > 0;
-
-  const hasAccess = isFirstLesson || hasSubjectSub || hasLegacyGlobalSub || hasReferral;
+  const hasAccess = isFirstLesson || hasSubjectSub || hasLegacyGlobalSub;
 
   let messagesRemaining: number | null = null;
   let expiresAt: string | null = null;
@@ -180,8 +177,6 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
     isFirstLesson,
     hasSubjectSubscription: hasSubjectSub,
     hasLegacyGlobalSubscription: hasLegacyGlobalSub,
-    hasReferralAccess: hasReferral,
-    referralSessionsLeft: user.referralSessionsLeft ?? 0,
     messagesRemaining,
     expiresAt,
     planType,
@@ -707,98 +702,6 @@ router.delete("/admin/revoke-subject-subscription/:subId", async (req, res): Pro
 
   await db.delete(userSubjectSubscriptionsTable).where(eq(userSubjectSubscriptionsTable.id, subId));
   res.json({ success: true });
-});
-
-// ── Referrals: info ────────────────────────────────────────────────────────────
-router.get("/referrals/info", async (req, res): Promise<void> => {
-  const userId = getUserId(req);
-  if (!userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  const user = await getUser(userId);
-  if (!user) {
-    res.status(404).json({ error: "User not found" });
-    return;
-  }
-
-  const referrals = await db
-    .select()
-    .from(referralsTable)
-    .where(eq(referralsTable.referrerUserId, userId));
-
-  res.json({
-    referralCode: user.referralCode ?? "",
-    referralCount: referrals.length,
-    referralGoal: 5,
-    hasReferralAccess: (user.referralSessionsLeft ?? 0) > 0,
-    referralSessionsLeft: user.referralSessionsLeft ?? 0,
-    rewardClaimed: referrals.length >= 5,
-  });
-});
-
-// ── Referrals: register ────────────────────────────────────────────────────────
-router.post("/referrals/register", async (req, res): Promise<void> => {
-  const userId = getUserId(req);
-  if (!userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  const { referralCode } = req.body;
-  if (!referralCode) {
-    res.status(400).json({ error: "Referral code required" });
-    return;
-  }
-
-  const [referrer] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.referralCode, referralCode.toUpperCase()));
-
-  if (!referrer) {
-    res.status(404).json({ error: "Referral code not found" });
-    return;
-  }
-
-  if (referrer.id === userId) {
-    res.status(400).json({ error: "Cannot refer yourself" });
-    return;
-  }
-
-  const existing = await db
-    .select()
-    .from(referralsTable)
-    .where(eq(referralsTable.referredUserId, userId));
-
-  if (existing.length > 0) {
-    res.json({ success: true });
-    return;
-  }
-
-  const referralsBefore = await db
-    .select()
-    .from(referralsTable)
-    .where(eq(referralsTable.referrerUserId, referrer.id));
-
-  const newCount = referralsBefore.length + 1;
-  const grantsAccess = newCount === 5 && referrer.referralSessionsLeft === 0;
-
-  await db.insert(referralsTable).values({
-    referrerUserId: referrer.id,
-    referredUserId: userId,
-    referralCode: referralCode.toUpperCase(),
-    accessDaysGranted: grantsAccess ? 3 : 0,
-  });
-
-  if (grantsAccess) {
-    await db.update(usersTable)
-      .set({ referralSessionsLeft: 3 })
-      .where(eq(usersTable.id, referrer.id));
-  }
-
-  res.json({ success: true, grantsAccess });
 });
 
 export default router;

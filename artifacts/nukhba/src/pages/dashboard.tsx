@@ -1,13 +1,12 @@
 import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
-import { useGetLessonViews, useGetReferralInfo } from "@workspace/api-client-react";
+import { useGetLessonViews } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, Flame, Target, Users, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2, Copy, Check } from "lucide-react";
+import { Trophy, Flame, Target, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
-import { useToast } from "@/hooks/use-toast";
 
 interface LessonSummary {
   id: number;
@@ -69,12 +68,9 @@ function SummaryCard({ summary }: { summary: LessonSummary }) {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { toast } = useToast();
   const { data: views } = useGetLessonViews();
-  const { data: refInfo } = useGetReferralInfo();
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch("/api/lesson-summaries", { credentials: "include" })
@@ -92,8 +88,7 @@ export default function Dashboard() {
     && user?.subscriptionExpiresAt
     && new Date(user.subscriptionExpiresAt) > new Date()
     && (user?.messagesUsed ?? 0) < (user?.messagesLimit ?? 0);
-  const hasReferralAccess = (user?.referralSessionsLeft ?? 0) > 0;
-  const isBlocked = user?.firstLessonComplete && !hasSubscriptionAccess && !hasReferralAccess;
+  const isBlocked = user?.firstLessonComplete && !hasSubscriptionAccess;
 
   let level = "مبتدئ";
   let maxPoints = 100;
@@ -119,40 +114,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4 mb-8">
-            {/* Referral Card */}
-            <div className="glass rounded-3xl border-emerald/20 overflow-hidden">
-              <div className="bg-emerald/10 px-5 py-4 border-b border-emerald/10 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-emerald/20 flex items-center justify-center">
-                  <Users className="w-4 h-4 text-emerald" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-emerald text-sm">ادعُ أصدقاءك — مجاناً</h3>
-                  <p className="text-xs text-muted-foreground">٥ دعوات = ٣ جلسات مجانية</p>
-                </div>
-                <span className="mr-auto text-xs font-bold text-emerald">{refInfo?.referralCount || 0}/5</span>
-              </div>
-              <div className="p-5 space-y-3">
-                <Progress value={((refInfo?.referralCount || 0) / 5) * 100} className="h-2 bg-white/5 [&>div]:bg-emerald" />
-                <div className="bg-black/30 rounded-xl px-3 py-2 text-xs text-muted-foreground font-mono truncate" dir="ltr">
-                  {refInfo?.referralCode ? `${window.location.origin}/register?ref=${refInfo.referralCode}` : "جاري التحميل..."}
-                </div>
-                <Button
-                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold gap-2"
-                  onClick={() => {
-                    const link = `${window.location.origin}/register?ref=${refInfo?.referralCode}`;
-                    navigator.clipboard.writeText(link);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                    toast({ title: "✓ تم نسخ رابط الدعوة", description: "شاركه مع أصدقائك الآن!", className: "bg-emerald-700 border-none text-white" });
-                  }}
-                >
-                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copied ? "تم النسخ!" : "انسخ رابط الدعوة"}
-                </Button>
-              </div>
-            </div>
-
+          <div className="mb-8">
             {/* Subscription Card */}
             <div className="glass-gold rounded-3xl p-6 flex flex-col justify-between">
               <div>
@@ -283,61 +245,6 @@ export default function Dashboard() {
           </div>
 
           <div className="space-y-6">
-            <div className="glass p-6 rounded-3xl border-emerald/20 relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-32 h-32 bg-emerald/10 rounded-br-full -z-10" />
-              <h3 className="font-bold text-lg mb-1 flex items-center gap-2">
-                <Users className="w-5 h-5 text-emerald" />
-                سفير نُخبة
-              </h3>
-
-              {(() => {
-                const ri = refInfo as any;
-                const sessionsLeft: number = ri?.referralSessionsLeft ?? 0;
-                const rewardClaimed: boolean = ri?.rewardClaimed ?? false;
-                return (
-                  <>
-                    {sessionsLeft > 0 && (
-                      <div className="mb-3 bg-emerald/10 border border-emerald/30 rounded-xl px-3 py-2 flex items-center gap-2">
-                        <span className="text-2xl font-black text-emerald">{sessionsLeft}</span>
-                        <span className="text-xs text-emerald/80">جلسات برونز مجانية متبقية</span>
-                      </div>
-                    )}
-                    {rewardClaimed && sessionsLeft === 0 && (
-                      <div className="mb-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-muted-foreground">
-                        ✓ استخدمت مكافأة الدعوة — شكراً على مساهمتك!
-                      </div>
-                    )}
-                    {!rewardClaimed && (
-                      <p className="text-sm text-muted-foreground mb-3">ادعُ ٥ أصدقاء واحصل على ٣ جلسات مجانية بنظام البرونز — مرة واحدة فقط</p>
-                    )}
-                    {!rewardClaimed && (
-                      <>
-                        <div className="mb-2 flex justify-between text-xs text-emerald font-bold">
-                          <span>{refInfo?.referralCount || 0} أصدقاء سجلوا</span>
-                          <span>الهدف: {refInfo?.referralGoal || 5}</span>
-                        </div>
-                        <Progress value={((refInfo?.referralCount || 0) / (refInfo?.referralGoal || 5)) * 100} className="h-2 bg-black/40 [&>div]:bg-emerald mb-4" />
-                      </>
-                    )}
-                  </>
-                );
-              })()}
-
-              <Button
-                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-sm gap-2"
-                onClick={() => {
-                  const link = `${window.location.origin}/register?ref=${refInfo?.referralCode}`;
-                  navigator.clipboard.writeText(link);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                  toast({ title: "✓ تم نسخ رابط الدعوة", description: link, className: "bg-emerald-700 border-none text-white" });
-                }}
-              >
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                {copied ? "تم النسخ!" : "انسخ رابط الدعوة"}
-              </Button>
-            </div>
-
             <div className="glass p-6 rounded-3xl border-gold/20">
               <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
                 <Crown className="w-5 h-5 text-gold" />

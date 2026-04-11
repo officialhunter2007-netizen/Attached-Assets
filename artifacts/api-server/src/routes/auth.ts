@@ -1,8 +1,8 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, usersTable, referralsTable } from "@workspace/db";
+import { db, usersTable } from "@workspace/db";
 import { RegisterUserBody, LoginUserBody, UpdateMeBody } from "@workspace/api-zod";
-import { hashPassword, verifyPassword, generateReferralCode } from "../lib/auth";
+import { hashPassword, verifyPassword } from "../lib/auth";
 import { OAuth2Client } from "google-auth-library";
 
 const router: IRouter = Router();
@@ -77,7 +77,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
 
-  const { email, password, displayName, referralCode } = parsed.data;
+  const { email, password, displayName } = parsed.data;
 
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
   if (existing) {
@@ -86,13 +86,11 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
 
   const passwordHash = hashPassword(password);
-  const myReferralCode = generateReferralCode();
 
   const [user] = await db.insert(usersTable).values({
     email,
     passwordHash,
     displayName: displayName ?? null,
-    referralCode: myReferralCode,
     role: ADMIN_EMAILS.includes(email.toLowerCase()) ? "admin" : "user",
     onboardingDone: false,
     points: 0,
@@ -101,42 +99,6 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }).returning();
 
   (req as any).session = { userId: user.id };
-
-  // ── Process referral code if provided ──
-  if (referralCode) {
-    try {
-      const [referrer] = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.referralCode, referralCode.toUpperCase()));
-
-      if (referrer && referrer.id !== user.id) {
-        const existingReferrals = await db
-          .select()
-          .from(referralsTable)
-          .where(eq(referralsTable.referrerUserId, referrer.id));
-
-        const newCount = existingReferrals.length + 1;
-        // Grant reward ONLY on the very first 5 referrals — never again
-        const grantsAccess = newCount === 5 && (referrer.referralSessionsLeft ?? 0) === 0;
-
-        await db.insert(referralsTable).values({
-          referrerUserId: referrer.id,
-          referredUserId: user.id,
-          referralCode: referralCode.toUpperCase(),
-          accessDaysGranted: grantsAccess ? 3 : 0,
-        });
-
-        if (grantsAccess) {
-          await db.update(usersTable)
-            .set({ referralSessionsLeft: 3 })
-            .where(eq(usersTable.id, referrer.id));
-        }
-      }
-    } catch {
-      // referral processing failure should not block registration
-    }
-  }
 
   const { passwordHash: _, ...profile } = user;
   res.status(201).json({ ...profile, badges: user.badges ?? [] });
@@ -212,57 +174,17 @@ function setSessionCookie(res: any, userId: number) {
   });
 }
 
-async function processReferral(referralCode: string, newUserId: number) {
-  if (!referralCode) return;
-  try {
-    const [referrer] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.referralCode, referralCode.toUpperCase()));
-
-    if (referrer && referrer.id !== newUserId) {
-      const existingReferrals = await db
-        .select()
-        .from(referralsTable)
-        .where(eq(referralsTable.referrerUserId, referrer.id));
-
-      const newCount = existingReferrals.length + 1;
-      const grantsAccess = newCount === 5 && (referrer.referralSessionsLeft ?? 0) === 0;
-
-      await db.insert(referralsTable).values({
-        referrerUserId: referrer.id,
-        referredUserId: newUserId,
-        referralCode: referralCode.toUpperCase(),
-        accessDaysGranted: grantsAccess ? 3 : 0,
-      });
-
-      if (grantsAccess) {
-        await db.update(usersTable)
-          .set({ referralSessionsLeft: 3 })
-          .where(eq(usersTable.id, referrer.id));
-      }
-    }
-  } catch {
-    // referral failure should not block login
-  }
-}
-
 router.get("/auth/google", (req, res): void => {
   const domain = getAppDomain();
   const callbackUrl = `https://${domain}/api/auth/google/callback`;
-  console.log("[OAuth] APP_DOMAIN env:", process.env.APP_DOMAIN);
-  console.log("[OAuth] REPLIT_DOMAINS env:", process.env.REPLIT_DOMAINS);
   console.log("[OAuth] Resolved domain:", domain);
   console.log("[OAuth] Callback URL:", callbackUrl);
 
   const client = getGoogleClient();
-  const ref = (req.query.ref as string) || "";
-  const state = Buffer.from(JSON.stringify({ ref })).toString("base64");
 
   const url = client.generateAuthUrl({
     access_type: "offline",
     scope: ["profile", "email"],
-    state,
     prompt: "select_account",
   });
 
@@ -272,13 +194,6 @@ router.get("/auth/google", (req, res): void => {
 router.get("/auth/google/callback", async (req, res): Promise<void> => {
   try {
     const code = req.query.code as string;
-    const state = req.query.state as string;
-
-    let referralCode = "";
-    try {
-      const decoded = JSON.parse(Buffer.from(state, "base64").toString());
-      referralCode = decoded.ref || "";
-    } catch { /* ignore */ }
 
     const client = getGoogleClient();
     const { tokens } = await client.getToken(code);
@@ -316,7 +231,6 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
             email: gUser.email,
             googleId: gUser.id,
             displayName: gUser.name,
-            referralCode: generateReferralCode(),
             role: ADMIN_EMAILS.includes(gUser.email.toLowerCase()) ? "admin" : "user",
             onboardingDone: false,
             points: 0,
@@ -324,8 +238,6 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
             badges: [],
           })
           .returning();
-
-        await processReferral(referralCode, user.id);
 
         setSessionCookie(res, user.id);
         res.redirect(getFrontendUrl("/welcome"));
