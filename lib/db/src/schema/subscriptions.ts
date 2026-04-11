@@ -86,3 +86,19 @@ export const userSubjectFirstLessonsTable = pgTable("user_subject_first_lessons"
 export const insertUserSubjectFirstLessonSchema = createInsertSchema(userSubjectFirstLessonsTable).omit({ id: true });
 export type InsertUserSubjectFirstLesson = z.infer<typeof insertUserSubjectFirstLessonSchema>;
 export type UserSubjectFirstLesson = typeof userSubjectFirstLessonsTable.$inferSelect;
+
+// Per-subject persisted learning plan (generated from diagnostic phase)
+export const userSubjectPlansTable = pgTable("user_subject_plans", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  subjectId: text("subject_id").notNull(),
+  planHtml: text("plan_html").notNull(),
+  currentStageIndex: integer("current_stage_index").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("user_subject_plans_user_subject_idx").on(t.userId, t.subjectId),
+]);
+
+export const insertUserSubjectPlanSchema = createInsertSchema(userSubjectPlansTable).omit({ id: true });
+export type InsertUserSubjectPlan = z.infer<typeof insertUserSubjectPlanSchema>;
+export type UserSubjectPlan = typeof userSubjectPlansTable.$inferSelect;

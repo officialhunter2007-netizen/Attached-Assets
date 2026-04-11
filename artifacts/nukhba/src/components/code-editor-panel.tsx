@@ -141,6 +141,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       ro.observe(containerRef.current);
       return () => ro.disconnect();
     }
+    return undefined;
   }, []);
 
   const activeFile = files.find(f => f.id === activeId) || files[0];

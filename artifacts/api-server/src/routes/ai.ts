@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc } from "drizzle-orm";
-import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable } from "@workspace/db";
+import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
@@ -379,9 +379,30 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     const stagesArr = stages ?? [];
     const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا التخصص 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك في هذه المادة من صفحة الاشتراكات.</p></div>`;
     res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
-    res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length, quotaExhausted: true, messagesRemaining: 0 })}\n\n`);
     res.end();
     return;
+  }
+
+  // ── Hard quota enforcement: reject BEFORE calling Claude if limit already hit ──
+  if (canAccessViaSubscription) {
+    let alreadyExhausted = false;
+    if (access.canAccessViaSubjectSub && subjectSub) {
+      alreadyExhausted = subjectSub.messagesUsed >= subjectSub.messagesLimit;
+    } else if (access.canAccessViaLegacyGlobal) {
+      alreadyExhausted = (user.messagesUsed ?? 0) >= (user.messagesLimit ?? 0);
+    }
+    if (alreadyExhausted) {
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      const stagesArr = stages ?? [];
+      const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا التخصص 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك في هذه المادة من صفحة الاشتراكات.</p></div>`;
+      res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length, quotaExhausted: true, messagesRemaining: 0 })}\n\n`);
+      res.end();
+      return;
+    }
   }
 
   // ── Increment message counter ──────────────────────────────────────────────
@@ -396,6 +417,38 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       await db.update(usersTable)
         .set({ messagesUsed: (user.messagesUsed ?? 0) + 1 })
         .where(eq(usersTable.id, userId));
+    }
+  }
+
+  // ── Load persisted plan + last 2 session summaries from DB ───────────────
+  let dbPlanContext = planContext ?? null;
+  let sessionContextNote = "";
+  if (!isDiagnosticPhase && subjectId) {
+    const [dbPlan] = await db
+      .select()
+      .from(userSubjectPlansTable)
+      .where(and(
+        eq(userSubjectPlansTable.userId, userId),
+        eq(userSubjectPlansTable.subjectId, subjectId)
+      ));
+    if (dbPlan && !dbPlanContext) {
+      dbPlanContext = dbPlan.planHtml;
+    }
+
+    const recentSummaries = await db
+      .select()
+      .from(lessonSummariesTable)
+      .where(and(
+        eq(lessonSummariesTable.userId, userId),
+        eq(lessonSummariesTable.subjectId, subjectId)
+      ))
+      .orderBy(desc(lessonSummariesTable.conversationDate))
+      .limit(2);
+
+    if (recentSummaries.length > 0) {
+      sessionContextNote = `\n--- ملخصات الجلسات السابقة (آخر ${recentSummaries.length} جلسات) ---\n` +
+        recentSummaries.map((s, i) => `الجلسة السابقة ${recentSummaries.length - i}:\n${s.title ? `العنوان: ${s.title}\n` : ""}${s.summaryHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 800)}`).join("\n\n") +
+        "\n---\nابدأ الجلسة بالإشارة باختصار إلى ما تعلمه الطالب في آخر جلسة، ثم انتقل مباشرةً للمرحلة الحالية.\n---";
     }
   }
 
@@ -455,7 +508,10 @@ ${formattingRules}`;
 
   const teachingSystemPrompt = `أنت معلم خاص متمكن في مادة: ${subjectName}. فلسفتك: الطالب لا يستطيع الإجابة على سؤال لم يفهم سياقه بعد — لذلك تشرح دائماً قبل أن تسأل.
 
-${planContext ? `--- خطة الطالب الشخصية ---\n${planContext}\n---\n` : ""}
+${dbPlanContext ? `--- خطة الطالب الشخصية ---\n${dbPlanContext}\n---\n` : ""}
+${sessionContextNote}
+
+**التزام صارم بالخطة:** ابقَ دائماً ضمن مراحل الخطة الشخصية للطالب بالترتيب. لا تتجاوز إلى موضوع خارج المرحلة الحالية. إذا حاول الطالب الانحراف، أعده بلطف إلى المرحلة الحالية.
 
 **الجلسة الحالية:**
 - المرحلة الحالية (${stageIdx + 1}/${stageCount}): "${currentStageName}"
@@ -520,7 +576,8 @@ ${formattingRules}`;
       messagesRemaining = Math.max(0, (user.messagesLimit ?? 0) - ((user.messagesUsed ?? 0) + 1));
     }
   }
-  res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady })}\n\n`);
+  const isQuotaExhausted = messagesRemaining === 0;
+  res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady, quotaExhausted: isQuotaExhausted })}\n\n`);
   res.end();
 });
 

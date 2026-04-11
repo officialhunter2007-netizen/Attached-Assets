@@ -538,12 +538,14 @@ function SubjectPathChat({
   const [currentStage, setCurrentStage] = useState(0);
   const [accessDenied, setAccessDenied] = useState(false);
   const [sessionComplete, setSessionComplete] = useState(false);
+  const [quotaExhausted, setQuotaExhausted] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
   const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
   const [customPlan, setCustomPlan] = useState<string | null>(null);
+  const [planLoaded, setPlanLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -566,11 +568,35 @@ function SubjectPathChat({
     }
   }, [messageCount]);
 
+  // Fetch persisted plan from DB on mount
   useEffect(() => {
+    async function fetchPlan() {
+      try {
+        const res = await fetch(`/api/user-plan?subjectId=${encodeURIComponent(subject.id)}`, {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.plan?.planHtml) {
+            setCustomPlan(data.plan.planHtml);
+            if (data.plan.currentStageIndex > 0) {
+              setCurrentStage(data.plan.currentStageIndex);
+            }
+          }
+        }
+      } catch {}
+      setPlanLoaded(true);
+    }
+    fetchPlan();
+  }, [subject.id]);
+
+  // Start session once plan fetch is done (or skip if not first session since plan may be blank)
+  useEffect(() => {
+    if (!planLoaded) return;
     if (messages.length === 0) {
       sendTeachMessage("", stages, 0, chatPhase === 'diagnostic');
     }
-  }, []);
+  }, [planLoaded]);
 
   const triggerSummary = async (allMessages: ChatMessage[]) => {
     setIsSummarizing(true);
@@ -681,6 +707,28 @@ function SubjectPathChat({
               if (data.planReady) {
                 setCustomPlan(assistantMsg);
                 setChatPhase('teaching');
+                // Persist plan to DB
+                fetch('/api/user-plan', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({
+                    subjectId: subject.id,
+                    planHtml: assistantMsg,
+                    currentStageIndex: 0,
+                  }),
+                }).catch(() => {});
+              }
+              // Quota exhausted — disable input, trigger summary, show exhausted screen
+              if (data.quotaExhausted || data.messagesRemaining === 0) {
+                setQuotaExhausted(true);
+                setMessages(prev => {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = { role: "assistant", content: assistantMsg };
+                  triggerSummary(updated);
+                  return updated;
+                });
+                break;
               }
               if (!diagMode && data.stageComplete && data.nextStage !== undefined) {
                 if (data.nextStage >= usedStages.length) {
@@ -694,6 +742,13 @@ function SubjectPathChat({
                   });
                 } else {
                   setCurrentStage(data.nextStage);
+                  // Persist updated stage to DB
+                  fetch('/api/user-plan/stage', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ subjectId: subject.id, currentStageIndex: data.nextStage }),
+                  }).catch(() => {});
                 }
               }
               break;
@@ -781,6 +836,50 @@ function SubjectPathChat({
             اشترك الآن
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  if (quotaExhausted) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring" }}>
+          <div className="w-24 h-24 rounded-full bg-amber-500/10 border-2 border-amber-500/30 flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(245,158,11,0.15)]">
+            <span className="text-4xl">📭</span>
+          </div>
+          <h3 className="text-2xl font-bold mb-3">رصيدك نفد</h3>
+          <p className="text-muted-foreground mb-2 max-w-sm text-sm leading-relaxed">
+            لقد استنفدت جميع رسائل اشتراكك في <strong className="text-foreground">{subject.name}</strong>.
+          </p>
+          <p className="text-muted-foreground mb-6 max-w-sm text-sm leading-relaxed">
+            {isSummarizing
+              ? "جاري حفظ ملخص جلستك الأخيرة..."
+              : summaryError
+                ? "لم يتم حفظ الملخص — تحقق من اتصالك."
+                : "تم حفظ ملخص جلستك الأخيرة في لوحة التحكم ✓"}
+          </p>
+          <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground max-w-xs mx-auto">
+            <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+            الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية
+          </div>
+          <div className="flex flex-col gap-3 w-full max-w-xs mx-auto">
+            <Button
+              onClick={onAccessDenied}
+              className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl"
+            >
+              <Sparkles className="w-5 h-5 ml-2" />
+              جدّد الاشتراك الآن
+            </Button>
+            <Button
+              variant="outline"
+              className="border-white/10 h-10 rounded-xl text-sm"
+              onClick={() => onSessionComplete ? onSessionComplete() : onAccessDenied()}
+            >
+              <FileText className="w-4 h-4 ml-2" />
+              عرض الملخصات
+            </Button>
+          </div>
+        </motion.div>
       </div>
     );
   }
@@ -978,8 +1077,8 @@ function SubjectPathChat({
                 handleSend();
               }
             }}
-            placeholder="اكتب رسالتك للمعلم..."
-            disabled={isStreaming}
+            placeholder={quotaExhausted ? "انتهى رصيدك — يرجى تجديد الاشتراك" : "اكتب رسالتك للمعلم..."}
+            disabled={isStreaming || quotaExhausted}
             style={{
               minHeight: "48px",
               maxHeight: "144px",
@@ -992,9 +1091,9 @@ function SubjectPathChat({
           />
           <button
             type="submit"
-            disabled={!input.trim() || isStreaming}
+            disabled={!input.trim() || isStreaming || quotaExhausted}
             className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ background: input.trim() && !isStreaming ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(245,158,11,0.15)", boxShadow: input.trim() && !isStreaming ? "0 4px 15px rgba(245,158,11,0.3)" : "none" }}
+            style={{ background: input.trim() && !isStreaming && !quotaExhausted ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(245,158,11,0.15)", boxShadow: input.trim() && !isStreaming && !quotaExhausted ? "0 4px 15px rgba(245,158,11,0.3)" : "none" }}
           >
             <Send className="w-4.5 h-4.5 text-black" style={{ width: "18px", height: "18px" }} />
           </button>
