@@ -366,43 +366,24 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       .where(eq(usersTable.id, userId));
   }
 
-  // Block new sessions if access is denied (quota exhausted or no subscription)
+  // ── Access gate ─────────────────────────────────────────────────────────────
   if (!isFirstLesson && !canAccessViaSubscription) {
-    if (isNewSession || !quotaExhausted) {
+    if (!hasActiveSub) {
+      // No subscription at all — hard deny with JSON
       res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
       return;
     }
-    // Mid-session quota exhausted: send graceful closing via SSE
+    // Has active subscription but quota exhausted — always return farewell SSE
+    // (covers both new-session and mid-session exhaustion; never calls Claude)
+    const stagesArr = stages ?? [];
+    const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا التخصص 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك في هذه المادة من صفحة الاشتراكات.</p></div>`;
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
-    const stagesArr = stages ?? [];
-    const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا التخصص 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك في هذه المادة من صفحة الاشتراكات.</p></div>`;
     res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
     res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length, quotaExhausted: true, messagesRemaining: 0 })}\n\n`);
     res.end();
     return;
-  }
-
-  // ── Hard quota enforcement: reject BEFORE calling Claude if limit already hit ──
-  if (canAccessViaSubscription) {
-    let alreadyExhausted = false;
-    if (access.canAccessViaSubjectSub && subjectSub) {
-      alreadyExhausted = subjectSub.messagesUsed >= subjectSub.messagesLimit;
-    } else if (access.canAccessViaLegacyGlobal) {
-      alreadyExhausted = (user.messagesUsed ?? 0) >= (user.messagesLimit ?? 0);
-    }
-    if (alreadyExhausted) {
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
-      const stagesArr = stages ?? [];
-      const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا التخصص 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك في هذه المادة من صفحة الاشتراكات.</p></div>`;
-      res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
-      res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length, quotaExhausted: true, messagesRemaining: 0 })}\n\n`);
-      res.end();
-      return;
-    }
   }
 
   // ── Increment message counter ──────────────────────────────────────────────

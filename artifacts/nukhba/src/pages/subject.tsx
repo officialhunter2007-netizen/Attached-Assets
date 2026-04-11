@@ -590,11 +590,11 @@ function SubjectPathChat({
     fetchPlan();
   }, [subject.id]);
 
-  // Start session once plan fetch is done (or skip if not first session since plan may be blank)
+  // Start session once plan fetch is done — use the persisted stage index
   useEffect(() => {
     if (!planLoaded) return;
     if (messages.length === 0) {
-      sendTeachMessage("", stages, 0, chatPhase === 'diagnostic');
+      sendTeachMessage("", stages, currentStage, chatPhase === 'diagnostic');
     }
   }, [planLoaded]);
 
