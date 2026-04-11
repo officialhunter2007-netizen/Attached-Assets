@@ -425,10 +425,12 @@ export default function Subscription() {
                       <p className="text-center text-xs mt-2 text-muted-foreground">باسم: عمرو خالد عبد المولى</p>
                     </>
                   ) : (
-                    <div className="bg-black/30 py-4 rounded-xl border border-white/10 text-center">
-                      <p className="text-sm text-muted-foreground">سيتم إضافة حساب المحافظات الجنوبية قريباً</p>
-                      <p className="text-xs text-muted-foreground mt-1">تواصل معنا للدفع في الوقت الحالي</p>
-                    </div>
+                    <>
+                      <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-3 rounded-xl border border-gold/20" dir="ltr">
+                        3167076083
+                      </div>
+                      <p className="text-center text-xs mt-2 text-muted-foreground">باسم: عمرو خالد عبد المولى</p>
+                    </>
                   )}
                 </div>
 

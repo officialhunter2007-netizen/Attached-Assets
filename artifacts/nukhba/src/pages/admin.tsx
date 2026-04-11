@@ -343,6 +343,26 @@ export default function Admin() {
 
           {/* Requests Tab */}
           <TabsContent value="requests">
+            {/* Karimi accounts reference */}
+            <div className="mb-5 flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 flex items-center gap-3 bg-black/30 border border-gold/20 rounded-xl px-4 py-3">
+                <img src="/karimi-logo.png" alt="كريمي" className="w-7 h-7 rounded-md object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground mb-0.5">المحافظات الشمالية (ريال يمني)</p>
+                  <p className="font-mono font-bold text-gold text-sm tracking-widest" dir="ltr">3165778412</p>
+                  <p className="text-xs text-muted-foreground">باسم: عمرو خالد عبد المولى</p>
+                </div>
+              </div>
+              <div className="flex-1 flex items-center gap-3 bg-black/30 border border-gold/20 rounded-xl px-4 py-3">
+                <img src="/karimi-logo.png" alt="كريمي" className="w-7 h-7 rounded-md object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground mb-0.5">المحافظات الجنوبية (عملة جنوبية)</p>
+                  <p className="font-mono font-bold text-gold text-sm tracking-widest" dir="ltr">3167076083</p>
+                  <p className="text-xs text-muted-foreground">باسم: عمرو خالد عبد المولى</p>
+                </div>
+              </div>
+            </div>
+
             <div className="flex items-center gap-2 mb-4 flex-wrap">
               <Filter className="w-4 h-4 text-muted-foreground" />
               {filterOptions.map(opt => (
