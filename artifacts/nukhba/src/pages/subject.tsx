@@ -582,6 +582,8 @@ function SubjectPathChat({
             if (data.plan.currentStageIndex > 0) {
               setCurrentStage(data.plan.currentStageIndex);
             }
+            // A persisted plan means diagnostic phase already completed — switch to teaching
+            setChatPhase('teaching');
           }
         }
       } catch {}
@@ -590,12 +592,15 @@ function SubjectPathChat({
     fetchPlan();
   }, [subject.id]);
 
-  // Start session once plan fetch is done — use the persisted stage index
+  // Start session once plan fetch is done — use the persisted stage index and phase
+  // Both planLoaded and chatPhase are set together in fetchPlan, so chatPhase is
+  // already resolved (teaching or diagnostic) before this effect fires.
   useEffect(() => {
     if (!planLoaded) return;
     if (messages.length === 0) {
       sendTeachMessage("", stages, currentStage, chatPhase === 'diagnostic');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planLoaded]);
 
   const triggerSummary = async (allMessages: ChatMessage[]) => {
