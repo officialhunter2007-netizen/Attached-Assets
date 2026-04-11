@@ -149,9 +149,9 @@
   background-color: transparent !important;
   color: inherit !important;
   border-color: rgba(255,255,255,0.12) !important;
-  max-width: 100%;
   box-sizing: border-box;
 }
+.ai-msg *:not(pre):not(code):not(table) { max-width: 100%; }
 .ai-msg h1, .ai-msg h2, .ai-msg h3 { color: #ffffff !important; font-size: 1.05em; margin: 14px 0 6px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1) !important; padding-bottom: 4px; }
 .ai-msg h4, .ai-msg h5, .ai-msg h6 { color: #f0f0f0 !important; font-size: 1.0em; margin: 10px 0 5px; font-weight: 600; }
 .ai-msg strong, .ai-msg b { color: #fff !important; font-weight: 700; }
@@ -160,8 +160,33 @@
 .ai-msg ul, .ai-msg ol { padding-right: 22px; margin: 8px 0; }
 .ai-msg li { margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; }
 .ai-msg div, .ai-msg span, .ai-msg section { color: #e8e8e8 !important; background: transparent !important; }
-.ai-msg pre { background: rgba(0,0,0,0.35) !important; border: 1px solid rgba(255,255,255,0.07) !important; border-radius: 8px; padding: 12px; overflow-x: auto; margin: 10px 0; max-width: 100%; -webkit-overflow-scrolling: touch; }
-.ai-msg pre > code { background: transparent !important; color: #e2e8f0 !important; direction: ltr; text-align: left; display: block; font-family: 'Fira Code','Consolas',monospace; font-size: 13px; white-space: pre; min-width: max-content; }
+/* Code blocks: scrollable horizontally on mobile */
+.ai-msg pre {
+  background: rgba(0,0,0,0.40) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 10px 0;
+  width: 100%;
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+}
+.ai-msg pre > code {
+  background: transparent !important;
+  color: #e2e8f0 !important;
+  direction: ltr;
+  text-align: left;
+  display: block;
+  font-family: 'Fira Code','Consolas',monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+  width: max-content;
+  min-width: 100%;
+  max-width: none !important;
+}
 .ai-msg code { background: rgba(255,255,255,0.08) !important; color: #e2e8f0 !important; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 0.88em; direction: ltr; display: inline-block; word-break: break-all; }
 .ai-msg table { width: 100%; max-width: 100%; border-collapse: collapse; margin: 10px 0; display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .ai-msg thead, .ai-msg tbody, .ai-msg tr { display: table; width: 100%; table-layout: fixed; }

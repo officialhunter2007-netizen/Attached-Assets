@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import Editor from "@monaco-editor/react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import Editor, { type OnMount } from "@monaco-editor/react";
 import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -126,6 +126,22 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const [running, setRunning] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
   const newNameRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const editorRef = useRef<any>(null);
+
+  const handleEditorMount: OnMount = useCallback((editor) => {
+    editorRef.current = editor;
+    // Force correct layout after mount
+    setTimeout(() => editor.layout(), 50);
+
+    // Observe container resize → re-layout Monaco
+    if (containerRef.current) {
+      const ro = new ResizeObserver(() => editor.layout());
+      ro.observe(containerRef.current);
+      return () => ro.disconnect();
+    }
+  }, []);
 
   const activeFile = files.find(f => f.id === activeId) || files[0];
   const activeLangInfo = langInfo(activeFile?.language || "python");
@@ -215,7 +231,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   };
 
   return (
-    <div className="rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/40" style={{ direction: "ltr" }}>
+    <div ref={containerRef} className="rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/40 w-full min-w-0" style={{ direction: "ltr" }}>
 
       {/* ── Title Bar ── */}
       <div className="bg-[#1e1e2e] px-4 py-2 flex items-center gap-3 border-b border-white/5">
@@ -324,30 +340,48 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       </div>
 
       {/* ── Monaco Editor ── */}
-      <div className="bg-[#1e1e2e]">
+      <div className="bg-[#1e1e2e] w-full overflow-hidden">
         <Editor
           key={activeFile?.id}
-          height="280px"
+          height="clamp(200px, 38vh, 340px)"
+          width="100%"
           language={activeLangInfo.monacoLang}
           value={activeFile?.content || ""}
           onChange={(val) => updateContent(val || "")}
+          onMount={handleEditorMount}
           theme="vs-dark"
+          loading={
+            <div className="flex items-center justify-center h-full py-10 text-[#6e6a86] text-sm font-mono gap-2">
+              <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              <span>جاري تحميل المحرر...</span>
+            </div>
+          }
           options={{
-            fontSize: 14,
+            fontSize: 13,
             fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             wordWrap: "on",
+            wrappingIndent: "indent",
             lineNumbers: "on",
             glyphMargin: false,
             folding: false,
-            lineNumbersMinChars: 3,
+            lineNumbersMinChars: 2,
+            lineDecorationsWidth: 4,
             renderLineHighlight: "line",
             smoothScrolling: false,
             cursorBlinking: "blink",
             cursorSmoothCaretAnimation: "off",
-            padding: { top: 12, bottom: 12 },
-            scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+            padding: { top: 10, bottom: 10 },
+            scrollbar: {
+              verticalScrollbarSize: 5,
+              horizontalScrollbarSize: 5,
+              useShadows: false,
+              alwaysConsumeMouseWheel: false,
+            },
+            overviewRulerLanes: 0,
+            overviewRulerBorder: false,
+            hideCursorInOverviewRuler: true,
             quickSuggestions: false,
             parameterHints: { enabled: false },
             suggestOnTriggerCharacters: false,
@@ -359,6 +393,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
             selectionHighlight: false,
             codeLens: false,
             renderValidationDecorations: "off",
+            automaticLayout: true,
           }}
         />
       </div>

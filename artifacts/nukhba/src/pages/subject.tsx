@@ -499,8 +499,8 @@ const AIMessage = memo(function AIMessage({ content, isStreaming }: { content: s
     : safeRef.current;
 
   return (
-    <div className="relative rounded-2xl rounded-tr-none overflow-hidden min-w-0 max-w-[92%] shadow-md"
-      style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)" }}>
+    <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] shadow-md"
+      style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)", overflowX: "clip" }}>
       <div className="px-4 py-3.5">
         <div className="ai-msg" dangerouslySetInnerHTML={{ __html: displayHtml }} />
         {isStreaming && (
@@ -835,8 +835,8 @@ function SubjectPathChat({
 
   if (ideOpen) {
     return (
-      <div className="flex-1 overflow-y-auto" style={{ direction: "ltr" }}>
-        <div className="p-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ direction: "ltr", background: "#080a11" }}>
+        <div className="p-3 sm:p-4 w-full min-w-0">
           <CodeEditorPanel
             sectionContent=""
             subjectId={subject.id}
