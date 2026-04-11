@@ -44,23 +44,14 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   );
   const hasActiveSubjectSub = !!(subjectSub && new Date(subjectSub.expiresAt) > now);
 
-  // Legacy global subscription (backward compat for existing subscribers)
-  const canAccessViaLegacyGlobal = !!(
-    user.nukhbaPlan &&
-    user.subscriptionExpiresAt &&
-    new Date(user.subscriptionExpiresAt) > now &&
-    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0)
-  );
-  const hasActiveLegacyGlobal = !!(user.nukhbaPlan && user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt) > now);
-
-  const canAccessViaSubscription = canAccessViaSubjectSub || canAccessViaLegacyGlobal;
-  const hasActiveSub = hasActiveSubjectSub || hasActiveLegacyGlobal;
+  const canAccessViaSubscription = canAccessViaSubjectSub;
+  const hasActiveSub = hasActiveSubjectSub;
   const quotaExhausted = hasActiveSub && !canAccessViaSubscription;
 
   return {
     isFirstLesson,
     canAccessViaSubjectSub,
-    canAccessViaLegacyGlobal,
+    canAccessViaLegacyGlobal: false,
     canAccessViaSubscription,
     canAccessViaReferral: false,
     hasActiveSub,
@@ -393,11 +384,6 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       await db.update(userSubjectSubscriptionsTable)
         .set({ messagesUsed: subjectSub.messagesUsed + 1 })
         .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
-    } else if (access.canAccessViaLegacyGlobal) {
-      // Legacy global → increment in users table
-      await db.update(usersTable)
-        .set({ messagesUsed: (user.messagesUsed ?? 0) + 1 })
-        .where(eq(usersTable.id, userId));
     }
   }
 

@@ -50,8 +50,13 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
     return;
   }
 
-  const subjectId: string = req.body.subjectId ?? "all";
+  const subjectId: string = (req.body.subjectId ?? "").toString().trim();
   const subjectName: string | undefined = req.body.subjectName;
+
+  if (!subjectId || subjectId === "all") {
+    res.status(400).json({ error: "يجب تحديد المادة أو التخصص. اختر مادةً محددة قبل إرسال طلب الاشتراك." });
+    return;
+  }
 
   const user = await getUser(userId);
 
@@ -148,15 +153,7 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
   const now = new Date();
   const hasSubjectSub = !!(subjectSub && new Date(subjectSub.expiresAt) > now && subjectSub.messagesUsed < subjectSub.messagesLimit);
 
-  // Legacy global subscription fallback
-  const hasLegacyGlobalSub = !!(
-    user.nukhbaPlan &&
-    user.subscriptionExpiresAt &&
-    new Date(user.subscriptionExpiresAt) > now &&
-    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0)
-  );
-
-  const hasAccess = isFirstLesson || hasSubjectSub || hasLegacyGlobalSub;
+  const hasAccess = isFirstLesson || hasSubjectSub;
 
   let messagesRemaining: number | null = null;
   let expiresAt: string | null = null;
@@ -166,17 +163,13 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
     messagesRemaining = subjectSub.messagesLimit - subjectSub.messagesUsed;
     expiresAt = subjectSub.expiresAt.toISOString();
     planType = subjectSub.plan;
-  } else if (hasLegacyGlobalSub) {
-    messagesRemaining = (user.messagesLimit ?? 0) - (user.messagesUsed ?? 0);
-    expiresAt = user.subscriptionExpiresAt?.toISOString() ?? null;
-    planType = user.nukhbaPlan ?? null;
   }
 
   res.json({
     hasAccess,
     isFirstLesson,
     hasSubjectSubscription: hasSubjectSub,
-    hasLegacyGlobalSubscription: hasLegacyGlobalSub,
+    hasLegacyGlobalSubscription: false,
     messagesRemaining,
     expiresAt,
     planType,
@@ -469,6 +462,12 @@ router.post("/admin/cards/create", async (req, res): Promise<void> => {
     return;
   }
 
+  const cleanSubjectId = (subjectId ?? "").toString().trim();
+  if (!cleanSubjectId || cleanSubjectId === "all") {
+    res.status(400).json({ error: "يجب تحديد المادة أو التخصص لإنشاء بطاقة التفعيل." });
+    return;
+  }
+
   const code = generateActivationCode();
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 14);
@@ -476,7 +475,7 @@ router.post("/admin/cards/create", async (req, res): Promise<void> => {
   const [card] = await db.insert(activationCardsTable).values({
     activationCode: code,
     planType,
-    subjectId: subjectId ?? null,
+    subjectId: cleanSubjectId,
     subjectName: subjectName ?? null,
     isUsed: false,
     expiresAt,
@@ -702,6 +701,59 @@ router.delete("/admin/revoke-subject-subscription/:subId", async (req, res): Pro
 
   await db.delete(userSubjectSubscriptionsTable).where(eq(userSubjectSubscriptionsTable.id, subId));
   res.json({ success: true });
+});
+
+// ── Admin: get ALL subject subscriptions (with user info) ─────────────────────
+router.get("/admin/all-subject-subscriptions", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const subs = await db.select().from(userSubjectSubscriptionsTable).orderBy(desc(userSubjectSubscriptionsTable.createdAt));
+  const users = await db.select().from(usersTable);
+  const userMap: Record<number, typeof users[0]> = {};
+  for (const u of users) userMap[u.id] = u;
+
+  const now = new Date();
+  const result = subs.map(s => {
+    const u = userMap[s.userId];
+    const isExpired = new Date(s.expiresAt) < now;
+    const isExhausted = s.messagesUsed >= s.messagesLimit;
+    const status = isExpired ? "expired" : isExhausted ? "exhausted" : "active";
+    return {
+      ...s,
+      userEmail: u?.email ?? "",
+      userName: u?.displayName ?? null,
+      status,
+    };
+  });
+
+  res.json(result);
+});
+
+// ── Admin: extend subject subscription expiry ──────────────────────────────────
+router.patch("/admin/subject-subscriptions/:subId/extend", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const subId = parseInt(req.params.subId, 10);
+  if (isNaN(subId)) { res.status(400).json({ error: "Invalid subscription id" }); return; }
+
+  const days = parseInt(req.body.days, 10) || 14;
+
+  const [sub] = await db.select().from(userSubjectSubscriptionsTable).where(eq(userSubjectSubscriptionsTable.id, subId));
+  if (!sub) { res.status(404).json({ error: "Subscription not found" }); return; }
+
+  const newExpiry = new Date(Math.max(new Date(sub.expiresAt).getTime(), Date.now()) + days * 24 * 60 * 60 * 1000);
+  const [updated] = await db.update(userSubjectSubscriptionsTable)
+    .set({ expiresAt: newExpiry })
+    .where(eq(userSubjectSubscriptionsTable.id, subId))
+    .returning();
+
+  res.json({ success: true, subscription: updated });
 });
 
 export default router;

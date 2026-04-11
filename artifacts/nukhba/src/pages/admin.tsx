@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "wouter";
@@ -28,9 +28,15 @@ import {
   Check, X, ShieldAlert, Users, CreditCard, Ticket,
   Copy, Plus, Filter, RefreshCw, AlertTriangle, Ban,
   Zap, Star, Gem, MessageCircle, Activity, Search,
-  BookOpen, Gift, Trash2,
+  BookOpen, Gift, Trash2, Clock, CalendarDays, ChevronDown,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { university, skills } from "@/lib/curriculum";
+
+const allSubjectsFlat = [
+  ...university.map(s => ({ id: s.id, name: s.name, emoji: s.emoji })),
+  ...skills.flatMap(cat => cat.subjects.map(s => ({ id: s.id, name: s.name, emoji: s.emoji }))),
+];
 
 export default function Admin() {
   const { user } = useAuth();
@@ -59,6 +65,24 @@ export default function Admin() {
   const [isGranting, setIsGranting] = useState(false);
   const [userSubjectSubs, setUserSubjectSubs] = useState<Record<number, any[]>>({});
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
+
+  // All subject subscriptions tab
+  const [allSubjectSubs, setAllSubjectSubs] = useState<any[] | null>(null);
+  const [isLoadingAllSubs, setIsLoadingAllSubs] = useState(false);
+  const [subjectFilter, setSubjectFilter] = useState("");
+  const [extendDialog, setExtendDialog] = useState<{ subId: number; userName: string; subjectName: string } | null>(null);
+  const [extendDays, setExtendDays] = useState(14);
+  const [isExtending, setIsExtending] = useState(false);
+
+  // Card creation subject
+  const [newCardSubjectId, setNewCardSubjectId] = useState("");
+  const [newCardSubjectName, setNewCardSubjectName] = useState("");
+  const [cardSubjectSearch, setCardSubjectSearch] = useState("");
+  const [showCardSubjectPicker, setShowCardSubjectPicker] = useState(false);
+
+  // Grant subject picker
+  const [grantSubjectSearch, setGrantSubjectSearch] = useState("");
+  const [showGrantSubjectPicker, setShowGrantSubjectPicker] = useState(false);
 
   const { data: stats, refetch: refetchStats } = useGetAdminStats();
   const { data: requests, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
@@ -177,7 +201,7 @@ export default function Admin() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ planType: newCardPlan }),
+        body: JSON.stringify({ planType: newCardPlan, subjectId: newCardSubjectId, subjectName: newCardSubjectName }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -274,6 +298,86 @@ export default function Admin() {
     }
   };
 
+  const loadAllSubjectSubs = async () => {
+    setIsLoadingAllSubs(true);
+    try {
+      const r = await fetch("/api/admin/all-subject-subscriptions", { credentials: "include" });
+      const data = await r.json();
+      setAllSubjectSubs(Array.isArray(data) ? data : []);
+    } catch {
+      setAllSubjectSubs([]);
+    } finally {
+      setIsLoadingAllSubs(false);
+    }
+  };
+
+  const handleExtendSubscription = async () => {
+    if (!extendDialog) return;
+    setIsExtending(true);
+    try {
+      const r = await fetch(`/api/admin/subject-subscriptions/${extendDialog.subId}/extend`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ days: extendDays }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      toast({ title: `تم تمديد الاشتراك ${extendDays} يوماً`, className: "bg-emerald-600 text-white border-none" });
+      setExtendDialog(null);
+      loadAllSubjectSubs();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } finally {
+      setIsExtending(false);
+    }
+  };
+
+  const handleRevokeFromAllTab = async (subId: number) => {
+    try {
+      const r = await fetch(`/api/admin/revoke-subject-subscription/${subId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error((await r.json()).error);
+      toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
+      setAllSubjectSubs(prev => prev ? prev.filter(s => s.id !== subId) : prev);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    }
+  };
+
+  const filteredAllSubs = useMemo(() => {
+    if (!allSubjectSubs) return [];
+    if (!subjectFilter) return allSubjectSubs;
+    return allSubjectSubs.filter(s => s.subjectId === subjectFilter);
+  }, [allSubjectSubs, subjectFilter]);
+
+  const uniqueSubjectIds = useMemo(() => {
+    if (!allSubjectSubs) return [];
+    const seen = new Set<string>();
+    const result: Array<{ id: string; name: string }> = [];
+    for (const s of allSubjectSubs) {
+      if (!seen.has(s.subjectId)) {
+        seen.add(s.subjectId);
+        result.push({ id: s.subjectId, name: s.subjectName ?? s.subjectId });
+      }
+    }
+    return result;
+  }, [allSubjectSubs]);
+
+  const filteredCardSubjects = useMemo(() => {
+    const q = cardSubjectSearch.toLowerCase();
+    if (!q) return allSubjectsFlat;
+    return allSubjectsFlat.filter(s => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
+  }, [cardSubjectSearch]);
+
+  const filteredGrantSubjects = useMemo(() => {
+    const q = grantSubjectSearch.toLowerCase();
+    if (!q) return allSubjectsFlat;
+    return allSubjectsFlat.filter(s => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
+  }, [grantSubjectSearch]);
+
   const filterOptions = [
     { value: 'pending', label: 'معلق' },
     { value: 'incomplete', label: 'ناقص' },
@@ -327,7 +431,7 @@ export default function Admin() {
         </div>
 
         <Tabs defaultValue="requests" className="w-full">
-          <TabsList className="mb-6 bg-glass border border-white/10">
+          <TabsList className="mb-6 bg-glass border border-white/10 flex-wrap h-auto gap-1">
             <TabsTrigger value="requests" className="relative">
               طلبات الاشتراك
               {pendingCount > 0 && (
@@ -337,6 +441,14 @@ export default function Admin() {
             <TabsTrigger value="users" className="flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" />
               المستخدمون
+            </TabsTrigger>
+            <TabsTrigger
+              value="subject-subs"
+              className="flex items-center gap-1.5"
+              onClick={() => { if (!allSubjectSubs && !isLoadingAllSubs) loadAllSubjectSubs(); }}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              اشتراكات المواد
             </TabsTrigger>
             <TabsTrigger value="cards">بطاقات التفعيل</TabsTrigger>
           </TabsList>
@@ -427,9 +539,15 @@ export default function Admin() {
                             <span className="text-xs font-medium">{(req as any).subjectName}</span>
                           </div>
                         ) : (req as any).subjectId && (req as any).subjectId !== 'all' ? (
-                          <span className="text-xs text-muted-foreground">{(req as any).subjectId}</span>
+                          <div className="flex items-center gap-1.5">
+                            <BookOpen className="w-3.5 h-3.5 text-gold shrink-0" />
+                            <code className="text-xs font-mono text-muted-foreground">{(req as any).subjectId}</code>
+                          </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
+                          <div className="flex items-center gap-1 text-yellow-400">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                            <span className="text-xs font-medium">عام (قديم)</span>
+                          </div>
                         )}
                       </TableCell>
                       <TableCell className="text-sm">{regionLabels[req.region] || req.region}</TableCell>
@@ -689,13 +807,124 @@ export default function Admin() {
             </div>
           </TabsContent>
 
+          {/* Subject Subscriptions Tab */}
+          <TabsContent value="subject-subs">
+            <div className="flex flex-col sm:flex-row gap-3 mb-4 items-center justify-between">
+              <div className="flex items-center gap-3">
+                <select
+                  className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-right"
+                  value={subjectFilter}
+                  onChange={e => setSubjectFilter(e.target.value)}
+                >
+                  <option value="">كل المواد</option>
+                  {uniqueSubjectIds.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <span className="text-sm text-muted-foreground">
+                  {filteredAllSubs.length} اشتراك
+                </span>
+              </div>
+              <Button size="sm" variant="outline" className="border-white/10 gap-2" onClick={loadAllSubjectSubs} disabled={isLoadingAllSubs}>
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAllSubs ? 'animate-spin' : ''}`} />
+                تحديث
+              </Button>
+            </div>
+
+            {allSubjectSubs === null ? (
+              <div className="text-center py-16 text-muted-foreground">جاري تحميل الاشتراكات...</div>
+            ) : (
+              <div className="glass rounded-3xl border-white/5 overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-black/40">
+                    <TableRow className="border-white/5">
+                      <TableHead className="text-right">المستخدم</TableHead>
+                      <TableHead className="text-right">المادة</TableHead>
+                      <TableHead className="text-right">الباقة</TableHead>
+                      <TableHead className="text-right">الرسائل</TableHead>
+                      <TableHead className="text-right">تاريخ الانتهاء</TableHead>
+                      <TableHead className="text-right">الحالة</TableHead>
+                      <TableHead className="text-center">إجراءات</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredAllSubs.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">لا توجد اشتراكات</TableCell>
+                      </TableRow>
+                    ) : filteredAllSubs.map(s => {
+                      const now = new Date();
+                      const isExpired = new Date(s.expiresAt) < now;
+                      const isExhausted = s.messagesUsed >= s.messagesLimit;
+                      const statusLabel = s.status === "active" ? "نشط" : s.status === "expired" ? "منتهي" : "مُستنفد";
+                      const statusColor = s.status === "active" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-muted-foreground bg-white/5 border-white/10";
+                      return (
+                        <TableRow key={s.id} className="border-white/5 hover:bg-white/3">
+                          <TableCell>
+                            <div className="font-semibold text-sm">{s.userName ?? "—"}</div>
+                            <div className="text-xs text-muted-foreground">{s.userEmail}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium text-sm">{s.subjectName ?? s.subjectId}</div>
+                            <code className="text-xs text-muted-foreground font-mono">{s.subjectId}</code>
+                          </TableCell>
+                          <TableCell>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                              s.plan === "gold" ? "bg-gold/20 text-gold" :
+                              s.plan === "silver" ? "bg-slate-500/20 text-slate-300" :
+                              "bg-orange-500/20 text-orange-400"
+                            }`}>
+                              {planLabels[s.plan] ?? s.plan}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm font-bold">{s.messagesLimit - s.messagesUsed}</span>
+                            <span className="text-xs text-muted-foreground"> / {s.messagesLimit}</span>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {new Date(s.expiresAt).toLocaleDateString("ar-YE")}
+                          </TableCell>
+                          <TableCell>
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${statusColor}`}>
+                              {statusLabel}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1.5 justify-center">
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 gap-1"
+                                onClick={() => setExtendDialog({ subId: s.id, userName: s.userName ?? s.userEmail, subjectName: s.subjectName ?? s.subjectId })}
+                              >
+                                <CalendarDays className="w-3 h-3" />
+                                تمديد
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 gap-1"
+                                onClick={() => handleRevokeFromAllTab(s.id)}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                إلغاء
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </TabsContent>
+
           {/* Cards Tab */}
           <TabsContent value="cards">
             <div className="flex justify-between items-center mb-4">
               <p className="text-sm text-muted-foreground">إجمالي البطاقات: {cards?.length ?? 0}</p>
               <Button
                 className="gradient-gold text-primary-foreground gap-2 h-9"
-                onClick={() => { setShowCreateCard(true); setCreatedCard(null); }}
+                onClick={() => { setShowCreateCard(true); setCreatedCard(null); setNewCardSubjectId(""); setNewCardSubjectName(""); setCardSubjectSearch(""); setShowCardSubjectPicker(false); }}
               >
                 <Plus className="w-4 h-4" />
                 إنشاء بطاقة جديدة
@@ -841,25 +1070,47 @@ export default function Admin() {
               سيحصل <strong className="text-foreground">{grantTarget?.name}</strong> على وصول لمادة معينة.
             </p>
             <div className="space-y-2">
-              <Label>معرف المادة (ID)</Label>
-              <Input
-                placeholder="مثال: math-grade10"
-                className="bg-black/40 text-left font-mono"
-                dir="ltr"
-                value={grantSubjectId}
-                onChange={(e) => setGrantSubjectId(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">هذا هو الـ ID الداخلي للمادة</p>
-            </div>
-            <div className="space-y-2">
-              <Label>اسم المادة (عربي) — اختياري</Label>
-              <Input
-                placeholder="مثال: الرياضيات — الصف العاشر"
-                className="bg-black/40"
-                dir="rtl"
-                value={grantSubjectName}
-                onChange={(e) => setGrantSubjectName(e.target.value)}
-              />
+              <Label>المادة (إلزامي)</Label>
+              {grantSubjectId ? (
+                <div className="flex items-center gap-2 bg-gold/5 border border-gold/30 rounded-xl px-4 py-3">
+                  <span className="font-bold text-gold flex-1 text-sm">{grantSubjectName || grantSubjectId}</span>
+                  <button onClick={() => { setGrantSubjectId(""); setGrantSubjectName(""); setShowGrantSubjectPicker(true); }} className="text-xs text-muted-foreground hover:text-white">تغيير</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowGrantSubjectPicker(p => !p)}
+                  className="w-full flex items-center justify-between gap-2 bg-black/30 border border-white/10 hover:border-gold/30 rounded-xl px-4 py-3 text-sm text-muted-foreground"
+                >
+                  اختر المادة...
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              )}
+              {showGrantSubjectPicker && (
+                <div className="bg-black/90 border border-white/10 rounded-2xl p-3 max-h-56 overflow-y-auto">
+                  <div className="relative mb-2">
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder="بحث..."
+                      className="bg-black/60 h-8 pr-9 text-xs"
+                      value={grantSubjectSearch}
+                      onChange={e => setGrantSubjectSearch(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-1">
+                    {filteredGrantSubjects.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => { setGrantSubjectId(s.id); setGrantSubjectName(s.name); setShowGrantSubjectPicker(false); setGrantSubjectSearch(""); }}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-white/5 text-sm text-right"
+                      >
+                        <span>{s.emoji}</span>
+                        <span>{s.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label>الباقة</Label>
@@ -887,7 +1138,7 @@ export default function Admin() {
               >
                 {isGranting ? "جاري المنح..." : "منح الاشتراك"}
               </Button>
-              <Button variant="outline" className="border-white/10" onClick={() => setGrantTarget(null)}>
+              <Button variant="outline" className="border-white/10" onClick={() => { setGrantTarget(null); setShowGrantSubjectPicker(false); }}>
                 إلغاء
               </Button>
             </div>
@@ -918,6 +1169,50 @@ export default function Admin() {
           ) : (
             <div className="space-y-5 pt-2">
               <div>
+                <Label className="mb-2 block">المادة (إلزامي)</Label>
+                {newCardSubjectId ? (
+                  <div className="flex items-center gap-2 bg-gold/5 border border-gold/30 rounded-xl px-4 py-3">
+                    <span className="font-bold text-gold flex-1">{newCardSubjectName || newCardSubjectId}</span>
+                    <button onClick={() => { setNewCardSubjectId(""); setNewCardSubjectName(""); setShowCardSubjectPicker(true); }} className="text-xs text-muted-foreground hover:text-white">تغيير</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCardSubjectPicker(p => !p)}
+                    className="w-full flex items-center justify-between gap-2 bg-black/30 border border-white/10 hover:border-gold/30 rounded-xl px-4 py-3 text-sm text-muted-foreground"
+                  >
+                    اختر المادة...
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                )}
+                {showCardSubjectPicker && (
+                  <div className="mt-2 bg-black/90 border border-white/10 rounded-2xl p-3 max-h-64 overflow-y-auto">
+                    <div className="relative mb-2">
+                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="بحث..."
+                        className="bg-black/60 h-8 pr-9 text-xs"
+                        value={cardSubjectSearch}
+                        onChange={e => setCardSubjectSearch(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-1">
+                      {filteredCardSubjects.map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => { setNewCardSubjectId(s.id); setNewCardSubjectName(s.name); setShowCardSubjectPicker(false); setCardSubjectSearch(""); }}
+                          className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-white/5 text-sm text-right"
+                        >
+                          <span>{s.emoji}</span>
+                          <span>{s.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
                 <Label className="mb-2 block">نوع الباقة</Label>
                 <div className="grid grid-cols-3 gap-2">
                   {(['bronze', 'silver', 'gold'] as const).map(p => (
@@ -941,12 +1236,53 @@ export default function Admin() {
               <Button
                 className="w-full gradient-gold text-primary-foreground font-bold h-11"
                 onClick={handleCreateCard}
-                disabled={isCreatingCard}
+                disabled={isCreatingCard || !newCardSubjectId}
               >
                 {isCreatingCard ? "جاري الإنشاء..." : "إنشاء البطاقة"}
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+      {/* Extend Subscription Dialog */}
+      <Dialog open={!!extendDialog} onOpenChange={(open) => { if (!open) setExtendDialog(null); }}>
+        <DialogContent className="glass border-emerald-500/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <CalendarDays className="w-5 h-5 text-emerald-400" />
+            تمديد الاشتراك
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              تمديد اشتراك <strong className="text-foreground">{extendDialog?.userName}</strong> في مادة{" "}
+              <strong className="text-foreground">{extendDialog?.subjectName}</strong>
+            </p>
+            <div className="space-y-2">
+              <Label>عدد أيام التمديد</Label>
+              <div className="flex gap-2">
+                {[7, 14, 30].map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setExtendDays(d)}
+                    className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${
+                      extendDays === d ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-white/10 text-muted-foreground hover:border-white/20'
+                    }`}
+                  >
+                    {d} يوم
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 font-bold"
+                onClick={handleExtendSubscription}
+                disabled={isExtending}
+              >
+                {isExtending ? "جاري التمديد..." : `تمديد ${extendDays} يوم`}
+              </Button>
+              <Button variant="outline" className="border-white/10" onClick={() => setExtendDialog(null)}>إلغاء</Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </AppLayout>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import {
   useCreateSubscriptionRequest,
@@ -11,9 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, MessageCircle, BadgeCheck, BookOpen } from "lucide-react";
+import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, MessageCircle, BadgeCheck, BookOpen, Search, ArrowRight, ChevronDown } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
+import { university, skills } from "@/lib/curriculum";
 
 type PlanKey = "bronze" | "silver" | "gold";
 
@@ -69,21 +70,34 @@ const plans: Record<PlanKey, {
   },
 };
 
+const allSubjectsFlat = [
+  ...university.map(s => ({ id: s.id, name: s.name, emoji: s.emoji, category: "تخصصات الجامعة" })),
+  ...skills.flatMap(cat => cat.subjects.map(s => ({ id: s.id, name: s.name, emoji: s.emoji, category: cat.name }))),
+];
+
 export default function Subscription() {
   const { user, setUser } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Read subject from URL params (passed from subject page paywall)
   const [targetSubjectId, setTargetSubjectId] = useState<string | null>(null);
   const [targetSubjectName, setTargetSubjectName] = useState<string | null>(null);
+  const [subjectLocked, setSubjectLocked] = useState(false);
+
+  const [showSubjectPicker, setShowSubjectPicker] = useState(false);
+  const [subjectSearch, setSubjectSearch] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sid = params.get("subject");
     const sname = params.get("subjectName");
-    if (sid) setTargetSubjectId(sid);
-    if (sname) setTargetSubjectName(decodeURIComponent(sname));
+    if (sid) {
+      setTargetSubjectId(sid);
+      setTargetSubjectName(sname ? decodeURIComponent(sname) : sid);
+      setSubjectLocked(true);
+    } else {
+      setShowSubjectPicker(true);
+    }
   }, []);
 
   const [region, setRegion] = useState<"north" | "south">("north");
@@ -93,7 +107,6 @@ export default function Subscription() {
   const [activationCode, setActivationCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
-  // Per-subject subscriptions
   const [mySubjectSubs, setMySubjectSubs] = useState<any[]>([]);
   useEffect(() => {
     fetch("/api/subscriptions/my-subjects", { credentials: "include" })
@@ -109,7 +122,6 @@ export default function Subscription() {
   const latestRequest = myRequests
     ?.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0];
 
-  // Filter latest request for this subject (if subject is specified)
   const subjectRequest = targetSubjectId
     ? myRequests
         ?.filter((r: any) => r.subjectId === targetSubjectId)
@@ -119,19 +131,34 @@ export default function Subscription() {
   const hasPendingRequest = subjectRequest?.status === "pending";
   const hasIncompleteRequest = subjectRequest?.status === "incomplete";
 
-  // Has global legacy subscription
-  const hasLegacyGlobalSub = !!(user?.nukhbaPlan && user.nukhbaPlan !== "free");
-
-  // Has subscription for the specific target subject
   const now = new Date();
   const activeSubjectSub = targetSubjectId
     ? mySubjectSubs.find(s => s.subjectId === targetSubjectId && new Date(s.expiresAt) > now && s.messagesUsed < s.messagesLimit)
     : null;
 
-  const isSubscribedToThisSubject = !!(activeSubjectSub || (!targetSubjectId && hasLegacyGlobalSub));
+  const filteredSubjects = useMemo(() => {
+    const q = subjectSearch.trim().toLowerCase();
+    if (!q) return allSubjectsFlat;
+    return allSubjectsFlat.filter(s => s.name.toLowerCase().includes(q) || s.category.toLowerCase().includes(q));
+  }, [subjectSearch]);
+
+  const groupedFilteredSubjects = useMemo(() => {
+    const groups: Record<string, typeof allSubjectsFlat> = {};
+    for (const s of filteredSubjects) {
+      if (!groups[s.category]) groups[s.category] = [];
+      groups[s.category].push(s);
+    }
+    return groups;
+  }, [filteredSubjects]);
+
+  const handleSelectSubject = (id: string, name: string) => {
+    setTargetSubjectId(id);
+    setTargetSubjectName(name);
+    setShowSubjectPicker(false);
+  };
 
   const handlePaymentSubmit = async () => {
-    if (!selectedPlan || !accountName.trim()) return;
+    if (!selectedPlan || !accountName.trim() || !targetSubjectId) return;
     try {
       await createReqMutation.mutateAsync({
         data: {
@@ -140,15 +167,13 @@ export default function Subscription() {
           accountName: accountName.trim(),
           notes: notes.trim() || null,
           // @ts-ignore — extra fields accepted by backend
-          subjectId: targetSubjectId ?? "all",
+          subjectId: targetSubjectId,
           subjectName: targetSubjectName ?? undefined,
         }
       });
       toast({
         title: "تم إرسال الطلب",
-        description: targetSubjectName
-          ? `سيراجع المشرف طلبك لمادة "${targetSubjectName}" ويفعّل الاشتراك قريباً`
-          : "سيراجع المشرف طلبك ويفعّل الاشتراك خلال وقت قصير",
+        description: `سيراجع المشرف طلبك لمادة "${targetSubjectName}" ويفعّل الاشتراك قريباً`,
         className: "bg-emerald-600 border-none text-white"
       });
       setSubmitted(true);
@@ -173,14 +198,13 @@ export default function Subscription() {
           title: "تم التفعيل بنجاح!",
           description: (res as any).subjectId
             ? `تم تفعيل باقة ${plans[(res as any).planType as PlanKey]?.name || (res as any).planType} لمادة "${(res as any).subjectId}".`
-            : `تم تفعيل باقة ${plans[(res as any).planType as PlanKey]?.name || (res as any).planType} لحسابك.`,
+            : `تم تفعيل الباقة بنجاح.`,
           className: "bg-emerald-600 border-none text-white"
         });
         if (user) {
           setUser({ ...user, nukhbaPlan: (res as any).planType });
         }
         setActivationCode("");
-        // Refresh subject subs
         fetch("/api/subscriptions/my-subjects", { credentials: "include" })
           .then(r => r.json())
           .then(d => Array.isArray(d) ? setMySubjectSubs(d) : null)
@@ -193,35 +217,105 @@ export default function Subscription() {
 
   const planLabelMap: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
 
+  if (showSubjectPicker) {
+    return (
+      <AppLayout>
+        <div className="container mx-auto px-4 py-12 max-w-4xl">
+          <div className="text-center mb-10">
+            <BookOpen className="w-14 h-14 text-gold mx-auto mb-4" />
+            <h1 className="text-3xl font-black mb-3">اختر المادة أو التخصص</h1>
+            <p className="text-muted-foreground text-lg">
+              كل اشتراك مخصص لمادة واحدة فقط — ستدفع اشتراكاً منفصلاً لكل مادة تريدها
+            </p>
+          </div>
+
+          <div className="relative mb-8 max-w-lg mx-auto">
+            <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <Input
+              placeholder="ابحث عن مادة أو تخصص..."
+              className="bg-black/40 h-13 pr-12 text-right text-base"
+              dir="rtl"
+              value={subjectSearch}
+              onChange={e => setSubjectSearch(e.target.value)}
+              autoFocus
+            />
+          </div>
+
+          {Object.keys(groupedFilteredSubjects).length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">لا توجد نتائج للبحث</div>
+          ) : (
+            <div className="space-y-8">
+              {Object.entries(groupedFilteredSubjects).map(([category, subjects]) => (
+                <div key={category}>
+                  <h2 className="text-sm font-bold text-muted-foreground mb-3 flex items-center gap-2">
+                    <span className="w-6 h-px bg-white/20" />
+                    {category}
+                    <span className="w-6 h-px bg-white/20" />
+                  </h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {subjects.map(s => {
+                      const activeSub = mySubjectSubs.find(sub => sub.subjectId === s.id && new Date(sub.expiresAt) > now && sub.messagesUsed < sub.messagesLimit);
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => handleSelectSubject(s.id, s.name)}
+                          className="glass border border-white/5 hover:border-gold/40 hover:bg-gold/5 rounded-2xl p-4 text-right transition-all duration-200 group relative"
+                        >
+                          {activeSub && (
+                            <span className="absolute top-2 left-2 w-2 h-2 rounded-full bg-emerald-400" title="اشتراك نشط" />
+                          )}
+                          <div className="text-2xl mb-2">{s.emoji}</div>
+                          <div className="font-bold text-sm group-hover:text-gold transition-colors">{s.name}</div>
+                          {activeSub && (
+                            <div className="text-xs text-emerald-400 mt-1">{activeSub.messagesLimit - activeSub.messagesUsed} رسالة متبقية</div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout>
       <div className="container mx-auto px-4 py-12 max-w-5xl">
         <div className="text-center mb-12">
           <Crown className="w-16 h-16 text-gold mx-auto mb-4" />
           <h1 className="text-4xl font-black mb-4">
-            {targetSubjectName ? `اشترك في: ${targetSubjectName}` : "اختر باقتك"}
+            اشترك في: {targetSubjectName}
           </h1>
           <p className="text-xl text-muted-foreground">
-            {targetSubjectName
-              ? `اشتراكك سيكون مخصصاً لمادة "${targetSubjectName}" فقط — كل مادة تتطلب اشتراكاً منفصلاً`
-              : "استثمر في مستقبلك مع أقوى منصة تعليمية ذكية في اليمن"}
+            اشتراكك سيكون مخصصاً لمادة "{targetSubjectName}" فقط — كل مادة تتطلب اشتراكاً منفصلاً
           </p>
         </div>
 
-        {/* ── Subject banner (when coming from a specific subject) ── */}
-        {targetSubjectName && (
-          <div className="mb-8 p-4 rounded-2xl border border-gold/30 bg-gold/5 flex items-center gap-3">
-            <BookOpen className="w-5 h-5 text-gold shrink-0" />
+        <div className="mb-8 p-4 rounded-2xl border border-gold/30 bg-gold/5 flex items-center gap-3">
+          <BookOpen className="w-5 h-5 text-gold shrink-0" />
+          <div className="flex-1">
             <p className="text-sm">
               <strong className="text-gold">المادة المختارة:</strong>{" "}
               <span className="text-foreground">{targetSubjectName}</span>
               <span className="text-muted-foreground"> — اشتراكك سيمنحك وصولاً كاملاً لهذه المادة فقط</span>
             </p>
           </div>
-        )}
+          {!subjectLocked && (
+            <button
+              onClick={() => setShowSubjectPicker(true)}
+              className="text-xs text-muted-foreground hover:text-gold transition-colors flex items-center gap-1 shrink-0"
+            >
+              تغيير
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          )}
+        </div>
 
-        {/* ── Active Subscription for this subject ── */}
-        {isSubscribedToThisSubject && activeSubjectSub && (
+        {activeSubjectSub && (
           <div className="max-w-lg mx-auto mb-10">
             <div className="glass rounded-3xl p-8 border-2 border-gold/30 shadow-[0_0_40px_rgba(245,158,11,0.15)] text-center">
               <div className="w-20 h-20 rounded-full bg-gold/10 border-2 border-gold/30 flex items-center justify-center mx-auto mb-5">
@@ -232,7 +326,6 @@ export default function Subscription() {
                 الباقة {planLabelMap[activeSubjectSub.plan] ?? activeSubjectSub.plan}
               </h2>
               <p className="text-sm text-muted-foreground mb-4">{activeSubjectSub.subjectName ?? activeSubjectSub.subjectId}</p>
-
               <div className="bg-black/30 rounded-2xl p-4 mb-4 flex items-center justify-center gap-3">
                 <MessageCircle className="w-5 h-5 text-gold" />
                 <span className="text-lg font-bold">
@@ -246,7 +339,6 @@ export default function Subscription() {
           </div>
         )}
 
-        {/* ── All active subject subscriptions ── */}
         {mySubjectSubs.filter(s => new Date(s.expiresAt) > now).length > 0 && (
           <div className="mb-10">
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
@@ -279,7 +371,6 @@ export default function Subscription() {
           </div>
         )}
 
-        {/* ── Request status banners ── */}
         {hasPendingRequest && !submitted && (
           <div className="mb-8 p-5 rounded-2xl border border-orange-500/30 bg-orange-500/5 flex items-start gap-4">
             <Clock className="w-6 h-6 text-orange-400 shrink-0 mt-0.5" />
@@ -326,7 +417,6 @@ export default function Subscription() {
           </div>
         )}
 
-        {/* ── Region Toggle ── */}
         <div className="flex justify-center mb-12">
           <div className="glass p-1 rounded-2xl flex gap-2 border-white/10">
             <button
@@ -344,7 +434,6 @@ export default function Subscription() {
           </div>
         </div>
 
-        {/* ── Plans Grid ── */}
         <div className="grid md:grid-cols-3 gap-6 mb-16">
           {(Object.keys(plans) as PlanKey[]).map(key => {
             const plan = plans[key];
@@ -373,11 +462,9 @@ export default function Subscription() {
                   <span className="text-sm text-muted-foreground mr-1">ريال / أسبوعين</span>
                 </div>
                 <div className="text-xs text-emerald font-bold mb-6">{plan.messages} رسالة كل أسبوعين</div>
-                {targetSubjectName && (
-                  <div className="text-xs text-gold/70 mb-4 bg-gold/5 rounded-lg p-2 text-center">
-                    لمادة: {targetSubjectName}
-                  </div>
-                )}
+                <div className="text-xs text-gold/70 mb-4 bg-gold/5 rounded-lg p-2 text-center">
+                  لمادة: {targetSubjectName}
+                </div>
                 <ul className="space-y-2 text-sm">
                   {plan.features.map((f, fi) => (
                     <li key={fi} className="flex items-center gap-2">
@@ -392,7 +479,6 @@ export default function Subscription() {
         </div>
 
         <div className="grid md:grid-cols-2 gap-8">
-          {/* Payment Form */}
           <div className="glass p-8 rounded-3xl border-white/5">
             <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
               <CreditCard className="w-6 h-6 text-gold" />
@@ -405,12 +491,10 @@ export default function Subscription() {
               </div>
             ) : (
               <div className="space-y-6">
-                {targetSubjectName && (
-                  <div className="bg-gold/5 border border-gold/20 rounded-xl p-3 text-sm text-center">
-                    <span className="text-muted-foreground">الاشتراك مخصص لمادة: </span>
-                    <strong className="text-gold">{targetSubjectName}</strong>
-                  </div>
-                )}
+                <div className="bg-gold/5 border border-gold/20 rounded-xl p-3 text-sm text-center">
+                  <span className="text-muted-foreground">الاشتراك مخصص لمادة: </span>
+                  <strong className="text-gold">{targetSubjectName}</strong>
+                </div>
                 <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
                   <p className="text-sm text-muted-foreground mb-1">المبلغ المطلوب:</p>
                   <p className="text-gold font-bold text-lg mb-3">
@@ -475,7 +559,6 @@ export default function Subscription() {
             )}
           </div>
 
-          {/* Activation Code */}
           <div className="glass p-8 rounded-3xl border-emerald/20 relative overflow-hidden h-fit">
             <div className="absolute top-0 left-0 w-40 h-40 bg-emerald/10 rounded-br-full -z-10" />
             <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
