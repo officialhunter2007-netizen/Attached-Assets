@@ -377,7 +377,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     const stagesArr = stages ?? [];
-    const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا الشهر 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك لهذه المادة أو ادعُ أصدقاءك للحصول على جلسات مجانية.</p></div>`;
+    const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا التخصص 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك في هذه المادة من صفحة الاشتراكات.</p></div>`;
     res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
     res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length })}\n\n`);
     res.end();

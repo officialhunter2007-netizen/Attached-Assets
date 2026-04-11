@@ -599,6 +599,7 @@ function SubjectPathChat({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
+          subjectId: subject.id,
           subjectName: subject.name,
           userMessage: text,
           history: messages,
@@ -754,9 +755,9 @@ function SubjectPathChat({
         <div className="w-20 h-20 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
           <Lock className="w-10 h-10 text-gold" />
         </div>
-        <h3 className="text-2xl font-bold mb-3">انتهت الجلسة المجانية</h3>
+        <h3 className="text-2xl font-bold mb-3">انتهت رسائل هذا التخصص</h3>
         <p className="text-muted-foreground mb-4 max-w-sm">
-          لقد استخدمت جلستك التعليمية المجانية. اشترك الآن للاستمرار في التعلم، أو ادعُ 5 أصدقاء للحصول على 3 أيام مجاناً.
+          لقد استنفدت رصيدك من الرسائل لهذا التخصص. جدّد اشتراكك للاستمرار في التعلم.
         </p>
         <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground">
           <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
