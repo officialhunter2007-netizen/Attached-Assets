@@ -169,3 +169,8 @@
 .ai-msg th { background: rgba(255,255,255,0.05) !important; font-weight: 700; color: #fff !important; }
 .ai-msg a { color: #93c5fd !important; text-decoration: underline; word-break: break-all; }
 .ai-msg blockquote { border-right: 3px solid rgba(255,255,255,0.2); padding: 8px 14px; margin: 10px 0; opacity: 0.85; }
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

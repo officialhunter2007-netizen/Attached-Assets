@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
@@ -487,23 +487,28 @@ function stripInlineStyles(html: string): string {
 }
 
 
-function AIMessage({ content, isStreaming }: { content: string; isStreaming: boolean }) {
-  const plainText = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const safe = stripInlineStyles(content);
+const AIMessage = memo(function AIMessage({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+  const safeRef = useRef<string>("");
+  if (!isStreaming) {
+    safeRef.current = stripInlineStyles(content);
+  }
+  const displayHtml = isStreaming
+    ? `<p>${content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}</p>`
+    : safeRef.current;
 
   return (
     <div className="rounded-2xl rounded-bl-none bg-[hsl(222,24%,16%)] border border-white/8 p-4 max-w-[90%] min-w-0 shadow-sm overflow-x-hidden">
-      <div className="ai-msg" dangerouslySetInnerHTML={{ __html: isStreaming ? `<p>${plainText}</p>` : safe }} />
+      <div className="ai-msg" dangerouslySetInnerHTML={{ __html: displayHtml }} />
       {isStreaming && (
         <div className="flex items-center gap-1 mt-3">
-          <div className="w-2 h-2 bg-white/25 rounded-full animate-bounce" />
-          <div className="w-2 h-2 bg-white/25 rounded-full animate-bounce" style={{animationDelay:'0.18s'}} />
-          <div className="w-2 h-2 bg-white/25 rounded-full animate-bounce" style={{animationDelay:'0.36s'}} />
+          <span className="w-2 h-2 bg-white/25 rounded-full animate-bounce inline-block" />
+          <span className="w-2 h-2 bg-white/25 rounded-full animate-bounce inline-block" style={{animationDelay:'0.18s'}} />
+          <span className="w-2 h-2 bg-white/25 rounded-full animate-bounce inline-block" style={{animationDelay:'0.36s'}} />
         </div>
       )}
     </div>
   );
-}
+});
 
 function SubjectPathChat({ 
   subject,
@@ -549,11 +554,12 @@ function SubjectPathChat({
     sendTeachMessage(msg);
   };
 
+  const messageCount = messages.length;
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messageCount]);
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -633,6 +639,21 @@ function SubjectPathChat({
       let assistantMsg = "";
       let buffer = "";
 
+      // Throttle state updates: batch streaming chunks every 50ms
+      let updateTimer: ReturnType<typeof setTimeout> | null = null;
+      const scheduleUpdate = (content: string) => {
+        if (!updateTimer) {
+          updateTimer = setTimeout(() => {
+            setMessages(prev => {
+              const nm = [...prev];
+              nm[nm.length - 1] = { role: "assistant", content };
+              return nm;
+            });
+            updateTimer = null;
+          }, 50);
+        }
+      };
+
       setMessages(prev => [...prev, { role: "assistant", content: "" }]);
 
       while (true) {
@@ -647,6 +668,7 @@ function SubjectPathChat({
           try {
             const data = JSON.parse(line.slice(6));
             if (data.done) {
+              if (updateTimer) { clearTimeout(updateTimer); updateTimer = null; }
               if (data.messagesRemaining !== null && data.messagesRemaining !== undefined) {
                 setMessagesRemaining(data.messagesRemaining);
               }
@@ -672,15 +694,18 @@ function SubjectPathChat({
             }
             if (data.content) {
               assistantMsg += data.content;
-              setMessages(prev => {
-                const newMessages = [...prev];
-                newMessages[newMessages.length - 1] = { role: "assistant", content: assistantMsg };
-                return newMessages;
-              });
+              scheduleUpdate(assistantMsg);
             }
           } catch {}
         }
       }
+      // Flush any pending update at stream end
+      if (updateTimer) { clearTimeout(updateTimer); updateTimer = null; }
+      setMessages(prev => {
+        const nm = [...prev];
+        nm[nm.length - 1] = { role: "assistant", content: assistantMsg };
+        return nm;
+      });
     } catch (e) {
       console.error(e);
     } finally {
@@ -837,15 +862,12 @@ function SubjectPathChat({
 
       <ScrollArea className="flex-1 px-4 py-5 overflow-x-hidden" ref={scrollRef}>
         <div className="max-w-2xl mx-auto space-y-4 pb-4 overflow-x-hidden">
-          <AnimatePresence initial={false}>
             {messages.map((msg, i) => {
               const isLastMsg = i === messages.length - 1;
               return (
-                <motion.div
+                <div
                   key={i}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  style={{ direction: 'ltr' }}
+                  style={{ direction: 'ltr', animation: 'msg-in 0.18s ease-out' }}
                   className={`flex gap-3 items-end ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
                 >
                   {/* Avatar */}
@@ -866,27 +888,21 @@ function SubjectPathChat({
                       <AIMessage content={msg.content} isStreaming={isStreaming && isLastMsg} />
                     )}
                   </div>
-                </motion.div>
+                </div>
               );
             })}
             {isStreaming && messages[messages.length - 1]?.role === 'user' && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                style={{ direction: 'ltr' }}
-                className="flex gap-3 items-end"
-              >
+              <div style={{ direction: 'ltr', animation: 'msg-in 0.18s ease-out' }} className="flex gap-3 items-end">
                 <div className="w-8 h-8 shrink-0 rounded-full gradient-gold flex items-center justify-center text-primary-foreground shadow">
                   <Bot className="w-4 h-4" />
                 </div>
                 <div className="rounded-2xl rounded-bl-none bg-[hsl(222,24%,16%)] border border-white/8 px-5 py-3.5 flex items-center gap-2">
-                  <div className="w-2 h-2 bg-white/35 rounded-full animate-bounce" />
-                  <div className="w-2 h-2 bg-white/35 rounded-full animate-bounce" style={{animationDelay:'0.18s'}} />
-                  <div className="w-2 h-2 bg-white/35 rounded-full animate-bounce" style={{animationDelay:'0.36s'}} />
+                  <span className="w-2 h-2 bg-white/35 rounded-full animate-bounce inline-block" />
+                  <span className="w-2 h-2 bg-white/35 rounded-full animate-bounce inline-block" style={{animationDelay:'0.18s'}} />
+                  <span className="w-2 h-2 bg-white/35 rounded-full animate-bounce inline-block" style={{animationDelay:'0.36s'}} />
                 </div>
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>
         </div>
       </ScrollArea>
 
