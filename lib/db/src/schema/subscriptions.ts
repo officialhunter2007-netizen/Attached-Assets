@@ -80,8 +80,12 @@ export const userSubjectFirstLessonsTable = pgTable("user_subject_first_lessons"
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
   subjectId: text("subject_id").notNull(),
+  freeMessagesUsed: integer("free_messages_used").notNull().default(0),
+  completed: boolean("completed").notNull().default(false),
   completedAt: timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  uniqueIndex("uq_user_subject_first_lesson").on(t.userId, t.subjectId),
+]);
 
 export const insertUserSubjectFirstLessonSchema = createInsertSchema(userSubjectFirstLessonsTable).omit({ id: true });
 export type InsertUserSubjectFirstLesson = z.infer<typeof insertUserSubjectFirstLessonSchema>;

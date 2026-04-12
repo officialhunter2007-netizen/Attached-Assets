@@ -106,8 +106,12 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
         eq(userSubjectFirstLessonsTable.subjectId, subjectId)
       ));
 
-    if (!existingFirstLesson) {
-      await db.insert(userSubjectFirstLessonsTable).values({ userId, subjectId });
+    if (existingFirstLesson && !existingFirstLesson.completed) {
+      await db.update(userSubjectFirstLessonsTable)
+        .set({ completed: true })
+        .where(eq(userSubjectFirstLessonsTable.id, existingFirstLesson.id));
+    } else if (!existingFirstLesson) {
+      await db.insert(userSubjectFirstLessonsTable).values({ userId, subjectId, completed: true, freeMessagesUsed: 0 });
     }
 
     // Also update global flag and award points

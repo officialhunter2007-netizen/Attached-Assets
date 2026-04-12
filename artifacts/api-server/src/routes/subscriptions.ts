@@ -138,7 +138,7 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
       eq(userSubjectFirstLessonsTable.subjectId, subjectId)
     ));
 
-  const isFirstLesson = !firstLesson;
+  const isFirstLesson = !firstLesson || (!firstLesson.completed && firstLesson.freeMessagesUsed < 15);
 
   // Per-subject subscription
   const [subjectSub] = await db

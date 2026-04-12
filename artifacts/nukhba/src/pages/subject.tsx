@@ -980,10 +980,10 @@ function SubjectPathChat({
               );
             })}
           </div>
-          {messagesRemaining !== null && messagesRemaining <= 10 && messagesRemaining > 0 && (
-            <div className="shrink-0 flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1">
-              <span className="text-[11px] text-amber-400 font-bold">{messagesRemaining}</span>
-              <span className="text-[10px] text-amber-400/70 hidden sm:inline">رسالة</span>
+          {messagesRemaining !== null && messagesRemaining > 0 && (
+            <div className={`shrink-0 flex items-center gap-1 rounded-lg px-2.5 py-1 ${messagesRemaining <= 5 ? 'bg-red-500/15 border border-red-500/30 animate-pulse' : messagesRemaining <= 10 ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5 border border-white/10'}`}>
+              <span className={`text-[11px] font-bold ${messagesRemaining <= 5 ? 'text-red-400' : messagesRemaining <= 10 ? 'text-amber-400' : 'text-muted-foreground'}`}>{messagesRemaining}</span>
+              <span className={`text-[10px] hidden sm:inline ${messagesRemaining <= 5 ? 'text-red-400/70' : messagesRemaining <= 10 ? 'text-amber-400/70' : 'text-muted-foreground/70'}`}>رسالة متبقية</span>
             </div>
           )}
         </div>
@@ -1053,12 +1053,12 @@ function SubjectPathChat({
       {/* Input area */}
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
         {messages.length >= 2 && !isStreaming && (
-          <div className="max-w-2xl mx-auto mb-2.5 flex justify-end">
+          <div className="max-w-2xl mx-auto mb-2.5 flex justify-center">
             <button
               onClick={handleEndSession}
-              className="text-[12px] font-medium text-gold/70 hover:text-gold transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-gold/5 border border-transparent hover:border-gold/15"
+              className="text-sm font-bold text-amber-300 hover:text-amber-200 transition-all flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20"
             >
-              <FileText className="w-3.5 h-3.5" />
+              <FileText className="w-4 h-4" />
               إنهاء الجلسة وحفظ الملخص
             </button>
           </div>

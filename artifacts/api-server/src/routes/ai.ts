@@ -6,6 +6,8 @@ import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
 
+const FREE_LESSON_MESSAGE_LIMIT = 15;
+
 function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
 }
@@ -20,14 +22,35 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   const now = new Date();
 
   // First lesson for THIS specific subject
-  const [firstLessonRecord] = await db
+  let [firstLessonRecord] = await db
     .select()
     .from(userSubjectFirstLessonsTable)
     .where(and(
       eq(userSubjectFirstLessonsTable.userId, userId),
       eq(userSubjectFirstLessonsTable.subjectId, subjectId)
     ));
-  const isFirstLesson = !firstLessonRecord;
+
+  if (!firstLessonRecord) {
+    [firstLessonRecord] = await db
+      .insert(userSubjectFirstLessonsTable)
+      .values({ userId, subjectId, freeMessagesUsed: 0, completed: false })
+      .onConflictDoNothing()
+      .returning();
+    if (!firstLessonRecord) {
+      [firstLessonRecord] = await db
+        .select()
+        .from(userSubjectFirstLessonsTable)
+        .where(and(
+          eq(userSubjectFirstLessonsTable.userId, userId),
+          eq(userSubjectFirstLessonsTable.subjectId, subjectId)
+        ));
+    }
+  }
+
+  // First lesson is available if record exists, not completed, and under message limit
+  const isFirstLesson = !firstLessonRecord.completed && firstLessonRecord.freeMessagesUsed < FREE_LESSON_MESSAGE_LIMIT;
+  const freeMessagesUsed = firstLessonRecord.freeMessagesUsed;
+  const freeMessagesLeft = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - freeMessagesUsed);
 
   // Per-subject subscription (most recent active one)
   const subjectSubs = await db
@@ -57,6 +80,9 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     hasActiveSub,
     quotaExhausted,
     subjectSub,
+    firstLessonRecord,
+    freeMessagesUsed,
+    freeMessagesLeft,
   };
 }
 
@@ -316,7 +342,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = req.body;
 
   const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
-  const { isFirstLesson, canAccessViaSubscription, hasActiveSub, quotaExhausted, subjectSub } = access;
+  const { isFirstLesson, canAccessViaSubscription, hasActiveSub, quotaExhausted, subjectSub, firstLessonRecord } = access;
   const isNewSession = !userMessage;
 
   // ── Session limit (1 session per 20 hours) — paid users only ──
@@ -360,12 +386,9 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   // ── Access gate ─────────────────────────────────────────────────────────────
   if (!isFirstLesson && !canAccessViaSubscription) {
     if (!hasActiveSub) {
-      // No subscription at all — hard deny with JSON
       res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
       return;
     }
-    // Has active subscription but quota exhausted — always return farewell SSE
-    // (covers both new-session and mid-session exhaustion; never calls Claude)
     const stagesArr = stages ?? [];
     const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا التخصص 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك في هذه المادة من صفحة الاشتراكات.</p></div>`;
     res.setHeader("Content-Type", "text/event-stream");
@@ -378,9 +401,22 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   }
 
   // ── Increment message counter ──────────────────────────────────────────────
-  if (canAccessViaSubscription) {
+  if (isFirstLesson && firstLessonRecord) {
+    const newCount = firstLessonRecord.freeMessagesUsed + 1;
+    const isNowComplete = newCount >= FREE_LESSON_MESSAGE_LIMIT;
+    await db.update(userSubjectFirstLessonsTable)
+      .set({
+        freeMessagesUsed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1`,
+        ...(isNowComplete ? { completed: true } : {}),
+      })
+      .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
+    if (isNowComplete) {
+      await db.update(usersTable)
+        .set({ firstLessonComplete: true })
+        .where(eq(usersTable.id, userId));
+    }
+  } else if (canAccessViaSubscription) {
     if (access.canAccessViaSubjectSub && subjectSub) {
-      // New per-subject subscription → increment in user_subject_subscriptions
       await db.update(userSubjectSubscriptionsTable)
         .set({ messagesUsed: subjectSub.messagesUsed + 1 })
         .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
@@ -536,11 +572,11 @@ ${formattingRules}`;
   stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
   const planReady = fullResponse.includes("[PLAN_READY]");
   let messagesRemaining: number | null = null;
-  if (canAccessViaSubscription) {
+  if (isFirstLesson && firstLessonRecord) {
+    messagesRemaining = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - (firstLessonRecord.freeMessagesUsed + 1));
+  } else if (canAccessViaSubscription) {
     if (access.canAccessViaSubjectSub && subjectSub) {
       messagesRemaining = Math.max(0, subjectSub.messagesLimit - (subjectSub.messagesUsed + 1));
-    } else if (access.canAccessViaLegacyGlobal) {
-      messagesRemaining = Math.max(0, (user.messagesLimit ?? 0) - ((user.messagesUsed ?? 0) + 1));
     }
   }
   const isQuotaExhausted = messagesRemaining === 0;
