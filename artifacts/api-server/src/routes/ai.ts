@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
