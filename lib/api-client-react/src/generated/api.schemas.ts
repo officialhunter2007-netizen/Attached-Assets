@@ -22,6 +22,8 @@ export interface UserProfile {
   email: string;
   /** @nullable */
   displayName?: string | null;
+  /** @nullable */
+  profileImage?: string | null;
   role: UserProfileRole;
   onboardingDone: boolean;
   points: number;

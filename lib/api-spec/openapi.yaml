@@ -599,6 +599,8 @@ components:
           type: string
         displayName:
           type: ["string", "null"]
+        profileImage:
+          type: ["string", "null"]
         role:
           type: string
           enum: [admin, user]

@@ -8,6 +8,7 @@ export const usersTable = pgTable("users", {
   passwordHash: text("password_hash"),
   googleId: text("google_id"),
   displayName: text("display_name"),
+  profileImage: text("profile_image"),
   role: text("role").notNull().default("user"),
   onboardingDone: boolean("onboarding_done").notNull().default(false),
   points: integer("points").notNull().default(0),

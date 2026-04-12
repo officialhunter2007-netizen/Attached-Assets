@@ -212,7 +212,14 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
       .from(usersTable)
       .where(eq(usersTable.googleId, gUser.id));
 
-    if (!user) {
+    if (user) {
+      if (gUser.picture && user.profileImage !== gUser.picture) {
+        await db.update(usersTable)
+          .set({ profileImage: gUser.picture })
+          .where(eq(usersTable.id, user.id));
+        user = { ...user, profileImage: gUser.picture };
+      }
+    } else if (!user) {
       const [byEmail] = await db
         .select()
         .from(usersTable)
@@ -221,7 +228,7 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
       if (byEmail) {
         [user] = await db
           .update(usersTable)
-          .set({ googleId: gUser.id })
+          .set({ googleId: gUser.id, profileImage: gUser.picture || null })
           .where(eq(usersTable.id, byEmail.id))
           .returning();
       } else {
@@ -231,6 +238,7 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
             email: gUser.email,
             googleId: gUser.id,
             displayName: gUser.name,
+            profileImage: gUser.picture || null,
             role: ADMIN_EMAILS.includes(gUser.email.toLowerCase()) ? "admin" : "user",
             onboardingDone: false,
             points: 0,
