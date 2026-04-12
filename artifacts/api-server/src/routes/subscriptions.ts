@@ -222,35 +222,27 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     usedAt: new Date(),
   }).where(eq(activationCardsTable.id, card.id));
 
-  if (card.subjectId) {
-    // Per-subject activation
-    await db.insert(userSubjectSubscriptionsTable).values({
-      userId,
-      subjectId: card.subjectId,
-      subjectName: card.subjectName ?? null,
-      plan: card.planType,
-      messagesUsed: 0,
-      messagesLimit,
-      expiresAt: subscriptionExpiresAt,
-      activationCode: code,
-    });
-  } else {
-    // Legacy global activation
-    await db.update(usersTable).set({
-      nukhbaPlan: card.planType,
-      messagesLimit,
-      messagesUsed: 0,
-      subscriptionExpiresAt,
-    }).where(eq(usersTable.id, userId));
+  if (!card.subjectId) {
+    res.status(400).json({ success: false, message: "هذا الكود قديم ولا يحتوي على مادة محددة. يرجى استخدام كود جديد." });
+    return;
   }
+
+  await db.insert(userSubjectSubscriptionsTable).values({
+    userId,
+    subjectId: card.subjectId,
+    subjectName: card.subjectName ?? null,
+    plan: card.planType,
+    messagesUsed: 0,
+    messagesLimit,
+    expiresAt: subscriptionExpiresAt,
+    activationCode: code,
+  });
 
   res.json({
     success: true,
     planType: card.planType,
-    subjectId: card.subjectId ?? null,
-    message: card.subjectId
-      ? `تم تفعيل اشتراك ${card.planType} لمادة ${card.subjectName ?? card.subjectId} بنجاح!`
-      : `تم تفعيل اشتراك ${card.planType} بنجاح!`,
+    subjectId: card.subjectId,
+    message: `تم تفعيل اشتراك ${card.planType} لمادة ${card.subjectName ?? card.subjectId} بنجاح!`,
   });
 });
 
@@ -319,14 +311,18 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
   expiresAt.setDate(expiresAt.getDate() + 14);
 
   const messagesLimit = PLAN_MESSAGE_LIMITS[request.planType] ?? 30;
-  const isSubjectSpecific = request.subjectId && request.subjectId !== "all";
+
+  if (!request.subjectId || request.subjectId === "all") {
+    res.status(400).json({ error: "طلب الاشتراك لا يحتوي على مادة محددة. يرجى رفضه وإنشاء طلب جديد بمادة محددة." });
+    return;
+  }
 
   const [card] = await db.insert(activationCardsTable).values({
     activationCode: code,
     planType: request.planType,
     region: request.region,
-    subjectId: isSubjectSpecific ? request.subjectId : null,
-    subjectName: isSubjectSpecific ? (request.subjectName ?? null) : null,
+    subjectId: request.subjectId,
+    subjectName: request.subjectName ?? null,
     isUsed: true,
     usedByUserId: request.userId,
     usedAt: new Date(),
@@ -340,28 +336,17 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
     adminNote: null,
   }).where(eq(subscriptionRequestsTable.id, id));
 
-  if (isSubjectSpecific) {
-    // Per-subject subscription
-    await db.insert(userSubjectSubscriptionsTable).values({
-      userId: request.userId,
-      subjectId: request.subjectId,
-      subjectName: request.subjectName ?? null,
-      plan: request.planType,
-      messagesUsed: 0,
-      messagesLimit,
-      expiresAt,
-      activationCode: code,
-      subscriptionRequestId: id,
-    });
-  } else {
-    // Legacy global subscription
-    await db.update(usersTable).set({
-      nukhbaPlan: request.planType,
-      messagesLimit,
-      messagesUsed: 0,
-      subscriptionExpiresAt: expiresAt,
-    }).where(eq(usersTable.id, request.userId));
-  }
+  await db.insert(userSubjectSubscriptionsTable).values({
+    userId: request.userId,
+    subjectId: request.subjectId,
+    subjectName: request.subjectName ?? null,
+    plan: request.planType,
+    messagesUsed: 0,
+    messagesLimit,
+    expiresAt,
+    activationCode: code,
+    subscriptionRequestId: id,
+  });
 
   res.json(card);
 });

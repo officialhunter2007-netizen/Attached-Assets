@@ -4,9 +4,10 @@ import { useAuth } from "@/lib/auth-context";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, Flame, Target, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Trophy, Flame, Target, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2, Monitor, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
+import { getSubjectById } from "@/lib/curriculum";
 
 interface LessonSummary {
   id: number;
@@ -66,11 +67,56 @@ function SummaryCard({ summary }: { summary: LessonSummary }) {
   );
 }
 
+interface SubjectSub {
+  id: number;
+  subjectId: string;
+  subjectName: string | null;
+  planType: string;
+  messagesUsed: number;
+  messagesLimit: number;
+  expiresAt: string;
+}
+
+const MOBILE_CODING_DISMISS_KEY = "nukhba_coding_mobile_dismissed";
+
+function MobileCodingWarning({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="mb-6 rounded-2xl border-2 border-amber-500/40 bg-gradient-to-l from-amber-500/20 via-orange-500/15 to-amber-500/20 p-5 relative overflow-hidden"
+    >
+      <div className="absolute top-0 left-0 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl -translate-x-6 -translate-y-6" />
+      <button
+        onClick={onDismiss}
+        className="absolute top-3 left-3 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+        aria-label="إغلاق"
+      >
+        <X className="w-4 h-4" />
+      </button>
+      <div className="flex items-start gap-4">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 shadow-lg shadow-amber-500/10">
+          <Monitor className="w-7 h-7 text-amber-400" />
+        </div>
+        <div className="flex-1 pt-1">
+          <h3 className="font-bold text-amber-300 text-base mb-1">تجربة أفضل على الكمبيوتر</h3>
+          <p className="text-sm text-amber-200/80 leading-relaxed">
+            أنت مشترك في مواد برمجية تحتاج محرر أكواد — استخدم جهاز كمبيوتر أو لابتوب للحصول على أفضل تجربة تعليمية مع محرر الأكواد التفاعلي.
+          </p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const { data: views } = useGetLessonViews();
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(true);
+  const [mySubjectSubs, setMySubjectSubs] = useState<SubjectSub[]>([]);
+  const [showMobileCodingWarning, setShowMobileCodingWarning] = useState(false);
 
   useEffect(() => {
     fetch("/api/lesson-summaries", { credentials: "include" })
@@ -78,17 +124,43 @@ export default function Dashboard() {
       .then(data => setSummaries(Array.isArray(data) ? data : []))
       .catch(() => setSummaries([]))
       .finally(() => setSummariesLoading(false));
+
+    fetch("/api/subscriptions/my-subjects", { credentials: "include" })
+      .then(r => r.json())
+      .then((data: SubjectSub[]) => {
+        if (!Array.isArray(data)) return;
+        setMySubjectSubs(data);
+
+        const now = new Date();
+        const activeSubs = data.filter(s => new Date(s.expiresAt) > now && s.messagesUsed < s.messagesLimit);
+        const hasCodingSub = activeSubs.some(s => {
+          const subject = getSubjectById(s.subjectId);
+          return subject?.hasCoding === true;
+        });
+
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
+        const dismissed = localStorage.getItem(MOBILE_CODING_DISMISS_KEY) === "true";
+
+        if (isMobile && hasCodingSub && !dismissed) {
+          setShowMobileCodingWarning(true);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const totalLessons = views?.length || 0;
   const challengesAnswered = views?.filter(v => v.challengeAnswered).length || 0;
   const points = user?.points || 0;
 
-  const hasSubscriptionAccess = user?.nukhbaPlan
-    && user?.subscriptionExpiresAt
-    && new Date(user.subscriptionExpiresAt) > new Date()
-    && (user?.messagesUsed ?? 0) < (user?.messagesLimit ?? 0);
-  const isBlocked = user?.firstLessonComplete && !hasSubscriptionAccess;
+  const now = new Date();
+  const activeSubjectSubs = mySubjectSubs.filter(s => new Date(s.expiresAt) > now && s.messagesUsed < s.messagesLimit);
+  const hasAnyActiveSubjectSub = activeSubjectSubs.length > 0;
+  const isBlocked = user?.firstLessonComplete && !hasAnyActiveSubjectSub;
+
+  const handleDismissMobileCoding = () => {
+    localStorage.setItem(MOBILE_CODING_DISMISS_KEY, "true");
+    setShowMobileCodingWarning(false);
+  };
 
   let level = "مبتدئ";
   let maxPoints = 100;
@@ -166,6 +238,12 @@ export default function Dashboard() {
     <AppLayout>
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         <h1 className="text-3xl font-black mb-8">لوحة القيادة</h1>
+
+        <AnimatePresence>
+          {showMobileCodingWarning && (
+            <MobileCodingWarning onDismiss={handleDismissMobileCoding} />
+          )}
+        </AnimatePresence>
 
         <div className="grid lg:grid-cols-3 gap-6 mb-8">
           <div className="lg:col-span-2 glass p-8 rounded-3xl border-white/5 relative overflow-hidden">
@@ -250,16 +328,24 @@ export default function Dashboard() {
                 <Crown className="w-5 h-5 text-gold" />
                 حالة الاشتراك
               </h3>
-              {user?.nukhbaPlan ? (
+              {activeSubjectSubs.length > 0 ? (
                 <div>
-                  <div className="text-2xl font-black text-gold mb-2">{user.nukhbaPlan}</div>
+                  <div className="text-lg font-black text-gold mb-2">{activeSubjectSubs.length} {activeSubjectSubs.length === 1 ? "اشتراك نشط" : "اشتراكات نشطة"}</div>
+                  <div className="space-y-2 mb-3">
+                    {activeSubjectSubs.slice(0, 3).map(s => (
+                      <div key={s.id} className="text-xs text-muted-foreground flex items-center justify-between">
+                        <span>{s.subjectName || s.subjectId}</span>
+                        <span className="text-emerald">{s.messagesLimit - s.messagesUsed} رسالة متبقية</span>
+                      </div>
+                    ))}
+                  </div>
                   <p className="text-sm text-emerald flex items-center gap-1"><Target className="w-4 h-4"/> مفعل وفعال</p>
                 </div>
               ) : (
                 <div>
-                  <p className="text-muted-foreground mb-4">أنت على الباقة المجانية</p>
+                  <p className="text-muted-foreground mb-4">لا توجد اشتراكات نشطة</p>
                   <Link href="/subscription">
-                    <Button className="w-full gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20">رقي حسابك الآن</Button>
+                    <Button className="w-full gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20">اشترك الآن</Button>
                   </Link>
                 </div>
               )}
