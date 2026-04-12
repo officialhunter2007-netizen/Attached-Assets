@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, MessageCircle, BadgeCheck, BookOpen, Search, ArrowRight, ChevronDown } from "lucide-react";
+import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, MessageCircle, BadgeCheck, BookOpen, Search, ArrowRight, ChevronDown, ShieldCheck, HelpCircle, PhoneCall, Send, Banknote, UserCheck, ClipboardCheck } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
@@ -478,6 +478,55 @@ export default function Subscription() {
           })}
         </div>
 
+        <div className="mb-14">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-black flex items-center justify-center gap-3 mb-2">
+              <ClipboardCheck className="w-7 h-7 text-gold" />
+              كيف تشترك؟ — خطوات بسيطة وواضحة
+            </h2>
+            <p className="text-muted-foreground">اتبع هذه الخطوات وسيتم تفعيل اشتراكك خلال دقائق</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { step: "١", icon: <Crown className="w-6 h-6 text-gold" />, title: "اختر الباقة", desc: "اختر الباقة المناسبة لك (برونزية، فضية، أو ذهبية) من الأعلى" },
+              { step: "٢", icon: <Banknote className="w-6 h-6 text-emerald-400" />, title: "حوّل المبلغ", desc: "افتح تطبيق الكريمي وحوّل المبلغ المطلوب إلى رقم الحساب الظاهر أدناه" },
+              { step: "٣", icon: <Send className="w-6 h-6 text-blue-400" />, title: "أرسل الطلب", desc: "اكتب اسم الحساب الذي حوّلت منه (نفس الاسم في الكريمي) واضغط تأكيد" },
+              { step: "٤", icon: <UserCheck className="w-6 h-6 text-purple-400" />, title: "التفعيل الفوري", desc: "المشرف يتحقق من وصول المبلغ ويفعّل اشتراكك — ستصلك رسالة التفعيل" },
+            ].map(s => (
+              <div key={s.step} className="glass rounded-2xl p-5 border border-white/5 relative">
+                <div className="absolute -top-3 -right-2 w-8 h-8 rounded-full gradient-gold flex items-center justify-center text-sm font-black text-black">{s.step}</div>
+                <div className="mb-3 mt-1">{s.icon}</div>
+                <h3 className="font-bold text-base mb-1.5">{s.title}</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-14 p-6 rounded-3xl border-2 border-emerald-500/20 bg-emerald-500/5">
+          <div className="flex items-start gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-8 h-8 text-emerald-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-xl font-black text-emerald-400 mb-3">ضمان التفعيل — اطمئن تماماً</h3>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {[
+                  "اشتراكك يُفعّل فوراً بعد التحقق من وصول التحويل — لا تأخير",
+                  "إذا لم يصل المبلغ أو كان ناقصاً، سنُبلغك فوراً برسالة واضحة",
+                  "كل تحويل يُسجّل باسمك تلقائياً — أموالك محفوظة ومضمونة",
+                  "إذا واجهت أي مشكلة، تواصل معنا وسنحلها فوراً",
+                ].map((item, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                    <span className="text-sm text-foreground/90">{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="grid md:grid-cols-2 gap-8">
           <div className="glass p-8 rounded-3xl border-white/5">
             <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
@@ -486,8 +535,12 @@ export default function Subscription() {
             </h3>
 
             {!selectedPlan ? (
-              <div className="h-48 flex items-center justify-center text-muted-foreground text-center border-2 border-dashed border-white/10 rounded-2xl">
-                الرجاء اختيار إحدى الباقات في الأعلى<br />لعرض تفاصيل الدفع
+              <div className="h-48 flex items-center justify-center text-muted-foreground text-center border-2 border-dashed border-white/10 rounded-2xl px-4">
+                <div>
+                  <ArrowRight className="w-8 h-8 mx-auto mb-3 text-gold/50 rotate-180" />
+                  <p className="text-base font-bold mb-1">اختر باقتك أولاً</p>
+                  <p className="text-xs">اضغط على إحدى الباقات الثلاث في الأعلى (برونزية، فضية، أو ذهبية) لتظهر تفاصيل الدفع</p>
+                </div>
               </div>
             ) : (
               <div className="space-y-6">
@@ -495,27 +548,43 @@ export default function Subscription() {
                   <span className="text-muted-foreground">الاشتراك مخصص لمادة: </span>
                   <strong className="text-gold">{targetSubjectName}</strong>
                 </div>
-                <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
+
+                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
+                  <p className="text-xs text-emerald-400 font-bold text-center mb-1">الخطوة الأولى: حوّل المبلغ عبر الكريمي</p>
+                  <p className="text-[11px] text-center text-muted-foreground">افتح تطبيق الكريمي على هاتفك وحوّل المبلغ إلى الرقم التالي</p>
+                </div>
+
+                <div className="bg-black/30 p-5 rounded-2xl border border-white/5">
                   <p className="text-sm text-muted-foreground mb-1">المبلغ المطلوب:</p>
-                  <p className="text-gold font-bold text-lg mb-3">
+                  <p className="text-gold font-bold text-xl mb-4">
                     {region === 'north' ? plans[selectedPlan].priceNorth : plans[selectedPlan].priceSouth} ريال
                   </p>
-                  <p className="text-sm text-muted-foreground mb-2">قم بتحويل المبلغ إلى حسابنا في الكريمي:</p>
+                  <p className="text-sm font-bold mb-2">رقم حساب الكريمي:</p>
                   {region === 'north' ? (
                     <>
-                      <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-3 rounded-xl border border-gold/20" dir="ltr">
+                      <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-4 rounded-xl border border-gold/20" dir="ltr">
                         3165778412
                       </div>
-                      <p className="text-center text-xs mt-2 text-muted-foreground">باسم: عمرو خالد عبد المولى</p>
+                      <p className="text-center text-sm mt-2 font-medium">باسم: <span className="text-gold">عمرو خالد عبد المولى</span></p>
                     </>
                   ) : (
                     <>
-                      <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-3 rounded-xl border border-gold/20" dir="ltr">
+                      <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-4 rounded-xl border border-gold/20" dir="ltr">
                         3167076083
                       </div>
-                      <p className="text-center text-xs mt-2 text-muted-foreground">باسم: عمرو خالد عبد المولى</p>
+                      <p className="text-center text-sm mt-2 font-medium">باسم: <span className="text-gold">عمرو خالد عبد المولى</span></p>
                     </>
                   )}
+                  <div className="mt-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <p className="text-xs text-amber-300 text-center font-medium">
+                      تأكد من تحويل المبلغ كاملاً — أي نقص سيؤخر التفعيل
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3">
+                  <p className="text-xs text-blue-400 font-bold text-center mb-1">الخطوة الثانية: أكّد الدفع هنا</p>
+                  <p className="text-[11px] text-center text-muted-foreground">بعد التحويل، اكتب اسم حسابك في الكريمي واضغط تأكيد</p>
                 </div>
 
                 <div className="space-y-3">
@@ -523,7 +592,7 @@ export default function Subscription() {
                     اسم الحساب المرسل منه
                   </Label>
                   <p className="text-xs text-muted-foreground -mt-1">
-                    أدخل الاسم الظاهر في تطبيق الكريمي عند إرسال المبلغ
+                    اكتب <strong className="text-foreground">نفس الاسم</strong> الظاهر في تطبيق الكريمي الخاص بك (الاسم المسجّل في حسابك)
                   </p>
                   <Input
                     placeholder="مثال: أحمد محمد علي"
@@ -537,7 +606,7 @@ export default function Subscription() {
                 <div className="space-y-3">
                   <Label>ملاحظات (اختياري)</Label>
                   <Textarea
-                    placeholder="أي ملاحظات إضافية حول التحويل..."
+                    placeholder="مثال: حوّلت من حساب أخي، أو رقم العملية..."
                     className="bg-black/40"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
@@ -545,45 +614,71 @@ export default function Subscription() {
                 </div>
 
                 <Button
-                  className="w-full gradient-gold text-primary-foreground font-bold h-12 rounded-xl text-lg shadow-lg shadow-gold/20"
+                  className="w-full gradient-gold text-primary-foreground font-bold h-14 rounded-xl text-lg shadow-lg shadow-gold/20"
                   disabled={!accountName.trim() || createReqMutation.isPending}
                   onClick={handlePaymentSubmit}
                 >
-                  {createReqMutation.isPending ? "جاري الإرسال..." : "تأكيد الدفع وإرسال الطلب"}
+                  {createReqMutation.isPending ? "جاري الإرسال..." : "تأكيد الدفع وإرسال الطلب ✓"}
                 </Button>
 
-                <p className="text-xs text-center text-muted-foreground">
-                  سيقوم المشرف بالتحقق من وصول المبلغ باسمك وتفعيل الاشتراك مباشرة
-                </p>
+                <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
+                  <p className="text-xs text-center text-emerald-400 font-bold mb-1">ماذا بعد الضغط؟</p>
+                  <p className="text-xs text-center text-muted-foreground">
+                    سيصلنا طلبك فوراً ← نتحقق من وصول التحويل ← نفعّل اشتراكك ← تبدأ التعلم مباشرة!
+                  </p>
+                </div>
               </div>
             )}
           </div>
 
-          <div className="glass p-8 rounded-3xl border-emerald/20 relative overflow-hidden h-fit">
-            <div className="absolute top-0 left-0 w-40 h-40 bg-emerald/10 rounded-br-full -z-10" />
-            <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
-              <Key className="w-6 h-6 text-emerald" />
-              تفعيل عبر كود
-            </h3>
-            <p className="text-muted-foreground mb-6">
-              إذا حصلت على كود تفعيل من وكلائنا أو كهدية، أدخله هنا لتفعيل اشتراكك فوراً.
-            </p>
+          <div className="space-y-8">
+            <div className="glass p-8 rounded-3xl border-emerald/20 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-40 h-40 bg-emerald/10 rounded-br-full -z-10" />
+              <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
+                <Key className="w-6 h-6 text-emerald" />
+                تفعيل عبر كود
+              </h3>
+              <p className="text-muted-foreground mb-6">
+                إذا حصلت على كود تفعيل من وكلائنا أو كهدية، أدخله هنا لتفعيل اشتراكك فوراً — بدون تحويل.
+              </p>
 
-            <div className="space-y-4">
-              <Input
-                placeholder="أدخل كود التفعيل المكون من 16 حرف"
-                className="bg-black/40 h-14 text-center tracking-widest text-lg font-mono uppercase focus-visible:ring-emerald focus-visible:border-emerald"
-                dir="ltr"
-                value={activationCode}
-                onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
-              />
-              <Button
-                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-12 rounded-xl text-lg shadow-lg shadow-emerald/20"
-                disabled={!activationCode || activateMutation.isPending}
-                onClick={handleActivationSubmit}
-              >
-                {activateMutation.isPending ? "جاري التفعيل..." : "تفعيل الحساب"}
-              </Button>
+              <div className="space-y-4">
+                <Input
+                  placeholder="أدخل كود التفعيل المكون من 16 حرف"
+                  className="bg-black/40 h-14 text-center tracking-widest text-lg font-mono uppercase focus-visible:ring-emerald focus-visible:border-emerald"
+                  dir="ltr"
+                  value={activationCode}
+                  onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
+                />
+                <Button
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-12 rounded-xl text-lg shadow-lg shadow-emerald/20"
+                  disabled={!activationCode || activateMutation.isPending}
+                  onClick={handleActivationSubmit}
+                >
+                  {activateMutation.isPending ? "جاري التفعيل..." : "تفعيل الحساب"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="glass p-6 rounded-3xl border-white/5">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-gold" />
+                أسئلة شائعة
+              </h3>
+              <div className="space-y-4">
+                {[
+                  { q: "كم يستغرق تفعيل الاشتراك؟", a: "عادةً خلال دقائق من إرسال الطلب. في أقصى حد لا يتجاوز بضع ساعات." },
+                  { q: "ماذا لو حوّلت مبلغاً خاطئاً؟", a: "سنرسل لك إشعاراً بالمبلغ الناقص، ويمكنك إكماله وإرسال طلب جديد." },
+                  { q: "هل يمكنني الاشتراك في أكثر من مادة؟", a: "نعم! كل مادة لها اشتراك منفصل. يمكنك الاشتراك في أي عدد من المواد." },
+                  { q: "متى يبدأ حساب الأسبوعين؟", a: "يبدأ العد من لحظة تفعيل الاشتراك، وليس من لحظة الدفع." },
+                  { q: "هل أموالي في أمان؟", a: "نعم. كل تحويل مسجّل ومرتبط بحسابك. إذا حدث أي خطأ، تواصل معنا وسنحل المشكلة فوراً." },
+                ].map((item, i) => (
+                  <div key={i} className="border-b border-white/5 last:border-0 pb-3 last:pb-0">
+                    <p className="text-sm font-bold mb-1 text-gold/90">{item.q}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{item.a}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
