@@ -69,6 +69,14 @@ export default function Learn() {
         <div className="mb-12 text-center md:text-right">
           <h1 className="text-4xl font-black mb-4">مسارات التعلم</h1>
           <p className="text-xl text-muted-foreground">اختر مسارك وابدأ التعلم المخصص مع معلمك الذكي</p>
+          <p
+            className="mt-3 text-sm md:text-base font-bold text-red-500 flex items-center justify-center md:justify-start gap-2"
+            style={{ textShadow: "0 0 12px rgba(239,68,68,0.9), 0 0 28px rgba(239,68,68,0.5)" }}
+          >
+            <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" style={{ boxShadow: "0 0 8px rgba(239,68,68,0.9)" }} />
+            تصفح المنصة بالكمبيوتر إذا ستتعلم شيئاً له علاقة بالبرمجة حتى لا تواجه مشاكل مستقبلاً
+            <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" style={{ boxShadow: "0 0 8px rgba(239,68,68,0.9)" }} />
+          </p>
         </div>
 
         <Tabs defaultValue="university" className="w-full">
