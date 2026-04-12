@@ -7,8 +7,11 @@ const router: IRouter = Router();
 function getUserId(req: any): number | null {
   return (req.session as any)?.userId ?? null;
 }
-function isAdmin(req: any): boolean {
-  return (req.session as any)?.email === "officialhunter2007@gmail.com";
+async function isAdmin(req: any): Promise<boolean> {
+  const userId = getUserId(req);
+  if (!userId) return false;
+  const [user] = await db.select({ role: usersTable.role }).from(usersTable).where(eq(usersTable.id, userId));
+  return user?.role === "admin";
 }
 
 const liveUsers = new Map<number, { name: string; email: string; page: string; profileImage: string | null; lastSeen: number }>();
@@ -84,7 +87,7 @@ router.get("/support/unread-count", async (req, res) => {
 });
 
 router.get("/admin/support/threads", async (req, res) => {
-  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+  if (!(await isAdmin(req))) return res.status(403).json({ error: "Forbidden" });
 
   const allMessages = await db
     .select()
@@ -130,7 +133,7 @@ router.get("/admin/support/threads", async (req, res) => {
 });
 
 router.post("/admin/support/reply", async (req, res) => {
-  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+  if (!(await isAdmin(req))) return res.status(403).json({ error: "Forbidden" });
 
   const { userId, subject, message } = req.body;
   if (!userId || !message?.trim()) {
@@ -160,7 +163,7 @@ router.post("/admin/support/reply", async (req, res) => {
 });
 
 router.get("/admin/support/unread-count", async (req, res) => {
-  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+  if (!(await isAdmin(req))) return res.status(403).json({ error: "Forbidden" });
 
   const [result] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -184,7 +187,7 @@ router.post("/heartbeat", async (req, res) => {
   } else {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
     liveUsers.set(userId, {
-      name: user?.displayName || user?.name || "",
+      name: user?.displayName || "",
       email: user?.email || "",
       page: page || "/",
       profileImage: user?.profileImage || null,
@@ -194,8 +197,8 @@ router.post("/heartbeat", async (req, res) => {
   res.json({ ok: true });
 });
 
-router.get("/admin/live-users", (req, res) => {
-  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+router.get("/admin/live-users", async (req, res) => {
+  if (!(await isAdmin(req))) return res.status(403).json({ error: "Forbidden" });
   const now = Date.now();
   const active: any[] = [];
   for (const [uid, data] of liveUsers.entries()) {
