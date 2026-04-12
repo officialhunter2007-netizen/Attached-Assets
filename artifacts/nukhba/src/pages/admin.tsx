@@ -91,6 +91,9 @@ export default function Admin() {
   const [replyMessage, setReplyMessage] = useState("");
   const [isSendingReply, setIsSendingReply] = useState(false);
 
+  // Live users
+  const [liveUsersList, setLiveUsersList] = useState<any[]>([]);
+
   useEffect(() => {
     const fetchSupportData = () => {
       fetch("/api/admin/support/threads", { credentials: "include" })
@@ -102,8 +105,15 @@ export default function Admin() {
         .then(d => d && setSupportUnread(d.count ?? 0))
         .catch(() => {});
     };
+    const fetchLiveUsers = () => {
+      fetch("/api/admin/live-users", { credentials: "include" })
+        .then(r => r.ok ? r.json() : [])
+        .then(d => { if (Array.isArray(d)) setLiveUsersList(d); })
+        .catch(() => {});
+    };
     fetchSupportData();
-    const interval = setInterval(fetchSupportData, 20000);
+    fetchLiveUsers();
+    const interval = setInterval(() => { fetchSupportData(); fetchLiveUsers(); }, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -488,6 +498,42 @@ export default function Admin() {
             <div className="flex-1">
               <p className="font-bold text-red-300 text-sm">اشتراكات منتهية مؤخراً</p>
               <p className="text-xs text-red-200/60">{stats.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
+            </div>
+          </div>
+        )}
+
+        {liveUsersList.length > 0 && (
+          <div className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                متصلون الآن ({liveUsersList.length})
+              </h3>
+              <span className="text-[10px] text-muted-foreground">يتحدث كل ١٥ ثانية</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {liveUsersList.map(u => {
+                const pageNames: Record<string, string> = {
+                  '/': 'الرئيسية', '/learn': 'التعلّم', '/dashboard': 'لوحتي',
+                  '/subscription': 'الاشتراك', '/support': 'الدعم', '/admin': 'الإدارة',
+                };
+                const pageName = pageNames[u.page] || (u.page.startsWith('/subject/') ? 'جلسة تعلّم' : u.page);
+                return (
+                  <div key={u.userId} className="flex items-center gap-2 bg-black/30 rounded-xl px-3 py-2 border border-white/5">
+                    {u.profileImage ? (
+                      <img src={u.profileImage} className="w-6 h-6 rounded-full border border-emerald-500/30" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+                        <Users className="w-3 h-3 text-emerald-400" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold truncate max-w-[120px]">{u.name || u.email}</p>
+                      <p className="text-[10px] text-emerald-400">{pageName}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

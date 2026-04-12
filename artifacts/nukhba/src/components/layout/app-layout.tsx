@@ -1,9 +1,9 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth-context";
 import { LogOut, LogIn, Menu, User, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
 
 function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: string | null; size?: number }) {
@@ -29,9 +29,55 @@ function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: stri
   );
 }
 
+function requestNotificationPermission() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+function sendBrowserNotification(title: string, body: string, url?: string) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    const notif = new Notification(title, {
+      body,
+      icon: "/favicon.svg",
+      badge: "/favicon.svg",
+      tag: "nukhba-support",
+      renotify: true,
+    });
+    if (url) {
+      notif.onclick = () => {
+        window.focus();
+        window.location.href = url;
+        notif.close();
+      };
+    }
+  }
+}
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const prevUnreadRef = useRef(0);
+  const [location] = useLocation();
+
+  useEffect(() => {
+    if (user) requestNotificationPermission();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const sendHeartbeat = () => {
+      fetch("/api/heartbeat", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page: location }),
+      }).catch(() => {});
+    };
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 25000);
+    return () => clearInterval(interval);
+  }, [user, location]);
 
   useEffect(() => {
     if (!user) return;
@@ -39,11 +85,24 @@ export function AppLayout({ children }: { children: ReactNode }) {
       const endpoint = user.role === 'admin' ? '/api/admin/support/unread-count' : '/api/support/unread-count';
       fetch(endpoint, { credentials: 'include' })
         .then(r => r.ok ? r.json() : null)
-        .then(d => d && setUnreadCount(d.count ?? 0))
+        .then(d => {
+          if (!d) return;
+          const newCount = d.count ?? 0;
+          if (newCount > prevUnreadRef.current && prevUnreadRef.current >= 0) {
+            const isAdmin = user.role === 'admin';
+            sendBrowserNotification(
+              isAdmin ? "رسالة جديدة من مستخدم" : "رد جديد من المشرف",
+              isAdmin ? "لديك رسالة دعم جديدة تنتظر ردك" : "المشرف رد على رسالتك — افتح صفحة الدعم",
+              isAdmin ? "/admin" : "/support"
+            );
+          }
+          prevUnreadRef.current = newCount;
+          setUnreadCount(newCount);
+        })
         .catch(() => {});
     };
     fetchUnread();
-    const interval = setInterval(fetchUnread, 30000);
+    const interval = setInterval(fetchUnread, 15000);
     return () => clearInterval(interval);
   }, [user]);
 

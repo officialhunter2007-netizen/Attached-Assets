@@ -11,6 +11,9 @@ function isAdmin(req: any): boolean {
   return (req.session as any)?.email === "officialhunter2007@gmail.com";
 }
 
+const liveUsers = new Map<number, { name: string; email: string; page: string; profileImage: string | null; lastSeen: number }>();
+const HEARTBEAT_TIMEOUT = 60000;
+
 router.get("/support/my-messages", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
@@ -168,6 +171,42 @@ router.get("/admin/support/unread-count", async (req, res) => {
     ));
 
   res.json({ count: result?.count ?? 0 });
+});
+
+router.post("/heartbeat", async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const { page } = req.body;
+  const existing = liveUsers.get(userId);
+  if (existing) {
+    existing.page = page || "/";
+    existing.lastSeen = Date.now();
+  } else {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+    liveUsers.set(userId, {
+      name: user?.displayName || user?.name || "",
+      email: user?.email || "",
+      page: page || "/",
+      profileImage: user?.profileImage || null,
+      lastSeen: Date.now(),
+    });
+  }
+  res.json({ ok: true });
+});
+
+router.get("/admin/live-users", (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+  const now = Date.now();
+  const active: any[] = [];
+  for (const [uid, data] of liveUsers.entries()) {
+    if (now - data.lastSeen < HEARTBEAT_TIMEOUT) {
+      active.push({ userId: uid, ...data, secondsAgo: Math.floor((now - data.lastSeen) / 1000) });
+    } else {
+      liveUsers.delete(uid);
+    }
+  }
+  active.sort((a, b) => a.secondsAgo - b.secondsAgo);
+  res.json(active);
 });
 
 export default router;
