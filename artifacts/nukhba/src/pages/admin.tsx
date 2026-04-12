@@ -430,6 +430,18 @@ export default function Admin() {
           </div>
         </div>
 
+        {(stats?.recentlyExpiredSubscriptions ?? 0) > 0 && (
+          <div className="mb-6 rounded-2xl border-2 border-red-500/30 bg-red-500/5 p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-red-400" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-red-300 text-sm">اشتراكات منتهية مؤخراً</p>
+              <p className="text-xs text-red-200/60">{stats.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
+            </div>
+          </div>
+        )}
+
         <Tabs defaultValue="requests" className="w-full">
           <TabsList className="mb-6 bg-glass border border-white/10 flex-wrap h-auto gap-1">
             <TabsTrigger value="requests" className="relative">

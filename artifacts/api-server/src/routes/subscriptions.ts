@@ -497,9 +497,16 @@ router.get("/admin/stats", async (req, res): Promise<void> => {
 
   const cards = await db.select().from(activationCardsTable);
 
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const recentlyExpiredSubs = subjectSubs.filter(s => {
+    const exp = new Date(s.expiresAt);
+    return exp < now && exp > sevenDaysAgo;
+  }).length;
+
   res.json({
     pendingRequests,
     activeSubscriptions: activeSubjectSubs + legacyActiveSubs,
+    recentlyExpiredSubscriptions: recentlyExpiredSubs,
     totalCards: cards.length,
     totalUsers: users.length,
   });
