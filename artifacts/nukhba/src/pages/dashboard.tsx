@@ -77,7 +77,7 @@ interface SubjectSub {
   expiresAt: string;
 }
 
-const MOBILE_CODING_DISMISS_KEY = "nukhba_coding_mobile_dismissed";
+const getMobileCodingDismissKey = (userId: string) => `nukhba_coding_mobile_dismissed_${userId}`;
 
 function MobileCodingWarning({ onDismiss }: { onDismiss: () => void }) {
   return (
@@ -139,7 +139,8 @@ export default function Dashboard() {
         });
 
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
-        const dismissed = localStorage.getItem(MOBILE_CODING_DISMISS_KEY) === "true";
+        const dismissKey = user?.id ? getMobileCodingDismissKey(user.id) : "";
+        const dismissed = dismissKey ? localStorage.getItem(dismissKey) === "true" : false;
 
         if (isMobile && hasCodingSub && !dismissed) {
           setShowMobileCodingWarning(true);
@@ -162,19 +163,22 @@ export default function Dashboard() {
   const expiringSoonSubs = activeSubjectSubs.filter(s => new Date(s.expiresAt) <= twoDaysFromNow);
 
   const handleDismissMobileCoding = () => {
-    localStorage.setItem(MOBILE_CODING_DISMISS_KEY, "true");
+    if (user?.id) {
+      localStorage.setItem(getMobileCodingDismissKey(user.id), "true");
+    }
     setShowMobileCodingWarning(false);
   };
 
   let level = "مبتدئ";
   let maxPoints = 100;
   let levelColor = "text-zinc-400";
-  if (points > 1500) { level = "أسطورة"; maxPoints = points + 1000; levelColor = "text-purple-400"; }
+  const isMaxLevel = points > 1500;
+  if (isMaxLevel) { level = "أسطورة"; maxPoints = points; levelColor = "text-purple-400"; }
   else if (points > 700) { level = "نُخبة"; maxPoints = 1500; levelColor = "text-emerald"; }
   else if (points > 300) { level = "متقدم"; maxPoints = 700; levelColor = "text-gold"; }
   else if (points > 100) { level = "متعلم"; maxPoints = 300; levelColor = "text-blue-400"; }
 
-  const progress = Math.min(100, (points / maxPoints) * 100);
+  const progress = isMaxLevel ? 100 : Math.min(100, (points / maxPoints) * 100);
 
   if (isBlocked) {
     return (
@@ -315,9 +319,9 @@ export default function Dashboard() {
             <div className="space-y-2">
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>{points} نقطة</span>
-                <span>{maxPoints} نقطة للمستوى التالي</span>
+                <span>{isMaxLevel ? "🏆 وصلت للقمة!" : `${maxPoints} نقطة للمستوى التالي`}</span>
               </div>
-              <Progress value={progress} className="h-3 bg-white/5 [&>div]:bg-gold" />
+              <Progress value={progress} className={`h-3 bg-white/5 ${isMaxLevel ? "[&>div]:bg-purple-500" : "[&>div]:bg-gold"}`} />
             </div>
           </div>
 

@@ -1,3 +1,31 @@
 <svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="180" height="180" rx="36" fill="#FF3C00"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1e1730"/>
+      <stop offset="1" stop-color="#0c0a1a"/>
+    </linearGradient>
+    <linearGradient id="border" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDE68A"/>
+      <stop offset="0.45" stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#92400E"/>
+    </linearGradient>
+    <linearGradient id="letter" x1="0" y1="30" x2="180" y2="160" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDE68A"/>
+      <stop offset="0.6" stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#D97706"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="90" cy="90" r="75" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F59E0B" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="3" y="3" width="174" height="174" rx="38" fill="url(#border)"/>
+  <rect x="9" y="9" width="162" height="162" rx="34" fill="url(#bg)"/>
+  <rect x="9" y="9" width="162" height="162" rx="34" fill="url(#glow)"/>
+  <rect x="15" y="15" width="150" height="150" rx="30" fill="none" stroke="#F59E0B" stroke-width="1.5" stroke-opacity="0.25"/>
+  <line x1="90" y1="30" x2="90" y2="150" stroke="#F59E0B" stroke-width="1" stroke-opacity="0.1"/>
+  <line x1="30" y1="90" x2="150" y2="90" stroke="#F59E0B" stroke-width="1" stroke-opacity="0.1"/>
+  <text x="90" y="125" text-anchor="middle" font-family="Tajawal, Cairo, Arial, sans-serif" font-size="100" font-weight="900" fill="url(#letter)">ن</text>
+  <circle cx="120" cy="42" r="13" fill="#F59E0B"/>
+  <circle cx="120" cy="42" r="7" fill="#FFFBEB"/>
 </svg>

@@ -93,7 +93,7 @@ export default function Lesson() {
           lessonId: lessonId!,
           lessonTitle: lesson?.title || "درس",
           subjectName: subject?.name || "مادة",
-          section: "university",
+          section: subjectId?.startsWith("skill-") ? "skills" : "university",
           isSkill: subjectId?.startsWith("skill-")
         })
       });
