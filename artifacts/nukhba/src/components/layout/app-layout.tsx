@@ -1,9 +1,9 @@
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
-import { LogOut, LogIn, Menu, User } from "lucide-react";
+import { LogOut, LogIn, Menu, User, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { ReactNode } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
 
 function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: string | null; size?: number }) {
@@ -31,6 +31,21 @@ function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: stri
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchUnread = () => {
+      const endpoint = user.role === 'admin' ? '/api/admin/support/unread-count' : '/api/support/unread-count';
+      fetch(endpoint, { credentials: 'include' })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d && setUnreadCount(d.count ?? 0))
+        .catch(() => {});
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   const loginUrl = "/api/auth/google";
 
@@ -39,6 +54,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <Link href="/learn" className="text-foreground hover:text-gold transition-colors font-medium">تعلّم</Link>
       <Link href="/dashboard" className="text-foreground hover:text-gold transition-colors font-medium">لوحتي</Link>
       <Link href="/subscription" className="text-foreground hover:text-gold transition-colors font-medium">الاشتراك</Link>
+      <Link href="/support" className="text-foreground hover:text-gold transition-colors font-medium relative inline-flex items-center gap-1">
+        <MessageCircle className="w-4 h-4" />
+        <span>الدعم</span>
+        {unreadCount > 0 && (
+          <span className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center animate-pulse">{unreadCount}</span>
+        )}
+      </Link>
       {user?.role === 'admin' && (
         <Link href="/admin" className="text-foreground hover:text-gold transition-colors font-medium">إدارة</Link>
       )}

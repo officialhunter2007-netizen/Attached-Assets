@@ -16,6 +16,7 @@ import Lesson from "@/pages/lesson";
 import Dashboard from "@/pages/dashboard";
 import Subscription from "@/pages/subscription";
 import Admin from "@/pages/admin";
+import Support from "@/pages/support";
 
 const queryClient = new QueryClient();
 
@@ -78,6 +79,7 @@ function Router() {
       <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
       <Route path="/subscription" component={() => <ProtectedRoute component={Subscription} />} />
       <Route path="/admin" component={() => <ProtectedRoute component={Admin} />} />
+      <Route path="/support" component={() => <ProtectedRoute component={Support} />} />
       <Route component={NotFound} />
     </Switch>
   );

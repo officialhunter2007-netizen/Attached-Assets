@@ -106,3 +106,20 @@ export const userSubjectPlansTable = pgTable("user_subject_plans", {
 export const insertUserSubjectPlanSchema = createInsertSchema(userSubjectPlansTable).omit({ id: true });
 export type InsertUserSubjectPlan = z.infer<typeof insertUserSubjectPlanSchema>;
 export type UserSubjectPlan = typeof userSubjectPlansTable.$inferSelect;
+
+export const supportMessagesTable = pgTable("support_messages", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  userName: text("user_name"),
+  userEmail: text("user_email"),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  isFromAdmin: boolean("is_from_admin").notNull().default(false),
+  isRead: boolean("is_read").notNull().default(false),
+  threadId: integer("thread_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertSupportMessageSchema = createInsertSchema(supportMessagesTable).omit({ id: true, createdAt: true });
+export type InsertSupportMessage = z.infer<typeof insertSupportMessageSchema>;
+export type SupportMessage = typeof supportMessagesTable.$inferSelect;

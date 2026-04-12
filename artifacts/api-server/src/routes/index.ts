@@ -7,6 +7,7 @@ import subscriptionsRouter from "./subscriptions";
 import aiRouter from "./ai";
 import summariesRouter from "./summaries";
 import plansRouter from "./plans";
+import supportRouter from "./support";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(subscriptionsRouter);
 router.use(aiRouter);
 router.use(summariesRouter);
 router.use(plansRouter);
+router.use(supportRouter);
 
 export default router;

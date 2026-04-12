@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "wouter";
@@ -83,6 +83,56 @@ export default function Admin() {
   // Grant subject picker
   const [grantSubjectSearch, setGrantSubjectSearch] = useState("");
   const [showGrantSubjectPicker, setShowGrantSubjectPicker] = useState(false);
+
+  // Support messages
+  const [supportThreads, setSupportThreads] = useState<any[]>([]);
+  const [supportUnread, setSupportUnread] = useState(0);
+  const [selectedThread, setSelectedThread] = useState<any | null>(null);
+  const [replyMessage, setReplyMessage] = useState("");
+  const [isSendingReply, setIsSendingReply] = useState(false);
+
+  useEffect(() => {
+    const fetchSupportData = () => {
+      fetch("/api/admin/support/threads", { credentials: "include" })
+        .then(r => r.ok ? r.json() : [])
+        .then(d => { if (Array.isArray(d)) setSupportThreads(d); })
+        .catch(() => {});
+      fetch("/api/admin/support/unread-count", { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d && setSupportUnread(d.count ?? 0))
+        .catch(() => {});
+    };
+    fetchSupportData();
+    const interval = setInterval(fetchSupportData, 20000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSupportReply = async (userId: number, subject: string) => {
+    if (!replyMessage.trim()) return;
+    setIsSendingReply(true);
+    try {
+      await fetch("/api/admin/support/reply", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, subject, message: replyMessage.trim() }),
+      });
+      setReplyMessage("");
+      toast({ title: "تم الرد", description: "تم إرسال الرد بنجاح", className: "bg-emerald-600 border-none text-white" });
+      const res = await fetch("/api/admin/support/threads", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setSupportThreads(data);
+        const updated = data.find((t: any) => t.userId === userId);
+        if (updated) setSelectedThread(updated);
+      }
+      fetch("/api/admin/support/unread-count", { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d && setSupportUnread(d.count ?? 0))
+        .catch(() => {});
+    } catch {}
+    setIsSendingReply(false);
+  };
 
   const { data: stats, refetch: refetchStats } = useGetAdminStats();
   const { data: requests, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
@@ -463,6 +513,13 @@ export default function Admin() {
               اشتراكات المواد
             </TabsTrigger>
             <TabsTrigger value="cards">بطاقات التفعيل</TabsTrigger>
+            <TabsTrigger value="support" className="relative flex items-center gap-1.5">
+              <MessageCircle className="w-3.5 h-3.5" />
+              الرسائل
+              {supportUnread > 0 && (
+                <span className="mr-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold animate-pulse">{supportUnread}</span>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           {/* Requests Tab */}
@@ -990,6 +1047,109 @@ export default function Admin() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          </TabsContent>
+
+          {/* Support Messages Tab */}
+          <TabsContent value="support">
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="md:col-span-1 space-y-2 max-h-[600px] overflow-y-auto">
+                <h3 className="font-bold text-sm text-muted-foreground mb-3">المحادثات ({supportThreads.length})</h3>
+                {supportThreads.length === 0 ? (
+                  <div className="text-center py-10 text-muted-foreground text-sm">لا توجد رسائل بعد</div>
+                ) : (
+                  supportThreads.map(thread => (
+                    <button
+                      key={thread.userId}
+                      onClick={() => setSelectedThread(thread)}
+                      className={`w-full text-right p-4 rounded-2xl border transition-all ${
+                        selectedThread?.userId === thread.userId
+                          ? 'border-gold/40 bg-gold/5'
+                          : 'border-white/5 glass hover:border-gold/20'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-sm truncate">{thread.userName || 'مستخدم'}</span>
+                        {thread.unreadCount > 0 && (
+                          <span className="bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-bold">{thread.unreadCount}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{thread.userEmail}</p>
+                      <p className="text-xs text-gold/80 mt-1 truncate">{thread.lastSubject}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        {new Date(thread.lastAt).toLocaleDateString("ar-SA")} — {thread.totalMessages} رسالة
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <div className="md:col-span-2">
+                {!selectedThread ? (
+                  <div className="glass rounded-3xl border border-white/5 flex items-center justify-center h-[400px] text-muted-foreground text-center">
+                    <div>
+                      <MessageCircle className="w-12 h-12 mx-auto mb-3 text-white/10" />
+                      <p className="font-bold">اختر محادثة من القائمة</p>
+                      <p className="text-xs mt-1">لعرض الرسائل والرد عليها</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="glass rounded-3xl border border-white/5 overflow-hidden">
+                    <div className="p-4 border-b border-white/5 bg-black/20">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-bold">{selectedThread.userName || 'مستخدم'}</p>
+                          <p className="text-xs text-muted-foreground">{selectedThread.userEmail}</p>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{selectedThread.totalMessages} رسالة</span>
+                      </div>
+                    </div>
+
+                    <div className="max-h-[350px] overflow-y-auto p-4 space-y-3">
+                      {[...selectedThread.messages].reverse().map((msg: any) => (
+                        <div
+                          key={msg.id}
+                          className={`flex ${msg.isFromAdmin ? 'justify-start' : 'justify-end'}`}
+                        >
+                          <div className={`max-w-[80%] rounded-2xl p-3 ${
+                            msg.isFromAdmin
+                              ? 'bg-emerald-500/10 border border-emerald-500/20 rounded-tr-sm'
+                              : 'bg-blue-500/10 border border-blue-500/20 rounded-tl-sm'
+                          }`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-xs font-bold ${msg.isFromAdmin ? 'text-emerald-400' : 'text-blue-400'}`}>
+                                {msg.isFromAdmin ? 'أنت (المشرف)' : msg.userName || 'المستخدم'}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {new Date(msg.createdAt).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" })}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gold/80 mb-1 font-bold">{msg.subject}</p>
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="p-4 border-t border-white/5 bg-black/20 space-y-3">
+                      <Textarea
+                        placeholder="اكتب ردك هنا..."
+                        className="bg-black/40 min-h-[80px]"
+                        dir="rtl"
+                        value={replyMessage}
+                        onChange={e => setReplyMessage(e.target.value)}
+                      />
+                      <Button
+                        className="w-full gradient-gold text-primary-foreground font-bold h-11 rounded-xl"
+                        disabled={!replyMessage.trim() || isSendingReply}
+                        onClick={() => handleSupportReply(selectedThread.userId, selectedThread.lastSubject)}
+                      >
+                        {isSendingReply ? "جاري الإرسال..." : "إرسال الرد"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </TabsContent>
         </Tabs>
