@@ -213,6 +213,11 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     return;
   }
 
+  if (!card.subjectId) {
+    res.status(400).json({ success: false, message: "هذا الكود قديم ولا يحتوي على مادة محددة. يرجى استخدام كود جديد." });
+    return;
+  }
+
   const messagesLimit = PLAN_MESSAGE_LIMITS[card.planType] ?? 30;
   const subscriptionExpiresAt = card.expiresAt ?? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
 
@@ -221,11 +226,6 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     usedByUserId: userId,
     usedAt: new Date(),
   }).where(eq(activationCardsTable.id, card.id));
-
-  if (!card.subjectId) {
-    res.status(400).json({ success: false, message: "هذا الكود قديم ولا يحتوي على مادة محددة. يرجى استخدام كود جديد." });
-    return;
-  }
 
   await db.insert(userSubjectSubscriptionsTable).values({
     userId,
