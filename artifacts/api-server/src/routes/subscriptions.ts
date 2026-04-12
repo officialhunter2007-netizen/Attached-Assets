@@ -534,6 +534,10 @@ router.get("/admin/users", async (req, res): Promise<void> => {
     const userSubjectSubs = allSubjectSubs.filter(s => s.userId === u.id);
     const activeSubjectSubs = userSubjectSubs.filter(s => new Date(s.expiresAt) > now && s.messagesUsed < s.messagesLimit);
 
+    const totalMessagesUsed = userSubjectSubs.reduce((sum, s) => sum + s.messagesUsed, 0);
+    const totalMessagesLimit = userSubjectSubs.reduce((sum, s) => sum + s.messagesLimit, 0);
+    const messagesLeft = activeSubjectSubs.reduce((sum, s) => sum + (s.messagesLimit - s.messagesUsed), 0);
+
     return {
       ...safe,
       totalSubscriptionRequests: userRequests.length,
@@ -544,6 +548,9 @@ router.get("/admin/users", async (req, res): Promise<void> => {
       lastRequestDate: lastRequest?.createdAt ?? null,
       subjectSubscriptions: userSubjectSubs,
       activeSubjectSubscriptionsCount: activeSubjectSubs.length,
+      messagesUsed: totalMessagesUsed,
+      messagesLimit: totalMessagesLimit,
+      messagesLeft,
     };
   });
 

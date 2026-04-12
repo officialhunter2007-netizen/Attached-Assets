@@ -690,19 +690,28 @@ export default function Admin() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {u.nukhbaPlan ? (
+                        {(u.activeSubjectSubscriptionsCount ?? 0) > 0 ? (
                           <div className="flex items-center gap-1.5">
-                            {planIcons[u.nukhbaPlan]}
-                            <span className="text-sm font-medium">{planLabels[u.nukhbaPlan] || u.nukhbaPlan}</span>
+                            <span className="text-emerald-400 text-sm font-bold">{u.activeSubjectSubscriptionsCount}</span>
+                            <span className="text-xs text-muted-foreground">اشتراك نشط</span>
                           </div>
+                        ) : u.firstLessonComplete ? (
+                          <span className="text-xs text-amber-400">بحاجة للاشتراك</span>
                         ) : (
                           <span className="text-xs text-muted-foreground">بدون اشتراك</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        <span className={`text-sm font-bold ${(u.messagesLeft ?? 0) > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`}>
-                          {u.messagesLeft ?? 0}
-                        </span>
+                        {(u.messagesLimit ?? 0) > 0 ? (
+                          <div className="text-sm">
+                            <span className={`font-bold ${(u.messagesLeft ?? 0) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {u.messagesLeft ?? 0}
+                            </span>
+                            <span className="text-muted-foreground text-xs"> / {u.messagesLimit ?? 0}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="text-xs space-y-0.5">
