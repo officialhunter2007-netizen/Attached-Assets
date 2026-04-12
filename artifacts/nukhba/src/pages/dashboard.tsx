@@ -147,7 +147,7 @@ export default function Dashboard() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [user?.id]);
 
   const totalLessons = views?.length || 0;
   const challengesAnswered = views?.filter(v => v.challengeAnswered).length || 0;

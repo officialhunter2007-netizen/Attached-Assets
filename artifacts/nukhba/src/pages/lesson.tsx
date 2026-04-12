@@ -116,7 +116,7 @@ export default function Lesson() {
           await saveCacheMutation.mutateAsync({
             data: {
               lessonKey,
-              section: "university",
+              section: subjectId?.startsWith("skill-") ? "skills" : "university",
               subject: subject?.name || "",
               unitTitle: unit?.name || "",
               lessonTitle: lesson?.title || "",
