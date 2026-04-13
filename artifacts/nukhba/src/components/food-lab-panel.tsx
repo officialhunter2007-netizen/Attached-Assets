@@ -14,6 +14,58 @@ type LabTab = "calc" | "charts" | "haccp";
 type CalcType = "thermal" | "water-activity" | "nutrition" | "pasteurization";
 type ChartType = "growth" | "death" | "water-activity";
 
+interface Organism {
+  id: string;
+  name: string;
+  nameAr: string;
+  dRef: number;
+  tRef: number;
+  zValue: number;
+  minAw: number;
+  tMin: number;
+  tOpt: number;
+  tMax: number;
+  phMin: number;
+  phOpt: number;
+  phMax: number;
+  muMax: number;
+  category: "pathogen" | "spoilage";
+}
+
+const ORGANISMS: Organism[] = [
+  { id: "c-botulinum", name: "Clostridium botulinum", nameAr: "المطثية الوشيقية", dRef: 0.21, tRef: 121.1, zValue: 10, minAw: 0.94, tMin: 10, tOpt: 37, tMax: 50, phMin: 4.6, phOpt: 7.0, phMax: 9.0, muMax: 0.35, category: "pathogen" },
+  { id: "salmonella", name: "Salmonella spp.", nameAr: "السالمونيلا", dRef: 0.6, tRef: 60, zValue: 5.5, minAw: 0.94, tMin: 5.2, tOpt: 37, tMax: 46.2, phMin: 3.8, phOpt: 7.0, phMax: 9.5, muMax: 1.0, category: "pathogen" },
+  { id: "e-coli-o157", name: "E. coli O157:H7", nameAr: "الإشريكية القولونية", dRef: 0.3, tRef: 60, zValue: 5.3, minAw: 0.95, tMin: 6.5, tOpt: 37, tMax: 49.4, phMin: 4.4, phOpt: 7.0, phMax: 9.0, muMax: 0.9, category: "pathogen" },
+  { id: "listeria", name: "Listeria monocytogenes", nameAr: "الليستيريا", dRef: 0.27, tRef: 60, zValue: 6.5, minAw: 0.92, tMin: -0.4, tOpt: 37, tMax: 45, phMin: 4.4, phOpt: 7.0, phMax: 9.4, muMax: 0.74, category: "pathogen" },
+  { id: "s-aureus", name: "Staphylococcus aureus", nameAr: "المكورات العنقودية", dRef: 5.0, tRef: 60, zValue: 5.6, minAw: 0.86, tMin: 6.7, tOpt: 37, tMax: 48, phMin: 4.0, phOpt: 7.0, phMax: 10.0, muMax: 0.8, category: "pathogen" },
+  { id: "b-cereus", name: "Bacillus cereus (spores)", nameAr: "العصوية الشمعية (أبواغ)", dRef: 2.4, tRef: 100, zValue: 9.8, minAw: 0.92, tMin: 4, tOpt: 30, tMax: 55, phMin: 4.3, phOpt: 7.0, phMax: 9.3, muMax: 0.65, category: "pathogen" },
+  { id: "c-perfringens", name: "Clostridium perfringens", nameAr: "المطثية الحاطمة", dRef: 0.3, tRef: 100, zValue: 10.4, minAw: 0.93, tMin: 12, tOpt: 43, tMax: 52, phMin: 5.0, phOpt: 7.0, phMax: 9.0, muMax: 1.1, category: "pathogen" },
+  { id: "pseudomonas", name: "Pseudomonas fluorescens", nameAr: "الزائفة المتألقة (فساد)", dRef: 0.8, tRef: 55, zValue: 5.0, minAw: 0.97, tMin: 0, tOpt: 25, tMax: 42, phMin: 5.0, phOpt: 7.0, phMax: 9.0, muMax: 0.8, category: "spoilage" },
+  { id: "lactobacillus", name: "Lactobacillus spp.", nameAr: "بكتيريا حمض اللاكتيك (فساد)", dRef: 2.5, tRef: 60, zValue: 7.0, minAw: 0.90, tMin: 2, tOpt: 30, tMax: 45, phMin: 3.5, phOpt: 5.5, phMax: 8.0, muMax: 0.5, category: "spoilage" },
+];
+
+function cardinalTemp(T: number, Tmin: number, Topt: number, Tmax: number): number {
+  if (T <= Tmin || T >= Tmax) return 0;
+  const num = (T - Tmax) * (T - Tmin) * (T - Tmin);
+  const denom = (Topt - Tmin) * ((Topt - Tmin) * (T - Topt) - (Topt - Tmax) * (Topt + Tmin - 2 * T));
+  if (denom === 0) return 0;
+  return Math.max(0, Math.min(1, num / denom));
+}
+
+function cardinalPH(pH: number, phMin: number, phOpt: number, phMax: number): number {
+  if (pH <= phMin || pH >= phMax) return 0;
+  const num = (pH - phMin) * (pH - phMax);
+  const denom = (phOpt - phMin) * (phOpt - phMax);
+  if (denom === 0) return 0;
+  const ratio = num / denom;
+  return Math.max(0, Math.min(1, ratio));
+}
+
+function awEffect(aw: number, minAw: number): number {
+  if (aw <= minAw) return 0;
+  return Math.min(1, (aw - minAw) / (1.0 - minAw));
+}
+
 interface Props {
   onShareWithTeacher?: (content: string) => void;
 }
@@ -171,22 +223,85 @@ function ShareButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+function OrganismSelector({ selected, onChange, label }: { selected: string; onChange: (id: string) => void; label?: string }) {
+  return (
+    <div>
+      {label && <label className="text-xs text-[#a6adc8] mb-1 block">{label}</label>}
+      <select
+        value={selected}
+        onChange={e => onChange(e.target.value)}
+        className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-lime-400/50 transition-colors"
+        style={{ direction: "rtl" }}
+      >
+        <option value="">— يدوي (أدخل القيم) —</option>
+        <optgroup label="الممرضات (Pathogens)">
+          {ORGANISMS.filter(o => o.category === "pathogen").map(o => (
+            <option key={o.id} value={o.id}>{o.nameAr} ({o.name})</option>
+          ))}
+        </optgroup>
+        <optgroup label="كائنات الفساد (Spoilage)">
+          {ORGANISMS.filter(o => o.category === "spoilage").map(o => (
+            <option key={o.id} value={o.id}>{o.nameAr} ({o.name})</option>
+          ))}
+        </optgroup>
+      </select>
+    </div>
+  );
+}
+
+function OrganismInfo({ org }: { org: Organism }) {
+  return (
+    <div className="rounded-lg border border-white/5 bg-[#1e1e2e] p-3 mb-3">
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`w-2 h-2 rounded-full ${org.category === "pathogen" ? "bg-red-400" : "bg-yellow-400"}`} />
+        <span className="text-xs font-bold text-white">{org.nameAr}</span>
+        <span className="text-[10px] text-[#6e6a86] italic">{org.name}</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 text-[10px]">
+        <span className="text-[#6e6a86]">D<sub>ref</sub>: <span className="text-white font-mono">{org.dRef} min @ {org.tRef}°C</span></span>
+        <span className="text-[#6e6a86]">z: <span className="text-white font-mono">{org.zValue}°C</span></span>
+        <span className="text-[#6e6a86]">Aw min: <span className="text-white font-mono">{org.minAw}</span></span>
+        <span className="text-[#6e6a86]">pH: <span className="text-white font-mono">{org.phMin}–{org.phMax}</span></span>
+        <span className="text-[#6e6a86]">T: <span className="text-white font-mono">{org.tMin}–{org.tMax}°C</span></span>
+        <span className="text-[#6e6a86]">T<sub>opt</sub>: <span className="text-white font-mono">{org.tOpt}°C</span></span>
+        <span className="text-[#6e6a86]">µ<sub>max</sub>: <span className="text-white font-mono">{org.muMax} h⁻¹</span></span>
+        <span className="text-[#6e6a86]">تصنيف: <span className={`font-bold ${org.category === "pathogen" ? "text-red-400" : "text-yellow-400"}`}>{org.category === "pathogen" ? "ممرض" : "فساد"}</span></span>
+      </div>
+    </div>
+  );
+}
+
 function ThermalCalc({ onShare }: { onShare?: (s: string) => void }) {
+  const [selectedOrg, setSelectedOrg] = useState("c-botulinum");
+  const org = ORGANISMS.find(o => o.id === selectedOrg);
+
   const [n0, setN0] = useState("1000000");
   const [n, setN] = useState("1");
-  const [t, setT] = useState("5");
-  const [dRef, setDRef] = useState("1.5");
-  const [tRef, setTRef] = useState("121");
+  const [dRef, setDRef] = useState(org?.dRef.toString() || "0.21");
+  const [tRef, setTRef] = useState(org?.tRef.toString() || "121.1");
+  const [zVal, setZVal] = useState(org?.zValue.toString() || "10");
   const [tActual, setTActual] = useState("115");
 
+  const handleOrgChange = useCallback((id: string) => {
+    setSelectedOrg(id);
+    const o = ORGANISMS.find(x => x.id === id);
+    if (o) {
+      setDRef(o.dRef.toString());
+      setTRef(o.tRef.toString());
+      setZVal(o.zValue.toString());
+    }
+  }, []);
+
   const D = parseFloat(dRef);
+  const z = parseFloat(zVal);
   const logReduction = Math.log10(parseFloat(n0) / parseFloat(n));
   const fValue = D * logReduction;
-  const z = 10;
   const dAtTemp = D * Math.pow(10, (parseFloat(tRef) - parseFloat(tActual)) / z);
   const fAtTemp = dAtTemp * logReduction;
+  const f0 = D * 12;
+  const safetyMargin = fAtTemp > 0 ? ((fAtTemp - fValue) / fValue * 100) : 0;
 
-  const shareText = `حاسبة المعاملات الحرارية:\n• N₀ = ${n0} CFU/g\n• N = ${n} CFU/g\n• D-value (${tRef}°C) = ${dRef} min\n• Log reduction = ${logReduction.toFixed(2)}\n• F-value (${tRef}°C) = ${fValue.toFixed(2)} min\n• D-value (${tActual}°C) = ${dAtTemp.toFixed(2)} min\n• F-value (${tActual}°C) = ${fAtTemp.toFixed(2)} min`;
+  const shareText = `حاسبة المعاملات الحرارية${org ? ` (${org.name})` : ""}:\n• N₀ = ${n0} CFU/g → N = ${n} CFU/g\n• D-value (${tRef}°C) = ${dRef} min\n• z-value = ${zVal}°C\n• Log reduction = ${logReduction.toFixed(2)}\n• F-value (${tRef}°C) = ${fValue.toFixed(2)} min\n• D-value (${tActual}°C) = ${dAtTemp.toFixed(4)} min\n• F-value (${tActual}°C) = ${fAtTemp.toFixed(2)} min\n• F₀ (12D commercial sterility) = ${f0.toFixed(2)} min`;
 
   return (
     <div className="space-y-4">
@@ -194,21 +309,46 @@ function ThermalCalc({ onShare }: { onShare?: (s: string) => void }) {
         <h4 className="text-sm font-bold text-lime-300 mb-3 flex items-center gap-2">
           <Thermometer className="w-4 h-4" /> حساب D-value و F-value
         </h4>
-        <div className="grid sm:grid-cols-2 gap-3 mb-4">
-          <CalcField label="العدد الابتدائي للبكتيريا (N₀)" value={n0} onChange={setN0} unit="CFU/g" hint="عدد الخلايا البكتيرية الابتدائي" />
-          <CalcField label="العدد المطلوب بعد المعاملة (N)" value={n} onChange={setN} unit="CFU/g" hint="العدد المستهدف بعد المعاملة الحرارية" />
-          <CalcField label="D-value عند درجة الحرارة المرجعية" value={dRef} onChange={setDRef} unit="دقيقة" hint="الزمن اللازم لقتل 90% من البكتيريا" />
+
+        <OrganismSelector selected={selectedOrg} onChange={handleOrgChange} label="اختر الكائن الدقيق المستهدف" />
+        {org && <div className="mt-2"><OrganismInfo org={org} /></div>}
+
+        <div className="grid sm:grid-cols-2 gap-3 mb-4 mt-3">
+          <CalcField label="العدد الابتدائي N₀" value={n0} onChange={setN0} unit="CFU/g" hint="مثال: 10⁶ للحوم الطازجة" />
+          <CalcField label="العدد المستهدف N" value={n} onChange={setN} unit="CFU/g" hint="FDA: أقل من 1 CFU/g للتعقيم" />
+          <CalcField label={`D-value @ ${tRef}°C`} value={dRef} onChange={setDRef} unit="min" hint="من الأدبيات العلمية أو المختبر" />
           <CalcField label="درجة الحرارة المرجعية" value={tRef} onChange={setTRef} unit="°C" />
-          <CalcField label="درجة الحرارة الفعلية" value={tActual} onChange={setTActual} unit="°C" hint="درجة حرارة التعقيم الفعلية" />
+          <CalcField label="z-value" value={zVal} onChange={setZVal} unit="°C" hint="حساسية الكائن لتغير الحرارة" />
+          <CalcField label="درجة الحرارة الفعلية" value={tActual} onChange={setTActual} unit="°C" hint="درجة حرارة المعاملة الفعلية" />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
           <ResultBox label="Log Reduction" value={isFinite(logReduction) ? logReduction.toFixed(2) : "—"} color="blue" />
-          <ResultBox label={`F-value (${tRef}°C)`} value={isFinite(fValue) ? fValue.toFixed(2) : "—"} unit="min" color="lime" />
-          <ResultBox label={`D (${tActual}°C)`} value={isFinite(dAtTemp) ? dAtTemp.toFixed(2) : "—"} unit="min" color="gold" />
-          <ResultBox label={`F (${tActual}°C)`} value={isFinite(fAtTemp) ? fAtTemp.toFixed(2) : "—"} unit="min" color="red" />
+          <ResultBox label={`F₀ (${tRef}°C)`} value={isFinite(fValue) ? fValue.toFixed(2) : "—"} unit="min" color="lime" />
+          <ResultBox label={`D @ ${tActual}°C`} value={isFinite(dAtTemp) ? dAtTemp.toFixed(4) : "—"} unit="min" color="gold" />
+          <ResultBox label={`F @ ${tActual}°C`} value={isFinite(fAtTemp) ? fAtTemp.toFixed(2) : "—"} unit="min" color="red" />
         </div>
-        <div className="flex items-center justify-between">
-          <p className="text-[10px] text-[#6e6a86]">z-value = {z}°C (افتراضي لـ C. botulinum)</p>
+
+        <div className="rounded-lg border border-white/5 bg-[#1e1e2e] p-3 mb-3">
+          <p className="text-[10px] text-[#6e6a86] mb-2">تقييم كفاية المعاملة الحرارية:</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="text-[10px] text-[#6e6a86]">F₀ (12D تعقيم تجاري)</p>
+              <p className="text-sm font-bold font-mono text-white" style={{ direction: "ltr" }}>{isFinite(f0) ? f0.toFixed(2) : "—"} min</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-[#6e6a86]">نسبة الأمان</p>
+              <p className={`text-sm font-bold font-mono ${fAtTemp >= f0 ? "text-emerald-400" : fAtTemp >= fValue ? "text-yellow-400" : "text-red-400"}`} style={{ direction: "ltr" }}>
+                {isFinite(fAtTemp) && fAtTemp > 0
+                  ? fAtTemp >= f0 ? "✓ يتجاوز 12D" : fAtTemp >= fValue ? "⚠ كافٍ للهدف فقط" : "✗ غير كافٍ"
+                  : "—"
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <p className="text-[10px] text-[#6e6a86]">المعادلة: D(T) = D<sub>ref</sub> × 10^((T<sub>ref</sub>−T)/z) | F = D × log(N₀/N)</p>
           {onShare && <ShareButton onClick={() => onShare(shareText)} />}
         </div>
       </div>
@@ -350,19 +490,35 @@ function NutritionCalc({ onShare }: { onShare?: (s: string) => void }) {
 }
 
 function PasteurizationCalc({ onShare }: { onShare?: (s: string) => void }) {
-  const [dRef, setDRef] = useState("0.25");
-  const [tRef, setTRef] = useState("72");
-  const [zVal, setZVal] = useState("7");
-  const [tTarget, setTTarget] = useState("63");
+  const [selectedOrg, setSelectedOrg] = useState("salmonella");
+  const org = ORGANISMS.find(o => o.id === selectedOrg);
+
+  const [dRef, setDRef] = useState(org ? org.dRef.toString() : "0.6");
+  const [tRef, setTRef] = useState(org ? org.tRef.toString() : "60");
+  const [zVal, setZVal] = useState(org ? org.zValue.toString() : "5.5");
+  const [tTarget, setTTarget] = useState("72");
   const [logTarget, setLogTarget] = useState("5");
+
+  const handleOrgChange = useCallback((id: string) => {
+    setSelectedOrg(id);
+    const o = ORGANISMS.find(x => x.id === id);
+    if (o) {
+      setDRef(o.dRef.toString());
+      setTRef(o.tRef.toString());
+      setZVal(o.zValue.toString());
+    }
+  }, []);
 
   const D = parseFloat(dRef);
   const z = parseFloat(zVal);
-  const dAtTarget = D * Math.pow(10, (parseFloat(tRef) - parseFloat(tTarget)) / z);
+  const tT = parseFloat(tTarget);
+  const dAtTarget = D * Math.pow(10, (parseFloat(tRef) - tT) / z);
   const pastTime = dAtTarget * parseFloat(logTarget);
 
-  const method = parseFloat(tTarget) >= 72 ? "بسترة سريعة (HTST)" : parseFloat(tTarget) >= 63 ? "بسترة بطيئة (LTLT)" : "معاملة حرارية منخفضة";
-  const shareText = `حاسبة زمن البسترة:\n• D-value المرجعية (${tRef}°C) = ${dRef} min\n• z-value = ${zVal}°C\n• درجة الحرارة المستهدفة = ${tTarget}°C\n• عدد اختزالات Log = ${logTarget}\n• D-value عند ${tTarget}°C = ${dAtTarget.toFixed(3)} min\n• زمن البسترة المطلوب = ${pastTime.toFixed(2)} min\n• نوع البسترة: ${method}`;
+  const method = tT >= 135 ? "UHT (بسترة فائقة)" : tT >= 72 ? "بسترة سريعة (HTST)" : tT >= 63 ? "بسترة بطيئة (LTLT)" : "معاملة حرارية منخفضة";
+  const standard = tT >= 135 ? "135°C / 2-4 sec" : tT >= 72 ? "72°C / 15 sec (FDA)" : tT >= 63 ? "63°C / 30 min (FDA)" : "غير قياسية";
+
+  const shareText = `حاسبة زمن البسترة${org ? ` (${org.name})` : ""}:\n• D-value (${tRef}°C) = ${dRef} min\n• z-value = ${zVal}°C\n• D-value عند ${tTarget}°C = ${dAtTarget.toFixed(4)} min\n• ${logTarget}-log reduction\n• زمن البسترة = ${pastTime.toFixed(3)} min (${(pastTime * 60).toFixed(1)} sec)\n• نوع: ${method}\n• المعيار: ${standard}`;
 
   return (
     <div className="space-y-4">
@@ -370,20 +526,42 @@ function PasteurizationCalc({ onShare }: { onShare?: (s: string) => void }) {
         <h4 className="text-sm font-bold text-lime-300 mb-3 flex items-center gap-2">
           <FlaskConical className="w-4 h-4" /> حساب زمن البسترة
         </h4>
-        <div className="grid sm:grid-cols-2 gap-3 mb-4">
-          <CalcField label="D-value المرجعية" value={dRef} onChange={setDRef} unit="دقيقة" hint="مثال: 0.25 min عند 72°C للحليب" />
+
+        <OrganismSelector selected={selectedOrg} onChange={handleOrgChange} label="اختر الكائن المستهدف" />
+        {org && <div className="mt-2"><OrganismInfo org={org} /></div>}
+
+        <div className="grid sm:grid-cols-2 gap-3 mb-4 mt-3">
+          <CalcField label={`D-value @ ${tRef}°C`} value={dRef} onChange={setDRef} unit="min" hint="من الأدبيات أو المختبر" />
           <CalcField label="درجة الحرارة المرجعية" value={tRef} onChange={setTRef} unit="°C" />
-          <CalcField label="z-value" value={zVal} onChange={setZVal} unit="°C" hint="z=7°C للبسترة، z=10°C للتعقيم" />
-          <CalcField label="درجة الحرارة المستهدفة" value={tTarget} onChange={setTTarget} unit="°C" />
-          <CalcField label="عدد اختزالات Log المطلوبة" value={logTarget} onChange={setLogTarget} hint="5-log = قتل 99.999%" />
+          <CalcField label="z-value" value={zVal} onChange={setZVal} unit="°C" hint={org ? `القيمة المنشورة لـ ${org.name}` : ""} />
+          <CalcField label="درجة حرارة البسترة المطلوبة" value={tTarget} onChange={v => { const parsed = v; setTTarget(parsed); }} unit="°C" />
+          <CalcField label="Log reduction المطلوب" value={logTarget} onChange={setLogTarget} hint="5-log=99.999% | 7-log=FDA juice | 12-log=تعقيم تجاري" />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
-          <ResultBox label={`D عند ${tTarget}°C`} value={isFinite(dAtTarget) ? dAtTarget.toFixed(3) : "—"} unit="min" color="gold" />
-          <ResultBox label="زمن البسترة" value={isFinite(pastTime) ? pastTime.toFixed(2) : "—"} unit="min" color="lime" />
-          <div className="col-span-2 sm:col-span-1">
-            <ResultBox label="نوع المعاملة" value={method} color="blue" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+          <ResultBox label={`D @ ${tTarget}°C`} value={isFinite(dAtTarget) ? dAtTarget.toFixed(4) : "—"} unit="min" color="gold" />
+          <ResultBox label="زمن البسترة" value={isFinite(pastTime) ? pastTime < 1 ? `${(pastTime*60).toFixed(1)} sec` : `${pastTime.toFixed(2)} min` : "—"} color="lime" />
+          <ResultBox label="نوع المعاملة" value={method} color="blue" />
+          <ResultBox label="المعيار الدولي" value={standard} color="red" />
+        </div>
+
+        <div className="rounded-lg border border-white/5 bg-[#1e1e2e] p-3 mb-3">
+          <p className="text-[10px] text-[#6e6a86] mb-2">مقارنة بالمعايير الدولية:</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px]">
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${tT >= 72 && pastTime * 60 <= 15 ? "bg-emerald-400" : "bg-white/20"}`} />
+              <span className="text-[#a6adc8]">HTST: 72°C / 15 sec</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${tT >= 63 && tT < 72 && pastTime <= 30 ? "bg-emerald-400" : "bg-white/20"}`} />
+              <span className="text-[#a6adc8]">LTLT: 63°C / 30 min</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${tT >= 135 ? "bg-emerald-400" : "bg-white/20"}`} />
+              <span className="text-[#a6adc8]">UHT: 135°C / 2-4 sec</span>
+            </div>
           </div>
         </div>
+
         {onShare && <div className="flex justify-end"><ShareButton onClick={() => onShare(shareText)} /></div>}
       </div>
     </div>
@@ -423,46 +601,99 @@ function ChartsTab({ onShareWithTeacher }: { onShareWithTeacher?: (s: string) =>
 }
 
 function GrowthCurveChart({ onShare }: { onShare?: (s: string) => void }) {
-  const [temp, setTemp] = useState(37);
-  const [ph, setPh] = useState(7.0);
+  const [selectedOrg, setSelectedOrg] = useState("salmonella");
+  const org = ORGANISMS.find(o => o.id === selectedOrg) || ORGANISMS[1];
+  const [temp, setTemp] = useState(org.tOpt);
+  const [ph, setPh] = useState(org.phOpt);
+  const [aw, setAw] = useState(0.99);
+  const [n0Log, setN0Log] = useState(3);
+
+  const handleOrgChange = useCallback((id: string) => {
+    setSelectedOrg(id);
+    const o = ORGANISMS.find(x => x.id === id);
+    if (o) {
+      setTemp(o.tOpt);
+      setPh(o.phOpt);
+    }
+  }, []);
+
+  const gammaT = cardinalTemp(temp, org.tMin, org.tOpt, org.tMax);
+  const gammaPH = cardinalPH(ph, org.phMin, org.phOpt, org.phMax);
+  const gammaAw = awEffect(aw, org.minAw);
+  const mu = org.muMax * gammaT * gammaPH * gammaAw;
 
   const data = useMemo(() => {
-    const growthRate = Math.max(0, 1 - Math.abs(temp - 37) / 30) * Math.max(0, 1 - Math.abs(ph - 7) / 4);
-    const lagTime = Math.max(1, 4 / (growthRate + 0.01));
+    const lagTime = mu > 0 ? Math.max(0.5, 3.0 / mu) : 999;
+    const maxLogN = 9.5;
     const points = [];
-    for (let t = 0; t <= 48; t += 0.5) {
+    for (let t = 0; t <= 72; t += 0.5) {
       let logN;
-      if (t < lagTime) {
-        logN = 3 + (t / lagTime) * 0.2;
-      } else if (t < lagTime + 12 / (growthRate + 0.05)) {
-        const expTime = t - lagTime;
-        logN = 3.2 + expTime * growthRate * 0.5;
+      if (mu <= 0.001) {
+        logN = n0Log;
       } else {
-        const maxLog = 3.2 + (12 / (growthRate + 0.05)) * growthRate * 0.5;
-        const declineTime = t - lagTime - 12 / (growthRate + 0.05);
-        logN = Math.max(maxLog - declineTime * 0.02, maxLog * 0.8);
+        const A = maxLogN - n0Log;
+        const B = Math.exp(-mu * (t - lagTime));
+        logN = maxLogN - Math.log10(1 + (Math.pow(10, A) - 1) * B) * (A / Math.log10(Math.pow(10, A)));
+        if (t < lagTime * 0.3) {
+          logN = n0Log;
+        } else if (t < lagTime) {
+          const frac = (t - lagTime * 0.3) / (lagTime * 0.7);
+          logN = n0Log + frac * frac * 0.1;
+        } else {
+          const expGrowth = n0Log + mu * (t - lagTime) / Math.LN10;
+          logN = Math.min(expGrowth, maxLogN);
+          if (expGrowth >= maxLogN && t > lagTime + (maxLogN - n0Log) * Math.LN10 / mu + 8) {
+            const declineStart = lagTime + (maxLogN - n0Log) * Math.LN10 / mu + 8;
+            logN = maxLogN - 0.015 * mu * (t - declineStart);
+            logN = Math.max(logN, maxLogN - 1.5);
+          }
+        }
       }
-      logN = Math.min(logN, 10);
+      logN = Math.max(0, Math.min(logN, 10));
       points.push({ time: t, logCFU: parseFloat(logN.toFixed(2)) });
     }
     return points;
-  }, [temp, ph]);
+  }, [temp, ph, aw, org, n0Log, mu]);
+
+  const generationTime = mu > 0 ? (Math.LN2 / mu * 60).toFixed(0) : "∞";
 
   return (
     <div className="rounded-xl border border-white/5 bg-white/3 p-4">
-      <h4 className="text-sm font-bold text-lime-300 mb-3">منحنى النمو البكتيري التفاعلي</h4>
-      <div className="grid sm:grid-cols-2 gap-4 mb-4">
+      <h4 className="text-sm font-bold text-lime-300 mb-3">منحنى النمو البكتيري — نموذج Cardinal التنبؤي</h4>
+
+      <OrganismSelector selected={selectedOrg} onChange={handleOrgChange} label="اختر الكائن الدقيق" />
+      {org && <div className="mt-2"><OrganismInfo org={org} /></div>}
+
+      <div className="grid sm:grid-cols-3 gap-4 mb-4 mt-3">
         <div>
           <label className="text-xs text-[#a6adc8] mb-1 block">درجة الحرارة: <span className="text-lime-300 font-bold">{temp}°C</span></label>
-          <input type="range" min="0" max="60" step="1" value={temp} onChange={e => setTemp(+e.target.value)} className="w-full accent-lime-400" />
-          <div className="flex justify-between text-[10px] text-[#6e6a86]"><span>0°C</span><span>37°C (مثالي)</span><span>60°C</span></div>
+          <input type="range" min={Math.floor(org.tMin - 2)} max={Math.ceil(org.tMax + 5)} step="1" value={temp} onChange={e => setTemp(+e.target.value)} className="w-full accent-lime-400" />
+          <div className="flex justify-between text-[10px] text-[#6e6a86]"><span>{Math.floor(org.tMin)}°C</span><span className="text-lime-400">{org.tOpt}°C مثالي</span><span>{Math.ceil(org.tMax)}°C</span></div>
         </div>
         <div>
-          <label className="text-xs text-[#a6adc8] mb-1 block">الرقم الهيدروجيني pH: <span className="text-lime-300 font-bold">{ph.toFixed(1)}</span></label>
-          <input type="range" min="2" max="12" step="0.1" value={ph} onChange={e => setPh(+e.target.value)} className="w-full accent-lime-400" />
-          <div className="flex justify-between text-[10px] text-[#6e6a86]"><span>2 (حمضي)</span><span>7 (متعادل)</span><span>12 (قلوي)</span></div>
+          <label className="text-xs text-[#a6adc8] mb-1 block">pH: <span className="text-lime-300 font-bold">{ph.toFixed(1)}</span></label>
+          <input type="range" min={Math.floor(org.phMin - 0.5)} max={Math.ceil(org.phMax + 0.5)} step="0.1" value={ph} onChange={e => setPh(+e.target.value)} className="w-full accent-lime-400" />
+          <div className="flex justify-between text-[10px] text-[#6e6a86]"><span>{org.phMin}</span><span className="text-lime-400">{org.phOpt} مثالي</span><span>{org.phMax}</span></div>
+        </div>
+        <div>
+          <label className="text-xs text-[#a6adc8] mb-1 block">Aw: <span className="text-lime-300 font-bold">{aw.toFixed(2)}</span></label>
+          <input type="range" min="0.60" max="1.0" step="0.01" value={aw} onChange={e => setAw(+e.target.value)} className="w-full accent-lime-400" />
+          <div className="flex justify-between text-[10px] text-[#6e6a86]"><span>0.60</span><span className="text-red-400">min: {org.minAw}</span><span>1.0</span></div>
         </div>
       </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+        <ResultBox label="γ(T)" value={(gammaT * 100).toFixed(0)} unit="%" color={gammaT > 0.5 ? "lime" : gammaT > 0 ? "gold" : "red"} />
+        <ResultBox label="γ(pH)" value={(gammaPH * 100).toFixed(0)} unit="%" color={gammaPH > 0.5 ? "lime" : gammaPH > 0 ? "gold" : "red"} />
+        <ResultBox label="γ(Aw)" value={(gammaAw * 100).toFixed(0)} unit="%" color={gammaAw > 0.5 ? "lime" : gammaAw > 0 ? "gold" : "red"} />
+        <ResultBox label="µ الفعلي" value={mu.toFixed(3)} unit="h⁻¹" color={mu > 0.3 ? "red" : mu > 0 ? "gold" : "lime"} />
+      </div>
+
+      <div className="rounded-lg border border-white/5 bg-[#1e1e2e] p-2 mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px]">
+        <span className="text-[#6e6a86]">زمن الجيل: <span className="text-white font-mono">{generationTime} min</span></span>
+        <span className="text-[#6e6a86]">µ = µ<sub>max</sub> × γ(T) × γ(pH) × γ(Aw) = <span className="text-white font-mono">{org.muMax} × {gammaT.toFixed(2)} × {gammaPH.toFixed(2)} × {gammaAw.toFixed(2)} = {mu.toFixed(3)} h⁻¹</span></span>
+      </div>
+
       <div className="h-[200px] sm:h-[250px] w-full" style={{ direction: "ltr" }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 5 }}>
@@ -481,56 +712,114 @@ function GrowthCurveChart({ onShare }: { onShare?: (s: string) => void }) {
         </ResponsiveContainer>
       </div>
       <div className="flex flex-wrap gap-2 mt-3 text-[10px] text-[#6e6a86]">
-        <span className="bg-white/5 px-2 py-1 rounded">🔵 طور التأخر (Lag)</span>
-        <span className="bg-white/5 px-2 py-1 rounded">📈 طور النمو الأُسّي (Log)</span>
-        <span className="bg-white/5 px-2 py-1 rounded">📊 الطور الثابت (Stationary)</span>
+        <span className="bg-white/5 px-2 py-1 rounded">🔵 طور التأخر (Lag) = {mu > 0 ? (3.0 / mu).toFixed(1) : "∞"} h</span>
+        <span className="bg-white/5 px-2 py-1 rounded">📈 طور النمو الأُسّي (Log) — µ={mu.toFixed(3)} h⁻¹</span>
+        <span className="bg-white/5 px-2 py-1 rounded">📊 الطور الثابت (Stationary) — N<sub>max</sub> ≈ 10⁹·⁵</span>
         <span className="bg-white/5 px-2 py-1 rounded">📉 طور الموت (Death)</span>
       </div>
-      {onShare && <div className="flex justify-end mt-3"><ShareButton onClick={() => onShare(`منحنى النمو البكتيري عند ${temp}°C وpH ${ph.toFixed(1)}:\n• أقصى كثافة: ${Math.max(...data.map(d => d.logCFU)).toFixed(2)} log CFU/g`)} /></div>}
+      {onShare && <div className="flex justify-end mt-3"><ShareButton onClick={() => onShare(`منحنى النمو (${org.name}) — نموذج Cardinal:\n• T=${temp}°C, pH=${ph.toFixed(1)}, Aw=${aw.toFixed(2)}\n• γ(T)=${(gammaT*100).toFixed(0)}%, γ(pH)=${(gammaPH*100).toFixed(0)}%, γ(Aw)=${(gammaAw*100).toFixed(0)}%\n• µ = ${mu.toFixed(4)} h⁻¹\n• زمن الجيل = ${generationTime} min\n• أقصى كثافة: ${Math.max(...data.map(d => d.logCFU)).toFixed(2)} log CFU/g`)} /></div>}
     </div>
   );
 }
 
 function DeathCurveChart({ onShare }: { onShare?: (s: string) => void }) {
+  const [selectedOrg, setSelectedOrg] = useState("c-botulinum");
+  const org = ORGANISMS.find(o => o.id === selectedOrg) || ORGANISMS[0];
   const [temp, setTemp] = useState(121);
-  const [dValue, setDValue] = useState(1.5);
+  const [shoulderEnabled, setShoulderEnabled] = useState(false);
+  const [tailingEnabled, setTailingEnabled] = useState(false);
+
+  const handleOrgChange = useCallback((id: string) => {
+    setSelectedOrg(id);
+    const o = ORGANISMS.find(x => x.id === id);
+    if (o) {
+      setTemp(Math.round(o.tRef));
+    }
+  }, []);
+
+  const dAtTemp = org.dRef * Math.pow(10, (org.tRef - temp) / org.zValue);
+  const f12D = dAtTemp * 12;
+  const shoulderTime = shoulderEnabled ? dAtTemp * 0.8 : 0;
+  const tailLevel = tailingEnabled ? 0.5 : 0;
+
+  const maxTime = Math.max(15, Math.ceil(dAtTemp * 14));
 
   const data = useMemo(() => {
     const points = [];
-    for (let t = 0; t <= 15; t += 0.25) {
-      const logN = Math.max(0, 6 - (t / dValue));
-      points.push({ time: t, logCFU: parseFloat(logN.toFixed(2)) });
+    const n0 = 6;
+    const step = maxTime / 120;
+    for (let t = 0; t <= maxTime; t += step) {
+      let logN;
+      if (shoulderEnabled && t < shoulderTime) {
+        const frac = t / shoulderTime;
+        logN = n0 - 0.1 * frac * frac;
+      } else {
+        const effectiveT = shoulderEnabled ? t - shoulderTime : t;
+        logN = n0 - (effectiveT / dAtTemp);
+      }
+      if (tailingEnabled && logN < tailLevel) {
+        logN = tailLevel * Math.exp(-0.05 * (n0 - logN - tailLevel));
+        logN = Math.max(logN, tailLevel * 0.3);
+      }
+      logN = Math.max(0, logN);
+      points.push({ time: parseFloat(t.toFixed(2)), logCFU: parseFloat(logN.toFixed(3)), ideal: parseFloat(Math.max(0, n0 - t / dAtTemp).toFixed(3)) });
     }
     return points;
-  }, [temp, dValue]);
+  }, [temp, org, dAtTemp, shoulderEnabled, tailingEnabled, shoulderTime, tailLevel, maxTime]);
 
   return (
     <div className="rounded-xl border border-white/5 bg-white/3 p-4">
-      <h4 className="text-sm font-bold text-lime-300 mb-3">منحنى الموت الحراري (Thermal Death Curve)</h4>
-      <div className="grid sm:grid-cols-2 gap-4 mb-4">
+      <h4 className="text-sm font-bold text-lime-300 mb-3">منحنى الموت الحراري — مع ظاهرتي الكتف والذيل</h4>
+
+      <OrganismSelector selected={selectedOrg} onChange={handleOrgChange} label="اختر الكائن الدقيق" />
+      {org && <div className="mt-2"><OrganismInfo org={org} /></div>}
+
+      <div className="grid sm:grid-cols-2 gap-4 mb-4 mt-3">
         <div>
-          <label className="text-xs text-[#a6adc8] mb-1 block">درجة الحرارة: <span className="text-lime-300 font-bold">{temp}°C</span></label>
-          <input type="range" min="60" max="140" step="1" value={temp} onChange={e => { setTemp(+e.target.value); setDValue(Math.max(0.1, 1.5 * Math.pow(10, (121 - (+e.target.value)) / 10))); }} className="w-full accent-red-400" />
-          <div className="flex justify-between text-[10px] text-[#6e6a86]"><span>60°C</span><span>100°C</span><span>140°C</span></div>
+          <label className="text-xs text-[#a6adc8] mb-1 block">درجة الحرارة: <span className="text-red-400 font-bold">{temp}°C</span></label>
+          <input type="range" min="55" max="145" step="1" value={temp} onChange={e => setTemp(+e.target.value)} className="w-full accent-red-400" />
+          <div className="flex justify-between text-[10px] text-[#6e6a86]"><span>55°C</span><span>T<sub>ref</sub>={org.tRef}°C</span><span>145°C</span></div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <ResultBox label="D-value" value={dValue.toFixed(2)} unit="min" color="red" />
-          <ResultBox label="12D (تعقيم تجاري)" value={(dValue * 12).toFixed(1)} unit="min" color="gold" />
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-xs text-[#a6adc8] cursor-pointer">
+            <input type="checkbox" checked={shoulderEnabled} onChange={e => setShoulderEnabled(e.target.checked)} className="accent-lime-400 w-4 h-4" />
+            ظاهرة الكتف (Shoulder) — مقاومة أولية
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[#a6adc8] cursor-pointer">
+            <input type="checkbox" checked={tailingEnabled} onChange={e => setTailingEnabled(e.target.checked)} className="accent-lime-400 w-4 h-4" />
+            ظاهرة الذيل (Tailing) — خلايا مقاومة متبقية
+          </label>
         </div>
       </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+        <ResultBox label={`D @ ${temp}°C`} value={dAtTemp.toFixed(4)} unit="min" color="red" />
+        <ResultBox label="12D تعقيم تجاري" value={f12D.toFixed(2)} unit="min" color="gold" />
+        <ResultBox label="5D بسترة" value={(dAtTemp * 5).toFixed(2)} unit="min" color="blue" />
+        <ResultBox label={`z-value`} value={org.zValue.toFixed(1)} unit="°C" color="lime" />
+      </div>
+
       <div className="h-[200px] sm:h-[250px] w-full" style={{ direction: "ltr" }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
             <XAxis dataKey="time" stroke="#6e6a86" fontSize={9} label={{ value: "Time (min)", position: "insideBottom", offset: -5, fill: "#6e6a86", fontSize: 9 }} />
-            <YAxis stroke="#6e6a86" fontSize={9} label={{ value: "Log CFU/g", angle: -90, position: "insideLeft", fill: "#6e6a86", fontSize: 9 }} domain={[0, 7]} />
-            <Tooltip contentStyle={{ background: "#1e1e2e", border: "1px solid #ffffff15", borderRadius: 8, fontSize: 11 }} labelFormatter={v => `${v} دقيقة`} formatter={(v: number) => [`${v} log CFU/g`, "البقاء"]} />
-            <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="5 5" label={{ value: "تعقيم كامل", fill: "#ef4444", fontSize: 10 }} />
-            <Line type="monotone" dataKey="logCFU" stroke="#ef4444" strokeWidth={2} dot={false} />
+            <YAxis stroke="#6e6a86" fontSize={9} label={{ value: "Log N(t)/g", angle: -90, position: "insideLeft", fill: "#6e6a86", fontSize: 9 }} domain={[0, 7]} />
+            <Tooltip contentStyle={{ background: "#1e1e2e", border: "1px solid #ffffff15", borderRadius: 8, fontSize: 11 }} labelFormatter={v => `${v} min`} />
+            {(shoulderEnabled || tailingEnabled) && <Line type="monotone" dataKey="ideal" name="خطي مثالي" stroke="#ffffff30" strokeWidth={1} strokeDasharray="5 5" dot={false} />}
+            <Line type="monotone" dataKey="logCFU" name="فعلي" stroke="#ef4444" strokeWidth={2} dot={false} />
+            <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="3 3" />
           </LineChart>
         </ResponsiveContainer>
       </div>
-      {onShare && <div className="flex justify-end mt-3"><ShareButton onClick={() => onShare(`منحنى الموت الحراري عند ${temp}°C:\n• D-value = ${dValue.toFixed(2)} min\n• 12D (تعقيم تجاري) = ${(dValue * 12).toFixed(1)} min`)} /></div>}
+
+      <div className="flex flex-wrap gap-2 mt-3 text-[10px] text-[#6e6a86]">
+        {shoulderEnabled && <span className="bg-orange-500/10 text-orange-400 px-2 py-1 rounded border border-orange-500/20">⏳ الكتف: الخلايا تقاوم الحرارة مبدئياً ({shoulderTime.toFixed(1)} min)</span>}
+        {tailingEnabled && <span className="bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded border border-yellow-500/20">🔬 الذيل: خلايا مقاومة لا تُقتل بسهولة</span>}
+        <span className="bg-white/5 px-2 py-1 rounded">D(T) = D<sub>ref</sub> × 10^((T<sub>ref</sub>−T)/z)</span>
+      </div>
+
+      {onShare && <div className="flex justify-end mt-3"><ShareButton onClick={() => onShare(`منحنى الموت الحراري (${org.name}) عند ${temp}°C:\n• D-value = ${dAtTemp.toFixed(4)} min\n• z-value = ${org.zValue}°C\n• 12D (تعقيم تجاري) = ${f12D.toFixed(2)} min\n• 5D (بسترة) = ${(dAtTemp * 5).toFixed(2)} min${shoulderEnabled ? "\n• ظاهرة الكتف مُفعّلة" : ""}${tailingEnabled ? "\n• ظاهرة الذيل مُفعّلة" : ""}`)} /></div>}
     </div>
   );
 }
@@ -555,6 +844,18 @@ function WaterActivityChart({ onShare }: { onShare?: (s: string) => void }) {
   return (
     <div className="rounded-xl border border-white/5 bg-white/3 p-4">
       <h4 className="text-sm font-bold text-lime-300 mb-3">علاقة النشاط المائي بنمو الكائنات الدقيقة</h4>
+
+      <div className="rounded-lg border border-white/5 bg-[#1e1e2e] p-3 mb-3">
+        <p className="text-[10px] text-[#6e6a86] mb-2">الحد الأدنى لـ Aw حسب قاعدة البيانات:</p>
+        <div className="flex flex-wrap gap-2">
+          {ORGANISMS.map(o => (
+            <span key={o.id} className={`text-[9px] px-2 py-0.5 rounded-full border ${o.category === "pathogen" ? "border-red-500/20 bg-red-500/10 text-red-300" : "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"}`}>
+              {o.name.split(" ")[0]}: {o.minAw}
+            </span>
+          ))}
+        </div>
+      </div>
+
       <div className="h-[220px] sm:h-[280px] w-full" style={{ direction: "ltr" }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 5 }}>
@@ -570,6 +871,9 @@ function WaterActivityChart({ onShare }: { onShare?: (s: string) => void }) {
             <Area type="monotone" dataKey="mold" name="فطريات" stroke="#84cc16" fill="url(#molGrad)" strokeWidth={2} dot={false} />
             <Area type="monotone" dataKey="yeast" name="خمائر" stroke="#f59e0b" fill="url(#yeaGrad)" strokeWidth={2} dot={false} />
             <Area type="monotone" dataKey="bacteria" name="بكتيريا" stroke="#ef4444" fill="url(#bacGrad)" strokeWidth={2} dot={false} />
+            {ORGANISMS.filter(o => o.category === "pathogen").map(o => (
+              <ReferenceLine key={o.id} x={o.minAw} stroke="#ffffff20" strokeDasharray="2 4" />
+            ))}
             <ReferenceLine x={0.6} stroke="#10b981" strokeDasharray="5 5" label={{ value: "حد الأمان", fill: "#10b981", fontSize: 9, position: "top" }} />
           </AreaChart>
         </ResponsiveContainer>
@@ -578,8 +882,9 @@ function WaterActivityChart({ onShare }: { onShare?: (s: string) => void }) {
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> بكتيريا (Aw &gt; 0.91)</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" /> خمائر (Aw &gt; 0.87)</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-lime-500" /> فطريات (Aw &gt; 0.70)</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-400/50" /> S. aureus (Aw &gt; 0.86 — أخطر)</span>
       </div>
-      {onShare && <div className="flex justify-end mt-3"><ShareButton onClick={() => onShare("مخطط علاقة النشاط المائي بنمو الكائنات الدقيقة:\n• البكتيريا تنمو عند Aw > 0.91\n• الخمائر تنمو عند Aw > 0.87\n• الفطريات تنمو عند Aw > 0.70\n• حد الأمان: Aw < 0.60")} /></div>}
+      {onShare && <div className="flex justify-end mt-3"><ShareButton onClick={() => onShare(`مخطط علاقة النشاط المائي بنمو الكائنات:\n• البكتيريا العامة: Aw > 0.91\n• S. aureus (الأخطر): Aw > 0.86\n• الخمائر: Aw > 0.87\n• الفطريات: Aw > 0.70\n• حد الأمان: Aw < 0.60\nقيم Aw من قاعدة البيانات:\n${ORGANISMS.map(o => `  - ${o.name}: min Aw = ${o.minAw}`).join("\n")}`)} /></div>}
     </div>
   );
 }
