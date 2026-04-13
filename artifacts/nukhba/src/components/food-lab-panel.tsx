@@ -56,7 +56,7 @@ export function FoodLabPanel({ onShareWithTeacher }: Props) {
         ))}
       </div>
 
-      <div className="bg-[#0d1117] min-h-[400px] max-h-[75vh] overflow-y-auto">
+      <div className="bg-[#0d1117] min-h-[300px] max-h-[70vh] sm:max-h-[75vh] overflow-y-auto">
         <AnimatePresence mode="wait">
           {activeTab === "calc" && (
             <motion.div key="calc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -154,7 +154,7 @@ function ResultBox({ label, value, unit, color = "lime" }: { label: string; valu
   return (
     <div className={`rounded-xl border p-3 ${colors[color] || colors.lime}`}>
       <p className="text-[10px] opacity-60 mb-1">{label}</p>
-      <p className="text-lg font-bold font-mono" style={{ direction: "ltr" }}>{value} {unit || ""}</p>
+      <p className="text-sm sm:text-lg font-bold font-mono truncate" style={{ direction: "ltr" }}>{value} {unit || ""}</p>
     </div>
   );
 }
@@ -380,7 +380,9 @@ function PasteurizationCalc({ onShare }: { onShare?: (s: string) => void }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
           <ResultBox label={`D عند ${tTarget}°C`} value={isFinite(dAtTarget) ? dAtTarget.toFixed(3) : "—"} unit="min" color="gold" />
           <ResultBox label="زمن البسترة" value={isFinite(pastTime) ? pastTime.toFixed(2) : "—"} unit="min" color="lime" />
-          <ResultBox label="نوع المعاملة" value={method} color="blue" />
+          <div className="col-span-2 sm:col-span-1">
+            <ResultBox label="نوع المعاملة" value={method} color="blue" />
+          </div>
         </div>
         {onShare && <div className="flex justify-end"><ShareButton onClick={() => onShare(shareText)} /></div>}
       </div>
@@ -461,9 +463,9 @@ function GrowthCurveChart({ onShare }: { onShare?: (s: string) => void }) {
           <div className="flex justify-between text-[10px] text-[#6e6a86]"><span>2 (حمضي)</span><span>7 (متعادل)</span><span>12 (قلوي)</span></div>
         </div>
       </div>
-      <div className="h-[250px] w-full" style={{ direction: "ltr" }}>
+      <div className="h-[200px] sm:h-[250px] w-full" style={{ direction: "ltr" }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
+          <AreaChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 5 }}>
             <defs>
               <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#84cc16" stopOpacity={0.3} />
@@ -471,8 +473,8 @@ function GrowthCurveChart({ onShare }: { onShare?: (s: string) => void }) {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-            <XAxis dataKey="time" stroke="#6e6a86" fontSize={10} label={{ value: "Time (h)", position: "insideBottom", offset: -5, fill: "#6e6a86", fontSize: 10 }} />
-            <YAxis stroke="#6e6a86" fontSize={10} label={{ value: "Log CFU/g", angle: -90, position: "insideLeft", fill: "#6e6a86", fontSize: 10 }} domain={[0, 11]} />
+            <XAxis dataKey="time" stroke="#6e6a86" fontSize={9} label={{ value: "Time (h)", position: "insideBottom", offset: -5, fill: "#6e6a86", fontSize: 9 }} />
+            <YAxis stroke="#6e6a86" fontSize={9} label={{ value: "Log CFU/g", angle: -90, position: "insideLeft", fill: "#6e6a86", fontSize: 9 }} domain={[0, 11]} />
             <Tooltip contentStyle={{ background: "#1e1e2e", border: "1px solid #ffffff15", borderRadius: 8, fontSize: 11 }} labelFormatter={v => `${v} ساعة`} formatter={(v: number) => [`${v} log CFU/g`, "الكثافة"]} />
             <Area type="monotone" dataKey="logCFU" stroke="#84cc16" fill="url(#growthGrad)" strokeWidth={2} dot={false} />
           </AreaChart>
@@ -511,17 +513,17 @@ function DeathCurveChart({ onShare }: { onShare?: (s: string) => void }) {
           <input type="range" min="60" max="140" step="1" value={temp} onChange={e => { setTemp(+e.target.value); setDValue(Math.max(0.1, 1.5 * Math.pow(10, (121 - (+e.target.value)) / 10))); }} className="w-full accent-red-400" />
           <div className="flex justify-between text-[10px] text-[#6e6a86]"><span>60°C</span><span>100°C</span><span>140°C</span></div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="grid grid-cols-2 gap-2">
           <ResultBox label="D-value" value={dValue.toFixed(2)} unit="min" color="red" />
           <ResultBox label="12D (تعقيم تجاري)" value={(dValue * 12).toFixed(1)} unit="min" color="gold" />
         </div>
       </div>
-      <div className="h-[250px] w-full" style={{ direction: "ltr" }}>
+      <div className="h-[200px] sm:h-[250px] w-full" style={{ direction: "ltr" }}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data}>
+          <LineChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-            <XAxis dataKey="time" stroke="#6e6a86" fontSize={10} label={{ value: "Time (min)", position: "insideBottom", offset: -5, fill: "#6e6a86", fontSize: 10 }} />
-            <YAxis stroke="#6e6a86" fontSize={10} label={{ value: "Log CFU/g", angle: -90, position: "insideLeft", fill: "#6e6a86", fontSize: 10 }} domain={[0, 7]} />
+            <XAxis dataKey="time" stroke="#6e6a86" fontSize={9} label={{ value: "Time (min)", position: "insideBottom", offset: -5, fill: "#6e6a86", fontSize: 9 }} />
+            <YAxis stroke="#6e6a86" fontSize={9} label={{ value: "Log CFU/g", angle: -90, position: "insideLeft", fill: "#6e6a86", fontSize: 9 }} domain={[0, 7]} />
             <Tooltip contentStyle={{ background: "#1e1e2e", border: "1px solid #ffffff15", borderRadius: 8, fontSize: 11 }} labelFormatter={v => `${v} دقيقة`} formatter={(v: number) => [`${v} log CFU/g`, "البقاء"]} />
             <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="5 5" label={{ value: "تعقيم كامل", fill: "#ef4444", fontSize: 10 }} />
             <Line type="monotone" dataKey="logCFU" stroke="#ef4444" strokeWidth={2} dot={false} />
@@ -553,17 +555,17 @@ function WaterActivityChart({ onShare }: { onShare?: (s: string) => void }) {
   return (
     <div className="rounded-xl border border-white/5 bg-white/3 p-4">
       <h4 className="text-sm font-bold text-lime-300 mb-3">علاقة النشاط المائي بنمو الكائنات الدقيقة</h4>
-      <div className="h-[280px] w-full" style={{ direction: "ltr" }}>
+      <div className="h-[220px] sm:h-[280px] w-full" style={{ direction: "ltr" }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
+          <AreaChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 5 }}>
             <defs>
               <linearGradient id="bacGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} /><stop offset="95%" stopColor="#ef4444" stopOpacity={0} /></linearGradient>
               <linearGradient id="yeaGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} /><stop offset="95%" stopColor="#f59e0b" stopOpacity={0} /></linearGradient>
               <linearGradient id="molGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#84cc16" stopOpacity={0.3} /><stop offset="95%" stopColor="#84cc16" stopOpacity={0} /></linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-            <XAxis dataKey="aw" stroke="#6e6a86" fontSize={10} label={{ value: "Water Activity (Aw)", position: "insideBottom", offset: -5, fill: "#6e6a86", fontSize: 10 }} />
-            <YAxis stroke="#6e6a86" fontSize={10} label={{ value: "Growth Rate %", angle: -90, position: "insideLeft", fill: "#6e6a86", fontSize: 10 }} />
+            <XAxis dataKey="aw" stroke="#6e6a86" fontSize={9} label={{ value: "Water Activity (Aw)", position: "insideBottom", offset: -5, fill: "#6e6a86", fontSize: 9 }} />
+            <YAxis stroke="#6e6a86" fontSize={9} label={{ value: "Growth Rate %", angle: -90, position: "insideLeft", fill: "#6e6a86", fontSize: 9 }} />
             <Tooltip contentStyle={{ background: "#1e1e2e", border: "1px solid #ffffff15", borderRadius: 8, fontSize: 11 }} labelFormatter={v => `Aw = ${v}`} />
             <Area type="monotone" dataKey="mold" name="فطريات" stroke="#84cc16" fill="url(#molGrad)" strokeWidth={2} dot={false} />
             <Area type="monotone" dataKey="yeast" name="خمائر" stroke="#f59e0b" fill="url(#yeaGrad)" strokeWidth={2} dot={false} />
@@ -639,14 +641,14 @@ function HACCPTab({ onShareWithTeacher }: { onShareWithTeacher?: (s: string) => 
 
   return (
     <div className="p-4">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
         <div>
           <h4 className="text-sm font-bold text-lime-300 flex items-center gap-2">
             <Shield className="w-4 h-4" /> مُنشئ مخطط HACCP
           </h4>
           <p className="text-[10px] text-[#6e6a86] mt-0.5">صمّم مخطط تدفق العملية وحدد نقاط التحكم الحرجة (CCPs)</p>
         </div>
-        <button onClick={addStep} className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg bg-lime-500/20 text-lime-400 border border-lime-500/30 hover:bg-lime-500/30 transition-all">
+        <button onClick={addStep} className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg bg-lime-500/20 text-lime-400 border border-lime-500/30 hover:bg-lime-500/30 transition-all self-start">
           <Plus className="w-3.5 h-3.5" /> إضافة خطوة
         </button>
       </div>
@@ -711,7 +713,7 @@ function HACCPTab({ onShareWithTeacher }: { onShareWithTeacher?: (s: string) => 
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="px-3 pb-3 pr-14 space-y-2">
+                    <div className="px-3 pb-3 sm:pr-14 space-y-2">
                       <HACCPField label="الخطر المحتمل" value={step.hazard} onChange={v => updateStep(step.id, { hazard: v })} placeholder="مثال: تلوث بيولوجي بالسالمونيلا" />
                       <HACCPField label="الحد الحرج" value={step.criticalLimit} onChange={v => updateStep(step.id, { criticalLimit: v })} placeholder="مثال: درجة الحرارة ≥ 72°C لمدة 15 ثانية" />
                       <HACCPField label="إجراء المراقبة" value={step.monitoring} onChange={v => updateStep(step.id, { monitoring: v })} placeholder="مثال: فحص الحرارة كل 30 دقيقة" />
