@@ -417,21 +417,32 @@ export default function Subscription() {
           </div>
         )}
 
-        <div className="flex justify-center mb-12">
-          <div className="glass p-1 rounded-2xl flex gap-2 border-white/10">
-            <button
-              className={`px-8 py-3 rounded-xl font-bold transition-all ${region === 'north' ? 'gradient-gold text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              onClick={() => setRegion('north')}
-            >
-              المحافظات الشمالية
-            </button>
-            <button
-              className={`px-8 py-3 rounded-xl font-bold transition-all ${region === 'south' ? 'gradient-gold text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              onClick={() => setRegion('south')}
-            >
-              المحافظات الجنوبية
-            </button>
+        <div className="mb-6">
+          <div className="text-center mb-3">
+            <p className="text-sm font-bold text-gold mb-1">أولاً: حدد منطقتك</p>
+            <p className="text-xs text-muted-foreground">لكل منطقة رقم حساب كريمي مختلف وسعر مختلف — اختر المنطقة الصحيحة حتى يظهر لك الحساب المناسب للدفع</p>
           </div>
+          <div className="flex justify-center">
+            <div className="glass p-1 rounded-2xl flex gap-2 border-white/10">
+              <button
+                className={`px-6 sm:px-8 py-3 rounded-xl font-bold transition-all text-sm sm:text-base ${region === 'north' ? 'gradient-gold text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                onClick={() => setRegion('north')}
+              >
+                المحافظات الشمالية
+              </button>
+              <button
+                className={`px-6 sm:px-8 py-3 rounded-xl font-bold transition-all text-sm sm:text-base ${region === 'south' ? 'gradient-gold text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                onClick={() => setRegion('south')}
+              >
+                المحافظات الجنوبية
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-4 text-center">
+          <p className="text-sm font-bold text-gold mb-1">ثانياً: اضغط على الباقة التي تناسبك</p>
+          <p className="text-xs text-muted-foreground">بعد الضغط على الباقة، سيظهر لك رقم حساب الكريمي والمبلغ المطلوب تحويله في الأسفل</p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 mb-16">
@@ -535,11 +546,11 @@ export default function Subscription() {
             </h3>
 
             {!selectedPlan ? (
-              <div className="h-48 flex items-center justify-center text-muted-foreground text-center border-2 border-dashed border-white/10 rounded-2xl px-4">
+              <div className="h-48 flex items-center justify-center text-muted-foreground text-center border-2 border-dashed border-gold/20 rounded-2xl px-4 bg-gold/[0.02]">
                 <div>
-                  <ArrowRight className="w-8 h-8 mx-auto mb-3 text-gold/50 rotate-180" />
-                  <p className="text-base font-bold mb-1">اختر باقتك أولاً</p>
-                  <p className="text-xs">اضغط على إحدى الباقات الثلاث في الأعلى (برونزية، فضية، أو ذهبية) لتظهر تفاصيل الدفع</p>
+                  <ChevronDown className="w-8 h-8 mx-auto mb-2 text-gold/40 animate-bounce" style={{animationDuration: '2s'}} />
+                  <p className="text-base font-bold mb-1 text-gold/70">لم تختر باقة بعد</p>
+                  <p className="text-xs">ارجع للأعلى واضغط على إحدى الباقات الثلاث (برونزية، فضية، أو ذهبية) — بعدها سيظهر هنا رقم حساب الكريمي وتفاصيل الدفع</p>
                 </div>
               </div>
             ) : (
@@ -678,6 +689,72 @@ export default function Subscription() {
                     <p className="text-xs text-muted-foreground leading-relaxed">{item.a}</p>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-14">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-black mb-2">ماذا يقول طلابنا؟</h2>
+            <p className="text-muted-foreground text-sm">تجارب حقيقية من طلاب استفادوا من نُخبة</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[
+              { name: "عبدالله م.", subject: "البرمجة بلغة Python", text: "بصراحة ما توقعت إن الذكاء الاصطناعي يقدر يشرح بهالطريقة. كنت أعاني من الحلقات التكرارية وما كنت فاهمها أبداً، المعلم الذكي شرحها لي خطوة خطوة لين فهمتها. أحسن استثمار.", stars: 5 },
+              { name: "سارة أ.", subject: "قواعد البيانات", text: "كنت خايفة من SQL وكل ما أشوف استعلام معقد أحس بإحباط. بعد أسبوعين مع نُخبة صرت أكتب استعلامات JOIN لحالي. المعلم صبور ويعيد الشرح بأكثر من طريقة.", stars: 5 },
+              { name: "محمد ع.", subject: "تطوير الويب", text: "الشي اللي عجبني إنه ما يعطيك الإجابة مباشرة، يخليك تفكر وتوصل لها بنفسك. هذا اللي خلاني فعلاً أتعلم مو بس أحفظ. وبيئة الأكواد داخل المنصة وفرت علي وقت كثير.", stars: 5 },
+              { name: "أحمد ن.", subject: "هياكل البيانات", text: "كنت أدرس من يوتيوب وما كنت فاهم شي بالضبط. هنا الفرق إنك تسأل وتحصل جواب مخصص لمشكلتك بالتحديد. الباقة الفضية كافية ووافية.", stars: 4 },
+              { name: "نور هـ.", subject: "الخوارزميات", text: "أول مرة أحس إن دراسة الخوارزميات ممتعة. المعلم يربط كل شي بأمثلة عملية وما يخليك تحس إنك غبي لما تغلط. جربوها والله ما بتندمون.", stars: 5 },
+              { name: "يوسف ك.", subject: "تطوير تطبيقات الجوال", text: "بدأت بالـ 15 رسالة المجانية وقلت أجرب. بعدها اشتركت مباشرة لأن الفايدة كانت واضحة من أول جلسة. التفعيل كان سريع عبر الكريمي.", stars: 5 },
+            ].map((review, i) => (
+              <div key={i} className="glass rounded-2xl p-5 border border-white/5 flex flex-col">
+                <div className="flex items-center gap-1 mb-2">
+                  {Array.from({ length: review.stars }).map((_, si) => (
+                    <Star key={si} className="w-3.5 h-3.5 text-gold fill-gold" />
+                  ))}
+                  {Array.from({ length: 5 - review.stars }).map((_, si) => (
+                    <Star key={si} className="w-3.5 h-3.5 text-white/15" />
+                  ))}
+                </div>
+                <p className="text-sm text-foreground/90 leading-relaxed flex-1 mb-3">"{review.text}"</p>
+                <div className="border-t border-white/5 pt-3 flex items-center justify-between">
+                  <span className="text-xs font-bold">{review.name}</span>
+                  <span className="text-[10px] text-muted-foreground">{review.subject}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-14 p-6 sm:p-8 rounded-3xl border-2 border-blue-500/20 bg-blue-500/5">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center mx-auto mb-4">
+              <PhoneCall className="w-8 h-8 text-blue-400" />
+            </div>
+            <h3 className="text-xl font-black text-blue-300 mb-2">واجهتك مشكلة؟ نحن هنا لمساعدتك</h3>
+            <p className="text-sm text-muted-foreground max-w-lg mx-auto">
+              إذا واجهت أي صعوبة في الاشتراك أو الدفع أو التفعيل، لا تتردد — تواصل معنا مباشرة وسنساعدك فوراً
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
+            <a
+              href="/support"
+              className="glass rounded-2xl p-5 border border-blue-500/20 hover:border-blue-500/40 transition-all group text-center"
+            >
+              <MessageCircle className="w-8 h-8 text-blue-400 mx-auto mb-3 group-hover:scale-110 transition-transform" />
+              <p className="font-bold text-base mb-1">رسائل الدعم الداخلية</p>
+              <p className="text-xs text-muted-foreground mb-3">أرسل رسالة مباشرة من داخل المنصة وسيرد عليك المشرف في أقرب وقت</p>
+              <span className="text-xs text-blue-400 font-bold">اذهب لصفحة الدعم ←</span>
+            </a>
+            <div className="glass rounded-2xl p-5 border border-white/5 text-center">
+              <Send className="w-8 h-8 text-emerald-400 mx-auto mb-3" />
+              <p className="font-bold text-base mb-1">كيف ترسل رسالة دعم؟</p>
+              <div className="text-xs text-muted-foreground text-right space-y-2">
+                <p className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">١.</span> اضغط على "الدعم" من القائمة الجانبية أو الرابط بجانبه</p>
+                <p className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">٢.</span> اكتب عنوان لمشكلتك (مثال: "مشكلة في الدفع")</p>
+                <p className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">٣.</span> اشرح المشكلة بالتفصيل في خانة الرسالة</p>
+                <p className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">٤.</span> اضغط إرسال — سيصلك رد المشرف مباشرة في نفس الصفحة</p>
               </div>
             </div>
           </div>
