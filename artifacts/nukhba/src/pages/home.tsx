@@ -55,12 +55,9 @@ export default function Home() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5, duration: 0.6 }}
-              className="mb-8 md:mb-10 flex items-center justify-center gap-2 text-red-500 font-bold text-sm md:text-base"
-              style={{ textShadow: "0 0 12px rgba(239,68,68,0.9), 0 0 28px rgba(239,68,68,0.5)" }}
+              className="mb-8 md:mb-10 text-center text-sm text-muted-foreground"
             >
-              <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" style={{ boxShadow: "0 0 8px rgba(239,68,68,0.9)" }} />
-              تصفح المنصة بالكمبيوتر إذا ستتعلم شيئاً له علاقة بالبرمجة حتى لا تواجه مشاكل مستقبلاً
-              <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" style={{ boxShadow: "0 0 8px rgba(239,68,68,0.9)" }} />
+              يمكنك تصفح المنصة من الهاتف أو الكمبيوتر
             </motion.div>
 
             <div className="grid grid-cols-3 gap-3 md:gap-8 max-w-3xl mx-auto border-t border-white/10 pt-8 md:pt-10">

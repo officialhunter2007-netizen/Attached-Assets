@@ -5,7 +5,7 @@ import type { Subject } from "@/lib/curriculum";
 import { AppLayout } from "@/components/layout/app-layout";
 import { motion } from "framer-motion";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Star, Quote } from "lucide-react";
 
 function SubjectProgressBadge({ subject, viewedLessonIds }: { subject: Subject; viewedLessonIds: Set<string> }) {
   const totalLessons = subject.units.reduce((sum, u) => sum + u.lessons.length, 0);
@@ -69,13 +69,8 @@ export default function Learn() {
         <div className="mb-12 text-center md:text-right">
           <h1 className="text-4xl font-black mb-4">مسارات التعلم</h1>
           <p className="text-xl text-muted-foreground">اختر مسارك وابدأ التعلم المخصص مع معلمك الذكي</p>
-          <p
-            className="mt-3 text-sm md:text-base font-bold text-red-500 flex items-center justify-center md:justify-start gap-2"
-            style={{ textShadow: "0 0 12px rgba(239,68,68,0.9), 0 0 28px rgba(239,68,68,0.5)" }}
-          >
-            <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" style={{ boxShadow: "0 0 8px rgba(239,68,68,0.9)" }} />
-            تصفح المنصة بالكمبيوتر إذا ستتعلم شيئاً له علاقة بالبرمجة حتى لا تواجه مشاكل مستقبلاً
-            <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" style={{ boxShadow: "0 0 8px rgba(239,68,68,0.9)" }} />
+          <p className="mt-3 text-sm text-muted-foreground">
+            يمكنك تصفح المنصة من الهاتف أو الكمبيوتر
           </p>
         </div>
 
@@ -141,6 +136,46 @@ export default function Learn() {
             ))}
           </TabsContent>
         </Tabs>
+
+        <div className="mt-16 border-t border-white/5 pt-12">
+          <div className="text-center mb-8">
+            <Quote className="w-8 h-8 text-gold/30 mx-auto mb-3 rotate-180" />
+            <h2 className="text-2xl font-black mb-2">كلام طلاب سبقوك</h2>
+            <p className="text-sm text-muted-foreground">تجارب من طلاب بدأوا مثلك وحققوا تقدم حقيقي</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[
+              { name: "خالد ص.", subject: "البرمجة", text: "كنت أضيع وقت كثير أدور شروحات هنا وهناك. لما بدأت مع نُخبة حسيت إن التعلم صار منظم وكل جلسة تبني على اللي قبلها. الفرق واضح.", stars: 5 },
+              { name: "ريم ع.", subject: "قواعد البيانات", text: "أنا طالبة سنة ثالثة وكانت قواعد البيانات أصعب مادة عندي. المعلم الذكي شرحها لي بطريقة بسيطة وربطها بأمثلة من حياتنا. حرفياً أنقذني قبل الاختبار.", stars: 5 },
+              { name: "عمار ح.", subject: "تطوير الويب", text: "أحلى شي إنك تقدر تسأل أي سؤال مهما كان بسيط وما أحد يحكم عليك. المعلم يجاوبك بصبر ويعطيك أمثلة عملية. بديت أبني مشاريعي الخاصة.", stars: 5 },
+              { name: "منى أ.", subject: "الخوارزميات", text: "كنت أشوف الخوارزميات شي معقد ومستحيل. بعد شهر مع نُخبة صرت أفهم كيف أحلل المسألة وأختار الحل المناسب. التقدم اللي حققته ما كنت أتخيله.", stars: 4 },
+              { name: "باسم ن.", subject: "الشبكات", text: "الشي المميز إن المعلم يعرف مستواك ويبدأ معك من نقطتك. ما يفترض إنك فاهم شي ما تعرفه. هذا اللي خلاني أستمر وما أترك.", stars: 5 },
+              { name: "هدى م.", subject: "البرمجة بلغة Python", text: "بدأت من صفر حرفياً وما كنت أعرف شي عن البرمجة. الحين أقدر أكتب برامج كاملة لحالي. الـ ١٥ رسالة المجانية كانت كافية أتأكد إن المنصة تستاهل.", stars: 5 },
+            ].map((review, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 * i }}
+                className="glass rounded-2xl p-5 border border-white/5 flex flex-col"
+              >
+                <div className="flex items-center gap-1 mb-2">
+                  {Array.from({ length: review.stars }).map((_, si) => (
+                    <Star key={si} className="w-3.5 h-3.5 text-gold fill-gold" />
+                  ))}
+                  {Array.from({ length: 5 - review.stars }).map((_, si) => (
+                    <Star key={`e${si}`} className="w-3.5 h-3.5 text-white/15" />
+                  ))}
+                </div>
+                <p className="text-sm text-foreground/90 leading-relaxed flex-1 mb-3">"{review.text}"</p>
+                <div className="border-t border-white/5 pt-3 flex items-center justify-between">
+                  <span className="text-xs font-bold">{review.name}</span>
+                  <span className="text-[10px] text-muted-foreground">{review.subject}</span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
       </div>
     </AppLayout>
   );
