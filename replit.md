@@ -35,7 +35,8 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 ## Features
 
 - **AI Learning Sessions**: 3-phase (interview → plan → teaching) using SSE streaming
-- **Curriculum**: High school (chemistry, biology, Arabic, English × 3 grades), University (10 specializations), Skills (web, programming, OS, networking, security)
+- **Curriculum**: High school (chemistry, biology, Arabic, English × 3 grades), University (11 specializations incl. Food Engineering), Skills (web, programming, OS, networking, security)
+- **Food Engineering Lab**: Interactive lab panel for food engineering students — thermal calculators (D/z/F-value), water activity, nutrition, pasteurization time, interactive charts (growth curve, death curve, Aw chart), HACCP flow builder. Integrated with AI teacher via share button.
 - **Gamification**: 5 levels (مبتدئ→أسطورة), points (+15 lesson, +25 challenge), badges, streaks
 - **Paywall**: 1 free lesson PER SUBJECT → subscription (per-subject) or referral sessions
 - **Subscriptions**: Bronze(30 msg)/Silver(60 msg)/Gold(100 msg) per subject, 14-day validity via Karimi wallet (regional pricing North/South Yemen)
