@@ -499,10 +499,10 @@ const AIMessage = memo(function AIMessage({ content, isStreaming }: { content: s
     : safeRef.current;
 
   return (
-    <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] shadow-md"
-      style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)", overflowX: "clip" }}>
-      <div className="px-4 py-3.5">
-        <div className="ai-msg" dangerouslySetInnerHTML={{ __html: displayHtml }} />
+    <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] sm:max-w-[92%] max-sm:max-w-[calc(100vw-60px)] shadow-md"
+      style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)", overflow: "hidden" }}>
+      <div className="px-3 sm:px-4 py-3 sm:py-3.5 overflow-x-hidden">
+        <div className="ai-msg overflow-x-hidden" dangerouslySetInnerHTML={{ __html: displayHtml }} />
         {isStreaming && (
           <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-white/5">
             <span className="w-2 h-2 bg-gold/50 rounded-full animate-bounce" />
@@ -998,8 +998,8 @@ function SubjectPathChat({
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-5 py-5" ref={scrollRef}>
-        <div className="max-w-2xl mx-auto space-y-5 pb-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-5 py-4 sm:py-5" ref={scrollRef}>
+        <div className="max-w-2xl mx-auto space-y-4 sm:space-y-5 pb-4">
           {messages.map((msg, i) => {
             const isLastMsg = i === messages.length - 1;
             return (
@@ -1022,8 +1022,8 @@ function SubjectPathChat({
                 {/* Bubble */}
                 <div style={{ direction: 'rtl' }} className="min-w-0 flex-1">
                   {msg.role === 'user' ? (
-                    <div className="mr-auto w-fit max-w-[80%] rounded-2xl rounded-br-none px-4 py-3 text-[15px] leading-relaxed break-words"
-                      style={{ background: "linear-gradient(135deg, #1e2235 0%, #191c2a 100%)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                    <div className="mr-auto w-fit max-w-[80%] max-sm:max-w-[calc(100vw-70px)] rounded-2xl rounded-br-none px-3 sm:px-4 py-3 text-[14px] sm:text-[15px] leading-relaxed break-words overflow-hidden"
+                      style={{ background: "linear-gradient(135deg, #1e2235 0%, #191c2a 100%)", border: "1px solid rgba(255,255,255,0.1)", overflowWrap: "anywhere" }}>
                       {msg.content}
                     </div>
                   ) : (

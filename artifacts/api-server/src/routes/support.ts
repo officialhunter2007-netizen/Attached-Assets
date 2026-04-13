@@ -43,7 +43,7 @@ router.post("/support/send", async (req, res) => {
 
   const [msg] = await db.insert(supportMessagesTable).values({
     userId,
-    userName: user?.name ?? null,
+    userName: user?.displayName ?? null,
     userEmail: user?.email ?? null,
     subject: subject.trim(),
     message: message.trim(),

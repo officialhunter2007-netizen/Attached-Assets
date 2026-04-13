@@ -1,7 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
+function useIsMobile() {
+  return useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth < 640 || /Android|iPhone|iPad|iPod|webOS|BlackBerry|Opera Mini/i.test(navigator.userAgent);
+  }, []);
+}
 
 // Languages aligned with the Nukhba curriculum subjects and skills
 const LANGUAGES = [
@@ -102,6 +109,7 @@ interface Props {
 }
 
 export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher }: Props) {
+  const isMobile = useIsMobile();
   const starter = extractStarterCode(sectionContent);
   const detectedLang = detectLanguageFromContent(sectionContent, subjectId);
   const langInfo = (l: string) => LANGUAGES.find(x => x.id === l) || LANGUAGES[0];
@@ -340,63 +348,87 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         <span className="text-[11px] text-[#6e6a86] font-mono">{files.length} {files.length === 1 ? "ملف" : "ملفات"}</span>
       </div>
 
-      {/* ── Monaco Editor ── */}
+      {/* ── Editor (Monaco on desktop, textarea on mobile) ── */}
       <div className="bg-[#1e1e2e] w-full overflow-hidden">
-        <Editor
-          key={activeFile?.id}
-          height="clamp(200px, 38vh, 340px)"
-          width="100%"
-          language={activeLangInfo.monacoLang}
-          value={activeFile?.content || ""}
-          onChange={(val) => updateContent(val || "")}
-          onMount={handleEditorMount}
-          theme="vs-dark"
-          loading={
-            <div className="flex items-center justify-center h-full py-10 text-[#6e6a86] text-sm font-mono gap-2">
-              <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              <span>جاري تحميل المحرر...</span>
-            </div>
-          }
-          options={{
-            fontSize: 13,
-            fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            wordWrap: "on",
-            wrappingIndent: "indent",
-            lineNumbers: "on",
-            glyphMargin: false,
-            folding: false,
-            lineNumbersMinChars: 2,
-            lineDecorationsWidth: 4,
-            renderLineHighlight: "line",
-            smoothScrolling: false,
-            cursorBlinking: "blink",
-            cursorSmoothCaretAnimation: "off",
-            padding: { top: 10, bottom: 10 },
-            scrollbar: {
-              verticalScrollbarSize: 5,
-              horizontalScrollbarSize: 5,
-              useShadows: false,
-              alwaysConsumeMouseWheel: false,
-            },
-            overviewRulerLanes: 0,
-            overviewRulerBorder: false,
-            hideCursorInOverviewRuler: true,
-            quickSuggestions: false,
-            parameterHints: { enabled: false },
-            suggestOnTriggerCharacters: false,
-            acceptSuggestionOnEnter: "off",
-            hover: { enabled: false },
-            links: false,
-            colorDecorators: false,
-            occurrencesHighlight: "off",
-            selectionHighlight: false,
-            codeLens: false,
-            renderValidationDecorations: "off",
-            automaticLayout: true,
-          }}
-        />
+        {isMobile ? (
+          <textarea
+            value={activeFile?.content || ""}
+            onChange={(e) => updateContent(e.target.value)}
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            dir="ltr"
+            className="w-full bg-[#1e1e2e] text-[#e2e8f0] font-mono text-[13px] leading-relaxed p-3 outline-none resize-none border-0"
+            style={{ minHeight: "clamp(200px, 38vh, 340px)", maxHeight: "50vh", tabSize: 2 }}
+            onKeyDown={(e) => {
+              if (e.key === "Tab") {
+                e.preventDefault();
+                const target = e.target as HTMLTextAreaElement;
+                const start = target.selectionStart;
+                const end = target.selectionEnd;
+                const val = target.value;
+                updateContent(val.substring(0, start) + "  " + val.substring(end));
+                setTimeout(() => { target.selectionStart = target.selectionEnd = start + 2; }, 0);
+              }
+            }}
+          />
+        ) : (
+          <Editor
+            key={activeFile?.id}
+            height="clamp(200px, 38vh, 340px)"
+            width="100%"
+            language={activeLangInfo.monacoLang}
+            value={activeFile?.content || ""}
+            onChange={(val) => updateContent(val || "")}
+            onMount={handleEditorMount}
+            theme="vs-dark"
+            loading={
+              <div className="flex items-center justify-center h-full py-10 text-[#6e6a86] text-sm font-mono gap-2">
+                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                <span>جاري تحميل المحرر...</span>
+              </div>
+            }
+            options={{
+              fontSize: 13,
+              fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              wordWrap: "on",
+              wrappingIndent: "indent",
+              lineNumbers: "on",
+              glyphMargin: false,
+              folding: false,
+              lineNumbersMinChars: 2,
+              lineDecorationsWidth: 4,
+              renderLineHighlight: "line",
+              smoothScrolling: false,
+              cursorBlinking: "blink",
+              cursorSmoothCaretAnimation: "off",
+              padding: { top: 10, bottom: 10 },
+              scrollbar: {
+                verticalScrollbarSize: 5,
+                horizontalScrollbarSize: 5,
+                useShadows: false,
+                alwaysConsumeMouseWheel: false,
+              },
+              overviewRulerLanes: 0,
+              overviewRulerBorder: false,
+              hideCursorInOverviewRuler: true,
+              quickSuggestions: false,
+              parameterHints: { enabled: false },
+              suggestOnTriggerCharacters: false,
+              acceptSuggestionOnEnter: "off",
+              hover: { enabled: false },
+              links: false,
+              colorDecorators: false,
+              occurrencesHighlight: "off",
+              selectionHighlight: false,
+              codeLens: false,
+              renderValidationDecorations: "off",
+              automaticLayout: true,
+            }}
+          />
+        )}
       </div>
 
       {/* ── Run Button Bar ── */}
