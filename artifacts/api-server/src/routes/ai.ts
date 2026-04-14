@@ -91,7 +91,14 @@ function getYemenDateString(): string {
   return new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-const SESSION_GAP_HOURS = 20;
+function getNextMidnightYemen(): Date {
+  const YEMEN_OFFSET_MS = 3 * 60 * 60 * 1000;
+  const nowYemen = new Date(Date.now() + YEMEN_OFFSET_MS);
+  const tomorrowYemen = new Date(nowYemen);
+  tomorrowYemen.setUTCHours(0, 0, 0, 0);
+  tomorrowYemen.setUTCDate(tomorrowYemen.getUTCDate() + 1);
+  return new Date(tomorrowYemen.getTime() - YEMEN_OFFSET_MS);
+}
 
 const TEACHER_CSS = `
 <style>
@@ -345,13 +352,11 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const { isFirstLesson, canAccessViaSubscription, hasActiveSub, quotaExhausted, subjectSub, firstLessonRecord } = access;
   const isNewSession = !userMessage;
 
-  // ── Session limit (1 session per 20 hours) — paid users only ──
+  // ── Session limit (1 session per day, resets at midnight Yemen time) ──
   if (isNewSession && canAccessViaSubscription) {
-    const now = Date.now();
-    const lastAt = user.lastSessionAt ? new Date(user.lastSessionAt).getTime() : 0;
-    const gapMs = SESSION_GAP_HOURS * 60 * 60 * 1000;
-    if (lastAt && now - lastAt < gapMs) {
-      const nextSessionAt = new Date(lastAt + gapMs).toISOString();
+    const today = getYemenDateString();
+    if (user.lastSessionDate === today) {
+      const nextSessionAt = getNextMidnightYemen().toISOString();
       res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
       return;
     }
