@@ -293,7 +293,7 @@ export function YemenSoftSimulator({ onShareWithTeacher }: Props) {
         </button>
       </div>
 
-      <div className="bg-[#181825] border-b border-white/5 flex items-center overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+      <div className="bg-[#181825] border-b border-white/5 flex items-center overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -529,9 +529,9 @@ function JournalTab({ accounts, entries, setEntries, entryCounter, setEntryCount
         <div className="space-y-2 max-h-48 overflow-y-auto">
           {entries.map(entry => (
             <div key={entry.id} className={`rounded-xl border p-3 text-xs ${entry.isPosted ? "border-emerald-500/20 bg-emerald-500/5" : "border-amber-500/20 bg-amber-500/5"}`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-bold text-white">قيد #{entry.id} — {entry.description}</span>
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-1 mb-2">
+                <span className="font-bold text-white text-[11px] leading-tight">قيد #{entry.id} — {entry.description}</span>
+                <div className="flex items-center gap-2 shrink-0">
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${entry.isPosted ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>
                     {entry.isPosted ? "مرحّل ✓" : "غير مرحّل"}
                   </span>
@@ -580,60 +580,69 @@ function JournalTab({ accounts, entries, setEntries, entryCounter, setEntryCount
         </div>
 
         {lines.map((line, idx) => (
-          <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-            <div className="col-span-12 sm:col-span-4">
-              <select
-                value={line.accountCode}
-                onChange={e => updateLine(idx, "accountCode", e.target.value)}
-                className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-white outline-none focus:border-teal-400/50"
-              >
-                <option value="">اختر حساب...</option>
-                {leafAccounts.map(a => (
-                  <option key={a.code} value={a.code}>{a.code} — {a.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="col-span-5 sm:col-span-3">
-              <input
-                type="number"
-                min={0}
-                value={line.debit || ""}
-                onChange={e => updateLine(idx, "debit", e.target.value)}
-                placeholder="مدين"
-                className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-blue-400 outline-none focus:border-blue-400/50 text-center"
-                style={{ direction: "ltr" }}
-              />
-            </div>
-            <div className="col-span-5 sm:col-span-3">
-              <input
-                type="number"
-                min={0}
-                value={line.credit || ""}
-                onChange={e => updateLine(idx, "credit", e.target.value)}
-                placeholder="دائن"
-                className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-red-400 outline-none focus:border-red-400/50 text-center"
-                style={{ direction: "ltr" }}
-              />
-            </div>
-            <div className="col-span-2 flex items-center gap-1">
-              <input
-                value={line.description}
-                onChange={e => updateLine(idx, "description", e.target.value)}
-                placeholder="بيان"
-                className="hidden sm:block flex-1 bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-white outline-none focus:border-teal-400/50"
-              />
-              {lines.length > 2 && (
-                <button onClick={() => removeLine(idx)} className="text-red-400/40 hover:text-red-400 transition-colors shrink-0">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
+          <div key={idx} className="space-y-2 sm:space-y-0">
+            <div className="grid grid-cols-12 gap-2 items-center">
+              <div className="col-span-10 sm:col-span-4">
+                <select
+                  value={line.accountCode}
+                  onChange={e => updateLine(idx, "accountCode", e.target.value)}
+                  className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-white outline-none focus:border-teal-400/50"
+                >
+                  <option value="">اختر حساب...</option>
+                  {leafAccounts.map(a => (
+                    <option key={a.code} value={a.code}>{a.code} — {a.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2 sm:hidden flex items-center justify-center">
+                {lines.length > 2 && (
+                  <button onClick={() => removeLine(idx)} className="text-red-400/40 hover:text-red-400 transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="col-span-6 sm:col-span-3">
+                <input
+                  type="number"
+                  min={0}
+                  value={line.debit || ""}
+                  onChange={e => updateLine(idx, "debit", e.target.value)}
+                  placeholder="مدين"
+                  className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-blue-400 outline-none focus:border-blue-400/50 text-center"
+                  style={{ direction: "ltr" }}
+                />
+              </div>
+              <div className="col-span-6 sm:col-span-3">
+                <input
+                  type="number"
+                  min={0}
+                  value={line.credit || ""}
+                  onChange={e => updateLine(idx, "credit", e.target.value)}
+                  placeholder="دائن"
+                  className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-red-400 outline-none focus:border-red-400/50 text-center"
+                  style={{ direction: "ltr" }}
+                />
+              </div>
+              <div className="hidden sm:col-span-2 sm:flex items-center gap-1">
+                <input
+                  value={line.description}
+                  onChange={e => updateLine(idx, "description", e.target.value)}
+                  placeholder="بيان"
+                  className="flex-1 bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-white outline-none focus:border-teal-400/50"
+                />
+                {lines.length > 2 && (
+                  <button onClick={() => removeLine(idx)} className="text-red-400/40 hover:text-red-400 transition-colors shrink-0">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}
       </div>
 
       <div className={`rounded-xl p-3 border ${isBalanced ? "border-emerald-500/20 bg-emerald-500/5" : totalDebit > 0 || totalCredit > 0 ? "border-red-500/20 bg-red-500/5" : "border-white/5 bg-white/3"}`}>
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <div className="flex items-center gap-4">
             <span className="text-blue-400 font-bold text-xs">مدين: {formatNum(totalDebit)}</span>
             <span className="text-red-400 font-bold text-xs">دائن: {formatNum(totalCredit)}</span>
@@ -642,7 +651,7 @@ function JournalTab({ accounts, entries, setEntries, entryCounter, setEntryCount
             {isBalanced ? (
               <span className="text-emerald-400 text-xs flex items-center gap-1"><Check className="w-3.5 h-3.5" /> متوازن</span>
             ) : (totalDebit > 0 || totalCredit > 0) ? (
-              <span className="text-red-400 text-xs flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> غير متوازن (فرق: {formatNum(Math.abs(totalDebit - totalCredit))})</span>
+              <span className="text-red-400 text-xs flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> غير متوازن</span>
             ) : null}
           </div>
         </div>
@@ -900,11 +909,11 @@ function InvoicesTab({ invoices, setInvoices, invoiceCounter, setInvoiceCounter,
         <div className="space-y-2 max-h-48 overflow-y-auto">
           {invoices.map(inv => (
             <div key={inv.id} className={`rounded-xl border p-3 text-xs ${inv.isPosted ? "border-emerald-500/20 bg-emerald-500/5" : "border-amber-500/20 bg-amber-500/5"}`}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-bold text-white">
+              <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
+                <span className="font-bold text-white text-[11px] leading-tight">
                   {inv.type === "sale" ? "فاتورة مبيعات" : "فاتورة مشتريات"} #{inv.id} — {inv.counterparty}
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${inv.isPosted ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>
                     {inv.isPosted ? "مرحّلة ✓" : "غير مرحّلة"}
                   </span>
@@ -958,44 +967,61 @@ function InvoicesTab({ invoices, setInvoices, invoiceCounter, setInvoiceCounter,
         </div>
 
         {items.map((item, idx) => (
-          <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-            <div className="col-span-12 sm:col-span-5">
+          <div key={idx} className="space-y-2 sm:space-y-0">
+            <div className="flex sm:hidden items-center justify-between gap-2">
               <input
                 value={item.itemName}
                 onChange={e => updateItem(idx, "itemName", e.target.value)}
                 placeholder="اسم الصنف"
-                className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-teal-400/50"
+                className="flex-1 bg-[#1e1e2e] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-teal-400/50"
               />
-            </div>
-            <div className="col-span-4 sm:col-span-2">
-              <input
-                type="number"
-                min={1}
-                value={item.qty}
-                onChange={e => updateItem(idx, "qty", e.target.value)}
-                placeholder="الكمية"
-                className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-white outline-none focus:border-teal-400/50 text-center"
-                style={{ direction: "ltr" }}
-              />
-            </div>
-            <div className="col-span-5 sm:col-span-3">
-              <input
-                type="number"
-                min={0}
-                value={item.unitPrice || ""}
-                onChange={e => updateItem(idx, "unitPrice", e.target.value)}
-                placeholder="سعر الوحدة"
-                className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-white outline-none focus:border-teal-400/50 text-center"
-                style={{ direction: "ltr" }}
-              />
-            </div>
-            <div className="col-span-3 sm:col-span-2 flex items-center justify-between gap-1">
-              <span className="text-[11px] text-amber-400 font-mono font-bold">{formatNum(item.qty * item.unitPrice)}</span>
               {items.length > 1 && (
-                <button onClick={() => removeItem(idx)} className="text-red-400/40 hover:text-red-400 transition-colors">
+                <button onClick={() => removeItem(idx)} className="text-red-400/40 hover:text-red-400 transition-colors shrink-0">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               )}
+            </div>
+            <div className="grid grid-cols-12 gap-2 items-center">
+              <div className="hidden sm:block sm:col-span-5">
+                <input
+                  value={item.itemName}
+                  onChange={e => updateItem(idx, "itemName", e.target.value)}
+                  placeholder="اسم الصنف"
+                  className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-teal-400/50"
+                />
+              </div>
+              <div className="col-span-4 sm:col-span-2">
+                <input
+                  type="number"
+                  min={1}
+                  value={item.qty}
+                  onChange={e => updateItem(idx, "qty", e.target.value)}
+                  placeholder="الكمية"
+                  className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-white outline-none focus:border-teal-400/50 text-center"
+                  style={{ direction: "ltr" }}
+                />
+              </div>
+              <div className="col-span-4 sm:col-span-3">
+                <input
+                  type="number"
+                  min={0}
+                  value={item.unitPrice || ""}
+                  onChange={e => updateItem(idx, "unitPrice", e.target.value)}
+                  placeholder="السعر"
+                  className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-2 py-2 text-xs text-white outline-none focus:border-teal-400/50 text-center"
+                  style={{ direction: "ltr" }}
+                />
+              </div>
+              <div className="col-span-4 sm:col-span-2 flex items-center justify-between gap-1">
+                <span className="text-[11px] text-amber-400 font-mono font-bold">{formatNum(item.qty * item.unitPrice)}</span>
+                <span className="hidden sm:inline">
+                  {items.length > 1 && (
+                    <button onClick={() => removeItem(idx)} className="text-red-400/40 hover:text-red-400 transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </span>
+              </div>
             </div>
           </div>
         ))}
@@ -1146,12 +1172,12 @@ function InventoryTab({ inventory, setInventory, movements, setMovements, moveme
 
       {showAddItem && (
         <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 p-3 space-y-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <SimField label="رمز الصنف" value={newItem.code} onChange={v => setNewItem(p => ({ ...p, code: v }))} placeholder="ITM005" dir="ltr" />
             <SimField label="اسم الصنف" value={newItem.name} onChange={v => setNewItem(p => ({ ...p, name: v }))} placeholder="مثال: شاشة عرض" />
             <SimField label="الوحدة" value={newItem.unit} onChange={v => setNewItem(p => ({ ...p, unit: v }))} placeholder="جهاز / كيلو / رزمة" />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <SimField label="الكمية الافتتاحية" value={String(newItem.qty)} onChange={v => setNewItem(p => ({ ...p, qty: Number(v) }))} type="number" dir="ltr" />
             <SimField label="التكلفة (ريال)" value={String(newItem.avgCost)} onChange={v => setNewItem(p => ({ ...p, avgCost: Number(v) }))} type="number" dir="ltr" />
             <SimField label="التصنيف" value={newItem.category} onChange={v => setNewItem(p => ({ ...p, category: v }))} placeholder="إلكترونيات" />
@@ -1219,7 +1245,7 @@ function InventoryTab({ inventory, setInventory, movements, setMovements, moveme
       </div>
 
       <div className="rounded-xl border border-white/5 overflow-hidden">
-        <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-white/5 text-[10px] text-[#6e6a86] font-bold">
+        <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 bg-white/5 text-[10px] text-[#6e6a86] font-bold">
           <span className="col-span-2">الرمز</span>
           <span className="col-span-3">الصنف</span>
           <span className="col-span-2">الكمية</span>
@@ -1227,14 +1253,29 @@ function InventoryTab({ inventory, setInventory, movements, setMovements, moveme
           <span className="col-span-3">القيمة</span>
         </div>
         {filteredInventory.map(item => (
-          <div key={item.code} className="grid grid-cols-12 gap-2 px-4 py-2.5 border-t border-white/5 hover:bg-white/3 transition-colors text-xs">
-            <span className="col-span-2 font-mono text-[#6e6a86]">{item.code}</span>
-            <span className="col-span-3 text-white">{item.name}</span>
-            <span className={`col-span-2 font-mono font-bold ${item.qty <= 0 ? "text-red-400" : item.qty <= 3 ? "text-amber-400" : "text-emerald-400"}`}>
-              {item.qty} {item.unit}
-            </span>
-            <span className="col-span-2 font-mono text-[#a6adc8]">{formatNum(item.avgCost)}</span>
-            <span className="col-span-3 font-mono font-bold text-amber-400">{formatNum(item.qty * item.avgCost)}</span>
+          <div key={item.code}>
+            <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2.5 border-t border-white/5 hover:bg-white/3 transition-colors text-xs">
+              <span className="col-span-2 font-mono text-[#6e6a86]">{item.code}</span>
+              <span className="col-span-3 text-white">{item.name}</span>
+              <span className={`col-span-2 font-mono font-bold ${item.qty <= 0 ? "text-red-400" : item.qty <= 3 ? "text-amber-400" : "text-emerald-400"}`}>
+                {item.qty} {item.unit}
+              </span>
+              <span className="col-span-2 font-mono text-[#a6adc8]">{formatNum(item.avgCost)}</span>
+              <span className="col-span-3 font-mono font-bold text-amber-400">{formatNum(item.qty * item.avgCost)}</span>
+            </div>
+            <div className="sm:hidden border-t border-white/5 px-3 py-2.5 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white font-bold">{item.name}</span>
+                <span className="text-[10px] font-mono text-[#6e6a86]">{item.code}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className={`font-mono font-bold ${item.qty <= 0 ? "text-red-400" : item.qty <= 3 ? "text-amber-400" : "text-emerald-400"}`}>
+                  {item.qty} {item.unit}
+                </span>
+                <span className="text-[#a6adc8]">المتوسط: <span className="font-mono">{formatNum(item.avgCost)}</span></span>
+                <span className="font-mono font-bold text-amber-400">{formatNum(item.qty * item.avgCost)}</span>
+              </div>
+            </div>
           </div>
         ))}
       </div>
@@ -1250,12 +1291,12 @@ function InventoryTab({ inventory, setInventory, movements, setMovements, moveme
           {movements.slice(-5).reverse().map(m => {
             const item = inventory.find(i => i.code === m.itemCode);
             return (
-              <div key={m.id} className="flex items-center gap-3 text-[11px] text-[#a6adc8] px-2 py-1.5 rounded-lg bg-white/3">
-                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${m.type === "in" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
+              <div key={m.id} className="flex flex-wrap items-center gap-2 text-[11px] text-[#a6adc8] px-2 py-1.5 rounded-lg bg-white/3">
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${m.type === "in" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
                   {m.type === "in" ? "إدخال" : "إخراج"}
                 </span>
                 <span>{m.qty} {item?.name}</span>
-                <span className="text-[#6e6a86]">— {m.warehouse}</span>
+                <span className="text-[#6e6a86]">{m.warehouse}</span>
                 <span className="mr-auto text-[#6e6a86]">{m.date}</span>
               </div>
             );
@@ -1334,9 +1375,9 @@ function TrialBalanceTab({ accounts, entries, onShareWithTeacher }: {
       ) : (
         <>
           <div className="rounded-xl border border-white/5 overflow-hidden">
-            <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-white/5 text-[10px] text-[#6e6a86] font-bold">
-              <span className="col-span-1">الرقم</span>
-              <span className="col-span-5">اسم الحساب</span>
+            <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 bg-white/5 text-[10px] text-[#6e6a86] font-bold">
+              <span className="col-span-2">الرقم</span>
+              <span className="col-span-4">اسم الحساب</span>
               <span className="col-span-3 text-center">مدين</span>
               <span className="col-span-3 text-center">دائن</span>
             </div>
@@ -1346,18 +1387,32 @@ function TrialBalanceTab({ accounts, entries, onShareWithTeacher }: {
               const creditAmt = (isDebitNormal && acc.balance < 0) || (!isDebitNormal && acc.balance > 0) ? Math.abs(acc.balance) : 0;
 
               return (
-                <div key={acc.code} className="grid grid-cols-12 gap-2 px-4 py-2.5 border-t border-white/5 hover:bg-white/3 transition-colors text-xs">
-                  <span className="col-span-1 font-mono text-[#6e6a86]">{acc.code}</span>
-                  <span className="col-span-5 text-white">{acc.name}</span>
-                  <span className="col-span-3 text-center font-mono text-blue-400 font-bold">{debitAmt > 0 ? formatNum(debitAmt) : "—"}</span>
-                  <span className="col-span-3 text-center font-mono text-red-400 font-bold">{creditAmt > 0 ? formatNum(creditAmt) : "—"}</span>
+                <div key={acc.code}>
+                  <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2.5 border-t border-white/5 hover:bg-white/3 transition-colors text-xs">
+                    <span className="col-span-2 font-mono text-[#6e6a86]">{acc.code}</span>
+                    <span className="col-span-4 text-white">{acc.name}</span>
+                    <span className="col-span-3 text-center font-mono text-blue-400 font-bold">{debitAmt > 0 ? formatNum(debitAmt) : "—"}</span>
+                    <span className="col-span-3 text-center font-mono text-red-400 font-bold">{creditAmt > 0 ? formatNum(creditAmt) : "—"}</span>
+                  </div>
+                  <div className="sm:hidden border-t border-white/5 px-3 py-2 flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[10px] font-mono text-[#6e6a86]">{acc.code} </span>
+                      <span className="text-xs text-white">{acc.name}</span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 text-[11px]">
+                      <span className="font-mono text-blue-400 font-bold">{debitAmt > 0 ? formatNum(debitAmt) : "—"}</span>
+                      <span className="font-mono text-red-400 font-bold">{creditAmt > 0 ? formatNum(creditAmt) : "—"}</span>
+                    </div>
+                  </div>
                 </div>
               );
             })}
-            <div className="grid grid-cols-12 gap-2 px-4 py-3 border-t-2 border-teal-400/30 bg-teal-500/5 text-xs font-bold">
-              <span className="col-span-6 text-teal-400">الإجمالي</span>
-              <span className="col-span-3 text-center font-mono text-blue-400">{formatNum(totalDebit)}</span>
-              <span className="col-span-3 text-center font-mono text-red-400">{formatNum(totalCredit)}</span>
+            <div className="flex sm:grid sm:grid-cols-12 gap-2 px-4 py-3 border-t-2 border-teal-400/30 bg-teal-500/5 text-xs font-bold items-center justify-between">
+              <span className="sm:col-span-6 text-teal-400">الإجمالي</span>
+              <div className="flex items-center gap-3 sm:contents">
+                <span className="sm:col-span-3 sm:text-center font-mono text-blue-400">{formatNum(totalDebit)}</span>
+                <span className="sm:col-span-3 sm:text-center font-mono text-red-400">{formatNum(totalCredit)}</span>
+              </div>
             </div>
           </div>
 
