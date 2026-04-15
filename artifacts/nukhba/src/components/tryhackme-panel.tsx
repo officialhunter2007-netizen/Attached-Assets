@@ -1,0 +1,339 @@
+import { useState, useEffect } from "react";
+import { Shield, ExternalLink, Award, Flame, ChevronDown, ChevronUp, Loader2, Link2, Unlink, Trophy, Target } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+
+interface THMRoom {
+  code: string;
+  name: string;
+  nameAr: string;
+  difficulty: "easy" | "medium" | "hard";
+  description: string;
+  tags: string[];
+  isFree: boolean;
+}
+
+interface StageRooms {
+  stageIndex: number;
+  stageName: string;
+  rooms: THMRoom[];
+}
+
+interface THMProfile {
+  linked: boolean;
+  username?: string;
+  profile?: {
+    userRank: number;
+    points: number;
+    streak?: number;
+  };
+  badges?: Array<{ name: string; description: string }>;
+}
+
+function DifficultyBadge({ difficulty }: { difficulty: string }) {
+  const colors = {
+    easy: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    medium: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    hard: "bg-red-500/20 text-red-400 border-red-500/30",
+  };
+  const labels = { easy: "سهل", medium: "متوسط", hard: "صعب" };
+  return (
+    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${colors[difficulty as keyof typeof colors] || colors.easy}`}>
+      {labels[difficulty as keyof typeof labels] || difficulty}
+    </span>
+  );
+}
+
+function RoomCard({ room }: { room: THMRoom }) {
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 hover:border-red-500/30 transition-colors group">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-sm font-bold text-white truncate">{room.nameAr}</span>
+            <DifficultyBadge difficulty={room.difficulty} />
+          </div>
+          <p className="text-xs text-muted-foreground/80 font-mono" dir="ltr">{room.name}</p>
+        </div>
+        {room.isFree && (
+          <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded-full font-bold shrink-0">
+            مجاني
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed mb-3">{room.description}</p>
+      <a
+        href={`https://tryhackme.com/room/${room.code}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-1.5 text-xs font-bold text-red-400 hover:text-red-300 transition-colors"
+      >
+        <ExternalLink className="w-3 h-3" />
+        فتح في TryHackMe
+      </a>
+    </div>
+  );
+}
+
+export function TryHackMePanel({ subjectId, onClose }: { subjectId: string; onClose: () => void }) {
+  const [profile, setProfile] = useState<THMProfile | null>(null);
+  const [rooms, setRooms] = useState<StageRooms[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [linkInput, setLinkInput] = useState("");
+  const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState("");
+  const [expandedStages, setExpandedStages] = useState<Set<number>>(new Set([0]));
+
+  useEffect(() => {
+    loadData();
+  }, [subjectId]);
+
+  const loadData = async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const [profileRes, roomsRes] = await Promise.all([
+        fetch("/api/tryhackme/profile", { credentials: "include" }),
+        fetch(`/api/tryhackme/rooms/${encodeURIComponent(subjectId)}`, { credentials: "include" }),
+      ]);
+      if (!profileRes.ok || !roomsRes.ok) { setLoadError(true); setLoading(false); return; }
+      const profileData = await profileRes.json();
+      const roomsData = await roomsRes.json();
+      setProfile(profileData);
+
+      const allRooms: THMRoom[] = roomsData.rooms || [];
+      const mappingRes = await fetch("/api/tryhackme/mappings", { credentials: "include" });
+      if (mappingRes.ok) {
+        const mappingData = await mappingRes.json();
+        const subjectMapping = mappingData.mappings?.find((m: any) => m.subjectId === subjectId);
+        if (subjectMapping) {
+          setRooms(subjectMapping.stages);
+        } else {
+          setRooms([{ stageIndex: 0, stageName: "الغرف المتاحة", rooms: allRooms }]);
+        }
+      } else {
+        setRooms([{ stageIndex: 0, stageName: "الغرف المتاحة", rooms: allRooms }]);
+      }
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLink = async () => {
+    if (!linkInput.trim()) return;
+    setLinking(true);
+    setLinkError("");
+    try {
+      const res = await fetch("/api/tryhackme/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username: linkInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLinkError(data.error || "حدث خطأ");
+      } else {
+        setProfile({ linked: true, username: data.username, profile: data.profile });
+        setLinkInput("");
+      }
+    } catch {
+      setLinkError("خطأ في الاتصال");
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    try {
+      const res = await fetch("/api/tryhackme/unlink", { method: "POST", credentials: "include" });
+      if (res.ok) {
+        setProfile({ linked: false });
+      }
+    } catch {}
+  };
+
+  const toggleStage = (idx: number) => {
+    setExpandedStages(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-red-400" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
+        <Shield className="w-10 h-10 text-red-400/50" />
+        <p className="text-sm text-muted-foreground">تعذّر تحميل بيانات TryHackMe</p>
+        <button
+          onClick={loadData}
+          className="text-xs font-bold text-red-400 hover:text-red-300 px-4 py-2 rounded-xl border border-red-500/20 hover:bg-red-500/10 transition-colors"
+        >
+          إعادة المحاولة
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="bg-gradient-to-br from-red-600/10 to-red-900/10 border border-red-500/20 rounded-2xl p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center">
+            <Shield className="w-5 h-5 text-red-400" />
+          </div>
+          <div>
+            <h3 className="font-bold text-base text-white">TryHackMe</h3>
+            <p className="text-xs text-muted-foreground">منصة التدريب العملي على الأمن السيبراني</p>
+          </div>
+        </div>
+
+        {profile?.linked ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between bg-black/30 rounded-xl p-3 border border-white/5">
+              <div className="flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-bold text-emerald-400">{profile.username}</span>
+              </div>
+              <button
+                onClick={handleUnlink}
+                className="text-[11px] text-red-400/70 hover:text-red-400 flex items-center gap-1 transition-colors"
+              >
+                <Unlink className="w-3 h-3" />
+                إلغاء الربط
+              </button>
+            </div>
+            {profile.profile && (
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-black/20 rounded-lg p-2.5 text-center border border-white/5">
+                  <Trophy className="w-4 h-4 text-gold mx-auto mb-1" />
+                  <div className="text-sm font-bold text-white">{profile.profile.userRank || "—"}</div>
+                  <div className="text-[10px] text-muted-foreground">الترتيب</div>
+                </div>
+                <div className="bg-black/20 rounded-lg p-2.5 text-center border border-white/5">
+                  <Target className="w-4 h-4 text-emerald-400 mx-auto mb-1" />
+                  <div className="text-sm font-bold text-white">{profile.profile.points || 0}</div>
+                  <div className="text-[10px] text-muted-foreground">النقاط</div>
+                </div>
+                <div className="bg-black/20 rounded-lg p-2.5 text-center border border-white/5">
+                  <Flame className="w-4 h-4 text-orange-400 mx-auto mb-1" />
+                  <div className="text-sm font-bold text-white">{profile.profile.streak || 0}</div>
+                  <div className="text-[10px] text-muted-foreground">Streak</div>
+                </div>
+              </div>
+            )}
+            {profile.badges && profile.badges.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-muted-foreground mb-2 flex items-center gap-1">
+                  <Award className="w-3 h-3" /> الشارات ({profile.badges.length})
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {profile.badges.slice(0, 8).map((b, i) => (
+                    <span key={i} className="text-[10px] bg-gold/10 text-gold border border-gold/20 rounded-full px-2 py-0.5">
+                      {b.name}
+                    </span>
+                  ))}
+                  {profile.badges.length > 8 && (
+                    <span className="text-[10px] text-muted-foreground">+{profile.badges.length - 8}</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              اربط حسابك في TryHackMe ليتمكن المعلم الذكي من متابعة تقدمك والتوصية بالغرف المناسبة.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={linkInput}
+                onChange={e => { setLinkInput(e.target.value); setLinkError(""); }}
+                placeholder="اسم المستخدم في TryHackMe"
+                className="flex-1 bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-muted-foreground/50 focus:outline-none focus:border-red-500/40"
+                dir="ltr"
+                onKeyDown={e => e.key === "Enter" && handleLink()}
+              />
+              <button
+                onClick={handleLink}
+                disabled={linking || !linkInput.trim()}
+                className="px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-sm font-bold hover:bg-red-500/30 transition-colors disabled:opacity-50"
+              >
+                {linking ? <Loader2 className="w-4 h-4 animate-spin" /> : "ربط"}
+              </button>
+            </div>
+            {linkError && <p className="text-xs text-red-400">{linkError}</p>}
+            <a
+              href="https://tryhackme.com/signup"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-muted-foreground hover:text-red-400 flex items-center gap-1 transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              ليس لديك حساب؟ أنشئ حساباً مجانياً
+            </a>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h4 className="font-bold text-sm flex items-center gap-2">
+          <div className="w-1.5 h-5 bg-red-500 rounded-full" />
+          الغرف التدريبية حسب المرحلة
+        </h4>
+
+        {rooms.map(stage => (
+          <div key={stage.stageIndex} className="border border-white/8 rounded-xl overflow-hidden">
+            <button
+              onClick={() => toggleStage(stage.stageIndex)}
+              className="w-full text-right px-4 py-3 flex items-center justify-between hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-red-500/15 border border-red-500/25 flex items-center justify-center text-xs font-bold text-red-400">
+                  {stage.stageIndex + 1}
+                </span>
+                <span className="text-sm font-medium">{stage.stageName}</span>
+                <span className="text-[10px] text-muted-foreground bg-white/5 px-2 py-0.5 rounded-full">
+                  {stage.rooms.length} غرف
+                </span>
+              </div>
+              {expandedStages.has(stage.stageIndex)
+                ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                : <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              }
+            </button>
+            <AnimatePresence>
+              {expandedStages.has(stage.stageIndex) && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <div className="px-4 pb-4 space-y-2.5 border-t border-white/5 pt-3">
+                    {stage.rooms.map(room => (
+                      <RoomCard key={room.code} room={room} />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

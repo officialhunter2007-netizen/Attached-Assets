@@ -208,6 +208,52 @@
 .ai-msg a { color: #93c5fd !important; text-decoration: underline; word-break: break-all; }
 .ai-msg blockquote { border-right: 3px solid rgba(255,255,255,0.2); padding: 8px 14px; margin: 10px 0; opacity: 0.85; }
 
+.ai-msg .thm-room-card {
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 12px 0;
+  background: rgba(239, 68, 68, 0.06) !important;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.ai-msg .thm-room-card:hover {
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  background: rgba(239, 68, 68, 0.1) !important;
+}
+.ai-msg .thm-room-card::before {
+  content: "🔴 TryHackMe";
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #ef4444 !important;
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+.ai-msg .thm-room-card .thm-room-name {
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  color: #ffffff !important;
+  margin-bottom: 4px;
+}
+.ai-msg .thm-room-card .thm-room-desc {
+  font-size: 12px !important;
+  color: #a0a0a0 !important;
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+.ai-msg .thm-room-card::after {
+  content: "↗ فتح الغرفة في TryHackMe";
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ef4444 !important;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
 @keyframes msg-in {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }

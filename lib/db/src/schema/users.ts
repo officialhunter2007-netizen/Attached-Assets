@@ -26,6 +26,7 @@ export const usersTable = pgTable("users", {
   lastSessionDate: text("last_session_date"),
   lastSessionAt: timestamp("last_session_at", { withTimezone: true }),
   referralSessionsLeft: integer("referral_sessions_left").notNull().default(0),
+  tryhackmeUsername: text("tryhackme_username"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
