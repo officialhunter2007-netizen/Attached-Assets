@@ -1032,6 +1032,14 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                 <button onClick={() => setShowPreviewConsole(!showPreviewConsole)} className={`p-1 transition-colors ${showPreviewConsole ? "text-[#F59E0B]" : "text-[#6e6a86] hover:text-white/60"}`} title="وحدة التحكم">
                   <Terminal className="w-3.5 h-3.5" />
                 </button>
+                <button
+                  onClick={() => setPreviewFullscreen(false)}
+                  className="flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs font-bold px-2 sm:px-3 py-1 rounded-md bg-[#F59E0B] text-black hover:bg-[#fbbf24] transition-colors mr-0.5"
+                  title="العودة للمحرر"
+                >
+                  <FileCode className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  <span className="hidden sm:inline">المحرر</span>
+                </button>
               </div>
             </div>
 
