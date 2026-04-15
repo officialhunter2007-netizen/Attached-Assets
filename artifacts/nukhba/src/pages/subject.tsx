@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { FoodLabPanel } from "@/components/food-lab-panel";
 import { YemenSoftSimulatorV2 } from "@/components/yemensoft/yemensoft-v2";
+import AccountingLab from "@/components/accounting-lab/accounting-lab";
 
 interface LessonSummary {
   id: number;
@@ -184,7 +185,9 @@ export default function Subject() {
   const [isLabOpen, setIsLabOpen] = useState(false);
   const [isYemenSoftOpen, setIsYemenSoftOpen] = useState(false);
   const isFoodSubject = subject?.id === "uni-food-eng";
-  const isYemenSoftSubject = subject?.id === "skill-yemensoft" || subject?.id === "uni-accounting";
+  const isYemenSoftSubject = subject?.id === "skill-yemensoft";
+  const isAccountingLabSubject = subject?.id === "uni-accounting";
+  const [isAccountingLabOpen, setIsAccountingLabOpen] = useState(false);
   const { data: lessonViews } = useGetLessonViews();
 
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
@@ -433,6 +436,22 @@ export default function Subject() {
                         <p className="text-[11px] text-muted-foreground">محاكاة يمن سوفت المحاسبية</p>
                       </div>
                     </>
+                  ) : isAccountingLabOpen ? (
+                    <>
+                      <button
+                        onClick={() => setIsAccountingLabOpen(false)}
+                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                      <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                        <span className="text-sm">🎓</span>
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm">مختبر المحاسبة</p>
+                        <p className="text-[11px] text-muted-foreground">12 أداة أكاديمية تفاعلية</p>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg shrink-0`}>
@@ -449,7 +468,7 @@ export default function Subject() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {subject.hasCoding && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && (
+                  {subject.hasCoding && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
                     <button
                       onClick={() => setIsIDEOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-gold/10 border border-gold/25 text-gold hover:bg-gold/20 transition-all"
@@ -458,7 +477,7 @@ export default function Subject() {
                       <span className="hidden sm:inline">IDE</span>
                     </button>
                   )}
-                  {isFoodSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && (
+                  {isFoodSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
                     <button
                       onClick={() => setIsLabOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-lime-500/10 border border-lime-500/25 text-lime-400 hover:bg-lime-500/20 transition-all"
@@ -467,13 +486,22 @@ export default function Subject() {
                       <span className="hidden sm:inline">المختبر</span>
                     </button>
                   )}
-                  {isYemenSoftSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && (
+                  {isYemenSoftSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
                     <button
                       onClick={() => setIsYemenSoftOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-teal-500/10 border border-teal-500/25 text-teal-400 hover:bg-teal-500/20 transition-all"
                     >
                       <span className="text-sm">🏢</span>
                       <span className="hidden sm:inline">البيئة التطبيقية</span>
+                    </button>
+                  )}
+                  {isAccountingLabSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
+                    <button
+                      onClick={() => setIsAccountingLabOpen(true)}
+                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500/20 transition-all"
+                    >
+                      <span className="text-sm">🎓</span>
+                      <span className="hidden sm:inline">مختبر المحاسبة</span>
                     </button>
                   )}
                   <button
@@ -500,6 +528,8 @@ export default function Subject() {
               onCloseLab={() => setIsLabOpen(false)}
               yemenSoftOpen={isYemenSoftOpen}
               onCloseYemenSoft={() => setIsYemenSoftOpen(false)}
+              accountingLabOpen={isAccountingLabOpen}
+              onCloseAccountingLab={() => setIsAccountingLabOpen(false)}
             />
           </DialogContent>
         </Dialog>
@@ -586,6 +616,8 @@ function SubjectPathChat({
   onCloseLab,
   yemenSoftOpen,
   onCloseYemenSoft,
+  accountingLabOpen,
+  onCloseAccountingLab,
 }: { 
   subject: any;
   isFirstSession?: boolean;
@@ -597,6 +629,8 @@ function SubjectPathChat({
   onCloseLab?: () => void;
   yemenSoftOpen?: boolean;
   onCloseYemenSoft?: () => void;
+  accountingLabOpen?: boolean;
+  onCloseAccountingLab?: () => void;
 }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -1043,6 +1077,18 @@ function SubjectPathChat({
         <div className="p-3 sm:p-4 w-full min-w-0">
           <YemenSoftSimulatorV2 onShareWithTeacher={handleYemenSoftShare} />
         </div>
+      </div>
+    );
+  }
+
+  if (accountingLabOpen) {
+    const handleAccountingLabShare = (content: string) => {
+      onCloseAccountingLab?.();
+      sendTeachMessage(`نتائج من مختبر المحاسبة:\n${content}`);
+    };
+    return (
+      <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11" }}>
+        <AccountingLab onShare={handleAccountingLabShare} />
       </div>
     );
   }
