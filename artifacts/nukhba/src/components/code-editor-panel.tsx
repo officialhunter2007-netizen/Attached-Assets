@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye, AlertTriangle, Maximize2, Monitor, Smartphone, Tablet, Globe, ArrowLeft, ArrowRight, Lock, Share2, Layers } from "lucide-react";
+import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye, AlertTriangle, Maximize2, Monitor, Smartphone, Tablet, Globe, ArrowLeft, ArrowRight, Lock, Share2, Layers, Home } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 function useIsMobile() {
@@ -127,10 +127,200 @@ function replaceLastOccurrence(str: string, search: RegExp, replacement: string)
   return str.slice(0, idx) + replacement + str.slice(idx + match[0].length);
 }
 
-function buildPreviewHtml(files: IDEFile[], nonce: string): string {
-  const htmlFile = files.find(f => f.language === "html");
+const BROWSER_DOMAIN = "my-project.nukhba.dev";
+
+function getHtmlFiles(files: IDEFile[]): IDEFile[] {
+  return files.filter(f => f.language === "html");
+}
+
+function pathToFileName(path: string): string {
+  let p = path.replace(/^\/+/, "").replace(/^https?:\/\/[^/]+\/?/, "");
+  if (!p || p === "/" || p === "") return "index.html";
+  if (!p.endsWith(".html") && !p.endsWith(".htm")) p += ".html";
+  return p;
+}
+
+function fileNameToPath(name: string): string {
+  if (name === "index.html" || name === "index.htm") return "/";
+  return "/" + name;
+}
+
+function makeConsoleScript(nonce: string, hasInlineConsole: boolean): string {
+  return `<script>
+(function(){
+  var nonce = '${nonce}';
+  var errors = [];
+  var MAX_LOGS = 200;
+  ${hasInlineConsole ? "var consoleEl = null;" : ""}
+  function safeStr(a) {
+    if (a === null) return 'null';
+    if (a === undefined) return 'undefined';
+    if (typeof a !== 'object') return String(a);
+    try { return JSON.stringify(a, null, 2); } catch(e) {
+      try {
+        var seen = new WeakSet();
+        return JSON.stringify(a, function(k, v) {
+          if (typeof v === 'object' && v !== null) {
+            if (seen.has(v)) return '[Circular]';
+            seen.add(v);
+          }
+          return v;
+        }, 2);
+      } catch(e2) { return String(a); }
+    }
+  }
+  function notify(){ window.parent.postMessage({type:'nukhba-preview-error', nonce:nonce, errors:errors}, '*'); }
+  ${hasInlineConsole ? `function appendToConsole(type, text) {
+    if (!consoleEl) consoleEl = document.getElementById('nukhba-console-output');
+    if (!consoleEl) return;
+    var line = document.createElement('div');
+    line.style.padding = '2px 0';
+    line.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+    if (type === 'error') { line.style.color = '#f38ba8'; line.textContent = '\\u2717 ' + text; }
+    else if (type === 'warn') { line.style.color = '#fab387'; line.textContent = '\\u26A0 ' + text; }
+    else { line.style.color = '#a6e3a1'; line.textContent = '\\u203A ' + text; }
+    consoleEl.appendChild(line);
+  }` : ""}
+  window.onerror = function(msg, src, line, col) {
+    if (errors.length >= MAX_LOGS) errors.shift();
+    errors.push({type:'error', msg: String(msg), line: line, col: col});
+    ${hasInlineConsole ? "appendToConsole('error', String(msg) + (line ? ' (line ' + line + ')' : ''));" : ""}
+    notify();
+  };
+  window.addEventListener('unhandledrejection', function(e){
+    if (errors.length >= MAX_LOGS) errors.shift();
+    errors.push({type:'error', msg: 'Unhandled Promise: ' + String(e.reason)});
+    ${hasInlineConsole ? "appendToConsole('error', 'Unhandled Promise: ' + String(e.reason));" : ""}
+    notify();
+  });
+  var origLog = console.log, origWarn = console.warn, origErr = console.error;
+  console.log = function() {
+    var args = Array.from(arguments).map(safeStr).join(' ');
+    if (errors.length >= MAX_LOGS) errors.shift();
+    errors.push({type:'log', msg: args});
+    ${hasInlineConsole ? "appendToConsole('log', args);" : ""}
+    notify();
+    origLog.apply(console, arguments);
+  };
+  console.warn = function() {
+    var args = Array.from(arguments).map(safeStr).join(' ');
+    if (errors.length >= MAX_LOGS) errors.shift();
+    errors.push({type:'warn', msg: args});
+    ${hasInlineConsole ? "appendToConsole('warn', args);" : ""}
+    notify();
+    origWarn.apply(console, arguments);
+  };
+  console.error = function() {
+    var args = Array.from(arguments).map(safeStr).join(' ');
+    if (errors.length >= MAX_LOGS) errors.shift();
+    errors.push({type:'error', msg: args});
+    ${hasInlineConsole ? "appendToConsole('error', args);" : ""}
+    notify();
+    origErr.apply(console, arguments);
+  };
+  window.addEventListener('load', function(){ notify(); });
+})();
+</script>`;
+}
+
+function makeNavInterceptor(nonce: string, availablePages: string[]): string {
+  return `<script>
+(function(){
+  var nonce = '${nonce}';
+  var pages = ${JSON.stringify(availablePages)};
+  function resolveHref(href) {
+    if (!href) return null;
+    if (href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')) return null;
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      try {
+        var u = new URL(href);
+        if (u.hostname === '${BROWSER_DOMAIN}') return u.pathname || '/';
+      } catch(e){}
+      return null;
+    }
+    var base = window.__nukhba_current_path || '/';
+    if (href.startsWith('/')) return href;
+    var parts = base.split('/');
+    parts.pop();
+    href.split('/').forEach(function(seg) {
+      if (seg === '..') parts.pop();
+      else if (seg !== '.') parts.push(seg);
+    });
+    return '/' + parts.filter(Boolean).join('/');
+  }
+  document.addEventListener('click', function(e) {
+    var el = e.target;
+    while (el && el.tagName !== 'A') el = el.parentElement;
+    if (!el || !el.getAttribute('href')) return;
+    var href = el.getAttribute('href');
+    var resolved = resolveHref(href);
+    if (resolved !== null) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.parent.postMessage({type:'nukhba-navigate', nonce:nonce, path:resolved}, '*');
+    }
+  }, true);
+  var origPushState = history.pushState;
+  var origReplaceState = history.replaceState;
+  history.pushState = function(state, title, url) {
+    if (url) {
+      var resolved = resolveHref(String(url));
+      if (resolved !== null) {
+        window.parent.postMessage({type:'nukhba-navigate', nonce:nonce, path:resolved}, '*');
+        return;
+      }
+    }
+    origPushState.apply(history, arguments);
+  };
+  history.replaceState = function(state, title, url) {
+    if (url) {
+      var resolved = resolveHref(String(url));
+      if (resolved !== null) {
+        window.parent.postMessage({type:'nukhba-navigate', nonce:nonce, path:resolved}, '*');
+        return;
+      }
+    }
+    origReplaceState.apply(history, arguments);
+  };
+  document.addEventListener('submit', function(e) {
+    var form = e.target;
+    if (form.tagName !== 'FORM') return;
+    var action = form.getAttribute('action');
+    if (!action) action = window.__nukhba_current_path || '/';
+    var resolved = resolveHref(action);
+    if (resolved !== null) {
+      e.preventDefault();
+      window.parent.postMessage({type:'nukhba-navigate', nonce:nonce, path:resolved}, '*');
+    }
+  }, true);
+})();
+</script>`;
+}
+
+function build404Html(path: string, availablePages: string[], nonce: string): string {
+  const links = availablePages.map(p => {
+    const display = p === "/" ? "index.html (الصفحة الرئيسية)" : p.replace(/^\//, "");
+    return `<li style="margin:8px 0"><a href="javascript:void(0)" onclick="window.parent.postMessage({type:'nukhba-navigate',nonce:'${nonce}',path:'${p}'},'*')" style="color:#60a5fa;text-decoration:underline;font-size:15px">${display}</a></li>`;
+  }).join("");
+  return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
+${makeConsoleScript(nonce, false)}
+<style>body{font-family:'Segoe UI',sans-serif;background:#1e1e2e;color:#e2e8f0;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;text-align:center}
+.box{background:#2b2b3d;border-radius:16px;padding:2.5rem;max-width:500px;border:1px solid rgba(255,255,255,0.1)}
+h1{color:#f38ba8;font-size:4rem;margin:0} h2{color:#F59E0B;margin-top:1rem}
+ul{list-style:none;padding:0;text-align:right;margin-top:1.5rem}</style></head>
+<body><div class="box"><h1>404</h1><h2>الصفحة غير موجودة</h2>
+<p style="color:#a0a0b0;margin:1rem 0">المسار <code style="color:#fab387;background:#1e1e2e;padding:2px 8px;border-radius:4px">${path}</code> غير موجود</p>
+${availablePages.length > 0 ? `<p style="color:#a0a0b0">الصفحات المتاحة:</p><ul>${links}</ul>` : ""}
+</div></body></html>`;
+}
+
+function buildPageHtml(pagePath: string, files: IDEFile[], nonce: string): string {
+  const htmlFiles = getHtmlFiles(files);
   const cssFiles = files.filter(f => f.language === "css");
   const jsFiles = files.filter(f => f.language === "javascript");
+  const availablePages = htmlFiles.map(f => fileNameToPath(f.name));
+  const targetName = pathToFileName(pagePath);
+  const htmlFile = htmlFiles.find(f => f.name.toLowerCase() === targetName.toLowerCase());
 
   if (htmlFile) {
     let doc = htmlFile.content;
@@ -152,81 +342,28 @@ function buildPreviewHtml(files: IDEFile[], nonce: string): string {
         doc += `\n<script>\n${jsBlock}\n</script>`;
       }
     }
-    const errorScript = `<script>
-(function(){
-  var nonce = '${nonce}';
-  var errors = [];
-  var MAX_LOGS = 200;
-  function safeStr(a) {
-    if (a === null) return 'null';
-    if (a === undefined) return 'undefined';
-    if (typeof a !== 'object') return String(a);
-    try { return JSON.stringify(a, null, 2); } catch(e) {
-      try {
-        var seen = new WeakSet();
-        return JSON.stringify(a, function(k, v) {
-          if (typeof v === 'object' && v !== null) {
-            if (seen.has(v)) return '[Circular]';
-            seen.add(v);
-          }
-          return v;
-        }, 2);
-      } catch(e2) { return String(a); }
-    }
-  }
-  function notify(){ window.parent.postMessage({type:'nukhba-preview-error', nonce:nonce, errors:errors}, '*'); }
-  window.onerror = function(msg, src, line, col) {
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'error', msg: String(msg), line: line, col: col});
-    notify();
-  };
-  window.addEventListener('unhandledrejection', function(e){
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'error', msg: 'Unhandled Promise: ' + String(e.reason)});
-    notify();
-  });
-  var origLog = console.log, origWarn = console.warn, origErr = console.error;
-  console.log = function() {
-    var args = Array.from(arguments).map(safeStr).join(' ');
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'log', msg: args});
-    notify();
-    origLog.apply(console, arguments);
-  };
-  console.warn = function() {
-    var args = Array.from(arguments).map(safeStr).join(' ');
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'warn', msg: args});
-    notify();
-    origWarn.apply(console, arguments);
-  };
-  console.error = function() {
-    var args = Array.from(arguments).map(safeStr).join(' ');
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'error', msg: args});
-    notify();
-    origErr.apply(console, arguments);
-  };
-  window.addEventListener('load', function(){ notify(); });
-})();
-</script>`;
+    const injectedScripts = makeConsoleScript(nonce, false) + "\n" +
+      makeNavInterceptor(nonce, availablePages) + "\n" +
+      `<script>window.__nukhba_current_path = '${fileNameToPath(htmlFile.name)}';</script>`;
     if (/<head[\s>]/i.test(doc) || /<head>/i.test(doc)) {
-      doc = doc.replace(/<head[^>]*>/i, `$&\n${errorScript}`);
+      doc = doc.replace(/<head[^>]*>/i, `$&\n${injectedScripts}`);
     } else if (/<html/i.test(doc)) {
-      doc = doc.replace(/<html[^>]*>/i, `$&\n<head>${errorScript}</head>`);
+      doc = doc.replace(/<html[^>]*>/i, `$&\n<head>${injectedScripts}</head>`);
     } else {
-      doc = errorScript + "\n" + doc;
+      doc = injectedScripts + "\n" + doc;
     }
     return doc;
   }
 
-  let body = "";
-  let styles = "";
-  let scripts = "";
+  if (htmlFiles.length === 0) {
+    let body = "";
+    let styles = "";
+    let scripts = "";
+    const hasInlineConsole = jsFiles.length > 0 && cssFiles.length === 0;
 
-  if (cssFiles.length > 0) {
-    styles = cssFiles.map(f => f.content).join("\n");
-    body = `<div class="wrapper">
+    if (cssFiles.length > 0) {
+      styles = cssFiles.map(f => f.content).join("\n");
+      body = `<div class="wrapper">
   <header class="header"><nav class="nav"><a href="#" class="logo">Logo</a><ul class="nav-list"><li class="nav-item"><a href="#" class="nav-link">الرئيسية</a></li><li class="nav-item"><a href="#" class="nav-link">حول</a></li><li class="nav-item"><a href="#" class="nav-link">تواصل</a></li></ul></nav></header>
   <main class="main content">
     <section class="hero section"><div class="container"><h1 class="title heading">معاينة CSS</h1><p class="subtitle text description">هذا نص تجريبي لعرض الأنماط - أنشئ ملف HTML لتخصيص المحتوى</p><button class="btn button primary">زر تجريبي</button><a href="#" class="link">رابط تجريبي</a></div></section>
@@ -237,104 +374,21 @@ function buildPreviewHtml(files: IDEFile[], nonce: string): string {
   </main>
   <footer class="footer"><p class="footer-text">&copy; 2024 معاينة CSS - نُخبة</p></footer>
 </div>`;
-  }
-  if (jsFiles.length > 0) {
-    scripts = jsFiles.map(f => f.content).join("\n");
-    if (!body) {
-      body = `<div id="nukhba-console-output" style="font-family:monospace;font-size:13px;padding:12px;background:#1e1e2e;color:#a6e3a1;min-height:100vh;direction:ltr;white-space:pre-wrap;"></div>`;
     }
+    if (jsFiles.length > 0) {
+      scripts = jsFiles.map(f => f.content).join("\n");
+      if (!body) {
+        body = `<div id="nukhba-console-output" style="font-family:monospace;font-size:13px;padding:12px;background:#1e1e2e;color:#a6e3a1;min-height:100vh;direction:ltr;white-space:pre-wrap;"></div>`;
+      }
+    }
+
+    return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+${makeConsoleScript(nonce, hasInlineConsole)}
+<style>body{font-family:'Segoe UI',Tahoma,sans-serif;margin:0;padding:${cssFiles.length > 0 ? '1rem' : '0'}} ${styles}</style></head>
+<body>${body}${scripts ? `<script>\n${scripts}\n</script>` : ""}</body></html>`;
   }
 
-  return `<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script>
-(function(){
-  var nonce = '${nonce}';
-  var errors = [];
-  var MAX_LOGS = 200;
-  var consoleEl = null;
-  function safeStr(a) {
-    if (a === null) return 'null';
-    if (a === undefined) return 'undefined';
-    if (typeof a !== 'object') return String(a);
-    try { return JSON.stringify(a, null, 2); } catch(e) {
-      try {
-        var seen = new WeakSet();
-        return JSON.stringify(a, function(k, v) {
-          if (typeof v === 'object' && v !== null) {
-            if (seen.has(v)) return '[Circular]';
-            seen.add(v);
-          }
-          return v;
-        }, 2);
-      } catch(e2) { return String(a); }
-    }
-  }
-  function notify(){ window.parent.postMessage({type:'nukhba-preview-error', nonce:nonce, errors:errors}, '*'); }
-  function appendToConsole(type, text) {
-    if (!consoleEl) consoleEl = document.getElementById('nukhba-console-output');
-    if (!consoleEl) return;
-    var line = document.createElement('div');
-    line.style.padding = '2px 0';
-    line.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
-    if (type === 'error') { line.style.color = '#f38ba8'; line.textContent = '✗ ' + text; }
-    else if (type === 'warn') { line.style.color = '#fab387'; line.textContent = '⚠ ' + text; }
-    else { line.style.color = '#a6e3a1'; line.textContent = '› ' + text; }
-    consoleEl.appendChild(line);
-  }
-  window.onerror = function(msg, src, line, col) {
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'error', msg: String(msg), line: line, col: col});
-    appendToConsole('error', String(msg) + (line ? ' (سطر ' + line + ')' : ''));
-    notify();
-  };
-  window.addEventListener('unhandledrejection', function(e){
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'error', msg: 'Unhandled Promise: ' + String(e.reason)});
-    appendToConsole('error', 'Unhandled Promise: ' + String(e.reason));
-    notify();
-  });
-  var origLog = console.log, origWarn = console.warn, origErr = console.error;
-  console.log = function() {
-    var args = Array.from(arguments).map(safeStr).join(' ');
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'log', msg: args});
-    appendToConsole('log', args);
-    notify();
-    origLog.apply(console, arguments);
-  };
-  console.warn = function() {
-    var args = Array.from(arguments).map(safeStr).join(' ');
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'warn', msg: args});
-    appendToConsole('warn', args);
-    notify();
-    origWarn.apply(console, arguments);
-  };
-  console.error = function() {
-    var args = Array.from(arguments).map(safeStr).join(' ');
-    if (errors.length >= MAX_LOGS) errors.shift();
-    errors.push({type:'error', msg: args});
-    appendToConsole('error', args);
-    notify();
-    origErr.apply(console, arguments);
-  };
-  window.addEventListener('load', function(){ notify(); });
-})();
-</script>
-<style>
-body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: ${cssFiles.length > 0 ? '1rem' : '0'}; }
-${styles}
-</style>
-</head>
-<body>
-${body}
-${scripts ? `<script>\n${scripts}\n</script>` : ""}
-</body>
-</html>`;
+  return build404Html(pagePath, availablePages, nonce);
 }
 
 interface PreviewLog {
@@ -382,7 +436,12 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const [previewKey, setPreviewKey] = useState(0);
   const [previewNonce] = useState(() => Math.random().toString(36).slice(2));
   const [viewportMode, setViewportMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
-  const browserUrl = "https://my-project.nukhba.dev";
+  const [currentPage, setCurrentPage] = useState("/");
+  const [navHistory, setNavHistory] = useState<string[]>(["/"]);
+  const [navIndex, setNavIndex] = useState(0);
+  const [urlBarValue, setUrlBarValue] = useState(`https://${BROWSER_DOMAIN}/`);
+  const [urlBarEditing, setUrlBarEditing] = useState(false);
+  const urlBarRef = useRef<HTMLInputElement>(null);
   const newNameRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -391,6 +450,70 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const editorRef = useRef<any>(null);
 
   const canPreview = isWebSubject(subjectId) || hasWebFiles(files);
+  const htmlPages = useMemo(() => getHtmlFiles(files), [files]);
+  const canGoBack = navIndex > 0;
+  const canGoForward = navIndex < navHistory.length - 1;
+
+  const navigateTo = useCallback((path: string) => {
+    const normalized = path.startsWith("/") ? path : "/" + path;
+    setCurrentPage(normalized);
+    setNavIndex(prevIdx => {
+      setNavHistory(prevHist => {
+        const newHist = prevHist.slice(0, prevIdx + 1);
+        newHist.push(normalized);
+        return newHist;
+      });
+      return prevIdx + 1;
+    });
+    setUrlBarValue(`https://${BROWSER_DOMAIN}${normalized}`);
+    setUrlBarEditing(false);
+    setPreviewLogs([]);
+    setPreviewKey(k => k + 1);
+  }, []);
+
+  const goBack = useCallback(() => {
+    if (navIndex <= 0) return;
+    const newIdx = navIndex - 1;
+    setNavIndex(newIdx);
+    const path = navHistory[newIdx];
+    setCurrentPage(path);
+    setUrlBarValue(`https://${BROWSER_DOMAIN}${path}`);
+    setPreviewLogs([]);
+    setPreviewKey(k => k + 1);
+  }, [navIndex, navHistory]);
+
+  const goForward = useCallback(() => {
+    if (navIndex >= navHistory.length - 1) return;
+    const newIdx = navIndex + 1;
+    setNavIndex(newIdx);
+    const path = navHistory[newIdx];
+    setCurrentPage(path);
+    setUrlBarValue(`https://${BROWSER_DOMAIN}${path}`);
+    setPreviewLogs([]);
+    setPreviewKey(k => k + 1);
+  }, [navIndex, navHistory]);
+
+  const handleUrlBarSubmit = useCallback(() => {
+    let val = urlBarValue.trim();
+    if (!val) return;
+    if (val.startsWith("/")) {
+      navigateTo(val);
+      return;
+    }
+    if (/^[\w\-]+\.html?$/i.test(val) || /^[\w\-]+$/i.test(val)) {
+      const path = val.endsWith(".html") || val.endsWith(".htm") ? val : val + ".html";
+      navigateTo("/" + path);
+      return;
+    }
+    if (!val.startsWith("http")) val = "https://" + val;
+    try {
+      const u = new URL(val);
+      navigateTo(u.pathname || "/");
+    } catch {
+      navigateTo("/" + val.replace(/^\/+/, ""));
+    }
+    setUrlBarEditing(false);
+  }, [urlBarValue, navigateTo]);
 
   const handleEditorMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
@@ -411,8 +534,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
 
   const previewHtml = useMemo(() => {
     if (!showPreview && !previewFullscreen) return "";
-    return buildPreviewHtml(files, previewNonce);
-  }, [files, previewNonce, showPreview, previewFullscreen]);
+    return buildPageHtml(currentPage, files, previewNonce);
+  }, [files, previewNonce, showPreview, previewFullscreen, currentPage]);
 
   useEffect(() => {
     try { localStorage.setItem(LS_KEY, JSON.stringify(files)); } catch {}
@@ -424,16 +547,20 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {
-      if (e.data?.type === "nukhba-preview-error" && e.data?.nonce === previewNonce) {
-        const src = e.source;
-        if (src === iframeRef.current?.contentWindow || src === iframeFullRef.current?.contentWindow) {
-          setPreviewLogs(e.data.errors || []);
-        }
+      if (!e.data?.nonce || e.data.nonce !== previewNonce) return;
+      const src = e.source;
+      const isOurIframe = src === iframeRef.current?.contentWindow || src === iframeFullRef.current?.contentWindow;
+      if (!isOurIframe) return;
+
+      if (e.data.type === "nukhba-preview-error") {
+        setPreviewLogs(e.data.errors || []);
+      } else if (e.data.type === "nukhba-navigate" && e.data.path) {
+        navigateTo(e.data.path);
       }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [previewNonce]);
+  }, [previewNonce, navigateTo]);
 
   const updateContent = (content: string) => {
     setFiles(prev => prev.map(f => f.id === activeFile.id ? { ...f, content } : f));
@@ -506,6 +633,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     setPreviewKey(k => k + 1);
     setShowPreview(true);
     setShowPreviewConsole(false);
+    setUrlBarValue(`https://${BROWSER_DOMAIN}${currentPage}`);
   };
 
   const handleReset = () => {
@@ -520,7 +648,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
 
   const sharePreview = () => {
     if (!onShareWithTeacher) return;
-    const filesSummary = files.filter(f => WEB_LANGS.has(f.language)).map(f =>
+    const webFiles = files.filter(f => WEB_LANGS.has(f.language));
+    const filesSummary = webFiles.map(f =>
       `--- ${f.name} (${f.language}) ---\n${f.content}`
     ).join("\n\n");
     const logsText = previewLogs.length > 0
@@ -528,10 +657,11 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         `[${l.type === "error" ? "خطأ" : l.type === "warn" ? "تحذير" : "سجل"}]${l.line ? ` سطر ${l.line}` : ""}: ${l.msg}`
       ).join("\n")
       : "";
+    const pageInfo = htmlPages.length > 1 ? `\nالصفحة الحالية: ${currentPage}\nإجمالي الصفحات: ${htmlPages.length} (${htmlPages.map(f => f.name).join(", ")})` : "";
     onShareWithTeacher(
       filesSummary,
       "html",
-      `معاينة الصفحة الحية:\nالملفات المستخدمة: ${files.filter(f => WEB_LANGS.has(f.language)).map(f => f.name).join(", ")}${previewLogs.filter(l => l.type === "error").length > 0 ? `\n⚠️ يوجد ${previewLogs.filter(l => l.type === "error").length} أخطاء` : "\n✓ لا توجد أخطاء"}${logsText}`
+      `معاينة الصفحة الحية:${pageInfo}\nالملفات المستخدمة: ${webFiles.map(f => f.name).join(", ")}${previewLogs.filter(l => l.type === "error").length > 0 ? `\n⚠️ يوجد ${previewLogs.filter(l => l.type === "error").length} أخطاء` : "\n✓ لا توجد أخطاء"}${logsText}`
     );
   };
 
@@ -748,6 +878,9 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
             <div className="bg-[#181825] px-3 py-1.5 flex items-center gap-2 border-b border-white/5">
               <Eye className="w-3.5 h-3.5 text-emerald-400" />
               <span className="text-[11px] text-emerald-400 font-mono font-bold">LIVE PREVIEW</span>
+              {htmlPages.length > 1 && (
+                <span className="text-[9px] text-[#F59E0B]/80 font-mono bg-[#F59E0B]/10 px-1.5 py-0.5 rounded">{currentPage === "/" ? "index.html" : currentPage.replace(/^\//, "")}</span>
+              )}
               <div className="flex-1" />
               {errorCount > 0 && (
                 <button
@@ -833,15 +966,61 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                 <button onClick={() => {}} className="w-3 h-3 rounded-full bg-[#28c840] hover:bg-[#1fb636] transition-colors" title="تكبير" />
               </div>
 
-              <div className="flex items-center gap-0.5 sm:gap-1 text-[#6e6a86]">
-                <button className="p-1 hover:text-white/60 transition-colors" title="رجوع"><ArrowLeft className="w-3.5 h-3.5" /></button>
-                <button className="p-1 hover:text-white/60 transition-colors" title="تقدم"><ArrowRight className="w-3.5 h-3.5" /></button>
-                <button onClick={handlePreview} className="p-1 hover:text-emerald-400 transition-colors" title="تحديث"><RotateCcw className="w-3.5 h-3.5" /></button>
+              <div className="flex items-center gap-0.5 sm:gap-1">
+                <button onClick={goBack} className={`p-1 transition-colors ${canGoBack ? "text-white/80 hover:text-white" : "text-[#6e6a86]/40 cursor-not-allowed"}`} title="رجوع" disabled={!canGoBack}><ArrowLeft className="w-3.5 h-3.5" /></button>
+                <button onClick={goForward} className={`p-1 transition-colors ${canGoForward ? "text-white/80 hover:text-white" : "text-[#6e6a86]/40 cursor-not-allowed"}`} title="تقدم" disabled={!canGoForward}><ArrowRight className="w-3.5 h-3.5" /></button>
+                <button onClick={handlePreview} className="p-1 text-[#6e6a86] hover:text-emerald-400 transition-colors" title="تحديث"><RotateCcw className="w-3.5 h-3.5" /></button>
+                <button onClick={() => navigateTo("/")} className="p-1 text-[#6e6a86] hover:text-white/80 transition-colors" title="الصفحة الرئيسية"><Home className="w-3.5 h-3.5" /></button>
               </div>
 
-              <div className="flex-1 mx-1 sm:mx-2 bg-[#1e1e2e] rounded-lg border border-white/10 px-2 sm:px-3 py-1 flex items-center gap-1.5 sm:gap-2 min-w-0">
+              <div className="flex-1 mx-1 sm:mx-2 bg-[#1e1e2e] rounded-lg border border-white/10 px-2 sm:px-3 py-1 flex items-center gap-1.5 sm:gap-2 min-w-0 cursor-text" onClick={() => { setUrlBarEditing(true); setTimeout(() => urlBarRef.current?.select(), 0); }}>
                 <Lock className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span className="text-[10px] sm:text-xs text-white/70 font-mono truncate select-all">{browserUrl}</span>
+                {urlBarEditing ? (
+                  <input
+                    ref={urlBarRef}
+                    value={urlBarValue}
+                    onChange={e => setUrlBarValue(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") { e.preventDefault(); handleUrlBarSubmit(); }
+                      if (e.key === "Escape") { setUrlBarEditing(false); setUrlBarValue(`https://${BROWSER_DOMAIN}${currentPage}`); }
+                    }}
+                    onBlur={() => { setUrlBarEditing(false); setUrlBarValue(`https://${BROWSER_DOMAIN}${currentPage}`); }}
+                    className="flex-1 bg-transparent text-[10px] sm:text-xs text-white font-mono outline-none min-w-0"
+                    autoFocus
+                    spellCheck={false}
+                    dir="ltr"
+                  />
+                ) : (
+                  <span className="text-[10px] sm:text-xs font-mono truncate select-all min-w-0 flex-1">
+                    <span className="text-white/40">https://</span>
+                    <span className="text-white/70">{BROWSER_DOMAIN}</span>
+                    <span className="text-emerald-400">{currentPage}</span>
+                  </span>
+                )}
+                {htmlPages.length > 1 && !urlBarEditing && (
+                  <div className="relative group shrink-0">
+                    <button className="text-[#6e6a86] hover:text-white/70 transition-colors p-0.5">
+                      <Layers className="w-3 h-3" />
+                    </button>
+                    <div className="absolute top-full right-0 mt-1 bg-[#2b2b3d] border border-white/10 rounded-lg shadow-2xl shadow-black/60 py-1 min-w-[180px] z-50 hidden group-hover:block">
+                      {htmlPages.map(f => {
+                        const pagePath = fileNameToPath(f.name);
+                        const isActive = currentPage === pagePath;
+                        return (
+                          <button
+                            key={f.id}
+                            onClick={(e) => { e.stopPropagation(); navigateTo(pagePath); }}
+                            className={`w-full text-left px-3 py-1.5 text-[11px] font-mono flex items-center gap-2 transition-colors ${isActive ? "text-[#F59E0B] bg-[#F59E0B]/10" : "text-white/70 hover:bg-white/5"}`}
+                          >
+                            <Globe className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{f.name}</span>
+                            <span className="text-[9px] text-[#6e6a86] mr-auto">{pagePath}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-0.5 sm:gap-1">
@@ -950,7 +1129,10 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                 <span className="text-[9px] text-emerald-400 font-mono">LIVE</span>
               </div>
               <span className="text-[9px] text-[#6e6a86] font-mono">{viewportMode === "desktop" ? "Desktop" : viewportMode === "tablet" ? "Tablet 768px" : "Mobile 375px"}</span>
+              {htmlPages.length > 1 && <span className="text-[9px] text-[#F59E0B]/60 font-mono">{htmlPages.length} صفحات</span>}
+              <span className="text-[9px] text-[#6e6a86] font-mono">{currentPage === "/" ? "index.html" : currentPage.replace(/^\//, "")}</span>
               <div className="flex-1" />
+              {navHistory.length > 1 && <span className="text-[9px] text-[#6e6a86]/50 font-mono">{navIndex + 1}/{navHistory.length}</span>}
               <span className="text-[9px] text-[#6e6a86] font-mono">Nukhba Browser</span>
             </div>
           </div>
