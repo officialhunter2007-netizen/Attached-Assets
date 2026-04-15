@@ -11,7 +11,7 @@ import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, Chevro
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { FoodLabPanel } from "@/components/food-lab-panel";
-import { YemenSoftSimulator } from "@/components/yemensoft-simulator";
+import { YemenSoftSimulatorV2 } from "@/components/yemensoft/yemensoft-v2";
 
 interface LessonSummary {
   id: number;
@@ -1041,7 +1041,7 @@ function SubjectPathChat({
     return (
       <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11" }}>
         <div className="p-3 sm:p-4 w-full min-w-0">
-          <YemenSoftSimulator onShareWithTeacher={handleYemenSoftShare} />
+          <YemenSoftSimulatorV2 onShareWithTeacher={handleYemenSoftShare} />
         </div>
       </div>
     );
