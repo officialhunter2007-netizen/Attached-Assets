@@ -1,18 +1,36 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { TRYHACKME_ROOM_MAPPINGS, CYBERSECURITY_SUBJECT_IDS, getRoomsForSubjectStage, getAllRoomsForSubject, getRoomByCode } from "../data/tryhackme-rooms.js";
 
 const router: IRouter = Router();
 
-function getUserId(req: any): number | null {
-  return req.session?.userId ?? null;
+interface THMProfile {
+  userRank?: number;
+  rank?: number;
+  points?: number;
+  totalPoints?: number;
+  streak?: number;
+  avatar?: string;
+  joinDate?: string;
+  [key: string]: unknown;
 }
 
-const profileCache = new Map<string, { data: any; ts: number }>();
+interface THMBadge {
+  name?: string;
+  description?: string;
+  image?: string;
+  [key: string]: unknown;
+}
+
+function getUserId(req: Request): number | null {
+  return (req.session as Record<string, unknown>)?.userId as number ?? null;
+}
+
+const profileCache = new Map<string, { data: THMProfile; ts: number }>();
 const CACHE_TTL = 5 * 60 * 1000;
 
-async function fetchTHMProfile(username: string): Promise<any | null> {
+async function fetchTHMProfile(username: string): Promise<THMProfile | null> {
   const cached = profileCache.get(username);
   if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
@@ -43,7 +61,7 @@ async function fetchTHMProfile(username: string): Promise<any | null> {
   return null;
 }
 
-async function fetchTHMBadges(username: string): Promise<any[]> {
+async function fetchTHMBadges(username: string): Promise<THMBadge[]> {
   try {
     const res = await fetch(`https://tryhackme.com/api/badges/get/${encodeURIComponent(username)}`, {
       headers: { "User-Agent": "Nukhba-Education/1.0" },
