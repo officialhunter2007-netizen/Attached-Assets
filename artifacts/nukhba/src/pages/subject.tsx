@@ -13,6 +13,7 @@ import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { FoodLabPanel } from "@/components/food-lab-panel";
 import { YemenSoftSimulatorV2 } from "@/components/yemensoft/yemensoft-v2";
 import AccountingLab from "@/components/accounting-lab/accounting-lab";
+import CyberLab from "@/components/cyber-lab/cyber-lab";
 import { TryHackMePanel } from "@/components/tryhackme-panel";
 
 interface LessonSummary {
@@ -192,6 +193,7 @@ export default function Subject() {
   const CYBER_SUBJECTS = new Set(["uni-cybersecurity", "skill-nmap", "skill-wireshark", "skill-linux", "skill-windows"]);
   const isCyberSubject = CYBER_SUBJECTS.has(subject?.id || "");
   const [isTHMOpen, setIsTHMOpen] = useState(false);
+  const [isCyberLabOpen, setIsCyberLabOpen] = useState(false);
   const { data: lessonViews } = useGetLessonViews();
 
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
@@ -377,7 +379,7 @@ export default function Subject() {
         </div>
 
         {/* Chat Dialog */}
-        <Dialog open={isChatOpen} onOpenChange={(open) => { setIsChatOpen(open); if (!open) { setIsIDEOpen(false); setIsLabOpen(false); setIsYemenSoftOpen(false); setIsAccountingLabOpen(false); setIsTHMOpen(false); } }}>
+        <Dialog open={isChatOpen} onOpenChange={(open) => { setIsChatOpen(open); if (!open) { setIsIDEOpen(false); setIsLabOpen(false); setIsYemenSoftOpen(false); setIsAccountingLabOpen(false); setIsTHMOpen(false); setIsCyberLabOpen(false); } }}>
           <DialogContent className="
             max-sm:!inset-0 max-sm:!translate-x-0 max-sm:!translate-y-0
             max-sm:!w-full max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0
@@ -456,6 +458,22 @@ export default function Subject() {
                         <p className="text-[11px] text-muted-foreground">12 أداة أكاديمية تفاعلية</p>
                       </div>
                     </>
+                  ) : isCyberLabOpen ? (
+                    <>
+                      <button
+                        onClick={() => setIsCyberLabOpen(false)}
+                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                      <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/30 flex items-center justify-center">
+                        <Shield className="w-4 h-4 text-red-400" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm">مختبر الأمن السيبراني</p>
+                        <p className="text-[11px] text-muted-foreground">7 أدوات تفاعلية عملية</p>
+                      </div>
+                    </>
                   ) : isTHMOpen ? (
                     <>
                       <button
@@ -524,12 +542,21 @@ export default function Subject() {
                       <span className="hidden sm:inline">مختبر المحاسبة</span>
                     </button>
                   )}
-                  {isCyberSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isTHMOpen && (
+                  {isCyberSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isTHMOpen && !isCyberLabOpen && (
                     <button
-                      onClick={() => setIsTHMOpen(true)}
+                      onClick={() => setIsCyberLabOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 hover:bg-red-500/20 transition-all"
                     >
                       <Shield className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">المختبر</span>
+                    </button>
+                  )}
+                  {isCyberSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isTHMOpen && !isCyberLabOpen && (
+                    <button
+                      onClick={() => setIsTHMOpen(true)}
+                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20 transition-all"
+                    >
+                      <span className="text-xs">🏴‍☠️</span>
                       <span className="hidden sm:inline">TryHackMe</span>
                     </button>
                   )}
@@ -561,6 +588,8 @@ export default function Subject() {
               onCloseAccountingLab={() => setIsAccountingLabOpen(false)}
               thmOpen={isTHMOpen}
               onCloseTHM={() => setIsTHMOpen(false)}
+              cyberLabOpen={isCyberLabOpen}
+              onCloseCyberLab={() => setIsCyberLabOpen(false)}
             />
           </DialogContent>
         </Dialog>
@@ -659,6 +688,8 @@ function SubjectPathChat({
   onCloseAccountingLab,
   thmOpen,
   onCloseTHM,
+  cyberLabOpen,
+  onCloseCyberLab,
 }: { 
   subject: any;
   isFirstSession?: boolean;
@@ -674,6 +705,8 @@ function SubjectPathChat({
   onCloseAccountingLab?: () => void;
   thmOpen?: boolean;
   onCloseTHM?: () => void;
+  cyberLabOpen?: boolean;
+  onCloseCyberLab?: () => void;
 }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -1134,6 +1167,18 @@ function SubjectPathChat({
     return (
       <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11" }}>
         <AccountingLab onShare={handleAccountingLabShare} />
+      </div>
+    );
+  }
+
+  if (cyberLabOpen) {
+    const handleCyberLabShare = (content: string) => {
+      onCloseCyberLab?.();
+      sendTeachMessage(`نتائج من مختبر الأمن السيبراني:\n${content}`);
+    };
+    return (
+      <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11" }}>
+        <CyberLab onShare={handleCyberLabShare} />
       </div>
     );
   }
