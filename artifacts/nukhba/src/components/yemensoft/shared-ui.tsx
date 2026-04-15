@@ -59,7 +59,7 @@ export function ShareButton({ onClick, label = "شارك مع المعلم" }: {
 
 export function SectionCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-white/5 bg-white/[0.02] p-4 space-y-3 ${className}`}>
+    <div className={`rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4 space-y-3 ${className}`}>
       {children}
     </div>
   );
@@ -77,7 +77,7 @@ export function StatCard({ label, value, color = "text-white", icon }: {
         {icon && <span className={color}>{icon}</span>}
         <span className="text-[10px] text-[#6e6a86] font-bold">{label}</span>
       </div>
-      <span className={`text-sm font-bold font-mono ${color}`}>{value}</span>
+      <span className={`text-xs sm:text-sm font-bold font-mono ${color}`}>{value}</span>
     </div>
   );
 }

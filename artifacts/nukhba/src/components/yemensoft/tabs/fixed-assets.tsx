@@ -99,7 +99,7 @@ export function FixedAssetsTab() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-3 sm:p-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-sm font-bold text-white flex items-center gap-2"><Landmark className="w-4 h-4 text-teal-400" /> الأصول الثابتة والاستهلاك</h3>
         <div className="flex items-center gap-2">
@@ -109,10 +109,10 @@ export function FixedAssetsTab() {
       </div>
 
       {fixedAssets.length > 0 && (
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">التكلفة</div><div className="text-sm font-bold text-blue-400 font-mono">{formatNum(totalCost)}</div></div>
-          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">مجمع الاستهلاك</div><div className="text-sm font-bold text-red-400 font-mono">{formatNum(totalAccDep)}</div></div>
-          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">القيمة الدفترية</div><div className="text-sm font-bold text-emerald-400 font-mono">{formatNum(totalBookValue)}</div></div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">التكلفة</div><div className="text-xs sm:text-sm font-bold text-blue-400 font-mono">{formatNum(totalCost)}</div></div>
+          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">مجمع الاستهلاك</div><div className="text-xs sm:text-sm font-bold text-red-400 font-mono">{formatNum(totalAccDep)}</div></div>
+          <div className="col-span-2 sm:col-span-1 rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">القيمة الدفترية</div><div className="text-xs sm:text-sm font-bold text-emerald-400 font-mono">{formatNum(totalBookValue)}</div></div>
         </div>
       )}
 

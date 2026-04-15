@@ -47,7 +47,7 @@ export function InvoicesTab() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-3 sm:p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-white flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-teal-400" /> إنشاء فاتورة</h3>
         {invoices.length > 0 && (

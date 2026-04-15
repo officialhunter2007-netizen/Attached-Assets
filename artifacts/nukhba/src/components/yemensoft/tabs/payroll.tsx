@@ -94,7 +94,7 @@ export function PayrollTab() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-3 sm:p-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-sm font-bold text-white flex items-center gap-2"><Users className="w-4 h-4 text-teal-400" /> نظام الرواتب</h3>
         <div className="flex items-center gap-2">
@@ -149,7 +149,7 @@ export function PayrollTab() {
                     <span className="text-xs font-bold text-white">{emp.name}</span>
                     <span className="text-[10px] text-[#6e6a86]">{emp.position} — {emp.department}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
                     <div><span className="text-[#6e6a86]">الأساسي: </span><span className="text-white font-mono">{formatNum(emp.baseSalary)}</span></div>
                     <div><span className="text-[#6e6a86]">الإجمالي: </span><span className="text-blue-400 font-mono">{formatNum(gross)}</span></div>
                     <div><span className="text-[#6e6a86]">الصافي: </span><span className="text-emerald-400 font-mono">{formatNum(net)}</span></div>
@@ -171,7 +171,7 @@ export function PayrollTab() {
                       {!run.isPosted && <button onClick={() => postPayroll(run)} className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-400 font-bold">ترحيل</button>}
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
                     <div><span className="text-[#6e6a86]">الإجمالي: </span><span className="text-blue-400 font-mono">{formatNum(run.totalGross)}</span></div>
                     <div><span className="text-[#6e6a86]">الخصومات: </span><span className="text-red-400 font-mono">{formatNum(run.totalDeductions)}</span></div>
                     <div><span className="text-[#6e6a86]">الصافي: </span><span className="text-emerald-400 font-mono">{formatNum(run.totalNet)}</span></div>

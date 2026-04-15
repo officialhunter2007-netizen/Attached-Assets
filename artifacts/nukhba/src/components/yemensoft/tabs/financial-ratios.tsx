@@ -80,7 +80,7 @@ export function FinancialRatiosTab() {
   );
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-3 sm:p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-white flex items-center gap-2"><Gauge className="w-4 h-4 text-teal-400" /> النسب المالية</h3>
         {onShareWithTeacher && <ShareButton onClick={share} />}
@@ -92,7 +92,7 @@ export function FinancialRatiosTab() {
         <>
           <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3">
             <h4 className="text-xs font-bold text-blue-400 flex items-center gap-2 mb-3"><TrendingUp className="w-3.5 h-3.5" /> نسب السيولة</h4>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <RatioGauge label="النسبة الحالية" value={ratios.currentRatio} unit="" ideal="≥ 2" isGood={ratios.currentRatio >= 2} />
               <RatioGauge label="النسبة السريعة" value={ratios.quickRatio} unit="" ideal="≥ 1" isGood={ratios.quickRatio >= 1} />
               <RatioGauge label="نسبة النقدية" value={ratios.cashRatio} unit="" ideal="≥ 0.5" isGood={ratios.cashRatio >= 0.5} />
@@ -111,7 +111,7 @@ export function FinancialRatiosTab() {
 
           <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3">
             <h4 className="text-xs font-bold text-red-400 flex items-center gap-2 mb-3"><Shield className="w-3.5 h-3.5" /> نسب الرافعة المالية</h4>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <RatioGauge label="نسبة الدين" value={ratios.debtRatio} unit="%" ideal="≤ 50%" isGood={ratios.debtRatio <= 50} />
               <RatioGauge label="نسبة الملكية" value={ratios.equityRatio} unit="%" ideal="≥ 50%" isGood={ratios.equityRatio >= 50} />
               <RatioGauge label="الدين/الملكية" value={ratios.debtToEquity} unit="" ideal="≤ 1" isGood={ratios.debtToEquity <= 1} />

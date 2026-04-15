@@ -74,7 +74,7 @@ export function ClosingTab() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-3 sm:p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-white flex items-center gap-2"><Lock className="w-4 h-4 text-teal-400" /> إقفال الفترات</h3>
         {onShareWithTeacher && <ShareButton onClick={share} />}
@@ -82,10 +82,10 @@ export function ClosingTab() {
 
       <div className="rounded-xl border border-white/5 p-4 space-y-3">
         <h4 className="text-xs font-bold text-white">ملخص ما قبل الإقفال</h4>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">إجمالي الإيرادات</div><div className="text-sm font-bold text-emerald-400 font-mono">{formatNum(data.totalRevenue)}</div></div>
-          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">إجمالي المصروفات</div><div className="text-sm font-bold text-red-400 font-mono">{formatNum(data.totalExpense)}</div></div>
-          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">{data.netIncome >= 0 ? "صافي الربح" : "صافي الخسارة"}</div><div className={`text-sm font-bold font-mono ${data.netIncome >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatNum(Math.abs(data.netIncome))}</div></div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">إجمالي الإيرادات</div><div className="text-xs sm:text-sm font-bold text-emerald-400 font-mono">{formatNum(data.totalRevenue)}</div></div>
+          <div className="rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">إجمالي المصروفات</div><div className="text-xs sm:text-sm font-bold text-red-400 font-mono">{formatNum(data.totalExpense)}</div></div>
+          <div className="col-span-2 sm:col-span-1 rounded-xl border border-white/5 p-3 text-center"><div className="text-[10px] text-[#6e6a86] mb-1">{data.netIncome >= 0 ? "صافي الربح" : "صافي الخسارة"}</div><div className={`text-xs sm:text-sm font-bold font-mono ${data.netIncome >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatNum(Math.abs(data.netIncome))}</div></div>
         </div>
 
         {data.revenueAccounts.length > 0 && (

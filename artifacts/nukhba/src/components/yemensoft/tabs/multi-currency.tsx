@@ -77,7 +77,7 @@ export function MultiCurrencyTab() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-3 sm:p-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-sm font-bold text-white flex items-center gap-2"><Globe className="w-4 h-4 text-teal-400" /> العملات الأجنبية</h3>
         <div className="flex items-center gap-2">

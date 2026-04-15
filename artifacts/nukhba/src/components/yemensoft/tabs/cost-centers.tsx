@@ -34,7 +34,7 @@ export function CostCentersTab() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-3 sm:p-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-sm font-bold text-white flex items-center gap-2"><Target className="w-4 h-4 text-teal-400" /> مراكز التكلفة</h3>
         <div className="flex items-center gap-2">
@@ -87,7 +87,7 @@ export function CostCentersTab() {
                     {pct.toFixed(1)}%
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2 text-[11px]">
                   <div><span className="text-[#6e6a86]">الموازنة: </span><span className="text-blue-400 font-mono">{formatNum(center.budget)}</span></div>
                   <div><span className="text-[#6e6a86]">الفعلي: </span><span className="text-amber-400 font-mono">{formatNum(center.actual)}</span></div>
                   <div><span className="text-[#6e6a86]">الانحراف: </span><span className={`font-mono ${variance >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatNum(variance)}</span></div>

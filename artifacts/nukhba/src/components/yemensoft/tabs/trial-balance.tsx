@@ -44,7 +44,7 @@ export function TrialBalanceTab() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-3 sm:p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-white flex items-center gap-2"><BarChart3 className="w-4 h-4 text-teal-400" /> ميزان المراجعة</h3>
         {onShareWithTeacher && data.leafAccounts.length > 0 && <ShareButton onClick={share} />}

@@ -36,3 +36,15 @@ GOOGLE_CLIENT_SECRET = "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"
 
 [userenv.production]
 APP_DOMAIN = "learnukhba.replit.app"
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 19388
+externalPort = 80
