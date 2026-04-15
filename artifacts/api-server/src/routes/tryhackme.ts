@@ -16,18 +16,31 @@ async function fetchTHMProfile(username: string): Promise<any | null> {
   const cached = profileCache.get(username);
   if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
-  try {
-    const res = await fetch(`https://tryhackme.com/api/user/rank/${encodeURIComponent(username)}`, {
-      headers: { "User-Agent": "Nukhba-Education/1.0" },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    profileCache.set(username, { data, ts: Date.now() });
-    return data;
-  } catch {
-    return null;
+  const endpoints = [
+    `https://tryhackme.com/api/user/rank/${encodeURIComponent(username)}`,
+    `https://tryhackme.com/api/v2/public-profile?username=${encodeURIComponent(username)}`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "Accept": "application/json",
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data && typeof data === "object") {
+        profileCache.set(username, { data, ts: Date.now() });
+        return data;
+      }
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 async function fetchTHMBadges(username: string): Promise<any[]> {
@@ -55,17 +68,29 @@ router.post("/tryhackme/link", async (req, res): Promise<void> => {
   }
 
   const clean = username.trim();
-  const profile = await fetchTHMProfile(clean);
-  if (!profile || profile.userRank === 0) {
-    res.status(404).json({ error: "لم يتم العثور على حساب TryHackMe بهذا الاسم" });
+  if (!/^[a-zA-Z0-9._-]{2,40}$/.test(clean)) {
+    res.status(400).json({ error: "اسم المستخدم يجب أن يحتوي على أحرف إنجليزية وأرقام فقط (2-40 حرف)" });
     return;
   }
+
+  const profile = await fetchTHMProfile(clean);
 
   await db.update(usersTable)
     .set({ tryhackmeUsername: clean })
     .where(eq(usersTable.id, userId));
 
-  res.json({ success: true, username: clean, profile });
+  const safeProfile = profile ? {
+    userRank: profile.userRank ?? profile.rank ?? null,
+    points: profile.points ?? profile.totalPoints ?? 0,
+    streak: profile.streak ?? profile.streakCount ?? 0,
+  } : null;
+
+  res.json({
+    success: true,
+    username: clean,
+    profile: safeProfile,
+    verified: !!profile,
+  });
 });
 
 router.post("/tryhackme/unlink", async (req, res): Promise<void> => {
@@ -89,8 +114,14 @@ router.get("/tryhackme/profile", async (req, res): Promise<void> => {
     return;
   }
 
-  const profile = await fetchTHMProfile(user.tryhackmeUsername);
+  const rawProfile = await fetchTHMProfile(user.tryhackmeUsername);
   const badges = await fetchTHMBadges(user.tryhackmeUsername);
+
+  const profile = rawProfile ? {
+    userRank: rawProfile.userRank ?? rawProfile.rank ?? null,
+    points: rawProfile.points ?? rawProfile.totalPoints ?? 0,
+    streak: rawProfile.streak ?? rawProfile.streakCount ?? 0,
+  } : null;
 
   res.json({
     linked: true,

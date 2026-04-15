@@ -149,8 +149,11 @@ export function TryHackMePanel({ subjectId, onClose }: { subjectId: string; onCl
       if (!res.ok) {
         setLinkError(data.error || "حدث خطأ");
       } else {
-        setProfile({ linked: true, username: data.username, profile: data.profile });
+        setProfile({ linked: true, username: data.username, profile: data.profile || undefined });
         setLinkInput("");
+        if (data.verified === false) {
+          loadData();
+        }
       }
     } catch {
       setLinkError("خطأ في الاتصال");
