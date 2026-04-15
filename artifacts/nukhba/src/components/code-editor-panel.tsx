@@ -114,11 +114,6 @@ function getFileIcon(lang: string): string {
   return LANGUAGES.find(l => l.id === lang)?.icon || "📄";
 }
 
-function getFolderFiles(files: IDEFile[], folderPath: string): IDEFile[] {
-  const prefix = folderPath.endsWith("/") ? folderPath : folderPath + "/";
-  return files.filter(f => f.name.startsWith(prefix));
-}
-
 function detectLangFromExt(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase() || "";
   return EXT_TO_LANG[ext] || "python";
@@ -539,6 +534,13 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     try {
       const saved = localStorage.getItem(LS_KEY);
       if (saved) return JSON.parse(saved);
+      const oldSaved = localStorage.getItem("nukhba-ide-files-v2");
+      if (oldSaved) {
+        const oldFiles = JSON.parse(oldSaved);
+        localStorage.setItem(LS_KEY, oldSaved);
+        localStorage.removeItem("nukhba-ide-files-v2");
+        return oldFiles;
+      }
     } catch {}
     const lang = detectedLang;
     const ext = langInfo(lang).ext;
@@ -552,8 +554,10 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const [createPrefix, setCreatePrefix] = useState("");
   const [newName, setNewName] = useState("");
   const [nameError, setNameError] = useState("");
-  const [showExplorer, setShowExplorer] = useState(true);
+  const [showExplorer, setShowExplorer] = useState(!isMobile);
+  const [showMobileExplorer, setShowMobileExplorer] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
+  const [openTabs, setOpenTabs] = useState<Set<string>>(() => new Set([initFiles()[0]?.id || "main"]));
   const [output, setOutput] = useState<string | null>(null);
   const [outputType, setOutputType] = useState<"success" | "error">("success");
   const [running, setRunning] = useState(false);
@@ -660,6 +664,18 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
 
   const realFilesOnly = files.filter(f => !f.name.endsWith("/.gitkeep"));
   const activeFile = realFilesOnly.find(f => f.id === activeId) || realFilesOnly[0];
+
+  useEffect(() => {
+    if (!activeFile) return;
+    if (activeFile.id !== activeId) setActiveId(activeFile.id);
+    setOpenTabs(prev => {
+      const validIds = new Set(realFilesOnly.map(f => f.id));
+      const cleaned = new Set([...prev].filter(id => validIds.has(id)));
+      if (activeFile) cleaned.add(activeFile.id);
+      if (cleaned.size !== prev.size || !prev.has(activeFile.id)) return cleaned;
+      return prev;
+    });
+  }, [files]);
   const activeLangInfo = langInfo(activeFile?.language || "python");
 
   const previewHtml = useMemo(() => {
@@ -716,9 +732,25 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     setNameError("");
   };
 
+  const expandAllParents = (filePath: string) => {
+    const parts = filePath.split("/");
+    if (parts.length <= 1) return;
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      for (let i = 1; i < parts.length; i++) {
+        next.add(parts.slice(0, i).join("/"));
+      }
+      return next;
+    });
+  };
+
   const createFile = () => {
-    const raw = newName.trim();
+    const raw = newName.trim().replace(/^\/+|\/+$/g, "").replace(/\/\/+/g, "/");
     if (!raw) { setNameError("أدخل اسم الملف"); return; }
+    if (/^\.+$/.test(raw) || raw.split("/").some(s => !s || s === "." || s === "..")) {
+      setNameError("اسم غير صالح");
+      return;
+    }
     if (createTarget === "folder") {
       const folderPath = createPrefix ? `${createPrefix}/${raw}` : raw;
       const placeholder: IDEFile = {
@@ -728,7 +760,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         content: "",
       };
       setFiles(prev => [...prev, placeholder]);
-      setExpandedFolders(prev => new Set([...prev, folderPath]));
+      expandAllParents(`${folderPath}/dummy`);
       setIsCreating(false);
       setNewName("");
       setNameError("");
@@ -745,9 +777,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     };
     setFiles(prev => [...prev, newFile]);
     setActiveId(newFile.id);
-    if (createPrefix) {
-      setExpandedFolders(prev => new Set([...prev, createPrefix]));
-    }
+    setOpenTabs(prev => new Set([...prev, newFile.id]));
+    expandAllParents(fullName);
     setIsCreating(false);
     setNewName("");
     setNameError("");
@@ -761,24 +792,62 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     const newReal = newFiles.filter(f => !f.name.endsWith("/.gitkeep"));
     if (newReal.length === 0) return;
     setFiles(newFiles);
+    setOpenTabs(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      if (activeId === id) {
+        const fallback = newReal[0]?.id || "";
+        if (fallback) next.add(fallback);
+      }
+      return next;
+    });
     if (activeId === id) setActiveId(newReal[0]?.id || "");
   };
 
   const deleteFolder = (folderPath: string) => {
     const prefix = folderPath + "/";
+    const deletedIds = new Set(files.filter(f => f.name.startsWith(prefix)).map(f => f.id));
     const newFiles = files.filter(f => !f.name.startsWith(prefix));
     const newReal = newFiles.filter(f => !f.name.endsWith("/.gitkeep"));
     if (newReal.length === 0) return;
     setFiles(newFiles);
-    if (activeFile && activeFile.name.startsWith(prefix)) {
+    const needsNewActive = activeFile && activeFile.name.startsWith(prefix);
+    setOpenTabs(prev => {
+      const next = new Set(prev);
+      deletedIds.forEach(id => next.delete(id));
+      if (needsNewActive) {
+        const fallback = newReal[0]?.id || "";
+        if (fallback) next.add(fallback);
+      }
+      return next;
+    });
+    if (needsNewActive) {
       setActiveId(newReal[0]?.id || "");
     }
   };
 
   const switchFile = (id: string) => {
     setActiveId(id);
+    setOpenTabs(prev => new Set([...prev, id]));
     setOutput(null);
     setShowOutput(false);
+    if (isMobile) setShowMobileExplorer(false);
+  };
+
+  const closeTab = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newTabs = new Set(openTabs);
+    newTabs.delete(id);
+    if (newTabs.size === 0) {
+      const firstReal = realFilesOnly[0];
+      if (firstReal) newTabs.add(firstReal.id);
+    }
+    setOpenTabs(newTabs);
+    if (activeId === id) {
+      const tabArr = [...newTabs];
+      const realTab = tabArr.find(t => realFilesOnly.some(f => f.id === t));
+      setActiveId(realTab || realFilesOnly[0]?.id || "");
+    }
   };
 
   const handleRun = async () => {
@@ -853,6 +922,14 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const isWebLang = WEB_LANGS.has(activeFile?.language || "");
 
   const renderTree = (nodes: TreeNode[], depth: number): React.ReactNode => {
+    const mobSize = isMobile;
+    const iconSize = mobSize ? "w-4 h-4" : "w-3 h-3";
+    const folderIconSize = mobSize ? "w-4 h-4" : "w-3.5 h-3.5";
+    const rowPy = mobSize ? "py-[6px]" : "py-[3px]";
+    const textSize = mobSize ? "text-[13px]" : "text-[11px]";
+    const actionIconSize = mobSize ? "w-3.5 h-3.5" : "w-2.5 h-2.5";
+    const actionVisible = mobSize ? "opacity-60" : "opacity-0 group-hover:opacity-100";
+
     return nodes.map(node => {
       if (node.type === "folder") {
         const isExpanded = expandedFolders.has(node.path);
@@ -860,38 +937,38 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         return (
           <div key={`folder-${node.path}`}>
             <div
-              className="group flex items-center gap-1 px-1 py-[3px] cursor-pointer hover:bg-white/5 text-[11px] font-mono text-[#c8c8d0] select-none"
+              className={`group flex items-center gap-1 px-1 ${rowPy} cursor-pointer hover:bg-white/5 ${textSize} font-mono text-[#c8c8d0] select-none`}
               style={{ paddingLeft: `${depth * 12 + 4}px` }}
               onClick={() => toggleFolder(node.path)}
             >
-              {isExpanded ? <ChevronDown className="w-3 h-3 text-[#6e6a86] shrink-0" /> : <ChevronRight className="w-3 h-3 text-[#6e6a86] shrink-0" />}
-              {isExpanded ? <FolderOpen className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" /> : <Folder className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" />}
+              {isExpanded ? <ChevronDown className={`${iconSize} text-[#6e6a86] shrink-0`} /> : <ChevronRight className={`${iconSize} text-[#6e6a86] shrink-0`} />}
+              {isExpanded ? <FolderOpen className={`${folderIconSize} text-[#F59E0B] shrink-0`} /> : <Folder className={`${folderIconSize} text-[#F59E0B] shrink-0`} />}
               <span className="flex-1 truncate">{node.name}</span>
-              <span className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0">
-                <button onClick={(e) => { e.stopPropagation(); startCreate("file", node.path); }} className="p-0.5 text-[#6e6a86] hover:text-white"><Plus className="w-2.5 h-2.5" /></button>
-                <button onClick={(e) => { e.stopPropagation(); startCreate("folder", node.path); }} className="p-0.5 text-[#6e6a86] hover:text-white"><FolderPlus className="w-2.5 h-2.5" /></button>
-                <button onClick={(e) => { e.stopPropagation(); deleteFolder(node.path); }} className="p-0.5 text-[#6e6a86] hover:text-red-400"><X className="w-2.5 h-2.5" /></button>
+              <span className={`${actionVisible} flex items-center gap-0.5 shrink-0`}>
+                <button onClick={(e) => { e.stopPropagation(); startCreate("file", node.path); }} className={`p-0.5 text-[#6e6a86] hover:text-white`}><Plus className={actionIconSize} /></button>
+                <button onClick={(e) => { e.stopPropagation(); startCreate("folder", node.path); }} className={`p-0.5 text-[#6e6a86] hover:text-white`}><FolderPlus className={actionIconSize} /></button>
+                <button onClick={(e) => { e.stopPropagation(); deleteFolder(node.path); }} className={`p-0.5 text-[#6e6a86] hover:text-red-400`}><X className={actionIconSize} /></button>
               </span>
             </div>
             {isExpanded && (
               <div>
                 {isCreating && createPrefix === node.path && (
                   <div className="flex items-center gap-1 py-[2px]" style={{ paddingLeft: `${(depth + 1) * 12 + 4}px` }}>
-                    {createTarget === "folder" ? <Folder className="w-3 h-3 text-[#F59E0B] shrink-0" /> : <FileCode className="w-3 h-3 text-[#6e6a86] shrink-0" />}
+                    {createTarget === "folder" ? <Folder className={`${iconSize} text-[#F59E0B] shrink-0`} /> : <FileCode className={`${iconSize} text-[#6e6a86] shrink-0`} />}
                     <input
                       ref={newNameRef}
                       value={newName}
                       onChange={e => { setNewName(e.target.value); setNameError(""); }}
                       onKeyDown={e => { if (e.key === "Enter") createFile(); if (e.key === "Escape") { setIsCreating(false); setNewName(""); } }}
                       placeholder={createTarget === "folder" ? "subfolder" : "file.js"}
-                      className="flex-1 bg-[#1e1e2e] border border-[#F59E0B]/50 rounded px-1 py-0 text-[10px] font-mono text-white outline-none min-w-0"
+                      className={`flex-1 bg-[#1e1e2e] border border-[#F59E0B]/50 rounded px-1.5 ${mobSize ? "py-1 text-xs" : "py-0 text-[10px]"} font-mono text-white outline-none min-w-0`}
                       autoFocus
                     />
-                    <button onClick={createFile} className="text-[#28c840] shrink-0"><Check className="w-2.5 h-2.5" /></button>
-                    <button onClick={() => { setIsCreating(false); setNewName(""); }} className="text-[#ff5f57] shrink-0"><X className="w-2.5 h-2.5" /></button>
+                    <button onClick={createFile} className="text-[#28c840] shrink-0 p-0.5"><Check className={actionIconSize} /></button>
+                    <button onClick={() => { setIsCreating(false); setNewName(""); }} className="text-[#ff5f57] shrink-0 p-0.5"><X className={actionIconSize} /></button>
                   </div>
                 )}
-                {nameError && createPrefix === node.path && <div className="text-[9px] text-red-400" style={{ paddingLeft: `${(depth + 1) * 12 + 16}px` }}>{nameError}</div>}
+                {nameError && createPrefix === node.path && <div className={`${mobSize ? "text-[10px]" : "text-[9px]"} text-red-400`} style={{ paddingLeft: `${(depth + 1) * 12 + 16}px` }}>{nameError}</div>}
                 {renderTree(visibleChildren, depth + 1)}
               </div>
             )}
@@ -903,20 +980,20 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       return (
         <div
           key={node.file.id}
-          className={`group flex items-center gap-1 px-1 py-[3px] cursor-pointer text-[11px] font-mono select-none transition-colors ${
+          className={`group flex items-center gap-1 px-1 ${rowPy} cursor-pointer ${textSize} font-mono select-none transition-colors ${
             isActive ? "bg-[#F59E0B]/10 text-white" : "text-[#a0a0b0] hover:bg-white/5 hover:text-white/80"
           }`}
           style={{ paddingLeft: `${depth * 12 + 16}px` }}
           onClick={() => switchFile(node.file!.id)}
         >
-          <span className="text-[10px] shrink-0">{getFileIcon(node.file.language)}</span>
+          <span className={`${mobSize ? "text-[12px]" : "text-[10px]"} shrink-0`}>{getFileIcon(node.file.language)}</span>
           <span className="flex-1 truncate">{node.name}</span>
           {realFilesOnly.length > 1 && (
             <span
               onClick={(e) => deleteFile(node.file!.id, e)}
-              className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all shrink-0 p-0.5"
+              className={`${actionVisible} hover:text-red-400 transition-all shrink-0 p-0.5`}
             >
-              <X className="w-2.5 h-2.5" />
+              <X className={actionIconSize} />
             </span>
           )}
         </div>
@@ -944,19 +1021,20 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         </button>
       </div>
 
-      <div className="bg-[#181825] border-b border-white/5 flex items-center overflow-x-auto scrollbar-hide">
+      <div className="bg-[#181825] border-b border-white/5 flex items-center">
         <button
-          onClick={() => setShowExplorer(!showExplorer)}
-          className={`shrink-0 px-2 py-2 transition-colors ${showExplorer ? "text-[#F59E0B]" : "text-[#6e6a86] hover:text-white/60"}`}
+          onClick={() => isMobile ? setShowMobileExplorer(!showMobileExplorer) : setShowExplorer(!showExplorer)}
+          className={`shrink-0 px-2 py-2 transition-colors ${(isMobile ? showMobileExplorer : showExplorer) ? "text-[#F59E0B]" : "text-[#6e6a86] hover:text-white/60"}`}
           title={showExplorer ? "إخفاء المستكشف" : "إظهار المستكشف"}
         >
-          {showExplorer ? <PanelLeftClose className="w-3.5 h-3.5" /> : <PanelLeft className="w-3.5 h-3.5" />}
+          {(isMobile ? showMobileExplorer : showExplorer) ? <PanelLeftClose className="w-3.5 h-3.5" /> : <PanelLeft className="w-3.5 h-3.5" />}
         </button>
 
         <div className="flex min-w-0 flex-1 overflow-x-auto scrollbar-hide">
-          {files.filter(f => !f.name.endsWith("/.gitkeep")).map(file => {
+          {realFilesOnly.filter(f => openTabs.has(f.id)).map(file => {
             const li = langInfo(file.language);
             const displayName = file.name.includes("/") ? file.name.split("/").pop()! : file.name;
+            const hasDuplicate = realFilesOnly.filter(f2 => openTabs.has(f2.id)).some(f2 => f2.id !== file.id && (f2.name.includes("/") ? f2.name.split("/").pop()! : f2.name) === displayName);
             return (
               <button
                 key={file.id}
@@ -969,15 +1047,13 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                 title={file.name}
               >
                 <span className="text-[10px]">{li.icon}</span>
-                <span>{displayName}</span>
-                {realFilesOnly.length > 1 && (
-                  <span
-                    onClick={(e) => deleteFile(file.id, e)}
-                    className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all ml-0.5 cursor-pointer"
-                  >
-                    <X className="w-3 h-3" />
-                  </span>
-                )}
+                <span>{hasDuplicate ? file.name : displayName}</span>
+                <span
+                  onClick={(e) => closeTab(file.id, e)}
+                  className={`${isMobile ? "opacity-60" : "opacity-0 group-hover:opacity-100"} hover:text-red-400 transition-all ml-0.5 cursor-pointer`}
+                >
+                  <X className="w-3 h-3" />
+                </span>
               </button>
             );
           })}
@@ -1013,9 +1089,40 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         </div>
       </div>
 
+      {isMobile && showMobileExplorer && (
+        <div className="bg-[#181825] border-b border-white/5 max-h-[50vh] overflow-y-auto">
+          <div className="px-2 py-1.5 flex items-center gap-1.5 border-b border-white/5">
+            <span className="text-[10px] text-[#6e6a86] font-mono font-bold flex-1 uppercase tracking-wider">المستكشف</span>
+            <button onClick={() => startCreate("file")} className="text-[#6e6a86] hover:text-white transition-colors p-0.5" title="ملف جديد"><Plus className="w-3.5 h-3.5" /></button>
+            <button onClick={() => startCreate("folder")} className="text-[#6e6a86] hover:text-white transition-colors p-0.5" title="مجلد جديد"><FolderPlus className="w-3.5 h-3.5" /></button>
+            <button onClick={() => setShowMobileExplorer(false)} className="text-[#6e6a86] hover:text-white transition-colors p-0.5"><X className="w-3.5 h-3.5" /></button>
+          </div>
+          <div className="py-0.5">
+            {isCreating && !createPrefix && (
+              <div className="px-2 py-1 flex items-center gap-1">
+                {createTarget === "folder" ? <Folder className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" /> : <FileCode className="w-3.5 h-3.5 text-[#6e6a86] shrink-0" />}
+                <input
+                  ref={newNameRef}
+                  value={newName}
+                  onChange={e => { setNewName(e.target.value); setNameError(""); }}
+                  onKeyDown={e => { if (e.key === "Enter") createFile(); if (e.key === "Escape") { setIsCreating(false); setNewName(""); setNameError(""); } }}
+                  placeholder={createTarget === "folder" ? "css" : "index.html"}
+                  className="flex-1 bg-[#1e1e2e] border border-[#F59E0B]/50 rounded px-2 py-1 text-xs font-mono text-white outline-none min-w-0 placeholder:text-[#6e6a86]"
+                  autoFocus
+                />
+                <button onClick={createFile} className="text-[#28c840] shrink-0 p-1"><Check className="w-3.5 h-3.5" /></button>
+                <button onClick={() => { setIsCreating(false); setNewName(""); }} className="text-[#ff5f57] shrink-0 p-1"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            )}
+            {nameError && !createPrefix && <div className="px-3 text-[10px] text-red-400">{nameError}</div>}
+            {renderTree(fileTree, 0)}
+          </div>
+        </div>
+      )}
+
       <div className={`bg-[#1e1e2e] w-full overflow-hidden flex ${showPreview && !previewFullscreen ? "flex-col sm:flex-row" : ""}`}>
         {showExplorer && !isMobile && (
-          <div className="w-[200px] min-w-[200px] bg-[#181825] border-r border-white/5 flex flex-col shrink-0" style={{ maxHeight: showPreview ? "clamp(200px, 38vh, 340px)" : "clamp(200px, 38vh, 340px)" }}>
+          <div className="w-[200px] min-w-[200px] bg-[#181825] border-r border-white/5 flex flex-col shrink-0 overflow-hidden">
             <div className="px-2 py-1.5 flex items-center gap-1.5 border-b border-white/5">
               <span className="text-[10px] text-[#6e6a86] font-mono font-bold flex-1 uppercase tracking-wider">المستكشف</span>
               <button onClick={() => startCreate("file")} className="text-[#6e6a86] hover:text-white transition-colors p-0.5" title="ملف جديد"><Plus className="w-3 h-3" /></button>
@@ -1050,7 +1157,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
             <span className="text-[10px] sm:text-[11px] text-white/50 font-mono truncate">{activeFile?.name}</span>
             <div className="flex-1" />
             {canPreview && <span className="text-[10px] text-emerald-400/60 font-mono hidden sm:inline">معاينة حية</span>}
-            <span className="text-[10px] sm:text-[11px] text-[#6e6a86] font-mono">{files.filter(f => !f.name.endsWith("/.gitkeep")).length} ملفات</span>
+            <span className="text-[10px] sm:text-[11px] text-[#6e6a86] font-mono">{realFilesOnly.length} ملفات</span>
           </div>
           {isMobile ? (
             <textarea
