@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye, AlertTriangle, Maximize2, Monitor, Smartphone, Tablet, Globe, ArrowLeft, ArrowRight, Lock, Share2, Layers, Home } from "lucide-react";
+import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye, AlertTriangle, Maximize2, Monitor, Smartphone, Tablet, Globe, ArrowLeft, ArrowRight, Lock, Share2, Layers, Home, FolderOpen, Folder, FolderPlus, ChevronRight, ChevronDown, PanelLeftClose, PanelLeft } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 function useIsMobile() {
@@ -57,7 +57,67 @@ interface IDEFile {
   content: string;
 }
 
-const LS_KEY = "nukhba-ide-files-v2";
+const LS_KEY = "nukhba-ide-files-v3";
+
+interface TreeNode {
+  type: "file" | "folder";
+  name: string;
+  path: string;
+  file?: IDEFile;
+  children?: TreeNode[];
+}
+
+function buildFileTree(files: IDEFile[]): TreeNode[] {
+  const root: TreeNode[] = [];
+  const folderMap = new Map<string, TreeNode>();
+
+  function ensureFolder(parts: string[]): TreeNode[] {
+    if (parts.length === 0) return root;
+    const path = parts.join("/");
+    if (folderMap.has(path)) return folderMap.get(path)!.children!;
+    const parent = ensureFolder(parts.slice(0, -1));
+    const node: TreeNode = { type: "folder", name: parts[parts.length - 1], path, children: [] };
+    folderMap.set(path, node);
+    parent.push(node);
+    return node.children!;
+  }
+
+  const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name));
+  for (const file of sorted) {
+    const parts = file.name.split("/");
+    if (parts.length === 1) {
+      root.push({ type: "file", name: file.name, path: file.name, file });
+    } else {
+      const folderParts = parts.slice(0, -1);
+      const container = ensureFolder(folderParts);
+      container.push({ type: "file", name: parts[parts.length - 1], path: file.name, file });
+    }
+  }
+
+  function sortNodes(nodes: TreeNode[]): TreeNode[] {
+    return nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+  function sortDeep(nodes: TreeNode[]): TreeNode[] {
+    sortNodes(nodes);
+    for (const n of nodes) {
+      if (n.children) sortDeep(n.children);
+    }
+    return nodes;
+  }
+  return sortDeep(root);
+}
+
+function getFileIcon(lang: string): string {
+  return LANGUAGES.find(l => l.id === lang)?.icon || "📄";
+}
+
+function getFolderFiles(files: IDEFile[], folderPath: string): IDEFile[] {
+  const prefix = folderPath.endsWith("/") ? folderPath : folderPath + "/";
+  return files.filter(f => f.name.startsWith(prefix));
+}
 
 function detectLangFromExt(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase() || "";
@@ -130,7 +190,11 @@ function replaceLastOccurrence(str: string, search: RegExp, replacement: string)
 const BROWSER_DOMAIN = "my-project.nukhba.dev";
 
 function getHtmlFiles(files: IDEFile[]): IDEFile[] {
-  return files.filter(f => f.language === "html");
+  return files.filter(f => f.language === "html" && !f.name.endsWith("/.gitkeep"));
+}
+
+function getRealFiles(files: IDEFile[]): IDEFile[] {
+  return files.filter(f => !f.name.endsWith("/.gitkeep"));
 }
 
 function pathToFileName(path: string): string {
@@ -314,18 +378,76 @@ ${availablePages.length > 0 ? `<p style="color:#a0a0b0">الصفحات المت�
 </div></body></html>`;
 }
 
+function resolveFilePath(from: string, href: string): string {
+  if (href.startsWith("/")) return href.replace(/^\/+/, "");
+  const fromParts = from.split("/");
+  fromParts.pop();
+  const hrefParts = href.split("/");
+  for (const part of hrefParts) {
+    if (part === "..") fromParts.pop();
+    else if (part !== ".") fromParts.push(part);
+  }
+  return fromParts.filter(Boolean).join("/");
+}
+
+function inlineLinkedResources(doc: string, htmlFileName: string, files: IDEFile[]): string {
+  const fileMap = new Map(files.map(f => [f.name.toLowerCase(), f]));
+
+  doc = doc.replace(/<link\s[^>]*href\s*=\s*["']([^"']+)["'][^>]*>/gi, (match, href) => {
+    if (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//")) return match;
+    if (!/\.css$/i.test(href)) return match;
+    const resolved = resolveFilePath(htmlFileName, href).toLowerCase();
+    const found = fileMap.get(resolved);
+    if (found) return `<style>/* ${href} */\n${found.content}\n</style>`;
+    return match;
+  });
+
+  doc = doc.replace(/<script\s[^>]*src\s*=\s*["']([^"']+)["'][^>]*>\s*<\/script>/gi, (match, src) => {
+    if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("//")) return match;
+    const resolved = resolveFilePath(htmlFileName, src).toLowerCase();
+    const found = fileMap.get(resolved);
+    if (found) return `<script>/* ${src} */\n${found.content}\n</script>`;
+    return match;
+  });
+
+  doc = doc.replace(/<img\s[^>]*src\s*=\s*["']([^"']+)["'][^>]*>/gi, (match, src) => {
+    if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("//") || src.startsWith("data:")) return match;
+    return match;
+  });
+
+  return doc;
+}
+
 function buildPageHtml(pagePath: string, files: IDEFile[], nonce: string): string {
   const htmlFiles = getHtmlFiles(files);
-  const cssFiles = files.filter(f => f.language === "css");
-  const jsFiles = files.filter(f => f.language === "javascript");
   const availablePages = htmlFiles.map(f => fileNameToPath(f.name));
   const targetName = pathToFileName(pagePath);
   const htmlFile = htmlFiles.find(f => f.name.toLowerCase() === targetName.toLowerCase());
 
   if (htmlFile) {
     let doc = htmlFile.content;
-    if (cssFiles.length > 0) {
-      const cssBlock = cssFiles.map(f => f.content).join("\n");
+
+    doc = inlineLinkedResources(doc, htmlFile.name, files);
+
+    const linkedCssNames = new Set<string>();
+    const linkedJsNames = new Set<string>();
+    const linkRegex = /<link\s[^>]*href\s*=\s*["']([^"']+\.css)["'][^>]*>/gi;
+    const scriptRegex = /<script\s[^>]*src\s*=\s*["']([^"']+\.js)["'][^>]*>/gi;
+    let m;
+    const origDoc = htmlFile.content;
+    while ((m = linkRegex.exec(origDoc)) !== null) {
+      if (!m[1].startsWith("http")) linkedCssNames.add(resolveFilePath(htmlFile.name, m[1]).toLowerCase());
+    }
+    while ((m = scriptRegex.exec(origDoc)) !== null) {
+      if (!m[1].startsWith("http")) linkedJsNames.add(resolveFilePath(htmlFile.name, m[1]).toLowerCase());
+    }
+
+    const realFiles = getRealFiles(files);
+    const unlinkedCss = realFiles.filter(f => f.language === "css" && !linkedCssNames.has(f.name.toLowerCase()));
+    const unlinkedJs = realFiles.filter(f => f.language === "javascript" && !linkedJsNames.has(f.name.toLowerCase()));
+
+    if (unlinkedCss.length > 0) {
+      const cssBlock = unlinkedCss.map(f => `/* ${f.name} */\n${f.content}`).join("\n");
       if (/<\/head>/i.test(doc)) {
         doc = replaceLastOccurrence(doc, /<\/head>/i, `<style>\n${cssBlock}\n</style>\n</head>`);
       } else if (/<body/i.test(doc)) {
@@ -334,8 +456,8 @@ function buildPageHtml(pagePath: string, files: IDEFile[], nonce: string): strin
         doc = `<style>\n${cssBlock}\n</style>\n` + doc;
       }
     }
-    if (jsFiles.length > 0) {
-      const jsBlock = jsFiles.map(f => f.content).join("\n");
+    if (unlinkedJs.length > 0) {
+      const jsBlock = unlinkedJs.map(f => `/* ${f.name} */\n${f.content}`).join("\n");
       if (/<\/body>/i.test(doc)) {
         doc = replaceLastOccurrence(doc, /<\/body>/i, `<script>\n${jsBlock}\n</script>\n</body>`);
       } else {
@@ -356,6 +478,9 @@ function buildPageHtml(pagePath: string, files: IDEFile[], nonce: string): strin
   }
 
   if (htmlFiles.length === 0) {
+    const rf = getRealFiles(files);
+    const cssFiles = rf.filter(f => f.language === "css");
+    const jsFiles = rf.filter(f => f.language === "javascript");
     let body = "";
     let styles = "";
     let scripts = "";
@@ -423,8 +548,12 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const [files, setFiles] = useState<IDEFile[]>(initFiles);
   const [activeId, setActiveId] = useState<string>(() => initFiles()[0]?.id || "main");
   const [isCreating, setIsCreating] = useState(false);
+  const [createTarget, setCreateTarget] = useState<"file" | "folder">("file");
+  const [createPrefix, setCreatePrefix] = useState("");
   const [newName, setNewName] = useState("");
   const [nameError, setNameError] = useState("");
+  const [showExplorer, setShowExplorer] = useState(true);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
   const [output, setOutput] = useState<string | null>(null);
   const [outputType, setOutputType] = useState<"success" | "error">("success");
   const [running, setRunning] = useState(false);
@@ -529,7 +658,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     return () => ro.disconnect();
   }, [activeId]);
 
-  const activeFile = files.find(f => f.id === activeId) || files[0];
+  const realFilesOnly = files.filter(f => !f.name.endsWith("/.gitkeep"));
+  const activeFile = realFilesOnly.find(f => f.id === activeId) || realFilesOnly[0];
   const activeLangInfo = langInfo(activeFile?.language || "python");
 
   const previewHtml = useMemo(() => {
@@ -563,22 +693,61 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   }, [previewNonce, navigateTo]);
 
   const updateContent = (content: string) => {
+    if (!activeFile) return;
     setFiles(prev => prev.map(f => f.id === activeFile.id ? { ...f, content } : f));
   };
 
+  const fileTree = useMemo(() => buildFileTree(files), [files]);
+
+  const toggleFolder = (path: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  const startCreate = (type: "file" | "folder", prefix = "") => {
+    setCreateTarget(type);
+    setCreatePrefix(prefix);
+    setIsCreating(true);
+    setNewName("");
+    setNameError("");
+  };
+
   const createFile = () => {
-    const name = newName.trim();
-    if (!name) { setNameError("أدخل اسم الملف"); return; }
-    if (files.some(f => f.name === name)) { setNameError("اسم مستخدم مسبقاً"); return; }
-    const lang = detectLangFromExt(name);
+    const raw = newName.trim();
+    if (!raw) { setNameError("أدخل اسم الملف"); return; }
+    if (createTarget === "folder") {
+      const folderPath = createPrefix ? `${createPrefix}/${raw}` : raw;
+      const placeholder: IDEFile = {
+        id: `${Date.now()}`,
+        name: `${folderPath}/.gitkeep`,
+        language: "bash",
+        content: "",
+      };
+      setFiles(prev => [...prev, placeholder]);
+      setExpandedFolders(prev => new Set([...prev, folderPath]));
+      setIsCreating(false);
+      setNewName("");
+      setNameError("");
+      return;
+    }
+    const fullName = createPrefix ? `${createPrefix}/${raw}` : raw;
+    if (files.some(f => f.name === fullName)) { setNameError("اسم مستخدم مسبقاً"); return; }
+    const lang = detectLangFromExt(fullName);
     const newFile: IDEFile = {
       id: `${Date.now()}`,
-      name,
+      name: fullName,
       language: lang,
       content: DEFAULT_CODE[lang] || "",
     };
     setFiles(prev => [...prev, newFile]);
     setActiveId(newFile.id);
+    if (createPrefix) {
+      setExpandedFolders(prev => new Set([...prev, createPrefix]));
+    }
     setIsCreating(false);
     setNewName("");
     setNameError("");
@@ -588,10 +757,22 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
 
   const deleteFile = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (files.length <= 1) return;
     const newFiles = files.filter(f => f.id !== id);
+    const newReal = newFiles.filter(f => !f.name.endsWith("/.gitkeep"));
+    if (newReal.length === 0) return;
     setFiles(newFiles);
-    if (activeId === id) setActiveId(newFiles[0]?.id || "");
+    if (activeId === id) setActiveId(newReal[0]?.id || "");
+  };
+
+  const deleteFolder = (folderPath: string) => {
+    const prefix = folderPath + "/";
+    const newFiles = files.filter(f => !f.name.startsWith(prefix));
+    const newReal = newFiles.filter(f => !f.name.endsWith("/.gitkeep"));
+    if (newReal.length === 0) return;
+    setFiles(newFiles);
+    if (activeFile && activeFile.name.startsWith(prefix)) {
+      setActiveId(newReal[0]?.id || "");
+    }
   };
 
   const switchFile = (id: string) => {
@@ -671,6 +852,78 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
 
   const isWebLang = WEB_LANGS.has(activeFile?.language || "");
 
+  const renderTree = (nodes: TreeNode[], depth: number): React.ReactNode => {
+    return nodes.map(node => {
+      if (node.type === "folder") {
+        const isExpanded = expandedFolders.has(node.path);
+        const visibleChildren = (node.children || []).filter(c => c.type === "folder" || (c.file && !c.file.name.endsWith("/.gitkeep")));
+        return (
+          <div key={`folder-${node.path}`}>
+            <div
+              className="group flex items-center gap-1 px-1 py-[3px] cursor-pointer hover:bg-white/5 text-[11px] font-mono text-[#c8c8d0] select-none"
+              style={{ paddingLeft: `${depth * 12 + 4}px` }}
+              onClick={() => toggleFolder(node.path)}
+            >
+              {isExpanded ? <ChevronDown className="w-3 h-3 text-[#6e6a86] shrink-0" /> : <ChevronRight className="w-3 h-3 text-[#6e6a86] shrink-0" />}
+              {isExpanded ? <FolderOpen className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" /> : <Folder className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" />}
+              <span className="flex-1 truncate">{node.name}</span>
+              <span className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0">
+                <button onClick={(e) => { e.stopPropagation(); startCreate("file", node.path); }} className="p-0.5 text-[#6e6a86] hover:text-white"><Plus className="w-2.5 h-2.5" /></button>
+                <button onClick={(e) => { e.stopPropagation(); startCreate("folder", node.path); }} className="p-0.5 text-[#6e6a86] hover:text-white"><FolderPlus className="w-2.5 h-2.5" /></button>
+                <button onClick={(e) => { e.stopPropagation(); deleteFolder(node.path); }} className="p-0.5 text-[#6e6a86] hover:text-red-400"><X className="w-2.5 h-2.5" /></button>
+              </span>
+            </div>
+            {isExpanded && (
+              <div>
+                {isCreating && createPrefix === node.path && (
+                  <div className="flex items-center gap-1 py-[2px]" style={{ paddingLeft: `${(depth + 1) * 12 + 4}px` }}>
+                    {createTarget === "folder" ? <Folder className="w-3 h-3 text-[#F59E0B] shrink-0" /> : <FileCode className="w-3 h-3 text-[#6e6a86] shrink-0" />}
+                    <input
+                      ref={newNameRef}
+                      value={newName}
+                      onChange={e => { setNewName(e.target.value); setNameError(""); }}
+                      onKeyDown={e => { if (e.key === "Enter") createFile(); if (e.key === "Escape") { setIsCreating(false); setNewName(""); } }}
+                      placeholder={createTarget === "folder" ? "subfolder" : "file.js"}
+                      className="flex-1 bg-[#1e1e2e] border border-[#F59E0B]/50 rounded px-1 py-0 text-[10px] font-mono text-white outline-none min-w-0"
+                      autoFocus
+                    />
+                    <button onClick={createFile} className="text-[#28c840] shrink-0"><Check className="w-2.5 h-2.5" /></button>
+                    <button onClick={() => { setIsCreating(false); setNewName(""); }} className="text-[#ff5f57] shrink-0"><X className="w-2.5 h-2.5" /></button>
+                  </div>
+                )}
+                {nameError && createPrefix === node.path && <div className="text-[9px] text-red-400" style={{ paddingLeft: `${(depth + 1) * 12 + 16}px` }}>{nameError}</div>}
+                {renderTree(visibleChildren, depth + 1)}
+              </div>
+            )}
+          </div>
+        );
+      }
+      if (!node.file || node.file.name.endsWith("/.gitkeep")) return null;
+      const isActive = activeId === node.file.id;
+      return (
+        <div
+          key={node.file.id}
+          className={`group flex items-center gap-1 px-1 py-[3px] cursor-pointer text-[11px] font-mono select-none transition-colors ${
+            isActive ? "bg-[#F59E0B]/10 text-white" : "text-[#a0a0b0] hover:bg-white/5 hover:text-white/80"
+          }`}
+          style={{ paddingLeft: `${depth * 12 + 16}px` }}
+          onClick={() => switchFile(node.file!.id)}
+        >
+          <span className="text-[10px] shrink-0">{getFileIcon(node.file.language)}</span>
+          <span className="flex-1 truncate">{node.name}</span>
+          {realFilesOnly.length > 1 && (
+            <span
+              onClick={(e) => deleteFile(node.file!.id, e)}
+              className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all shrink-0 p-0.5"
+            >
+              <X className="w-2.5 h-2.5" />
+            </span>
+          )}
+        </div>
+      );
+    });
+  };
+
   return (
     <div ref={containerRef} className="rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/40 w-full min-w-0" style={{ direction: "ltr" }}>
 
@@ -692,9 +945,18 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       </div>
 
       <div className="bg-[#181825] border-b border-white/5 flex items-center overflow-x-auto scrollbar-hide">
-        <div className="flex min-w-0">
-          {files.map(file => {
+        <button
+          onClick={() => setShowExplorer(!showExplorer)}
+          className={`shrink-0 px-2 py-2 transition-colors ${showExplorer ? "text-[#F59E0B]" : "text-[#6e6a86] hover:text-white/60"}`}
+          title={showExplorer ? "إخفاء المستكشف" : "إظهار المستكشف"}
+        >
+          {showExplorer ? <PanelLeftClose className="w-3.5 h-3.5" /> : <PanelLeft className="w-3.5 h-3.5" />}
+        </button>
+
+        <div className="flex min-w-0 flex-1 overflow-x-auto scrollbar-hide">
+          {files.filter(f => !f.name.endsWith("/.gitkeep")).map(file => {
             const li = langInfo(file.language);
+            const displayName = file.name.includes("/") ? file.name.split("/").pop()! : file.name;
             return (
               <button
                 key={file.id}
@@ -704,10 +966,11 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                     ? "border-[#F59E0B] text-white bg-[#1e1e2e]"
                     : "border-transparent text-[#6e6a86] hover:text-white/60 hover:bg-white/5"
                 }`}
+                title={file.name}
               >
-                <span>{li.icon}</span>
-                <span>{file.name}</span>
-                {files.length > 1 && (
+                <span className="text-[10px]">{li.icon}</span>
+                <span>{displayName}</span>
+                {realFilesOnly.length > 1 && (
                   <span
                     onClick={(e) => deleteFile(file.id, e)}
                     className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all ml-0.5 cursor-pointer"
@@ -719,36 +982,6 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
             );
           })}
         </div>
-
-        {isCreating ? (
-          <div className="flex items-center gap-1 px-2 shrink-0">
-            <input
-              ref={newNameRef}
-              value={newName}
-              onChange={e => { setNewName(e.target.value); setNameError(""); }}
-              onKeyDown={e => { if (e.key === "Enter") createFile(); if (e.key === "Escape") { setIsCreating(false); setNewName(""); setNameError(""); } }}
-              placeholder="index.html"
-              className="bg-[#1e1e2e] border border-[#F59E0B]/50 rounded px-2 py-1 text-xs font-mono text-white outline-none w-24 sm:w-28 placeholder:text-[#6e6a86]"
-            />
-            <button onClick={createFile} className="text-[#28c840] hover:text-green-300 transition-colors">
-              <Check className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={() => { setIsCreating(false); setNewName(""); setNameError(""); }} className="text-[#ff5f57] hover:text-red-300 transition-colors">
-              <X className="w-3.5 h-3.5" />
-            </button>
-            {nameError && <span className="text-[10px] text-red-400">{nameError}</span>}
-          </div>
-        ) : (
-          <button
-            onClick={() => setIsCreating(true)}
-            title="ملف جديد"
-            className="shrink-0 px-2 sm:px-3 py-2 text-[#6e6a86] hover:text-white transition-colors flex items-center gap-1"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        )}
-
-        <div className="flex-1" />
 
         <div className="px-1.5 sm:px-2 shrink-0 flex items-center gap-1.5">
           {canPreview && (
@@ -780,18 +1013,45 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         </div>
       </div>
 
-      <div className="bg-[#181825] border-b border-white/5 px-3 py-1 flex items-center gap-2">
-        <span className="text-sm">{activeLangInfo.icon}</span>
-        <span className="text-[10px] sm:text-[11px] text-[#6e6a86] font-mono truncate">{activeLangInfo.label} · {activeFile?.name}</span>
-        <div className="flex-1" />
-        {canPreview && (
-          <span className="text-[10px] text-emerald-400/60 font-mono hidden sm:inline">معاينة حية متاحة</span>
+      <div className={`bg-[#1e1e2e] w-full overflow-hidden flex ${showPreview && !previewFullscreen ? "flex-col sm:flex-row" : ""}`}>
+        {showExplorer && !isMobile && (
+          <div className="w-[200px] min-w-[200px] bg-[#181825] border-r border-white/5 flex flex-col shrink-0" style={{ maxHeight: showPreview ? "clamp(200px, 38vh, 340px)" : "clamp(200px, 38vh, 340px)" }}>
+            <div className="px-2 py-1.5 flex items-center gap-1.5 border-b border-white/5">
+              <span className="text-[10px] text-[#6e6a86] font-mono font-bold flex-1 uppercase tracking-wider">المستكشف</span>
+              <button onClick={() => startCreate("file")} className="text-[#6e6a86] hover:text-white transition-colors p-0.5" title="ملف جديد"><Plus className="w-3 h-3" /></button>
+              <button onClick={() => startCreate("folder")} className="text-[#6e6a86] hover:text-white transition-colors p-0.5" title="مجلد جديد"><FolderPlus className="w-3 h-3" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden py-0.5">
+              {isCreating && !createPrefix && (
+                <div className="px-2 py-1 flex items-center gap-1">
+                  {createTarget === "folder" ? <Folder className="w-3 h-3 text-[#F59E0B] shrink-0" /> : <FileCode className="w-3 h-3 text-[#6e6a86] shrink-0" />}
+                  <input
+                    ref={newNameRef}
+                    value={newName}
+                    onChange={e => { setNewName(e.target.value); setNameError(""); }}
+                    onKeyDown={e => { if (e.key === "Enter") createFile(); if (e.key === "Escape") { setIsCreating(false); setNewName(""); setNameError(""); } }}
+                    placeholder={createTarget === "folder" ? "css" : "index.html"}
+                    className="flex-1 bg-[#1e1e2e] border border-[#F59E0B]/50 rounded px-1.5 py-0.5 text-[11px] font-mono text-white outline-none min-w-0 placeholder:text-[#6e6a86]"
+                    autoFocus
+                  />
+                  <button onClick={createFile} className="text-[#28c840] hover:text-green-300 shrink-0"><Check className="w-3 h-3" /></button>
+                  <button onClick={() => { setIsCreating(false); setNewName(""); }} className="text-[#ff5f57] hover:text-red-300 shrink-0"><X className="w-3 h-3" /></button>
+                </div>
+              )}
+              {nameError && !createPrefix && <div className="px-3 text-[9px] text-red-400">{nameError}</div>}
+              {renderTree(fileTree, 0)}
+            </div>
+          </div>
         )}
-        <span className="text-[10px] sm:text-[11px] text-[#6e6a86] font-mono">{files.length} {files.length === 1 ? "ملف" : "ملفات"}</span>
-      </div>
 
-      <div className={`bg-[#1e1e2e] w-full overflow-hidden ${showPreview && !previewFullscreen ? "flex flex-col sm:flex-row" : ""}`}>
-        <div className={showPreview && !previewFullscreen ? "w-full sm:w-1/2 sm:border-r sm:border-white/5" : "w-full"}>
+        <div className={`flex-1 min-w-0 flex flex-col ${showPreview && !previewFullscreen ? "sm:w-1/2 sm:border-r sm:border-white/5" : ""}`}>
+          <div className="bg-[#181825] border-b border-white/5 px-3 py-1 flex items-center gap-2">
+            <span className="text-sm">{activeLangInfo.icon}</span>
+            <span className="text-[10px] sm:text-[11px] text-white/50 font-mono truncate">{activeFile?.name}</span>
+            <div className="flex-1" />
+            {canPreview && <span className="text-[10px] text-emerald-400/60 font-mono hidden sm:inline">معاينة حية</span>}
+            <span className="text-[10px] sm:text-[11px] text-[#6e6a86] font-mono">{files.filter(f => !f.name.endsWith("/.gitkeep")).length} ملفات</span>
+          </div>
           {isMobile ? (
             <textarea
               value={activeFile?.content || ""}
