@@ -129,28 +129,20 @@ router.get("/tryhackme/check-room/:roomCode", async (req, res): Promise<void> =>
   const room = getRoomByCode(roomCode);
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
 
-  let completionStatus: "unknown" | "not_linked" | "completed" | "not_completed" = "unknown";
-
-  if (!user?.tryhackmeUsername) {
-    completionStatus = "not_linked";
-  } else {
-    try {
-      const checkRes = await fetch(
-        `https://tryhackme.com/api/room/${encodeURIComponent(roomCode)}`,
-        { headers: { "User-Agent": "Nukhba-Education/1.0" }, signal: AbortSignal.timeout(8000) }
-      );
-      if (checkRes.ok) {
-        completionStatus = "not_completed";
-      }
-    } catch {
-      completionStatus = "unknown";
-    }
-  }
+  let roomExists = false;
+  try {
+    const checkRes = await fetch(
+      `https://tryhackme.com/api/room/${encodeURIComponent(roomCode)}`,
+      { headers: { "User-Agent": "Nukhba-Education/1.0" }, signal: AbortSignal.timeout(8000) }
+    );
+    roomExists = checkRes.ok;
+  } catch {}
 
   res.json({
     roomCode,
     room: room || null,
-    completionStatus,
+    roomExists,
+    linked: !!user?.tryhackmeUsername,
     username: user?.tryhackmeUsername || null,
   });
 });
