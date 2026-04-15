@@ -104,7 +104,7 @@ export default function HashCracker({ onShare }: { onShare: (c: string) => void 
           <div className="flex gap-2">
             <select
               value={genAlgo}
-              onChange={e => setGenAlgo(e.target.value as any)}
+              onChange={e => setGenAlgo(e.target.value as "sha256" | "md5")}
               className="bg-black/30 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none"
             >
               <option value="sha256">SHA-256</option>
@@ -176,7 +176,7 @@ export default function HashCracker({ onShare }: { onShare: (c: string) => void 
           <div className="flex gap-2">
             <select
               value={crackAlgo}
-              onChange={e => setCrackAlgo(e.target.value as any)}
+              onChange={e => setCrackAlgo(e.target.value as "sha256" | "md5")}
               className="bg-black/30 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none"
             >
               <option value="sha256">SHA-256</option>

@@ -1,8 +1,8 @@
-import { useState, lazy, Suspense } from "react";
+import { useState, lazy, Suspense, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Terminal, Network, Lock, Bug, Shield, Database,
-  FileSearch, Loader2, Share2, ChevronLeft, ChevronRight
+  FileSearch, Loader2
 } from "lucide-react";
 
 const TerminalSim = lazy(() => import("./tabs/terminal-sim"));
@@ -18,7 +18,7 @@ export type CyberTabId = "terminal" | "portscan" | "crypto" | "sqli" | "xss" | "
 interface TabDef {
   id: CyberTabId;
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   color: string;
 }
 

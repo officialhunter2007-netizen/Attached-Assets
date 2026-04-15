@@ -174,7 +174,7 @@ export default function TerminalSim({ onShare }: { onShare: (c: string) => void 
             const isDir = n.type === "dir";
             const perm = isDir ? "drwxr-xr-x" : "-rw-r--r--";
             const size = n.content?.length || 4096;
-            const color = isDir ? "\x1b[34m" : n.name?.endsWith(".sh") ? "\x1b[32m" : "";
+            const color = isDir ? "\x1b[34m" : name.endsWith(".sh") ? "\x1b[32m" : "";
             addOutput(`${perm}  1 student student  ${String(size).padStart(5)}  Jan 15 12:00 ${color}${name}\x1b[0m`);
           }
         } else {

@@ -140,7 +140,7 @@ export default function PortScanner({ onShare }: { onShare: (c: string) => void 
           </select>
           <select
             value={scanType}
-            onChange={e => setScanType(e.target.value as any)}
+            onChange={e => setScanType(e.target.value as "syn" | "connect" | "udp" | "version")}
             className="bg-black/30 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none"
           >
             <option value="syn">SYN Scan (-sS)</option>
