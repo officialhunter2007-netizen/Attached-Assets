@@ -184,7 +184,7 @@ export default function Subject() {
   const [isLabOpen, setIsLabOpen] = useState(false);
   const [isYemenSoftOpen, setIsYemenSoftOpen] = useState(false);
   const isFoodSubject = subject?.id === "uni-food-eng";
-  const isYemenSoftSubject = subject?.id === "skill-yemensoft";
+  const isYemenSoftSubject = subject?.id === "skill-yemensoft" || subject?.id === "uni-accounting";
   const { data: lessonViews } = useGetLessonViews();
 
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
