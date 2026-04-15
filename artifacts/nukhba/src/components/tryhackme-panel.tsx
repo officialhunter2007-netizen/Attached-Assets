@@ -105,7 +105,7 @@ export function TryHackMePanel({ subjectId, onClose }: { subjectId: string; onCl
       const mappingRes = await fetch("/api/tryhackme/mappings", { credentials: "include" });
       if (mappingRes.ok) {
         const mappingData = await mappingRes.json();
-        const subjectMapping = mappingData.mappings?.find((m: any) => m.subjectId === subjectId);
+        const subjectMapping = mappingData.mappings?.find((m: { subjectId: string }) => m.subjectId === subjectId);
         if (subjectMapping) {
           setRooms(subjectMapping.stages);
         } else {
