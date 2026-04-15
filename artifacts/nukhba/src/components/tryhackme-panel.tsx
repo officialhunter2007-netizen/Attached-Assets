@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Shield, ExternalLink, Award, Flame, ChevronDown, ChevronUp, Loader2, Link2, Unlink, Trophy, Target } from "lucide-react";
+import { Shield, ExternalLink, Award, Flame, ChevronDown, ChevronUp, Loader2, Link2, Unlink, Trophy, Target, UserPlus, Search, CheckCircle2, ArrowLeft, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface THMRoom {
@@ -121,16 +121,29 @@ export function TryHackMePanel({ subjectId, onClose }: { subjectId: string; onCl
     }
   };
 
+  const extractUsername = (input: string): string => {
+    const trimmed = input.trim();
+    const urlMatch = trimmed.match(/tryhackme\.com\/(?:p|r)\/([a-zA-Z0-9._-]+)/);
+    if (urlMatch) return urlMatch[1];
+    return trimmed;
+  };
+
   const handleLink = async () => {
     if (!linkInput.trim()) return;
     setLinking(true);
     setLinkError("");
+    const username = extractUsername(linkInput);
+    if (!username || username.length < 2) {
+      setLinkError("اسم المستخدم غير صالح");
+      setLinking(false);
+      return;
+    }
     try {
       const res = await fetch("/api/tryhackme/link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ username: linkInput.trim() }),
+        body: JSON.stringify({ username }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -252,38 +265,102 @@ export function TryHackMePanel({ subjectId, onClose }: { subjectId: string; onCl
             )}
           </div>
         ) : (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              اربط حسابك في TryHackMe ليتمكن المعلم الذكي من متابعة تقدمك والتوصية بالغرف المناسبة.
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={linkInput}
-                onChange={e => { setLinkInput(e.target.value); setLinkError(""); }}
-                placeholder="اسم المستخدم في TryHackMe"
-                className="flex-1 bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-muted-foreground/50 focus:outline-none focus:border-red-500/40"
-                dir="ltr"
-                onKeyDown={e => e.key === "Enter" && handleLink()}
-              />
-              <button
-                onClick={handleLink}
-                disabled={linking || !linkInput.trim()}
-                className="px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-sm font-bold hover:bg-red-500/30 transition-colors disabled:opacity-50"
-              >
-                {linking ? <Loader2 className="w-4 h-4 animate-spin" /> : "ربط"}
-              </button>
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <HelpCircle className="w-4 h-4 text-red-400" />
+                <p className="text-sm font-bold text-white">كيف أربط حسابي؟</p>
+              </div>
+
+              <div className="space-y-2.5">
+                <div className="flex gap-3 items-start bg-black/20 rounded-xl p-3 border border-white/5">
+                  <div className="w-6 h-6 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-[11px] font-black text-red-400">1</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-white mb-1">أنشئ حساباً مجانياً في TryHackMe</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed mb-2">
+                      اذهب إلى موقع TryHackMe وسجّل حساباً جديداً مجاناً. يمكنك التسجيل بالبريد الإلكتروني أو حساب Google.
+                    </p>
+                    <a
+                      href="https://tryhackme.com/signup"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-[11px] font-bold text-red-400 hover:text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-2.5 py-1.5 transition-colors"
+                    >
+                      <UserPlus className="w-3 h-3" />
+                      إنشاء حساب TryHackMe
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 items-start bg-black/20 rounded-xl p-3 border border-white/5">
+                  <div className="w-6 h-6 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-[11px] font-black text-red-400">2</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-white mb-1">انسخ اسم المستخدم أو رابط ملفك الشخصي</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      بعد التسجيل، اذهب إلى ملفك الشخصي. يمكنك نسخ اسم المستخدم أو الرابط كاملاً — النظام يستخرج الاسم تلقائياً:
+                    </p>
+                    <div className="mt-1.5 bg-black/40 rounded-lg px-3 py-1.5 border border-white/5 space-y-1">
+                      <p className="text-[10px] text-muted-foreground/70 font-mono" dir="ltr">tryhackme.com/p/<span className="text-red-400 font-bold">username</span></p>
+                      <p className="text-[10px] text-muted-foreground/50">أو فقط: <span className="text-red-400 font-bold font-mono">username</span></p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 items-start bg-black/20 rounded-xl p-3 border border-white/5">
+                  <div className="w-6 h-6 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-[11px] font-black text-red-400">3</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-white mb-1">الصق اسم المستخدم هنا</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed mb-2">
+                      أدخل اسم المستخدم في الحقل أدناه واضغط "ربط". سيتحقق النظام تلقائياً من صحة الحساب.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
-            {linkError && <p className="text-xs text-red-400">{linkError}</p>}
-            <a
-              href="https://tryhackme.com/signup"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-muted-foreground hover:text-red-400 flex items-center gap-1 transition-colors"
-            >
-              <ExternalLink className="w-3 h-3" />
-              ليس لديك حساب؟ أنشئ حساباً مجانياً
-            </a>
+
+            <div className="border-t border-white/5 pt-4">
+              <p className="text-xs font-bold text-white mb-2.5 flex items-center gap-1.5">
+                <Search className="w-3.5 h-3.5 text-red-400" />
+                ربط الحساب
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={linkInput}
+                  onChange={e => { setLinkInput(e.target.value); setLinkError(""); }}
+                  placeholder="ahmed123 أو رابط الملف الشخصي"
+                  className="flex-1 bg-black/30 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-muted-foreground/40 focus:outline-none focus:border-red-500/40 font-mono"
+                  dir="ltr"
+                  onKeyDown={e => e.key === "Enter" && handleLink()}
+                />
+                <button
+                  onClick={handleLink}
+                  disabled={linking || !linkInput.trim()}
+                  className="px-5 py-2.5 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-sm font-bold hover:bg-red-500/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {linking ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Link2 className="w-3.5 h-3.5" /> ربط</>}
+                </button>
+              </div>
+              {linkError && (
+                <div className="mt-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                  <p className="text-xs text-red-400">{linkError}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl p-3">
+              <p className="text-[11px] text-emerald-400/80 leading-relaxed flex items-start gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>بعد الربط، سيتمكن المعلم الذكي من رؤية تقدمك ونقاطك وترتيبك في TryHackMe، وسيوصيك بالغرف التدريبية المناسبة لمستواك.</span>
+              </p>
+            </div>
           </div>
         )}
       </div>
