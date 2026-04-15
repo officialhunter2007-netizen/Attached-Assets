@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye, EyeOff, AlertTriangle, Maximize2, Minimize2 } from "lucide-react";
+import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye, AlertTriangle, Maximize2, Minimize2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 function useIsMobile() {
@@ -109,6 +109,24 @@ function hasWebFiles(files: IDEFile[]): boolean {
   return files.some(f => WEB_LANGS.has(f.language));
 }
 
+function findLastIndex(str: string, search: RegExp): number {
+  let lastIdx = -1;
+  let match;
+  const re = new RegExp(search.source, search.flags.includes('g') ? search.flags : search.flags + 'g');
+  while ((match = re.exec(str)) !== null) {
+    lastIdx = match.index;
+  }
+  return lastIdx;
+}
+
+function replaceLastOccurrence(str: string, search: RegExp, replacement: string): string {
+  const idx = findLastIndex(str, search);
+  if (idx === -1) return str;
+  const match = str.slice(idx).match(search);
+  if (!match) return str;
+  return str.slice(0, idx) + replacement + str.slice(idx + match[0].length);
+}
+
 function buildPreviewHtml(files: IDEFile[], nonce: string): string {
   const htmlFile = files.find(f => f.language === "html");
   const cssFiles = files.filter(f => f.language === "css");
@@ -118,18 +136,18 @@ function buildPreviewHtml(files: IDEFile[], nonce: string): string {
     let doc = htmlFile.content;
     if (cssFiles.length > 0) {
       const cssBlock = cssFiles.map(f => f.content).join("\n");
-      if (doc.includes("</head>")) {
-        doc = doc.replace("</head>", `<style>\n${cssBlock}\n</style>\n</head>`);
-      } else if (doc.includes("<body")) {
-        doc = doc.replace("<body", `<style>\n${cssBlock}\n</style>\n<body`);
+      if (/<\/head>/i.test(doc)) {
+        doc = replaceLastOccurrence(doc, /<\/head>/i, `<style>\n${cssBlock}\n</style>\n</head>`);
+      } else if (/<body/i.test(doc)) {
+        doc = doc.replace(/<body/i, `<style>\n${cssBlock}\n</style>\n<body`);
       } else {
         doc = `<style>\n${cssBlock}\n</style>\n` + doc;
       }
     }
     if (jsFiles.length > 0) {
       const jsBlock = jsFiles.map(f => f.content).join("\n");
-      if (doc.includes("</body>")) {
-        doc = doc.replace("</body>", `<script>\n${jsBlock}\n</script>\n</body>`);
+      if (/<\/body>/i.test(doc)) {
+        doc = replaceLastOccurrence(doc, /<\/body>/i, `<script>\n${jsBlock}\n</script>\n</body>`);
       } else {
         doc += `\n<script>\n${jsBlock}\n</script>`;
       }
@@ -192,10 +210,10 @@ function buildPreviewHtml(files: IDEFile[], nonce: string): string {
   window.addEventListener('load', function(){ notify(); });
 })();
 </script>`;
-    if (doc.includes("<head>")) {
-      doc = doc.replace("<head>", `<head>\n${errorScript}`);
-    } else if (doc.includes("<html")) {
-      doc = doc.replace(/<html[^>]*>/, `$&\n<head>${errorScript}</head>`);
+    if (/<head[\s>]/i.test(doc) || /<head>/i.test(doc)) {
+      doc = doc.replace(/<head[^>]*>/i, `$&\n${errorScript}`);
+    } else if (/<html/i.test(doc)) {
+      doc = doc.replace(/<html[^>]*>/i, `$&\n<head>${errorScript}</head>`);
     } else {
       doc = errorScript + "\n" + doc;
     }
@@ -208,7 +226,17 @@ function buildPreviewHtml(files: IDEFile[], nonce: string): string {
 
   if (cssFiles.length > 0) {
     styles = cssFiles.map(f => f.content).join("\n");
-    body = `<div class="container"><h1>معاينة CSS</h1><p>تم تطبيق الأنماط</p></div>`;
+    body = `<div class="wrapper">
+  <header class="header"><nav class="nav"><a href="#" class="logo">Logo</a><ul class="nav-list"><li class="nav-item"><a href="#" class="nav-link">الرئيسية</a></li><li class="nav-item"><a href="#" class="nav-link">حول</a></li><li class="nav-item"><a href="#" class="nav-link">تواصل</a></li></ul></nav></header>
+  <main class="main content">
+    <section class="hero section"><div class="container"><h1 class="title heading">معاينة CSS</h1><p class="subtitle text description">هذا نص تجريبي لعرض الأنماط - أنشئ ملف HTML لتخصيص المحتوى</p><button class="btn button primary">زر تجريبي</button><a href="#" class="link">رابط تجريبي</a></div></section>
+    <section class="section cards"><div class="grid row flex-container"><div class="card box item col"><h2 class="card-title">بطاقة 1</h2><p class="card-text">محتوى تجريبي</p></div><div class="card box item col"><h2 class="card-title">بطاقة 2</h2><p class="card-text">محتوى تجريبي</p></div><div class="card box item col"><h2 class="card-title">بطاقة 3</h2><p class="card-text">محتوى تجريبي</p></div></div></section>
+    <section class="section"><form class="form"><div class="form-group field"><label class="label">الاسم</label><input type="text" class="input form-control" placeholder="أدخل اسمك" /></div><div class="form-group field"><label class="label">البريد</label><input type="email" class="input form-control" placeholder="أدخل بريدك" /></div><textarea class="textarea form-control" placeholder="رسالتك"></textarea><button type="button" class="btn submit button">إرسال</button></form></section>
+    <ul class="list"><li class="list-item">عنصر 1</li><li class="list-item">عنصر 2</li><li class="list-item">عنصر 3</li></ul>
+    <table class="table"><thead><tr><th>العمود 1</th><th>العمود 2</th><th>العمود 3</th></tr></thead><tbody><tr><td>بيانات</td><td>بيانات</td><td>بيانات</td></tr><tr><td>بيانات</td><td>بيانات</td><td>بيانات</td></tr></tbody></table>
+  </main>
+  <footer class="footer"><p class="footer-text">&copy; 2024 معاينة CSS - نُخبة</p></footer>
+</div>`;
   }
   if (jsFiles.length > 0) {
     scripts = jsFiles.map(f => f.content).join("\n");
