@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye, AlertTriangle, Maximize2, Minimize2 } from "lucide-react";
+import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye, AlertTriangle, Maximize2, Monitor, Smartphone, Tablet, Globe, ArrowLeft, ArrowRight, Lock, Share2, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 function useIsMobile() {
@@ -381,6 +381,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
   const [previewNonce] = useState(() => Math.random().toString(36).slice(2));
+  const [viewportMode, setViewportMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
+  const browserUrl = "https://my-project.nukhba.dev";
   const newNameRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -393,17 +395,24 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const handleEditorMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
     setTimeout(() => editor.layout(), 50);
-
-    if (containerRef.current) {
-      const ro = new ResizeObserver(() => editor.layout());
-      ro.observe(containerRef.current);
-      return () => ro.disconnect();
-    }
-    return undefined;
   }, []);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const container = containerRef.current;
+    if (!editor || !container) return;
+    const ro = new ResizeObserver(() => editor.layout());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [activeId]);
 
   const activeFile = files.find(f => f.id === activeId) || files[0];
   const activeLangInfo = langInfo(activeFile?.language || "python");
+
+  const previewHtml = useMemo(() => {
+    if (!showPreview && !previewFullscreen) return "";
+    return buildPreviewHtml(files, previewNonce);
+  }, [files, previewNonce, showPreview, previewFullscreen]);
 
   useEffect(() => {
     try { localStorage.setItem(LS_KEY, JSON.stringify(files)); } catch {}
@@ -784,7 +793,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
               <iframe
                 ref={iframeRef}
                 key={previewKey}
-                srcDoc={buildPreviewHtml(files, previewNonce)}
+                srcDoc={previewHtml}
                 sandbox="allow-scripts"
                 className="w-full h-full border-0"
                 style={{ minHeight: isMobile ? "200px" : "clamp(200px, 30vh, 300px)" }}
@@ -814,83 +823,137 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       </div>
 
       {showPreview && previewFullscreen && (
-        <div className="bg-[#0d1117] border-t border-white/5">
-          <div className="bg-[#181825] px-3 py-1.5 flex items-center gap-2 border-b border-white/5">
-            <Eye className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] text-emerald-400 font-mono font-bold">LIVE PREVIEW — FULLSCREEN</span>
-            <div className="flex-1" />
-            {errorCount > 0 && (
-              <button
-                onClick={() => setShowPreviewConsole(!showPreviewConsole)}
-                className="flex items-center gap-1 text-[10px] text-red-400 font-mono"
-              >
-                <AlertTriangle className="w-3 h-3" /> {errorCount} أخطاء
-              </button>
-            )}
-            {logCount > 0 && (
-              <button
-                onClick={() => setShowPreviewConsole(!showPreviewConsole)}
-                className="flex items-center gap-1 text-[10px] text-blue-400 font-mono"
-              >
-                <Terminal className="w-3 h-3" /> {logCount} سجل
-              </button>
-            )}
-            {onShareWithTeacher && (
-              <button
-                onClick={sharePreview}
-                className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-all"
-                style={{ direction: "rtl" }}
-              >
-                📤 شارك المعاينة مع المعلم
-              </button>
-            )}
-            <button
-              onClick={handlePreview}
-              className="text-[#6e6a86] hover:text-emerald-400 transition-colors"
-              title="تحديث"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setPreviewFullscreen(false)}
-              className="text-[#6e6a86] hover:text-white transition-colors"
-              title="تصغير"
-            >
-              <Minimize2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => { setShowPreview(false); setPreviewFullscreen(false); }}
-              className="text-[#6e6a86] hover:text-white transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="bg-white" style={{ height: "clamp(300px, 50vh, 500px)" }}>
-            <iframe
-              ref={iframeFullRef}
-              key={previewKey}
-              srcDoc={buildPreviewHtml(files, previewNonce)}
-              sandbox="allow-scripts"
-              className="w-full h-full border-0"
-              title="معاينة الصفحة"
-            />
-          </div>
-          {showPreviewConsole && previewLogs.length > 0 && (
-            <div className="bg-[#0d1117] border-t border-white/10 max-h-[150px] overflow-y-auto">
-              <div className="px-3 py-1 border-b border-white/5 flex items-center gap-2">
-                <Terminal className="w-3 h-3 text-[#6e6a86]" />
-                <span className="text-[10px] text-[#6e6a86] font-mono">CONSOLE OUTPUT</span>
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) { setPreviewFullscreen(false); } }}>
+          <div className="w-full h-full max-w-[1400px] max-h-[95vh] flex flex-col rounded-xl overflow-hidden shadow-2xl shadow-black/60 border border-white/10">
+
+            <div className="bg-[#2b2b3d] px-2 sm:px-3 py-1.5 flex items-center gap-1 sm:gap-2 border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-1.5 mr-1 sm:mr-2">
+                <button onClick={() => { setShowPreview(false); setPreviewFullscreen(false); }} className="w-3 h-3 rounded-full bg-[#ff5f57] hover:bg-[#ff3b30] transition-colors" title="إغلاق" />
+                <button onClick={() => setPreviewFullscreen(false)} className="w-3 h-3 rounded-full bg-[#ffbd2e] hover:bg-[#f5a623] transition-colors" title="تصغير" />
+                <button onClick={() => {}} className="w-3 h-3 rounded-full bg-[#28c840] hover:bg-[#1fb636] transition-colors" title="تكبير" />
               </div>
-              <div className="p-2 space-y-0.5">
-                {previewLogs.map((log, i) => (
-                  <div key={i} className={`text-[11px] font-mono flex items-start gap-1.5 ${log.type === "error" ? "text-[#f38ba8]" : log.type === "warn" ? "text-[#fab387]" : "text-[#a6e3a1]"}`}>
-                    <span className="shrink-0">{log.type === "error" ? "✗" : log.type === "warn" ? "⚠" : "›"}</span>
-                    <span className="break-all">{log.msg}{log.line ? ` (سطر ${log.line})` : ""}</span>
-                  </div>
-                ))}
+
+              <div className="flex items-center gap-0.5 sm:gap-1 text-[#6e6a86]">
+                <button className="p-1 hover:text-white/60 transition-colors" title="رجوع"><ArrowLeft className="w-3.5 h-3.5" /></button>
+                <button className="p-1 hover:text-white/60 transition-colors" title="تقدم"><ArrowRight className="w-3.5 h-3.5" /></button>
+                <button onClick={handlePreview} className="p-1 hover:text-emerald-400 transition-colors" title="تحديث"><RotateCcw className="w-3.5 h-3.5" /></button>
+              </div>
+
+              <div className="flex-1 mx-1 sm:mx-2 bg-[#1e1e2e] rounded-lg border border-white/10 px-2 sm:px-3 py-1 flex items-center gap-1.5 sm:gap-2 min-w-0">
+                <Lock className="w-3 h-3 text-emerald-400 shrink-0" />
+                <span className="text-[10px] sm:text-xs text-white/70 font-mono truncate select-all">{browserUrl}</span>
+              </div>
+
+              <div className="flex items-center gap-0.5 sm:gap-1">
+                {onShareWithTeacher && (
+                  <button onClick={sharePreview} className="p-1 text-emerald-400 hover:text-emerald-300 transition-colors" title="شارك مع المعلم">
+                    <Share2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button onClick={() => setShowPreviewConsole(!showPreviewConsole)} className={`p-1 transition-colors ${showPreviewConsole ? "text-[#F59E0B]" : "text-[#6e6a86] hover:text-white/60"}`} title="وحدة التحكم">
+                  <Terminal className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
-          )}
+
+            <div className="bg-[#1e1e2e] px-2 sm:px-3 py-1 flex items-center gap-2 sm:gap-3 border-b border-white/5 shrink-0">
+              <div className="flex items-center gap-1 sm:gap-1.5 bg-[#2b2b3d] rounded-md px-2 py-0.5">
+                {(["desktop", "tablet", "mobile"] as const).map(mode => {
+                  const Icon = mode === "desktop" ? Monitor : mode === "tablet" ? Tablet : Smartphone;
+                  const label = mode === "desktop" ? "سطح المكتب" : mode === "tablet" ? "جهاز لوحي" : "جوال";
+                  return (
+                    <button
+                      key={mode}
+                      onClick={() => setViewportMode(mode)}
+                      className={`p-1 rounded transition-all ${viewportMode === mode ? "text-[#F59E0B] bg-[#F59E0B]/10" : "text-[#6e6a86] hover:text-white/60"}`}
+                      title={label}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="text-[9px] sm:text-[10px] text-[#6e6a86] font-mono hidden sm:inline">
+                {viewportMode === "desktop" ? "100%" : viewportMode === "tablet" ? "768px" : "375px"}
+              </span>
+              <div className="flex-1" />
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {errorCount > 0 && (
+                  <span className="flex items-center gap-1 text-[10px] text-red-400 font-mono">
+                    <AlertTriangle className="w-3 h-3" /> {errorCount}
+                  </span>
+                )}
+                {warnCount > 0 && (
+                  <span className="flex items-center gap-1 text-[10px] text-amber-400 font-mono">⚠ {warnCount}</span>
+                )}
+                {logCount > 0 && (
+                  <span className="flex items-center gap-1 text-[10px] text-blue-400 font-mono">
+                    <Terminal className="w-3 h-3" /> {logCount}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-[9px] sm:text-[10px] text-[#6e6a86] font-mono">
+                <Layers className="w-3 h-3" />
+                <span>{files.filter(f => WEB_LANGS.has(f.language)).length} ملفات ويب</span>
+              </div>
+            </div>
+
+            <div className="flex-1 bg-[#e8e8e8] flex items-start justify-center overflow-auto min-h-0">
+              <div
+                className="bg-white transition-all duration-300 h-full"
+                style={{
+                  width: viewportMode === "desktop" ? "100%" : viewportMode === "tablet" ? "768px" : "375px",
+                  maxWidth: "100%",
+                  boxShadow: viewportMode !== "desktop" ? "0 0 40px rgba(0,0,0,0.3)" : "none",
+                  borderLeft: viewportMode !== "desktop" ? "1px solid rgba(0,0,0,0.1)" : "none",
+                  borderRight: viewportMode !== "desktop" ? "1px solid rgba(0,0,0,0.1)" : "none",
+                }}
+              >
+                <iframe
+                  ref={iframeFullRef}
+                  key={previewKey}
+                  srcDoc={previewHtml}
+                  sandbox="allow-scripts"
+                  className="w-full h-full border-0"
+                  title="معاينة الصفحة"
+                />
+              </div>
+            </div>
+
+            {showPreviewConsole && (
+              <div className="bg-[#0d1117] border-t border-white/10 shrink-0" style={{ height: "clamp(100px, 20vh, 200px)" }}>
+                <div className="px-3 py-1 border-b border-white/5 flex items-center gap-2">
+                  <Terminal className="w-3 h-3 text-[#6e6a86]" />
+                  <span className="text-[10px] text-[#6e6a86] font-mono">CONSOLE</span>
+                  <div className="flex-1" />
+                  {errorCount > 0 && <span className="text-[9px] text-red-400 font-mono">{errorCount} errors</span>}
+                  {logCount > 0 && <span className="text-[9px] text-blue-400 font-mono">{logCount} logs</span>}
+                  <button onClick={() => setPreviewLogs([])} className="text-[10px] text-[#6e6a86] hover:text-white font-mono">مسح</button>
+                  <button onClick={() => setShowPreviewConsole(false)} className="text-[#6e6a86] hover:text-white"><X className="w-3 h-3" /></button>
+                </div>
+                <div className="p-2 space-y-0.5 overflow-y-auto" style={{ maxHeight: "calc(20vh - 30px)" }}>
+                  {previewLogs.length === 0 ? (
+                    <div className="text-[11px] text-[#6e6a86] font-mono py-2 text-center">لا توجد سجلات</div>
+                  ) : previewLogs.map((log, i) => (
+                    <div key={i} className={`text-[11px] font-mono flex items-start gap-1.5 ${log.type === "error" ? "text-[#f38ba8]" : log.type === "warn" ? "text-[#fab387]" : "text-[#a6e3a1]"}`}>
+                      <span className="shrink-0">{log.type === "error" ? "✗" : log.type === "warn" ? "⚠" : "›"}</span>
+                      <span className="break-all">{log.msg}{log.line ? ` (سطر ${log.line})` : ""}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-[#1e1e2e] px-3 py-1 flex items-center gap-3 border-t border-white/5 shrink-0">
+              <div className="flex items-center gap-1">
+                <Globe className="w-3 h-3 text-emerald-400" />
+                <span className="text-[9px] text-emerald-400 font-mono">LIVE</span>
+              </div>
+              <span className="text-[9px] text-[#6e6a86] font-mono">{viewportMode === "desktop" ? "Desktop" : viewportMode === "tablet" ? "Tablet 768px" : "Mobile 375px"}</span>
+              <div className="flex-1" />
+              <span className="text-[9px] text-[#6e6a86] font-mono">Nukhba Browser</span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -903,6 +966,13 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
             >
               <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span>{showPreview ? "تحديث المعاينة 🔄" : "معاينة الصفحة 👁"}</span>
+            </button>
+            <button
+              onClick={() => { handlePreview(); setPreviewFullscreen(true); }}
+              className="flex items-center gap-1.5 sm:gap-2 font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all text-xs sm:text-sm shadow-lg bg-[#F59E0B] text-black hover:bg-[#fbbf24] shadow-[#F59E0B]/30 active:scale-95"
+            >
+              <Globe className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span>فتح المتصفح 🌐</span>
             </button>
             {showPreview && onShareWithTeacher && (
               <button
