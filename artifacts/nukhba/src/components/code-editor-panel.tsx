@@ -138,30 +138,53 @@ function buildPreviewHtml(files: IDEFile[], nonce: string): string {
 (function(){
   var nonce = '${nonce}';
   var errors = [];
+  var MAX_LOGS = 200;
+  function safeStr(a) {
+    if (a === null) return 'null';
+    if (a === undefined) return 'undefined';
+    if (typeof a !== 'object') return String(a);
+    try { return JSON.stringify(a, null, 2); } catch(e) {
+      try {
+        var seen = new WeakSet();
+        return JSON.stringify(a, function(k, v) {
+          if (typeof v === 'object' && v !== null) {
+            if (seen.has(v)) return '[Circular]';
+            seen.add(v);
+          }
+          return v;
+        }, 2);
+      } catch(e2) { return String(a); }
+    }
+  }
   function notify(){ window.parent.postMessage({type:'nukhba-preview-error', nonce:nonce, errors:errors}, '*'); }
   window.onerror = function(msg, src, line, col) {
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'error', msg: String(msg), line: line, col: col});
     notify();
   };
   window.addEventListener('unhandledrejection', function(e){
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'error', msg: 'Unhandled Promise: ' + String(e.reason)});
     notify();
   });
   var origLog = console.log, origWarn = console.warn, origErr = console.error;
   console.log = function() {
-    var args = Array.from(arguments).map(function(a){return typeof a==='object'?JSON.stringify(a):String(a)}).join(' ');
+    var args = Array.from(arguments).map(safeStr).join(' ');
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'log', msg: args});
     notify();
     origLog.apply(console, arguments);
   };
   console.warn = function() {
-    var args = Array.from(arguments).map(function(a){return typeof a==='object'?JSON.stringify(a):String(a)}).join(' ');
+    var args = Array.from(arguments).map(safeStr).join(' ');
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'warn', msg: args});
     notify();
     origWarn.apply(console, arguments);
   };
   console.error = function() {
-    var args = Array.from(arguments).map(function(a){return typeof a==='object'?JSON.stringify(a):String(a)}).join(' ');
+    var args = Array.from(arguments).map(safeStr).join(' ');
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'error', msg: args});
     notify();
     origErr.apply(console, arguments);
@@ -189,6 +212,9 @@ function buildPreviewHtml(files: IDEFile[], nonce: string): string {
   }
   if (jsFiles.length > 0) {
     scripts = jsFiles.map(f => f.content).join("\n");
+    if (!body) {
+      body = `<div id="nukhba-console-output" style="font-family:monospace;font-size:13px;padding:12px;background:#1e1e2e;color:#a6e3a1;min-height:100vh;direction:ltr;white-space:pre-wrap;"></div>`;
+    }
   }
 
   return `<!DOCTYPE html>
@@ -200,31 +226,71 @@ function buildPreviewHtml(files: IDEFile[], nonce: string): string {
 (function(){
   var nonce = '${nonce}';
   var errors = [];
+  var MAX_LOGS = 200;
+  var consoleEl = null;
+  function safeStr(a) {
+    if (a === null) return 'null';
+    if (a === undefined) return 'undefined';
+    if (typeof a !== 'object') return String(a);
+    try { return JSON.stringify(a, null, 2); } catch(e) {
+      try {
+        var seen = new WeakSet();
+        return JSON.stringify(a, function(k, v) {
+          if (typeof v === 'object' && v !== null) {
+            if (seen.has(v)) return '[Circular]';
+            seen.add(v);
+          }
+          return v;
+        }, 2);
+      } catch(e2) { return String(a); }
+    }
+  }
   function notify(){ window.parent.postMessage({type:'nukhba-preview-error', nonce:nonce, errors:errors}, '*'); }
+  function appendToConsole(type, text) {
+    if (!consoleEl) consoleEl = document.getElementById('nukhba-console-output');
+    if (!consoleEl) return;
+    var line = document.createElement('div');
+    line.style.padding = '2px 0';
+    line.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+    if (type === 'error') { line.style.color = '#f38ba8'; line.textContent = '✗ ' + text; }
+    else if (type === 'warn') { line.style.color = '#fab387'; line.textContent = '⚠ ' + text; }
+    else { line.style.color = '#a6e3a1'; line.textContent = '› ' + text; }
+    consoleEl.appendChild(line);
+  }
   window.onerror = function(msg, src, line, col) {
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'error', msg: String(msg), line: line, col: col});
+    appendToConsole('error', String(msg) + (line ? ' (سطر ' + line + ')' : ''));
     notify();
   };
   window.addEventListener('unhandledrejection', function(e){
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'error', msg: 'Unhandled Promise: ' + String(e.reason)});
+    appendToConsole('error', 'Unhandled Promise: ' + String(e.reason));
     notify();
   });
   var origLog = console.log, origWarn = console.warn, origErr = console.error;
   console.log = function() {
-    var args = Array.from(arguments).map(function(a){return typeof a==='object'?JSON.stringify(a):String(a)}).join(' ');
+    var args = Array.from(arguments).map(safeStr).join(' ');
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'log', msg: args});
+    appendToConsole('log', args);
     notify();
     origLog.apply(console, arguments);
   };
   console.warn = function() {
-    var args = Array.from(arguments).map(function(a){return typeof a==='object'?JSON.stringify(a):String(a)}).join(' ');
+    var args = Array.from(arguments).map(safeStr).join(' ');
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'warn', msg: args});
+    appendToConsole('warn', args);
     notify();
     origWarn.apply(console, arguments);
   };
   console.error = function() {
-    var args = Array.from(arguments).map(function(a){return typeof a==='object'?JSON.stringify(a):String(a)}).join(' ');
+    var args = Array.from(arguments).map(safeStr).join(' ');
+    if (errors.length >= MAX_LOGS) errors.shift();
     errors.push({type:'error', msg: args});
+    appendToConsole('error', args);
     notify();
     origErr.apply(console, arguments);
   };
@@ -232,7 +298,7 @@ function buildPreviewHtml(files: IDEFile[], nonce: string): string {
 })();
 </script>
 <style>
-body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 1rem; }
+body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: ${cssFiles.length > 0 ? '1rem' : '0'}; }
 ${styles}
 </style>
 </head>
@@ -801,7 +867,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       )}
 
       <div className="bg-[#181825] px-3 sm:px-4 py-2.5 sm:py-3 border-t border-white/5 flex items-center gap-2 sm:gap-3 flex-wrap">
-        {canPreview ? (
+        {canPreview && (
           <>
             <button
               onClick={handlePreview}
@@ -820,7 +886,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
               </button>
             )}
           </>
-        ) : (
+        )}
+        {!canPreview && (
           <button
             onClick={handleRun}
             disabled={running}
@@ -833,6 +900,22 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
             {running
               ? <><div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /><span>جاري التنفيذ...</span></>
               : <><Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" /><span>تشغيل الكود ▶</span></>
+            }
+          </button>
+        )}
+        {canPreview && !isWebLang && (
+          <button
+            onClick={handleRun}
+            disabled={running}
+            className={`flex items-center gap-1.5 sm:gap-2 font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all text-xs sm:text-sm shadow-lg ${
+              running
+                ? "bg-[#F59E0B]/30 text-[#F59E0B]/60 cursor-not-allowed"
+                : "bg-[#F59E0B] text-black hover:bg-[#fbbf24] shadow-[#F59E0B]/30 active:scale-95"
+            }`}
+          >
+            {running
+              ? <><div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /><span>جاري التنفيذ...</span></>
+              : <><Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" /><span>تشغيل ▶</span></>
             }
           </button>
         )}

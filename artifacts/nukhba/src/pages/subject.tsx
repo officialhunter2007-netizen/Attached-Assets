@@ -653,9 +653,11 @@ function SubjectPathChat({
 
   const handleShareWithTeacher = (code: string, language: string, output: string) => {
     const langLabels: Record<string, string> = {
-      python: "Python 🐍", javascript: "JavaScript ⚡", java: "Java ☕",
+      html: "HTML 🌐", css: "CSS 🎨", javascript: "JavaScript ⚡",
+      typescript: "TypeScript 💙", python: "Python 🐍", java: "Java ☕",
       cpp: "C++ ⚙️", c: "C 🔩", go: "Go 🐹", rust: "Rust 🦀",
       ruby: "Ruby 💎", php: "PHP 🐘", bash: "Bash 🐚",
+      dart: "Dart 🎯", kotlin: "Kotlin 🤖", sql: "SQL 🗄️",
     };
     const label = langLabels[language] || language;
     const msg = `كتبت هذا الكود بلغة ${label}:\n\`\`\`${language}\n${code}\n\`\`\`\nالناتج:\n${output || "(لا يوجد إخراج)"}`;
