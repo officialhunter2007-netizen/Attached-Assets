@@ -28,7 +28,12 @@ export default function CyberLab({ onShare, onAskHelp, pendingAIEnv, onClearPend
   const [wizardKey, setWizardKey] = useState(0);
 
   useEffect(() => {
-    if (pendingAIEnv && view === "wizard") {
+    if (!pendingAIEnv) return;
+    // If a different env is currently active, replace it with the new one
+    if (view === "env-active") {
+      setActiveEnv(pendingAIEnv);
+      onClearPendingEnv?.();
+    } else {
       setWizardKey(k => k + 1);
     }
   }, [pendingAIEnv]);
@@ -48,6 +53,7 @@ export default function CyberLab({ onShare, onAskHelp, pendingAIEnv, onClearPend
       <div className="flex flex-col h-full w-full overflow-hidden" style={{ background: "#0d1117" }}>
         <Suspense fallback={<TabLoader />}>
           <CyberLabEnvironment
+            key={activeEnv.id || activeEnv.name}
             env={activeEnv}
             onBack={() => { setActiveEnv(null); setView("wizard"); }}
             onShare={onShare ? handleShare : undefined}

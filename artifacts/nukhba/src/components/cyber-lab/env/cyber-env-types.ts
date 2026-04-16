@@ -72,6 +72,15 @@ export interface NetworkConfig {
   dns: string;
 }
 
+export interface WebPentestPage {
+  vulnerability: string;
+  scenario?: string;
+  hint?: string;
+  html: string;
+  targetMachineId?: string;
+  targetUrl?: string;
+}
+
 export interface CyberEnvironment {
   id: string;
   name: string;
@@ -86,6 +95,7 @@ export interface CyberEnvironment {
   category: string;
   createdBy: 'student' | 'ai';
   createdAt: number;
+  webPentest?: WebPentestPage;
 }
 
 export interface EnvironmentPreset {

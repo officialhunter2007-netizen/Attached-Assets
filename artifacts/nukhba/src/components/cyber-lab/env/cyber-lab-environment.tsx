@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageCircleQuestion, ChevronLeft, Monitor, Share2, Info, X, AlertTriangle, Send, Minimize2 } from "lucide-react";
+import { MessageCircleQuestion, ChevronLeft, Monitor, Share2, Info, X, AlertTriangle, Send, Minimize2, Globe, RefreshCw } from "lucide-react";
 import type { CyberEnvironment, VirtualMachine, FSNode, MachineSession, CommandResult } from "./cyber-env-types";
 import { executeCommand, getPrompt, resolvePath, checkSSHAuth } from "./cyber-env-commands";
 
@@ -141,6 +141,9 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpInput, setHelpInput] = useState("");
   const [shellType, setShellType] = useState<Record<string, "cmd" | "powershell">>({});
+  const [webPanelOpen, setWebPanelOpen] = useState<boolean>(!!env.webPentest);
+  const [iframeKey, setIframeKey] = useState(0);
+  const iframeSrcDoc = env.webPentest?.html || "";
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -557,6 +560,22 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
           </div>
         )}
 
+        {env.webPentest && (
+          <button
+            onClick={() => setWebPanelOpen(o => !o)}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all shrink-0 border ${
+              webPanelOpen
+                ? "bg-red-500/15 border-red-500/30 text-red-300"
+                : "bg-white/5 border-white/10 text-muted-foreground hover:text-white"
+            }`}
+            title="موقع الهدف"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{env.webPentest.vulnerability}</span>
+            <span className="sm:hidden">Web</span>
+          </button>
+        )}
+
         {onShare && (
           <button onClick={handleShare} className="p-1 rounded hover:bg-white/5 transition-colors shrink-0" title="مشاركة مع المعلم">
             <Share2 className="w-4 h-4 text-muted-foreground" />
@@ -594,6 +613,53 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
           </motion.div>
         )}
       </AnimatePresence>
+
+      {env.webPentest && webPanelOpen && (
+        <div className="shrink-0 border-b border-white/10 bg-[#0a0e18]" style={{ height: "min(45vh, 380px)" }}>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-[#1a1d29] border-b border-white/5" dir="ltr">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
+              <div className="w-2.5 h-2.5 rounded-full bg-amber-500/70" />
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/70" />
+            </div>
+            <div className="flex-1 mx-2">
+              <div className="px-2.5 py-1 rounded bg-[#0a0e18] border border-white/5 text-[10px] text-muted-foreground/80 font-mono truncate">
+                🔒 {env.webPentest.targetUrl || "http://target.local"}
+              </div>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-[9px] font-bold text-red-300 shrink-0">
+              {env.webPentest.vulnerability}
+            </span>
+            <button
+              onClick={() => setIframeKey(k => k + 1)}
+              className="p-1 rounded hover:bg-white/5 transition-colors"
+              title="إعادة تحميل"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+            <button
+              onClick={() => setWebPanelOpen(false)}
+              className="p-1 rounded hover:bg-white/5 transition-colors"
+              title="إخفاء"
+            >
+              <X className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          </div>
+          <iframe
+            key={iframeKey}
+            srcDoc={iframeSrcDoc}
+            sandbox="allow-scripts allow-forms"
+            className="w-full bg-white"
+            style={{ height: "calc(100% - 32px)" }}
+            title="Vulnerable Web Page"
+          />
+          {env.webPentest.hint && (
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur border border-amber-500/30 text-[10px] text-amber-300 max-w-[90%] truncate pointer-events-none">
+              💡 {env.webPentest.hint}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 flex overflow-hidden">
         <div
