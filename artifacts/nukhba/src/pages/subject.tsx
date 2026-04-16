@@ -201,6 +201,7 @@ export default function Subject() {
   const [pendingDynamicEnv, setPendingDynamicEnv] = useState<any | null>(null);
   const [isDynamicEnvOpen, setIsDynamicEnvOpen] = useState(false);
   const [chatStarter, setChatStarter] = useState<string | null>(null);
+  const [createEnvError, setCreateEnvError] = useState<string | null>(null);
   const supportsLabEnv = isCyberSubject || isFoodSubject || isAccountingLabSubject || isYemenSoftSubject;
   const { data: lessonViews } = useGetLessonViews();
 
@@ -594,7 +595,9 @@ export default function Subject() {
               onConsumeChatStarter={() => setChatStarter(null)}
               supportsLabEnv={supportsLabEnv}
               onCreateLabEnv={async (description: string) => {
+                console.log("[create-lab-env] click; isCreatingCyberEnv=", isCreatingCyberEnv, "description=", description);
                 if (isCreatingCyberEnv) return;
+                setCreateEnvError(null);
                 setIsCreatingCyberEnv(true);
                 try {
                   if (isCyberSubject) {
@@ -611,11 +614,17 @@ export default function Subject() {
                       credentials: "include",
                       body: JSON.stringify({ description: augmented }),
                     });
-                    if (!r.ok) throw new Error("فشل إنشاء البيئة");
+                    console.log("[create-lab-env] cyber response:", r.status);
+                    if (!r.ok) {
+                      const errText = await r.text().catch(() => "");
+                      throw new Error(`فشل إنشاء البيئة (${r.status}): ${errText.slice(0, 200)}`);
+                    }
                     const data = await r.json();
                     if (data.env) {
                       setPendingCyberEnv(data.env);
                       setIsCyberLabOpen(true);
+                    } else {
+                      throw new Error("الاستجابة لا تحتوي على بيئة صالحة");
                     }
                   } else {
                     // Non-cyber: build a fully-tailored dynamic env from the description
@@ -625,18 +634,26 @@ export default function Subject() {
                       credentials: "include",
                       body: JSON.stringify({ subjectId: subject!.id, description }),
                     });
-                    if (!r.ok) throw new Error("فشل بناء البيئة");
+                    console.log("[create-lab-env] dynamic response:", r.status);
+                    if (!r.ok) {
+                      const errText = await r.text().catch(() => "");
+                      throw new Error(`فشل بناء البيئة (${r.status}): ${errText.slice(0, 200)}`);
+                    }
                     const data = await r.json();
+                    console.log("[create-lab-env] dynamic data:", data);
                     if (data.env) {
                       setPendingDynamicEnv(data.env);
                       setIsDynamicEnvOpen(true);
                       setIsLabOpen(false);
                       setIsYemenSoftOpen(false);
                       setIsAccountingLabOpen(false);
+                    } else {
+                      throw new Error("الاستجابة لا تحتوي على بيئة صالحة");
                     }
                   }
-                } catch (e) {
-                  console.error("Failed to create lab env:", e);
+                } catch (e: any) {
+                  console.error("[create-lab-env] failed:", e);
+                  setCreateEnvError(e?.message || "حدث خطأ غير متوقع أثناء بناء البيئة");
                 } finally {
                   setIsCreatingCyberEnv(false);
                 }
@@ -645,6 +662,32 @@ export default function Subject() {
             />
           </div>
         </div>
+
+        {/* Loading overlay while building env */}
+        {isCreatingCyberEnv && (
+          <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center pointer-events-none">
+            <div className="bg-slate-900 border border-white/10 rounded-2xl px-6 py-5 flex items-center gap-3 shadow-xl pointer-events-auto">
+              <Loader2 className="w-5 h-5 animate-spin text-gold" />
+              <span className="text-white font-bold">جارٍ بناء البيئة التطبيقية...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Error toast */}
+        {createEnvError && !isCreatingCyberEnv && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[92%]">
+            <div className="bg-red-950/95 border border-red-500/40 rounded-xl px-4 py-3 shadow-xl flex items-start gap-3">
+              <span className="text-xl shrink-0">⚠️</span>
+              <div className="flex-1 text-sm text-red-100" style={{ direction: "rtl" }}>
+                {createEnvError}
+              </div>
+              <button
+                onClick={() => setCreateEnvError(null)}
+                className="text-red-300 hover:text-white text-lg leading-none shrink-0"
+              >×</button>
+            </div>
+          </div>
+        )}
       </div>
     </AppLayout>
   );
