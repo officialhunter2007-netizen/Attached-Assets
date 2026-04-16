@@ -200,6 +200,7 @@ export default function Subject() {
   const [pendingYemenSoftScenario, setPendingYemenSoftScenario] = useState<any | null>(null);
   const [pendingDynamicEnv, setPendingDynamicEnv] = useState<any | null>(null);
   const [isDynamicEnvOpen, setIsDynamicEnvOpen] = useState(false);
+  const [chatStarter, setChatStarter] = useState<string | null>(null);
   const supportsLabEnv = isCyberSubject || isFoodSubject || isAccountingLabSubject || isYemenSoftSubject;
   const { data: lessonViews } = useGetLessonViews();
 
@@ -513,31 +514,31 @@ export default function Subject() {
                       <span className="hidden sm:inline">IDE</span>
                     </button>
                   )}
-                  {isFoodSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
+                  {isFoodSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isDynamicEnvOpen && (
                     <button
-                      onClick={() => setIsLabOpen(true)}
+                      onClick={() => { setChatStarter("أريد بيئة تطبيقية مخصصة لي في هندسة الأغذية. اطرح عليّ سؤالاً متعدد الخيارات لتحديد ما أريد التدرب عليه بالضبط، مع خيار «غير ذلك» لأكتب طلبي بنفسي."); }}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-lime-500/10 border border-lime-500/25 text-lime-400 hover:bg-lime-500/20 transition-all"
                     >
                       <span className="text-sm">🔬</span>
-                      <span className="hidden sm:inline">المختبر</span>
+                      <span className="hidden sm:inline">بيئة عملية مخصصة</span>
                     </button>
                   )}
-                  {isYemenSoftSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
+                  {isYemenSoftSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isDynamicEnvOpen && (
                     <button
-                      onClick={() => setIsYemenSoftOpen(true)}
+                      onClick={() => { setChatStarter("أريد بيئة عملية مخصصة على يمن سوفت. اطرح عليّ سؤالاً متعدد الخيارات لتحديد المهمة المطلوبة، مع خيار «غير ذلك» لأكتب طلبي بنفسي."); }}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-teal-500/10 border border-teal-500/25 text-teal-400 hover:bg-teal-500/20 transition-all"
                     >
                       <span className="text-sm">🏢</span>
-                      <span className="hidden sm:inline">البيئة التطبيقية</span>
+                      <span className="hidden sm:inline">بيئة عملية مخصصة</span>
                     </button>
                   )}
-                  {isAccountingLabSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
+                  {isAccountingLabSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isDynamicEnvOpen && (
                     <button
-                      onClick={() => setIsAccountingLabOpen(true)}
+                      onClick={() => { setChatStarter("أريد بيئة عملية مخصصة في المحاسبة. اطرح عليّ سؤالاً متعدد الخيارات لتحديد التطبيق المطلوب، مع خيار «غير ذلك» لأكتب طلبي بنفسي."); }}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500/20 transition-all"
                     >
                       <span className="text-sm">🎓</span>
-                      <span className="hidden sm:inline">مختبر المحاسبة</span>
+                      <span className="hidden sm:inline">بيئة عملية مخصصة</span>
                     </button>
                   )}
                   {isCyberSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isCyberLabOpen && (
@@ -589,6 +590,8 @@ export default function Subject() {
               onClearPendingDynamicEnv={() => { setPendingDynamicEnv(null); setIsDynamicEnvOpen(false); }}
               dynamicEnvOpen={isDynamicEnvOpen}
               onCloseDynamicEnv={() => setIsDynamicEnvOpen(false)}
+              chatStarter={chatStarter}
+              onConsumeChatStarter={() => setChatStarter(null)}
               supportsLabEnv={supportsLabEnv}
               onCreateLabEnv={async (description: string) => {
                 if (isCreatingCyberEnv) return;
@@ -794,6 +797,8 @@ function SubjectPathChat({
   onClearPendingDynamicEnv,
   dynamicEnvOpen,
   onCloseDynamicEnv,
+  chatStarter,
+  onConsumeChatStarter,
   supportsLabEnv,
   onCreateLabEnv,
   isCreatingCyberEnv,
@@ -824,6 +829,8 @@ function SubjectPathChat({
   onClearPendingDynamicEnv?: () => void;
   dynamicEnvOpen?: boolean;
   onCloseDynamicEnv?: () => void;
+  chatStarter?: string | null;
+  onConsumeChatStarter?: () => void;
   supportsLabEnv?: boolean;
   onCreateLabEnv?: (description: string) => void;
   isCreatingCyberEnv?: boolean;
@@ -953,6 +960,14 @@ function SubjectPathChat({
     }
     setIsSummarizing(false);
   };
+
+  // Auto-send a starter message when the parent passes one (e.g. user clicked a "custom env" button)
+  useEffect(() => {
+    if (!chatStarter) return;
+    sendTeachMessage(chatStarter);
+    onConsumeChatStarter?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatStarter]);
 
   const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean) => {
     setIsStreaming(true);
