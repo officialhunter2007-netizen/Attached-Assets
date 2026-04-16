@@ -350,17 +350,14 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
     const cm = currentMachine();
     const context = activeSession ? activeSession.output.slice(-15).map(o => o.text.replace(/\x1b\[\d+m/g, "")).join("\n") : "";
 
+    const helpResponse = generateLocalHelp(question, cm, env, context);
+    setTimeout(() => {
+      setHelpMessages(prev => [...prev, { role: "assistant", text: helpResponse }]);
+    }, 300);
+
     if (onAskHelp) {
       const fullContext = `🔐 سؤال من مختبر الأمن السيبراني:\nجهاز: ${cm.hostname} (${cm.ip}) — ${cm.osLabel}\nمستخدم: ${cm.currentUser}\nمسار: ${activeSession?.cwd || "/"}\n\nآخر الأوامر:\n${context}\n\nالسؤال: ${question}`;
       onAskHelp(fullContext);
-      setTimeout(() => {
-        setHelpMessages(prev => [...prev, { role: "assistant", text: "تم إرسال سؤالك إلى المعلم الذكي! تحقق من نافذة المحادثة." }]);
-      }, 300);
-    } else {
-      const helpResponse = generateLocalHelp(question, cm, env, context);
-      setTimeout(() => {
-        setHelpMessages(prev => [...prev, { role: "assistant", text: helpResponse }]);
-      }, 300);
     }
   }, [helpInput, currentMachine, activeSession, env, onAskHelp]);
 

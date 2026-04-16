@@ -1130,23 +1130,19 @@ function SubjectPathChat({
     );
   }
 
-  if (cyberLabOpen) {
-    const handleCyberLabShare = (content: string) => {
-      onCloseCyberLab?.();
-      sendTeachMessage(`نتائج من مختبر الأمن السيبراني:\n${content}`);
-    };
-    const handleCyberLabHelp = (context: string) => {
-      onCloseCyberLab?.();
-      sendTeachMessage(context);
-    };
-    return (
-      <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11" }}>
-        <CyberLab onShare={handleCyberLabShare} onAskHelp={handleCyberLabHelp} />
-      </div>
-    );
-  }
+  const handleCyberLabShare = (content: string) => {
+    sendTeachMessage(`نتائج من مختبر الأمن السيبراني:\n${content}`);
+  };
+  const handleCyberLabHelp = (context: string) => {
+    sendTeachMessage(context);
+  };
 
   return (
+    <>
+    <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11", display: cyberLabOpen ? "flex" : "none" }}>
+      <CyberLab onShare={handleCyberLabShare} onAskHelp={handleCyberLabHelp} />
+    </div>
+    {!cyberLabOpen && (
     <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11" }}>
 
       {/* Stage progress bar */}
@@ -1303,5 +1299,7 @@ function SubjectPathChat({
         </p>
       </div>
     </div>
+    )}
+    </>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, Server, Monitor, User, Wrench } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, Server, Monitor, User, Wrench, PenLine } from "lucide-react";
 import type { CyberEnvironment, OSType, MachineRole } from "./cyber-env-types";
 import { generateWizardEnvironment } from "./cyber-env-engine";
 
@@ -126,11 +126,14 @@ function nextMachineId() { return `m${++machineCounter}`; }
 export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Props) {
   const [step, setStep] = useState(pendingAIEnv ? -1 : 1);
   const [scenario, setScenario] = useState<string | null>(null);
+  const [customScenario, setCustomScenario] = useState("");
+  const [showCustomScenario, setShowCustomScenario] = useState(false);
   const [wizMachines, setWizMachines] = useState<WizardMachine[]>([]);
   const [wizUsers, setWizUsers] = useState<WizardUser[]>([]);
   const [wizServices, setWizServices] = useState<WizardService[]>([]);
   const [difficulty, setDifficulty] = useState<"beginner" | "intermediate" | "advanced">("intermediate");
   const [envName, setEnvName] = useState("");
+  const [customNotes, setCustomNotes] = useState({ machines: "", users: "", services: "" });
   const [building, setBuilding] = useState(false);
   const [buildProgress, setBuildProgress] = useState(0);
   const [buildStep, setBuildStep] = useState("");
@@ -162,6 +165,7 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
 
   const handleSelectScenario = (id: string) => {
     setScenario(id);
+    setShowCustomScenario(false);
     const sc = SCENARIOS.find(s => s.id === id);
     if (sc) {
       setWizMachines(sc.defaultMachines.map(m => ({ ...m })));
@@ -188,6 +192,19 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
     }
   };
 
+  const handleSelectCustom = () => {
+    setScenario("custom");
+    setShowCustomScenario(true);
+    const defaultId = nextMachineId();
+    setWizMachines([{ id: defaultId, name: "kali-attacker", os: "kali-linux", role: "attacker", isAttacker: true }]);
+    setWizUsers([
+      { machineId: defaultId, username: "kali", password: "kali", isRoot: false },
+      { machineId: defaultId, username: "root", password: "toor", isRoot: true },
+    ]);
+    setWizServices([{ machineId: defaultId, services: ["ssh"] }]);
+    setEnvName("بيئة مخصصة");
+  };
+
   const addMachine = () => {
     const id = nextMachineId();
     setWizMachines(prev => [...prev, { id, name: `machine-${prev.length + 1}`, os: "ubuntu-server", role: "target", isAttacker: false }]);
@@ -210,9 +227,6 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
   };
 
   const removeUser = (machineId: string, idx: number) => {
-    const machineUsers = wizUsers.filter(u => u.machineId === machineId);
-    const target = machineUsers[idx];
-    if (!target) return;
     setWizUsers(prev => {
       let count = 0;
       return prev.filter(u => {
@@ -266,17 +280,21 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
       setBuildProgress(((i + 1) / steps.length) * 100);
       await new Promise(r => setTimeout(r, 350 + Math.random() * 350));
     }
+    const resolvedScenario = scenario === "custom" ? "network-pentest" : (scenario || "network-pentest");
     const env = generateWizardEnvironment({
-      scenario: scenario || "network-pentest",
+      scenario: resolvedScenario,
       machines: wizMachines,
       users: wizUsers,
       services: wizServices,
       difficulty,
-      name: envName,
+      name: envName || (scenario === "custom" ? (customScenario.slice(0, 60) || "بيئة مخصصة") : envName),
     });
+    if (scenario === "custom" && customScenario.trim()) {
+      env.briefing = `بيئة مخصصة:\n${customScenario}\n\n${env.briefing}`;
+    }
     await new Promise(r => setTimeout(r, 300));
     onEnvReady(env);
-  }, [scenario, wizMachines, wizUsers, wizServices, difficulty, envName, onEnvReady]);
+  }, [scenario, customScenario, wizMachines, wizUsers, wizServices, difficulty, envName, onEnvReady]);
 
   if (building) {
     return (
@@ -297,7 +315,7 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
   }
 
   const canNext = () => {
-    if (step === 1) return !!scenario;
+    if (step === 1) return scenario === "custom" ? customScenario.trim().length > 0 : !!scenario;
     if (step === 2) return wizMachines.length > 0 && wizMachines.every(m => m.name.trim());
     if (step === 3) return wizUsers.length > 0 && wizUsers.every(u => u.username.trim());
     if (step === 4) return true;
@@ -331,7 +349,7 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
                   </div>
                   <div>
                     <h2 className="text-base font-black text-white">ما نوع التجربة التي تريدها؟</h2>
-                    <p className="text-[11px] text-muted-foreground">اختر نوع الهجوم أو الدفاع الذي تريد محاكاته</p>
+                    <p className="text-[11px] text-muted-foreground">اختر نوع الهجوم أو الدفاع، أو اكتب ما تريد بنفسك</p>
                   </div>
                 </div>
                 <div className="grid gap-2">
@@ -355,6 +373,41 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
                       </div>
                     </button>
                   ))}
+
+                  <button
+                    onClick={handleSelectCustom}
+                    className={`w-full p-3.5 rounded-xl border text-right transition-all ${
+                      scenario === "custom"
+                        ? "border-amber-500/40 bg-amber-500/10 shadow-lg shadow-amber-500/5"
+                        : "border-dashed border-white/10 bg-white/[0.01] hover:bg-white/[0.03] hover:border-white/20"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
+                        <PenLine className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-bold text-amber-400">مخصص — اكتب ما تريد</div>
+                        <div className="text-[11px] text-muted-foreground/70 mt-0.5">صِف البيئة التي تريد بناءها بكلماتك</div>
+                      </div>
+                      {scenario === "custom" && <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center shrink-0"><span className="text-white text-xs">✓</span></div>}
+                    </div>
+                  </button>
+
+                  {showCustomScenario && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="overflow-hidden">
+                      <textarea
+                        value={customScenario}
+                        onChange={e => setCustomScenario(e.target.value)}
+                        placeholder="مثال: أريد بيئة فيها خادم ويب مع قاعدة بيانات وجهاز مهاجم، أريد التدرب على اختراق تطبيق ويب وسحب بيانات من القاعدة..."
+                        className="w-full px-4 py-3 rounded-xl border border-amber-500/20 bg-white/[0.03] text-sm text-white placeholder:text-muted-foreground/30 focus:border-amber-500/40 focus:outline-none leading-relaxed"
+                        rows={4}
+                        dir="rtl"
+                        autoFocus
+                      />
+                      <p className="text-[10px] text-muted-foreground/40 mt-1.5">صِف ما تريد بالتفصيل — سيتم بناء البيئة بناءً على وصفك + الأجهزة التي تحددها في الخطوات التالية</p>
+                    </motion.div>
+                  )}
                 </div>
               </div>
             )}
@@ -432,6 +485,21 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
                     <Plus className="w-4 h-4" />
                     إضافة جهاز جديد
                   </button>
+
+                  <div className="mt-3">
+                    <label className="text-[10px] text-muted-foreground/50 mb-1 flex items-center gap-1">
+                      <PenLine className="w-3 h-3" />
+                      ملاحظات إضافية (اختياري)
+                    </label>
+                    <textarea
+                      value={customNotes.machines}
+                      onChange={e => setCustomNotes(prev => ({ ...prev, machines: e.target.value }))}
+                      placeholder="أي تفاصيل إضافية تريدها عن الأجهزة..."
+                      className="w-full px-3 py-2 rounded-lg border border-white/5 bg-white/[0.02] text-[11px] text-white placeholder:text-muted-foreground/20 focus:border-white/15 focus:outline-none leading-relaxed"
+                      rows={2}
+                      dir="rtl"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -492,6 +560,21 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
                       </div>
                     );
                   })}
+
+                  <div className="mt-3">
+                    <label className="text-[10px] text-muted-foreground/50 mb-1 flex items-center gap-1">
+                      <PenLine className="w-3 h-3" />
+                      ملاحظات إضافية (اختياري)
+                    </label>
+                    <textarea
+                      value={customNotes.users}
+                      onChange={e => setCustomNotes(prev => ({ ...prev, users: e.target.value }))}
+                      placeholder="مثال: أريد مستخدم بصلاحيات محدودة فقط يمكنه تشغيل python..."
+                      className="w-full px-3 py-2 rounded-lg border border-white/5 bg-white/[0.02] text-[11px] text-white placeholder:text-muted-foreground/20 focus:border-white/15 focus:outline-none leading-relaxed"
+                      rows={2}
+                      dir="rtl"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -539,6 +622,21 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
                       </div>
                     );
                   })}
+
+                  <div className="mt-3">
+                    <label className="text-[10px] text-muted-foreground/50 mb-1 flex items-center gap-1">
+                      <PenLine className="w-3 h-3" />
+                      ملاحظات إضافية (اختياري)
+                    </label>
+                    <textarea
+                      value={customNotes.services}
+                      onChange={e => setCustomNotes(prev => ({ ...prev, services: e.target.value }))}
+                      placeholder="مثال: أريد خادم ويب بثغرة SQL Injection في صفحة تسجيل الدخول..."
+                      className="w-full px-3 py-2 rounded-lg border border-white/5 bg-white/[0.02] text-[11px] text-white placeholder:text-muted-foreground/20 focus:border-white/15 focus:outline-none leading-relaxed"
+                      rows={2}
+                      dir="rtl"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -589,7 +687,10 @@ export default function CyberLabWizard({ onEnvReady, onBack, pendingAIEnv }: Pro
                 <div className="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-3">
                   <h3 className="text-xs font-bold text-amber-400">📋 ملخص البيئة</h3>
                   <div className="text-xs text-muted-foreground space-y-1">
-                    <div>🏷️ السيناريو: <span className="text-white font-bold">{SCENARIOS.find(s => s.id === scenario)?.label}</span></div>
+                    <div>🏷️ السيناريو: <span className="text-white font-bold">{scenario === "custom" ? "مخصص" : SCENARIOS.find(s => s.id === scenario)?.label}</span></div>
+                    {scenario === "custom" && customScenario.trim() && (
+                      <div className="p-2 rounded-lg bg-amber-500/5 border border-amber-500/10 text-[11px] text-muted-foreground/80 mt-1 mb-1 whitespace-pre-wrap">{customScenario}</div>
+                    )}
                     <div>🖥️ عدد الأجهزة: <span className="text-white font-bold">{wizMachines.length}</span></div>
                     <div>👤 إجمالي المستخدمين: <span className="text-white font-bold">{wizUsers.length}</span></div>
                   </div>
