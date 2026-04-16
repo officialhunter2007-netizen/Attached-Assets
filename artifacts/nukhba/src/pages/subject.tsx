@@ -13,6 +13,8 @@ import { FoodLabPanel } from "@/components/food-lab-panel";
 import { YemenSoftSimulatorV2 } from "@/components/yemensoft/yemensoft-v2";
 import AccountingLab from "@/components/accounting-lab/accounting-lab";
 import CyberLab from "@/components/cyber-lab/cyber-lab";
+import { DynamicEnvShell } from "@/components/dynamic-env/dynamic-env-shell";
+import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 
 interface LessonSummary {
   id: number;
@@ -196,6 +198,8 @@ export default function Subject() {
   const [pendingFoodScenario, setPendingFoodScenario] = useState<any | null>(null);
   const [pendingAccountingScenario, setPendingAccountingScenario] = useState<any | null>(null);
   const [pendingYemenSoftScenario, setPendingYemenSoftScenario] = useState<any | null>(null);
+  const [pendingDynamicEnv, setPendingDynamicEnv] = useState<any | null>(null);
+  const [isDynamicEnvOpen, setIsDynamicEnvOpen] = useState(false);
   const supportsLabEnv = isCyberSubject || isFoodSubject || isAccountingLabSubject || isYemenSoftSubject;
   const { data: lessonViews } = useGetLessonViews();
 
@@ -581,6 +585,10 @@ export default function Subject() {
               onClearPendingAccountingScenario={() => setPendingAccountingScenario(null)}
               pendingYemenSoftScenario={pendingYemenSoftScenario}
               onClearPendingYemenSoftScenario={() => setPendingYemenSoftScenario(null)}
+              pendingDynamicEnv={pendingDynamicEnv}
+              onClearPendingDynamicEnv={() => { setPendingDynamicEnv(null); setIsDynamicEnvOpen(false); }}
+              dynamicEnvOpen={isDynamicEnvOpen}
+              onCloseDynamicEnv={() => setIsDynamicEnvOpen(false)}
               supportsLabEnv={supportsLabEnv}
               onCreateLabEnv={async (description: string) => {
                 if (isCreatingCyberEnv) return;
@@ -607,25 +615,21 @@ export default function Subject() {
                       setIsCyberLabOpen(true);
                     }
                   } else {
-                    const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/create-scenario`, {
+                    // Non-cyber: build a fully-tailored dynamic env from the description
+                    const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/build-env`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       credentials: "include",
                       body: JSON.stringify({ subjectId: subject!.id, description }),
                     });
-                    if (!r.ok) throw new Error("فشل إنشاء السيناريو");
+                    if (!r.ok) throw new Error("فشل بناء البيئة");
                     const data = await r.json();
-                    const sc = data.scenario;
-                    if (!sc) return;
-                    if (isFoodSubject) {
-                      setPendingFoodScenario(sc);
-                      setIsLabOpen(true);
-                    } else if (isAccountingLabSubject) {
-                      setPendingAccountingScenario(sc);
-                      setIsAccountingLabOpen(true);
-                    } else if (isYemenSoftSubject) {
-                      setPendingYemenSoftScenario(sc);
-                      setIsYemenSoftOpen(true);
+                    if (data.env) {
+                      setPendingDynamicEnv(data.env);
+                      setIsDynamicEnvOpen(true);
+                      setIsLabOpen(false);
+                      setIsYemenSoftOpen(false);
+                      setIsAccountingLabOpen(false);
                     }
                   }
                 } catch (e) {
@@ -692,15 +696,34 @@ function expandLabEnvTags(html: string): string {
   });
 }
 
-const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void }) {
+// Extracts [[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| غير ذلك]] from content
+// Uses ||| as delimiter so question/options can safely contain a single |
+function extractAskOptions(content: string): { stripped: string; ask: { question: string; options: string[]; allowOther: boolean } | null } {
+  const m = content.match(/\[\[ASK_OPTIONS:\s*([^\]]+?)\]\]/);
+  if (!m) return { stripped: content, ask: null };
+  // Prefer ||| delimiter; fall back to single | only if ||| not present
+  const raw = m[1];
+  const parts = (raw.includes("|||") ? raw.split("|||") : raw.split("|"))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return { stripped: content.replace(m[0], ""), ask: null };
+  const [question, ...rawOpts] = parts;
+  const allowOther = rawOpts.some((o) => /غير\s*ذلك/i.test(o) || /^other$/i.test(o));
+  const options = rawOpts.filter((o) => !(/غير\s*ذلك/i.test(o) || /^other$/i.test(o)));
+  return { stripped: content.replace(m[0], ""), ask: { question, options, allowOther } };
+}
+
+const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void }) {
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const { stripped, ask } = !isStreaming ? extractAskOptions(content) : { stripped: content, ask: null };
+
   if (!isStreaming) {
-    safeRef.current = expandLabEnvTags(stripInlineStyles(content));
+    safeRef.current = expandLabEnvTags(stripInlineStyles(stripped));
   }
   const displayHtml = isStreaming
-    ? `<p>${content.replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}</p>`
+    ? `<p>${content.replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '').replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}</p>`
     : safeRef.current;
 
   useEffect(() => {
@@ -724,6 +747,14 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
       style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)", overflow: "hidden" }}>
       <div className="px-3 sm:px-4 py-3 sm:py-3.5 overflow-x-hidden">
         <div ref={containerRef} className="ai-msg overflow-x-hidden" dangerouslySetInnerHTML={{ __html: displayHtml }} />
+        {ask && onAnswerOption && (
+          <OptionsQuestion
+            question={ask.question}
+            options={ask.options}
+            allowOther={ask.allowOther}
+            onAnswer={onAnswerOption}
+          />
+        )}
         {isStreaming && (
           <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-white/5">
             <span className="w-2 h-2 bg-gold/50 rounded-full animate-bounce" />
@@ -759,6 +790,10 @@ function SubjectPathChat({
   onClearPendingAccountingScenario,
   pendingYemenSoftScenario,
   onClearPendingYemenSoftScenario,
+  pendingDynamicEnv,
+  onClearPendingDynamicEnv,
+  dynamicEnvOpen,
+  onCloseDynamicEnv,
   supportsLabEnv,
   onCreateLabEnv,
   isCreatingCyberEnv,
@@ -785,6 +820,10 @@ function SubjectPathChat({
   onClearPendingAccountingScenario?: () => void;
   pendingYemenSoftScenario?: any | null;
   onClearPendingYemenSoftScenario?: () => void;
+  pendingDynamicEnv?: any | null;
+  onClearPendingDynamicEnv?: () => void;
+  dynamicEnvOpen?: boolean;
+  onCloseDynamicEnv?: () => void;
   supportsLabEnv?: boolean;
   onCreateLabEnv?: (description: string) => void;
   isCreatingCyberEnv?: boolean;
@@ -1249,7 +1288,7 @@ function SubjectPathChat({
     sendTeachMessage(context);
   };
 
-  const anyPanelOpen = !!(ideOpen || labOpen || yemenSoftOpen || accountingLabOpen || cyberLabOpen);
+  const anyPanelOpen = !!(ideOpen || labOpen || yemenSoftOpen || accountingLabOpen || cyberLabOpen || (dynamicEnvOpen && pendingDynamicEnv));
   const chatVisible = !anyPanelOpen;
 
   return (
@@ -1307,6 +1346,19 @@ function SubjectPathChat({
         pendingAIEnv={pendingCyberEnv}
         onClearPendingEnv={onClearPendingCyberEnv}
       />
+    </div>
+
+    {/* Dynamic AI-built environment — non-cyber subjects */}
+    <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11", display: dynamicEnvOpen && pendingDynamicEnv ? "block" : "none" }}>
+      <div className="p-3 sm:p-4 w-full min-w-0">
+        {pendingDynamicEnv && (
+          <DynamicEnvShell
+            env={pendingDynamicEnv}
+            subjectId={subject.id}
+            onClose={() => { onClearPendingDynamicEnv?.(); onCloseDynamicEnv?.(); }}
+          />
+        )}
+      </div>
     </div>
 
     {/* Chat UI — visible only when no panel is open */}
@@ -1389,6 +1441,7 @@ function SubjectPathChat({
                       content={msg.content}
                       isStreaming={isStreaming && isLastMsg}
                       onCreateLabEnv={supportsLabEnv ? onCreateLabEnv : undefined}
+                      onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
                     />
                   )}
                 </div>

@@ -600,35 +600,27 @@ ${(() => {
 - \`[[CREATE_LAB_ENV: شبكة فيها 5 أجهزة مختلفة الأنظمة لتطبيق Nmap وفحص المنافذ المفتوحة]]\`
 - \`[[CREATE_LAB_ENV: تقاط حركة شبكة (PCAP) فيه جلسة FTP بكلمة سر واضحة للتحليل بـWireshark]]\``;
   }
-  if (sid === "uni-food-eng") {
-    return `**📦 إنشاء سيناريو معملي تفاعلي (المختبر الغذائي):**
-عندما يحتاج الطالب لتطبيق عملي، اقترح سيناريو معملي بهذا الوسم:
-\`[[CREATE_LAB_ENV: وصف تفصيلي للسيناريو يتضمن المنتج الغذائي والمشكلة والمطلوب حسابه/تحليله]]\`
+  if (sid === "uni-food-eng" || sid === "uni-accounting" || sid === "skill-yemensoft") {
+    const subjLabel = sid === "uni-food-eng" ? "هندسة الأغذية"
+      : sid === "uni-accounting" ? "المحاسبة" : "يمن سوفت";
+    return `**🧭 سؤال متعدد الخيارات لاستكشاف ما يريد الطالب (${subjLabel}):**
+قبل توليد أي بيئة عملية، اسأل الطالب أولاً سؤالاً متعدد الخيارات لتحديد ما يريد التدرب عليه بالضبط، بهذا الوسم في نهاية الرد:
+\`[[ASK_OPTIONS: السؤال هنا ||| خيار1 ||| خيار2 ||| خيار3 ||| غير ذلك]]\`
 
-أمثلة:
-- \`[[CREATE_LAB_ENV: مصنع ألبان يحتاج تحديد وقت البسترة الكافي لقتل 6 لوغاريتم من الليستيريا في الحليب عند 72°م. الهدف: حساب D-value و F-value ورسم منحنى الفناء]]\`
-- \`[[CREATE_LAB_ENV: تخزين التمر اليمني عند رطوبة aw=0.62 ودرجة 25°م. الهدف: التنبؤ بنمو فطر Aspergillus ورسم المنحنى وتحديد مدة الصلاحية]]\`
-- \`[[CREATE_LAB_ENV: خط إنتاج عصير المانجو المعلب — بناء مخطط HACCP وتحديد نقاط CCP]]\``;
-  }
-  if (sid === "uni-accounting") {
-    return `**📦 إنشاء تمرين محاسبي تفاعلي (مختبر المحاسبة):**
-عندما يحتاج الطالب لتطبيق عملي، اقترح تمريناً بهذا الوسم:
-\`[[CREATE_LAB_ENV: وصف القصة المحاسبية بالكامل: اسم المنشأة، الفترة، المعاملات، والمطلوب]]\`
+- **هام:** الفاصل بين السؤال والخيارات هو ثلاث شرطات عمودية \`|||\` (وليس واحدة)، حتى يبقى آمناً إذا احتوى نص السؤال على رمز \`|\`.
+- يجب أن يحتوي السؤال على 3-5 خيارات واقعية + خيار "غير ذلك" دائماً (يفتح للطالب صندوق نص ليكتب طلبه بنفسه).
+- إذا اختار الطالب "غير ذلك" وأعطاك وصفاً، اطرح **سؤال توضيحي إضافي واحد على الأقل** (يمكن أن يكون ASK_OPTIONS آخر، أو سؤال مفتوح) قبل بناء البيئة، حتى تجمع تفاصيل: السياق، البيانات الأولية، والمخرج المطلوب.
+- بعد جمع المعلومات الكافية فقط، اطلق وسم البناء:
+  \`[[CREATE_LAB_ENV: وصف كامل ومفصّل بناء على إجابات الطالب — يتضمن السياق، البيانات/الأرقام، وكل المطلوب]]\`
 
-أمثلة:
-- \`[[CREATE_LAB_ENV: شركة الأمل التجارية بدأت 2024 برأس مال 500,000 ريال. خلال يناير: شراء بضاعة 200,000 نقداً، بيع 80,000 بالأجل، دفع إيجار 15,000. المطلوب: إثبات القيود، ترحيل T، إعداد ميزان المراجعة وقائمة الدخل]]\`
-- \`[[CREATE_LAB_ENV: شركة سبأ تملك آلة بـ300,000 ريال، عمرها 5 سنوات، قيمة خردة 30,000. المطلوب: حساب الإهلاك بالطرق الثلاث ومقارنتها]]\`
-- \`[[CREATE_LAB_ENV: تسوية حساب البنك لشركة الفلاح: رصيد دفاتر 45,000، كشف بنك 52,300. توجد شيكات بالطريق وعمولات. المطلوب: مذكرة التسوية البنكية]]\``;
-  }
-  if (sid === "skill-yemensoft") {
-    return `**📦 إنشاء مهمة تطبيقية على يمن سوفت:**
-عندما يحتاج الطالب لتطبيق عملي، اقترح مهمة بهذا الوسم:
-\`[[CREATE_LAB_ENV: وصف الموقف العملي والمطلوب تنفيذه على نظام يمن سوفت]]\`
+**مثال على السؤال المتعدد الخيارات:**
+- ${sid === "uni-food-eng"
+  ? "`[[ASK_OPTIONS: ما الذي تريد التدرب عليه الآن في هندسة الأغذية؟ ||| حساب D-value و F-value لعملية بسترة ||| تصميم مخطط HACCP لخط إنتاج ||| حساب مدة الصلاحية وتأثير aw ||| تحليل نمو ميكروبي عند ظروف معينة ||| غير ذلك]]`"
+  : sid === "uni-accounting"
+  ? "`[[ASK_OPTIONS: أي تطبيق محاسبي تريد التدرب عليه؟ ||| إثبات قيود يومية لشركة جديدة ||| إعداد ميزان مراجعة وقائمة دخل ||| حساب الإهلاك بطرق مختلفة ||| تسوية حساب البنك ||| إقفال حسابات نهاية السنة ||| غير ذلك]]`"
+  : "`[[ASK_OPTIONS: أي مهمة تريد تنفيذها على يمن سوفت؟ ||| إنشاء فاتورة بيع وتسجيل قيدها ||| شراء بالعملات الأجنبية وحساب فروق الصرف ||| متابعة تقادم الذمم ||| إقفال نهاية الفترة وإصدار القوائم ||| غير ذلك]]`"}
 
-أمثلة:
-- \`[[CREATE_LAB_ENV: مؤسسة الريان للأغذية باعت 20 كيس أرز لمحلات السلام بسعر 4500/كيس على الأجل. المطلوب: إنشاء فاتورة بيع، تسجيل القيد، متابعة تقادم الذمم]]\`
-- \`[[CREATE_LAB_ENV: مكتب الفجر للاستيراد اشترى بضاعة بـ$5000 بسعر صرف 540 ر.ي/$. المطلوب: تسجيل العملية بالعملات المتعددة وحساب فروق الصرف]]\`
-- \`[[CREATE_LAB_ENV: شركة اليمن الحديثة في نهاية السنة المالية. المطلوب: إصدار قيود التسوية، إقفال حسابات المتاجرة والأرباح، إعداد القوائم المالية]]\``;
+**المقصود من "غير ذلك":** يعطي الطالب الحرية لطلب بيئة مخصصة بالكامل (مثلاً: "أريد تدرّب على محاسبة شركة مقاولات يمنية فيها مشروعان بعملتين مختلفتين"). دورك بعدها أن تسأل أسئلة توضيحية حتى تفهم بدقة، ثم تبني البيئة من الصفر بـ \`[[CREATE_LAB_ENV: ...]]\`.`;
   }
   return "";
 })()}
@@ -1469,8 +1461,8 @@ router.post("/ai/lab/assist", async (req, res): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-  const { subjectId, kind, scenario, history, question } = req.body as {
-    subjectId: string; kind: LabKind; scenario: any; history: any[]; question: string;
+  const { subjectId, kind, scenario, envTitle, briefing, activeScreen, history, question } = req.body as {
+    subjectId: string; kind: LabKind; scenario?: any; envTitle?: string; briefing?: string; activeScreen?: string; history?: any[]; question: string;
   };
   if (!question) return res.status(400).json({ error: "Missing question" });
 
@@ -1480,16 +1472,22 @@ router.post("/ai/lab/assist", async (req, res): Promise<any> => {
   };
   const kindLabel = kindLabels[kind || detectLabKind(subjectId)] || "المختبر";
 
+  const contextBlock = scenario
+    ? JSON.stringify({
+        title: scenario.title || scenario.nameAr,
+        briefing: scenario.briefing,
+        objectives: scenario.objectives,
+        tasks: (scenario.tasks || []).map((t: any) => t.title || t.description),
+        hints: scenario.hints,
+      }, null, 2).slice(0, 1500)
+    : envTitle || briefing
+      ? JSON.stringify({ title: envTitle, briefing, activeScreen }, null, 2)
+      : "لا يوجد سيناريو محدد";
+
   const systemPrompt = `أنت مساعد ذكي يجلس بجانب الطالب أثناء عمله في مختبر ${kindLabel}.
 
 **السيناريو الحالي:**
-${scenario ? JSON.stringify({
-  title: scenario.title || scenario.nameAr,
-  briefing: scenario.briefing,
-  objectives: scenario.objectives,
-  tasks: (scenario.tasks || []).map((t: any) => t.title),
-  hints: scenario.hints,
-}, null, 2).slice(0, 1500) : "لا يوجد سيناريو محدد"}
+${contextBlock}
 
 **أسلوبك:**
 - رد بإيجاز (2-4 جمل في الغالب) — أنت مساعد لحظي، لست محاضراً.
@@ -1526,6 +1524,156 @@ ${scenario ? JSON.stringify({
   } catch (e: any) {
     res.write(`data: ${JSON.stringify({ error: e?.message || "فشل" })}\n\n`);
     res.end();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generic dynamic-env builder — generates a fully tailored UI per request
+// (used for non-cyber subjects: food, accounting, yemensoft, etc.)
+// ─────────────────────────────────────────────────────────────────────────────
+const DYNAMIC_ENV_SYSTEM = `أنت مهندس بيئات تعليمية تفاعلية. مَهمتك: حوّل وصف المعلم/الطالب إلى **بيئة تطبيقية كاملة** على شكل JSON يصف شاشات (تبويبات) ومكوّنات داخل كل شاشة. لا تشرح، أرجع JSON فقط.
+
+**الشكل العام:**
+{
+  "kind": "<food|accounting|yemensoft|other>",
+  "title": "عنوان البيئة بالعربية",
+  "briefing": "وصف موجز للسيناريو في 2-4 أسطر",
+  "objectives": ["هدف 1", "هدف 2", "..."],
+  "screens": [
+    { "id": "screen-1", "title": "اسم التبويب", "icon": "📊", "components": [ ... ] }
+  ],
+  "tasks": [ { "id": "t1", "description": "نص المهمة", "targetScreen": "screen-1", "hint": "تلميح" } ],
+  "hints": ["..."],
+  "successCriteria": ["..."]
+}
+
+**المكوّنات المدعومة (استخدم الأنسب فقط):**
+- {"type":"text","markdown":"نص شرح"}
+- {"type":"alert","tone":"info|warn|error|success","title":"...","text":"..."}
+- {"type":"kpi","label":"...","value":"...","sublabel":"..."}
+- {"type":"kpiGrid","items":[{"label":"...","value":"...","sublabel":"..."}]}
+- {"type":"table","title":"...","columns":["..."],"rows":[["..."]]}
+- {"type":"journal","title":"اليومية","items":[{"date":"...","desc":"...","debit":"...","credit":"...","account":"..."}]}
+- {"type":"list","title":"...","items":[{"title":"...","subtitle":"...","badge":"..."}]}
+- {"type":"kvList","title":"...","items":[{"key":"...","value":"..."}]}
+- {"type":"form","title":"...","description":"...","fields":[{"name":"x","label":"...","type":"text|number|textarea|select","options":["..."],"required":true,"unit":"ر.ي"}],"submitLabel":"إرسال","submit":{"type":"check","expected":{"x":123},"tolerance":0.01,"correctMessage":"...","incorrectMessage":"..."}}
+- {"type":"button","label":"...","tone":"primary|secondary","action":{"type":"go-to-screen","screenId":"..."}} أو {"type":"ask-ai","prompt":"..."}
+- {"type":"codeBlock","language":"sql","code":"..."}
+- {"type":"chart","chartType":"bar|line|pie","title":"...","labels":["..."],"datasets":[{"label":"...","data":[1,2,3]}]}
+- {"type":"stepper","title":"...","steps":[{"title":"...","description":"...","status":"todo|current|done"}]}
+- {"type":"richDocument","title":"...","sections":[{"heading":"...","body":"..."}]}
+
+**قواعد إلزامية:**
+1. اجعل البيئة **فعلاً تفاعلية**: في كل تبويب ضع نموذجاً واحداً على الأقل أو زراً يعمل، حتى يستطيع الطالب الإدخال والمراجعة.
+2. النماذج التي للحساب: ضع \`expected\` بالقيم الصحيحة (أرقام دقيقة) وtolerance ~0.01.
+3. اشتق بيانات حقيقية ومنطقية ويمنية الطابع (أسماء شركات: الأمل، الفلاح، سبأ، الريان، عملة YER).
+4. 2-5 شاشات (تبويبات) و3-7 مهام، كل مهمة targetScreen صالح.
+5. للمحاسبة: استخدم journal و table لميزان المراجعة وforms لإدخال القيود.
+6. لهندسة الأغذية: استخدم kpiGrid للبيانات (aw, °م, pH)، forms لحساب D-value/F-value، وchart لمنحنى الفناء.
+7. ليمن سوفت: حاكِ شاشات النظام (فاتورة، قيد، تقرير) باستخدام form و table و journal.
+8. JSON صالح فقط، بدون أي نص قبله أو بعده، وبدون \`\`\`.`;
+
+router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { subjectId, description } = req.body as { subjectId: string; description: string };
+  if (!subjectId || !description) return res.status(400).json({ error: "Missing subjectId or description" });
+
+  const kind = detectLabKind(subjectId);
+
+  // Cyber-family still uses the dedicated cyber engine — caller should know this.
+  if (kind === "cyber" || kind === "nmap" || kind === "wireshark") {
+    return res.json({ kind, useCyberEndpoint: true });
+  }
+
+  try {
+    const stream = anthropic.messages.stream({
+      model: "claude-sonnet-4-6",
+      max_tokens: 6000,
+      system: DYNAMIC_ENV_SYSTEM,
+      messages: [{ role: "user", content: `النوع: ${kind}\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة بالضبط لهذا الطلب.` }],
+    });
+
+    let raw = "";
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        raw += event.delta.text;
+      }
+    }
+    raw = raw.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/i, "").trim();
+
+    let env: any;
+    try {
+      env = JSON.parse(raw);
+    } catch {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error("لم يتمكن المعلم من توليد بيئة صالحة");
+      env = JSON.parse(m[0]);
+    }
+
+    env.kind = kind;
+    env.title = env.title || "بيئة تطبيقية";
+    env.briefing = env.briefing || description.slice(0, 300);
+    env.objectives = Array.isArray(env.objectives) ? env.objectives : [];
+    env.screens = Array.isArray(env.screens) ? env.screens : [];
+    env.tasks = Array.isArray(env.tasks) ? env.tasks : [];
+    env.hints = Array.isArray(env.hints) ? env.hints : [];
+    env.successCriteria = Array.isArray(env.successCriteria) ? env.successCriteria : [];
+
+    // Normalize each screen + each component shape so frontend renderer never crashes on missing arrays
+    env.screens = env.screens
+      .filter((s: any) => s && typeof s === "object")
+      .map((s: any, si: number) => {
+        const id = typeof s.id === "string" && s.id.trim() ? s.id.trim() : `screen${si + 1}`;
+        const title = typeof s.title === "string" && s.title.trim() ? s.title : `شاشة ${si + 1}`;
+        const components = (Array.isArray(s.components) ? s.components : [])
+          .filter((c: any) => c && typeof c === "object" && typeof c.type === "string")
+          .map((c: any) => {
+            switch (c.type) {
+              case "kpiGrid":
+                c.items = Array.isArray(c.items) ? c.items.filter((x: any) => x && typeof x === "object") : [];
+                break;
+              case "table":
+                c.columns = Array.isArray(c.columns) ? c.columns : [];
+                c.rows = Array.isArray(c.rows) ? c.rows.filter((r: any) => Array.isArray(r)) : [];
+                break;
+              case "journal":
+              case "list":
+              case "kvList":
+                c.items = Array.isArray(c.items) ? c.items.filter((x: any) => x && typeof x === "object") : [];
+                break;
+              case "form":
+                c.fields = Array.isArray(c.fields) ? c.fields.filter((f: any) => f && typeof f === "object" && typeof f.name === "string") : [];
+                break;
+              case "stepper":
+                c.steps = Array.isArray(c.steps) ? c.steps.filter((x: any) => x && typeof x === "object") : [];
+                break;
+              case "richDocument":
+                c.sections = Array.isArray(c.sections) ? c.sections.filter((x: any) => x && typeof x === "object") : [];
+                break;
+              case "chart":
+                c.series = Array.isArray(c.series) ? c.series : [];
+                break;
+            }
+            return c;
+          });
+        return { ...s, id, title, components };
+      });
+
+    // Validate task targetScreen references
+    const screenIds = new Set(env.screens.map((s: any) => s.id));
+    env.tasks = env.tasks.map((t: any, i: number) => ({
+      id: t.id || `t${i + 1}`,
+      description: t.description || "",
+      targetScreen: t.targetScreen && screenIds.has(t.targetScreen) ? t.targetScreen : undefined,
+      hint: t.hint,
+    }));
+
+    return res.json({ kind, env });
+  } catch (e: any) {
+    console.error("[build-env] error:", e?.message);
+    return res.status(500).json({ error: e?.message || "فشل توليد البيئة" });
   }
 });
 
