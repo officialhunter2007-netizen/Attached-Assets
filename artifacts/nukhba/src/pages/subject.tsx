@@ -975,7 +975,15 @@ function SubjectPathChat({
   // already resolved (teaching or diagnostic) before this effect fires.
   useEffect(() => {
     if (!planLoaded) return;
-    if (messages.length === 0) {
+    // Kick off the first teacher message if the chat has no assistant reply yet
+    // (covers fresh sessions AND stale localStorage where only a user message was cached).
+    const hasAssistant = messages.some((m) => m.role === "assistant" && (m.content || "").trim().length > 0);
+    if (!hasAssistant) {
+      // If the cache only has orphan user messages, clear them so the teacher can start cleanly.
+      if (messages.length > 0) {
+        setMessages([]);
+        try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+      }
       sendTeachMessage("", stages, currentStage, chatPhase === 'diagnostic');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1004,13 +1012,16 @@ function SubjectPathChat({
     setIsSummarizing(false);
   };
 
-  // Auto-send a starter message when the parent passes one (e.g. user clicked a "custom env" button)
+  // Auto-send a starter message when the parent passes one (e.g. user clicked a "custom env" button).
+  // Guard against firing before the initial session bootstrap (planLoaded + first assistant reply),
+  // or while a stream is in progress, to avoid clobbering the diagnostic/teaching start.
   useEffect(() => {
     if (!chatStarter) return;
+    if (!planLoaded || isStreaming) return;
     sendTeachMessage(chatStarter);
     onConsumeChatStarter?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatStarter]);
+  }, [chatStarter, planLoaded, isStreaming]);
 
   const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean) => {
     setIsStreaming(true);

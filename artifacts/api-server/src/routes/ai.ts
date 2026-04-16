@@ -1588,11 +1588,12 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   }
 
   try {
+    console.log("[build-env] start kind=", kind, "desc=", description.slice(0, 120));
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
-      max_tokens: 6000,
+      max_tokens: 12000,
       system: DYNAMIC_ENV_SYSTEM,
-      messages: [{ role: "user", content: `النوع: ${kind}\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة بالضبط لهذا الطلب.` }],
+      messages: [{ role: "user", content: `النوع: ${kind}\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة بالضبط لهذا الطلب. أرجع JSON صالحاً فقط دون أي شرح أو markdown.` }],
     });
 
     let raw = "";
@@ -1605,21 +1606,41 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
 
     console.log("[build-env] raw length:", raw.length, "preview:", raw.slice(0, 300));
 
-    let env: any;
-    try {
-      env = JSON.parse(raw);
-    } catch {
-      const m = raw.match(/\{[\s\S]*\}/);
-      if (!m) {
-        console.error("[build-env] no JSON object found in response. Raw:", raw.slice(0, 2000));
-        throw new Error("المعلم لم يُرجع JSON صالح. الرجاء المحاولة مرة أخرى.");
+    const tryParse = (s: string): any | null => {
+      try { return JSON.parse(s); } catch { return null; }
+    };
+
+    // Extract the largest JSON object substring
+    const extractJsonObject = (s: string): string | null => {
+      const start = s.indexOf("{");
+      if (start < 0) return null;
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      for (let i = start; i < s.length; i++) {
+        const ch = s[i];
+        if (escape) { escape = false; continue; }
+        if (ch === "\\") { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === "{") depth++;
+        else if (ch === "}") {
+          depth--;
+          if (depth === 0) return s.slice(start, i + 1);
+        }
       }
-      try {
-        env = JSON.parse(m[0]);
-      } catch (parseErr: any) {
-        console.error("[build-env] JSON parse failed. Extracted:", m[0].slice(0, 2000));
-        throw new Error("تعذّر تفسير بيئة البيانات (JSON غير صالح). حاول مرة أخرى.");
-      }
+      return null; // truncated
+    };
+
+    let env: any = tryParse(raw);
+    if (!env) {
+      const extracted = extractJsonObject(raw);
+      if (extracted) env = tryParse(extracted);
+    }
+    if (!env) {
+      console.error("[build-env] parse failed. Raw (first 3000):", raw.slice(0, 3000));
+      console.error("[build-env] Raw (last 1000):", raw.slice(-1000));
+      throw new Error("تعذّر تفسير بيئة البيانات. قد يكون الوصف طويلاً جداً — جرّب وصفاً أقصر.");
     }
 
     env.kind = kind;
