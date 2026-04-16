@@ -193,6 +193,10 @@ export default function Subject() {
   const [isCyberLabOpen, setIsCyberLabOpen] = useState(false);
   const [pendingCyberEnv, setPendingCyberEnv] = useState<any | null>(null);
   const [isCreatingCyberEnv, setIsCreatingCyberEnv] = useState(false);
+  const [pendingFoodScenario, setPendingFoodScenario] = useState<any | null>(null);
+  const [pendingAccountingScenario, setPendingAccountingScenario] = useState<any | null>(null);
+  const [pendingYemenSoftScenario, setPendingYemenSoftScenario] = useState<any | null>(null);
+  const supportsLabEnv = isCyberSubject || isFoodSubject || isAccountingLabSubject || isYemenSoftSubject;
   const { data: lessonViews } = useGetLessonViews();
 
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
@@ -571,25 +575,61 @@ export default function Subject() {
               onCloseCyberLab={() => setIsCyberLabOpen(false)}
               pendingCyberEnv={pendingCyberEnv}
               onClearPendingCyberEnv={() => setPendingCyberEnv(null)}
-              isCyberSubject={isCyberSubject}
-              onCreateCyberEnv={async (description: string) => {
+              pendingFoodScenario={pendingFoodScenario}
+              onClearPendingFoodScenario={() => setPendingFoodScenario(null)}
+              pendingAccountingScenario={pendingAccountingScenario}
+              onClearPendingAccountingScenario={() => setPendingAccountingScenario(null)}
+              pendingYemenSoftScenario={pendingYemenSoftScenario}
+              onClearPendingYemenSoftScenario={() => setPendingYemenSoftScenario(null)}
+              supportsLabEnv={supportsLabEnv}
+              onCreateLabEnv={async (description: string) => {
                 if (isCreatingCyberEnv) return;
                 setIsCreatingCyberEnv(true);
                 try {
-                  const r = await fetch(`${import.meta.env.BASE_URL}api/ai/cyber/create-env`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    credentials: "include",
-                    body: JSON.stringify({ description }),
-                  });
-                  if (!r.ok) throw new Error("فشل إنشاء البيئة");
-                  const data = await r.json();
-                  if (data.env) {
-                    setPendingCyberEnv(data.env);
-                    setIsCyberLabOpen(true);
+                  if (isCyberSubject) {
+                    const sid = subject!.id;
+                    const augmented =
+                      sid === "skill-nmap"
+                        ? `سيناريو يركّز على استخدام Nmap للاستطلاع وفحص الشبكة. ${description}`
+                        : sid === "skill-wireshark"
+                        ? `سيناريو يولّد تقاط حركة شبكة (PCAP) لتحليلها بـ Wireshark. ${description}`
+                        : description;
+                    const r = await fetch(`${import.meta.env.BASE_URL}api/ai/cyber/create-env`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      credentials: "include",
+                      body: JSON.stringify({ description: augmented }),
+                    });
+                    if (!r.ok) throw new Error("فشل إنشاء البيئة");
+                    const data = await r.json();
+                    if (data.env) {
+                      setPendingCyberEnv(data.env);
+                      setIsCyberLabOpen(true);
+                    }
+                  } else {
+                    const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/create-scenario`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      credentials: "include",
+                      body: JSON.stringify({ subjectId: subject!.id, description }),
+                    });
+                    if (!r.ok) throw new Error("فشل إنشاء السيناريو");
+                    const data = await r.json();
+                    const sc = data.scenario;
+                    if (!sc) return;
+                    if (isFoodSubject) {
+                      setPendingFoodScenario(sc);
+                      setIsLabOpen(true);
+                    } else if (isAccountingLabSubject) {
+                      setPendingAccountingScenario(sc);
+                      setIsAccountingLabOpen(true);
+                    } else if (isYemenSoftSubject) {
+                      setPendingYemenSoftScenario(sc);
+                      setIsYemenSoftOpen(true);
+                    }
                   }
                 } catch (e) {
-                  console.error("Failed to create cyber env:", e);
+                  console.error("Failed to create lab env:", e);
                 } finally {
                   setIsCreatingCyberEnv(false);
                 }
@@ -713,10 +753,16 @@ function SubjectPathChat({
   onCloseCyberLab,
   pendingCyberEnv,
   onClearPendingCyberEnv,
-  isCyberSubject,
-  onCreateCyberEnv,
+  pendingFoodScenario,
+  onClearPendingFoodScenario,
+  pendingAccountingScenario,
+  onClearPendingAccountingScenario,
+  pendingYemenSoftScenario,
+  onClearPendingYemenSoftScenario,
+  supportsLabEnv,
+  onCreateLabEnv,
   isCreatingCyberEnv,
-}: { 
+}: {
   subject: any;
   isFirstSession?: boolean;
   onAccessDenied: () => void;
@@ -733,8 +779,14 @@ function SubjectPathChat({
   onCloseCyberLab?: () => void;
   pendingCyberEnv?: any | null;
   onClearPendingCyberEnv?: () => void;
-  isCyberSubject?: boolean;
-  onCreateCyberEnv?: (description: string) => void;
+  pendingFoodScenario?: any | null;
+  onClearPendingFoodScenario?: () => void;
+  pendingAccountingScenario?: any | null;
+  onClearPendingAccountingScenario?: () => void;
+  pendingYemenSoftScenario?: any | null;
+  onClearPendingYemenSoftScenario?: () => void;
+  supportsLabEnv?: boolean;
+  onCreateLabEnv?: (description: string) => void;
   isCreatingCyberEnv?: boolean;
 }) {
   const { user } = useAuth();
@@ -1216,20 +1268,35 @@ function SubjectPathChat({
     {/* Food Lab panel — always mounted */}
     <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11", display: labOpen ? "block" : "none" }}>
       <div className="p-3 sm:p-4 w-full min-w-0">
-        <FoodLabPanel onShareWithTeacher={handleLabShare} />
+        <FoodLabPanel
+          onShareWithTeacher={handleLabShare}
+          pendingScenario={pendingFoodScenario}
+          onClearScenario={onClearPendingFoodScenario}
+          subjectId={subject.id}
+        />
       </div>
     </div>
 
     {/* YemenSoft panel — always mounted */}
     <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11", display: yemenSoftOpen ? "block" : "none" }}>
       <div className="p-3 sm:p-4 w-full min-w-0">
-        <YemenSoftSimulatorV2 onShareWithTeacher={handleYemenSoftShare} />
+        <YemenSoftSimulatorV2
+          onShareWithTeacher={handleYemenSoftShare}
+          pendingScenario={pendingYemenSoftScenario}
+          onClearScenario={onClearPendingYemenSoftScenario}
+          subjectId={subject.id}
+        />
       </div>
     </div>
 
     {/* Accounting Lab panel — always mounted */}
     <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11", display: accountingLabOpen ? "flex" : "none" }}>
-      <AccountingLab onShare={handleAccountingLabShare} />
+      <AccountingLab
+        onShare={handleAccountingLabShare}
+        pendingScenario={pendingAccountingScenario}
+        onClearScenario={onClearPendingAccountingScenario}
+        subjectId={subject.id}
+      />
     </div>
 
     {/* Cyber Lab panel — always mounted */}
@@ -1321,7 +1388,7 @@ function SubjectPathChat({
                     <AIMessage
                       content={msg.content}
                       isStreaming={isStreaming && isLastMsg}
-                      onCreateLabEnv={isCyberSubject ? onCreateCyberEnv : undefined}
+                      onCreateLabEnv={supportsLabEnv ? onCreateLabEnv : undefined}
                     />
                   )}
                 </div>

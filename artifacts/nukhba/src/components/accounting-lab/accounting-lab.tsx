@@ -57,7 +57,17 @@ function Loading() {
   );
 }
 
-function AccountingLabInner({ onShare }: { onShare: (data: string) => void }) {
+import { DynamicScenarioOverlay } from "../dynamic-lab/dynamic-scenario-overlay";
+import type { DynamicScenario } from "../dynamic-lab/types";
+
+interface AccountingLabProps {
+  onShare: (data: string) => void;
+  pendingScenario?: DynamicScenario | null;
+  onClearScenario?: () => void;
+  subjectId?: string;
+}
+
+function AccountingLabInner({ onShare, pendingScenario, onClearScenario, subjectId }: AccountingLabProps) {
   const [activeTab, setActiveTab] = useState<LabTab>("equation");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const tabBarRef = useRef<HTMLDivElement>(null);
@@ -150,14 +160,29 @@ function AccountingLabInner({ onShare }: { onShare: (data: string) => void }) {
           </Suspense>
         </div>
       </div>
+
+      {pendingScenario && onClearScenario && (
+        <DynamicScenarioOverlay
+          scenario={pendingScenario}
+          subjectId={subjectId || "uni-accounting"}
+          onClose={onClearScenario}
+          onTaskJump={(t) => { if (allTabs.some(x => x.id === t)) setActiveTab(t as any); }}
+          onShareWithTeacher={onShare}
+        />
+      )}
     </div>
   );
 }
 
-export default function AccountingLab({ onShare }: { onShare: (data: string) => void }) {
+export default function AccountingLab({ onShare, pendingScenario, onClearScenario, subjectId }: AccountingLabProps) {
   return (
     <LabProvider>
-      <AccountingLabInner onShare={onShare} />
+      <AccountingLabInner
+        onShare={onShare}
+        pendingScenario={pendingScenario}
+        onClearScenario={onClearScenario}
+        subjectId={subjectId}
+      />
     </LabProvider>
   );
 }

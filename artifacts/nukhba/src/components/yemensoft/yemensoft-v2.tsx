@@ -113,11 +113,17 @@ const TAB_COMPONENTS: Record<SimTab, React.FC> = {
   "break-even": BreakEvenTab,
 };
 
+import { DynamicScenarioOverlay } from "../dynamic-lab/dynamic-scenario-overlay";
+import type { DynamicScenario } from "../dynamic-lab/types";
+
 interface YemenSoftV2Props {
   onShareWithTeacher?: (content: string) => void;
+  pendingScenario?: DynamicScenario | null;
+  onClearScenario?: () => void;
+  subjectId?: string;
 }
 
-export function YemenSoftSimulatorV2({ onShareWithTeacher }: YemenSoftV2Props) {
+export function YemenSoftSimulatorV2({ onShareWithTeacher, pendingScenario, onClearScenario, subjectId }: YemenSoftV2Props) {
   const [activeTab, setActiveTab] = useState<SimTab>("journal");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const tabBarRef = useRef<HTMLDivElement>(null);
@@ -251,6 +257,16 @@ export function YemenSoftSimulatorV2({ onShareWithTeacher }: YemenSoftV2Props) {
           </div>
         </div>
       </div>
+
+      {pendingScenario && onClearScenario && (
+        <DynamicScenarioOverlay
+          scenario={pendingScenario}
+          subjectId={subjectId || "skill-yemensoft"}
+          onClose={onClearScenario}
+          onTaskJump={(t) => { if ((t as SimTab) in TAB_COMPONENTS) setActiveTab(t as SimTab); }}
+          onShareWithTeacher={onShareWithTeacher}
+        />
+      )}
     </SimulatorProvider>
   );
 }

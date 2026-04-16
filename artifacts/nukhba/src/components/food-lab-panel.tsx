@@ -66,12 +66,24 @@ function awEffect(aw: number, minAw: number): number {
   return Math.min(1, (aw - minAw) / (1.0 - minAw));
 }
 
+import { DynamicScenarioOverlay } from "./dynamic-lab/dynamic-scenario-overlay";
+import type { DynamicScenario } from "./dynamic-lab/types";
+
 interface Props {
   onShareWithTeacher?: (content: string) => void;
+  pendingScenario?: DynamicScenario | null;
+  onClearScenario?: () => void;
+  subjectId?: string;
 }
 
-export function FoodLabPanel({ onShareWithTeacher }: Props) {
+export function FoodLabPanel({ onShareWithTeacher, pendingScenario, onClearScenario, subjectId }: Props) {
   const [activeTab, setActiveTab] = useState<LabTab>("calc");
+
+  const handleTaskJump = (target: string) => {
+    if (target === "calc" || target === "charts" || target === "haccp") {
+      setActiveTab(target as LabTab);
+    }
+  };
 
   const tabs: { id: LabTab; label: string; icon: React.ReactNode }[] = [
     { id: "calc", label: "الحاسبات", icon: <Calculator className="w-4 h-4" /> },
@@ -133,6 +145,16 @@ export function FoodLabPanel({ onShareWithTeacher }: Props) {
         <div className="flex-1" />
         <span className="text-[10px] text-white/80 font-mono">Nukhba Food Lab</span>
       </div>
+
+      {pendingScenario && onClearScenario && (
+        <DynamicScenarioOverlay
+          scenario={pendingScenario}
+          subjectId={subjectId || "uni-food-eng"}
+          onClose={onClearScenario}
+          onTaskJump={handleTaskJump}
+          onShareWithTeacher={onShareWithTeacher}
+        />
+      )}
     </div>
   );
 }
