@@ -1603,13 +1603,23 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
     }
     raw = raw.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/i, "").trim();
 
+    console.log("[build-env] raw length:", raw.length, "preview:", raw.slice(0, 300));
+
     let env: any;
     try {
       env = JSON.parse(raw);
     } catch {
       const m = raw.match(/\{[\s\S]*\}/);
-      if (!m) throw new Error("لم يتمكن المعلم من توليد بيئة صالحة");
-      env = JSON.parse(m[0]);
+      if (!m) {
+        console.error("[build-env] no JSON object found in response. Raw:", raw.slice(0, 2000));
+        throw new Error("المعلم لم يُرجع JSON صالح. الرجاء المحاولة مرة أخرى.");
+      }
+      try {
+        env = JSON.parse(m[0]);
+      } catch (parseErr: any) {
+        console.error("[build-env] JSON parse failed. Extracted:", m[0].slice(0, 2000));
+        throw new Error("تعذّر تفسير بيئة البيانات (JSON غير صالح). حاول مرة أخرى.");
+      }
     }
 
     env.kind = kind;
