@@ -140,11 +140,9 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpInput, setHelpInput] = useState("");
-  const [helpMessages, setHelpMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([]);
   const [shellType, setShellType] = useState<Record<string, "cmd" | "powershell">>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const helpScrollRef = useRef<HTMLDivElement>(null);
 
   const activeMachine = machines.find(m => m.id === activeMachineId) || machines[0];
   const activeSession = sessions[activeMachineId];
@@ -156,10 +154,6 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
   useEffect(() => {
     if (!helpOpen) inputRef.current?.focus();
   }, [activeMachineId, showBriefing, helpOpen]);
-
-  useEffect(() => {
-    if (helpScrollRef.current) helpScrollRef.current.scrollTop = helpScrollRef.current.scrollHeight;
-  }, [helpMessages]);
 
   const currentMachine = useCallback((): VirtualMachine => {
     if (!activeSession || activeSession.sshStack.length === 0) return activeMachine;
@@ -260,6 +254,62 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
       setSessions(prev => ({ ...prev, [activeMachineId]: { ...prev[activeMachineId], output: [] } }));
       return;
     }
+
+    // AI fallback: command not recognized by local engine
+    const cmdName = trimmed.split(/\s+/)[0].toLowerCase();
+    const localUnknown = result.error && result.output.length === 1 && (
+      result.output[0].includes("command not found") ||
+      result.output[0].includes("is not recognized")
+    );
+
+    if (localUnknown) {
+      addOutput(activeMachineId, [{ text: "⏳ تشغيل عبر المحاكي الذكي...", type: "system" as const }]);
+      const machineId = activeMachineId;
+      (async () => {
+        try {
+          const recentOutput = activeSession.output.slice(-20).map(o => o.text.replace(/\x1b\[\d+m/g, "")).join("\n");
+          const r = await fetch(`${import.meta.env.BASE_URL}api/ai/cyber/exec`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              command: trimmed,
+              machine: {
+                hostname: cm.hostname, ip: cm.ip, osLabel: cm.osLabel, os: cm.os,
+                currentUser: cm.currentUser, cwd: activeSession.cwd,
+                services: cm.services,
+              },
+              env: {
+                nameAr: env.nameAr, difficulty: env.difficulty, network: env.network,
+                machines: machines.map(m => ({ hostname: m.hostname, ip: m.ip, osLabel: m.osLabel, services: m.services })),
+              },
+              recentOutput,
+            }),
+          });
+          const data = await r.json();
+          // Replace the "thinking" line by removing it then adding output
+          setSessions(prev => {
+            const session = prev[machineId];
+            if (!session) return prev;
+            const filtered = session.output.filter(o => o.text !== "⏳ تشغيل عبر المحاكي الذكي...");
+            const newLines = (data.output || ["(no output)"]).map((t: string) => ({
+              text: t,
+              type: (data.error ? "error" : "output") as 'error' | 'output',
+            }));
+            return { ...prev, [machineId]: { ...session, output: [...filtered, ...newLines] } };
+          });
+        } catch (err: any) {
+          setSessions(prev => {
+            const session = prev[machineId];
+            if (!session) return prev;
+            const filtered = session.output.filter(o => o.text !== "⏳ تشغيل عبر المحاكي الذكي...");
+            return { ...prev, [machineId]: { ...session, output: [...filtered, { text: `${cmdName}: ${err.message || "خطأ في المحاكي"}`, type: "error" as const }] } };
+          });
+        }
+      })();
+      return;
+    }
+
     if (result.output.length > 0) {
       addOutput(activeMachineId, result.output.map(t => ({ text: t, type: (result.error ? "error" : "output") as 'error' | 'output' })));
     }
@@ -344,19 +394,14 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
   const handleHelpSend = useCallback(() => {
     if (!helpInput.trim()) return;
     const question = helpInput.trim();
-    setHelpMessages(prev => [...prev, { role: "user", text: question }]);
     setHelpInput("");
+    setHelpOpen(false);
 
     const cm = currentMachine();
     const context = activeSession ? activeSession.output.slice(-15).map(o => o.text.replace(/\x1b\[\d+m/g, "")).join("\n") : "";
 
-    const helpResponse = generateLocalHelp(question, cm, env, context);
-    setTimeout(() => {
-      setHelpMessages(prev => [...prev, { role: "assistant", text: helpResponse }]);
-    }, 300);
-
     if (onAskHelp) {
-      const fullContext = `🔐 سؤال من مختبر الأمن السيبراني:\nجهاز: ${cm.hostname} (${cm.ip}) — ${cm.osLabel}\nمستخدم: ${cm.currentUser}\nمسار: ${activeSession?.cwd || "/"}\n\nآخر الأوامر:\n${context}\n\nالسؤال: ${question}`;
+      const fullContext = `🔐 سؤال من مختبر الأمن السيبراني:\nالبيئة: ${env.nameAr}\nجهاز: ${cm.hostname} (${cm.ip}) — ${cm.osLabel}\nمستخدم: ${cm.currentUser}\nمسار: ${activeSession?.cwd || "/"}\n\nآخر الأوامر والمخرجات:\n${context}\n\nالسؤال: ${question}`;
       onAskHelp(fullContext);
     }
   }, [helpInput, currentMachine, activeSession, env, onAskHelp]);
@@ -629,27 +674,15 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
                 </button>
               </div>
 
-              <div ref={helpScrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-                {helpMessages.length === 0 && (
-                  <div className="text-center py-8">
-                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
-                      <MessageCircleQuestion className="w-6 h-6 text-amber-400" />
-                    </div>
-                    <p className="text-xs text-muted-foreground mb-1">اسأل أي سؤال عن المختبر</p>
-                    <p className="text-[10px] text-muted-foreground/50">سأساعدك بالأوامر والأدوات المناسبة</p>
-                  </div>
-                )}
-                {helpMessages.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === "user" ? "justify-start" : "justify-end"}`}>
-                    <div className={`max-w-[90%] p-2.5 rounded-xl text-[11px] leading-relaxed ${
-                      msg.role === "user"
-                        ? "bg-red-500/10 border border-red-500/20 text-white"
-                        : "bg-white/[0.03] border border-white/5 text-muted-foreground"
-                    }`}>
-                      <pre className="whitespace-pre-wrap font-sans">{msg.text}</pre>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center text-center">
+                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                  <MessageCircleQuestion className="w-7 h-7 text-amber-400" />
+                </div>
+                <p className="text-sm font-bold text-white mb-2">اسأل المعلم مباشرة</p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed max-w-[260px]">
+                  اكتب سؤالك وسيتم إرساله إلى معلم المادة مع كامل سياق المختبر (الأجهزة، الأوامر، المخرجات).
+                  سيظهر الرد في المحادثة الرئيسية.
+                </p>
               </div>
 
               <div className="shrink-0 p-2 border-t border-white/5">
@@ -732,33 +765,3 @@ export default function CyberLabEnvironment({ env, onBack, onShare, onAskHelp }:
   );
 }
 
-function generateLocalHelp(question: string, machine: VirtualMachine, env: CyberEnvironment, recentOutput: string): string {
-  const q = question.toLowerCase();
-  const machineInfo = `أنت على ${machine.hostname} (${machine.ip}) بنظام ${machine.osLabel}`;
-  const svcs = env.machines.flatMap(m => m.services.filter(s => s.running).map(s => `${m.hostname}:${s.port} (${s.name})`));
-
-  if (q.includes("nmap") || q.includes("مسح") || q.includes("scan")) {
-    const targets = env.machines.filter(m => m.id !== machine.id).map(m => m.ip);
-    return `🔍 لمسح الشبكة:\n\nمسح سريع:\nnmap ${targets[0] || "192.168.1.0/24"}\n\nمسح شامل مع الخدمات:\nnmap -sV -sC ${targets[0] || "192.168.1.0/24"}\n\nمسح جميع الأجهزة:\nnmap -sV ${env.network.subnet}\n\nالأجهزة المتاحة:\n${targets.map(t => `• ${t}`).join("\n")}`;
-  }
-  if (q.includes("ssh") || q.includes("اتصال") || q.includes("دخول")) {
-    const sshTargets = env.machines.filter(m => m.services.some(s => s.name === "ssh" && s.running) && m.id !== machine.id);
-    if (sshTargets.length === 0) return "لا توجد أجهزة تدعم SSH في هذه البيئة.";
-    return `🔑 للاتصال عبر SSH:\n\n${sshTargets.map(t => `ssh admin@${t.ip}\nأو: ssh root@${t.ip}`).join("\n\n")}\n\nبعد الاتصال أدخل كلمة المرور. جرب:\n• admin123\n• password123\n• toor123`;
-  }
-  if (q.includes("hydra") || q.includes("brute") || q.includes("كسر") || q.includes("كلمة")) {
-    const sshTargets = env.machines.filter(m => m.services.some(s => s.name === "ssh") && m.id !== machine.id);
-    return `🔐 لكسر كلمات المرور:\n\nhydra -l admin -P /usr/share/wordlists/rockyou.txt ssh://${sshTargets[0]?.ip || "192.168.1.50"}\n\nأو باستخدام قائمة مخصصة:\nhydra -l root -P /usr/share/wordlists/common-passwords.txt ssh://${sshTargets[0]?.ip || "192.168.1.50"}\n\nنصيحة: ابدأ بملف common-passwords.txt لأنه أسرع`;
-  }
-  if (q.includes("flag") || q.includes("علم") || q.includes("هدف")) {
-    return `🎯 الأهداف:\n\n${env.objectives.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n\n💡 تلميحات:\n${env.hints.map((h, i) => `${i + 1}. ${h}`).join("\n")}\n\nابحث عن ملفات FLAG.txt في المسارات المهمة مثل:\n/root/\n/home/admin/Documents/\nC:\\Users\\Administrator\\Desktop\\`;
-  }
-  if (q.includes("خدم") || q.includes("service") || q.includes("port")) {
-    return `🌐 الخدمات النشطة في الشبكة:\n\n${svcs.map(s => `• ${s}`).join("\n")}\n\nاستخدم nmap -sV للتحقق من الإصدارات`;
-  }
-  if (q.includes("help") || q.includes("أوامر") || q.includes("مساعد") || q.includes("ماذا")) {
-    return `📚 الأوامر المتاحة:\n\n🔍 استكشاف: ls, cd, cat, find, grep\n🌐 شبكة: nmap, ping, ifconfig, netstat, ssh, curl\n🔐 هجوم: hydra, john, gobuster, nikto, sqlmap\n🛡️ دفاع: iptables, ufw\n📋 نظام: ps, whoami, id, uname, history\n\n${machineInfo}`;
-  }
-
-  return `💡 ${machineInfo}\n\nالخدمات المتاحة:\n${svcs.slice(0, 5).map(s => `• ${s}`).join("\n")}\n\n${env.hints.length > 0 ? `تلميح: ${env.hints[0]}` : "جرب أمر help لرؤية الأوامر المتاحة"}`;
-}

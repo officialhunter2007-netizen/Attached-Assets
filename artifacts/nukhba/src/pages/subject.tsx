@@ -191,6 +191,8 @@ export default function Subject() {
   const CYBER_SUBJECTS = new Set(["uni-cybersecurity", "skill-nmap", "skill-wireshark", "skill-linux", "skill-windows"]);
   const isCyberSubject = CYBER_SUBJECTS.has(subject?.id || "");
   const [isCyberLabOpen, setIsCyberLabOpen] = useState(false);
+  const [pendingCyberEnv, setPendingCyberEnv] = useState<any | null>(null);
+  const [isCreatingCyberEnv, setIsCreatingCyberEnv] = useState(false);
   const { data: lessonViews } = useGetLessonViews();
 
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
@@ -567,6 +569,32 @@ export default function Subject() {
               onCloseAccountingLab={() => setIsAccountingLabOpen(false)}
               cyberLabOpen={isCyberLabOpen}
               onCloseCyberLab={() => setIsCyberLabOpen(false)}
+              pendingCyberEnv={pendingCyberEnv}
+              onClearPendingCyberEnv={() => setPendingCyberEnv(null)}
+              isCyberSubject={isCyberSubject}
+              onCreateCyberEnv={async (description: string) => {
+                if (isCreatingCyberEnv) return;
+                setIsCreatingCyberEnv(true);
+                try {
+                  const r = await fetch(`${import.meta.env.BASE_URL}api/ai/cyber/create-env`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ description }),
+                  });
+                  if (!r.ok) throw new Error("فشل إنشاء البيئة");
+                  const data = await r.json();
+                  if (data.env) {
+                    setPendingCyberEnv(data.env);
+                    setIsCyberLabOpen(true);
+                  }
+                } catch (e) {
+                  console.error("Failed to create cyber env:", e);
+                } finally {
+                  setIsCreatingCyberEnv(false);
+                }
+              }}
+              isCreatingCyberEnv={isCreatingCyberEnv}
             />
           </div>
         </div>
@@ -616,20 +644,46 @@ function stripInlineStyles(html: string): string {
 }
 
 
-const AIMessage = memo(function AIMessage({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+// Transforms [[CREATE_LAB_ENV: description]] tags into clickable buttons
+function expandLabEnvTags(html: string): string {
+  return html.replace(/\[\[CREATE_LAB_ENV:\s*([^\]]+?)\]\]/g, (_m, desc) => {
+    const safe = desc.trim().replace(/"/g, '&quot;');
+    return `<button data-cyber-env="${safe}" class="cyber-create-env-btn" type="button">⚡ افتح هذه البيئة في المختبر</button>`;
+  });
+}
+
+const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void }) {
   const safeRef = useRef<string>("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
   if (!isStreaming) {
-    safeRef.current = stripInlineStyles(content);
+    safeRef.current = expandLabEnvTags(stripInlineStyles(content));
   }
   const displayHtml = isStreaming
-    ? `<p>${content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}</p>`
+    ? `<p>${content.replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}</p>`
     : safeRef.current;
+
+  useEffect(() => {
+    if (!containerRef.current || !onCreateLabEnv) return;
+    const root = containerRef.current;
+    const handler = (e: Event) => {
+      const target = e.target as HTMLElement;
+      const btn = target.closest('[data-cyber-env]') as HTMLElement | null;
+      if (btn) {
+        e.preventDefault();
+        const desc = btn.getAttribute('data-cyber-env') || '';
+        if (desc) onCreateLabEnv(desc);
+      }
+    };
+    root.addEventListener('click', handler);
+    return () => root.removeEventListener('click', handler);
+  }, [displayHtml, onCreateLabEnv]);
 
   return (
     <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] sm:max-w-[92%] max-sm:max-w-[calc(100vw-60px)] shadow-md"
       style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)", overflow: "hidden" }}>
       <div className="px-3 sm:px-4 py-3 sm:py-3.5 overflow-x-hidden">
-        <div className="ai-msg overflow-x-hidden" dangerouslySetInnerHTML={{ __html: displayHtml }} />
+        <div ref={containerRef} className="ai-msg overflow-x-hidden" dangerouslySetInnerHTML={{ __html: displayHtml }} />
         {isStreaming && (
           <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-white/5">
             <span className="w-2 h-2 bg-gold/50 rounded-full animate-bounce" />
@@ -657,6 +711,11 @@ function SubjectPathChat({
   onCloseAccountingLab,
   cyberLabOpen,
   onCloseCyberLab,
+  pendingCyberEnv,
+  onClearPendingCyberEnv,
+  isCyberSubject,
+  onCreateCyberEnv,
+  isCreatingCyberEnv,
 }: { 
   subject: any;
   isFirstSession?: boolean;
@@ -672,6 +731,11 @@ function SubjectPathChat({
   onCloseAccountingLab?: () => void;
   cyberLabOpen?: boolean;
   onCloseCyberLab?: () => void;
+  pendingCyberEnv?: any | null;
+  onClearPendingCyberEnv?: () => void;
+  isCyberSubject?: boolean;
+  onCreateCyberEnv?: (description: string) => void;
+  isCreatingCyberEnv?: boolean;
 }) {
   const { user } = useAuth();
   const CHAT_STORAGE_KEY = `nukhba-chat-${subject.id}`;
@@ -1110,74 +1174,76 @@ function SubjectPathChat({
     );
   }
 
-  if (ideOpen) {
-    return (
-      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ direction: "ltr", background: "#080a11" }}>
-        <div className="p-3 sm:p-4 w-full min-w-0">
-          <CodeEditorPanel
-            sectionContent=""
-            subjectId={subject.id}
-            onShareWithTeacher={handleShareWithTeacher}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (labOpen) {
-    const handleLabShare = (content: string) => {
-      onCloseLab?.();
-      sendTeachMessage(`نتائج من المختبر الغذائي:\n${content}`);
-    };
-    return (
-      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11" }}>
-        <div className="p-3 sm:p-4 w-full min-w-0">
-          <FoodLabPanel onShareWithTeacher={handleLabShare} />
-        </div>
-      </div>
-    );
-  }
-
-  if (yemenSoftOpen) {
-    const handleYemenSoftShare = (content: string) => {
-      onCloseYemenSoft?.();
-      sendTeachMessage(`نتائج من البيئة التطبيقية (يمن سوفت):\n${content}`);
-    };
-    return (
-      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11" }}>
-        <div className="p-3 sm:p-4 w-full min-w-0">
-          <YemenSoftSimulatorV2 onShareWithTeacher={handleYemenSoftShare} />
-        </div>
-      </div>
-    );
-  }
-
-  if (accountingLabOpen) {
-    const handleAccountingLabShare = (content: string) => {
-      onCloseAccountingLab?.();
-      sendTeachMessage(`نتائج من مختبر المحاسبة:\n${content}`);
-    };
-    return (
-      <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11" }}>
-        <AccountingLab onShare={handleAccountingLabShare} />
-      </div>
-    );
-  }
-
+  // All lab/IDE panels are ALWAYS mounted so their state persists across tab switches.
+  // Visibility is toggled with CSS display only — never conditional rendering.
+  const handleLabShare = (content: string) => {
+    onCloseLab?.();
+    sendTeachMessage(`نتائج من المختبر الغذائي:\n${content}`);
+  };
+  const handleYemenSoftShare = (content: string) => {
+    onCloseYemenSoft?.();
+    sendTeachMessage(`نتائج من البيئة التطبيقية (يمن سوفت):\n${content}`);
+  };
+  const handleAccountingLabShare = (content: string) => {
+    onCloseAccountingLab?.();
+    sendTeachMessage(`نتائج من مختبر المحاسبة:\n${content}`);
+  };
   const handleCyberLabShare = (content: string) => {
+    onCloseCyberLab?.();
     sendTeachMessage(`نتائج من مختبر الأمن السيبراني:\n${content}`);
   };
   const handleCyberLabHelp = (context: string) => {
+    onCloseCyberLab?.();
     sendTeachMessage(context);
   };
 
+  const anyPanelOpen = !!(ideOpen || labOpen || yemenSoftOpen || accountingLabOpen || cyberLabOpen);
+  const chatVisible = !anyPanelOpen;
+
   return (
     <>
-    <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11", display: cyberLabOpen ? "flex" : "none" }}>
-      <CyberLab onShare={handleCyberLabShare} onAskHelp={handleCyberLabHelp} />
+    {/* IDE panel — always mounted */}
+    <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ direction: "ltr", background: "#080a11", display: ideOpen ? "block" : "none" }}>
+      <div className="p-3 sm:p-4 w-full min-w-0">
+        <CodeEditorPanel
+          sectionContent=""
+          subjectId={subject.id}
+          onShareWithTeacher={handleShareWithTeacher}
+        />
+      </div>
     </div>
-    {!cyberLabOpen && (
-    <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11" }}>
+
+    {/* Food Lab panel — always mounted */}
+    <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11", display: labOpen ? "block" : "none" }}>
+      <div className="p-3 sm:p-4 w-full min-w-0">
+        <FoodLabPanel onShareWithTeacher={handleLabShare} />
+      </div>
+    </div>
+
+    {/* YemenSoft panel — always mounted */}
+    <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11", display: yemenSoftOpen ? "block" : "none" }}>
+      <div className="p-3 sm:p-4 w-full min-w-0">
+        <YemenSoftSimulatorV2 onShareWithTeacher={handleYemenSoftShare} />
+      </div>
+    </div>
+
+    {/* Accounting Lab panel — always mounted */}
+    <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11", display: accountingLabOpen ? "flex" : "none" }}>
+      <AccountingLab onShare={handleAccountingLabShare} />
+    </div>
+
+    {/* Cyber Lab panel — always mounted */}
+    <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11", display: cyberLabOpen ? "flex" : "none" }}>
+      <CyberLab
+        onShare={handleCyberLabShare}
+        onAskHelp={handleCyberLabHelp}
+        pendingAIEnv={pendingCyberEnv}
+        onClearPendingEnv={onClearPendingCyberEnv}
+      />
+    </div>
+
+    {/* Chat UI — visible only when no panel is open */}
+    <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11", display: chatVisible ? "flex" : "none" }}>
 
       {/* Stage progress bar */}
       {chatPhase === 'teaching' && stages.length > 0 && (
@@ -1252,7 +1318,11 @@ function SubjectPathChat({
                       {msg.content}
                     </div>
                   ) : (
-                    <AIMessage content={msg.content} isStreaming={isStreaming && isLastMsg} />
+                    <AIMessage
+                      content={msg.content}
+                      isStreaming={isStreaming && isLastMsg}
+                      onCreateLabEnv={isCyberSubject ? onCreateCyberEnv : undefined}
+                    />
                   )}
                 </div>
               </div>
@@ -1333,7 +1403,6 @@ function SubjectPathChat({
         </p>
       </div>
     </div>
-    )}
     </>
   );
 }
