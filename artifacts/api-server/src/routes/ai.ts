@@ -3,7 +3,6 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
-import { CYBERSECURITY_SUBJECT_IDS, getRoomsForSubjectStage } from "../data/tryhackme-rooms.js";
 
 const router: IRouter = Router();
 
@@ -533,35 +532,13 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   - عند شرح ميزان المراجعة: "افتح ميزان المراجعة وتحقق أنه متوازن"
 - **عند استلام نتائج من البيئة التطبيقية:** إذا أرسل الطالب نتائج، حلّلها بالتفصيل: هل القيد صحيح ومتوازن؟ هل الحسابات المستخدمة مناسبة؟ هل التصنيف صحيح؟ قدّم ملاحظات تصحيحية إن لزم الأمر.` : ""}`;
 
-  const isCyberSubject = CYBERSECURITY_SUBJECT_IDS.has(subjectId || "");
-  const thmRooms = isCyberSubject ? getRoomsForSubjectStage(subjectId || "", stageIdx) : [];
-  const thmUsername = user.tryhackmeUsername || null;
-
-  const thmRules = isCyberSubject ? `
-- **🔴 TryHackMe — التطبيق العملي (مهم جداً):** هذه المادة مرتبطة بمنصة TryHackMe للتدريب العملي. ${thmUsername ? `الطالب ربط حسابه: ${thmUsername}` : "الطالب لم يربط حسابه بعد — ذكّره بربط حسابه من زر «🔴 TryHackMe» أعلى المحادثة."}
-- **الغرف المتاحة لهذه المرحلة:**
-${thmRooms.map(r => `  • ${r.nameAr} (${r.name}) — صعوبة: ${r.difficulty === "easy" ? "سهل" : r.difficulty === "medium" ? "متوسط" : "صعب"} — الكود: ${r.code}`).join("\n")}
-- **متى ترسل بطاقة غرفة TryHackMe:** في كل مرة تشرح مفهوماً عملياً يمكن تطبيقه، أرسل بطاقة غرفة واحدة على الأقل مناسبة. استخدم هذا التنسيق بالضبط:
-  <div class="thm-room-card" data-code="ROOM_CODE" data-difficulty="easy|medium|hard">
-    <div class="thm-room-name">اسم الغرفة بالعربي</div>
-    <div class="thm-room-desc">وصف قصير يربط الغرفة بالمفهوم الذي تم شرحه</div>
-  </div>
-- **خطوات الإرشاد:** بعد كل بطاقة غرفة، أضف tip-box يشرح للطالب بالتفصيل:
-  1. ما هي الغرفة وما سيتعلمه فيها
-  2. كيف تفتحها (اذهب لـ tryhackme.com/room/ROOM_CODE)
-  3. ما الخطوات المحددة التي يجب أن يركز عليها
-  4. ماذا يجب أن يلاحظ أثناء التطبيق
-- **بعد عودة الطالب:** إذا أخبرك الطالب أنه أكمل الغرفة، اسأله عما تعلمه وما التحديات التي واجهها، ثم اربط ذلك بالمفهوم النظري` : "";
-
   const formattingRules = `**قواعد التنسيق (مهم جداً):**
 - كل ردودك HTML داخل <div> واحد فقط. لا Markdown أبداً.
 - class="question-box" → للأسئلة والتحديات (إطار ذهبي)
 - class="praise" → للإشادة بالطالب (أخضر)
 - class="discover-box" → لطلبات الاكتشاف (بنفسجي)
 - class="tip-box" → للتلميحات والنصائح
-- class="thm-room-card" → لبطاقات غرف TryHackMe (فقط للمواد الأمنية)
 ${codingRules}
-${thmRules}
 - لا تستخدم ** أو # أو أي Markdown`;
 
   const diagnosticSystemPrompt = `أنت معلم خاص متمكن في مادة: ${subjectName}. هذه أول جلسة للطالب في هذه المادة ومهمتك الآن معرفة مستواه وبناء خطة مخصصة له.

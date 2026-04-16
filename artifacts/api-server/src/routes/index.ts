@@ -8,7 +8,6 @@ import aiRouter from "./ai";
 import summariesRouter from "./summaries";
 import plansRouter from "./plans";
 import supportRouter from "./support";
-import tryhackmeRouter from "./tryhackme";
 
 const router: IRouter = Router();
 
@@ -21,6 +20,5 @@ router.use(aiRouter);
 router.use(summariesRouter);
 router.use(plansRouter);
 router.use(supportRouter);
-router.use(tryhackmeRouter);
 
 export default router;

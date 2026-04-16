@@ -14,7 +14,6 @@ import { FoodLabPanel } from "@/components/food-lab-panel";
 import { YemenSoftSimulatorV2 } from "@/components/yemensoft/yemensoft-v2";
 import AccountingLab from "@/components/accounting-lab/accounting-lab";
 import CyberLab from "@/components/cyber-lab/cyber-lab";
-import { TryHackMePanel } from "@/components/tryhackme-panel";
 
 interface LessonSummary {
   id: number;
@@ -192,7 +191,6 @@ export default function Subject() {
   const [isAccountingLabOpen, setIsAccountingLabOpen] = useState(false);
   const CYBER_SUBJECTS = new Set(["uni-cybersecurity", "skill-nmap", "skill-wireshark", "skill-linux", "skill-windows"]);
   const isCyberSubject = CYBER_SUBJECTS.has(subject?.id || "");
-  const [isTHMOpen, setIsTHMOpen] = useState(false);
   const [isCyberLabOpen, setIsCyberLabOpen] = useState(false);
   const { data: lessonViews } = useGetLessonViews();
 
@@ -379,7 +377,7 @@ export default function Subject() {
         </div>
 
         {/* Chat Dialog */}
-        <Dialog open={isChatOpen} onOpenChange={(open) => { setIsChatOpen(open); if (!open) { setIsIDEOpen(false); setIsLabOpen(false); setIsYemenSoftOpen(false); setIsAccountingLabOpen(false); setIsTHMOpen(false); setIsCyberLabOpen(false); } }}>
+        <Dialog open={isChatOpen} onOpenChange={(open) => { setIsChatOpen(open); if (!open) { setIsIDEOpen(false); setIsLabOpen(false); setIsYemenSoftOpen(false); setIsAccountingLabOpen(false); setIsCyberLabOpen(false); } }}>
           <DialogContent className="
             max-sm:!inset-0 max-sm:!translate-x-0 max-sm:!translate-y-0
             max-sm:!w-full max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0
@@ -474,22 +472,6 @@ export default function Subject() {
                         <p className="text-[11px] text-muted-foreground">7 أدوات تفاعلية عملية</p>
                       </div>
                     </>
-                  ) : isTHMOpen ? (
-                    <>
-                      <button
-                        onClick={() => setIsTHMOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
-                      >
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                      <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/30 flex items-center justify-center">
-                        <Shield className="w-4 h-4 text-red-400" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-sm">TryHackMe</p>
-                        <p className="text-[11px] text-muted-foreground">التدريب العملي على الأمن السيبراني</p>
-                      </div>
-                    </>
                   ) : (
                     <>
                       <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg shrink-0`}>
@@ -506,7 +488,7 @@ export default function Subject() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {subject.hasCoding && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isTHMOpen && (
+                  {subject.hasCoding && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
                     <button
                       onClick={() => setIsIDEOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-gold/10 border border-gold/25 text-gold hover:bg-gold/20 transition-all"
@@ -515,7 +497,7 @@ export default function Subject() {
                       <span className="hidden sm:inline">IDE</span>
                     </button>
                   )}
-                  {isFoodSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isTHMOpen && (
+                  {isFoodSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
                     <button
                       onClick={() => setIsLabOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-lime-500/10 border border-lime-500/25 text-lime-400 hover:bg-lime-500/20 transition-all"
@@ -524,7 +506,7 @@ export default function Subject() {
                       <span className="hidden sm:inline">المختبر</span>
                     </button>
                   )}
-                  {isYemenSoftSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isTHMOpen && (
+                  {isYemenSoftSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
                     <button
                       onClick={() => setIsYemenSoftOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-teal-500/10 border border-teal-500/25 text-teal-400 hover:bg-teal-500/20 transition-all"
@@ -533,7 +515,7 @@ export default function Subject() {
                       <span className="hidden sm:inline">البيئة التطبيقية</span>
                     </button>
                   )}
-                  {isAccountingLabSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isTHMOpen && (
+                  {isAccountingLabSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
                     <button
                       onClick={() => setIsAccountingLabOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500/20 transition-all"
@@ -542,22 +524,13 @@ export default function Subject() {
                       <span className="hidden sm:inline">مختبر المحاسبة</span>
                     </button>
                   )}
-                  {isCyberSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isTHMOpen && !isCyberLabOpen && (
+                  {isCyberSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isCyberLabOpen && (
                     <button
                       onClick={() => setIsCyberLabOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 hover:bg-red-500/20 transition-all"
                     >
                       <Shield className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">المختبر</span>
-                    </button>
-                  )}
-                  {isCyberSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isTHMOpen && !isCyberLabOpen && (
-                    <button
-                      onClick={() => setIsTHMOpen(true)}
-                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20 transition-all"
-                    >
-                      <span className="text-xs">🏴‍☠️</span>
-                      <span className="hidden sm:inline">TryHackMe</span>
                     </button>
                   )}
                   <button
@@ -586,8 +559,6 @@ export default function Subject() {
               onCloseYemenSoft={() => setIsYemenSoftOpen(false)}
               accountingLabOpen={isAccountingLabOpen}
               onCloseAccountingLab={() => setIsAccountingLabOpen(false)}
-              thmOpen={isTHMOpen}
-              onCloseTHM={() => setIsTHMOpen(false)}
               cyberLabOpen={isCyberLabOpen}
               onCloseCyberLab={() => setIsCyberLabOpen(false)}
             />
@@ -652,15 +623,7 @@ const AIMessage = memo(function AIMessage({ content, isStreaming }: { content: s
     <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] sm:max-w-[92%] max-sm:max-w-[calc(100vw-60px)] shadow-md"
       style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)", overflow: "hidden" }}>
       <div className="px-3 sm:px-4 py-3 sm:py-3.5 overflow-x-hidden">
-        <div className="ai-msg overflow-x-hidden" dangerouslySetInnerHTML={{ __html: displayHtml }}
-          onClick={(e) => {
-            const card = (e.target as HTMLElement).closest('.thm-room-card');
-            if (card) {
-              const code = card.getAttribute('data-code')?.trim();
-              if (code && /^[a-zA-Z0-9_-]+$/.test(code)) window.open(`https://tryhackme.com/room/${encodeURIComponent(code)}`, '_blank', 'noopener');
-            }
-          }}
-        />
+        <div className="ai-msg overflow-x-hidden" dangerouslySetInnerHTML={{ __html: displayHtml }} />
         {isStreaming && (
           <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-white/5">
             <span className="w-2 h-2 bg-gold/50 rounded-full animate-bounce" />
@@ -686,8 +649,6 @@ function SubjectPathChat({
   onCloseYemenSoft,
   accountingLabOpen,
   onCloseAccountingLab,
-  thmOpen,
-  onCloseTHM,
   cyberLabOpen,
   onCloseCyberLab,
 }: { 
@@ -703,8 +664,6 @@ function SubjectPathChat({
   onCloseYemenSoft?: () => void;
   accountingLabOpen?: boolean;
   onCloseAccountingLab?: () => void;
-  thmOpen?: boolean;
-  onCloseTHM?: () => void;
   cyberLabOpen?: boolean;
   onCloseCyberLab?: () => void;
 }) {
@@ -1179,30 +1138,6 @@ function SubjectPathChat({
     return (
       <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11" }}>
         <CyberLab onShare={handleCyberLabShare} />
-      </div>
-    );
-  }
-
-  if (thmOpen) {
-    return (
-      <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11" }}>
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0d1119] p-6 text-center shadow-2xl">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15 border border-emerald-500/25">
-              <span className="text-3xl">🏴‍☠️</span>
-            </div>
-            <h3 className="text-2xl font-black text-white mb-2">هذه البيئة الرهيبة سيتم تفعيلها قريباً</h3>
-            <p className="text-sm text-muted-foreground mb-5">
-              تجربة TryHackMe داخل المنصة قيد التجهيز، وسيتم فتح المختبر العملي لاحقاً.
-            </p>
-            <button
-              onClick={() => onCloseTHM?.()}
-              className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-white hover:bg-white/10 transition-colors"
-            >
-              رجوع
-            </button>
-          </div>
-        </div>
       </div>
     );
   }
