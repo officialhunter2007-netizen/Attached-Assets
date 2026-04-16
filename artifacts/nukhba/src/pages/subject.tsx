@@ -4,7 +4,6 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, Shield } from "lucide-react";
@@ -376,16 +375,23 @@ export default function Subject() {
           )}
         </div>
 
-        {/* Chat Dialog */}
-        <Dialog open={isChatOpen} onOpenChange={(open) => { setIsChatOpen(open); if (!open) { setIsIDEOpen(false); setIsLabOpen(false); setIsYemenSoftOpen(false); setIsAccountingLabOpen(false); setIsCyberLabOpen(false); } }}>
-          <DialogContent className="
-            max-sm:!inset-0 max-sm:!translate-x-0 max-sm:!translate-y-0
-            max-sm:!w-full max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0
-            sm:max-w-[860px] sm:h-[90vh] sm:rounded-3xl
-            p-0 flex flex-col gap-0 overflow-hidden
-            bg-[#080a11] border-white/8
-          " hideCloseButton>
-            <DialogTitle className="sr-only">المعلم الذكي</DialogTitle>
+        {/* Chat Overlay — always mounted, toggled via CSS so all state (messages, IDE, lab) persists when closed */}
+        <div
+          aria-hidden={!isChatOpen}
+          style={{ display: isChatOpen ? "flex" : "none" }}
+          className="fixed inset-0 z-50 items-center justify-center bg-black/80"
+          onClick={(e) => { if (e.target === e.currentTarget) setIsChatOpen(false); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="
+              max-sm:!w-full max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0
+              sm:max-w-[860px] sm:h-[90vh] sm:rounded-3xl
+              w-full p-0 flex flex-col gap-0 overflow-hidden border shadow-lg
+              bg-[#080a11] border-white/8
+            "
+          >
 
             {/* Header */}
             <div className="shrink-0 border-b border-white/8" style={{ background: "linear-gradient(180deg, #0f1220 0%, #080a11 100%)" }}>
@@ -562,8 +568,8 @@ export default function Subject() {
               cyberLabOpen={isCyberLabOpen}
               onCloseCyberLab={() => setIsCyberLabOpen(false)}
             />
-          </DialogContent>
-        </Dialog>
+          </div>
+        </div>
       </div>
     </AppLayout>
   );
@@ -668,11 +674,24 @@ function SubjectPathChat({
   onCloseCyberLab?: () => void;
 }) {
   const { user } = useAuth();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const CHAT_STORAGE_KEY = `nukhba-chat-${subject.id}`;
+  const loadInitialChat = (): { messages: ChatMessage[]; currentStage: number } => {
+    try {
+      const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (!raw) return { messages: [], currentStage: 0 };
+      const parsed = JSON.parse(raw);
+      return {
+        messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+        currentStage: typeof parsed.currentStage === "number" ? parsed.currentStage : 0,
+      };
+    } catch { return { messages: [], currentStage: 0 }; }
+  };
+  const initial = loadInitialChat();
+  const [messages, setMessages] = useState<ChatMessage[]>(initial.messages);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [stages] = useState<string[]>(subject.defaultStages);
-  const [currentStage, setCurrentStage] = useState(0);
+  const [currentStage, setCurrentStage] = useState(initial.currentStage);
   const [accessDenied, setAccessDenied] = useState(false);
   const [sessionComplete, setSessionComplete] = useState(false);
   const [quotaExhausted, setQuotaExhausted] = useState(false);
@@ -706,6 +725,21 @@ function SubjectPathChat({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messageCount]);
+
+  // Persist chat messages + stage so they survive close/reopen and refresh
+  useEffect(() => {
+    if (messages.length === 0 && currentStage === 0) return;
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, currentStage }));
+    } catch {}
+  }, [messages, currentStage, CHAT_STORAGE_KEY]);
+
+  // Clear persisted chat once the session is finalized
+  useEffect(() => {
+    if (sessionComplete) {
+      try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+    }
+  }, [sessionComplete, CHAT_STORAGE_KEY]);
 
   // Fetch persisted plan from DB on mount
   useEffect(() => {
