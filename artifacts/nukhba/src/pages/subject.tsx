@@ -1186,7 +1186,23 @@ function SubjectPathChat({
   if (thmOpen) {
     return (
       <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11" }}>
-        <TryHackMePanel subjectId={subject.id} onClose={() => onCloseTHM?.()} />
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0d1119] p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15 border border-emerald-500/25">
+              <span className="text-3xl">🏴‍☠️</span>
+            </div>
+            <h3 className="text-2xl font-black text-white mb-2">هذه البيئة الرهيبة سيتم تفعيلها قريباً</h3>
+            <p className="text-sm text-muted-foreground mb-5">
+              تجربة TryHackMe داخل المنصة قيد التجهيز، وسيتم فتح المختبر العملي لاحقاً.
+            </p>
+            <button
+              onClick={() => onCloseTHM?.()}
+              className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-white hover:bg-white/10 transition-colors"
+            >
+              رجوع
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
