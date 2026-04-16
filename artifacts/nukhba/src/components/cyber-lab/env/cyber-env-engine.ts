@@ -1047,3 +1047,146 @@ export function generateAIEnvironment(config: {
     createdBy: "ai", createdAt: Date.now(),
   };
 }
+
+interface WizardConfig {
+  scenario: string;
+  machines: Array<{ id: string; name: string; os: OSType; role: MachineRole; isAttacker: boolean }>;
+  users: Array<{ machineId: string; username: string; password: string; isRoot: boolean }>;
+  services: Array<{ machineId: string; services: string[] }>;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  name: string;
+}
+
+const SCENARIO_BRIEFINGS: Record<string, { briefing: string; objectives: string[]; hints: string[] }> = {
+  "ad-attack": {
+    briefing: "مرحباً بك في بيئة محاكاة هجوم Active Directory!\n\nأمامك شبكة مؤسسية تتضمن Domain Controller وأجهزة عمل. مهمتك هي اختراق الشبكة، تصعيد الصلاحيات، والحركة الأفقية بين الأجهزة للوصول إلى Domain Admin.\n\nابدأ بمسح الشبكة واكتشاف الخدمات المفتوحة، ثم حاول استغلال الثغرات للوصول الأولي.",
+    objectives: ["مسح الشبكة واكتشاف جميع الأجهزة والخدمات", "الحصول على وصول أولي لأحد الأجهزة", "تصعيد الصلاحيات إلى مستوى Administrator", "الحركة الأفقية إلى Domain Controller", "استخراج جميع الأعلام (FLAGS) المخفية"],
+    hints: ["ابدأ بـ nmap -sV للمسح", "جرب hydra لكسر كلمات مرور SSH/RDP", "ابحث في ملفات المستخدمين عن كلمات مرور محفوظة", "تحقق من مشاركات SMB المفتوحة"],
+  },
+  "web-pentest": {
+    briefing: "مرحباً بك في بيئة اختبار اختراق تطبيقات الويب!\n\nأمامك خادم ويب يحتوي على تطبيق ويب به ثغرات متعددة. مهمتك هي اكتشاف الثغرات واستغلالها للوصول إلى الخادم.\n\nابدأ بفحص التطبيق واكتشاف نقاط الضعف.",
+    objectives: ["مسح الخادم واكتشاف الخدمات", "اكتشاف ثغرات التطبيق (SQL Injection, XSS, etc)", "الوصول إلى لوحة الإدارة", "قراءة الملفات الحساسة على الخادم", "الحصول على صلاحيات root"],
+    hints: ["استخدم gobuster لاكتشاف المسارات المخفية", "جرب sqlmap على صفحات تسجيل الدخول", "تحقق من ملف robots.txt", "ابحث عن ملفات النسخ الاحتياطي"],
+  },
+  "network-pentest": {
+    briefing: "مرحباً بك في بيئة اختبار اختراق الشبكات!\n\nأمامك شبكة تحتوي على عدة أجهزة مترابطة. مهمتك هي مسح الشبكة واكتشاف الأجهزة والخدمات المفتوحة، ثم استغلال الثغرات للتنقل بين الأجهزة.",
+    objectives: ["مسح الشبكة بالكامل واكتشاف جميع الأجهزة", "تحديد الخدمات المفتوحة على كل جهاز", "استغلال خدمة ضعيفة للوصول الأولي", "التنقل بين الأجهزة عبر SSH", "جمع جميع الأعلام"],
+    hints: ["nmap -sV -sC لمسح شامل", "تحقق من خدمة FTP للملفات المهمة", "استخدم بيانات الاعتماد من جهاز للدخول لآخر"],
+  },
+  "forensics": {
+    briefing: "مرحباً بك في بيئة التحليل الجنائي الرقمي!\n\nتم الإبلاغ عن اختراق لخادم في الشبكة. مهمتك هي تحليل الأدلة الرقمية وتتبع نشاط المهاجم واكتشاف كيف تم الاختراق.",
+    objectives: ["فحص سجلات النظام (auth.log, syslog)", "تحديد كيفية الوصول الأولي للمهاجم", "اكتشاف الملفات المعدلة أو المزروعة", "تتبع أوامر المهاجم", "كتابة تقرير عن الحادثة"],
+    hints: ["ابدأ بفحص /var/log/auth.log", "استخدم grep للبحث عن عناوين IP مشبوهة", "تحقق من .bash_history لكل مستخدم", "ابحث عن ملفات تم تعديلها مؤخراً بـ find"],
+  },
+  "password-cracking": {
+    briefing: "مرحباً بك في بيئة كسر كلمات المرور!\n\nأمامك خوادم بخدمات محمية بكلمات مرور ضعيفة. استخدم أدوات كسر كلمات المرور للوصول إلى الخدمات.",
+    objectives: ["مسح الخدمات المفتوحة", "تنفيذ هجوم Dictionary على SSH", "كسر هاشات كلمات المرور", "الوصول إلى جميع الحسابات", "استخراج البيانات الحساسة"],
+    hints: ["hydra -l admin -P rockyou.txt ssh://target", "john --wordlist=rockyou.txt hashes.txt", "تحقق من /etc/shadow بعد الوصول"],
+  },
+  "priv-escalation": {
+    briefing: "مرحباً بك في بيئة تصعيد الصلاحيات!\n\nلديك وصول محدود كمستخدم عادي. هدفك هو إيجاد طريقة لتصعيد صلاحياتك إلى root أو Administrator.",
+    objectives: ["استكشاف النظام بالصلاحيات الحالية", "البحث عن ملفات SUID/SGID", "فحص إعدادات sudo", "إيجاد نقطة ضعف لتصعيد الصلاحيات", "الحصول على صلاحيات root"],
+    hints: ["find / -perm -4000 للبحث عن SUID", "sudo -l لمعرفة الأوامر المسموحة", "تحقق من crontab والمهام المجدولة", "ابحث عن كلمات مرور في ملفات الإعدادات"],
+  },
+  "network-defense": {
+    briefing: "مرحباً بك في بيئة أمن الشبكات والدفاع!\n\nأنت مسؤول أمن الشبكة. مهمتك هي تأمين الخوادم وإعداد جدران نارية وكشف محاولات الاختراق.",
+    objectives: ["فحص الخدمات المفتوحة على كل خادم", "إعداد قواعد جدار ناري مناسبة", "تحليل سجلات الأمان", "كشف محاولات الاختراق", "تأمين الخدمات الضعيفة"],
+    hints: ["استخدم iptables أو ufw لإعداد الجدار الناري", "راقب الحركة بـ tcpdump", "تحقق من auth.log لمحاولات الدخول الفاشلة"],
+  },
+};
+
+export function generateWizardEnvironment(config: WizardConfig): CyberEnvironment {
+  const network = { subnet: "192.168.1.0/24", netmask: "255.255.255.0", gateway: "192.168.1.1", dns: "8.8.8.8" };
+
+  const machinesInfo = config.machines.map((m, i) => ({
+    hostname: m.name,
+    ip: `192.168.1.${10 + i}`,
+  }));
+  const networkHosts = buildNetworkHosts(machinesInfo);
+
+  const osLabels: Record<string, string> = {
+    "kali-linux": "Kali Linux 2024.1", "ubuntu-server": "Ubuntu Server 22.04 LTS",
+    "ubuntu-desktop": "Ubuntu Desktop 22.04", "centos": "CentOS 8 Stream",
+    "debian": "Debian 12 Bookworm", "windows-10": "Windows 10 Pro",
+    "windows-server": "Windows Server 2019",
+  };
+
+  const defaultTools = (os: OSType, role: MachineRole): string[] => {
+    if (os === "kali-linux") return ["nmap", "hydra", "john", "gobuster", "nikto", "sqlmap", "netcat", "curl", "wget", "tcpdump", "hashcat", "dirb", "msfconsole"];
+    if (role === "attacker") return ["nmap", "hydra", "curl", "wget", "netcat"];
+    return ["curl", "wget"];
+  };
+
+  const machines: VirtualMachine[] = config.machines.map((m, i) => {
+    const ip = `192.168.1.${10 + i}`;
+    const isWin = m.os.includes("windows");
+
+    const machineUsers = config.users.filter(u => u.machineId === m.id);
+    const vmUsers: VMUser[] = machineUsers.map((u, ui) => ({
+      username: u.username,
+      password: u.password,
+      isRoot: u.isRoot,
+      home: isWin ? `C:\\Users\\${u.username}` : (u.isRoot ? "/root" : `/home/${u.username}`),
+      shell: isWin ? "cmd.exe" : "/bin/bash",
+      groups: u.isRoot ? ["root", "sudo", "adm"] : ["users"],
+      uid: u.isRoot ? 0 : 1000 + ui,
+    }));
+
+    const machineServices = config.services.find(s => s.machineId === m.id);
+    const serviceObjs: VMService[] = [];
+    for (const svc of machineServices?.services || []) {
+      if (svc === "ssh") serviceObjs.push(makeSSHService());
+      if (svc === "http") serviceObjs.push(makeHTTPService());
+      if (svc === "ftp") serviceObjs.push(makeFTPService());
+      if (svc === "mysql") serviceObjs.push(makeMySQLService());
+      if (svc === "smb") serviceObjs.push(makeSMBService());
+      if (svc === "rdp") serviceObjs.push(makeRDPService());
+      if (svc === "smtp") serviceObjs.push(makeSMTPService());
+      if (svc === "dns") serviceObjs.push(makeDNSService());
+    }
+
+    let fs: FSNode;
+    if (m.os === "kali-linux") {
+      fs = buildKaliFS(m.name, ip, networkHosts);
+    } else if (isWin) {
+      fs = buildWindowsFS(m.name, ip);
+    } else {
+      fs = buildUbuntuServerFS(m.name, ip, networkHosts, serviceObjs);
+    }
+
+    return {
+      id: `vm-${i}`, hostname: m.name, ip, mac: randomMAC(),
+      os: m.os, osLabel: osLabels[m.os] || m.os, role: m.role,
+      users: vmUsers.length > 0 ? vmUsers : [{ username: "user", password: "user123", isRoot: false, home: "/home/user", shell: "/bin/bash", groups: ["users"], uid: 1000 }],
+      currentUser: vmUsers[0]?.username || "user",
+      filesystem: fs, services: serviceObjs,
+      tools: defaultTools(m.os, m.role),
+      isAccessible: i === 0 || m.isAttacker || m.role === "attacker",
+      description: `${m.name} (${osLabels[m.os] || m.os})`,
+      descriptionAr: `${m.name} — ${m.role === "attacker" ? "جهاز المهاجم" : m.role === "target" ? "الهدف" : m.role === "server" ? "خادم" : m.role === "workstation" ? "محطة عمل" : "موجّه"}`,
+      icon: isWin ? "🪟" : m.os === "kali-linux" ? "🐧" : "🖥️",
+      processes: makeProcesses(m.os, serviceObjs),
+      env: isWin
+        ? { USERPROFILE: `C:\\Users\\${vmUsers[0]?.username || "User"}`, USERNAME: vmUsers[0]?.username || "User", COMSPEC: "C:\\Windows\\System32\\cmd.exe", COMPUTERNAME: m.name.toUpperCase() } as Record<string, string>
+        : { HOME: vmUsers[0]?.home || "/home/user", USER: vmUsers[0]?.username || "user", SHELL: "/bin/bash", PATH: "/usr/local/bin:/usr/bin:/bin", TERM: "xterm-256color", HOSTNAME: m.name } as Record<string, string>,
+    };
+  });
+
+  const scenarioData = SCENARIO_BRIEFINGS[config.scenario] || SCENARIO_BRIEFINGS["network-pentest"];
+
+  return {
+    id: genId(),
+    name: config.name,
+    nameAr: config.name,
+    description: config.name,
+    briefing: scenarioData.briefing,
+    objectives: scenarioData.objectives,
+    hints: scenarioData.hints,
+    network,
+    machines,
+    difficulty: config.difficulty,
+    category: config.scenario,
+    createdBy: "student",
+    createdAt: Date.now(),
+  };
+}

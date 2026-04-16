@@ -469,7 +469,7 @@ export default function Subject() {
                       </div>
                       <div>
                         <p className="font-bold text-sm">مختبر الأمن السيبراني</p>
-                        <p className="text-[11px] text-muted-foreground">7 أدوات تفاعلية عملية</p>
+                        <p className="text-[11px] text-muted-foreground">بيئة محاكاة تفاعلية</p>
                       </div>
                     </>
                   ) : (
