@@ -1135,9 +1135,13 @@ function SubjectPathChat({
       onCloseCyberLab?.();
       sendTeachMessage(`نتائج من مختبر الأمن السيبراني:\n${content}`);
     };
+    const handleCyberLabHelp = (context: string) => {
+      onCloseCyberLab?.();
+      sendTeachMessage(context);
+    };
     return (
       <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11" }}>
-        <CyberLab onShare={handleCyberLabShare} />
+        <CyberLab onShare={handleCyberLabShare} onAskHelp={handleCyberLabHelp} />
       </div>
     );
   }
