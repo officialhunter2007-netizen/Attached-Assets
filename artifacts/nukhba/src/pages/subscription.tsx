@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, MessageCircle, BadgeCheck, BookOpen, Search, ArrowRight, ChevronDown, ShieldCheck, HelpCircle, PhoneCall, Send, Banknote, UserCheck, ClipboardCheck } from "lucide-react";
+import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, MessageCircle, BadgeCheck, BookOpen, Search, ArrowRight, ChevronDown, ShieldCheck, HelpCircle, PhoneCall, Send, Banknote, UserCheck, ClipboardCheck, Check, X, Sparkles } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
@@ -511,6 +511,86 @@ export default function Subscription() {
               </div>
             );
           })}
+        </div>
+
+        <div className="mb-14">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl sm:text-3xl font-black flex items-center justify-center gap-3 mb-3">
+              <Sparkles className="w-7 h-7 text-gold" />
+              لماذا نُخبة وليس ChatGPT أو DeepSeek؟
+            </h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
+              المساعدات العامة ممتازة للأسئلة العابرة، لكنها لا تعرفك ولا تتذكر تقدّمك. نُخبة بُنيت خصيصاً لتكون <span className="text-gold font-bold">معلّمك المتخصّص</span> طوال رحلة تعلّمك.
+            </p>
+          </div>
+
+          <div className="glass rounded-3xl border-2 border-gold/20 overflow-hidden shadow-[0_0_40px_rgba(245,158,11,0.08)]">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right" dir="rtl">
+                <thead>
+                  <tr className="border-b border-white/10 bg-gradient-to-l from-gold/10 via-gold/5 to-transparent">
+                    <th className="p-3 sm:p-4 text-sm sm:text-base font-bold text-foreground/80 w-[40%]">الميزة</th>
+                    <th className="p-3 sm:p-4 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <Crown className="w-5 h-5 text-gold" />
+                        <span className="text-sm sm:text-base font-black text-gold">نُخبة</span>
+                      </div>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center">
+                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">ChatGPT</span>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center">
+                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">DeepSeek</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {[
+                    { feature: "يتذكّر تقدّمك ونقاط ضعفك بين الجلسات", n: true, c: false, d: false },
+                    { feature: "يبني خطة تعلّم شخصية لمادتك", n: true, c: false, d: false },
+                    { feature: "مختبرات تطبيقية تفاعلية داخل المنصة", n: true, c: false, d: false },
+                    { feature: "مراجعة معلّم بشري لتقاريرك وأعمالك", n: true, c: false, d: false },
+                    { feature: "محتوى مبني على المنهج اليمني والجامعي المحلي", n: true, c: false, d: false },
+                    { feature: "إجابات عامة على الأسئلة", n: true, c: true, d: true },
+                  ].map((row, i) => (
+                    <tr key={i} className={`border-b border-white/5 last:border-0 ${i % 2 === 0 ? "bg-white/[0.015]" : ""} hover:bg-gold/[0.03] transition-colors`}>
+                      <td className="p-3 sm:p-4 font-medium text-foreground/90 text-xs sm:text-sm leading-relaxed">{row.feature}</td>
+                      <td className="p-3 sm:p-4 text-center">
+                        {row.n ? (
+                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gold/15 border border-gold/30">
+                            <Check className="w-4 h-4 sm:w-5 sm:h-5 text-gold" strokeWidth={3} />
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500/10 border border-red-500/20">
+                            <X className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" strokeWidth={3} />
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 sm:p-4 text-center">
+                        {row.c ? (
+                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
+                        ) : (
+                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
+                        )}
+                      </td>
+                      <td className="p-3 sm:p-4 text-center">
+                        {row.d ? (
+                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
+                        ) : (
+                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 sm:p-5 bg-gradient-to-l from-gold/10 to-transparent border-t border-gold/15">
+              <p className="text-xs sm:text-sm text-center text-foreground/80 leading-relaxed">
+                <span className="text-gold font-bold">الخلاصة:</span> أنت لا تدفع مقابل "محادثة" — أنت تستثمر في معلّم متخصّص يرافقك خطوة بخطوة حتى تتقن مادتك.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="mb-14">
