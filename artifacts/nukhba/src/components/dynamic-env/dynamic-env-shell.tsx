@@ -446,31 +446,113 @@ ${stateSnap}${userNotes}`;
 
         <main className="flex-1 min-w-0 flex flex-col">
           {screens.length > 1 && (
-            <div className="border-b border-white/10 bg-gradient-to-b from-black/30 to-transparent px-2 md:px-3 overflow-x-auto">
-              <div className="flex gap-1.5 py-2.5">
+            <div className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/85 backdrop-blur-md px-2 md:px-4 py-3">
+              {/* Stepper rail — shows linear progression with connector line */}
+              <div className="flex items-center gap-0 overflow-x-auto pb-1">
                 {screens.map((s, idx) => {
                   const isActive = activeId === s.id;
+                  const activeIdx = screens.findIndex((x) => x.id === activeId);
+                  const isPast = idx < activeIdx;
+                  const isLast = idx === screens.length - 1;
                   return (
-                    <button
-                      key={s.id}
-                      onClick={() => setActiveId(s.id)}
-                      className={`text-xs md:text-sm px-3 md:px-4 py-1.5 md:py-2 rounded-xl whitespace-nowrap font-bold transition-all flex items-center gap-1.5 ${
-                        isActive
-                          ? "bg-gradient-to-l from-cyan-500 to-cyan-400 text-slate-900 shadow-lg shadow-cyan-500/30 scale-[1.02]"
-                          : "bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white border border-white/10"
-                      }`}
-                    >
-                      <span className={`text-[10px] font-mono ${isActive ? "text-slate-900/70" : "text-white/40"}`}>{idx + 1}</span>
-                      {s.icon && <span>{s.icon}</span>}
-                      <span>{s.title}</span>
-                    </button>
+                    <div key={s.id} className="flex items-center shrink-0">
+                      <button
+                        onClick={() => setActiveId(s.id)}
+                        className={`group flex flex-col items-center gap-1.5 px-2 transition-all ${isActive ? "" : "opacity-80 hover:opacity-100"}`}
+                        title={s.title}
+                      >
+                        <div className={`relative w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm font-black border-2 transition-all ${
+                          isActive
+                            ? "bg-gradient-to-br from-cyan-400 to-cyan-500 border-cyan-300 text-slate-900 shadow-[0_0_20px_rgba(34,211,238,0.5)] scale-110"
+                            : isPast
+                              ? "bg-emerald-500/15 border-emerald-400/60 text-emerald-300"
+                              : "bg-white/[0.04] border-white/15 text-white/50 group-hover:border-white/30 group-hover:text-white/80"
+                        }`}>
+                          {isPast ? "✓" : (s.icon || (idx + 1))}
+                          {isActive && (
+                            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                          )}
+                        </div>
+                        <span className={`text-[10px] md:text-[11px] font-bold whitespace-nowrap max-w-[90px] md:max-w-[140px] truncate ${
+                          isActive ? "text-cyan-300" : isPast ? "text-emerald-300/70" : "text-white/45"
+                        }`}>
+                          {s.title.replace(/^[\p{Emoji}\s]+/u, "")}
+                        </span>
+                      </button>
+                      {!isLast && (
+                        <div className={`h-0.5 w-6 md:w-10 rounded-full transition-colors ${
+                          isPast ? "bg-emerald-400/50" : "bg-white/10"
+                        }`} />
+                      )}
+                    </div>
                   );
                 })}
               </div>
+              {/* Breadcrumb line */}
+              <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5 text-[11px]">
+                <div className="text-white/50 flex items-center gap-1.5">
+                  <span className="font-mono text-cyan-400/70">
+                    الخطوة {Math.max(1, screens.findIndex((x) => x.id === activeId) + 1)}/{screens.length}
+                  </span>
+                  <span className="text-white/20">•</span>
+                  <span className="text-white/80 font-bold truncate">{active?.title}</span>
+                </div>
+                {(() => {
+                  const screenTasks = (env.tasks || []).filter((t) => t.targetScreen === activeId);
+                  if (screenTasks.length === 0) return null;
+                  const doneOnScreen = screenTasks.filter((t) => doneTasks.has(t.id)).length;
+                  return (
+                    <span className="text-[10px] text-white/40">
+                      مهام هذه الشاشة: <span className="text-cyan-300 font-bold">{doneOnScreen}/{screenTasks.length}</span>
+                    </span>
+                  );
+                })()}
+              </div>
             </div>
           )}
+
           <div className="flex-1 overflow-y-auto p-3 md:p-5 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.02),transparent_50%)]">
             <div className="max-w-5xl mx-auto space-y-3 md:space-y-4">
+              {/* Tasks for this screen — inline call-to-action card */}
+              {(() => {
+                const screenTasks = (env.tasks || []).filter((t) => t.targetScreen === activeId);
+                if (screenTasks.length === 0) return null;
+                const pending = screenTasks.filter((t) => !doneTasks.has(t.id));
+                if (pending.length === 0) {
+                  return (
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 flex items-center gap-3">
+                      <span className="text-2xl">✅</span>
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-emerald-200">أتممتَ كل مهام هذه الشاشة</div>
+                        <div className="text-[11px] text-emerald-100/70">انتقل للخطوة التالية لمواصلة التقدّم.</div>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="rounded-xl border border-cyan-500/25 bg-gradient-to-l from-cyan-500/[0.06] to-transparent px-4 py-3">
+                    <div className="text-[11px] font-black text-cyan-300 mb-2 flex items-center gap-1.5 uppercase tracking-wider">
+                      <span>🎯</span> مهام هذه الشاشة
+                    </div>
+                    <ul className="space-y-1.5">
+                      {pending.map((t) => (
+                        <li key={t.id} className="flex items-start gap-2 text-[13px] text-white/85">
+                          <button
+                            onClick={() => toggleTask(t.id)}
+                            className="shrink-0 mt-0.5 w-4 h-4 rounded border border-white/30 hover:border-cyan-400 hover:bg-cyan-400/10 transition-colors"
+                            title="ضع علامة منجَزة"
+                          />
+                          <div className="flex-1">
+                            <div className="leading-snug">{t.description}</div>
+                            {t.hint && <div className="text-[11px] text-white/45 mt-0.5">💡 {t.hint}</div>}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })()}
+
               {(Array.isArray(active?.components) ? active!.components : []).map((c, i) => (
                 <ComponentRenderer key={i} comp={c} ctx={{ onGoToScreen: goToScreen, onAskAi: askAi }} />
               ))}
@@ -481,6 +563,48 @@ ${stateSnap}${userNotes}`;
               )}
             </div>
           </div>
+
+          {/* Sticky prev/next nav footer */}
+          {screens.length > 1 && (() => {
+            const idx = screens.findIndex((x) => x.id === activeId);
+            const prev = idx > 0 ? screens[idx - 1] : null;
+            const next = idx < screens.length - 1 ? screens[idx + 1] : null;
+            return (
+              <div className="border-t border-white/10 bg-slate-950/80 backdrop-blur-md px-3 py-2.5 flex items-center justify-between gap-2">
+                <button
+                  onClick={() => prev && setActiveId(prev.id)}
+                  disabled={!prev}
+                  className={`text-xs md:text-sm font-bold rounded-lg px-3 md:px-4 py-2 transition-all flex items-center gap-2 ${
+                    prev
+                      ? "bg-white/5 hover:bg-white/10 border border-white/10 text-white/85"
+                      : "bg-white/[0.02] border border-white/5 text-white/25 cursor-not-allowed"
+                  }`}
+                >
+                  <span>→</span>
+                  <span className="hidden sm:inline truncate max-w-[140px]">{prev ? prev.title.replace(/^[\p{Emoji}\s]+/u, "") : "السابق"}</span>
+                  <span className="sm:hidden">السابق</span>
+                </button>
+
+                <div className="text-[11px] text-white/40 font-mono tabular-nums hidden md:block">
+                  {idx + 1} / {screens.length}
+                </div>
+
+                <button
+                  onClick={() => next && setActiveId(next.id)}
+                  disabled={!next}
+                  className={`text-xs md:text-sm font-bold rounded-lg px-3 md:px-4 py-2 transition-all flex items-center gap-2 ${
+                    next
+                      ? "bg-gradient-to-l from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 text-slate-900 shadow-lg shadow-cyan-500/20"
+                      : "bg-emerald-500/15 border border-emerald-400/30 text-emerald-300"
+                  }`}
+                >
+                  <span className="sm:hidden">{next ? "التالي" : "النهاية"}</span>
+                  <span className="hidden sm:inline truncate max-w-[140px]">{next ? next.title.replace(/^[\p{Emoji}\s]+/u, "") : "وصلت للنهاية"}</span>
+                  <span>{next ? "←" : "✓"}</span>
+                </button>
+              </div>
+            );
+          })()}
         </main>
 
         {/* Chat panel — desktop: side panel. Mobile: full-screen drawer. */}
