@@ -1642,11 +1642,35 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
     return res.json({ kind, useCyberEndpoint: true });
   }
 
+  // Build a minimal but valid env so the UI ALWAYS has something to render.
+  // No matter what goes wrong with the AI call, we surface a usable env with
+  // the user's description and a friendly note instead of a red error toast.
+  const buildFallbackEnv = (note: string) => ({
+    kind,
+    title: "بيئة تطبيقية",
+    briefing: description.slice(0, 280),
+    objectives: [],
+    initialState: {},
+    screens: [{
+      id: "screen1",
+      title: "ابدأ هنا",
+      icon: "💡",
+      components: [
+        { type: "alert", tone: "info", title: "البيئة جاهزة بشكل مبدئي", text: note },
+        { type: "text", markdown: `**ما طلبتَه:** ${description.slice(0, 400)}\n\nيمكنك إعادة المحاولة بوصف أقصر، أو متابعة المحادثة مع المعلم الذكي لتطوير البيئة.` },
+      ],
+    }],
+    tasks: [], hints: [], successCriteria: [],
+  });
+
   try {
     console.log("[build-env] start kind=", kind, "desc=", description.slice(0, 120));
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
-      max_tokens: 12000,
+      // Bumped from 12000 → 16384 because rich accounting envs (full chart of
+      // accounts + inventory + customers + multiple screens) regularly exceed
+      // 12k tokens and get truncated → unparseable JSON → no env appears.
+      max_tokens: 16384,
       system: DYNAMIC_ENV_SYSTEM,
       messages: [{ role: "user", content: `النوع: ${kind}\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة بالضبط لهذا الطلب. أرجع JSON صالحاً فقط دون أي شرح أو markdown.` }],
     });
@@ -1665,8 +1689,10 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       try { return JSON.parse(s); } catch { return null; }
     };
 
-    // Extract the largest JSON object substring
-    const extractJsonObject = (s: string): string | null => {
+    // Extract the largest balanced JSON object substring. If the response was
+    // truncated (depth never returns to 0) we return what we have so the
+    // repair pass below can try to close it.
+    const extractJsonObject = (s: string): { text: string; balanced: boolean } | null => {
       const start = s.indexOf("{");
       if (start < 0) return null;
       let depth = 0;
@@ -1681,21 +1707,64 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
         if (ch === "{") depth++;
         else if (ch === "}") {
           depth--;
-          if (depth === 0) return s.slice(start, i + 1);
+          if (depth === 0) return { text: s.slice(start, i + 1), balanced: true };
         }
       }
-      return null; // truncated
+      return { text: s.slice(start), balanced: false };
+    };
+
+    // Repair a truncated JSON snippet: drop trailing partial token, close any
+    // open string, then auto-close all open arrays/objects in correct order.
+    const repairJson = (s: string): string => {
+      let txt = s;
+      // Drop trailing comma / partial key=value after last good comma
+      const lastGood = Math.max(txt.lastIndexOf(","), txt.lastIndexOf("{"), txt.lastIndexOf("["));
+      if (lastGood > 0) {
+        // Cut off any partial token after the last clean separator
+        const after = txt.slice(lastGood + 1);
+        if (after.includes(":") && !after.trim().endsWith("}") && !after.trim().endsWith("]")) {
+          // We're mid-key-value — chop back to the separator
+          txt = txt.slice(0, lastGood);
+        }
+      }
+      // Walk and track open brackets / string state to know what to append
+      const stack: string[] = [];
+      let inStr = false; let esc = false;
+      for (let i = 0; i < txt.length; i++) {
+        const ch = txt[i];
+        if (esc) { esc = false; continue; }
+        if (ch === "\\") { esc = true; continue; }
+        if (ch === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (ch === "{") stack.push("}");
+        else if (ch === "[") stack.push("]");
+        else if (ch === "}" || ch === "]") stack.pop();
+      }
+      if (inStr) txt += '"';
+      // Remove trailing comma before closing
+      txt = txt.replace(/,\s*$/, "");
+      while (stack.length) txt += stack.pop();
+      return txt;
     };
 
     let env: any = tryParse(raw);
     if (!env) {
       const extracted = extractJsonObject(raw);
-      if (extracted) env = tryParse(extracted);
+      if (extracted) {
+        env = tryParse(extracted.text);
+        if (!env) {
+          // Try to repair (handles truncation from max_tokens)
+          const repaired = repairJson(extracted.text);
+          env = tryParse(repaired);
+          if (env) console.log("[build-env] recovered via JSON repair");
+        }
+      }
     }
     if (!env) {
       console.error("[build-env] parse failed. Raw (first 3000):", raw.slice(0, 3000));
       console.error("[build-env] Raw (last 1000):", raw.slice(-1000));
-      throw new Error("تعذّر تفسير بيئة البيانات. قد يكون الوصف طويلاً جداً — جرّب وصفاً أقصر.");
+      // Don't throw — return a friendly fallback env so the user never sees a red error.
+      return res.json({ kind, env: buildFallbackEnv("لم نتمكن من توليد البيئة الكاملة هذه المرّة. حاول وصفاً أكثر تركيزاً (مثلاً: \"بيئة لإدخال قيود مبيعات نقدية مع ميزان مراجعة\")، أو تابع مع المعلم الذكي.") });
     }
 
     env.kind = kind;
@@ -1758,8 +1827,10 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
 
     return res.json({ kind, env });
   } catch (e: any) {
-    console.error("[build-env] error:", e?.message);
-    return res.status(500).json({ error: e?.message || "فشل توليد البيئة" });
+    console.error("[build-env] error:", e?.message, e?.stack);
+    // Never surface a raw error to the user — return a minimal fallback env
+    // so the lab still opens and the user can iterate via the chat assistant.
+    return res.json({ kind, env: buildFallbackEnv("حدث اضطراب مؤقّت أثناء توليد البيئة. يمكنك المحاولة مجدّداً بوصف أقصر، أو متابعة الشرح مع المعلم الذكي.") });
   }
 });
 
