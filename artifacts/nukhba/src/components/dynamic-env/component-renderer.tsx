@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from "react";
-import type { DynComponent, DynFormField } from "./types";
+import { useMemo, useState, type ReactNode } from "react";
+import type { DynComponent, DynFormField, DynMutation } from "./types";
+import { useEnvState, envUtils } from "./state-engine";
 
 type Ctx = {
   onAction?: (action: { type: string; [k: string]: any }) => void;
@@ -7,10 +8,27 @@ type Ctx = {
   onAskAi?: (prompt: string) => void;
 };
 
-function Card({ title, children }: { title?: string; children: ReactNode }) {
+function arr<T>(v: any): T[] {
+  return Array.isArray(v) ? v : [];
+}
+
+function fmtNumber(v: any, format?: string, decimals = 2): string {
+  const n = envUtils.toNumber(v);
+  if (format === "currency") return n.toLocaleString("ar-EG", { maximumFractionDigits: decimals }) + " ر.ي";
+  if (format === "percent") return (n * 100).toFixed(decimals) + "%";
+  if (format === "number") return n.toLocaleString("ar-EG", { maximumFractionDigits: decimals });
+  return v == null ? "" : String(v);
+}
+
+function Card({ title, action, children }: { title?: string; action?: ReactNode; children: ReactNode }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-4 mb-3">
-      {title && <h3 className="font-bold text-white mb-3">{title}</h3>}
+      {(title || action) && (
+        <div className="flex items-center justify-between mb-3">
+          {title && <h3 className="font-bold text-white">{title}</h3>}
+          {action}
+        </div>
+      )}
       {children}
     </div>
   );
@@ -25,11 +43,20 @@ function toneClasses(tone: "info" | "warn" | "error" | "success") {
   }
 }
 
+// ─── Form Block ──────────────────────────────────────────────────────────────
 function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }>; ctx: Ctx }) {
-  const [values, setValues] = useState<Record<string, string>>({});
+  const env = useEnvState();
+  const initialVals = useMemo(() => {
+    const v: Record<string, any> = {};
+    (comp.fields || []).forEach((f: any) => {
+      if (f.default !== undefined) v[f.name] = f.default;
+    });
+    return v;
+  }, [comp.fields]);
+  const [values, setValues] = useState<Record<string, any>>(initialVals);
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const setVal = (k: string, v: string) => setValues((p) => ({ ...p, [k]: v }));
+  const setVal = (k: string, v: any) => setValues((p) => ({ ...p, [k]: v }));
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,30 +65,47 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
       let allOk = true;
       const wrong: string[] = [];
       for (const [k, expected] of Object.entries(comp.submit.expected)) {
-        const got = (values[k] || "").trim();
+        const got = String(values[k] ?? "").trim();
         if (typeof expected === "number") {
           const n = parseFloat(got.replace(/,/g, ""));
-          if (isNaN(n) || Math.abs(n - expected) > Math.abs(expected * tol) + 0.0001) {
-            allOk = false;
-            wrong.push(k);
-          }
+          if (isNaN(n) || Math.abs(n - expected) > Math.abs(expected * tol) + 0.0001) { allOk = false; wrong.push(k); }
         } else {
-          if (got.toLowerCase().replace(/\s+/g, "") !== String(expected).toLowerCase().replace(/\s+/g, "")) {
-            allOk = false;
-            wrong.push(k);
-          }
+          if (got.toLowerCase().replace(/\s+/g, "") !== String(expected).toLowerCase().replace(/\s+/g, "")) { allOk = false; wrong.push(k); }
         }
       }
-      setFeedback({
-        ok: allOk,
-        msg: allOk
-          ? (comp.submit.correctMessage || "إجابة صحيحة! ✓")
-          : (comp.submit.incorrectMessage || `راجع الحقول: ${wrong.join("، ")}`),
-      });
+      setFeedback({ ok: allOk, msg: allOk ? (comp.submit.correctMessage || "إجابة صحيحة! ✓") : (comp.submit.incorrectMessage || `راجع الحقول: ${wrong.join("، ")}`) });
     } else if (comp.submit.type === "ask-ai") {
       const filled = Object.entries(values).map(([k, v]) => `${k}: ${v}`).join("\n");
       ctx.onAskAi?.(`${comp.submit.prompt}\n\nإجابة الطالب:\n${filled}`);
       setFeedback({ ok: true, msg: "تم إرسال إجابتك للمعلم الذكي للمراجعة." });
+    } else if (comp.submit.type === "mutate") {
+      // Run validations
+      const validations = comp.submit.validate || [];
+      for (const v of validations) {
+        if (v.rule === "balanced-journal") {
+          const debit = envUtils.toNumber(values.debit ?? values["مدين"] ?? 0);
+          const credit = envUtils.toNumber(values.credit ?? values["دائن"] ?? 0);
+          if (Math.abs(debit - credit) > 0.001) {
+            setFeedback({ ok: false, msg: v.message || "القيد غير متوازن (مدين ≠ دائن)" });
+            return;
+          }
+        } else if (v.rule === "positive-balance") {
+          const cur = envUtils.toNumber(envUtils.getByPath(env.state, v.field || ""));
+          const sub = envUtils.toNumber(values.amount ?? 0);
+          if (cur - sub < 0) {
+            setFeedback({ ok: false, msg: v.message || "الرصيد غير كافٍ" });
+            return;
+          }
+        } else if (v.rule === "non-empty") {
+          if (!values[v.field || ""]) {
+            setFeedback({ ok: false, msg: v.message || `الحقل ${v.field} مطلوب` });
+            return;
+          }
+        }
+      }
+      env.mutate(comp.submit.ops || [], values);
+      setFeedback({ ok: true, msg: comp.submit.successMessage || "تم تنفيذ العملية بنجاح ✓" });
+      if (comp.submit.resetOnSubmit) setValues(initialVals);
     }
   };
 
@@ -69,86 +113,484 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
     <Card title={comp.title}>
       {comp.description && <p className="text-sm text-white/70 mb-3">{comp.description}</p>}
       <form onSubmit={onSubmit} className="space-y-3">
-        {(Array.isArray(comp.fields) ? comp.fields : []).map((f: DynFormField) => (
-          <div key={f.name}>
-            <label className="block text-sm text-white/80 mb-1">
-              {f.label}{f.required && <span className="text-red-400 mr-1">*</span>}
-              {"unit" in f && f.unit && <span className="text-white/50 mr-2">({f.unit})</span>}
-            </label>
-            {f.type === "textarea" ? (
-              <textarea
-                className="w-full bg-black/30 border border-white/15 rounded-lg p-2 text-white text-sm"
-                rows={3}
-                placeholder={"placeholder" in f ? f.placeholder : ""}
-                value={values[f.name] || ""}
-                onChange={(e) => setVal(f.name, e.target.value)}
-                required={f.required}
-              />
-            ) : f.type === "select" ? (
-              <select
-                className="w-full bg-black/30 border border-white/15 rounded-lg p-2 text-white text-sm"
-                value={values[f.name] || ""}
-                onChange={(e) => setVal(f.name, e.target.value)}
-                required={f.required}
-              >
-                <option value="">— اختر —</option>
-                {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            ) : (
-              <input
-                className="w-full bg-black/30 border border-white/15 rounded-lg p-2 text-white text-sm"
-                type={f.type === "number" ? "number" : "text"}
-                step="any"
-                placeholder={"placeholder" in f ? f.placeholder : ""}
-                value={values[f.name] || ""}
-                onChange={(e) => setVal(f.name, e.target.value)}
-                required={f.required}
-              />
-            )}
-          </div>
-        ))}
-        <button
-          type="submit"
-          className="bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded-lg px-4 py-2 text-sm"
-        >
-          {comp.submitLabel || "إرسال"}
-        </button>
-        {feedback && (
-          <div className={`mt-2 p-3 rounded-lg border text-sm ${toneClasses(feedback.ok ? "success" : "error")}`}>
-            {feedback.msg}
-          </div>
-        )}
+        {(Array.isArray(comp.fields) ? comp.fields : []).map((f: DynFormField) => <FormFieldInput key={f.name} f={f} value={values[f.name]} onChange={(v) => setVal(f.name, v)} />)}
+        <div className="flex gap-2 items-center">
+          <button type="submit" className="bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded-lg px-4 py-2 text-sm">{comp.submitLabel || "إرسال"}</button>
+          {feedback && (
+            <span className={`text-xs px-3 py-2 rounded-lg border ${toneClasses(feedback.ok ? "success" : "error")}`}>{feedback.msg}</span>
+          )}
+        </div>
       </form>
     </Card>
   );
 }
 
-function ChartBlock({ comp }: { comp: Extract<DynComponent, { type: "chart" }> }) {
-  const ds = comp.datasets[0];
-  const max = Math.max(...(ds?.data || [1]), 1);
+function FormFieldInput({ f, value, onChange }: { f: DynFormField; value: any; onChange: (v: any) => void }) {
+  const env = useEnvState();
+  const baseCls = "w-full bg-black/30 border border-white/15 rounded-lg p-2 text-white text-sm";
   return (
-    <Card title={comp.title}>
-      <div className="space-y-2">
-        {(ds?.data || []).map((v, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <div className="w-24 text-xs text-white/70 truncate">{comp.labels[i] ?? ""}</div>
-            <div className="flex-1 bg-white/5 rounded h-5 overflow-hidden">
-              <div className="bg-cyan-500 h-full" style={{ width: `${(v / max) * 100}%` }} />
-            </div>
-            <div className="w-16 text-xs text-white/80 text-left">{v}</div>
-          </div>
-        ))}
+    <div>
+      <label className="block text-sm text-white/80 mb-1">
+        {f.label}{(f as any).required && <span className="text-red-400 mr-1">*</span>}
+        {"unit" in f && (f as any).unit && <span className="text-white/50 mr-2">({(f as any).unit})</span>}
+      </label>
+      {f.type === "textarea" ? (
+        <textarea className={baseCls} rows={3} value={value ?? ""} onChange={(e) => onChange(e.target.value)} />
+      ) : f.type === "select" ? (
+        <select className={baseCls} value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
+          <option value="">— اختر —</option>
+          {(f as any).options?.map((o: string) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : f.type === "selectFromState" ? (
+        (() => {
+          const list = arr<any>(envUtils.getByPath(env.state, (f as any).statePath));
+          const lk = (f as any).labelKey || "name";
+          const vk = (f as any).valueKey || "id";
+          return (
+            <select className={baseCls} value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
+              <option value="">— اختر —</option>
+              {list.map((it: any, i: number) => (
+                <option key={it?.[vk] ?? i} value={it?.[vk] ?? ""}>{it?.[lk] ?? it?.[vk] ?? ""}</option>
+              ))}
+            </select>
+          );
+        })()
+      ) : f.type === "checkbox" ? (
+        <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4" />
+      ) : (
+        <input
+          className={baseCls}
+          type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
+          step="any"
+          placeholder={(f as any).placeholder}
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Editable Table (CRUD) ───────────────────────────────────────────────────
+function EditableTable({ comp }: { comp: Extract<DynComponent, { type: "editableTable" }> }) {
+  const env = useEnvState();
+  const items = arr<any>(envUtils.getByPath(env.state, comp.bindTo));
+  const [draft, setDraft] = useState<Record<string, any>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editVals, setEditVals] = useState<Record<string, any>>({});
+  const [search, setSearch] = useState("");
+  const idField = comp.idField || "id";
+  const allowAdd = comp.allowAdd !== false;
+  const allowDelete = comp.allowDelete !== false;
+
+  const filtered = search.trim()
+    ? items.filter((it) => Object.values(it).some((v) => String(v ?? "").toLowerCase().includes(search.toLowerCase())))
+    : items;
+
+  const add = () => {
+    const obj: any = { ...draft };
+    for (const c of comp.columns) if (c.type === "number") obj[c.key] = envUtils.toNumber(obj[c.key]);
+    env.mutate([{ op: "append", path: comp.bindTo, value: obj, idField }]);
+    setDraft({});
+  };
+
+  const del = (id: any) => {
+    env.mutate([{ op: "remove", path: comp.bindTo, matchField: idField, matchValue: id }]);
+  };
+
+  const startEdit = (it: any) => { setEditingId(it[idField]); setEditVals({ ...it }); };
+  const saveEdit = () => {
+    const patch: any = { ...editVals };
+    for (const c of comp.columns) if (c.type === "number") patch[c.key] = envUtils.toNumber(patch[c.key]);
+    env.mutate([{ op: "update", path: comp.bindTo, matchField: idField, matchValue: editingId, patch }]);
+    setEditingId(null); setEditVals({});
+  };
+
+  const inputCls = "w-full bg-black/30 border border-white/15 rounded p-1.5 text-white text-xs";
+
+  return (
+    <Card
+      title={comp.title}
+      action={<input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث..." className="text-xs bg-black/30 border border-white/15 rounded px-2 py-1 text-white w-32" />}
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm text-right">
+          <thead>
+            <tr className="border-b border-white/10 text-white/70">
+              {comp.columns.map((c) => <th key={c.key} className="px-2 py-2 font-medium text-xs">{c.label}</th>)}
+              <th className="px-2 py-2 font-medium text-xs w-24">إجراءات</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={comp.columns.length + 1} className="px-2 py-4 text-center text-white/40 text-xs">لا توجد بيانات بعد — أضف صفاً جديداً.</td></tr>
+            )}
+            {filtered.map((it, i) => {
+              const isEditing = editingId === it[idField];
+              return (
+                <tr key={it[idField] ?? i} className="border-b border-white/5">
+                  {comp.columns.map((c) => (
+                    <td key={c.key} className="px-2 py-2 text-white/90 text-xs">
+                      {isEditing ? (
+                        c.type === "select" ? (
+                          <select className={inputCls} value={editVals[c.key] ?? ""} onChange={(e) => setEditVals((p) => ({ ...p, [c.key]: e.target.value }))}>
+                            <option value="">—</option>
+                            {(c.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        ) : (
+                          <input className={inputCls} type={c.type === "number" ? "number" : c.type === "date" ? "date" : "text"} value={editVals[c.key] ?? ""} onChange={(e) => setEditVals((p) => ({ ...p, [c.key]: e.target.value }))} />
+                        )
+                      ) : (
+                        c.type === "number" ? envUtils.toNumber(it[c.key]).toLocaleString("ar-EG") : (it[c.key] ?? "")
+                      )}
+                    </td>
+                  ))}
+                  <td className="px-2 py-2 text-xs">
+                    <div className="flex gap-1">
+                      {isEditing ? (
+                        <>
+                          <button onClick={saveEdit} className="text-green-300 hover:text-green-200 px-2 py-1 rounded bg-green-500/10">حفظ</button>
+                          <button onClick={() => { setEditingId(null); setEditVals({}); }} className="text-white/60 hover:text-white px-2 py-1 rounded bg-white/5">إلغاء</button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => startEdit(it)} className="text-cyan-300 hover:text-cyan-200 px-2 py-1 rounded bg-cyan-500/10">تعديل</button>
+                          {allowDelete && <button onClick={() => del(it[idField])} className="text-red-300 hover:text-red-200 px-2 py-1 rounded bg-red-500/10">حذف</button>}
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {allowAdd && (
+            <tfoot>
+              <tr className="border-t-2 border-white/15 bg-black/30">
+                {comp.columns.map((c) => (
+                  <td key={c.key} className="px-2 py-2">
+                    {c.type === "select" ? (
+                      <select className={inputCls} value={draft[c.key] ?? ""} onChange={(e) => setDraft((p) => ({ ...p, [c.key]: e.target.value }))}>
+                        <option value="">— {c.label} —</option>
+                        {(c.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input className={inputCls} type={c.type === "number" ? "number" : c.type === "date" ? "date" : "text"} placeholder={c.label} value={draft[c.key] ?? ""} onChange={(e) => setDraft((p) => ({ ...p, [c.key]: e.target.value }))} />
+                    )}
+                  </td>
+                ))}
+                <td className="px-2 py-2">
+                  <button onClick={add} className="bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold px-3 py-1 rounded text-xs w-full">+ إضافة</button>
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
       </div>
     </Card>
   );
 }
 
-function arr<T>(v: any): T[] {
-  return Array.isArray(v) ? v : [];
+// ─── Journal Editor (double-entry) ───────────────────────────────────────────
+function JournalEditor({ comp }: { comp: Extract<DynComponent, { type: "journalEditor" }> }) {
+  const env = useEnvState();
+  const entries = arr<any>(envUtils.getByPath(env.state, comp.bindTo));
+  const accounts = arr<any>(envUtils.getByPath(env.state, comp.accountsPath || "accounts"));
+  const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [desc, setDesc] = useState("");
+  const [lines, setLines] = useState<Array<{ account: string; debit: string; credit: string }>>([
+    { account: "", debit: "", credit: "" },
+    { account: "", debit: "", credit: "" },
+  ]);
+  const [error, setError] = useState<string | null>(null);
+
+  const sumD = lines.reduce((s, l) => s + envUtils.toNumber(l.debit), 0);
+  const sumC = lines.reduce((s, l) => s + envUtils.toNumber(l.credit), 0);
+  const balanced = Math.abs(sumD - sumC) < 0.001 && sumD > 0;
+
+  const setLine = (i: number, k: string, v: string) => {
+    setLines((p) => p.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)));
+  };
+  const addLine = () => setLines((p) => [...p, { account: "", debit: "", credit: "" }]);
+  const delLine = (i: number) => setLines((p) => p.length > 2 ? p.filter((_, idx) => idx !== i) : p);
+
+  const post = () => {
+    if (!balanced) { setError("القيد غير متوازن أو فارغ. تحقق من المدين والدائن."); return; }
+    if (!desc.trim()) { setError("يجب إدخال وصف القيد."); return; }
+    const validLines = lines.filter((l) => l.account && (envUtils.toNumber(l.debit) > 0 || envUtils.toNumber(l.credit) > 0));
+    if (validLines.length < 2) { setError("القيد يجب أن يحتوي على طرفين على الأقل."); return; }
+
+    const entryId = `je-${Date.now()}`;
+    env.mutate([
+      { op: "append", path: comp.bindTo, value: { id: entryId, date, desc, lines: validLines } },
+    ]);
+    // Update account balances if accounts state exists
+    if (accounts.length > 0) {
+      const ops: DynMutation[] = validLines.map((l) => ({
+        op: "incrementInArray",
+        path: comp.accountsPath || "accounts",
+        matchField: "code",
+        matchValue: l.account,
+        field: "balance",
+        by: envUtils.toNumber(l.debit) - envUtils.toNumber(l.credit),
+      }));
+      env.mutate(ops);
+    }
+    setDesc(""); setLines([{ account: "", debit: "", credit: "" }, { account: "", debit: "", credit: "" }]); setError(null);
+  };
+
+  const inputCls = "w-full bg-black/30 border border-white/15 rounded p-1.5 text-white text-xs";
+
+  return (
+    <Card title={comp.title || "قيد يومية جديد"}>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label className="block text-xs text-white/70 mb-1">التاريخ</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-xs text-white/70 mb-1">الوصف / البيان</label>
+          <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="مثلاً: شراء بضاعة نقداً" className={inputCls} />
+        </div>
+      </div>
+      <table className="w-full text-xs text-right mb-3">
+        <thead>
+          <tr className="border-b border-white/10 text-white/70">
+            <th className="p-1.5 font-medium">الحساب</th>
+            <th className="p-1.5 font-medium w-28">مدين</th>
+            <th className="p-1.5 font-medium w-28">دائن</th>
+            <th className="p-1.5 w-10"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l, i) => (
+            <tr key={i} className="border-b border-white/5">
+              <td className="p-1.5">
+                {accounts.length > 0 ? (
+                  <select className={inputCls} value={l.account} onChange={(e) => setLine(i, "account", e.target.value)}>
+                    <option value="">— اختر حساباً —</option>
+                    {accounts.map((a) => <option key={a.code} value={a.code}>{a.code} - {a.name}</option>)}
+                  </select>
+                ) : (
+                  <input className={inputCls} value={l.account} onChange={(e) => setLine(i, "account", e.target.value)} placeholder="اسم الحساب" />
+                )}
+              </td>
+              <td className="p-1.5"><input type="number" step="any" className={inputCls} value={l.debit} onChange={(e) => { setLine(i, "debit", e.target.value); if (e.target.value) setLine(i, "credit", ""); }} /></td>
+              <td className="p-1.5"><input type="number" step="any" className={inputCls} value={l.credit} onChange={(e) => { setLine(i, "credit", e.target.value); if (e.target.value) setLine(i, "debit", ""); }} /></td>
+              <td className="p-1.5 text-center"><button onClick={() => delLine(i)} className="text-red-300 hover:text-red-200">×</button></td>
+            </tr>
+          ))}
+          <tr className="bg-white/5 font-bold">
+            <td className="p-1.5 text-white/80">الإجمالي</td>
+            <td className="p-1.5 text-green-300">{sumD.toLocaleString("ar-EG")}</td>
+            <td className="p-1.5 text-red-300">{sumC.toLocaleString("ar-EG")}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="flex gap-2 items-center flex-wrap">
+        <button onClick={addLine} className="text-xs bg-white/10 hover:bg-white/15 px-3 py-1.5 rounded text-white">+ إضافة سطر</button>
+        <button onClick={post} disabled={!balanced || !desc.trim()} className="text-xs bg-cyan-500 hover:bg-cyan-400 disabled:bg-white/10 disabled:text-white/40 text-slate-900 font-bold px-3 py-1.5 rounded">ترحيل القيد</button>
+        {!balanced && sumD + sumC > 0 && <span className="text-xs text-red-300">⚠ غير متوازن (فرق: {Math.abs(sumD - sumC).toLocaleString("ar-EG")})</span>}
+        {balanced && <span className="text-xs text-green-300">✓ القيد متوازن</span>}
+        {error && <span className="text-xs text-red-300">{error}</span>}
+      </div>
+
+      {/* Posted journal entries */}
+      {entries.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <div className="text-xs text-white/60 mb-2">القيود المرحّلة ({entries.length}):</div>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {entries.slice().reverse().map((e: any) => (
+              <div key={e.id} className="border border-white/10 rounded p-2 text-xs">
+                <div className="flex justify-between text-white/60 mb-1">
+                  <span>{e.date}</span>
+                  <button onClick={() => env.mutate([{ op: "remove", path: comp.bindTo, matchField: "id", matchValue: e.id }])} className="text-red-300 hover:text-red-200">حذف</button>
+                </div>
+                <div className="text-white/90 mb-1">{e.desc}</div>
+                <table className="w-full text-[11px]">
+                  <tbody>
+                    {arr<any>(e.lines).map((l, i) => {
+                      const acc = accounts.find((a: any) => a.code === l.account);
+                      return (
+                        <tr key={i}>
+                          <td className="text-white/80 p-0.5">{acc ? `${acc.code} - ${acc.name}` : l.account}</td>
+                          <td className="text-green-300 text-left p-0.5 w-20">{l.debit ? envUtils.toNumber(l.debit).toLocaleString("ar-EG") : "-"}</td>
+                          <td className="text-red-300 text-left p-0.5 w-20">{l.credit ? envUtils.toNumber(l.credit).toLocaleString("ar-EG") : "-"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
 }
 
+// ─── Trial Balance (computed from journal entries) ───────────────────────────
+function TrialBalance({ comp }: { comp: Extract<DynComponent, { type: "trialBalance" }> }) {
+  const env = useEnvState();
+  const entries = arr<any>(envUtils.getByPath(env.state, comp.entriesPath));
+  const accounts = arr<any>(envUtils.getByPath(env.state, comp.accountsPath || "accounts"));
+
+  const balances = useMemo(() => {
+    const map: Record<string, { debit: number; credit: number }> = {};
+    entries.forEach((e: any) => {
+      arr<any>(e.lines).forEach((l: any) => {
+        if (!map[l.account]) map[l.account] = { debit: 0, credit: 0 };
+        map[l.account].debit += envUtils.toNumber(l.debit);
+        map[l.account].credit += envUtils.toNumber(l.credit);
+      });
+    });
+    return map;
+  }, [entries]);
+
+  const rows = Object.entries(balances).map(([code, v]) => {
+    const acc = accounts.find((a: any) => a.code === code);
+    const net = v.debit - v.credit;
+    return { code, name: acc?.name || code, debit: net > 0 ? net : 0, credit: net < 0 ? -net : 0 };
+  });
+  const totalD = rows.reduce((s, r) => s + r.debit, 0);
+  const totalC = rows.reduce((s, r) => s + r.credit, 0);
+
+  return (
+    <Card title={comp.title || "ميزان المراجعة"}>
+      <table className="w-full text-sm text-right">
+        <thead>
+          <tr className="border-b border-white/10 text-white/70 text-xs">
+            <th className="p-2 font-medium">الحساب</th>
+            <th className="p-2 font-medium w-28">مدين</th>
+            <th className="p-2 font-medium w-28">دائن</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={3} className="text-center p-4 text-white/40 text-xs">لا توجد قيود مرحّلة بعد.</td></tr>}
+          {rows.map((r) => (
+            <tr key={r.code} className="border-b border-white/5 text-xs">
+              <td className="p-2 text-white/85">{r.code} - {r.name}</td>
+              <td className="p-2 text-green-300 text-left">{r.debit > 0 ? r.debit.toLocaleString("ar-EG") : "-"}</td>
+              <td className="p-2 text-red-300 text-left">{r.credit > 0 ? r.credit.toLocaleString("ar-EG") : "-"}</td>
+            </tr>
+          ))}
+          <tr className="bg-white/5 font-bold border-t-2 border-white/20">
+            <td className="p-2 text-white">الإجمالي</td>
+            <td className="p-2 text-green-300 text-left">{totalD.toLocaleString("ar-EG")}</td>
+            <td className="p-2 text-red-300 text-left">{totalC.toLocaleString("ar-EG")}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className={`mt-3 text-xs px-3 py-2 rounded ${Math.abs(totalD - totalC) < 0.001 ? toneClasses("success") : toneClasses("warn")}`}>
+        {Math.abs(totalD - totalC) < 0.001 ? "✓ الميزان متوازن" : `⚠ غير متوازن (فرق: ${Math.abs(totalD - totalC).toLocaleString("ar-EG")})`}
+      </div>
+    </Card>
+  );
+}
+
+// ─── Invoice Mockup ──────────────────────────────────────────────────────────
+function InvoiceBlock({ comp }: { comp: Extract<DynComponent, { type: "invoice" }> }) {
+  const env = useEnvState();
+  const inv = envUtils.getByPath(env.state, comp.bindTo) || {};
+  const items = arr<any>(inv.items);
+  const subtotal = items.reduce((s, it) => s + envUtils.toNumber(it.qty) * envUtils.toNumber(it.price), 0);
+  const tax = envUtils.toNumber(inv.taxRate ?? 0) * subtotal / 100;
+  const total = subtotal + tax;
+
+  return (
+    <Card title={comp.title || "فاتورة"}>
+      <div className="bg-white/95 text-slate-900 rounded-lg p-5" style={{ direction: "rtl" }}>
+        <div className="flex justify-between items-start border-b border-slate-300 pb-3 mb-3">
+          <div>
+            <div className="font-bold text-lg">{comp.companyName || inv.companyName || "شركتك"}</div>
+            <div className="text-xs text-slate-600">{comp.companyDetails || inv.companyDetails || "صنعاء، اليمن"}</div>
+          </div>
+          <div className="text-left">
+            <div className="font-bold text-cyan-700">فاتورة #{inv.number || "—"}</div>
+            <div className="text-xs text-slate-600">التاريخ: {inv.date || "—"}</div>
+          </div>
+        </div>
+        {inv.customer && (
+          <div className="mb-3 text-sm">
+            <div className="text-slate-600">العميل:</div>
+            <div className="font-bold">{inv.customer}</div>
+          </div>
+        )}
+        <table className="w-full text-sm border-collapse mb-3">
+          <thead>
+            <tr className="bg-slate-100 text-right">
+              <th className="border border-slate-300 p-2">الصنف</th>
+              <th className="border border-slate-300 p-2 w-20">الكمية</th>
+              <th className="border border-slate-300 p-2 w-24">السعر</th>
+              <th className="border border-slate-300 p-2 w-28">الإجمالي</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.length === 0 && <tr><td colSpan={4} className="text-center p-3 text-slate-500">لا توجد بنود</td></tr>}
+            {items.map((it, i) => (
+              <tr key={i}>
+                <td className="border border-slate-300 p-2">{it.name}</td>
+                <td className="border border-slate-300 p-2 text-center">{envUtils.toNumber(it.qty)}</td>
+                <td className="border border-slate-300 p-2 text-left">{envUtils.toNumber(it.price).toLocaleString("ar-EG")}</td>
+                <td className="border border-slate-300 p-2 text-left font-medium">{(envUtils.toNumber(it.qty) * envUtils.toNumber(it.price)).toLocaleString("ar-EG")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="flex justify-end">
+          <table className="text-sm w-64">
+            <tbody>
+              <tr><td className="p-1 text-slate-600">المجموع الفرعي:</td><td className="p-1 text-left font-medium">{subtotal.toLocaleString("ar-EG")}</td></tr>
+              {inv.taxRate ? <tr><td className="p-1 text-slate-600">الضريبة ({inv.taxRate}%):</td><td className="p-1 text-left">{tax.toLocaleString("ar-EG")}</td></tr> : null}
+              <tr className="border-t-2 border-slate-400 font-bold text-cyan-700"><td className="p-1">الإجمالي:</td><td className="p-1 text-left">{total.toLocaleString("ar-EG")} ر.ي</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ─── Calculator ──────────────────────────────────────────────────────────────
+function Calculator({ comp }: { comp: Extract<DynComponent, { type: "calculator" }> }) {
+  const [expr, setExpr] = useState(comp.expression || "");
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const calc = () => {
+    setError(null);
+    try {
+      // Whitelist: only digits, operators, parens, decimal, spaces
+      if (!/^[\d+\-*/().\s%]+$/.test(expr)) throw new Error("استخدم الأرقام والعمليات فقط");
+      // eslint-disable-next-line no-new-func
+      const r = Function(`"use strict"; return (${expr})`)();
+      setResult(typeof r === "number" && isFinite(r) ? r.toLocaleString("ar-EG", { maximumFractionDigits: 6 }) : String(r));
+    } catch (e: any) {
+      setError(e.message || "تعبير غير صحيح");
+      setResult(null);
+    }
+  };
+
+  return (
+    <Card title={comp.title || "حاسبة"}>
+      {comp.description && <p className="text-xs text-white/70 mb-2">{comp.description}</p>}
+      <div className="flex gap-2 mb-2">
+        <input dir="ltr" value={expr} onChange={(e) => setExpr(e.target.value)} placeholder="مثال: 1500*0.15+200" className="flex-1 bg-black/30 border border-white/15 rounded p-2 text-white text-sm font-mono" />
+        <button onClick={calc} className="bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded px-4 text-sm">احسب</button>
+      </div>
+      {result !== null && <div className="text-sm text-green-300 bg-green-500/10 border border-green-500/30 rounded p-2">= {result}</div>}
+      {error && <div className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2">{error}</div>}
+    </Card>
+  );
+}
+
+// ─── Main Renderer ───────────────────────────────────────────────────────────
 export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx }) {
+  const env = useEnvState();
   if (!comp || typeof comp !== "object" || !("type" in comp)) return null;
+
   switch (comp.type) {
     case "text":
       return <div className="prose prose-invert prose-sm max-w-none mb-3 text-white/90 whitespace-pre-wrap">{comp.markdown}</div>;
@@ -161,42 +603,54 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
         </div>
       );
 
-    case "kpi":
+    case "kpi": {
+      const v = comp.bindTo ? envUtils.getByPath(env.state, comp.bindTo) : comp.value;
+      const display = comp.format ? fmtNumber(v, comp.format, comp.decimals) : (v ?? "");
       return (
         <Card>
           <div className="text-xs text-white/60 mb-1">{comp.label}</div>
-          <div className="text-2xl font-bold text-cyan-300">{comp.value}</div>
+          <div className="text-2xl font-bold text-cyan-300">{display as any}</div>
           {comp.sublabel && <div className="text-xs text-white/50 mt-1">{comp.sublabel}</div>}
         </Card>
       );
+    }
 
     case "kpiGrid":
       return (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
-          {arr<any>(comp.items).map((it, i) => (
-            <div key={i} className="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="text-xs text-white/60 mb-1">{it.label}</div>
-              <div className="text-xl font-bold text-cyan-300">{it.value}</div>
-              {it.sublabel && <div className="text-[11px] text-white/50 mt-1">{it.sublabel}</div>}
-            </div>
-          ))}
+          {arr<any>(comp.items).map((it, i) => {
+            const v = it.bindTo ? envUtils.getByPath(env.state, it.bindTo) : it.value;
+            const display = it.format ? fmtNumber(v, it.format, it.decimals) : (v ?? "");
+            return (
+              <div key={i} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className="text-xs text-white/60 mb-1">{it.label}</div>
+                <div className="text-xl font-bold text-cyan-300">{display}</div>
+                {it.sublabel && <div className="text-[11px] text-white/50 mt-1">{it.sublabel}</div>}
+              </div>
+            );
+          })}
         </div>
       );
 
-    case "table":
+    case "table": {
+      const bound = comp.bindTo ? arr<any>(envUtils.getByPath(env.state, comp.bindTo)) : null;
+      const rows: any[][] = bound
+        ? bound.map((it: any) => (comp.columnKeys || comp.columns).map((k: string) => it?.[k] ?? ""))
+        : arr<any>(comp.rows);
       return (
         <Card title={comp.title}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-right">
               <thead>
                 <tr className="border-b border-white/10 text-white/70">
-                  {arr<string>(comp.columns).map((c, i) => <th key={i} className="px-2 py-2 font-medium">{c}</th>)}
+                  {arr<string>(comp.columns).map((c, i) => <th key={i} className="px-2 py-2 font-medium text-xs">{c}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {arr<any>(comp.rows).map((r, i) => (
+                {rows.length === 0 && <tr><td colSpan={comp.columns.length} className="text-center text-white/40 text-xs p-4">لا توجد بيانات.</td></tr>}
+                {rows.map((r, i) => (
                   <tr key={i} className="border-b border-white/5">
-                    {arr<string>(r).map((cell, j) => <td key={j} className="px-2 py-2 text-white/90">{cell}</td>)}
+                    {arr<any>(r).map((cell, j) => <td key={j} className="px-2 py-2 text-white/90 text-xs">{cell == null ? "" : String(cell)}</td>)}
                   </tr>
                 ))}
               </tbody>
@@ -204,12 +658,19 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
           </div>
         </Card>
       );
+    }
 
-    case "journal":
+    case "editableTable":
+      return <EditableTable comp={comp} />;
+
+    case "journal": {
+      const bound = comp.bindTo ? arr<any>(envUtils.getByPath(env.state, comp.bindTo)) : null;
+      const items = bound ?? arr<any>(comp.items);
       return (
         <Card title={comp.title || "اليومية"}>
           <div className="space-y-2">
-            {arr<any>(comp.items).map((it, i) => (
+            {items.length === 0 && <div className="text-xs text-white/40 text-center py-3">لا توجد قيود.</div>}
+            {items.map((it: any, i: number) => (
               <div key={i} className="text-sm border border-white/10 rounded-lg p-2">
                 <div className="flex justify-between text-xs text-white/60 mb-1">
                   <span>{it.date}</span>
@@ -225,16 +686,31 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
           </div>
         </Card>
       );
+    }
 
-    case "list":
+    case "journalEditor":
+      return <JournalEditor comp={comp} />;
+
+    case "trialBalance":
+      return <TrialBalance comp={comp} />;
+
+    case "invoice":
+      return <InvoiceBlock comp={comp} />;
+
+    case "calculator":
+      return <Calculator comp={comp} />;
+
+    case "list": {
+      const items = comp.bindTo ? arr<any>(envUtils.getByPath(env.state, comp.bindTo)) : arr<any>(comp.items);
       return (
         <Card title={comp.title}>
           <ul className="space-y-2">
-            {arr<any>(comp.items).map((it, i) => (
+            {items.length === 0 && <li className="text-xs text-white/40">لا توجد عناصر.</li>}
+            {items.map((it, i) => (
               <li key={i} className="flex items-start justify-between gap-2 text-sm">
                 <div>
-                  <div className="text-white/90">{it.title}</div>
-                  {it.subtitle && <div className="text-xs text-white/60">{it.subtitle}</div>}
+                  <div className="text-white/90">{it.title || it.name}</div>
+                  {(it.subtitle || it.desc) && <div className="text-xs text-white/60">{it.subtitle || it.desc}</div>}
                 </div>
                 {it.badge && <span className="text-xs bg-white/10 text-white/80 rounded px-2 py-1 shrink-0">{it.badge}</span>}
               </li>
@@ -242,20 +718,23 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
           </ul>
         </Card>
       );
+    }
 
-    case "kvList":
+    case "kvList": {
+      const items = comp.bindTo ? arr<any>(envUtils.getByPath(env.state, comp.bindTo)) : arr<any>(comp.items);
       return (
         <Card title={comp.title}>
           <dl className="space-y-1 text-sm">
-            {arr<any>(comp.items).map((it, i) => (
+            {items.map((it, i) => (
               <div key={i} className="flex justify-between gap-3 py-1 border-b border-white/5 last:border-0">
-                <dt className="text-white/60">{it.key}</dt>
+                <dt className="text-white/60">{it.key || it.label}</dt>
                 <dd className="text-white/90 text-left">{it.value}</dd>
               </div>
             ))}
           </dl>
         </Card>
       );
+    }
 
     case "form":
       return <FormBlock comp={comp} ctx={ctx} />;
@@ -264,14 +743,16 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
       return (
         <button
           onClick={() => {
-            if (comp.action.type === "go-to-screen") ctx.onGoToScreen?.(comp.action.screenId);
-            else if (comp.action.type === "ask-ai") ctx.onAskAi?.(comp.action.prompt);
-            else ctx.onAction?.(comp.action);
+            const a: any = comp.action;
+            if (a.type === "go-to-screen") ctx.onGoToScreen?.(a.screenId);
+            else if (a.type === "ask-ai") ctx.onAskAi?.(a.prompt);
+            else if (a.type === "mutate") env.mutate(a.ops || []);
+            else ctx.onAction?.(a);
           }}
           className={`rounded-lg px-4 py-2 text-sm font-bold mb-3 ${
-            comp.tone === "secondary"
-              ? "bg-white/10 hover:bg-white/15 text-white"
-              : "bg-cyan-500 hover:bg-cyan-400 text-slate-900"
+            comp.tone === "secondary" ? "bg-white/10 hover:bg-white/15 text-white"
+            : comp.tone === "danger" ? "bg-red-500 hover:bg-red-400 text-white"
+            : "bg-cyan-500 hover:bg-cyan-400 text-slate-900"
           }`}
         >
           {comp.label}
@@ -285,8 +766,31 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
         </pre>
       );
 
-    case "chart":
-      return <ChartBlock comp={comp} />;
+    case "chart": {
+      let labels = arr<string>(comp.labels);
+      let dataArr: number[] = arr<any>(comp.datasets)[0]?.data || [];
+      if (comp.bindTo) {
+        const list = arr<any>(envUtils.getByPath(env.state, comp.bindTo));
+        labels = list.map((it) => String(it?.[comp.labelKey || "label"] ?? ""));
+        dataArr = list.map((it) => envUtils.toNumber(it?.[comp.valueKey || "value"]));
+      }
+      const max = Math.max(...dataArr, 1);
+      return (
+        <Card title={comp.title}>
+          <div className="space-y-2">
+            {dataArr.map((v, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="w-24 text-xs text-white/70 truncate">{labels[i] ?? ""}</div>
+                <div className="flex-1 bg-white/5 rounded h-5 overflow-hidden">
+                  <div className="bg-cyan-500 h-full" style={{ width: `${(v / max) * 100}%` }} />
+                </div>
+                <div className="w-20 text-xs text-white/80 text-left">{v.toLocaleString("ar-EG")}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      );
+    }
 
     case "stepper":
       return (

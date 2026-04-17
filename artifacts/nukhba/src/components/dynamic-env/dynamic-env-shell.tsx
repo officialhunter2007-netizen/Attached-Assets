@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DynamicEnv } from "./types";
 import { ComponentRenderer } from "./component-renderer";
+import { EnvStateProvider, useEnvState } from "./state-engine";
 
 type AssistMsg = { role: "user" | "assistant"; content: string };
 
@@ -13,6 +14,29 @@ export function DynamicEnvShell({
   subjectId: string;
   onClose?: () => void;
 }) {
+  // Stable storage key per subject + env title (so each env keeps its own world state)
+  const storageKey = useMemo(() => {
+    const slug = (env.title || "env").replace(/\s+/g, "-").slice(0, 60);
+    return `nukhba-env-state::${subjectId}::${slug}`;
+  }, [subjectId, env.title]);
+
+  return (
+    <EnvStateProvider initialState={env.initialState || {}} storageKey={storageKey}>
+      <DynamicEnvShellInner env={env} subjectId={subjectId} onClose={onClose} />
+    </EnvStateProvider>
+  );
+}
+
+function DynamicEnvShellInner({
+  env,
+  subjectId,
+  onClose,
+}: {
+  env: DynamicEnv;
+  subjectId: string;
+  onClose?: () => void;
+}) {
+  const envState = useEnvState();
   const screens = env.screens || [];
   const [activeId, setActiveId] = useState<string>(screens[0]?.id || "");
   const [doneTasks, setDoneTasks] = useState<Set<string>>(new Set());
@@ -117,14 +141,27 @@ export function DynamicEnvShell({
             <h2 className="text-xl font-bold text-white">{env.title}</h2>
             <p className="text-sm text-white/75 mt-1">{env.briefing}</p>
           </div>
-          {onClose && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={onClose}
-              className="text-white/60 hover:text-white text-sm px-3 py-1 rounded bg-white/5 hover:bg-white/10"
+              onClick={() => {
+                if (window.confirm("هل تريد إعادة البيئة لحالتها الأولية؟ سيتم حذف جميع البيانات التي أدخلتها.")) {
+                  envState.reset();
+                }
+              }}
+              className="text-white/60 hover:text-white text-xs px-3 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10"
+              title="إعادة ضبط البيئة"
             >
-              إغلاق البيئة
+              ↻ إعادة ضبط
             </button>
-          )}
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="text-white/60 hover:text-white text-sm px-3 py-1 rounded bg-white/5 hover:bg-white/10"
+              >
+                إغلاق البيئة
+              </button>
+            )}
+          </div>
         </div>
         {env.objectives?.length > 0 && (
           <div className="mt-3">
