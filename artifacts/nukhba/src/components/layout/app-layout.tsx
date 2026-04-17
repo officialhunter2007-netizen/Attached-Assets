@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
 import { PlatformChatWidget } from "@/components/platform-chat-widget";
+import { startActivityTracker, trackPageView } from "@/lib/activity-tracker";
 
 function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: string | null; size?: number }) {
   if (src) {
@@ -64,6 +65,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (user) requestNotificationPermission();
   }, [user]);
+
+  // Activity tracker — start once user is logged in, track route changes
+  useEffect(() => {
+    if (!user) return;
+    startActivityTracker();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    trackPageView(location);
+  }, [user, location]);
 
   useEffect(() => {
     if (!user) return;

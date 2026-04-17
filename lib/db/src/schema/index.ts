@@ -6,3 +6,4 @@ export * from "./conversations";
 export * from "./messages";
 export * from "./lesson_summaries";
 export * from "./lab_reports";
+export * from "./activity_events";
