@@ -5,6 +5,7 @@ import {
   MessageCircle, Send, X, ChevronDown, ChevronUp, GripVertical, Bot, Loader2,
 } from "lucide-react";
 import type { DynamicScenario, LabAssistMessage, LabKind } from "./types";
+import { useAuth } from "@/lib/auth-context";
 
 interface Props {
   scenario: DynamicScenario;
@@ -27,9 +28,12 @@ const DIFFICULTY_LABEL = { beginner: "مبتدئ", intermediate: "متوسط", a
 
 export function DynamicScenarioOverlay({ scenario, subjectId, onClose, onTaskJump, onShareWithTeacher }: Props) {
   const meta = KIND_META[scenario.kind];
-  const STORAGE_KEY = `nukhba-scenario-${scenario.id}`;
+  const { user } = useAuth();
+  // SECURITY: scope scenario progress by user.id so accounts don't share state.
+  const STORAGE_KEY = user?.id ? `nukhba::u:${user.id}::scenario::${scenario.id}` : null;
 
   const [completedTasks, setCompletedTasks] = useState<Set<string>>(() => {
+    if (!STORAGE_KEY) return new Set();
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) return new Set(JSON.parse(raw));
@@ -47,6 +51,7 @@ export function DynamicScenarioOverlay({ scenario, subjectId, onClose, onTaskJum
   const dragRef = useRef<{ ox: number; oy: number; sx: number; sy: number } | null>(null);
 
   useEffect(() => {
+    if (!STORAGE_KEY) return;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(completedTasks))); } catch {}
   }, [completedTasks, STORAGE_KEY]);
 

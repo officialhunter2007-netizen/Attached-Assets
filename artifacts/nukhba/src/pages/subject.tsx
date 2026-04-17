@@ -924,8 +924,12 @@ function SubjectPathChat({
   isCreatingCyberEnv?: boolean;
 }) {
   const { user } = useAuth();
-  const CHAT_STORAGE_KEY = `nukhba-chat-${subject.id}`;
+  // SECURITY: scope chat history by user.id so accounts on the same browser
+  // never see each other's messages. If user is not yet loaded, we start
+  // empty and only persist once we have a verified user.
+  const CHAT_STORAGE_KEY = user?.id ? `nukhba::u:${user.id}::chat::${subject.id}` : null;
   const loadInitialChat = (): { messages: ChatMessage[]; currentStage: number } => {
+    if (!CHAT_STORAGE_KEY) return { messages: [], currentStage: 0 };
     try {
       const raw = localStorage.getItem(CHAT_STORAGE_KEY);
       if (!raw) return { messages: [], currentStage: 0 };
@@ -976,8 +980,10 @@ function SubjectPathChat({
     }
   }, [messageCount]);
 
-  // Persist chat messages + stage so they survive close/reopen and refresh
+  // Persist chat messages + stage so they survive close/reopen and refresh.
+  // Only persists when CHAT_STORAGE_KEY is non-null (i.e. user is loaded).
   useEffect(() => {
+    if (!CHAT_STORAGE_KEY) return;
     if (messages.length === 0 && currentStage === 0) return;
     try {
       localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, currentStage }));
@@ -986,7 +992,7 @@ function SubjectPathChat({
 
   // Clear persisted chat once the session is finalized
   useEffect(() => {
-    if (sessionComplete) {
+    if (sessionComplete && CHAT_STORAGE_KEY) {
       try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
     }
   }, [sessionComplete, CHAT_STORAGE_KEY]);

@@ -3,6 +3,7 @@ import { UserProfile } from "@workspace/api-client-react/generated/api.schemas";
 import { useGetMe, useLogoutUser } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
+import { clearAllNukhbaStorage, rotateUserIfChanged } from "@/lib/user-storage";
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -31,6 +32,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isMeLoading) return;
     if (me) {
+      // SECURITY: if a different user is now logged in on this browser, wipe
+      // all per-user localStorage from the previous account before mounting
+      // the new session. This is a defense-in-depth backstop in case any
+      // storage key was missed.
+      rotateUserIfChanged((me as any).id);
       setUser(me);
     } else {
       setUser(null);
@@ -44,6 +50,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error("Logout failed", err);
     } finally {
+      // SECURITY: wipe all nukhba-* localStorage entries so the next account
+      // logging in on this browser cannot see chats, env state, IDE files,
+      // or scenario progress from the previous account.
+      clearAllNukhbaStorage();
+      // Drop all React Query caches as well (any data cached in memory from
+      // the previous session, e.g. lesson views, summaries, profile).
+      queryClient.clear();
       setUser(null);
     }
   };

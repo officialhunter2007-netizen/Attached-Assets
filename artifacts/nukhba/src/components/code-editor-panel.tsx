@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useAuth } from "@/lib/auth-context";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye, AlertTriangle, Maximize2, Monitor, Smartphone, Tablet, Globe, ArrowLeft, ArrowRight, Lock, Share2, Layers, Home, FolderOpen, Folder, FolderPlus, ChevronRight, ChevronDown, PanelLeftClose, PanelLeft } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -57,7 +58,8 @@ interface IDEFile {
   content: string;
 }
 
-const LS_KEY = "nukhba-ide-files-v3";
+// LS_KEY is built per-user inside the component (see initFiles) to prevent
+// IDE file leakage between accounts on the same browser.
 
 interface TreeNode {
   type: "file" | "folder";
@@ -530,18 +532,18 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const detectedLang = detectLanguageFromContent(sectionContent, subjectId);
   const langInfo = (l: string) => LANGUAGES.find(x => x.id === l) || LANGUAGES[0];
 
+  const { user } = useAuth();
+  // SECURITY: scope IDE files by user.id so accounts don't share each other's
+  // saved code. Falls back to anonymous-only key if no user (no persistence).
+  const LS_KEY = user?.id ? `nukhba::u:${user.id}::ide-files-v3` : null;
+
   const initFiles = (): IDEFile[] => {
-    try {
-      const saved = localStorage.getItem(LS_KEY);
-      if (saved) return JSON.parse(saved);
-      const oldSaved = localStorage.getItem("nukhba-ide-files-v2");
-      if (oldSaved) {
-        const oldFiles = JSON.parse(oldSaved);
-        localStorage.setItem(LS_KEY, oldSaved);
-        localStorage.removeItem("nukhba-ide-files-v2");
-        return oldFiles;
-      }
-    } catch {}
+    if (LS_KEY) {
+      try {
+        const saved = localStorage.getItem(LS_KEY);
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
     const lang = detectedLang;
     const ext = langInfo(lang).ext;
     return [{ id: "main", name: `main.${ext}`, language: lang, content: starter || DEFAULT_CODE[lang] || "" }];
@@ -684,7 +686,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   }, [files, previewNonce, showPreview, previewFullscreen, currentPage]);
 
   useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(files)); } catch {}
+    if (LS_KEY) { try { localStorage.setItem(LS_KEY, JSON.stringify(files)); } catch {} }
   }, [files]);
 
   useEffect(() => {

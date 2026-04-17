@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { DynamicEnv } from "./types";
 import { ComponentRenderer } from "./component-renderer";
 import { EnvStateProvider, useEnvState } from "./state-engine";
+import { useAuth } from "@/lib/auth-context";
 
 type AssistMsg = { role: "user" | "assistant"; content: string };
 
@@ -14,11 +15,15 @@ export function DynamicEnvShell({
   subjectId: string;
   onClose?: () => void;
 }) {
-  // Stable storage key per subject + env title (so each env keeps its own world state)
+  const { user } = useAuth();
+  // SECURITY: stable storage key includes user.id so two different accounts on
+  // the same browser do NOT share env state. If user is not loaded, the
+  // provider gets no storageKey and runs in memory only.
   const storageKey = useMemo(() => {
+    if (!user?.id) return undefined;
     const slug = (env.title || "env").replace(/\s+/g, "-").slice(0, 60);
-    return `nukhba-env-state::${subjectId}::${slug}`;
-  }, [subjectId, env.title]);
+    return `nukhba::u:${user.id}::env-state::${subjectId}::${slug}`;
+  }, [user?.id, subjectId, env.title]);
 
   return (
     <EnvStateProvider initialState={env.initialState || {}} storageKey={storageKey}>
