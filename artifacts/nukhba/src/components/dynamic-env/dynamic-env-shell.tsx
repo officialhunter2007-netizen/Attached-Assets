@@ -138,48 +138,109 @@ function DynamicEnvShellInner({
   const doneCount = doneTasks.size;
   const progress = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
 
+  // MOBILE: side drawers replace permanent panels on small screens.
+  const [tasksDrawerOpen, setTasksDrawerOpen] = useState(false);
+  const [objectivesOpen, setObjectivesOpen] = useState(false);
+
+  // When a task button is tapped on mobile we want the drawer to close so the
+  // user lands on the matching screen.
+  const handleTaskTap = (id: string, target?: string) => {
+    toggleTask(id);
+    if (target) goToScreen(target);
+    setTasksDrawerOpen(false);
+  };
+
   return (
-    <div className="bg-slate-950 text-white rounded-xl border border-white/10 overflow-hidden flex flex-col" style={{ minHeight: 600 }}>
-      <div className="bg-gradient-to-l from-cyan-600/20 to-purple-600/20 p-4 border-b border-white/10">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold text-white">{env.title}</h2>
-            <p className="text-sm text-white/75 mt-1">{env.briefing}</p>
+    <div className="bg-slate-950 text-white md:rounded-xl md:border border-white/10 overflow-hidden flex flex-col" style={{ minHeight: 600 }}>
+      <div className="bg-gradient-to-l from-cyan-600/20 to-purple-600/20 p-3 md:p-4 border-b border-white/10">
+        <div className="flex items-start justify-between gap-2 md:gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base md:text-xl font-bold text-white truncate">{env.title}</h2>
+            <p className="text-xs md:text-sm text-white/75 mt-1 line-clamp-2 md:line-clamp-none">{env.briefing}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
             <button
               onClick={() => {
                 if (window.confirm("هل تريد إعادة البيئة لحالتها الأولية؟ سيتم حذف جميع البيانات التي أدخلتها.")) {
                   envState.reset();
                 }
               }}
-              className="text-white/60 hover:text-white text-xs px-3 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10"
+              className="text-white/60 hover:text-white text-[11px] md:text-xs px-2 md:px-3 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10"
               title="إعادة ضبط البيئة"
             >
-              ↻ إعادة ضبط
+              ↻
+              <span className="hidden md:inline mr-1">إعادة ضبط</span>
             </button>
             {onClose && (
               <button
                 onClick={onClose}
-                className="text-white/60 hover:text-white text-sm px-3 py-1 rounded bg-white/5 hover:bg-white/10"
+                className="text-white/60 hover:text-white text-xs md:text-sm px-2 md:px-3 py-1 rounded bg-white/5 hover:bg-white/10"
               >
-                إغلاق البيئة
+                ✕
+                <span className="hidden md:inline mr-1">إغلاق</span>
               </button>
             )}
           </div>
         </div>
         {env.objectives?.length > 0 && (
           <div className="mt-3">
-            <div className="text-xs text-white/60 mb-1">الأهداف:</div>
-            <ul className="list-disc list-inside text-sm text-white/85 space-y-0.5">
+            {/* On mobile: collapsible. On desktop: always shown. */}
+            <button
+              onClick={() => setObjectivesOpen((v) => !v)}
+              className="md:hidden text-xs text-white/70 flex items-center gap-1"
+            >
+              {objectivesOpen ? "▼" : "◀"} الأهداف ({env.objectives.length})
+            </button>
+            <div className="hidden md:block text-xs text-white/60 mb-1">الأهداف:</div>
+            <ul className={`${objectivesOpen ? "block" : "hidden"} md:block list-disc list-inside text-xs md:text-sm text-white/85 space-y-0.5 mt-1`}>
               {env.objectives.map((o, i) => <li key={i}>{o}</li>)}
             </ul>
           </div>
         )}
       </div>
 
-      <div className="flex flex-1 min-h-0">
-        <aside className="w-72 border-l border-white/10 bg-black/30 p-3 overflow-y-auto shrink-0">
+      {/* Mobile toolbar: progress + drawer toggles. Hidden on md+ */}
+      <div className="md:hidden flex items-center gap-2 px-3 py-2 bg-black/30 border-b border-white/10">
+        <button
+          onClick={() => setTasksDrawerOpen(true)}
+          className="flex-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-2 py-1.5 text-right flex items-center justify-between gap-2"
+        >
+          <span className="text-white/85">📋 المهام {totalTasks > 0 && `(${doneCount}/${totalTasks})`}</span>
+          {totalTasks > 0 && (
+            <span className="w-12 h-1.5 bg-white/10 rounded-full overflow-hidden shrink-0">
+              <span className="block h-full bg-cyan-500" style={{ width: `${progress}%` }} />
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setChatOpen(true)}
+          className="text-xs bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 rounded-lg px-3 py-1.5"
+        >
+          💬 المساعد
+        </button>
+      </div>
+
+      <div className="flex flex-1 min-h-0 relative">
+        {/* Tasks/hints panel — desktop: permanent sidebar. Mobile: drawer overlay. */}
+        {tasksDrawerOpen && (
+          <div
+            className="md:hidden fixed inset-0 z-[80] bg-black/60"
+            onClick={() => setTasksDrawerOpen(false)}
+          />
+        )}
+        <aside
+          className={`${tasksDrawerOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"}
+            md:relative md:translate-x-0
+            fixed md:static top-0 right-0 bottom-0 z-[81] md:z-auto
+            w-[85%] max-w-xs md:w-72
+            border-l border-white/10 bg-slate-950 md:bg-black/30 p-3 overflow-y-auto shrink-0
+            transition-transform duration-200`}
+        >
+          {/* Mobile-only drawer header with close */}
+          <div className="md:hidden flex items-center justify-between mb-3 pb-2 border-b border-white/10">
+            <span className="text-sm font-bold text-white">المهام والتلميحات</span>
+            <button onClick={() => setTasksDrawerOpen(false)} className="text-white/60 hover:text-white text-xl leading-none">×</button>
+          </div>
           <div className="mb-4">
             <div className="text-xs text-white/60 mb-2">التقدّم: {doneCount}/{totalTasks}</div>
             <div className="h-2 bg-white/10 rounded-full overflow-hidden">
@@ -194,10 +255,7 @@ function DynamicEnvShellInner({
                 return (
                   <li key={t.id} className="text-xs">
                     <button
-                      onClick={() => {
-                        toggleTask(t.id);
-                        if (t.targetScreen) goToScreen(t.targetScreen);
-                      }}
+                      onClick={() => handleTaskTap(t.id, t.targetScreen)}
                       className={`text-right w-full p-2 rounded border transition-colors ${
                         done ? "bg-green-500/10 border-green-500/30 text-green-200 line-through"
                              : "bg-white/5 border-white/10 text-white/85 hover:bg-white/10"
@@ -231,8 +289,8 @@ function DynamicEnvShellInner({
           )}
 
           <button
-            onClick={() => setChatOpen((v) => !v)}
-            className="w-full mt-2 text-xs bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 rounded-lg p-2"
+            onClick={() => { setChatOpen((v) => !v); setTasksDrawerOpen(false); }}
+            className="hidden md:block w-full mt-2 text-xs bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 rounded-lg p-2"
           >
             {chatOpen ? "إخفاء المساعد الذكي" : "💬 سؤال للمساعد الذكي"}
           </button>
@@ -240,13 +298,13 @@ function DynamicEnvShellInner({
 
         <main className="flex-1 min-w-0 flex flex-col">
           {screens.length > 1 && (
-            <div className="border-b border-white/10 bg-black/20 px-3 overflow-x-auto">
+            <div className="border-b border-white/10 bg-black/20 px-2 md:px-3 overflow-x-auto">
               <div className="flex gap-1 py-2">
                 {screens.map((s) => (
                   <button
                     key={s.id}
                     onClick={() => setActiveId(s.id)}
-                    className={`text-sm px-3 py-1.5 rounded-lg whitespace-nowrap ${
+                    className={`text-xs md:text-sm px-2.5 md:px-3 py-1.5 rounded-lg whitespace-nowrap ${
                       activeId === s.id
                         ? "bg-cyan-500 text-slate-900 font-bold"
                         : "bg-white/5 text-white/75 hover:bg-white/10"
@@ -259,7 +317,7 @@ function DynamicEnvShellInner({
               </div>
             </div>
           )}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-3 md:p-4">
             {(Array.isArray(active?.components) ? active!.components : []).map((c, i) => (
               <ComponentRenderer key={i} comp={c} ctx={{ onGoToScreen: goToScreen, onAskAi: askAi }} />
             ))}
@@ -269,11 +327,15 @@ function DynamicEnvShellInner({
           </div>
         </main>
 
+        {/* Chat panel — desktop: side panel. Mobile: full-screen drawer. */}
         {chatOpen && (
-          <aside className="w-80 border-r border-white/10 bg-black/40 flex flex-col shrink-0">
-            <div className="p-3 border-b border-white/10 text-sm font-bold text-purple-300">
-              المساعد الذكي 🤖
-            </div>
+          <>
+            <div className="md:hidden fixed inset-0 z-[80] bg-black/60" onClick={() => setChatOpen(false)} />
+            <aside className="fixed md:static inset-y-0 left-0 md:inset-auto z-[81] md:z-auto w-[92%] max-w-sm md:w-80 border-r border-white/10 bg-slate-950 md:bg-black/40 flex flex-col shrink-0">
+              <div className="p-3 border-b border-white/10 text-sm font-bold text-purple-300 flex items-center justify-between">
+                <span>المساعد الذكي 🤖</span>
+                <button onClick={() => setChatOpen(false)} className="text-white/60 hover:text-white text-xl leading-none md:hidden">×</button>
+              </div>
             <div ref={chatBoxRef} className="flex-1 overflow-y-auto p-3 space-y-2 text-sm">
               {assistMsgs.length === 0 && (
                 <div className="text-white/50 text-xs">اطرح سؤالاً عن البيئة، الخطوات، أو الحلول الجزئية.</div>
@@ -304,7 +366,8 @@ function DynamicEnvShellInner({
                 إرسال
               </button>
             </form>
-          </aside>
+            </aside>
+          </>
         )}
       </div>
     </div>
