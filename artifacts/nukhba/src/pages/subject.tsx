@@ -1601,12 +1601,39 @@ function SubjectPathChat({
                       {msg.content}
                     </div>
                   ) : (
-                    <AIMessage
-                      content={msg.content}
-                      isStreaming={isStreaming && isLastMsg}
-                      onCreateLabEnv={supportsLabEnv ? onCreateLabEnv : undefined}
-                      onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
-                    />
+                    <>
+                      <AIMessage
+                        content={msg.content}
+                        isStreaming={isStreaming && isLastMsg}
+                        onCreateLabEnv={supportsLabEnv ? onCreateLabEnv : undefined}
+                        onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
+                      />
+                      {/* Quick-action buttons under the latest AI message — let
+                          the student ask for help in one tap. Only on the last
+                          AI message, when not streaming, and only if the
+                          message is long enough to be a real explanation
+                          (skip short prompts like "ما اسمك؟"). */}
+                      {isLastMsg && !isStreaming && msg.role === 'assistant' && (msg.content || '').length > 80 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5" style={{ direction: 'rtl' }}>
+                          {[
+                            { label: '🤔 لم أفهم تماماً', msg: 'لم أفهم تماماً، هل يمكنك إعادة الشرح بطريقة أبسط وأكثر تفصيلاً؟' },
+                            { label: '🔁 اشرح بطريقة أخرى', msg: 'اشرح لي نفس الفكرة بطريقة مختلفة كلياً (تشبيه آخر أو مثال آخر).' },
+                            { label: '📝 أعطني مثالاً آخر', msg: 'أعطني مثالاً تطبيقياً آخر مختلفاً عن الذي ذكرته.' },
+                            { label: '✏️ لخّص بنقاط', msg: 'لخّص لي ما شرحته الآن في 3 نقاط مختصرة وواضحة.' },
+                            { label: '🎯 اختبرني', msg: 'اختبرني بسؤال تطبيقي صعب على ما شرحته للتأكد من فهمي.' },
+                          ].map((b) => (
+                            <button
+                              key={b.label}
+                              onClick={() => sendTeachMessage(b.msg)}
+                              className="text-[11px] sm:text-xs px-2.5 py-1.5 rounded-full bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-amber-200 transition-all"
+                              title={b.msg}
+                            >
+                              {b.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
