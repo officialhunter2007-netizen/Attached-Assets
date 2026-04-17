@@ -802,20 +802,83 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    res.write(`data: ${JSON.stringify({ error: "المساعد غير مُهيّأ بعد. يرجى التواصل مع الإدارة." })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    return res.end();
+  }
+
+  // Gemini message format: roles are "user" and "model"; system prompt goes in systemInstruction
+  const geminiContents = cleanMessages.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+
   try {
-    const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: cleanMessages,
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${geminiKey}`;
+    const upstream = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: geminiContents,
+        generationConfig: {
+          temperature: 0.6,
+          topP: 0.95,
+          maxOutputTokens: 1024,
+        },
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+        ],
+      }),
     });
 
-    for await (const event of stream) {
-      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-        const text = event.delta.text;
-        if (text) res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
+    if (!upstream.ok || !upstream.body) {
+      const errBody = await upstream.text().catch(() => "");
+      console.error("[platform-help] gemini http error:", upstream.status, errBody.slice(0, 300));
+      const friendly = upstream.status === 429
+        ? "وصل المساعد لحدّ الاستخدام المؤقّت. حاول بعد دقيقة."
+        : "تعذّر الردّ الآن، حاول بعد قليل.";
+      res.write(`data: ${JSON.stringify({ error: friendly })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      return res.end();
+    }
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(payload);
+          const parts = parsed?.candidates?.[0]?.content?.parts;
+          if (Array.isArray(parts)) {
+            for (const p of parts) {
+              if (typeof p?.text === "string" && p.text.length > 0) {
+                res.write(`data: ${JSON.stringify({ content: p.text })}\n\n`);
+              }
+            }
+          }
+        } catch {
+          // ignore non-JSON keep-alives
+        }
       }
     }
+
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   } catch (err: any) {
