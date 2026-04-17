@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
+import { PlatformChatWidget } from "@/components/platform-chat-widget";
 
 function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: string | null; size?: number }) {
   if (src) {
@@ -208,6 +209,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <main className="flex-1 w-full relative">
         {children}
       </main>
+
+      {/* Floating platform help chat — hidden inside learning sessions */}
+      {user && !location.startsWith("/subject") && <PlatformChatWidget />}
 
       <footer className="border-t border-border/40 py-8 mt-auto">
         <div className="container mx-auto px-4 text-center text-muted-foreground">
