@@ -224,12 +224,22 @@ ${stateSnap}${userNotes}`;
   };
 
   return (
-    <div className="bg-slate-950 text-white md:rounded-xl md:border border-white/10 overflow-hidden flex flex-col" style={{ minHeight: 600 }}>
-      <div className="bg-gradient-to-l from-cyan-600/20 to-purple-600/20 p-3 md:p-4 border-b border-white/10">
-        <div className="flex items-start justify-between gap-2 md:gap-3">
+    <div className="bg-gradient-to-b from-slate-950 to-slate-900 text-white md:rounded-2xl md:border border-white/10 overflow-hidden flex flex-col shadow-2xl" style={{ minHeight: 600 }}>
+      <div className="relative bg-gradient-to-l from-cyan-600/15 via-slate-900/40 to-purple-600/15 p-4 md:p-5 border-b border-white/10">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.08),transparent_60%)] pointer-events-none" />
+        <div className="relative flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <h2 className="text-base md:text-xl font-bold text-white truncate">{env.title}</h2>
-            <p className="text-xs md:text-sm text-white/75 mt-1 line-clamp-2 md:line-clamp-none">{env.briefing}</p>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-400/30 text-cyan-200 uppercase tracking-wider">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                بيئة تطبيقية
+              </span>
+              {totalTasks > 0 && (
+                <span className="text-[10px] text-white/50 font-medium">{doneCount}/{totalTasks} مهمة</span>
+              )}
+            </div>
+            <h2 className="text-lg md:text-2xl font-black text-white tracking-tight leading-tight">{env.title}</h2>
+            <p className="text-xs md:text-sm text-white/70 mt-2 leading-relaxed line-clamp-3 md:line-clamp-none whitespace-pre-line">{env.briefing}</p>
           </div>
           <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
             <button
@@ -238,7 +248,7 @@ ${stateSnap}${userNotes}`;
                   envState.reset();
                 }
               }}
-              className="text-white/60 hover:text-white text-[11px] md:text-xs px-2 md:px-3 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10"
+              className="text-white/60 hover:text-white text-[11px] md:text-xs px-2.5 md:px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
               title="إعادة ضبط البيئة"
             >
               ↻
@@ -247,7 +257,7 @@ ${stateSnap}${userNotes}`;
             {onSubmitToTeacher && (
               <button
                 onClick={() => setShowSubmitDialog(true)}
-                className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold text-[11px] md:text-xs px-2.5 md:px-3.5 py-1 md:py-1.5 rounded shadow-lg shadow-emerald-500/20 flex items-center gap-1"
+                className="bg-gradient-to-l from-emerald-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-300 text-slate-900 font-bold text-[11px] md:text-xs px-3 md:px-4 py-1.5 md:py-2 rounded-lg shadow-lg shadow-emerald-500/30 flex items-center gap-1.5 transition-all hover:scale-[1.02]"
                 title="إنهاء البيئة وإرسال تقرير للمعلم"
               >
                 <span>📤</span>
@@ -258,7 +268,7 @@ ${stateSnap}${userNotes}`;
             {onClose && (
               <button
                 onClick={handleCloseClick}
-                className="text-white/60 hover:text-white text-xs md:text-sm px-2 md:px-3 py-1 rounded bg-white/5 hover:bg-white/10"
+                className="text-white/60 hover:text-white text-xs md:text-sm px-2.5 md:px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
               >
                 ✕
                 <span className="hidden md:inline mr-1">إغلاق</span>
@@ -266,33 +276,55 @@ ${stateSnap}${userNotes}`;
             )}
           </div>
         </div>
-        {Array.isArray((env as any).successCriteria) && (env as any).successCriteria.length > 0 && (
-          <div className="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2">
-            <div className="text-[11px] font-bold text-emerald-300 mb-1 flex items-center gap-1">
-              <span>🎯</span> معايير النجاح في هذه البيئة:
+
+        {totalTasks > 0 && (
+          <div className="relative mt-4 h-1 w-full bg-white/5 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-l from-cyan-400 via-cyan-300 to-emerald-400 transition-all duration-500 shadow-[0_0_12px_rgba(34,211,238,0.4)]"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        )}
+
+        <div className="relative grid md:grid-cols-2 gap-2.5 mt-4">
+          {Array.isArray((env as any).successCriteria) && (env as any).successCriteria.length > 0 && (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] px-3.5 py-2.5 backdrop-blur-sm">
+              <div className="text-[11px] font-black text-emerald-300 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                <span>🎯</span> معايير النجاح
+              </div>
+              <ul className="text-[11px] md:text-xs text-emerald-50/85 space-y-1">
+                {(env as any).successCriteria.slice(0, 5).map((c: string, i: number) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <span className="text-emerald-400/70 shrink-0 mt-0.5">▸</span>
+                    <span className="leading-relaxed">{c}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <ul className="list-disc list-inside text-[11px] md:text-xs text-emerald-100/80 space-y-0.5">
-              {(env as any).successCriteria.slice(0, 5).map((c: string, i: number) => (
-                <li key={i}>{c}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {env.objectives?.length > 0 && (
-          <div className="mt-3">
-            {/* On mobile: collapsible. On desktop: always shown. */}
-            <button
-              onClick={() => setObjectivesOpen((v) => !v)}
-              className="md:hidden text-xs text-white/70 flex items-center gap-1"
-            >
-              {objectivesOpen ? "▼" : "◀"} الأهداف ({env.objectives.length})
-            </button>
-            <div className="hidden md:block text-xs text-white/60 mb-1">الأهداف:</div>
-            <ul className={`${objectivesOpen ? "block" : "hidden"} md:block list-disc list-inside text-xs md:text-sm text-white/85 space-y-0.5 mt-1`}>
-              {env.objectives.map((o, i) => <li key={i}>{o}</li>)}
-            </ul>
-          </div>
-        )}
+          )}
+          {env.objectives?.length > 0 && (
+            <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.04] px-3.5 py-2.5 backdrop-blur-sm">
+              <button
+                onClick={() => setObjectivesOpen((v) => !v)}
+                className="md:hidden text-[11px] font-black text-cyan-300 uppercase tracking-wider flex items-center gap-1 w-full justify-between"
+              >
+                <span className="flex items-center gap-1.5"><span>📌</span> الأهداف ({env.objectives.length})</span>
+                <span>{objectivesOpen ? "▼" : "◀"}</span>
+              </button>
+              <div className="hidden md:flex text-[11px] font-black text-cyan-300 mb-1.5 items-center gap-1.5 uppercase tracking-wider">
+                <span>📌</span> الأهداف
+              </div>
+              <ul className={`${objectivesOpen ? "block" : "hidden"} md:block text-[11px] md:text-xs text-cyan-50/85 space-y-1 mt-1.5 md:mt-0`}>
+                {env.objectives.map((o, i) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <span className="text-cyan-400/70 shrink-0 mt-0.5">▸</span>
+                    <span className="leading-relaxed">{o}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Mobile toolbar: progress + drawer toggles. Hidden on md+ */}
@@ -337,35 +369,55 @@ ${stateSnap}${userNotes}`;
             <span className="text-sm font-bold text-white">المهام والتلميحات</span>
             <button onClick={() => setTasksDrawerOpen(false)} className="text-white/60 hover:text-white text-xl leading-none">×</button>
           </div>
-          <div className="mb-4">
-            <div className="text-xs text-white/60 mb-2">التقدّم: {doneCount}/{totalTasks}</div>
-            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-cyan-500 transition-all" style={{ width: `${progress}%` }} />
+          <div className="mb-4 rounded-xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-black text-white/80 uppercase tracking-wider">التقدّم</span>
+              <span className="text-[11px] text-cyan-300 font-mono tabular-nums">{doneCount}<span className="text-white/30">/{totalTasks}</span></span>
             </div>
+            <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-l from-cyan-400 to-emerald-400 transition-all duration-500 shadow-[0_0_10px_rgba(34,211,238,0.4)]" style={{ width: `${progress}%` }} />
+            </div>
+            {progress === 100 && (
+              <div className="mt-2 text-[10px] text-emerald-300 flex items-center gap-1">
+                <span>🎉</span> أتممت كل المهام! أرسل تقريرك للمعلم.
+              </div>
+            )}
           </div>
           <div className="mb-4">
-            <div className="text-xs font-bold text-white/80 mb-2">المهام:</div>
-            <ul className="space-y-1.5">
-              {env.tasks?.map((t) => {
+            <div className="text-[11px] font-black text-white/80 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <span>📋</span> قائمة المهام
+            </div>
+            <ol className="space-y-1.5">
+              {env.tasks?.map((t, idx) => {
                 const done = doneTasks.has(t.id);
                 return (
-                  <li key={t.id} className="text-xs">
+                  <li key={t.id}>
                     <button
                       onClick={() => handleTaskTap(t.id, t.targetScreen)}
-                      className={`text-right w-full p-2 rounded border transition-colors ${
-                        done ? "bg-green-500/10 border-green-500/30 text-green-200 line-through"
-                             : "bg-white/5 border-white/10 text-white/85 hover:bg-white/10"
+                      className={`text-right w-full p-2.5 rounded-lg border transition-all group ${
+                        done
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-100"
+                          : "bg-white/[0.03] border-white/10 text-white/85 hover:bg-white/[0.07] hover:border-white/20"
                       }`}
                     >
-                      <div className="flex gap-2 items-start">
-                        <span className="shrink-0">{done ? "✓" : "○"}</span>
-                        <span className="text-right">{t.description}</span>
+                      <div className="flex gap-2.5 items-start">
+                        <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all ${
+                          done
+                            ? "bg-emerald-500 border-emerald-400 text-slate-900"
+                            : "bg-white/5 border-white/20 text-white/50 group-hover:border-cyan-400/50 group-hover:text-cyan-300"
+                        }`}>
+                          {done ? "✓" : idx + 1}
+                        </span>
+                        <span className={`text-[12px] leading-snug ${done ? "line-through opacity-70" : ""}`}>{t.description}</span>
                       </div>
+                      {t.hint && !done && (
+                        <div className="mt-1.5 mr-7 text-[10px] text-white/40 italic">💡 {t.hint}</div>
+                      )}
                     </button>
                   </li>
                 );
               })}
-            </ul>
+            </ol>
           </div>
 
           {env.hints && env.hints.length > 0 && (
@@ -394,32 +446,40 @@ ${stateSnap}${userNotes}`;
 
         <main className="flex-1 min-w-0 flex flex-col">
           {screens.length > 1 && (
-            <div className="border-b border-white/10 bg-black/20 px-2 md:px-3 overflow-x-auto">
-              <div className="flex gap-1 py-2">
-                {screens.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setActiveId(s.id)}
-                    className={`text-xs md:text-sm px-2.5 md:px-3 py-1.5 rounded-lg whitespace-nowrap ${
-                      activeId === s.id
-                        ? "bg-cyan-500 text-slate-900 font-bold"
-                        : "bg-white/5 text-white/75 hover:bg-white/10"
-                    }`}
-                  >
-                    {s.icon && <span className="ml-1">{s.icon}</span>}
-                    {s.title}
-                  </button>
-                ))}
+            <div className="border-b border-white/10 bg-gradient-to-b from-black/30 to-transparent px-2 md:px-3 overflow-x-auto">
+              <div className="flex gap-1.5 py-2.5">
+                {screens.map((s, idx) => {
+                  const isActive = activeId === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setActiveId(s.id)}
+                      className={`text-xs md:text-sm px-3 md:px-4 py-1.5 md:py-2 rounded-xl whitespace-nowrap font-bold transition-all flex items-center gap-1.5 ${
+                        isActive
+                          ? "bg-gradient-to-l from-cyan-500 to-cyan-400 text-slate-900 shadow-lg shadow-cyan-500/30 scale-[1.02]"
+                          : "bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white border border-white/10"
+                      }`}
+                    >
+                      <span className={`text-[10px] font-mono ${isActive ? "text-slate-900/70" : "text-white/40"}`}>{idx + 1}</span>
+                      {s.icon && <span>{s.icon}</span>}
+                      <span>{s.title}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
-          <div className="flex-1 overflow-y-auto p-3 md:p-4">
-            {(Array.isArray(active?.components) ? active!.components : []).map((c, i) => (
-              <ComponentRenderer key={i} comp={c} ctx={{ onGoToScreen: goToScreen, onAskAi: askAi }} />
-            ))}
-            {(!active || !Array.isArray(active.components) || active.components.length === 0) && (
-              <div className="text-white/50 text-sm p-4">لا توجد عناصر في هذه الشاشة.</div>
-            )}
+          <div className="flex-1 overflow-y-auto p-3 md:p-5 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.02),transparent_50%)]">
+            <div className="max-w-5xl mx-auto space-y-3 md:space-y-4">
+              {(Array.isArray(active?.components) ? active!.components : []).map((c, i) => (
+                <ComponentRenderer key={i} comp={c} ctx={{ onGoToScreen: goToScreen, onAskAi: askAi }} />
+              ))}
+              {(!active || !Array.isArray(active.components) || active.components.length === 0) && (
+                <div className="text-white/40 text-sm p-8 text-center border border-dashed border-white/10 rounded-2xl">
+                  لا توجد عناصر في هذه الشاشة بعد.
+                </div>
+              )}
+            </div>
           </div>
         </main>
 
