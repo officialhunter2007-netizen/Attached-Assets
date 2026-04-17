@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { BookOpen, GraduationCap, Terminal, Sparkles, Zap, Shield } from "lucide-react";
+import { BookOpen, GraduationCap, Terminal, Sparkles, Zap, Shield, Crown, Check, X } from "lucide-react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
 
 export default function Home() {
@@ -127,6 +127,85 @@ export default function Home() {
                 <h4 className="text-lg md:text-xl font-bold mb-2 md:mb-3">بيئة تطبيق مدمجة</h4>
                 <p className="text-sm text-muted-foreground">طبق ما تعلمته في البرمجة مباشرة داخل المنصة دون الحاجة لإعداد أي برامج.</p>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Comparison vs ChatGPT/DeepSeek */}
+        <section className="container mx-auto px-4 py-16 md:py-24">
+          <div className="text-center mb-8 md:mb-12">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black flex items-center justify-center gap-3 mb-3">
+              <Sparkles className="w-7 h-7 text-gold" />
+              لماذا نُخبة وليس <span className="text-gold">ChatGPT</span> أو <span className="text-gold">DeepSeek</span>؟
+            </h2>
+            <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+              المساعدات العامة ممتازة للأسئلة العابرة، لكنها لا تعرفك ولا تتذكر تقدّمك. نُخبة بُنيت لتكون <span className="text-gold font-bold">معلّمك المتخصّص</span>.
+            </p>
+          </div>
+
+          <div className="max-w-3xl mx-auto glass rounded-3xl border-2 border-gold/20 overflow-hidden shadow-[0_0_40px_rgba(245,158,11,0.08)]">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right" dir="rtl">
+                <thead>
+                  <tr className="border-b border-white/10 bg-gradient-to-l from-gold/10 via-gold/5 to-transparent">
+                    <th className="p-3 sm:p-4 text-sm sm:text-base font-bold text-foreground/80 w-[46%]">الميزة</th>
+                    <th className="p-3 sm:p-4 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <Crown className="w-5 h-5 text-gold" />
+                        <span className="text-sm sm:text-base font-black text-gold">نُخبة</span>
+                      </div>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center">
+                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">ChatGPT</span>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center">
+                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">DeepSeek</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {[
+                    { feature: "يتذكّر تقدّمك ونقاط ضعفك بين الجلسات", n: true, c: false, d: false },
+                    { feature: "خطة تعلّم شخصية لمادتك", n: true, c: false, d: false },
+                    { feature: "مختبرات تطبيقية تفاعلية داخل المنصة", n: true, c: false, d: false },
+                    { feature: "محتوى مبني على المنهج اليمني والجامعي المحلي", n: true, c: false, d: false },
+                  ].map((row, i) => (
+                    <tr key={i} className={`border-b border-white/5 last:border-0 ${i % 2 === 0 ? "bg-white/[0.015]" : ""} hover:bg-gold/[0.03] transition-colors`}>
+                      <td className="p-3 sm:p-4 font-medium text-foreground/90 text-xs sm:text-sm leading-relaxed">{row.feature}</td>
+                      <td className="p-3 sm:p-4 text-center">
+                        {row.n ? (
+                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gold/15 border border-gold/30">
+                            <Check className="w-4 h-4 sm:w-5 sm:h-5 text-gold" strokeWidth={3} />
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500/10 border border-red-500/20">
+                            <X className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" strokeWidth={3} />
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 sm:p-4 text-center">
+                        {row.c ? (
+                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
+                        ) : (
+                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
+                        )}
+                      </td>
+                      <td className="p-3 sm:p-4 text-center">
+                        {row.d ? (
+                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
+                        ) : (
+                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 sm:p-5 bg-gradient-to-l from-gold/10 to-transparent border-t border-gold/15">
+              <p className="text-xs sm:text-sm text-center text-foreground/80 leading-relaxed">
+                <span className="text-gold font-bold">الخلاصة:</span> أنت لا تشترك في "محادثة" — أنت تشترك في معلّم متخصّص يرافقك خطوة بخطوة.
+              </p>
             </div>
           </div>
         </section>
