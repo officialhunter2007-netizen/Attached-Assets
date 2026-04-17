@@ -142,9 +142,14 @@ function LabReportCard({ report }: { report: LabReport }) {
   );
 }
 
+type DateRange = "all" | "7d" | "30d" | "month" | "custom";
+
 function LabReportsSection({ reports, loading }: { reports: LabReport[]; loading: boolean }) {
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [dateRange, setDateRange] = useState<DateRange>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   const subjects = Array.from(
     reports.reduce((map, r) => {
@@ -153,9 +158,44 @@ function LabReportsSection({ reports, loading }: { reports: LabReport[]; loading
     }, new Map<string, string>())
   ).map(([id, name]) => ({ id, name }));
 
+  const { fromDate, toDate } = (() => {
+    const now = new Date();
+    if (dateRange === "7d") {
+      const from = new Date(now);
+      from.setDate(from.getDate() - 7);
+      from.setHours(0, 0, 0, 0);
+      return { fromDate: from, toDate: null as Date | null };
+    }
+    if (dateRange === "30d") {
+      const from = new Date(now);
+      from.setDate(from.getDate() - 30);
+      from.setHours(0, 0, 0, 0);
+      return { fromDate: from, toDate: null as Date | null };
+    }
+    if (dateRange === "month") {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { fromDate: from, toDate: null as Date | null };
+    }
+    if (dateRange === "custom") {
+      const from = customFrom ? new Date(customFrom) : null;
+      let to: Date | null = null;
+      if (customTo) {
+        to = new Date(customTo);
+        to.setHours(23, 59, 59, 999);
+      }
+      return { fromDate: from, toDate: to };
+    }
+    return { fromDate: null as Date | null, toDate: null as Date | null };
+  })();
+
   const q = query.trim().toLowerCase();
   const filtered = reports.filter(r => {
     if (selectedSubject && r.subjectId !== selectedSubject) return false;
+    if (fromDate || toDate) {
+      const created = new Date(r.createdAt);
+      if (fromDate && created < fromDate) return false;
+      if (toDate && created > toDate) return false;
+    }
     if (!q) return true;
     const title = (r.envTitle || "").toLowerCase();
     const feedback = (r.feedbackHtml || "").toLowerCase();
@@ -180,7 +220,28 @@ function LabReportsSection({ reports, loading }: { reports: LabReport[]; loading
     );
   }
 
-  const isFiltering = selectedSubject !== null || q.length > 0;
+  const dateFilterActive =
+    dateRange === "7d" ||
+    dateRange === "30d" ||
+    dateRange === "month" ||
+    (dateRange === "custom" && (customFrom !== "" || customTo !== ""));
+  const isFiltering = selectedSubject !== null || q.length > 0 || dateFilterActive;
+
+  const dateChips: { id: DateRange; label: string }[] = [
+    { id: "all", label: "كل الفترات" },
+    { id: "7d", label: "آخر ٧ أيام" },
+    { id: "30d", label: "آخر ٣٠ يوم" },
+    { id: "month", label: "هذا الشهر" },
+    { id: "custom", label: "مدى مخصّص" },
+  ];
+
+  const resetFilters = () => {
+    setSelectedSubject(null);
+    setQuery("");
+    setDateRange("all");
+    setCustomFrom("");
+    setCustomTo("");
+  };
 
   return (
     <div className="space-y-4">
@@ -216,6 +277,42 @@ function LabReportsSection({ reports, loading }: { reports: LabReport[]; loading
             })}
           </div>
         )}
+        <div className="flex flex-wrap gap-2">
+          {dateChips.map(c => {
+            const active = dateRange === c.id;
+            return (
+              <button
+                key={c.id}
+                onClick={() => setDateRange(c.id)}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                  active
+                    ? "bg-emerald/20 border-emerald/40 text-emerald"
+                    : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+                }`}
+              >
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+        {dateRange === "custom" && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <label className="text-xs text-muted-foreground">من</label>
+            <input
+              type="date"
+              value={customFrom}
+              onChange={e => setCustomFrom(e.target.value)}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-emerald/40"
+            />
+            <label className="text-xs text-muted-foreground">إلى</label>
+            <input
+              type="date"
+              value={customTo}
+              onChange={e => setCustomTo(e.target.value)}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-emerald/40"
+            />
+          </div>
+        )}
         <div className="relative">
           <Search className="w-4 h-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
@@ -244,7 +341,7 @@ function LabReportsSection({ reports, loading }: { reports: LabReport[]; loading
           <p className="mb-3">لا توجد تقارير مطابقة للبحث.</p>
           {isFiltering && (
             <button
-              onClick={() => { setSelectedSubject(null); setQuery(""); }}
+              onClick={resetFilters}
               className="text-xs text-emerald hover:underline"
             >
               مسح الفلاتر
