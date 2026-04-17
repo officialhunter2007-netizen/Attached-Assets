@@ -202,6 +202,7 @@ export default function Subject() {
   const [isDynamicEnvOpen, setIsDynamicEnvOpen] = useState(false);
   const [chatStarter, setChatStarter] = useState<string | null>(null);
   const [createEnvError, setCreateEnvError] = useState<string | null>(null);
+  const [pendingLabStarter, setPendingLabStarter] = useState<string | null>(null);
   const supportsLabEnv = isCyberSubject || isFoodSubject || isAccountingLabSubject || isYemenSoftSubject;
   const { data: lessonViews } = useGetLessonViews();
 
@@ -517,7 +518,7 @@ export default function Subject() {
                   )}
                   {isFoodSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isDynamicEnvOpen && (
                     <button
-                      onClick={() => { setChatStarter("أريد بيئة تطبيقية مخصصة لي في هندسة الأغذية. اطرح عليّ سؤالاً متعدد الخيارات لتحديد ما أريد التدرب عليه بالضبط، مع خيار «غير ذلك» لأكتب طلبي بنفسي."); }}
+                      onClick={() => setPendingLabStarter("أريد بيئة تطبيقية مخصصة لي في هندسة الأغذية. اطرح عليّ سؤالاً متعدد الخيارات لتحديد ما أريد التدرب عليه بالضبط، مع خيار «غير ذلك» لأكتب طلبي بنفسي.")}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-lime-500/10 border border-lime-500/25 text-lime-400 hover:bg-lime-500/20 transition-all"
                     >
                       <span className="text-sm">🔬</span>
@@ -526,7 +527,7 @@ export default function Subject() {
                   )}
                   {isYemenSoftSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isDynamicEnvOpen && (
                     <button
-                      onClick={() => { setChatStarter("أريد بيئة عملية مخصصة على يمن سوفت. اطرح عليّ سؤالاً متعدد الخيارات لتحديد المهمة المطلوبة، مع خيار «غير ذلك» لأكتب طلبي بنفسي."); }}
+                      onClick={() => setPendingLabStarter("أريد بيئة عملية مخصصة على يمن سوفت. اطرح عليّ سؤالاً متعدد الخيارات لتحديد المهمة المطلوبة، مع خيار «غير ذلك» لأكتب طلبي بنفسي.")}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-teal-500/10 border border-teal-500/25 text-teal-400 hover:bg-teal-500/20 transition-all"
                     >
                       <span className="text-sm">🏢</span>
@@ -535,7 +536,7 @@ export default function Subject() {
                   )}
                   {isAccountingLabSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isDynamicEnvOpen && (
                     <button
-                      onClick={() => { setChatStarter("أريد بيئة عملية مخصصة في المحاسبة. اطرح عليّ سؤالاً متعدد الخيارات لتحديد التطبيق المطلوب، مع خيار «غير ذلك» لأكتب طلبي بنفسي."); }}
+                      onClick={() => setPendingLabStarter("أريد بيئة عملية مخصصة في المحاسبة. اطرح عليّ سؤالاً متعدد الخيارات لتحديد التطبيق المطلوب، مع خيار «غير ذلك» لأكتب طلبي بنفسي.")}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500/20 transition-all"
                     >
                       <span className="text-sm">🎓</span>
@@ -669,6 +670,50 @@ export default function Subject() {
             <div className="bg-slate-900 border border-white/10 rounded-2xl px-6 py-5 flex items-center gap-3 shadow-xl pointer-events-auto">
               <Loader2 className="w-5 h-5 animate-spin text-gold" />
               <span className="text-white font-bold">جارٍ بناء البيئة التطبيقية...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Recommendation modal before opening custom-env chat starter */}
+        {pendingLabStarter && (
+          <div
+            className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4"
+            onClick={() => setPendingLabStarter(null)}
+          >
+            <div
+              className="bg-slate-900 border border-gold/30 rounded-2xl shadow-2xl max-w-md w-full p-6"
+              style={{ direction: "rtl" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center text-xl shrink-0">💡</div>
+                <div className="flex-1">
+                  <h3 className="text-white font-extrabold text-lg mb-1">قبل أن تبدأ بناء بيئتك بنفسك</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    يُفضّل أن تتبع المعلم الذكي في مسارك التعليمي — فهو سيُنشئ لك البيئة التطبيقية تلقائياً وفق المفاهيم التي تتعلمها في كل مرحلة، فيكون التطبيق العملي مرتبطاً مباشرة بما درسته.
+                  </p>
+                </div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 mb-4 text-xs text-muted-foreground leading-relaxed">
+                إن أصرّيت على فتح بيئة مخصّصة الآن، سيطرح عليك المعلم سؤالاً متعدد الخيارات لتحديد ما تريد التدرّب عليه، ثم يبني لك البيئة من الصفر.
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPendingLabStarter(null)}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-slate-900 font-bold hover:bg-gold/90 transition-colors text-sm"
+                >
+                  حسناً، سأتابع مع المعلم
+                </button>
+                <button
+                  onClick={() => {
+                    setChatStarter(pendingLabStarter);
+                    setPendingLabStarter(null);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-colors text-sm"
+                >
+                  أريدها الآن
+                </button>
+              </div>
             </div>
           </div>
         )}
