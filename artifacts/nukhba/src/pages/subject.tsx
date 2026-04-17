@@ -177,6 +177,72 @@ function SubscriptionExpiredWall({
   );
 }
 
+const ENV_BUILD_PHRASES = [
+  { icon: "🧠", text: "نُحلّل مستواك ونصمّم بيئة تطبيقية تناسبك تماماً..." },
+  { icon: "📐", text: "نرسم خطوات التعلم بترتيب ذكي يبني المهارة تدريجياً..." },
+  { icon: "🛠️", text: "نُجهّز الأدوات والشاشات التي ستحتاجها أثناء التطبيق..." },
+  { icon: "🎯", text: "نضع لك معايير نجاح واضحة لتقيس تقدّمك بنفسك..." },
+  { icon: "📚", text: "نضيف تلميحات وموارد مساعدة في كل مهمة..." },
+  { icon: "✨", text: "نُضيف اللمسات الأخيرة — بيئتك على وشك الجاهزية..." },
+  { icon: "🧪", text: "نُولّد سيناريوهات تطبيقية حقيقية لتتدرّب عليها..." },
+  { icon: "🪜", text: "نرتّب المهام من الأسهل إلى الأعمق لتتقدم بثقة..." },
+];
+
+function EnvBuildingOverlay() {
+  const [phraseIdx, setPhraseIdx] = useState(0);
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    const phraseTimer = setInterval(() => {
+      setPhraseIdx((i) => (i + 1) % ENV_BUILD_PHRASES.length);
+    }, 2600);
+    const secTimer = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => {
+      clearInterval(phraseTimer);
+      clearInterval(secTimer);
+    };
+  }, []);
+
+  const phrase = ENV_BUILD_PHRASES[phraseIdx];
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" style={{ direction: "rtl" }}>
+      <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-gold/20 rounded-3xl px-7 py-7 shadow-2xl max-w-md w-full pointer-events-auto">
+        <div className="flex items-center justify-center gap-3 mb-5">
+          <div className="relative">
+            <div className="absolute inset-0 rounded-full bg-gold/20 blur-xl animate-pulse" />
+            <Loader2 className="w-8 h-8 animate-spin text-gold relative" />
+          </div>
+          <div className="text-right">
+            <div className="text-white font-black text-lg leading-tight">جارٍ بناء بيئتك التطبيقية</div>
+            <div className="text-[11px] text-gold/70">قد يستغرق الأمر من ٢٠ إلى ٤٥ ثانية — اللحظة تستحق الانتظار</div>
+          </div>
+        </div>
+
+        <div
+          key={phraseIdx}
+          className="bg-white/5 border border-white/10 rounded-2xl p-4 mb-4 min-h-[68px] flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-500"
+        >
+          <span className="text-2xl shrink-0">{phrase.icon}</span>
+          <p className="text-white/90 text-sm font-medium leading-relaxed">{phrase.text}</p>
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] text-white/40 px-1">
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>المعلم الذكي يعمل من أجلك</span>
+          </div>
+          <span className="font-mono tabular-nums">{seconds}s</span>
+        </div>
+
+        <div className="mt-4 h-1 w-full bg-white/5 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-gold/40 via-gold to-gold/40 animate-pulse" style={{ width: `${Math.min(95, 15 + seconds * 2.5)}%`, transition: "width 0.8s ease-out" }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Subject() {
   const { subjectId } = useParams();
   const subject = getSubjectById(subjectId || "");
@@ -688,14 +754,7 @@ export default function Subject() {
         </div>
 
         {/* Loading overlay while building env */}
-        {isCreatingCyberEnv && (
-          <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center pointer-events-none">
-            <div className="bg-slate-900 border border-white/10 rounded-2xl px-6 py-5 flex items-center gap-3 shadow-xl pointer-events-auto">
-              <Loader2 className="w-5 h-5 animate-spin text-gold" />
-              <span className="text-white font-bold">جارٍ بناء البيئة التطبيقية...</span>
-            </div>
-          </div>
-        )}
+        {isCreatingCyberEnv && <EnvBuildingOverlay />}
 
         {/* Recommendation modal before opening custom-env chat starter */}
         {pendingLabStarter && (
