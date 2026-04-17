@@ -7,7 +7,7 @@ import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, Shield } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, Shield, FlaskConical } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { FoodLabPanel } from "@/components/food-lab-panel";
@@ -73,6 +73,85 @@ function SubjectSummaryCard({ summary }: { summary: LessonSummary }) {
           >
             <div className="px-5 pb-5 border-t border-white/5 pt-4">
               <div className="ai-msg" dangerouslySetInnerHTML={{ __html: safeHtml }} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+interface LabReport {
+  id: number;
+  subjectId: string;
+  subjectName: string;
+  envTitle: string;
+  envBriefing: string;
+  reportText: string;
+  feedbackHtml: string;
+  createdAt: string;
+}
+
+function SubjectLabReportCard({ report }: { report: LabReport }) {
+  const [expanded, setExpanded] = useState(false);
+  const date = new Date(report.createdAt).toLocaleDateString("ar-SA", {
+    year: "numeric", month: "long", day: "numeric"
+  });
+
+  const safeFeedback = (report.feedbackHtml || "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/\sstyle\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\sbackground(?:-color)?\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\scolor\s*=\s*["'][^"']*["']/gi, '');
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass border border-white/5 rounded-2xl overflow-hidden"
+    >
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full text-right p-5 flex items-center justify-between hover:bg-white/5 transition-colors"
+      >
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-emerald/10 border border-emerald/20 flex items-center justify-center shrink-0">
+            <FlaskConical className="w-5 h-5 text-emerald" />
+          </div>
+          <div className="text-right min-w-0">
+            <h4 className="font-bold text-base truncate">{report.envTitle || "تقرير مختبر"}</h4>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">{date}</p>
+          </div>
+        </div>
+        {expanded
+          ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
+          : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-5 border-t border-white/5 pt-4 space-y-4">
+              {report.envBriefing && (
+                <div className="text-xs text-muted-foreground italic">{report.envBriefing}</div>
+              )}
+              <div>
+                <div className="text-xs font-bold text-gold mb-2">📋 تقريرك المرسل</div>
+                <pre className="text-xs whitespace-pre-wrap bg-black/30 border border-white/5 rounded-xl p-3 text-white/85 leading-relaxed font-sans" dir="rtl">{report.reportText}</pre>
+              </div>
+              {safeFeedback ? (
+                <div>
+                  <div className="text-xs font-bold text-emerald mb-2">📝 ملاحظات المعلم</div>
+                  <div className="ai-msg" dangerouslySetInnerHTML={{ __html: safeFeedback }} />
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">لم تُسجَّل ملاحظات المعلم لهذا التقرير.</div>
+              )}
             </div>
           </motion.div>
         )}
@@ -294,6 +373,8 @@ export default function Subject() {
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(true);
   const [allSummaries, setAllSummaries] = useState<LessonSummary[]>([]);
+  const [labReports, setLabReports] = useState<LabReport[]>([]);
+  const [labReportsLoading, setLabReportsLoading] = useState(true);
 
   const isSubscriptionExpired = !!(
     user?.nukhbaPlan &&
@@ -310,8 +391,21 @@ export default function Subject() {
       .finally(() => setSummariesLoading(false));
   };
 
+  const loadLabReports = () => {
+    if (!subject) return;
+    setLabReportsLoading(true);
+    fetch(`/api/lab-reports?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" })
+      .then(r => r.json())
+      .then(data => setLabReports(Array.isArray(data) ? data : []))
+      .catch(() => setLabReports([]))
+      .finally(() => setLabReportsLoading(false));
+  };
+
   useEffect(() => {
-    if (subject) loadSummaries();
+    if (subject) {
+      loadSummaries();
+      loadLabReports();
+    }
   }, [subject?.id]);
 
   useEffect(() => {
@@ -445,6 +539,33 @@ export default function Subject() {
           </div>
         </div>
         )}
+
+        {/* ── تقارير المختبرات السابقة ── */}
+        <div className="mb-10">
+          <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
+            <div className="w-2 h-7 bg-emerald rounded-full" />
+            تقارير المختبرات السابقة
+          </h3>
+
+          {labReportsLoading ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin ml-2" />
+              جاري التحميل...
+            </div>
+          ) : labReports.length === 0 ? (
+            <div className="glass border border-white/5 rounded-2xl p-8 text-center text-muted-foreground">
+              <FlaskConical className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">لا توجد تقارير مختبر بعد</p>
+              <p className="text-sm mt-1 opacity-70">عند إرسال تقرير من البيئة التطبيقية لهذه المادة سيظهر هنا للمراجعة</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {labReports.map(r => (
+                <SubjectLabReportCard key={r.id} report={r} />
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* ── ملخصات الجلسات السابقة ── */}
         <div className="mb-10">
