@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, memo } from "react";
+import { useState, useEffect, useRef, memo, useCallback } from "react";
+import { writeUserJson, readUserJson, removeUserKey } from "@/lib/user-storage";
 import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
@@ -198,8 +199,26 @@ export default function Subject() {
   const [pendingFoodScenario, setPendingFoodScenario] = useState<any | null>(null);
   const [pendingAccountingScenario, setPendingAccountingScenario] = useState<any | null>(null);
   const [pendingYemenSoftScenario, setPendingYemenSoftScenario] = useState<any | null>(null);
-  const [pendingDynamicEnv, setPendingDynamicEnv] = useState<any | null>(null);
+  // The active interactive lab environment.
+  // It is persisted per-user+subject so that closing or refreshing the page
+  // does NOT lose the env — the user can come back to exactly where they were.
+  const [pendingDynamicEnv, setPendingDynamicEnvState] = useState<any | null>(null);
   const [isDynamicEnvOpen, setIsDynamicEnvOpen] = useState(false);
+  const dynamicEnvStorageSuffix = subject?.id ? `dynamic-env::${subject.id}` : null;
+  // Wrap the setter so every change to the env is mirrored to per-user storage.
+  const setPendingDynamicEnv = useCallback((env: any | null) => {
+    setPendingDynamicEnvState(env);
+    if (!user?.id || !dynamicEnvStorageSuffix) return;
+    if (env) writeUserJson(user.id, dynamicEnvStorageSuffix, env);
+    else removeUserKey(user.id, dynamicEnvStorageSuffix);
+  }, [user?.id, dynamicEnvStorageSuffix]);
+  // On mount / when user or subject changes, restore any saved env so a
+  // page reload or accidental close still finds the previous lab.
+  useEffect(() => {
+    if (!user?.id || !dynamicEnvStorageSuffix) return;
+    const saved = readUserJson<any | null>(user.id, dynamicEnvStorageSuffix, null);
+    if (saved && typeof saved === "object") setPendingDynamicEnvState(saved);
+  }, [user?.id, dynamicEnvStorageSuffix]);
   const [chatStarter, setChatStarter] = useState<string | null>(null);
   const [createEnvError, setCreateEnvError] = useState<string | null>(null);
   const [pendingLabStarter, setPendingLabStarter] = useState<string | null>(null);
@@ -589,9 +608,13 @@ export default function Subject() {
               pendingYemenSoftScenario={pendingYemenSoftScenario}
               onClearPendingYemenSoftScenario={() => setPendingYemenSoftScenario(null)}
               pendingDynamicEnv={pendingDynamicEnv}
+              // Permanently destroys the env (used by an explicit "delete" — currently unused)
               onClearPendingDynamicEnv={() => { setPendingDynamicEnv(null); setIsDynamicEnvOpen(false); }}
               dynamicEnvOpen={isDynamicEnvOpen}
+              // Closing only HIDES the env so the user can come back to it.
               onCloseDynamicEnv={() => setIsDynamicEnvOpen(false)}
+              // Reopen previously-built env from the floating button.
+              onReopenDynamicEnv={() => setIsDynamicEnvOpen(true)}
               chatStarter={chatStarter}
               onConsumeChatStarter={() => setChatStarter(null)}
               supportsLabEnv={supportsLabEnv}
@@ -885,6 +908,7 @@ function SubjectPathChat({
   onClearPendingDynamicEnv,
   dynamicEnvOpen,
   onCloseDynamicEnv,
+  onReopenDynamicEnv,
   chatStarter,
   onConsumeChatStarter,
   supportsLabEnv,
@@ -917,6 +941,7 @@ function SubjectPathChat({
   onClearPendingDynamicEnv?: () => void;
   dynamicEnvOpen?: boolean;
   onCloseDynamicEnv?: () => void;
+  onReopenDynamicEnv?: () => void;
   chatStarter?: string | null;
   onConsumeChatStarter?: () => void;
   supportsLabEnv?: boolean;
@@ -1410,9 +1435,25 @@ function SubjectPathChat({
 
   const anyPanelOpen = !!(ideOpen || labOpen || yemenSoftOpen || accountingLabOpen || cyberLabOpen || (dynamicEnvOpen && pendingDynamicEnv));
   const chatVisible = !anyPanelOpen;
+  // Show the "return to your env" button whenever an env exists for this
+  // subject but is not currently open AND no other major panel is open.
+  const showReopenEnv = !!pendingDynamicEnv && !dynamicEnvOpen && !ideOpen && !labOpen && !yemenSoftOpen && !accountingLabOpen && !cyberLabOpen;
 
   return (
     <>
+    {/* Floating "return to your env" button — keeps the user from losing
+        their interactive lab if they accidentally closed it. */}
+    {showReopenEnv && (
+      <button
+        onClick={() => onReopenDynamicEnv?.()}
+        className="fixed bottom-20 md:bottom-6 right-4 z-[70] bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-cyan-300/50"
+        style={{ direction: "rtl" }}
+        title={pendingDynamicEnv?.title || "العودة لبيئتك"}
+      >
+        <span className="text-lg">🧪</span>
+        <span className="max-w-[160px] truncate">العودة لبيئتك: {pendingDynamicEnv?.title || "البيئة التطبيقية"}</span>
+      </button>
+    )}
     {/* IDE panel — always mounted */}
     <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ direction: "ltr", background: "#080a11", display: ideOpen ? "block" : "none" }}>
       <div className="p-3 sm:p-4 w-full min-w-0">
@@ -1475,7 +1516,10 @@ function SubjectPathChat({
           <DynamicEnvShell
             env={pendingDynamicEnv}
             subjectId={subject.id}
-            onClose={() => { onClearPendingDynamicEnv?.(); onCloseDynamicEnv?.(); }}
+            // Closing the env should NOT delete it — only hide it. The user
+            // can reopen it from the floating "العودة لبيئتك" button. Their
+            // work inside the env is preserved by the env state engine.
+            onClose={() => { onCloseDynamicEnv?.(); }}
           />
         )}
       </div>
