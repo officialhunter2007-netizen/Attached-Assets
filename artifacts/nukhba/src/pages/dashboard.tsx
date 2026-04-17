@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, Flame, Target, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2, Monitor, X, AlertTriangle, Clock, FlaskConical } from "lucide-react";
+import { Trophy, Flame, Target, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2, Monitor, X, AlertTriangle, Clock, FlaskConical, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { getSubjectById } from "@/lib/curriculum";
@@ -138,6 +138,124 @@ function LabReportCard({ report }: { report: LabReport }) {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function LabReportsSection({ reports, loading }: { reports: LabReport[]; loading: boolean }) {
+  const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  const subjects = Array.from(
+    reports.reduce((map, r) => {
+      if (!map.has(r.subjectId)) map.set(r.subjectId, r.subjectName || r.subjectId);
+      return map;
+    }, new Map<string, string>())
+  ).map(([id, name]) => ({ id, name }));
+
+  const q = query.trim().toLowerCase();
+  const filtered = reports.filter(r => {
+    if (selectedSubject && r.subjectId !== selectedSubject) return false;
+    if (!q) return true;
+    const title = (r.envTitle || "").toLowerCase();
+    const feedback = (r.feedbackHtml || "").toLowerCase();
+    return title.includes(q) || feedback.includes(q);
+  });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-12 text-muted-foreground">
+        <Loader2 className="w-6 h-6 animate-spin ml-2" />
+        جاري التحميل...
+      </div>
+    );
+  }
+
+  if (reports.length === 0) {
+    return (
+      <div className="glass p-10 rounded-3xl border-white/5 text-center text-muted-foreground">
+        <FlaskConical className="w-10 h-10 mx-auto mb-4 opacity-30" />
+        <p>لم تُرسل أي تقرير من البيئات التطبيقية بعد. عند إنهاء بيئة وإرسالها للمعلم، تظهر تقاريرك هنا للمراجعة لاحقاً.</p>
+      </div>
+    );
+  }
+
+  const isFiltering = selectedSubject !== null || q.length > 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3">
+        {subjects.length > 1 && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setSelectedSubject(null)}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                selectedSubject === null
+                  ? "bg-emerald/20 border-emerald/40 text-emerald"
+                  : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+              }`}
+            >
+              الكل ({reports.length})
+            </button>
+            {subjects.map(s => {
+              const count = reports.filter(r => r.subjectId === s.id).length;
+              const active = selectedSubject === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedSubject(active ? null : s.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                    active
+                      ? "bg-emerald/20 border-emerald/40 text-emerald"
+                      : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+                  }`}
+                >
+                  {s.name} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div className="relative">
+          <Search className="w-4 h-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="ابحث في عناوين البيئات أو ملاحظات المعلم..."
+            className="w-full bg-white/5 border border-white/10 rounded-xl pr-10 pl-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-emerald/40"
+            dir="rtl"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full hover:bg-white/10 flex items-center justify-center"
+              aria-label="مسح البحث"
+            >
+              <X className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="glass p-10 rounded-3xl border-white/5 text-center text-muted-foreground">
+          <FlaskConical className="w-10 h-10 mx-auto mb-4 opacity-30" />
+          <p className="mb-3">لا توجد تقارير مطابقة للبحث.</p>
+          {isFiltering && (
+            <button
+              onClick={() => { setSelectedSubject(null); setQuery(""); }}
+              className="text-xs text-emerald hover:underline"
+            >
+              مسح الفلاتر
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filtered.map(r => <LabReportCard key={r.id} report={r} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -304,21 +422,9 @@ export default function Dashboard() {
             <div className="w-2 h-8 bg-emerald rounded-full" />
             تقارير المختبرات
           </h1>
-          {labReportsLoading ? (
-            <div className="flex items-center justify-center p-12 text-muted-foreground">
-              <Loader2 className="w-6 h-6 animate-spin ml-2" />
-              جاري التحميل...
-            </div>
-          ) : labReports.length === 0 ? (
-            <div className="glass p-12 rounded-3xl border-white/5 text-center text-muted-foreground mb-8">
-              <FlaskConical className="w-12 h-12 mx-auto mb-4 opacity-30" />
-              <p>لم تُرسل أي تقرير من البيئات التطبيقية بعد.</p>
-            </div>
-          ) : (
-            <div className="space-y-4 mb-8">
-              {labReports.map(r => <LabReportCard key={r.id} report={r} />)}
-            </div>
-          )}
+          <div className="mb-8">
+            <LabReportsSection reports={labReports} loading={labReportsLoading} />
+          </div>
 
           <h1 className="text-2xl font-black mb-6 flex items-center gap-3">
             <div className="w-2 h-8 bg-gold rounded-full" />
@@ -520,21 +626,7 @@ export default function Dashboard() {
             <div className="w-2 h-8 bg-emerald rounded-full" />
             تقارير المختبرات
           </h3>
-          {labReportsLoading ? (
-            <div className="flex items-center justify-center p-12 text-muted-foreground">
-              <Loader2 className="w-6 h-6 animate-spin ml-2" />
-              جاري التحميل...
-            </div>
-          ) : labReports.length === 0 ? (
-            <div className="glass p-10 rounded-3xl border-white/5 text-center text-muted-foreground">
-              <FlaskConical className="w-10 h-10 mx-auto mb-4 opacity-30" />
-              <p>لم تُرسل أي تقرير من البيئات التطبيقية بعد. عند إنهاء بيئة وإرسالها للمعلم، تظهر تقاريرك هنا للمراجعة لاحقاً.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {labReports.map(r => <LabReportCard key={r.id} report={r} />)}
-            </div>
-          )}
+          <LabReportsSection reports={labReports} loading={labReportsLoading} />
         </div>
 
         <div>
