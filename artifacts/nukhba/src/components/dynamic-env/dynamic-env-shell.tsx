@@ -10,10 +10,12 @@ export function DynamicEnvShell({
   env,
   subjectId,
   onClose,
+  onSubmitToTeacher,
 }: {
   env: DynamicEnv;
   subjectId: string;
   onClose?: () => void;
+  onSubmitToTeacher?: (report: string) => void;
 }) {
   const { user } = useAuth();
   // SECURITY: stable storage key includes user.id so two different accounts on
@@ -27,19 +29,38 @@ export function DynamicEnvShell({
 
   return (
     <EnvStateProvider initialState={env.initialState || {}} storageKey={storageKey}>
-      <DynamicEnvShellInner env={env} subjectId={subjectId} onClose={onClose} />
+      <DynamicEnvShellInner env={env} subjectId={subjectId} onClose={onClose} onSubmitToTeacher={onSubmitToTeacher} />
     </EnvStateProvider>
   );
+}
+
+function summarizeWorldState(state: any): string {
+  if (!state || typeof state !== "object") return "(فارغة)";
+  const lines: string[] = [];
+  for (const [key, val] of Object.entries(state)) {
+    if (Array.isArray(val)) {
+      lines.push(`• ${key}: ${val.length} عنصر`);
+    } else if (val && typeof val === "object") {
+      const sub = Object.keys(val).slice(0, 4).join("، ");
+      lines.push(`• ${key}: { ${sub}${Object.keys(val).length > 4 ? "…" : ""} }`);
+    } else if (typeof val === "number" || typeof val === "string" || typeof val === "boolean") {
+      const s = String(val);
+      lines.push(`• ${key}: ${s.length > 60 ? s.slice(0, 60) + "…" : s}`);
+    }
+  }
+  return lines.slice(0, 12).join("\n") || "(لا توجد بيانات حية)";
 }
 
 function DynamicEnvShellInner({
   env,
   subjectId,
   onClose,
+  onSubmitToTeacher,
 }: {
   env: DynamicEnv;
   subjectId: string;
   onClose?: () => void;
+  onSubmitToTeacher?: (report: string) => void;
 }) {
   const envState = useEnvState();
   const screens = env.screens || [];
@@ -141,6 +162,58 @@ function DynamicEnvShellInner({
   // MOBILE: side drawers replace permanent panels on small screens.
   const [tasksDrawerOpen, setTasksDrawerOpen] = useState(false);
   const [objectivesOpen, setObjectivesOpen] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [extraNotes, setExtraNotes] = useState("");
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false);
+  const startedAtRef = useRef<number>(Date.now());
+
+  const buildReport = (notes: string): string => {
+    const elapsedMin = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 60000));
+    const doneList = (env.tasks || [])
+      .filter((t) => doneTasks.has(t.id))
+      .map((t) => `✓ ${t.description}`)
+      .join("\n") || "(لم تُكمَل أي مهمة بعد)";
+    const pendingList = (env.tasks || [])
+      .filter((t) => !doneTasks.has(t.id))
+      .map((t) => `○ ${t.description}`)
+      .join("\n") || "(جميع المهام مكتملة)";
+    const successList = Array.isArray((env as any).successCriteria) && (env as any).successCriteria.length
+      ? `\n\nمعايير النجاح المعلنة:\n${(env as any).successCriteria.map((c: string) => `– ${c}`).join("\n")}`
+      : "";
+    const stateSnap = summarizeWorldState(envState.state);
+    const userNotes = notes.trim() ? `\n\nملاحظاتي:\n${notes.trim()}` : "";
+    return `[LAB_REPORT]
+البيئة: ${env.title}
+الوصف: ${env.briefing || "—"}
+المدة المستغرقة: ${elapsedMin} دقيقة
+المهام: ${doneCount}/${totalTasks} مكتملة
+
+ما أنجزتُه:
+${doneList}
+
+ما تبقّى:
+${pendingList}${successList}
+
+ملخّص حالة البيئة:
+${stateSnap}${userNotes}`;
+  };
+
+  const handleSubmitToTeacher = () => {
+    if (!onSubmitToTeacher) return;
+    const report = buildReport(extraNotes);
+    onSubmitToTeacher(report);
+    setShowSubmitDialog(false);
+    setShowCloseConfirm(false);
+    setExtraNotes("");
+  };
+
+  const handleCloseClick = () => {
+    if (onSubmitToTeacher && doneCount > 0) {
+      setShowCloseConfirm(true);
+    } else {
+      onClose?.();
+    }
+  };
 
   // When a task button is tapped on mobile we want the drawer to close so the
   // user lands on the matching screen.
@@ -171,9 +244,20 @@ function DynamicEnvShellInner({
               ↻
               <span className="hidden md:inline mr-1">إعادة ضبط</span>
             </button>
+            {onSubmitToTeacher && (
+              <button
+                onClick={() => setShowSubmitDialog(true)}
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold text-[11px] md:text-xs px-2.5 md:px-3.5 py-1 md:py-1.5 rounded shadow-lg shadow-emerald-500/20 flex items-center gap-1"
+                title="إنهاء البيئة وإرسال تقرير للمعلم"
+              >
+                <span>📤</span>
+                <span className="hidden sm:inline">إرسال للمعلم</span>
+                <span className="sm:hidden">للمعلم</span>
+              </button>
+            )}
             {onClose && (
               <button
-                onClick={onClose}
+                onClick={handleCloseClick}
                 className="text-white/60 hover:text-white text-xs md:text-sm px-2 md:px-3 py-1 rounded bg-white/5 hover:bg-white/10"
               >
                 ✕
@@ -182,6 +266,18 @@ function DynamicEnvShellInner({
             )}
           </div>
         </div>
+        {Array.isArray((env as any).successCriteria) && (env as any).successCriteria.length > 0 && (
+          <div className="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2">
+            <div className="text-[11px] font-bold text-emerald-300 mb-1 flex items-center gap-1">
+              <span>🎯</span> معايير النجاح في هذه البيئة:
+            </div>
+            <ul className="list-disc list-inside text-[11px] md:text-xs text-emerald-100/80 space-y-0.5">
+              {(env as any).successCriteria.slice(0, 5).map((c: string, i: number) => (
+                <li key={i}>{c}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         {env.objectives?.length > 0 && (
           <div className="mt-3">
             {/* On mobile: collapsible. On desktop: always shown. */}
@@ -370,6 +466,72 @@ function DynamicEnvShellInner({
           </>
         )}
       </div>
+
+      {/* Submit-to-teacher dialog */}
+      {showSubmitDialog && onSubmitToTeacher && (
+        <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/30 rounded-2xl max-w-md w-full p-5 shadow-2xl">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 text-xl">📤</div>
+              <div>
+                <h3 className="text-base font-bold text-white">إرسال تقرير العمل للمعلم</h3>
+                <p className="text-xs text-white/60 mt-1">سيستلم المعلم ملخصاً تلقائياً عن البيئة، المهام المنجزة ({doneCount}/{totalTasks})، والمدة المستغرقة، ثم يعطيك ملاحظاته.</p>
+              </div>
+            </div>
+            <label className="text-xs text-white/70 mb-1 block">ملاحظاتك للمعلم (اختياري):</label>
+            <textarea
+              value={extraNotes}
+              onChange={(e) => setExtraNotes(e.target.value)}
+              placeholder="مثلاً: واجهت صعوبة في الخطوة الثالثة، أو: أريد تعليقك على القيد الذي أدخلته..."
+              className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 min-h-[80px] resize-y mb-4"
+              dir="rtl"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowSubmitDialog(false)}
+                className="text-white/70 hover:text-white text-sm px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={handleSubmitToTeacher}
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold text-sm px-5 py-2 rounded-lg shadow-lg shadow-emerald-500/20"
+              >
+                إرسال التقرير
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close-confirm prompt: offer the user to send a report instead of just closing */}
+      {showCloseConfirm && (
+        <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-amber-500/30 rounded-2xl max-w-sm w-full p-5 shadow-2xl">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-xl">💡</div>
+              <div>
+                <h3 className="text-base font-bold text-white">قبل أن تغلق…</h3>
+                <p className="text-xs text-white/70 mt-1">أنجزت {doneCount} من {totalTasks} مهام. هل تريد أن يراجع المعلم عملك ويعطيك ملاحظات؟</p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => { setShowCloseConfirm(false); setShowSubmitDialog(true); }}
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold text-sm px-4 py-2.5 rounded-lg shadow-lg shadow-emerald-500/20"
+              >
+                نعم، أرسل التقرير للمعلم
+              </button>
+              <button
+                onClick={() => { setShowCloseConfirm(false); onClose?.(); }}
+                className="text-white/70 hover:text-white text-sm px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10"
+              >
+                إغلاق فقط (يمكنك العودة لاحقاً)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

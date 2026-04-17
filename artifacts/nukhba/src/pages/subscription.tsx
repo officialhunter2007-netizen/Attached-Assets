@@ -293,6 +293,9 @@ export default function Subscription() {
           <p className="text-xl text-muted-foreground">
             اشتراكك سيكون مخصصاً لمادة "{targetSubjectName}" فقط — كل مادة تتطلب اشتراكاً منفصلاً
           </p>
+          <p className="text-sm text-gold/70 mt-3 max-w-2xl mx-auto leading-relaxed">
+            أنت لا تشترك في "محادثة" — أنت تشترك في معلّم متخصّص يتذكّر تقدّمك، يبني خططاً ومختبرات تطبيقية، ويراجع عملك. ميزات لا تجدها في ChatGPT أو DeepSeek مهما دفعت.
+          </p>
         </div>
 
         <div className="mb-8 p-4 rounded-2xl border border-gold/30 bg-gold/5 flex items-center gap-3">

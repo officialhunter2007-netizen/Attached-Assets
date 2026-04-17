@@ -27,6 +27,9 @@ export default function Login() {
           <div className="w-16 h-16 mx-auto rounded-xl gradient-gold flex items-center justify-center text-primary-foreground font-black text-4xl mb-6 shadow-lg shadow-gold/20">ن</div>
           <h1 className="text-3xl font-bold mb-2">أهلاً بعودتك</h1>
           <p className="text-muted-foreground">سجل دخولك لمتابعة رحلة تعلمك</p>
+          <p className="text-[11px] text-gold/70 mt-3 leading-relaxed">
+            معلّم مخصص يبني خطتك ويتذكّر تقدّمك — ليس مجرد محادثة عامة كـChatGPT.
+          </p>
         </div>
 
         <Button

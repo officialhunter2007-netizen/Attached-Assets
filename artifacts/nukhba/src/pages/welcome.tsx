@@ -73,7 +73,8 @@ export default function Welcome() {
         <Sparkles className="w-12 h-12 text-primary-foreground" />
       </div>
       <h1 className="text-4xl md:text-5xl font-black mb-3">أهلاً بك في نُخبة!</h1>
-      <p className="text-muted-foreground mb-10 text-lg">أول خطوة — كيف تحب أن نناديك؟</p>
+      <p className="text-muted-foreground mb-2 text-lg">أول خطوة — كيف تحب أن نناديك؟</p>
+      <p className="text-xs text-gold/70 mb-10">منصّة تعليمية يمنية أذكى من المساعدات العامة — مُصمَّمة لتُتقن، لا فقط لتُجيب.</p>
       <div className="space-y-4">
         <Input
           value={name}
@@ -159,7 +160,7 @@ export default function Welcome() {
           <GraduationCap className="w-10 h-10 text-emerald" />
         </div>
         <h2 className="text-3xl md:text-4xl font-black mb-3">المعلم الذكي — كيف يعمل؟</h2>
-        <p className="text-muted-foreground">نُخبة تستخدم أحدث تقنيات الذكاء الاصطناعي لتقديم تجربة تعليمية لا مثيل لها</p>
+        <p className="text-muted-foreground">محرّك تعليمي متخصّص يفوق المساعدات العامة (ChatGPT، DeepSeek) — لأنه مُدرَّب على البيداغوجيا، يتذكّر تقدّمك، ويبني لك خطة شخصية لكل مادة</p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mb-8">
@@ -401,7 +402,7 @@ export default function Welcome() {
         transition={{ delay: 0.35 }}
         className="text-lg text-muted-foreground mb-8"
       >
-        رحلتك التعليمية مع نُخبة تبدأ الآن. درسك الأول مجاني — استمتع به!
+        رحلتك التعليمية مع نُخبة تبدأ الآن — معلّم خاص يفهمك ويتذكّرك. درسك الأول مجاني!
       </motion.p>
 
       <motion.div

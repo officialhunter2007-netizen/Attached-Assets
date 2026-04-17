@@ -245,7 +245,10 @@ export default function Dashboard() {
   return (
     <AppLayout>
       <div className="container mx-auto px-4 py-8 max-w-6xl">
-        <h1 className="text-3xl font-black mb-8">لوحة القيادة</h1>
+        <div className="mb-8">
+          <h1 className="text-3xl font-black mb-1">لوحة القيادة</h1>
+          <p className="text-xs text-gold/70">معلّمك يتذكّر كل جلسة، كل خطأ صحّحته، وكل مهارة أتقنتها — هذا ما لا يفعله ChatGPT.</p>
+        </div>
 
         <AnimatePresence>
           {showMobileCodingWarning && (

@@ -1520,6 +1520,10 @@ function SubjectPathChat({
             // can reopen it from the floating "العودة لبيئتك" button. Their
             // work inside the env is preserved by the env state engine.
             onClose={() => { onCloseDynamicEnv?.(); }}
+            onSubmitToTeacher={(report) => {
+              onCloseDynamicEnv?.();
+              sendTeachMessage(report);
+            }}
           />
         )}
       </div>
@@ -1565,9 +1569,12 @@ function SubjectPathChat({
 
       {/* Diagnostic phase banner */}
       {chatPhase === 'diagnostic' && (
-        <div className="shrink-0 px-4 py-2.5 border-b border-purple-500/15 flex items-center justify-center gap-2" style={{ background: "rgba(139,92,246,0.06)" }}>
-          <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-          <p className="text-[12px] text-purple-300 font-medium">مرحلة التشخيص — يبني معلمك خطتك التعليمية الشخصية</p>
+        <div className="shrink-0 px-4 py-2.5 border-b border-purple-500/15 flex flex-col items-center justify-center gap-1" style={{ background: "rgba(139,92,246,0.06)" }}>
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+            <p className="text-[12px] text-purple-300 font-medium">مرحلة التشخيص — يبني معلمك خطتك التعليمية الشخصية</p>
+          </div>
+          <p className="text-[10px] text-purple-300/60">معلّم متخصّص يُصمَّم لك أنت — ليس إجابات عامة كـChatGPT.</p>
         </div>
       )}
 
