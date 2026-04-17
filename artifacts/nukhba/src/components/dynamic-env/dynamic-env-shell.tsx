@@ -15,7 +15,7 @@ export function DynamicEnvShell({
   env: DynamicEnv;
   subjectId: string;
   onClose?: () => void;
-  onSubmitToTeacher?: (report: string) => void;
+  onSubmitToTeacher?: (report: string, meta: { envTitle: string; envBriefing: string }) => void;
 }) {
   const { user } = useAuth();
   // SECURITY: stable storage key includes user.id so two different accounts on
@@ -60,7 +60,7 @@ function DynamicEnvShellInner({
   env: DynamicEnv;
   subjectId: string;
   onClose?: () => void;
-  onSubmitToTeacher?: (report: string) => void;
+  onSubmitToTeacher?: (report: string, meta: { envTitle: string; envBriefing: string }) => void;
 }) {
   const envState = useEnvState();
   const screens = env.screens || [];
@@ -201,7 +201,7 @@ ${stateSnap}${userNotes}`;
   const handleSubmitToTeacher = () => {
     if (!onSubmitToTeacher) return;
     const report = buildReport(extraNotes);
-    onSubmitToTeacher(report);
+    onSubmitToTeacher(report, { envTitle: env.title || "", envBriefing: env.briefing || "" });
     setShowSubmitDialog(false);
     setShowCloseConfirm(false);
     setExtraNotes("");

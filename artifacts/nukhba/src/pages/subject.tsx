@@ -1099,7 +1099,7 @@ function SubjectPathChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatStarter, planLoaded, isStreaming]);
 
-  const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean) => {
+  const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }) => {
     setIsStreaming(true);
     if (text) {
       setMessages(prev => [...prev, { role: "user", content: text }]);
@@ -1245,6 +1245,23 @@ function SubjectPathChat({
         nm[nm.length - 1] = { role: "assistant", content: assistantMsg };
         return nm;
       });
+
+      // Persist lab report + teacher feedback so the student can revisit later.
+      if (labReportMeta && assistantMsg.trim()) {
+        fetch('/api/lab-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            subjectId: subject.id,
+            subjectName: subject.name,
+            envTitle: labReportMeta.envTitle,
+            envBriefing: labReportMeta.envBriefing,
+            reportText: labReportMeta.reportText,
+            feedbackHtml: assistantMsg,
+          }),
+        }).catch(() => {});
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -1520,9 +1537,13 @@ function SubjectPathChat({
             // can reopen it from the floating "العودة لبيئتك" button. Their
             // work inside the env is preserved by the env state engine.
             onClose={() => { onCloseDynamicEnv?.(); }}
-            onSubmitToTeacher={(report) => {
+            onSubmitToTeacher={(report, meta) => {
               onCloseDynamicEnv?.();
-              sendTeachMessage(report);
+              sendTeachMessage(report, undefined, undefined, undefined, {
+                envTitle: meta.envTitle,
+                envBriefing: meta.envBriefing,
+                reportText: report,
+              });
             }}
           />
         )}

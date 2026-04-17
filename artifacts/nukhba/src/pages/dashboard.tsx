@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, Flame, Target, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2, Monitor, X, AlertTriangle, Clock } from "lucide-react";
+import { Trophy, Flame, Target, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2, Monitor, X, AlertTriangle, Clock, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { getSubjectById } from "@/lib/curriculum";
@@ -67,6 +67,81 @@ function SummaryCard({ summary }: { summary: LessonSummary }) {
   );
 }
 
+interface LabReport {
+  id: number;
+  subjectId: string;
+  subjectName: string;
+  envTitle: string;
+  envBriefing: string;
+  reportText: string;
+  feedbackHtml: string;
+  createdAt: string;
+}
+
+function LabReportCard({ report }: { report: LabReport }) {
+  const [expanded, setExpanded] = useState(false);
+  const date = new Date(report.createdAt).toLocaleDateString("ar-SA", {
+    year: "numeric", month: "long", day: "numeric"
+  });
+
+  const safeFeedback = (report.feedbackHtml || "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/\sstyle\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\sbackground(?:-color)?\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\scolor\s*=\s*["'][^"']*["']/gi, '');
+
+  return (
+    <div className="glass border border-white/5 rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full text-right p-5 flex items-center justify-between hover:bg-white/5 transition-colors"
+      >
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-emerald/10 border border-emerald/20 flex items-center justify-center shrink-0">
+            <FlaskConical className="w-5 h-5 text-emerald" />
+          </div>
+          <div className="text-right min-w-0">
+            <h4 className="font-bold text-sm truncate">{report.envTitle || "تقرير مختبر"}</h4>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+              {report.subjectName || report.subjectId} · {date}
+            </p>
+          </div>
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-5 border-t border-white/5 pt-4 space-y-4">
+              {report.envBriefing && (
+                <div className="text-xs text-muted-foreground italic">{report.envBriefing}</div>
+              )}
+              <div>
+                <div className="text-xs font-bold text-gold mb-2">📋 تقريرك المرسل</div>
+                <pre className="text-xs whitespace-pre-wrap bg-black/30 border border-white/5 rounded-xl p-3 text-white/85 leading-relaxed font-sans" dir="rtl">{report.reportText}</pre>
+              </div>
+              {safeFeedback ? (
+                <div>
+                  <div className="text-xs font-bold text-emerald mb-2">📝 ملاحظات المعلم</div>
+                  <div className="ai-msg" dangerouslySetInnerHTML={{ __html: safeFeedback }} />
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">لم تُسجَّل ملاحظات المعلم لهذا التقرير.</div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 interface SubjectSub {
   id: number;
   subjectId: string;
@@ -115,6 +190,8 @@ export default function Dashboard() {
   const { data: views } = useGetLessonViews();
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(true);
+  const [labReports, setLabReports] = useState<LabReport[]>([]);
+  const [labReportsLoading, setLabReportsLoading] = useState(true);
   const [mySubjectSubs, setMySubjectSubs] = useState<SubjectSub[]>([]);
   const [showMobileCodingWarning, setShowMobileCodingWarning] = useState(false);
 
@@ -124,6 +201,12 @@ export default function Dashboard() {
       .then(data => setSummaries(Array.isArray(data) ? data : []))
       .catch(() => setSummaries([]))
       .finally(() => setSummariesLoading(false));
+
+    fetch("/api/lab-reports", { credentials: "include" })
+      .then(r => r.json())
+      .then(data => setLabReports(Array.isArray(data) ? data : []))
+      .catch(() => setLabReports([]))
+      .finally(() => setLabReportsLoading(false));
 
     fetch("/api/subscriptions/my-subjects", { credentials: "include" })
       .then(r => r.json())
@@ -216,6 +299,26 @@ export default function Dashboard() {
               </Link>
             </div>
           </div>
+
+          <h1 className="text-2xl font-black mb-6 flex items-center gap-3">
+            <div className="w-2 h-8 bg-emerald rounded-full" />
+            تقارير المختبرات
+          </h1>
+          {labReportsLoading ? (
+            <div className="flex items-center justify-center p-12 text-muted-foreground">
+              <Loader2 className="w-6 h-6 animate-spin ml-2" />
+              جاري التحميل...
+            </div>
+          ) : labReports.length === 0 ? (
+            <div className="glass p-12 rounded-3xl border-white/5 text-center text-muted-foreground mb-8">
+              <FlaskConical className="w-12 h-12 mx-auto mb-4 opacity-30" />
+              <p>لم تُرسل أي تقرير من البيئات التطبيقية بعد.</p>
+            </div>
+          ) : (
+            <div className="space-y-4 mb-8">
+              {labReports.map(r => <LabReportCard key={r.id} report={r} />)}
+            </div>
+          )}
 
           <h1 className="text-2xl font-black mb-6 flex items-center gap-3">
             <div className="w-2 h-8 bg-gold rounded-full" />
@@ -410,6 +513,28 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+        </div>
+
+        <div className="mb-8">
+          <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
+            <div className="w-2 h-8 bg-emerald rounded-full" />
+            تقارير المختبرات
+          </h3>
+          {labReportsLoading ? (
+            <div className="flex items-center justify-center p-12 text-muted-foreground">
+              <Loader2 className="w-6 h-6 animate-spin ml-2" />
+              جاري التحميل...
+            </div>
+          ) : labReports.length === 0 ? (
+            <div className="glass p-10 rounded-3xl border-white/5 text-center text-muted-foreground">
+              <FlaskConical className="w-10 h-10 mx-auto mb-4 opacity-30" />
+              <p>لم تُرسل أي تقرير من البيئات التطبيقية بعد. عند إنهاء بيئة وإرسالها للمعلم، تظهر تقاريرك هنا للمراجعة لاحقاً.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {labReports.map(r => <LabReportCard key={r.id} report={r} />)}
+            </div>
+          )}
         </div>
 
         <div>

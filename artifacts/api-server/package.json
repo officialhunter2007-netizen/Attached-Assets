@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@types/sanitize-html": "^2.16.1",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/integrations-anthropic-ai": "workspace:*",
@@ -20,7 +21,8 @@
     "express": "^5",
     "google-auth-library": "^10.6.2",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "sanitize-html": "^2.17.3"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
