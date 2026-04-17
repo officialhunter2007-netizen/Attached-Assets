@@ -53,7 +53,9 @@ export function AdminInsightsChat() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamBuf, setStreamBuf] = useState("");
-  const [focusUserId, setFocusUserId] = useState<string>("");
+  const [focusQuery, setFocusQuery] = useState<string>("");
+  const [focusInfo, setFocusInfo] = useState<{ id: number; name: string | null; email: string } | null>(null);
+  const [focusNote, setFocusNote] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -90,14 +92,19 @@ export function AdminInsightsChat() {
 
     const ac = new AbortController();
     abortRef.current = ac;
-    const focusId = focusUserId.trim() ? Number(focusUserId.trim()) : null;
+    const rawFocus = focusQuery.trim();
+    const body: any = { messages: newMsgs };
+    if (rawFocus) {
+      if (/^\d+$/.test(rawFocus)) body.focusUserId = Number(rawFocus);
+      else body.focusQuery = rawFocus;
+    }
 
     try {
       const res = await fetch("/api/admin/ai/insights", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMsgs, focusUserId: focusId }),
+        body: JSON.stringify(body),
         signal: ac.signal,
       });
 
@@ -134,6 +141,9 @@ export function AdminInsightsChat() {
               setStreamBuf("");
               setStreaming(false);
               abortRef.current = null;
+              const fu = data?.contextStats?.focusUser;
+              setFocusInfo(fu ? { id: fu.id, name: fu.name ?? null, email: fu.email } : null);
+              setFocusNote(data?.contextStats?.focusResolutionNote ?? null);
               return;
             }
           } catch {}
@@ -149,7 +159,7 @@ export function AdminInsightsChat() {
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [messages, streaming, focusUserId]);
+  }, [messages, streaming, focusQuery]);
 
   const onSubmit = (e: React.FormEvent) => { e.preventDefault(); send(input); };
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -158,6 +168,7 @@ export function AdminInsightsChat() {
   const clearChat = () => {
     abortRef.current?.abort();
     setMessages([]); setStreamBuf(""); setStreaming(false);
+    setFocusInfo(null); setFocusNote(null);
     if (storageKey) { try { localStorage.removeItem(storageKey); } catch {} }
   };
 
@@ -181,16 +192,38 @@ export function AdminInsightsChat() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5">
-            <UserIcon className="w-3.5 h-3.5 text-amber-400" />
-            <input
-              type="number"
-              placeholder="ID مستخدم"
-              value={focusUserId}
-              onChange={(e) => setFocusUserId(e.target.value)}
-              className="w-20 bg-transparent text-[11px] text-white placeholder:text-white/30 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              title="اختياري — للتركيز على مستخدم معيّن"
-            />
+          <div className="flex flex-col items-end gap-0.5">
+            <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5">
+              <UserIcon className="w-3.5 h-3.5 text-amber-400" />
+              <input
+                type="text"
+                placeholder="ID / إيميل / اسم"
+                value={focusQuery}
+                onChange={(e) => setFocusQuery(e.target.value)}
+                className="w-40 bg-transparent text-[11px] text-white placeholder:text-white/30 outline-none"
+                title="اختياري — للتركيز على مستخدم معيّن"
+              />
+              {focusQuery && (
+                <button
+                  type="button"
+                  onClick={() => { setFocusQuery(""); setFocusInfo(null); setFocusNote(null); }}
+                  className="text-white/40 hover:text-white text-xs px-1"
+                  title="مسح"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {focusInfo && (
+              <div className="text-[10px] text-emerald-300/90 bg-emerald-500/10 border border-emerald-400/20 rounded px-1.5 py-0.5 max-w-[220px] truncate" title={`${focusInfo.name ?? ""} ${focusInfo.email}`}>
+                ✓ {focusInfo.name ?? focusInfo.email} · ID {focusInfo.id}
+              </div>
+            )}
+            {focusNote && !focusInfo && (
+              <div className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-400/20 rounded px-1.5 py-0.5 max-w-[220px]">
+                ⚠ {focusNote}
+              </div>
+            )}
           </div>
           {messages.length > 0 && (
             <button onClick={clearChat} title="محادثة جديدة" className="w-9 h-9 rounded-lg hover:bg-white/10 text-white/60 hover:text-white flex items-center justify-center transition-colors">
@@ -254,7 +287,7 @@ export function AdminInsightsChat() {
           </button>
         </div>
         <div className="text-[10px] text-white/35 text-center mt-2">
-          البيانات حيّة — يُحدَّث السياق مع كل سؤال. الحقل الأيمن لتركيز السؤال على ID مستخدم معيّن.
+          البيانات حيّة — يُحدَّث السياق مع كل سؤال. الحقل الأيمن للتركيز على مستخدم بالـID أو الإيميل أو الاسم.
         </div>
       </form>
     </div>
