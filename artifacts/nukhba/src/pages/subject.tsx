@@ -256,6 +256,117 @@ function SubscriptionExpiredWall({
   );
 }
 
+function parsePlanStages(planHtml: string | null): { title: string; descHtml: string; duration: string }[] {
+  if (!planHtml) return [];
+  try {
+    const match = planHtml.match(/<ol[^>]*>([\s\S]*?)<\/ol>/i);
+    if (!match) return [];
+    const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+    const items: { title: string; descHtml: string; duration: string }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = liRegex.exec(match[1])) !== null) {
+      const inner = m[1];
+      const strong = inner.match(/<strong[^>]*>([\s\S]*?)<\/strong>/i)?.[1] ?? "";
+      const em = inner.match(/<em[^>]*>([\s\S]*?)<\/em>/i)?.[1] ?? "";
+      const cleanTitle = strong.replace(/<[^>]+>/g, "").trim().replace(/^المرحلة\s*\d+\s*[—\-:]\s*/, "");
+      const cleanDuration = em.replace(/<[^>]+>/g, "").replace(/^المدة[:\s]*/i, "").trim();
+      const descHtml = inner
+        .replace(/<strong[^>]*>[\s\S]*?<\/strong>/i, "")
+        .replace(/<em[^>]*>[\s\S]*?<\/em>/i, "")
+        .trim();
+      items.push({ title: cleanTitle || "مرحلة", descHtml, duration: cleanDuration });
+    }
+    return items;
+  } catch { return []; }
+}
+
+function LearningPathPanel({ planHtml, currentStage, totalStages }: { planHtml: string | null; currentStage: number; totalStages: number }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!planHtml) return null;
+  const stages = parsePlanStages(planHtml);
+  if (stages.length === 0) return null;
+  const effectiveTotal = totalStages || stages.length;
+  const progressPct = Math.min(100, Math.round((currentStage / Math.max(effectiveTotal, 1)) * 100));
+  const active = stages[currentStage] ?? stages[0];
+
+  return (
+    <div className="shrink-0 border-b border-amber-500/15" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.07), rgba(139,92,246,0.05))" }}>
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-white/5 transition-colors"
+        style={{ direction: "rtl" }}
+      >
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
+            <Trophy className="w-4 h-4 text-black" />
+          </div>
+          <div className="min-w-0 flex-1 text-right">
+            <div className="text-[12px] font-bold text-amber-200 flex items-center gap-2">
+              <span>المرحلة {Math.min(currentStage + 1, stages.length)} من {stages.length}</span>
+              <span className="text-amber-300/70 font-normal">·</span>
+              <span className="text-white/85 truncate">{active.title}</span>
+            </div>
+            <div className="mt-1 h-1.5 w-full bg-white/8 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-l from-amber-400 to-amber-600 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+            </div>
+          </div>
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-amber-300 shrink-0" /> : <ChevronDown className="w-4 h-4 text-amber-300 shrink-0" />}
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-3 pt-1" style={{ direction: "rtl" }}>
+              <ol className="space-y-1.5">
+                {stages.map((s, idx) => {
+                  const isActive = idx === currentStage;
+                  const isDone = idx < currentStage;
+                  return (
+                    <li
+                      key={idx}
+                      className={`flex items-start gap-2.5 rounded-lg px-2.5 py-2 border text-[12px] leading-relaxed ${
+                        isActive
+                          ? "path-panel-stage-active"
+                          : isDone
+                            ? "bg-emerald-500/8 border-emerald-500/25 text-emerald-100/85"
+                            : "bg-white/[0.03] border-white/8 text-white/65"
+                      }`}
+                    >
+                      <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-black ${
+                        isActive
+                          ? "bg-amber-500 text-black"
+                          : isDone
+                            ? "bg-emerald-500/30 text-emerald-200"
+                            : "bg-white/8 text-white/60"
+                      }`}>
+                        {isDone ? "✓" : idx + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold">{s.title}</div>
+                        {s.duration && (
+                          <div className="text-[10px] mt-0.5 inline-block bg-purple-500/15 border border-purple-400/25 text-purple-200 rounded-full px-2 py-0.5">
+                            ⏱ {s.duration}
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 const ENV_BUILD_PHRASES = [
   { icon: "🧠", text: "نُحلّل مستواك ونصمّم بيئة تطبيقية تناسبك تماماً..." },
   { icon: "📐", text: "نرسم خطوات التعلم بترتيب ذكي يبني المهارة تدريجياً..." },
@@ -1218,6 +1329,9 @@ function SubjectPathChat({
             }
             // A persisted plan means diagnostic phase already completed — switch to teaching
             setChatPhase('teaching');
+          } else {
+            // No saved plan yet → diagnostic phase MUST run for first session of this subject
+            setChatPhase('diagnostic');
           }
         }
       } catch {}
@@ -1766,6 +1880,11 @@ function SubjectPathChat({
             </div>
           )}
         </div>
+      )}
+
+      {/* Personalized learning path — sticky panel above messages once plan is built */}
+      {chatPhase === 'teaching' && customPlan && (
+        <LearningPathPanel planHtml={customPlan} currentStage={currentStage} totalStages={stages.length} />
       )}
 
       {/* Diagnostic phase banner */}
