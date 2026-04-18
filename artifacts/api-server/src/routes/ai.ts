@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, sql } from "drizzle-orm";
-import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable } from "@workspace/db";
+import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
@@ -761,6 +761,23 @@ ${formattingRules}`;
   let fullResponse = "";
   let stageComplete = false;
 
+  // Persist the user message (and later the assistant response) for admin visibility.
+  if (userMessage && subjectId) {
+    try {
+      await db.insert(aiTeacherMessagesTable).values({
+        userId,
+        subjectId,
+        subjectName: subjectName ?? null,
+        role: "user",
+        content: String(userMessage).slice(0, 8000),
+        isDiagnostic: isDiagnosticPhase ? 1 : 0,
+        stageIndex: typeof currentStage === "number" ? currentStage : null,
+      });
+    } catch (err: any) {
+      console.error("[ai/teach] persist user msg error:", err?.message || err);
+    }
+  }
+
   const stream = anthropic.messages.stream({
     model: "claude-sonnet-4-6",
     max_tokens: 4096,
@@ -779,6 +796,29 @@ ${formattingRules}`;
 
   stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
   const planReady = fullResponse.includes("[PLAN_READY]");
+
+  if (subjectId && fullResponse.trim().length > 0) {
+    try {
+      const cleanAssistant = fullResponse
+        .replace(/\[STAGE_COMPLETE\]/g, "")
+        .replace(/\[PLAN_READY\]/g, "")
+        .trim();
+      if (cleanAssistant.length > 0) {
+        await db.insert(aiTeacherMessagesTable).values({
+          userId,
+          subjectId,
+          subjectName: subjectName ?? null,
+          role: "assistant",
+          content: cleanAssistant.slice(0, 8000),
+          isDiagnostic: isDiagnosticPhase ? 1 : 0,
+          stageIndex: typeof currentStage === "number" ? currentStage : null,
+        });
+      }
+    } catch (err: any) {
+      console.error("[ai/teach] persist assistant msg error:", err?.message || err);
+    }
+  }
+
   let messagesRemaining: number | null = null;
   if (isFirstLesson && firstLessonRecord) {
     messagesRemaining = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - (firstLessonRecord.freeMessagesUsed + 1));

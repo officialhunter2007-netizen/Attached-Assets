@@ -8,6 +8,7 @@ import {
   lessonViewsTable,
   labReportsTable,
   subscriptionRequestsTable,
+  aiTeacherMessagesTable,
 } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -259,6 +260,50 @@ async function buildAdminContext(focusUser: any | null) {
     .orderBy(desc(lessonViewsTable.viewedAt))
     .limit(focusUserId ? 60 : 30);
 
+  // Recent AI-teacher chat messages
+  // Global view: last 24h, last 60 messages across all users (truncated content).
+  // Focused view: last 7d for that user, up to 200 messages.
+  const teacherMsgWhere = focusUserId
+    ? and(eq(aiTeacherMessagesTable.userId, focusUserId), gte(aiTeacherMessagesTable.createdAt, since7d))
+    : gte(aiTeacherMessagesTable.createdAt, since24h);
+  const teacherMsgLimit = focusUserId ? 200 : 60;
+  const teacherMsgsRaw = await db
+    .select({
+      id: aiTeacherMessagesTable.id,
+      userId: aiTeacherMessagesTable.userId,
+      subjectId: aiTeacherMessagesTable.subjectId,
+      subjectName: aiTeacherMessagesTable.subjectName,
+      role: aiTeacherMessagesTable.role,
+      contentPreview: sql<string>`left(${aiTeacherMessagesTable.content}, 400)`,
+      isDiagnostic: aiTeacherMessagesTable.isDiagnostic,
+      stageIndex: aiTeacherMessagesTable.stageIndex,
+      createdAt: aiTeacherMessagesTable.createdAt,
+      userName: usersTable.displayName,
+      userEmail: usersTable.email,
+    })
+    .from(aiTeacherMessagesTable)
+    .leftJoin(usersTable, eq(aiTeacherMessagesTable.userId, usersTable.id))
+    .where(teacherMsgWhere)
+    .orderBy(desc(aiTeacherMessagesTable.createdAt))
+    .limit(teacherMsgLimit);
+
+  // Per-subject message counts (global, last 7d) — useful for "what subjects are users asking about"
+  const teacherMsgsBySubject = focusUserId
+    ? []
+    : await db
+        .select({
+          subjectId: aiTeacherMessagesTable.subjectId,
+          subjectName: aiTeacherMessagesTable.subjectName,
+          userMessages: sql<number>`sum(case when ${aiTeacherMessagesTable.role} = 'user' then 1 else 0 end)::int`,
+          assistantMessages: sql<number>`sum(case when ${aiTeacherMessagesTable.role} = 'assistant' then 1 else 0 end)::int`,
+          distinctUsers: sql<number>`count(distinct ${aiTeacherMessagesTable.userId})::int`,
+        })
+        .from(aiTeacherMessagesTable)
+        .where(gte(aiTeacherMessagesTable.createdAt, since7d))
+        .groupBy(aiTeacherMessagesTable.subjectId, aiTeacherMessagesTable.subjectName)
+        .orderBy(sql`count(*) desc`)
+        .limit(20);
+
   // Subscription requests (last 15 — or focused user's history)
   const subReqWhere = focusUserId ? eq(subscriptionRequestsTable.userId, focusUserId) : undefined;
   const recentSubReqs = await db
@@ -312,7 +357,7 @@ async function buildAdminContext(focusUser: any | null) {
   // pre-filtered server-side so the AI cannot confuse them with other users.
   let focusUserBlock: any = null;
   if (focusUser) {
-    const [subs, focusEvents, focusLessons, focusLabs, focusSubReqs] = await Promise.all([
+    const [subs, focusEvents, focusLessons, focusLabs, focusSubReqs, focusTeacherMsgs, focusTeacherMsgsBySubject] = await Promise.all([
       db
         .select()
         .from(userSubjectSubscriptionsTable)
@@ -362,6 +407,37 @@ async function buildAdminContext(focusUser: any | null) {
         .where(eq(subscriptionRequestsTable.userId, focusUser.id))
         .orderBy(desc(subscriptionRequestsTable.createdAt))
         .limit(15),
+      db
+        .select({
+          id: aiTeacherMessagesTable.id,
+          subjectId: aiTeacherMessagesTable.subjectId,
+          subjectName: aiTeacherMessagesTable.subjectName,
+          role: aiTeacherMessagesTable.role,
+          contentPreview: sql<string>`left(${aiTeacherMessagesTable.content}, 600)`,
+          isDiagnostic: aiTeacherMessagesTable.isDiagnostic,
+          stageIndex: aiTeacherMessagesTable.stageIndex,
+          createdAt: aiTeacherMessagesTable.createdAt,
+        })
+        .from(aiTeacherMessagesTable)
+        .where(and(
+          eq(aiTeacherMessagesTable.userId, focusUser.id),
+          gte(aiTeacherMessagesTable.createdAt, since7d),
+        ))
+        .orderBy(desc(aiTeacherMessagesTable.createdAt))
+        .limit(120),
+      db
+        .select({
+          subjectId: aiTeacherMessagesTable.subjectId,
+          subjectName: aiTeacherMessagesTable.subjectName,
+          userMessages: sql<number>`sum(case when ${aiTeacherMessagesTable.role} = 'user' then 1 else 0 end)::int`,
+          assistantMessages: sql<number>`sum(case when ${aiTeacherMessagesTable.role} = 'assistant' then 1 else 0 end)::int`,
+          lastAt: sql<Date>`max(${aiTeacherMessagesTable.createdAt})`,
+        })
+        .from(aiTeacherMessagesTable)
+        .where(eq(aiTeacherMessagesTable.userId, focusUser.id))
+        .groupBy(aiTeacherMessagesTable.subjectId, aiTeacherMessagesTable.subjectName)
+        .orderBy(sql`count(*) desc`)
+        .limit(20),
     ]);
 
     focusUserBlock = {
@@ -381,6 +457,8 @@ async function buildAdminContext(focusUser: any | null) {
       lessonViews: focusLessons,
       labReports: focusLabs,
       subscriptionRequests: focusSubReqs,
+      aiTeacherMessages: focusTeacherMsgs,
+      aiTeacherMessagesBySubject: focusTeacherMsgsBySubject,
       subjectSubscriptions: subs.map((s) => ({
         subjectId: s.subjectId,
         subjectName: s.subjectName,
@@ -425,6 +503,8 @@ async function buildAdminContext(focusUser: any | null) {
     recentLabs,
     recentLessons,
     recentSubReqs,
+    recentTeacherMessages: teacherMsgsRaw,
+    teacherMessagesBySubject: teacherMsgsBySubject,
     focusUser: focusUserBlock,
   };
 }
@@ -438,11 +518,13 @@ function safeStringifyContext(ctx: any, maxBytes = 80_000): string {
 
   // Progressively trim arrays from largest to smallest
   const trims: Array<[string, number[]]> = [
+    ["recentTeacherMessages", [60, 30, 15, 8]],
     ["recentEvents", [120, 60, 30, 15]],
     ["usersDirectory", [250, 150, 80, 40]],
     ["recentLessons", [30, 15, 8]],
     ["recentLabs", [15, 8, 4]],
     ["recentSubReqs", [15, 8, 4]],
+    ["teacherMessagesBySubject", [20, 10, 5]],
     ["topActive", [25, 15, 10]],
     ["topPaths", [15, 10, 5]],
     ["subjectsBreakdown", [40, 20, 10]],
@@ -581,10 +663,15 @@ router.post("/admin/ai/insights", async (req, res): Promise<any> => {
       recentLessons: undefined,
       recentLabs: undefined,
       recentSubReqs: undefined,
+      recentTeacherMessages: undefined,
+      teacherMessagesBySubject: undefined,
     };
   }
 
-  const contextJson = safeStringifyContext(context, 80_000);
+  const contextJson = safeStringifyContext(context, 80_000)
+    // Defensive: keep student-supplied text from breaking out of the ```json fence
+    // or injecting new instructions into the admin AI prompt.
+    .replace(/```/g, "ʼʼʼ");
   const focusLine = focusUser
     ? `**المستخدم المُركَّز عليه (حقيقي من قاعدة البيانات):** ${focusUser.displayName ?? "(بدون اسم)"} — ${focusUser.email} — ID ${focusUser.id}${focusAutoDetected ? " _(تم استخراجه تلقائيًا)_" : ""}`
     : candidateMatches.length > 1
@@ -603,8 +690,8 @@ ${focusResolutionNote ? `\n> ملاحظة: ${focusResolutionNote}\n` : ""}
 
 ## محتوى JSON
 ${focusUser
-  ? `- \`focusUser\`: **هو المصدر الوحيد والنهائي** لكل ما يخصّ هذا المستخدم — اسم/إيميل/ID/اشتراكات/أحداث/دروس/مختبر/طلبات اشتراك. **لا تضف أي حدث أو معلومة ليست داخل هذا الكائن.** إن كان \`focusUser.events\` مصفوفة فارغة فهذا يعني أنه لا توجد أي أحداث في آخر ٧ أيام — قل ذلك صراحة ولا تخترع.\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`: بيانات عامة للمرجعية.`
-  : `- \`usersDirectory\`: آخر ٣٠٠ مستخدم (id, name, email, role). **هذه القائمة هي المرجع الوحيد لأسماء وإيميلات المستخدمين.** ممنوع ذكر أي اسم/إيميل/ID لا يظهر هنا.\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`, \`recentEvents\`, \`recentLessons\`, \`recentLabs\`, \`recentSubReqs\`: بيانات عامة.`}
+  ? `- \`focusUser\`: **هو المصدر الوحيد والنهائي** لكل ما يخصّ هذا المستخدم — اسم/إيميل/ID/اشتراكات/أحداث/دروس/مختبر/طلبات اشتراك/**رسائل المعلم الذكي**. **لا تضف أي حدث أو معلومة ليست داخل هذا الكائن.** إن كان \`focusUser.events\` مصفوفة فارغة فهذا يعني أنه لا توجد أي أحداث في آخر ٧ أيام — قل ذلك صراحة ولا تخترع.\n- \`focusUser.aiTeacherMessages\`: آخر ١٢٠ رسالة بين هذا الطالب والمعلم الذكي (آخر ٧ أيام) مع \`role\` (user/assistant) و\`subjectId\`/\`subjectName\` و\`contentPreview\` (مقتطف من النص). إذا سُئلت "أيش سأل الطالب المعلم؟" أو "في أي مادة كان يدرس؟" استخرج الإجابة من هنا حصرًا، وانقل النصوص حرفيًا (لا تُلخّصها بإعادة صياغة مختلقة). إذا كانت المصفوفة فارغة قل: "لم يرسل أي رسائل للمعلم الذكي خلال الأسبوع الماضي".\n- \`focusUser.aiTeacherMessagesBySubject\`: عدد رسائل الطالب لكل مادة — للإجابة على "كم رسالة وفي أي مواد".\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`: بيانات عامة للمرجعية.`
+  : `- \`usersDirectory\`: آخر ٣٠٠ مستخدم (id, name, email, role). **هذه القائمة هي المرجع الوحيد لأسماء وإيميلات المستخدمين.** ممنوع ذكر أي اسم/إيميل/ID لا يظهر هنا.\n- \`recentTeacherMessages\`: آخر ٦٠ رسالة (آخر ٢٤ ساعة) بين الطلاب والمعلم الذكي عبر المنصّة، فيها \`userId\`/\`userName\`/\`userEmail\`/\`subjectId\`/\`subjectName\`/\`role\`/\`contentPreview\`. استخدمها للإجابة عمّا يسأله الطلاب الآن وفي أي مواد.\n- \`teacherMessagesBySubject\`: تجميع لرسائل آخر ٧ أيام مقسّمة حسب المادة.\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`, \`recentEvents\`, \`recentLessons\`, \`recentLabs\`, \`recentSubReqs\`: بيانات عامة.`}
 
 ## قواعد صارمة (مخالفتها = فشل)
 1. **ممنوع منعًا باتًا اختراع أي حقل:** لا اسم، لا إيميل، لا ID، لا حدث، لا تاريخ، لا مسار. إن لم تجده حرفيًا في JSON أعلاه، فهو غير موجود.
