@@ -8,6 +8,15 @@ const router: IRouter = Router();
 
 const FREE_LESSON_MESSAGE_LIMIT = 15;
 
+// Accounts with unlimited free access — no quotas, no daily limits, no counters.
+const UNLIMITED_ACCESS_EMAILS = new Set<string>([
+  "7amr7ahmed7@gmail.com",
+]);
+function isUnlimitedUser(user: { email?: string | null } | null | undefined): boolean {
+  if (!user?.email) return false;
+  return UNLIMITED_ACCESS_EMAILS.has(user.email.trim().toLowerCase());
+}
+
 function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
 }
@@ -349,11 +358,16 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = req.body;
 
   const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
-  const { isFirstLesson, canAccessViaSubscription, hasActiveSub, quotaExhausted, subjectSub, firstLessonRecord } = access;
+  const unlimited = isUnlimitedUser(user);
+  // For unlimited users, force-grant access regardless of subscription/first-lesson state.
+  const { isFirstLesson: rawFirstLesson, canAccessViaSubscription: rawCanAccess, hasActiveSub: rawHasActive, quotaExhausted, subjectSub, firstLessonRecord } = access;
+  const isFirstLesson = unlimited ? false : rawFirstLesson;
+  const canAccessViaSubscription = unlimited ? true : rawCanAccess;
+  const hasActiveSub = unlimited ? true : rawHasActive;
   const isNewSession = !userMessage;
 
   // ── Session limit (1 session per day, resets at midnight Yemen time) ──
-  if (isNewSession && canAccessViaSubscription) {
+  if (isNewSession && canAccessViaSubscription && !unlimited) {
     const today = getYemenDateString();
     if (user.lastSessionDate === today) {
       const nextSessionAt = getNextMidnightYemen().toISOString();
@@ -406,7 +420,9 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   }
 
   // ── Increment message counter ──────────────────────────────────────────────
-  if (isFirstLesson && firstLessonRecord) {
+  if (unlimited) {
+    // No counters, no caps — pass through.
+  } else if (isFirstLesson && firstLessonRecord) {
     const newCount = firstLessonRecord.freeMessagesUsed + 1;
     const isNowComplete = newCount >= FREE_LESSON_MESSAGE_LIMIT;
     await db.update(userSubjectFirstLessonsTable)
@@ -820,14 +836,16 @@ ${formattingRules}`;
   }
 
   let messagesRemaining: number | null = null;
-  if (isFirstLesson && firstLessonRecord) {
+  if (unlimited) {
+    messagesRemaining = 999999;
+  } else if (isFirstLesson && firstLessonRecord) {
     messagesRemaining = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - (firstLessonRecord.freeMessagesUsed + 1));
   } else if (canAccessViaSubscription) {
     if (access.canAccessViaSubjectSub && subjectSub) {
       messagesRemaining = Math.max(0, subjectSub.messagesLimit - (subjectSub.messagesUsed + 1));
     }
   }
-  const isQuotaExhausted = messagesRemaining === 0;
+  const isQuotaExhausted = !unlimited && messagesRemaining === 0;
   res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady, quotaExhausted: isQuotaExhausted })}\n\n`);
   res.end();
 });
