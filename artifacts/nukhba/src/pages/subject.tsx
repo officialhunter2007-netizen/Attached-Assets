@@ -488,10 +488,46 @@ export default function Subject() {
     if (typeof window === "undefined" || !modeStorageKey) return null;
     try { const v = localStorage.getItem(modeStorageKey); return v === 'personal' || v === 'course' ? v : null; } catch { return null; }
   });
-  const [selectedCourse, setSelectedCourse] = useState<{ id: number; courseName: string; emoji: string } | null>(() => {
+  const [selectedCourse, setSelectedCourse] = useState<{ id: number; courseName: string; emoji: string; fileNames?: string[] } | null>(() => {
     if (typeof window === "undefined" || !courseStorageKey) return null;
     try { const raw = localStorage.getItem(courseStorageKey); return raw ? JSON.parse(raw) : null; } catch { return null; }
   });
+  // ── Server-backed gate decision: only auto-suppress the gate when the user
+  // has either a saved personal plan OR at least one course for this subject.
+  // Otherwise the gate is shown so the user makes a deliberate choice (this
+  // also handles a fresh device where localStorage is empty).
+  const [hasAnyCourses, setHasAnyCourses] = useState<boolean | null>(null);
+  const [hasPersonalPlan, setHasPersonalPlan] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!isUniSubject || !subject?.id || !user?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [coursesRes, planRes] = await Promise.all([
+          fetch(`/api/courses?specializationId=${encodeURIComponent(subject.id)}`, { credentials: "include" }),
+          fetch(`/api/user-plan?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" }),
+        ]);
+        if (cancelled) return;
+        const cd = await coursesRes.json().catch(() => ({}));
+        const pd = await planRes.json().catch(() => ({}));
+        setHasAnyCourses(Array.isArray(cd?.courses) && cd.courses.length > 0);
+        setHasPersonalPlan(!!pd?.plan?.planHtml);
+      } catch {
+        if (!cancelled) { setHasAnyCourses(false); setHasPersonalPlan(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isUniSubject, subject?.id, user?.id]);
+  // Auto-resolve mode when user already has data on this subject and no
+  // explicit local choice exists. This keeps existing students out of the gate.
+  useEffect(() => {
+    if (!isUniSubject) return;
+    if (chatMode) return;
+    if (hasPersonalPlan === null || hasAnyCourses === null) return;
+    if (hasPersonalPlan && !hasAnyCourses) setChatMode('personal');
+    else if (!hasPersonalPlan && hasAnyCourses) setChatMode('course');
+    // If both or neither, leave gate visible — user must choose.
+  }, [isUniSubject, chatMode, hasPersonalPlan, hasAnyCourses]);
   useEffect(() => {
     if (!modeStorageKey) return;
     try { if (chatMode) localStorage.setItem(modeStorageKey, chatMode); else localStorage.removeItem(modeStorageKey); } catch {}
@@ -843,9 +879,20 @@ export default function Subject() {
                             <button
                               onClick={() => setSelectedCourse(null)}
                               title="تغيير المادة"
-                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 transition-colors max-w-[180px] truncate"
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 transition-colors max-w-[260px] truncate"
                             >
-                              ملتزم بـ: {selectedCourse.emoji} {selectedCourse.courseName}
+                              ملتزم بـ: {(selectedCourse.fileNames && selectedCourse.fileNames.length > 0)
+                                ? selectedCourse.fileNames.join(", ")
+                                : `${selectedCourse.emoji} ${selectedCourse.courseName}`}
+                            </button>
+                          )}
+                          {isUniSubject && chatMode && (
+                            <button
+                              onClick={() => { setChatMode(null); setSelectedCourse(null); }}
+                              title="تبديل وضع الدراسة"
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 transition-colors"
+                            >
+                              تبديل الوضع
                             </button>
                           )}
                         </div>
@@ -1270,7 +1317,7 @@ function CoursesPanel({
   onBack,
 }: {
   subject: any;
-  onPickCourse: (course: { id: number; courseName: string; emoji: string }) => void;
+  onPickCourse: (course: { id: number; courseName: string; emoji: string; fileNames: string[] }) => void;
   onBack: () => void;
 }) {
   const { user } = useAuth();
@@ -1283,6 +1330,25 @@ function CoursesPanel({
   const [newEmoji, setNewEmoji] = useState("📘");
   const [busyCourseId, setBusyCourseId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const handleRename = async (id: number) => {
+    const name = renameValue.trim();
+    if (!name) { setRenamingId(null); return; }
+    try {
+      await fetch(`/api/courses/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ courseName: name }),
+      });
+    } finally {
+      setRenamingId(null);
+      setRenameValue("");
+      await reload();
+    }
+  };
 
   const reload = async () => {
     setLoading(true);
@@ -1431,18 +1497,36 @@ function CoursesPanel({
               return (
                 <div key={c.id} className="rounded-2xl border border-white/10 bg-white/5 p-3">
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="text-2xl shrink-0">{c.emoji || "📘"}</span>
-                      <h3 className="font-bold text-sm sm:text-base truncate">{c.courseName}</h3>
+                      {renamingId === c.id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={() => handleRename(c.id)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleRename(c.id); if (e.key === "Escape") { setRenamingId(null); setRenameValue(""); } }}
+                          className="flex-1 bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-sm font-bold"
+                        />
+                      ) : (
+                        <h3 className="font-bold text-sm sm:text-base truncate">{c.courseName}</h3>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
-                        onClick={() => canStart && onPickCourse({ id: c.id, courseName: c.courseName, emoji: c.emoji || "📘" })}
+                        onClick={() => canStart && onPickCourse({ id: c.id, courseName: c.courseName, emoji: c.emoji || "📘", fileNames: (c.files || []).map((f: any) => f.fileName) })}
                         disabled={!canStart}
                         className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 font-bold disabled:opacity-40 disabled:cursor-not-allowed"
                         title={canStart ? "" : "ارفع ملفاً واحداً على الأقل لبدء التعلم"}
                       >
                         ابدأ
+                      </button>
+                      <button
+                        onClick={() => { setRenamingId(c.id); setRenameValue(c.courseName); }}
+                        className="text-xs px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10"
+                        title="إعادة تسمية"
+                      >
+                        ✏️
                       </button>
                       <button
                         onClick={() => handleDelete(c.id)}

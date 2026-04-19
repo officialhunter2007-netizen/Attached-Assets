@@ -361,7 +361,11 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   // ── Course-bound mode: load the course + its extracted text ───────────────
   let activeCourse: { id: number; courseName: string; specializationId: string } | null = null;
   let courseFileTexts: Array<{ fileName: string; text: string }> = [];
-  if (requestedCourseId && Number.isFinite(requestedCourseId) && subjectId) {
+  if (requestedCourseId !== null) {
+    if (!Number.isFinite(requestedCourseId) || !subjectId) {
+      res.status(400).json({ error: "INVALID_COURSE", message: "طلب غير صالح للوضع الموجَّه بالملفات." });
+      return;
+    }
     const [c] = await db
       .select()
       .from(userSpecializationCoursesTable)
@@ -370,16 +374,22 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
         eq(userSpecializationCoursesTable.userId, userId),
         eq(userSpecializationCoursesTable.specializationId, subjectId),
       ));
-    if (c) {
-      activeCourse = { id: c.id, courseName: c.courseName, specializationId: c.specializationId };
-      const files = await db
-        .select({
-          fileName: userCourseFilesTable.fileName,
-          text: userCourseFilesTable.extractedText,
-        })
-        .from(userCourseFilesTable)
-        .where(eq(userCourseFilesTable.courseId, c.id));
-      courseFileTexts = files;
+    if (!c) {
+      res.status(404).json({ error: "COURSE_NOT_FOUND", message: "المادة غير موجودة أو لا تخصك. أعد اختيار المادة." });
+      return;
+    }
+    activeCourse = { id: c.id, courseName: c.courseName, specializationId: c.specializationId };
+    const files = await db
+      .select({
+        fileName: userCourseFilesTable.fileName,
+        text: userCourseFilesTable.extractedText,
+      })
+      .from(userCourseFilesTable)
+      .where(eq(userCourseFilesTable.courseId, c.id));
+    courseFileTexts = files;
+    if (courseFileTexts.length === 0) {
+      res.status(400).json({ error: "NO_COURSE_FILES", message: "ارفع ملفاً واحداً على الأقل لهذه المادة قبل بدء التعلم." });
+      return;
     }
   }
 
