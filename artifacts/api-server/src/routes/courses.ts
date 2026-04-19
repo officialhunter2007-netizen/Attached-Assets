@@ -298,6 +298,43 @@ router.post("/courses/:id/files", upload.single("file"), async (req, res): Promi
   res.json({ file: inserted });
 });
 
+// ── Preview extracted text of a file (first ~2000 chars) ────────────────────
+const PREVIEW_CHARS = 2000;
+router.get("/courses/files/:fileId/preview", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const fileId = Number(req.params.fileId);
+  if (!Number.isFinite(fileId)) {
+    res.status(400).json({ error: "invalid id" });
+    return;
+  }
+  const [row] = await db
+    .select({
+      id: userCourseFilesTable.id,
+      fileName: userCourseFilesTable.fileName,
+      preview: sql<string>`substring(${userCourseFilesTable.extractedText} from 1 for ${PREVIEW_CHARS})`.as("preview"),
+      totalChars: sql<number>`char_length(${userCourseFilesTable.extractedText})`.as("totalChars"),
+    })
+    .from(userCourseFilesTable)
+    .where(and(eq(userCourseFilesTable.id, fileId), eq(userCourseFilesTable.userId, userId)));
+  if (!row) {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  const preview = row.preview ?? "";
+  const totalChars = Number(row.totalChars ?? 0);
+  res.json({
+    fileName: row.fileName,
+    preview,
+    totalChars,
+    previewChars: preview.length,
+    truncated: totalChars > preview.length,
+  });
+});
+
 // ── Delete a file from a course ─────────────────────────────────────────────
 router.delete("/courses/files/:fileId", async (req, res): Promise<void> => {
   const userId = getUserId(req);

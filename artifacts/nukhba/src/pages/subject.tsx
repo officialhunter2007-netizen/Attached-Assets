@@ -1433,6 +1433,37 @@ function CoursesPanel({
     await reload();
   };
 
+  const [previewFileId, setPreviewFileId] = useState<number | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewData, setPreviewData] = useState<{ fileName: string; preview: string; totalChars: number; previewChars: number; truncated: boolean } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const openPreview = async (fileId: number) => {
+    setPreviewFileId(fileId);
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewData(null);
+    try {
+      const r = await fetch(`/api/courses/files/${fileId}/preview`, { credentials: "include" });
+      if (!r.ok) {
+        setPreviewError("تعذّر تحميل المعاينة.");
+      } else {
+        const data = await r.json();
+        setPreviewData(data);
+      }
+    } catch {
+      setPreviewError("تعذّر تحميل المعاينة.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    setPreviewFileId(null);
+    setPreviewData(null);
+    setPreviewError(null);
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-6">
       <div className="max-w-3xl mx-auto">
@@ -1551,13 +1582,22 @@ function CoursesPanel({
                         <div key={f.id} className="bg-black/20 rounded-lg px-2 py-1.5">
                           <div className="flex items-center justify-between gap-2 text-xs">
                             <span className="truncate">📄 {f.fileName}</span>
-                            <button
-                              onClick={() => handleDeleteFile(f.id)}
-                              className="text-red-300/80 hover:text-red-300 shrink-0"
-                              title="حذف الملف"
-                            >
-                              ✕
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={() => openPreview(f.id)}
+                                className="text-sky-300/80 hover:text-sky-300"
+                                title="معاينة النص المستخرج"
+                              >
+                                👁️ معاينة
+                              </button>
+                              <button
+                                onClick={() => handleDeleteFile(f.id)}
+                                className="text-red-300/80 hover:text-red-300"
+                                title="حذف الملف"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </div>
                           <div className="mt-1.5 flex items-center gap-2">
                             <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
@@ -1611,6 +1651,61 @@ function CoursesPanel({
           </div>
         )}
       </div>
+
+      {previewFileId !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={closePreview}
+        >
+          <div
+            className="bg-zinc-900 border border-white/10 rounded-xl max-w-2xl w-full max-h-[80vh] flex flex-col shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold truncate">
+                  👁️ معاينة النص المستخرج{previewData?.fileName ? ` — ${previewData.fileName}` : ""}
+                </h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  أول جزء من النص الذي قرأه النظام من ملفك. تحقّق منه للتأكد من جودة الاستخراج.
+                </p>
+              </div>
+              <button
+                onClick={closePreview}
+                className="text-muted-foreground hover:text-white shrink-0 px-2"
+                title="إغلاق"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {previewLoading && (
+                <p className="text-sm text-muted-foreground">جارٍ تحميل المعاينة...</p>
+              )}
+              {previewError && (
+                <p className="text-sm text-red-300">{previewError}</p>
+              )}
+              {previewData && (
+                <>
+                  <div className="text-[11px] text-muted-foreground mb-2 tabular-nums">
+                    عرض {previewData.previewChars.toLocaleString("ar-EG")} حرف من أصل {previewData.totalChars.toLocaleString("ar-EG")} حرف
+                    {previewData.truncated ? " (مقتطف)" : ""}
+                  </div>
+                  <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed bg-black/30 rounded-lg p-3 font-sans">
+                    {previewData.preview || "(لا يوجد نص)"}
+                  </pre>
+                  {previewData.truncated && (
+                    <p className="mt-2 text-[11px] text-amber-300/90">
+                      ⚠️ هذه فقط بداية الملف. إذا بدا النص مشوّهاً أو غير مفهوم، فالأفضل إعادة الرفع بنسخة أوضح.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
