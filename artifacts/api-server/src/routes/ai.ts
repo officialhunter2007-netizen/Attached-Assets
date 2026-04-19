@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, sql } from "drizzle-orm";
-import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable } from "@workspace/db";
+import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable, userSpecializationCoursesTable, userCourseFilesTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
@@ -355,7 +355,36 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = req.body;
+  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, hasCoding = true } = req.body;
+  const requestedCourseId = req.body?.courseId != null ? Number(req.body.courseId) : null;
+
+  // ── Course-bound mode: load the course + its extracted text ───────────────
+  let activeCourse: { id: number; courseName: string; specializationId: string } | null = null;
+  let courseFileTexts: Array<{ fileName: string; text: string }> = [];
+  if (requestedCourseId && Number.isFinite(requestedCourseId) && subjectId) {
+    const [c] = await db
+      .select()
+      .from(userSpecializationCoursesTable)
+      .where(and(
+        eq(userSpecializationCoursesTable.id, requestedCourseId),
+        eq(userSpecializationCoursesTable.userId, userId),
+        eq(userSpecializationCoursesTable.specializationId, subjectId),
+      ));
+    if (c) {
+      activeCourse = { id: c.id, courseName: c.courseName, specializationId: c.specializationId };
+      const files = await db
+        .select({
+          fileName: userCourseFilesTable.fileName,
+          text: userCourseFilesTable.extractedText,
+        })
+        .from(userCourseFilesTable)
+        .where(eq(userCourseFilesTable.courseId, c.id));
+      courseFileTexts = files;
+    }
+  }
+
+  // Course mode: never run diagnostic. Personal mode: honor request flag.
+  const isDiagnosticPhase = activeCourse ? false : Boolean(req.body?.isDiagnosticPhase);
 
   const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
   const unlimited = isUnlimitedUser(user);
@@ -759,7 +788,54 @@ ${(() => {
 
 ${formattingRules}`;
 
-  const systemPrompt = isDiagnosticPhase ? diagnosticSystemPrompt : teachingSystemPrompt;
+  // ── Course-bound prompt overrides the personal/diagnostic flow ─────────────
+  let courseBoundSystemPrompt: string | null = null;
+  if (activeCourse) {
+    const totalChars = courseFileTexts.reduce((s, f) => s + f.text.length, 0);
+    // Budget: keep prompt manageable. Cap each file at 60k chars; total ~120k.
+    const PER_FILE_CAP = 60_000;
+    const filesBlock = courseFileTexts.length > 0
+      ? courseFileTexts.map((f, i) => {
+          const t = f.text.length > PER_FILE_CAP
+            ? f.text.slice(0, PER_FILE_CAP) + "\n\n[... المحتوى مقتطع للاختصار ...]"
+            : f.text;
+          return `### ملف ${i + 1}: ${f.fileName}\n${t}`;
+        }).join("\n\n---\n\n")
+      : "(لم يرفع الطالب أي ملف بعد لهذه المادة.)";
+
+    courseBoundSystemPrompt = `أنت معلم خاص متمكن في مادة جامعية محددة اسمها: "${activeCourse.courseName}" ضمن تخصص: ${subjectName || subjectId}.
+
+**القاعدة الذهبية المطلقة (لا تخالفها أبداً):**
+- مرجعك الوحيد للمحتوى هو الملفات التي رفعها الطالب لهذه المادة (مذكور أدناه). لا تُدرّس أي موضوع أو مفهوم خارج هذه الملفات.
+- إذا سأل الطالب عن شيء خارج المنهج المرفوع، قل بأدب: "هذا الموضوع غير موجود في الملفات التي رفعتها لمادة «${activeCourse.courseName}». إذا أردت أن أشرحه، ارفع المرجع المناسب أو افتح وضع «المسار التعليمي الشخصي»."
+- استخدم نفس المصطلحات والترميز والتعريفات الواردة في الملفات حرفياً قدر الإمكان.
+- إذا لم تكن هناك ملفات بعد، اطلب من الطالب رفع المحاضرات/المرجع أولاً ولا تبدأ التدريس.
+
+**أسلوبك في التدريس:**
+- اشرح أولاً ثم اسأل (لا تطرح سؤالاً قبل تقديم السياق الكافي).
+- استخدم تشبيهات حياتية يمنية حين يساعد ذلك.
+- عند طرح أسئلة، تدرّج من السهل إلى الأصعب.
+- إذا أخطأ الطالب، لا تعطه الإجابة مباشرة — وجّهه بتلميحات تدريجية وأعده إلى المقطع المناسب من الملف ("راجع معي الفقرة من ملف ${courseFileTexts[0]?.fileName ?? "المرجع"} حيث ذكر...").
+- كل 3-4 ردود اطلب منه تلخيص ما فهم بكلماته.
+- لا تستخدم Markdown — HTML فقط.
+
+**إنهاء الجلسة:**
+- إذا طلب الطالب الإنهاء أو قال وداعاً، لخّص ما تعلمه اليوم في 3 نقاط ملموسة، ثم ضع [STAGE_COMPLETE] في آخر ردك حتماً.
+
+**معلومات السياق:**
+- الجلسة الحالية مرتبطة بمادة واحدة فقط: "${activeCourse.courseName}".
+- عدد الملفات المرفوعة: ${courseFileTexts.length}.
+
+--- منهج المادة المرفوع من الطالب (مرجعك الحصري) ---
+${filesBlock}
+---
+
+${formattingRules}`;
+  }
+
+  const systemPrompt = courseBoundSystemPrompt
+    ? courseBoundSystemPrompt
+    : (isDiagnosticPhase ? diagnosticSystemPrompt : teachingSystemPrompt);
 
   const claudeMessages = history.map((m: any) => ({
     role: m.role as "user" | "assistant",
@@ -788,6 +864,8 @@ ${formattingRules}`;
         content: String(userMessage).slice(0, 8000),
         isDiagnostic: isDiagnosticPhase ? 1 : 0,
         stageIndex: typeof currentStage === "number" ? currentStage : null,
+        courseId: activeCourse?.id ?? null,
+        courseName: activeCourse?.courseName ?? null,
       });
     } catch (err: any) {
       console.error("[ai/teach] persist user msg error:", err?.message || err);
@@ -828,6 +906,8 @@ ${formattingRules}`;
           content: cleanAssistant.slice(0, 8000),
           isDiagnostic: isDiagnosticPhase ? 1 : 0,
           stageIndex: typeof currentStage === "number" ? currentStage : null,
+          courseId: activeCourse?.id ?? null,
+          courseName: activeCourse?.courseName ?? null,
         });
       }
     } catch (err: any) {

@@ -273,6 +273,8 @@ async function buildAdminContext(focusUser: any | null) {
       userId: aiTeacherMessagesTable.userId,
       subjectId: aiTeacherMessagesTable.subjectId,
       subjectName: aiTeacherMessagesTable.subjectName,
+      courseId: aiTeacherMessagesTable.courseId,
+      courseName: aiTeacherMessagesTable.courseName,
       role: aiTeacherMessagesTable.role,
       contentPreview: sql<string>`left(${aiTeacherMessagesTable.content}, 400)`,
       isDiagnostic: aiTeacherMessagesTable.isDiagnostic,
@@ -412,6 +414,8 @@ async function buildAdminContext(focusUser: any | null) {
           id: aiTeacherMessagesTable.id,
           subjectId: aiTeacherMessagesTable.subjectId,
           subjectName: aiTeacherMessagesTable.subjectName,
+          courseId: aiTeacherMessagesTable.courseId,
+          courseName: aiTeacherMessagesTable.courseName,
           role: aiTeacherMessagesTable.role,
           contentPreview: sql<string>`left(${aiTeacherMessagesTable.content}, 600)`,
           isDiagnostic: aiTeacherMessagesTable.isDiagnostic,
@@ -690,8 +694,8 @@ ${focusResolutionNote ? `\n> ملاحظة: ${focusResolutionNote}\n` : ""}
 
 ## محتوى JSON
 ${focusUser
-  ? `- \`focusUser\`: **هو المصدر الوحيد والنهائي** لكل ما يخصّ هذا المستخدم — اسم/إيميل/ID/اشتراكات/أحداث/دروس/مختبر/طلبات اشتراك/**رسائل المعلم الذكي**. **لا تضف أي حدث أو معلومة ليست داخل هذا الكائن.** إن كان \`focusUser.events\` مصفوفة فارغة فهذا يعني أنه لا توجد أي أحداث في آخر ٧ أيام — قل ذلك صراحة ولا تخترع.\n- \`focusUser.aiTeacherMessages\`: آخر ١٢٠ رسالة بين هذا الطالب والمعلم الذكي (آخر ٧ أيام) مع \`role\` (user/assistant) و\`subjectId\`/\`subjectName\` و\`contentPreview\` (مقتطف من النص). إذا سُئلت "أيش سأل الطالب المعلم؟" أو "في أي مادة كان يدرس؟" استخرج الإجابة من هنا حصرًا، وانقل النصوص حرفيًا (لا تُلخّصها بإعادة صياغة مختلقة). إذا كانت المصفوفة فارغة قل: "لم يرسل أي رسائل للمعلم الذكي خلال الأسبوع الماضي".\n- \`focusUser.aiTeacherMessagesBySubject\`: عدد رسائل الطالب لكل مادة — للإجابة على "كم رسالة وفي أي مواد".\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`: بيانات عامة للمرجعية.`
-  : `- \`usersDirectory\`: آخر ٣٠٠ مستخدم (id, name, email, role). **هذه القائمة هي المرجع الوحيد لأسماء وإيميلات المستخدمين.** ممنوع ذكر أي اسم/إيميل/ID لا يظهر هنا.\n- \`recentTeacherMessages\`: آخر ٦٠ رسالة (آخر ٢٤ ساعة) بين الطلاب والمعلم الذكي عبر المنصّة، فيها \`userId\`/\`userName\`/\`userEmail\`/\`subjectId\`/\`subjectName\`/\`role\`/\`contentPreview\`. استخدمها للإجابة عمّا يسأله الطلاب الآن وفي أي مواد.\n- \`teacherMessagesBySubject\`: تجميع لرسائل آخر ٧ أيام مقسّمة حسب المادة.\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`, \`recentEvents\`, \`recentLessons\`, \`recentLabs\`, \`recentSubReqs\`: بيانات عامة.`}
+  ? `- \`focusUser\`: **هو المصدر الوحيد والنهائي** لكل ما يخصّ هذا المستخدم — اسم/إيميل/ID/اشتراكات/أحداث/دروس/مختبر/طلبات اشتراك/**رسائل المعلم الذكي**. **لا تضف أي حدث أو معلومة ليست داخل هذا الكائن.** إن كان \`focusUser.events\` مصفوفة فارغة فهذا يعني أنه لا توجد أي أحداث في آخر ٧ أيام — قل ذلك صراحة ولا تخترع.\n- \`focusUser.aiTeacherMessages\`: آخر ١٢٠ رسالة بين هذا الطالب والمعلم الذكي (آخر ٧ أيام) مع \`role\` (user/assistant) و\`subjectId\`/\`subjectName\` و\`contentPreview\` (مقتطف من النص). إذا سُئلت "أيش سأل الطالب المعلم؟" أو "في أي مادة كان يدرس؟" استخرج الإجابة من هنا حصرًا، وانقل النصوص حرفيًا (لا تُلخّصها بإعادة صياغة مختلقة). إذا كانت قيمة \`courseName\` موجودة فهذا يعني أن الجلسة كانت مرتبطة بمادة جامعية موجَّهة بملفات الطالب — اذكر ذلك ("كان يدرس مادة X ضمن تخصص Y"). إذا كانت المصفوفة فارغة قل: "لم يرسل أي رسائل للمعلم الذكي خلال الأسبوع الماضي".\n- \`focusUser.aiTeacherMessagesBySubject\`: عدد رسائل الطالب لكل مادة — للإجابة على "كم رسالة وفي أي مواد".\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`: بيانات عامة للمرجعية.`
+  : `- \`usersDirectory\`: آخر ٣٠٠ مستخدم (id, name, email, role). **هذه القائمة هي المرجع الوحيد لأسماء وإيميلات المستخدمين.** ممنوع ذكر أي اسم/إيميل/ID لا يظهر هنا.\n- \`recentTeacherMessages\`: آخر ٦٠ رسالة (آخر ٢٤ ساعة) بين الطلاب والمعلم الذكي عبر المنصّة، فيها \`userId\`/\`userName\`/\`userEmail\`/\`subjectId\`/\`subjectName\`/\`courseName\`/\`role\`/\`contentPreview\`. استخدمها للإجابة عمّا يسأله الطلاب الآن وفي أي مواد. \`courseName\` موجود فقط حين تكون الجلسة في وضع المادة الجامعية الموجَّهة بالملفات.\n- \`teacherMessagesBySubject\`: تجميع لرسائل آخر ٧ أيام مقسّمة حسب المادة.\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`, \`recentEvents\`, \`recentLessons\`, \`recentLabs\`, \`recentSubReqs\`: بيانات عامة.`}
 
 ## قواعد صارمة (مخالفتها = فشل)
 1. **ممنوع منعًا باتًا اختراع أي حقل:** لا اسم، لا إيميل، لا ID، لا حدث، لا تاريخ، لا مسار. إن لم تجده حرفيًا في JSON أعلاه، فهو غير موجود.
