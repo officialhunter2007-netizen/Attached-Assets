@@ -1324,6 +1324,7 @@ function CoursesPanel({
   const [courses, setCourses] = useState<any[]>([]);
   const [maxCourses, setMaxCourses] = useState(6);
   const [maxFilesPerCourse, setMaxFilesPerCourse] = useState(2);
+  const [perFileCap, setPerFileCap] = useState(60_000);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -1358,6 +1359,7 @@ function CoursesPanel({
       setCourses(Array.isArray(data.courses) ? data.courses : []);
       if (typeof data.maxCourses === "number") setMaxCourses(data.maxCourses);
       if (typeof data.maxFilesPerCourse === "number") setMaxFilesPerCourse(data.maxFilesPerCourse);
+      if (typeof data.perFileCap === "number") setPerFileCap(data.perFileCap);
     } catch {
       setCourses([]);
     } finally {
@@ -1539,18 +1541,49 @@ function CoursesPanel({
 
                   {/* Files */}
                   <div className="space-y-1.5 mb-2">
-                    {(c.files || []).map((f: any) => (
-                      <div key={f.id} className="flex items-center justify-between gap-2 text-xs bg-black/20 rounded-lg px-2 py-1.5">
-                        <span className="truncate">📄 {f.fileName}</span>
-                        <button
-                          onClick={() => handleDeleteFile(f.id)}
-                          className="text-red-300/80 hover:text-red-300 shrink-0"
-                          title="حذف الملف"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
+                    {(c.files || []).map((f: any) => {
+                      const chars = typeof f.extractedChars === "number" ? f.extractedChars : 0;
+                      const clipped = chars > perFileCap;
+                      const usedChars = clipped ? perFileCap : chars;
+                      const pct = perFileCap > 0 ? Math.min(100, Math.round((usedChars / perFileCap) * 100)) : 0;
+                      const fmt = (n: number) => n.toLocaleString("ar-EG");
+                      return (
+                        <div key={f.id} className="bg-black/20 rounded-lg px-2 py-1.5">
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <span className="truncate">📄 {f.fileName}</span>
+                            <button
+                              onClick={() => handleDeleteFile(f.id)}
+                              className="text-red-300/80 hover:text-red-300 shrink-0"
+                              title="حذف الملف"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                              <div
+                                className={`h-full ${clipped ? "bg-amber-400/80" : "bg-emerald-400/70"}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className={`text-[10px] tabular-nums shrink-0 ${clipped ? "text-amber-300" : "text-muted-foreground"}`}>
+                              {clipped
+                                ? `${fmt(perFileCap)} / ${fmt(chars)} حرف`
+                                : `${fmt(chars)} / ${fmt(perFileCap)} حرف`}
+                            </span>
+                          </div>
+                          {clipped ? (
+                            <p className="mt-1 text-[10px] leading-snug text-amber-300/90">
+                              ⚠️ هذا الملف أطول من سعة المعلّم. لن يقرأ سوى أول {fmt(perFileCap)} حرف ({Math.round((perFileCap / chars) * 100)}% من الملف). للحصول على شرح يغطي الفصول المتأخرة، قسّم الملف أو ارفع مقتطفاً أقصر يبدأ من الجزء المطلوب.
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-[10px] leading-snug text-emerald-300/80">
+                              ✓ المعلّم يقرأ كامل الملف.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
                     {filesCount === 0 && (
                       <p className="text-[11px] text-muted-foreground italic">لا توجد ملفات بعد — ارفع المحاضرات أو المرجع لتبدأ.</p>
                     )}

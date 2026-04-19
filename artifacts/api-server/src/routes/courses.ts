@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, sql } from "drizzle-orm";
 import multer from "multer";
 import mammoth from "mammoth";
 import { createRequire as __createRequire } from "node:module";
@@ -20,6 +20,10 @@ const MAX_COURSES_PER_SPEC = 6;
 const MAX_FILES_PER_COURSE = 2;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MIN_EXTRACTED_CHARS = 200;
+// MUST match PER_FILE_CAP in ai.ts — number of chars from each file actually
+// fed to the AI teacher per request. Surfaced to clients so they can warn
+// students when their uploads exceed the teacher's context window.
+const PER_FILE_CAP = 60_000;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -83,6 +87,7 @@ router.get("/courses", async (req, res): Promise<void> => {
         mimeType: userCourseFilesTable.mimeType,
         fileSize: userCourseFilesTable.fileSize,
         uploadedAt: userCourseFilesTable.uploadedAt,
+        extractedChars: sql<number>`char_length(${userCourseFilesTable.extractedText})`.as("extractedChars"),
       })
       .from(userCourseFilesTable)
       .where(eq(userCourseFilesTable.userId, userId))
@@ -101,6 +106,7 @@ router.get("/courses", async (req, res): Promise<void> => {
     })),
     maxCourses: MAX_COURSES_PER_SPEC,
     maxFilesPerCourse: MAX_FILES_PER_COURSE,
+    perFileCap: PER_FILE_CAP,
   });
 });
 
