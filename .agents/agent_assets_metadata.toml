@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "QbGFO76DOJMNcJQoFgayT"
+uri = "file://exports/nukhba-logo.png"
+type = "image"
+title = "شعار نُخبة"
