@@ -7,7 +7,7 @@ id = "artifacts/api-server"
 router = "application"
 deploymentTarget = "autoscale"
 build = ["sh", "-c", "pnpm install && pnpm run build:deploy"]
-run = ["sh", "-c", "pnpm start"]
+run = ["sh", "-c", "node --enable-source-maps artifacts/api-server/dist/index.mjs"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
