@@ -92,6 +92,97 @@ router.get("/admin/activity/recent", async (req, res): Promise<any> => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/insights/teacher-messages — recent AI-teacher messages with
+// course binding, plus a "top courses" aggregate. Supports filtering by course.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/insights/teacher-messages", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 300);
+  const rawCourse = req.query.course;
+  const courseFilter = rawCourse !== undefined && rawCourse !== null && String(rawCourse).trim() !== ""
+    ? String(rawCourse).trim()
+    : null;
+
+  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  // Per-course aggregate (last 7d, only sessions actually bound to a course)
+  const topCourses = await db
+    .select({
+      courseId: aiTeacherMessagesTable.courseId,
+      courseName: aiTeacherMessagesTable.courseName,
+      subjectId: aiTeacherMessagesTable.subjectId,
+      subjectName: aiTeacherMessagesTable.subjectName,
+      messageCount: sql<number>`count(*)::int`,
+      userMessages: sql<number>`sum(case when ${aiTeacherMessagesTable.role} = 'user' then 1 else 0 end)::int`,
+      distinctUsers: sql<number>`count(distinct ${aiTeacherMessagesTable.userId})::int`,
+      lastAt: sql<Date>`max(${aiTeacherMessagesTable.createdAt})`,
+    })
+    .from(aiTeacherMessagesTable)
+    .where(
+      and(
+        gte(aiTeacherMessagesTable.createdAt, since7d),
+        sql`${aiTeacherMessagesTable.courseId} is not null`,
+      ),
+    )
+    .groupBy(
+      aiTeacherMessagesTable.courseId,
+      aiTeacherMessagesTable.courseName,
+      aiTeacherMessagesTable.subjectId,
+      aiTeacherMessagesTable.subjectName,
+    )
+    .orderBy(sql`count(*) desc`)
+    .limit(20);
+
+  // Recent messages (optionally filtered by course)
+  let courseIdNum: number | null = null;
+  let filterIsNone = false;
+  if (courseFilter !== null) {
+    if (courseFilter === "none") filterIsNone = true;
+    else if (/^\d+$/.test(courseFilter)) courseIdNum = Number(courseFilter);
+  }
+  const messagesWhere = and(
+    gte(aiTeacherMessagesTable.createdAt, since7d),
+    filterIsNone
+      ? sql`${aiTeacherMessagesTable.courseId} is null`
+      : courseIdNum !== null
+        ? eq(aiTeacherMessagesTable.courseId, courseIdNum)
+        : undefined,
+  );
+
+  const messages = await db
+    .select({
+      id: aiTeacherMessagesTable.id,
+      userId: aiTeacherMessagesTable.userId,
+      subjectId: aiTeacherMessagesTable.subjectId,
+      subjectName: aiTeacherMessagesTable.subjectName,
+      courseId: aiTeacherMessagesTable.courseId,
+      courseName: aiTeacherMessagesTable.courseName,
+      role: aiTeacherMessagesTable.role,
+      contentPreview: sql<string>`left(${aiTeacherMessagesTable.content}, 400)`,
+      isDiagnostic: aiTeacherMessagesTable.isDiagnostic,
+      stageIndex: aiTeacherMessagesTable.stageIndex,
+      createdAt: aiTeacherMessagesTable.createdAt,
+      userName: usersTable.displayName,
+      userEmail: usersTable.email,
+    })
+    .from(aiTeacherMessagesTable)
+    .leftJoin(usersTable, eq(aiTeacherMessagesTable.userId, usersTable.id))
+    .where(messagesWhere)
+    .orderBy(desc(aiTeacherMessagesTable.createdAt))
+    .limit(limit);
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    windowDays: 7,
+    filter: { course: courseFilter },
+    topCourses,
+    messages,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Resolve a focus query (numeric id, email substring, or display-name substring)
 // to a single user, preferring exact id match. Returns null if not found.
 // ─────────────────────────────────────────────────────────────────────────────

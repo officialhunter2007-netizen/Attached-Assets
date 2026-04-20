@@ -31,6 +31,7 @@ import {
   BookOpen, Gift, Trash2, Clock, CalendarDays, ChevronDown, Brain,
 } from "lucide-react";
 import { AdminInsightsChat } from "@/components/admin-insights-chat";
+import { AdminTeacherMessagesPanel } from "@/components/admin-teacher-messages-panel";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -1207,7 +1208,10 @@ export default function Admin() {
 
           {/* AI Insights Tab */}
           <TabsContent value="ai-insights">
-            <AdminInsightsChat />
+            <div className="space-y-6">
+              <AdminTeacherMessagesPanel />
+              <AdminInsightsChat />
+            </div>
           </TabsContent>
         </Tabs>
       </div>
