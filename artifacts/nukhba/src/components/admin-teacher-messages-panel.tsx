@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { BookOpen, RefreshCw, Loader2, GraduationCap, MessageSquare, Users as UsersIcon, X } from "lucide-react";
+import { BookOpen, RefreshCw, Loader2, GraduationCap, MessageSquare, Users as UsersIcon, X, AlertTriangle } from "lucide-react";
 
 type Course = {
   courseId: number | null;
@@ -9,7 +9,26 @@ type Course = {
   messageCount: number;
   userMessages: number;
   distinctUsers: number;
+  sessionCount: number;
+  poorSessions: number;
   lastAt: string;
+};
+
+type QualityTier = "good" | "warning" | "poor";
+
+function qualityFor(c: { sessionCount: number; poorSessions: number }): { tier: QualityTier; ratio: number } {
+  const total = c.sessionCount || 0;
+  if (total === 0) return { tier: "good", ratio: 0 };
+  const ratio = c.poorSessions / total;
+  if (ratio >= 0.5) return { tier: "poor", ratio };
+  if (ratio >= 0.25) return { tier: "warning", ratio };
+  return { tier: "good", ratio };
+}
+
+const QUALITY_STYLES: Record<QualityTier, { dot: string; chip: string; label: string }> = {
+  good:    { dot: "bg-emerald-400", chip: "bg-emerald-500/15 border-emerald-400/30 text-emerald-200", label: "جيدة" },
+  warning: { dot: "bg-amber-400",   chip: "bg-amber-500/15 border-amber-400/30 text-amber-200",       label: "متوسطة" },
+  poor:    { dot: "bg-rose-400",    chip: "bg-rose-500/15 border-rose-400/30 text-rose-200",          label: "ضعيفة" },
 };
 
 type Msg = {
@@ -57,6 +76,8 @@ export function AdminTeacherMessagesPanel() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterValue>("all");
   const [thread, setThread] = useState<ThreadKey | null>(null);
+  const [sortBy, setSortBy] = useState<"messages" | "poorRatio" | "poorCount">("messages");
+  const [qualityFilter, setQualityFilter] = useState<"all" | QualityTier>("all");
 
   const load = useCallback(async (f: FilterValue) => {
     setLoading(true);
@@ -82,6 +103,18 @@ export function AdminTeacherMessagesPanel() {
 
   const topCourses = data?.topCourses ?? [];
   const messages = data?.messages ?? [];
+
+  const displayCourses = useMemo(() => {
+    const filtered = qualityFilter === "all"
+      ? topCourses
+      : topCourses.filter((c) => qualityFor(c).tier === qualityFilter);
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === "poorCount") return b.poorSessions - a.poorSessions;
+      if (sortBy === "poorRatio") return qualityFor(b).ratio - qualityFor(a).ratio;
+      return b.messageCount - a.messageCount;
+    });
+    return sorted;
+  }, [topCourses, sortBy, qualityFilter]);
 
   const filterChips = useMemo(() => {
     const chips: Array<{ value: FilterValue; label: string; count?: number }> = [
@@ -144,33 +177,87 @@ export function AdminTeacherMessagesPanel() {
 
       {/* Top courses widget */}
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <div className="flex items-center gap-2 mb-2">
-          <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-          <div className="text-xs font-bold text-white/85">المواد الجامعية الأكثر دراسةً</div>
+        <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+            <div className="text-xs font-bold text-white/85">المواد الجامعية الأكثر دراسةً</div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 text-[10px] text-white/55">
+              <span>الجودة:</span>
+              {(["all", "good", "warning", "poor"] as const).map((q) => {
+                const active = qualityFilter === q;
+                const label = q === "all" ? "الكل" : QUALITY_STYLES[q].label;
+                return (
+                  <button
+                    key={q}
+                    onClick={() => setQualityFilter(q)}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded border transition-colors ${
+                      active
+                        ? (q === "all" ? "bg-white/15 border-white/30 text-white" : QUALITY_STYLES[q as QualityTier].chip)
+                        : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                    }`}
+                  >
+                    {q !== "all" && <span className={`w-1.5 h-1.5 rounded-full ${QUALITY_STYLES[q as QualityTier].dot}`} />}
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-1 text-[10px] text-white/55">
+              <span>ترتيب:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                className="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/85 focus:outline-none focus:border-amber-400/40"
+              >
+                <option value="messages" className="bg-[#0b0d12]">الأكثر رسائل</option>
+                <option value="poorRatio" className="bg-[#0b0d12]">الأعلى نسبة جلسات ضعيفة</option>
+                <option value="poorCount" className="bg-[#0b0d12]">الأكثر جلسات ضعيفة</option>
+              </select>
+            </div>
+          </div>
         </div>
-        {topCourses.length === 0 ? (
-          <div className="text-[11px] text-white/40 py-2">لا توجد جلسات مرتبطة بمادة جامعية خلال آخر ٧ أيام.</div>
+        <div className="text-[10px] text-white/40 mb-2">
+          نحسب «جلسة» لكل (طالب × مادة) خلال آخر ٧ أيام. الجلسة الضعيفة: الطالب أرسل أقل من رسالتين أو لم يردّ المعلم إطلاقاً.
+        </div>
+        {displayCourses.length === 0 ? (
+          <div className="text-[11px] text-white/40 py-2">
+            {topCourses.length === 0
+              ? "لا توجد جلسات مرتبطة بمادة جامعية خلال آخر ٧ أيام."
+              : "لا توجد مواد ضمن فلتر الجودة الحالي."}
+          </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {topCourses.slice(0, 9).map((c) => (
-              <button
-                key={`${c.courseId}-${c.subjectId}`}
-                onClick={() => setFilter(String(c.courseId))}
-                className={`text-right rounded-lg border px-3 py-2 transition-colors ${
-                  filter === String(c.courseId)
-                    ? "bg-amber-500/15 border-amber-400/40"
-                    : "bg-black/20 border-white/10 hover:border-amber-400/30 hover:bg-amber-500/5"
-                }`}
-                title="فلترة الرسائل بهذه المادة"
-              >
-                <div className="text-xs font-bold text-white truncate">{c.courseName ?? `مادة #${c.courseId}`}</div>
-                <div className="text-[10px] text-white/50 truncate">{c.subjectName ?? c.subjectId}</div>
-                <div className="flex items-center gap-3 mt-1.5 text-[10px] text-white/70">
-                  <span className="flex items-center gap-1"><UsersIcon className="w-3 h-3" /> {c.distinctUsers} طالب</span>
-                  <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" /> {c.messageCount} رسالة</span>
-                </div>
-              </button>
-            ))}
+            {displayCourses.slice(0, 9).map((c) => {
+              const q = qualityFor(c);
+              const styles = QUALITY_STYLES[q.tier];
+              const pct = c.sessionCount > 0 ? Math.round(q.ratio * 100) : 0;
+              return (
+                <button
+                  key={`${c.courseId}-${c.subjectId}`}
+                  onClick={() => setFilter(String(c.courseId))}
+                  className={`text-right rounded-lg border px-3 py-2 transition-colors relative ${
+                    filter === String(c.courseId)
+                      ? "bg-amber-500/15 border-amber-400/40"
+                      : "bg-black/20 border-white/10 hover:border-amber-400/30 hover:bg-amber-500/5"
+                  }`}
+                  title={`فلترة الرسائل بهذه المادة • ${c.poorSessions} من ${c.sessionCount} جلسة ضعيفة (${pct}%)`}
+                >
+                  <span className={`absolute top-1.5 left-1.5 w-2 h-2 rounded-full ${styles.dot}`} aria-hidden />
+                  <div className="text-xs font-bold text-white truncate pl-3">{c.courseName ?? `مادة #${c.courseId}`}</div>
+                  <div className="text-[10px] text-white/50 truncate">{c.subjectName ?? c.subjectId}</div>
+                  <div className="flex items-center gap-3 mt-1.5 text-[10px] text-white/70 flex-wrap">
+                    <span className="flex items-center gap-1"><UsersIcon className="w-3 h-3" /> {c.distinctUsers} طالب</span>
+                    <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" /> {c.messageCount} رسالة</span>
+                  </div>
+                  <div className={`mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] ${styles.chip}`}>
+                    {q.tier === "poor" && <AlertTriangle className="w-3 h-3" />}
+                    <span>جلسات ضعيفة: {c.poorSessions}/{c.sessionCount} ({pct}%)</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

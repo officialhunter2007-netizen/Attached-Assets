@@ -107,33 +107,73 @@ router.get("/admin/insights/teacher-messages", async (req, res): Promise<any> =>
 
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  // Per-course aggregate (last 7d, only sessions actually bound to a course)
-  const topCourses = await db
-    .select({
-      courseId: aiTeacherMessagesTable.courseId,
-      courseName: aiTeacherMessagesTable.courseName,
-      subjectId: aiTeacherMessagesTable.subjectId,
-      subjectName: aiTeacherMessagesTable.subjectName,
-      messageCount: sql<number>`count(*)::int`,
-      userMessages: sql<number>`sum(case when ${aiTeacherMessagesTable.role} = 'user' then 1 else 0 end)::int`,
-      distinctUsers: sql<number>`count(distinct ${aiTeacherMessagesTable.userId})::int`,
-      lastAt: sql<Date>`max(${aiTeacherMessagesTable.createdAt})`,
-    })
-    .from(aiTeacherMessagesTable)
-    .where(
-      and(
-        gte(aiTeacherMessagesTable.createdAt, since7d),
-        sql`${aiTeacherMessagesTable.courseId} is not null`,
-      ),
+  // Per-course aggregate (last 7d, only sessions actually bound to a course).
+  // A "session" is a (userId, courseId) pair within the window. A session is
+  // considered POOR when the student sent fewer than 2 messages OR the AI
+  // teacher never followed up (zero assistant replies). This catches both
+  // students who give up immediately and threads where the assistant stalled.
+  type TopCourseRow = {
+    courseId: number | null;
+    courseName: string | null;
+    subjectId: string | null;
+    subjectName: string | null;
+    messageCount: number | string | null;
+    userMessages: number | string | null;
+    distinctUsers: number | string | null;
+    sessionCount: number | string | null;
+    poorSessions: number | string | null;
+    lastAt: Date | string | null;
+  };
+  const topCoursesRaw = await db.execute<TopCourseRow>(sql`
+    with sessions as (
+      select
+        ${aiTeacherMessagesTable.userId}      as user_id,
+        ${aiTeacherMessagesTable.courseId}    as course_id,
+        ${aiTeacherMessagesTable.courseName}  as course_name,
+        ${aiTeacherMessagesTable.subjectId}   as subject_id,
+        ${aiTeacherMessagesTable.subjectName} as subject_name,
+        sum(case when ${aiTeacherMessagesTable.role} = 'user' then 1 else 0 end)      as user_msgs,
+        sum(case when ${aiTeacherMessagesTable.role} = 'assistant' then 1 else 0 end) as asst_msgs,
+        count(*)                              as total_msgs,
+        max(${aiTeacherMessagesTable.createdAt}) as last_at
+      from ${aiTeacherMessagesTable}
+      where ${aiTeacherMessagesTable.createdAt} >= ${since7d}
+        and ${aiTeacherMessagesTable.courseId} is not null
+      group by
+        ${aiTeacherMessagesTable.userId},
+        ${aiTeacherMessagesTable.courseId},
+        ${aiTeacherMessagesTable.courseName},
+        ${aiTeacherMessagesTable.subjectId},
+        ${aiTeacherMessagesTable.subjectName}
     )
-    .groupBy(
-      aiTeacherMessagesTable.courseId,
-      aiTeacherMessagesTable.courseName,
-      aiTeacherMessagesTable.subjectId,
-      aiTeacherMessagesTable.subjectName,
-    )
-    .orderBy(sql`count(*) desc`)
-    .limit(20);
+    select
+      course_id      as "courseId",
+      course_name    as "courseName",
+      subject_id     as "subjectId",
+      subject_name   as "subjectName",
+      sum(total_msgs)::int                                                 as "messageCount",
+      sum(user_msgs)::int                                                  as "userMessages",
+      count(distinct user_id)::int                                         as "distinctUsers",
+      count(*)::int                                                        as "sessionCount",
+      sum(case when user_msgs < 2 or asst_msgs = 0 then 1 else 0 end)::int as "poorSessions",
+      max(last_at)                                                         as "lastAt"
+    from sessions
+    group by course_id, course_name, subject_id, subject_name
+    order by sum(total_msgs) desc
+    limit 20
+  `);
+  const topCourses = topCoursesRaw.rows.map((r) => ({
+    courseId: r.courseId,
+    courseName: r.courseName,
+    subjectId: r.subjectId,
+    subjectName: r.subjectName,
+    messageCount: Number(r.messageCount) || 0,
+    userMessages: Number(r.userMessages) || 0,
+    distinctUsers: Number(r.distinctUsers) || 0,
+    sessionCount: Number(r.sessionCount) || 0,
+    poorSessions: Number(r.poorSessions) || 0,
+    lastAt: r.lastAt,
+  }));
 
   // Recent messages (optionally filtered by course)
   let courseIdNum: number | null = null;
