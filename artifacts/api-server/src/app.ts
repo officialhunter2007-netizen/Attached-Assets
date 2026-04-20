@@ -1,7 +1,9 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import cookieParser from "cookie-parser";
+import path from "node:path";
+import fs from "node:fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
@@ -71,5 +73,28 @@ app.use((_req: any, res: any, next: any) => {
 });
 
 app.use("/api", router);
+
+// In production, also serve the built nukhba frontend so a single deployable
+// service handles both the SPA and the API. The built assets live in
+// artifacts/nukhba/dist/public (relative to the repo root). When the api-server
+// runs from `node artifacts/api-server/dist/index.mjs`, process.cwd() is the
+// repo root, so we resolve from there.
+if (isProd) {
+  const candidates = [
+    path.resolve(process.cwd(), "artifacts/nukhba/dist/public"),
+    path.resolve(process.cwd(), "../nukhba/dist/public"),
+  ];
+  const staticDir = candidates.find((p) => fs.existsSync(path.join(p, "index.html"))) ?? null;
+  if (staticDir) {
+    logger.info({ staticDir }, "Serving nukhba static frontend");
+    app.use(express.static(staticDir, { index: false, maxAge: "1h" }));
+    app.get(/^(?!\/api\/).*/, (_req: Request, res: Response, next: NextFunction) => {
+      const indexFile = path.join(staticDir, "index.html");
+      res.sendFile(indexFile, (err) => { if (err) next(err); });
+    });
+  } else {
+    logger.warn({ candidates }, "nukhba dist/public not found — frontend will not be served");
+  }
+}
 
 export default app;
