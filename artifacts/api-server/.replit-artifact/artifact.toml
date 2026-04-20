@@ -7,13 +7,13 @@ id = "3B4_FFSkEVBkAeYMFRJ2e"
 [[services]]
 localPort = 8080
 name = "API Server"
-paths = ["/"]
+paths = ["/api"]
 
 [services.development]
 run = "pnpm --filter @workspace/api-server run dev"
 
 [services.production]
-build = "pnpm --filter @workspace/nukhba run build && pnpm --filter @workspace/api-server run build"
+build = "pnpm --filter @workspace/api-server run build"
 run = "node --enable-source-maps artifacts/api-server/dist/index.mjs"
 
 [services.production.env]
