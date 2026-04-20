@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { BookOpen, RefreshCw, Loader2, GraduationCap, MessageSquare, Users as UsersIcon, X, AlertTriangle } from "lucide-react";
+import { BookOpen, RefreshCw, Loader2, GraduationCap, MessageSquare, Users as UsersIcon, X, AlertTriangle, Copy, Download, Check } from "lucide-react";
 
 type Course = {
   courseId: number | null;
@@ -418,6 +418,8 @@ function ThreadDrawer({ thread, onClose }: { thread: ThreadKey; onClose: () => v
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<"copy" | "download" | null>(null);
+  const [exportNotice, setExportNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   const loadMore = useCallback(async () => {
@@ -512,6 +514,109 @@ function ThreadDrawer({ thread, onClose }: { thread: ThreadKey; onClose: () => v
   const headerCourse = meta?.course.name ?? thread.courseName ?? (thread.courseKey === "none" ? "بدون مادة جامعية" : `مادة #${thread.courseKey}`);
   const headerSubject = meta?.course.subjectName ?? thread.subjectName;
 
+  const fetchAllMessages = useCallback(async (): Promise<ThreadMsg[]> => {
+    const all: ThreadMsg[] = [...messages];
+    let c = cursor;
+    let cId = cursorId;
+    let more = hasMore;
+    let safetyHops = 0;
+    while (more && safetyHops < 200) {
+      safetyHops++;
+      const params = new URLSearchParams({
+        userId: String(thread.userId),
+        course: thread.courseKey,
+        limit: "200",
+      });
+      if (c) params.set("before", c);
+      if (cId !== null) params.set("beforeId", String(cId));
+      const res = await fetch(`/api/admin/insights/teacher-thread?${params.toString()}`, { credentials: "include" });
+      if (!res.ok) throw new Error("fetch failed");
+      const json = (await res.json()) as ThreadResponse;
+      all.push(...json.messages);
+      c = json.nextCursor;
+      cId = json.nextCursorId;
+      more = json.hasMore;
+    }
+    // Dedupe by id and sort chronologically (oldest first)
+    const byId = new Map<number, ThreadMsg>();
+    for (const m of all) byId.set(m.id, m);
+    return [...byId.values()].sort((a, b) => {
+      const ta = new Date(a.createdAt).getTime();
+      const tb = new Date(b.createdAt).getTime();
+      if (ta !== tb) return ta - tb;
+      return a.id - b.id;
+    });
+  }, [messages, cursor, cursorId, hasMore, thread.userId, thread.courseKey]);
+
+  const buildExport = useCallback((all: ThreadMsg[]): { content: string; filename: string } => {
+    const studentName = meta?.user.name ?? thread.userName ?? null;
+    const studentEmail = meta?.user.email ?? thread.userEmail ?? null;
+    const courseName = meta?.course.name ?? thread.courseName ?? (thread.courseKey === "none" ? "بدون مادة جامعية" : `مادة #${thread.courseKey}`);
+    const subjectName = meta?.course.subjectName ?? thread.subjectName ?? null;
+    const headerLines = [
+      `# محادثة المعلم الذكي`,
+      ``,
+      `- الطالب: ${studentName ?? "—"}${studentEmail ? ` <${studentEmail}>` : ""}`,
+      `- معرّف الطالب: ${thread.userId}`,
+      `- المادة: ${courseName}`,
+    ];
+    if (subjectName) headerLines.push(`- التخصص: ${subjectName}`);
+    headerLines.push(`- إجمالي الرسائل: ${all.length}`);
+    headerLines.push(`- تاريخ التصدير: ${new Date().toISOString()}`);
+    headerLines.push(``, `---`, ``);
+    const body = all.map((m) => {
+      const role = m.role === "user" ? "طالب" : "معلم";
+      const ts = new Date(m.createdAt).toISOString();
+      const tags: string[] = [];
+      if (m.isDiagnostic) tags.push("تشخيصي");
+      if (m.stageIndex != null) tags.push(`مرحلة ${m.stageIndex}`);
+      const tagStr = tags.length ? ` _(${tags.join("، ")})_` : "";
+      return `## ${role} — ${ts}${tagStr}\n\n${m.content}\n`;
+    }).join("\n");
+    const datePart = new Date().toISOString().slice(0, 10);
+    const courseSlug = String(courseName)
+      .replace(/[^\p{L}\p{N}]+/gu, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || `course-${thread.courseKey}`;
+    const filename = `student-${thread.userId}-${courseSlug}-${datePart}.md`;
+    return { content: headerLines.join("\n") + body, filename };
+  }, [meta, thread]);
+
+  const handleExport = useCallback(async (mode: "copy" | "download") => {
+    if (exporting) return;
+    setExporting(mode);
+    setExportNotice(null);
+    try {
+      const all = await fetchAllMessages();
+      if (all.length === 0) {
+        setExportNotice({ kind: "err", text: "لا توجد رسائل للتصدير." });
+        setExporting(null);
+        return;
+      }
+      const { content, filename } = buildExport(all);
+      if (mode === "copy") {
+        await navigator.clipboard.writeText(content);
+        setExportNotice({ kind: "ok", text: `تم نسخ ${all.length} رسالة إلى الحافظة.` });
+      } else {
+        const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setExportNotice({ kind: "ok", text: `تم تنزيل ${filename}` });
+      }
+    } catch {
+      setExportNotice({ kind: "err", text: "تعذّر تصدير المحادثة." });
+    } finally {
+      setExporting(null);
+      setTimeout(() => setExportNotice(null), 4000);
+    }
+  }, [exporting, fetchAllMessages, buildExport]);
+
   return (
     <div
       dir="rtl"
@@ -548,15 +653,55 @@ function ThreadDrawer({ thread, onClose }: { thread: ThreadKey; onClose: () => v
               )}
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-white/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg p-1.5"
-            title="إغلاق"
-            aria-label="إغلاق"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => handleExport("copy")}
+              disabled={exporting !== null || messages.length === 0}
+              className="flex items-center gap-1 text-[11px] text-white/75 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-2 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="نسخ كامل المحادثة إلى الحافظة"
+              aria-label="نسخ المحادثة"
+            >
+              {exporting === "copy"
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Copy className="w-3.5 h-3.5" />}
+              نسخ
+            </button>
+            <button
+              onClick={() => handleExport("download")}
+              disabled={exporting !== null || messages.length === 0}
+              className="flex items-center gap-1 text-[11px] text-white/75 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-2 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="تنزيل المحادثة كملف Markdown"
+              aria-label="تنزيل المحادثة"
+            >
+              {exporting === "download"
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Download className="w-3.5 h-3.5" />}
+              تنزيل
+            </button>
+            <button
+              onClick={onClose}
+              className="text-white/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg p-1.5"
+              title="إغلاق"
+              aria-label="إغلاق"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
+
+        {exportNotice && (
+          <div
+            className={`mx-3 mt-3 text-[11px] rounded-lg px-3 py-2 border flex items-center gap-1.5 ${
+              exportNotice.kind === "ok"
+                ? "text-emerald-200 bg-emerald-500/10 border-emerald-400/25"
+                : "text-red-300 bg-red-500/10 border-red-400/20"
+            }`}
+            role="status"
+          >
+            {exportNotice.kind === "ok" && <Check className="w-3.5 h-3.5" />}
+            <span>{exportNotice.text}</span>
+          </div>
+        )}
 
         {error && (
           <div className="m-3 text-xs text-red-300 bg-red-500/10 border border-red-400/20 rounded-lg px-3 py-2">
