@@ -1433,6 +1433,48 @@ function CoursesPanel({
     await reload();
   };
 
+  // Track per-file OCR re-extraction state so we can show a spinner + status
+  // on just the row the student clicked (other files stay interactive).
+  const [ocrFileId, setOcrFileId] = useState<number | null>(null);
+  const [ocrStatus, setOcrStatus] = useState<string>("");
+  const [ocrError, setOcrError] = useState<{ fileId: number; message: string } | null>(null);
+
+  const handleReExtractOcr = async (fileId: number) => {
+    setOcrFileId(fileId);
+    setOcrError(null);
+    setOcrStatus("نُرسِل الملف للمعالجة بالـOCR...");
+    // The OCR call can take 10-60s; advance the status text so the spinner
+    // doesn't feel frozen.
+    const phases = [
+      "نقرأ الصفحات ونتعرّف على الحروف...",
+      "نُعيد بناء النص بترتيبه الأصلي...",
+      "نُكمل الصفحات الأخيرة...",
+    ];
+    let phaseIdx = 0;
+    const tick = setInterval(() => {
+      phaseIdx = (phaseIdx + 1) % phases.length;
+      setOcrStatus(phases[phaseIdx]);
+    }, 4500);
+    try {
+      const r = await fetch(`/api/courses/files/${fileId}/ocr`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        setOcrError({ fileId, message: e.message || "تعذّر إعادة الاستخراج بالـOCR." });
+      } else {
+        await reload();
+      }
+    } catch {
+      setOcrError({ fileId, message: "تعذّر إعادة الاستخراج بالـOCR." });
+    } finally {
+      clearInterval(tick);
+      setOcrFileId(null);
+      setOcrStatus("");
+    }
+  };
+
   const [previewFileId, setPreviewFileId] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewData, setPreviewData] = useState<{ fileName: string; preview: string; totalChars: number; previewChars: number; truncated: boolean } | null>(null);
@@ -1659,6 +1701,46 @@ function CoursesPanel({
                           {suspicious && (
                             <p className="mt-1 text-[10px] leading-snug text-amber-300/90">
                               ⚠️ هذا الملف قد لا يكون مقروءاً بشكل جيد — {qualityHint}
+                            </p>
+                          )}
+                          {suspicious && (
+                            <div className="mt-1.5 flex items-center justify-between gap-2 flex-wrap">
+                              {f.hasOriginal ? (
+                                <button
+                                  onClick={() => handleReExtractOcr(f.id)}
+                                  disabled={ocrFileId !== null}
+                                  className="text-[10px] font-bold px-2 py-1 rounded-md bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/30 text-sky-200 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
+                                  title="إعادة استخراج النص باستخدام تقنية OCR (تعرّف ضوئي على الحروف). قد تستغرق دقيقة."
+                                >
+                                  {ocrFileId === f.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      جارٍ الـOCR...
+                                    </>
+                                  ) : (
+                                    <>🔁 إعادة الاستخراج بالـOCR</>
+                                  )}
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground italic">
+                                  لإعادة الاستخراج بالـOCR، احذف الملف وارفعه من جديد.
+                                </span>
+                              )}
+                              {f.ocrAppliedAt && ocrFileId !== f.id && (
+                                <span className="text-[10px] text-emerald-300/80" title={new Date(f.ocrAppliedAt).toLocaleString("ar-SA")}>
+                                  ✓ سبق تطبيق OCR
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {ocrFileId === f.id && (
+                            <p className="mt-1 text-[10px] leading-snug text-sky-300/90">
+                              {ocrStatus || "جارٍ المعالجة..."}
+                            </p>
+                          )}
+                          {ocrError && ocrError.fileId === f.id && (
+                            <p className="mt-1 text-[10px] leading-snug text-red-300">
+                              {ocrError.message}
                             </p>
                           )}
                         </div>

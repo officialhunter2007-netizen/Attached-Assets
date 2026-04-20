@@ -1,4 +1,10 @@
-import { pgTable, serial, integer, text, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, index, uniqueIndex, customType } from "drizzle-orm/pg-core";
+
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -26,6 +32,8 @@ export const userCourseFilesTable = pgTable("user_course_files", {
   mimeType: text("mime_type").notNull(),
   fileSize: integer("file_size").notNull(),
   extractedText: text("extracted_text").notNull(),
+  originalBytes: bytea("original_bytes"),
+  ocrAppliedAt: timestamp("ocr_applied_at", { withTimezone: true }),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("user_course_files_course_idx").on(t.courseId),

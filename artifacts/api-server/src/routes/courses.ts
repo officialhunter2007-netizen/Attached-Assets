@@ -13,6 +13,8 @@ import {
   userSpecializationCoursesTable,
   userCourseFilesTable,
 } from "@workspace/db";
+import { anthropic } from "@workspace/integrations-anthropic-ai";
+import type { ContentBlockParam, ContentBlock } from "@anthropic-ai/sdk/resources/messages";
 
 const router: IRouter = Router();
 
@@ -167,6 +169,8 @@ router.get("/courses", async (req, res): Promise<void> => {
     uploadedAt: Date;
     extractedChars: number;
     qualitySample: string;
+    hasOriginal: boolean;
+    ocrAppliedAt: Date | null;
   };
   let files: FileRow[] = [];
   if (courseIds.length > 0) {
@@ -180,6 +184,8 @@ router.get("/courses", async (req, res): Promise<void> => {
         uploadedAt: userCourseFilesTable.uploadedAt,
         extractedChars: sql<number>`char_length(${userCourseFilesTable.extractedText})`.as("extractedChars"),
         qualitySample: sql<string>`substring(${userCourseFilesTable.extractedText} from 1 for ${QUALITY_SAMPLE_CHARS})`.as("qualitySample"),
+        hasOriginal: sql<boolean>`${userCourseFilesTable.originalBytes} is not null`.as("hasOriginal"),
+        ocrAppliedAt: userCourseFilesTable.ocrAppliedAt,
       })
       .from(userCourseFilesTable)
       .where(eq(userCourseFilesTable.userId, userId))
@@ -365,6 +371,7 @@ router.post("/courses/:id/files", upload.single("file"), async (req, res): Promi
   // Cap stored text to keep things reasonable
   const clipped = extracted.slice(0, 600_000);
 
+  const isPdfUpload = file.mimetype === "application/pdf" || file.originalname.toLowerCase().endsWith(".pdf");
   const [inserted] = await db
     .insert(userCourseFilesTable)
     .values({
@@ -374,6 +381,10 @@ router.post("/courses/:id/files", upload.single("file"), async (req, res): Promi
       mimeType: file.mimetype,
       fileSize: file.size,
       extractedText: clipped,
+      // Persist the original bytes only for PDFs so students can re-extract
+      // them with OCR later if the cheap text extraction came out garbled.
+      // DOCX files are skipped because OCR doesn't apply to them.
+      originalBytes: isPdfUpload ? file.buffer : null,
     })
     .returning({
       id: userCourseFilesTable.id,
@@ -396,6 +407,148 @@ router.post("/courses/:id/files", upload.single("file"), async (req, res): Promi
       extractedChars: clipped.length,
       quality: q.quality,
       qualityReason: q.reason,
+      hasOriginal: isPdfUpload,
+      ocrAppliedAt: null,
+    },
+  });
+});
+
+// ── Re-extract a file with OCR ──────────────────────────────────────────────
+// When the cheap text extraction comes out garbled (typically a scanned PDF),
+// students can ask the server to redo extraction with an OCR-capable model.
+// We send the original PDF bytes to Claude, which can read scanned PDFs, and
+// replace the stored extracted_text with the result. The endpoint blocks until
+// OCR finishes, which can take 10-60 seconds — the client shows a spinner.
+const OCR_MAX_BYTES = 8 * 1024 * 1024; // Anthropic inline document limit
+router.post("/courses/files/:fileId/ocr", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const fileId = Number(req.params.fileId);
+  if (!Number.isFinite(fileId)) {
+    res.status(400).json({ error: "invalid id" });
+    return;
+  }
+  const [row] = await db
+    .select({
+      id: userCourseFilesTable.id,
+      courseId: userCourseFilesTable.courseId,
+      fileName: userCourseFilesTable.fileName,
+      mimeType: userCourseFilesTable.mimeType,
+      fileSize: userCourseFilesTable.fileSize,
+      uploadedAt: userCourseFilesTable.uploadedAt,
+      originalBytes: userCourseFilesTable.originalBytes,
+    })
+    .from(userCourseFilesTable)
+    .where(and(eq(userCourseFilesTable.id, fileId), eq(userCourseFilesTable.userId, userId)));
+  if (!row) {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  if (!row.originalBytes) {
+    // Older files were stored before we kept the original bytes around.
+    res.status(400).json({
+      error: "ORIGINAL_UNAVAILABLE",
+      message: "هذا الملف رُفع قبل دعم إعادة الاستخراج. يرجى رفعه مرة أخرى ثم استخدام إعادة الاستخراج.",
+    });
+    return;
+  }
+  const rawBytes: Buffer | Uint8Array | string = row.originalBytes;
+  const buffer: Buffer = Buffer.isBuffer(rawBytes)
+    ? rawBytes
+    : typeof rawBytes === "string"
+      ? Buffer.from(rawBytes, "binary")
+      : Buffer.from(rawBytes);
+  if (buffer.length > OCR_MAX_BYTES) {
+    res.status(400).json({
+      error: "FILE_TOO_LARGE_FOR_OCR",
+      message: `حجم الملف أكبر من الحد المسموح به للمعالجة بالـOCR (${Math.floor(OCR_MAX_BYTES / 1024 / 1024)}MB). جرّب تقسيم الملف.`,
+    });
+    return;
+  }
+  const isPdf = row.mimeType === "application/pdf" || row.fileName.toLowerCase().endsWith(".pdf");
+  if (!isPdf) {
+    res.status(400).json({
+      error: "OCR_UNSUPPORTED_TYPE",
+      message: "إعادة الاستخراج بالـOCR متاحة لملفات PDF فقط.",
+    });
+    return;
+  }
+
+  const ocrPromptBlocks: ContentBlockParam[] = [
+    {
+      type: "document",
+      source: {
+        type: "base64",
+        media_type: "application/pdf",
+        data: buffer.toString("base64"),
+      },
+    },
+    {
+      type: "text",
+      text:
+        "أعد كتابة كل النص الموجود في هذا المستند كما هو، باللغة الأصلية (عربية أو إنجليزية)، مع المحافظة على ترتيب الفقرات والعناوين قدر الإمكان. لا تُلخّص ولا تُترجم ولا تُضِف أي شرح أو تعليق — فقط النص المُستخرج بصيغة نصية عادية.",
+    },
+  ];
+
+  let ocrText = "";
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 8192,
+      messages: [{ role: "user", content: ocrPromptBlocks }],
+    });
+    for (const block of response.content as ContentBlock[]) {
+      if (block.type === "text") {
+        ocrText += block.text;
+      }
+    }
+    ocrText = ocrText.trim();
+  } catch (err: unknown) {
+    console.error("OCR failed", err);
+    res.status(502).json({
+      error: "OCR_FAILED",
+      message: "تعذّر إجراء OCR على الملف الآن. يرجى المحاولة مرة أخرى بعد قليل.",
+    });
+    return;
+  }
+
+  if (ocrText.length < MIN_EXTRACTED_CHARS) {
+    res.status(422).json({
+      error: "OCR_INSUFFICIENT_TEXT",
+      message: "لم يتمكن الـOCR من قراءة محتوى مفيد من هذا الملف. تأكد من جودة المسح الضوئي.",
+    });
+    return;
+  }
+
+  const clipped = ocrText.slice(0, 600_000);
+  const now = new Date();
+  await db
+    .update(userCourseFilesTable)
+    .set({ extractedText: clipped, ocrAppliedAt: now })
+    .where(eq(userCourseFilesTable.id, fileId));
+
+  await db
+    .update(userSpecializationCoursesTable)
+    .set({ updatedAt: now })
+    .where(eq(userSpecializationCoursesTable.id, row.courseId));
+
+  const q = computeQuality(clipped.slice(0, QUALITY_SAMPLE_CHARS));
+  res.json({
+    file: {
+      id: row.id,
+      courseId: row.courseId,
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      fileSize: row.fileSize,
+      uploadedAt: row.uploadedAt,
+      extractedChars: clipped.length,
+      quality: q.quality,
+      qualityReason: q.reason,
+      hasOriginal: true,
+      ocrAppliedAt: now,
     },
   });
 });
