@@ -1,0 +1,193 @@
+Skip to content
+Library
+Search
+Apps
+نُخبة - المنصة التعليمية
+نُخبة - المنصة التعليمية
+Website
+Images
+شعار نُخبة
+Image
+6 builds failed
+Your deployment attempt had the following errors:
+No run command is configured to start the application after build completes
+The deployment build completed successfully but the application cannot start without a run command
+Autoscale deployment requires an exposed port and a command to run the server
+Agent suggestions
+Production
+Status
+amr999 published 1 day ago
+Visibility
+Public
+Geography
+North America
+Type
+Autoscale
+(1 vCPU / 0.5 GiB RAM / 1 Max)
+See all usage
+Database
+Production database connected
+Your production database is ready! Your app can now save and manage live user data securely.
+نُخبة - المنصة التعليمية
+learnukhba.replit.app 
+f61221ed
+7amr7ahmed7
+amr999
+published 2 days ago
+d8e872ff
+7amr7ahmed7
+amr999
+published 3 days ago
+c6658dfb
+7amr7ahmed7
+amr999
+published 3 days ago
+53866a3c
+7amr7ahmed7
+amr999
+published 3 days ago
+4e7582d7
+7amr7ahmed7
+amr999
+published 3 days ago
+a5d93b23
+7amr7ahmed7
+amr999
+published 3 days ago
+d13381b0
+7amr7ahmed7
+amr999
+published 3 days ago
+5862a774
+7amr7ahmed7
+amr999
+published 3 days ago
+f9025c57
+7amr7ahmed7
+amr999
+published 3 days ago
+0d3afbe9
+7amr7ahmed7
+amr999
+published 3 days ago
+b9d943c8
+7amr7ahmed7
+amr999
+published 3 days ago
+ebafb010
+7amr7ahmed7
+amr999
+published 3 days ago
+0788fa38
+7amr7ahmed7
+amr999
+published 3 days ago
+44e48dd1
+7amr7ahmed7
+amr999
+published 3 days ago
+6a037821
+7amr7ahmed7
+amr999
+published 3 days ago
+461884aa
+7amr7ahmed7
+amr999
+published 3 days ago
+fd373efd
+7amr7ahmed7
+amr999
+published 3 days ago
+336390da
+7amr7ahmed7
+amr999
+published 4 days ago
+aa039d4a
+7amr7ahmed7
+amr999
+published 4 days ago
+28994de5
+7amr7ahmed7
+amr999
+published 4 days ago
+0fe1e42a
+7amr7ahmed7
+amr999
+published 5 days ago
+a27ee8c0
+7amr7ahmed7
+amr999
+published 5 days ago
+e445222f
+7amr7ahmed7
+amr999
+published 5 days ago
+1689c2db
+7amr7ahmed7
+amr999
+published 5 days ago
+c7d66126
+7amr7ahmed7
+amr999
+published 5 days ago
+51b6ad44
+7amr7ahmed7
+amr999
+published 5 days ago
+810edf9b
+7amr7ahmed7
+amr999
+published 6 days ago
+01bb8025
+7amr7ahmed7
+amr999
+published 6 days ago
+9a0bfe02
+7amr7ahmed7
+amr999
+published 7 days ago
+9342cf7d
+7amr7ahmed7
+amr999
+published 7 days ago
+b316f223
+7amr7ahmed7
+amr999
+published 7 days ago
+7f6c4072
+7amr7ahmed7
+amr999
+published 7 days ago
+7363c81a
+7amr7ahmed7
+amr999
+published 7 days ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Preview
+User sets information manually
+Suggested next tasks
+ has been applied to main. What's next?
+Let admins export a student's full chat with the AI teacher
+Let admins search inside a student's chat history
+Tasks
+Ready for review
+Show how many course-bound chats end in poor sessions
+
+Make, test, iterate…
+
+Plan
