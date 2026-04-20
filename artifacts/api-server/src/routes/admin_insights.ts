@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and, gte, or, ilike } from "drizzle-orm";
+import { eq, desc, sql, and, gte, or, ilike, lt, isNull } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -179,6 +179,126 @@ router.get("/admin/insights/teacher-messages", async (req, res): Promise<any> =>
     filter: { course: courseFilter },
     topCourses,
     messages,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/insights/teacher-thread — full message thread for a single
+// (user, course) pair, with cursor-based pagination going backwards in time.
+// Query params:
+//   userId  (required)  — student id
+//   course  (required)  — numeric courseId, or "none" for messages with no course
+//   before  (optional)  — ISO timestamp; return messages strictly older than this
+//   limit   (optional)  — page size (default 50, max 200)
+// Returns messages newest-first along with a `nextCursor` (oldest createdAt in
+// page) when more rows likely exist.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/insights/teacher-thread", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const userIdNum = Number(req.query.userId);
+  if (!Number.isFinite(userIdNum) || userIdNum <= 0) {
+    return res.status(400).json({ error: "userId required" });
+  }
+
+  const rawCourse = req.query.course;
+  const courseStr = rawCourse !== undefined && rawCourse !== null ? String(rawCourse).trim() : "";
+  if (!courseStr) return res.status(400).json({ error: "course required" });
+
+  let courseCondition;
+  if (courseStr === "none") {
+    courseCondition = isNull(aiTeacherMessagesTable.courseId);
+  } else if (/^\d+$/.test(courseStr)) {
+    courseCondition = eq(aiTeacherMessagesTable.courseId, Number(courseStr));
+  } else {
+    return res.status(400).json({ error: "invalid course" });
+  }
+
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+
+  let beforeDate: Date | null = null;
+  if (req.query.before) {
+    const d = new Date(String(req.query.before));
+    if (Number.isFinite(d.getTime())) beforeDate = d;
+  }
+  const beforeIdRaw = req.query.beforeId !== undefined ? Number(req.query.beforeId) : NaN;
+  const beforeId: number | null = Number.isFinite(beforeIdRaw) && beforeIdRaw > 0 ? beforeIdRaw : null;
+
+  // Composite cursor: rows are ordered by (createdAt desc, id desc), so to
+  // continue strictly past the last seen row we need (createdAt < before) OR
+  // (createdAt = before AND id < beforeId). Falling back to plain `before`
+  // alone keeps backward compatibility for callers that only send `before`.
+  const cursorCondition = beforeDate
+    ? (beforeId !== null
+        ? or(
+            lt(aiTeacherMessagesTable.createdAt, beforeDate),
+            and(eq(aiTeacherMessagesTable.createdAt, beforeDate), lt(aiTeacherMessagesTable.id, beforeId)),
+          )
+        : lt(aiTeacherMessagesTable.createdAt, beforeDate))
+    : undefined;
+
+  const whereClause = and(
+    eq(aiTeacherMessagesTable.userId, userIdNum),
+    courseCondition,
+    cursorCondition,
+  );
+
+  const rows = await db
+    .select({
+      id: aiTeacherMessagesTable.id,
+      userId: aiTeacherMessagesTable.userId,
+      subjectId: aiTeacherMessagesTable.subjectId,
+      subjectName: aiTeacherMessagesTable.subjectName,
+      courseId: aiTeacherMessagesTable.courseId,
+      courseName: aiTeacherMessagesTable.courseName,
+      role: aiTeacherMessagesTable.role,
+      content: aiTeacherMessagesTable.content,
+      isDiagnostic: aiTeacherMessagesTable.isDiagnostic,
+      stageIndex: aiTeacherMessagesTable.stageIndex,
+      createdAt: aiTeacherMessagesTable.createdAt,
+      userName: usersTable.displayName,
+      userEmail: usersTable.email,
+    })
+    .from(aiTeacherMessagesTable)
+    .leftJoin(usersTable, eq(aiTeacherMessagesTable.userId, usersTable.id))
+    .where(whereClause)
+    .orderBy(desc(aiTeacherMessagesTable.createdAt), desc(aiTeacherMessagesTable.id))
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const tail = pageRows.length > 0 ? pageRows[pageRows.length - 1] : null;
+  const nextCursor = hasMore && tail
+    ? new Date(tail.createdAt).toISOString()
+    : null;
+  const nextCursorId = hasMore && tail ? tail.id : null;
+
+  const [totals] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      userMessages: sql<number>`sum(case when ${aiTeacherMessagesTable.role} = 'user' then 1 else 0 end)::int`,
+      firstAt: sql<Date>`min(${aiTeacherMessagesTable.createdAt})`,
+      lastAt: sql<Date>`max(${aiTeacherMessagesTable.createdAt})`,
+    })
+    .from(aiTeacherMessagesTable)
+    .where(and(
+      eq(aiTeacherMessagesTable.userId, userIdNum),
+      courseCondition,
+    ));
+
+  res.json({
+    user: pageRows[0]
+      ? { id: pageRows[0].userId, name: pageRows[0].userName, email: pageRows[0].userEmail }
+      : { id: userIdNum, name: null, email: null },
+    course: pageRows[0]?.courseId != null
+      ? { id: pageRows[0].courseId, name: pageRows[0].courseName, subjectId: pageRows[0].subjectId, subjectName: pageRows[0].subjectName }
+      : { id: null, name: null, subjectId: null, subjectName: null },
+    totals,
+    messages: pageRows,
+    nextCursor,
+    nextCursorId,
+    hasMore,
   });
 });
 
