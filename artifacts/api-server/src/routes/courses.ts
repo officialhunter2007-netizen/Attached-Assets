@@ -38,6 +38,87 @@ function isUniSpec(specializationId: string | undefined): specializationId is st
   return typeof specializationId === "string" && specializationId.startsWith("uni-");
 }
 
+// ── Quality heuristic ───────────────────────────────────────────────────────
+// Cheap, runs on a sample of the extracted text. We classify a file as
+// "suspicious" when the recognized-letter ratio is too low, the average
+// line is unusually short, whitespace dominates, or the text contains the
+// Unicode replacement character (a strong signal of a broken encoding /
+// scanned PDF). Otherwise "good".
+const QUALITY_SAMPLE_CHARS = 8_000;
+
+export type QualityReason =
+  | "ENCODING"
+  | "LOW_LETTERS"
+  | "WHITESPACE"
+  | "SHORT_LINES"
+  | "TOO_SHORT";
+
+export type FileQuality = {
+  quality: "good" | "suspicious";
+  reason: QualityReason | null;
+};
+
+export function computeQuality(sample: string): FileQuality {
+  const text = sample ?? "";
+  if (text.length < 50) {
+    return { quality: "suspicious", reason: "TOO_SHORT" };
+  }
+
+  let letters = 0;
+  let whitespace = 0;
+  let replacement = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    const ch = text[i];
+    if (ch === "\uFFFD") replacement++;
+    // whitespace incl. NBSP
+    if (code === 0x20 || code === 0x09 || code === 0x0a || code === 0x0d || code === 0xa0) {
+      whitespace++;
+      continue;
+    }
+    // Arabic letters block U+0600–U+06FF (excluding digits 0660-0669, 06F0-06F9)
+    if (code >= 0x0600 && code <= 0x06ff) {
+      if (!(code >= 0x0660 && code <= 0x0669) && !(code >= 0x06f0 && code <= 0x06f9)) {
+        letters++;
+      }
+      continue;
+    }
+    // Arabic Supplement / Extended-A
+    if (code >= 0x0750 && code <= 0x077f) { letters++; continue; }
+    if (code >= 0x08a0 && code <= 0x08ff) { letters++; continue; }
+    // Arabic Presentation Forms-A / -B
+    if (code >= 0xfb50 && code <= 0xfdff) { letters++; continue; }
+    if (code >= 0xfe70 && code <= 0xfeff) { letters++; continue; }
+    // Latin letters
+    if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+      letters++;
+      continue;
+    }
+    // Latin-1 supplement letters (À-ÿ minus ×÷)
+    if (code >= 0x00c0 && code <= 0x00ff && code !== 0x00d7 && code !== 0x00f7) {
+      letters++;
+      continue;
+    }
+  }
+
+  const total = text.length;
+  const nonWs = Math.max(1, total - whitespace);
+  const letterRatio = letters / nonWs;
+  const wsRatio = whitespace / total;
+  const replacementRatio = replacement / total;
+
+  // Average non-empty line length
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const avgLineLen = lines.length > 0 ? lines.reduce((a, l) => a + l.length, 0) / lines.length : 0;
+
+  if (replacementRatio > 0.005) return { quality: "suspicious", reason: "ENCODING" };
+  if (letterRatio < 0.55) return { quality: "suspicious", reason: "LOW_LETTERS" };
+  if (wsRatio > 0.6) return { quality: "suspicious", reason: "WHITESPACE" };
+  if (avgLineLen < 6 && lines.length > 20) return { quality: "suspicious", reason: "SHORT_LINES" };
+
+  return { quality: "good", reason: null };
+}
+
 async function extractText(buffer: Buffer, mime: string, name: string): Promise<string> {
   const lower = name.toLowerCase();
   if (mime === "application/pdf" || lower.endsWith(".pdf")) {
@@ -77,7 +158,17 @@ router.get("/courses", async (req, res): Promise<void> => {
     .orderBy(asc(userSpecializationCoursesTable.createdAt));
 
   const courseIds = courses.map((c) => c.id);
-  let files: any[] = [];
+  type FileRow = {
+    id: number;
+    courseId: number;
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    uploadedAt: Date;
+    extractedChars: number;
+    qualitySample: string;
+  };
+  let files: FileRow[] = [];
   if (courseIds.length > 0) {
     files = await db
       .select({
@@ -88,6 +179,7 @@ router.get("/courses", async (req, res): Promise<void> => {
         fileSize: userCourseFilesTable.fileSize,
         uploadedAt: userCourseFilesTable.uploadedAt,
         extractedChars: sql<number>`char_length(${userCourseFilesTable.extractedText})`.as("extractedChars"),
+        qualitySample: sql<string>`substring(${userCourseFilesTable.extractedText} from 1 for ${QUALITY_SAMPLE_CHARS})`.as("qualitySample"),
       })
       .from(userCourseFilesTable)
       .where(eq(userCourseFilesTable.userId, userId))
@@ -96,7 +188,9 @@ router.get("/courses", async (req, res): Promise<void> => {
 
   const filesByCourse: Record<number, any[]> = {};
   for (const f of files) {
-    (filesByCourse[f.courseId] ||= []).push(f);
+    const { qualitySample, ...rest } = f;
+    const q = computeQuality(qualitySample ?? "");
+    (filesByCourse[f.courseId] ||= []).push({ ...rest, quality: q.quality, qualityReason: q.reason });
   }
 
   res.json({
@@ -295,7 +389,15 @@ router.post("/courses/:id/files", upload.single("file"), async (req, res): Promi
     .set({ updatedAt: new Date() })
     .where(eq(userSpecializationCoursesTable.id, id));
 
-  res.json({ file: inserted });
+  const q = computeQuality(clipped.slice(0, QUALITY_SAMPLE_CHARS));
+  res.json({
+    file: {
+      ...inserted,
+      extractedChars: clipped.length,
+      quality: q.quality,
+      qualityReason: q.reason,
+    },
+  });
 });
 
 // ── Preview extracted text of a file (first ~2000 chars) ────────────────────

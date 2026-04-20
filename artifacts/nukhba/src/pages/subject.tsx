@@ -1578,10 +1578,45 @@ function CoursesPanel({
                       const usedChars = clipped ? perFileCap : chars;
                       const pct = perFileCap > 0 ? Math.min(100, Math.round((usedChars / perFileCap) * 100)) : 0;
                       const fmt = (n: number) => n.toLocaleString("ar-EG");
+                      const suspicious = f.quality === "suspicious";
+                      const qualityReason: string | null = f.qualityReason ?? null;
+                      const qualityHint = (() => {
+                        switch (qualityReason) {
+                          case "ENCODING":
+                            return "النص يبدو مشوّش الترميز — ربما الملف ممسوح ضوئياً أو محمي. جرّب نسخة نصية.";
+                          case "LOW_LETTERS":
+                            return "نسبة الحروف المقروءة منخفضة — ربما الملف صور لا نص. جرّب نسخة نصية.";
+                          case "WHITESPACE":
+                            return "الملف يحتوي فراغات كثيرة وقليل من النص — تحقّق من المعاينة وأعد الرفع إذا لزم.";
+                          case "SHORT_LINES":
+                            return "الأسطر قصيرة جداً — قد يكون الاستخراج مكسوراً. جرّب نسخة أوضح.";
+                          case "TOO_SHORT":
+                            return "النص المستخرج قصير جداً — تأكد من سلامة الملف.";
+                          default:
+                            return "ربما الملف ممسوح ضوئياً، جرّب نسخة نصية.";
+                        }
+                      })();
                       return (
                         <div key={f.id} className="bg-black/20 rounded-lg px-2 py-1.5">
                           <div className="flex items-center justify-between gap-2 text-xs">
-                            <span className="truncate">📄 {f.fileName}</span>
+                            <span className="truncate flex items-center gap-1.5">
+                              📄 {f.fileName}
+                              {suspicious ? (
+                                <span
+                                  className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[10px] font-bold"
+                                  title="جودة الاستخراج مشكوك فيها"
+                                >
+                                  ⚠️ جودة منخفضة
+                                </span>
+                              ) : (
+                                <span
+                                  className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-400/20 text-emerald-300/90 text-[10px] font-bold"
+                                  title="النص المستخرج يبدو سليماً"
+                                >
+                                  ✓ جيد
+                                </span>
+                              )}
+                            </span>
                             <div className="flex items-center gap-2 shrink-0">
                               <button
                                 onClick={() => openPreview(f.id)}
@@ -1619,6 +1654,11 @@ function CoursesPanel({
                           ) : (
                             <p className="mt-1 text-[10px] leading-snug text-emerald-300/80">
                               ✓ المعلّم يقرأ كامل الملف.
+                            </p>
+                          )}
+                          {suspicious && (
+                            <p className="mt-1 text-[10px] leading-snug text-amber-300/90">
+                              ⚠️ هذا الملف قد لا يكون مقروءاً بشكل جيد — {qualityHint}
                             </p>
                           )}
                         </div>
