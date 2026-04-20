@@ -12,6 +12,7 @@ import {
   db,
   userSpecializationCoursesTable,
   userCourseFilesTable,
+  fileQualityEventsTable,
 } from "@workspace/db";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import type { ContentBlockParam, ContentBlock } from "@anthropic-ai/sdk/resources/messages";
@@ -55,15 +56,28 @@ export type QualityReason =
   | "SHORT_LINES"
   | "TOO_SHORT";
 
+export type QualityMetrics = {
+  letterRatio: number;
+  wsRatio: number;
+  replacementRatio: number;
+  avgLineLen: number;
+  sampleChars: number;
+};
+
 export type FileQuality = {
   quality: "good" | "suspicious";
   reason: QualityReason | null;
+  metrics: QualityMetrics;
 };
 
 export function computeQuality(sample: string): FileQuality {
   const text = sample ?? "";
   if (text.length < 50) {
-    return { quality: "suspicious", reason: "TOO_SHORT" };
+    return {
+      quality: "suspicious",
+      reason: "TOO_SHORT",
+      metrics: { letterRatio: 0, wsRatio: 0, replacementRatio: 0, avgLineLen: 0, sampleChars: text.length },
+    };
   }
 
   let letters = 0;
@@ -113,12 +127,58 @@ export function computeQuality(sample: string): FileQuality {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   const avgLineLen = lines.length > 0 ? lines.reduce((a, l) => a + l.length, 0) / lines.length : 0;
 
-  if (replacementRatio > 0.005) return { quality: "suspicious", reason: "ENCODING" };
-  if (letterRatio < 0.55) return { quality: "suspicious", reason: "LOW_LETTERS" };
-  if (wsRatio > 0.6) return { quality: "suspicious", reason: "WHITESPACE" };
-  if (avgLineLen < 6 && lines.length > 20) return { quality: "suspicious", reason: "SHORT_LINES" };
+  const metrics: QualityMetrics = {
+    letterRatio,
+    wsRatio,
+    replacementRatio,
+    avgLineLen,
+    sampleChars: total,
+  };
 
-  return { quality: "good", reason: null };
+  if (replacementRatio > 0.005) return { quality: "suspicious", reason: "ENCODING", metrics };
+  if (letterRatio < 0.55) return { quality: "suspicious", reason: "LOW_LETTERS", metrics };
+  if (wsRatio > 0.6) return { quality: "suspicious", reason: "WHITESPACE", metrics };
+  if (avgLineLen < 6 && lines.length > 20) return { quality: "suspicious", reason: "SHORT_LINES", metrics };
+
+  return { quality: "good", reason: null, metrics };
+}
+
+// Persist a quality verdict for later threshold tuning. Best-effort: any
+// failure is logged and swallowed so it never blocks an upload.
+async function recordQualityEvent(args: {
+  source: "upload" | "ocr";
+  fileId: number | null;
+  courseId: number | null;
+  userId: number | null;
+  q: FileQuality;
+}): Promise<void> {
+  const { source, fileId, courseId, userId, q } = args;
+  // Structured log line so admins (or the daily log scrape) can see counts
+  // even before the DB rollup view is built. Keep on a single line.
+  console.log(
+    `[file-quality] source=${source} fileId=${fileId ?? "-"} courseId=${courseId ?? "-"} userId=${userId ?? "-"} ` +
+    `quality=${q.quality} reason=${q.reason ?? "-"} ` +
+    `letterRatio=${q.metrics.letterRatio.toFixed(3)} wsRatio=${q.metrics.wsRatio.toFixed(3)} ` +
+    `replacementRatio=${q.metrics.replacementRatio.toFixed(4)} avgLineLen=${q.metrics.avgLineLen.toFixed(1)} ` +
+    `sampleChars=${q.metrics.sampleChars}`
+  );
+  try {
+    await db.insert(fileQualityEventsTable).values({
+      source,
+      fileId,
+      courseId,
+      userId,
+      quality: q.quality,
+      qualityReason: q.reason,
+      letterRatio: q.metrics.letterRatio,
+      wsRatio: q.metrics.wsRatio,
+      replacementRatio: q.metrics.replacementRatio,
+      avgLineLen: q.metrics.avgLineLen,
+      sampleChars: q.metrics.sampleChars,
+    });
+  } catch (err: any) {
+    console.error("[file-quality] insert error:", err?.message || err);
+  }
 }
 
 async function extractText(buffer: Buffer, mime: string, name: string): Promise<string> {
@@ -401,6 +461,13 @@ router.post("/courses/:id/files", upload.single("file"), async (req, res): Promi
     .where(eq(userSpecializationCoursesTable.id, id));
 
   const q = computeQuality(clipped.slice(0, QUALITY_SAMPLE_CHARS));
+  await recordQualityEvent({
+    source: "upload",
+    fileId: inserted.id,
+    courseId: id,
+    userId,
+    q,
+  });
   res.json({
     file: {
       ...inserted,
@@ -536,6 +603,13 @@ router.post("/courses/files/:fileId/ocr", async (req, res): Promise<void> => {
     .where(eq(userSpecializationCoursesTable.id, row.courseId));
 
   const q = computeQuality(clipped.slice(0, QUALITY_SAMPLE_CHARS));
+  await recordQualityEvent({
+    source: "ocr",
+    fileId: row.id,
+    courseId: row.courseId,
+    userId,
+    q,
+  });
   res.json({
     file: {
       id: row.id,

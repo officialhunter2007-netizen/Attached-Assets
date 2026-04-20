@@ -9,6 +9,7 @@ import {
   labReportsTable,
   subscriptionRequestsTable,
   aiTeacherMessagesTable,
+  fileQualityEventsTable,
 } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -339,6 +340,101 @@ router.get("/admin/insights/teacher-thread", async (req, res): Promise<any> => {
     nextCursor,
     nextCursorId,
     hasMore,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/insights/file-quality — aggregate counts of the upload
+// quality-heuristic verdicts so we can tell whether the thresholds in
+// computeQuality fire too often (or not enough) on real traffic.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/insights/file-quality", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const now = new Date();
+  const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  type WindowRow = {
+    source: string;
+    quality: string;
+    qualityReason: string | null;
+    count: number;
+    avgLetterRatio: number | null;
+    avgWsRatio: number | null;
+    avgReplacementRatio: number | null;
+    avgLineLen: number | null;
+  };
+
+  async function loadWindow(since: Date): Promise<WindowRow[]> {
+    const rows = await db
+      .select({
+        source: fileQualityEventsTable.source,
+        quality: fileQualityEventsTable.quality,
+        qualityReason: fileQualityEventsTable.qualityReason,
+        count: sql<number>`count(*)::int`,
+        avgLetterRatio: sql<number>`avg(${fileQualityEventsTable.letterRatio})::float8`,
+        avgWsRatio: sql<number>`avg(${fileQualityEventsTable.wsRatio})::float8`,
+        avgReplacementRatio: sql<number>`avg(${fileQualityEventsTable.replacementRatio})::float8`,
+        avgLineLen: sql<number>`avg(${fileQualityEventsTable.avgLineLen})::float8`,
+      })
+      .from(fileQualityEventsTable)
+      .where(gte(fileQualityEventsTable.createdAt, since))
+      .groupBy(
+        fileQualityEventsTable.source,
+        fileQualityEventsTable.quality,
+        fileQualityEventsTable.qualityReason,
+      );
+    return rows as WindowRow[];
+  }
+
+  const [rows7d, rows30d] = await Promise.all([loadWindow(since7d), loadWindow(since30d)]);
+
+  function summarize(rows: WindowRow[]) {
+    const total = rows.reduce((a, r) => a + (Number(r.count) || 0), 0);
+    const good = rows.filter((r) => r.quality === "good").reduce((a, r) => a + Number(r.count), 0);
+    const suspicious = total - good;
+    const byReason: Record<string, number> = {};
+    for (const r of rows) {
+      if (r.quality !== "suspicious" || !r.qualityReason) continue;
+      byReason[r.qualityReason] = (byReason[r.qualityReason] ?? 0) + Number(r.count);
+    }
+    const bySource: Record<string, { total: number; suspicious: number }> = {};
+    for (const r of rows) {
+      const slot = (bySource[r.source] ||= { total: 0, suspicious: 0 });
+      slot.total += Number(r.count);
+      if (r.quality === "suspicious") slot.suspicious += Number(r.count);
+    }
+    return { total, good, suspicious, byReason, bySource };
+  }
+
+  // Recent raw events for an "is the heuristic still misfiring?" spot-check.
+  const recent = await db
+    .select({
+      id: fileQualityEventsTable.id,
+      fileId: fileQualityEventsTable.fileId,
+      courseId: fileQualityEventsTable.courseId,
+      userId: fileQualityEventsTable.userId,
+      source: fileQualityEventsTable.source,
+      quality: fileQualityEventsTable.quality,
+      qualityReason: fileQualityEventsTable.qualityReason,
+      letterRatio: fileQualityEventsTable.letterRatio,
+      wsRatio: fileQualityEventsTable.wsRatio,
+      replacementRatio: fileQualityEventsTable.replacementRatio,
+      avgLineLen: fileQualityEventsTable.avgLineLen,
+      sampleChars: fileQualityEventsTable.sampleChars,
+      createdAt: fileQualityEventsTable.createdAt,
+    })
+    .from(fileQualityEventsTable)
+    .orderBy(desc(fileQualityEventsTable.createdAt))
+    .limit(50);
+
+  res.json({
+    generatedAt: now.toISOString(),
+    last7d: { ...summarize(rows7d), rows: rows7d },
+    last30d: { ...summarize(rows30d), rows: rows30d },
+    recent,
   });
 });
 

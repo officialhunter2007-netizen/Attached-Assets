@@ -9,3 +9,4 @@ export * from "./lab_reports";
 export * from "./activity_events";
 export * from "./ai_teacher_messages";
 export * from "./specialization_courses";
+export * from "./file_quality_events";

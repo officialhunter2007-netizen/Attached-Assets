@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { AdminInsightsChat } from "@/components/admin-insights-chat";
 import { AdminTeacherMessagesPanel } from "@/components/admin-teacher-messages-panel";
+import AdminFileQualityPanel from "@/components/admin-file-quality-panel";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -1210,6 +1211,7 @@ export default function Admin() {
           <TabsContent value="ai-insights">
             <div className="space-y-6">
               <AdminTeacherMessagesPanel />
+              <AdminFileQualityPanel />
               <AdminInsightsChat />
             </div>
           </TabsContent>
