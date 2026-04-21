@@ -1,6 +1,6 @@
-# نُخبة — Nukhba Educational Platform
+# نُخبة — Nukhba Educational Platform....
 
-## Overview
+## Ove99rview
 
 AI-powered Yemeni educational platform with personalized learning paths, gamification, paywall, and an admin panel. RTL Arabic UI.
 
