@@ -79,6 +79,13 @@ export default function RatioAnalysisTab({ onShare }: { onShare: (data: string) 
         </button>
       </div>
 
+      {totalAssets === 0 && revenue === 0 && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-center">
+          <p className="text-xs text-white/60 mb-1">لا توجد أرصدة لاحتساب النسب</p>
+          <p className="text-[10px] text-white/40">ارجع لتبويب «القيود» وسجّل عمليات (أو حمّل بيانات تجريبية) لترى النسب الحقيقية.</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 text-center">
           <p className="text-[9px] text-blue-300 mb-1">إجمالي الأصول</p>

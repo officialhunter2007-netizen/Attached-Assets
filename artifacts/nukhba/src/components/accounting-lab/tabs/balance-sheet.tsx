@@ -43,6 +43,13 @@ export default function BalanceSheetTab({ onShare }: { onShare: (data: string) =
         </button>
       </div>
 
+      {assets.length === 0 && liabilities.length === 0 && equity.length === 0 && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-center">
+          <p className="text-xs text-white/60 mb-1">لا توجد أرصدة بعد لعرض الميزانية</p>
+          <p className="text-[10px] text-white/40">سجّل قيود يومية ورحّلها من تبويب «القيود»، أو استخدم زر «تحميل بيانات تجريبية» في الأعلى لترى مثالاً جاهزاً.</p>
+        </div>
+      )}
+
       <div className={`rounded-xl border-2 ${isBalanced ? "border-emerald-500/20" : "border-red-500/20"} bg-white/[0.02] overflow-hidden`}>
         <div className="bg-gradient-to-l from-blue-500/10 to-purple-500/10 px-4 py-3 border-b border-white/10">
           <h4 className="text-xs font-bold text-white text-center">الميزانية العمومية (قائمة المركز المالي)</h4>

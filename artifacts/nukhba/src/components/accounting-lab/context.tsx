@@ -68,6 +68,8 @@ export interface LabState {
   logs: string[];
   getAccountBalance: (code: string) => number;
   postEntryToTAccounts: (entry: LabJournalEntry) => void;
+  loadDemoData: () => void;
+  resetLab: () => void;
 }
 
 const LabContext = createContext<LabState | null>(null);
@@ -118,6 +120,86 @@ export function LabProvider({ children }: { children: ReactNode }) {
     auditLog(`ترحيل قيد #${entry.id} إلى حسابات T`);
   }, [auditLog]);
 
+  const loadDemoData = useCallback(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const demo: LabJournalEntry[] = [
+      {
+        id: Date.now(),
+        date: today,
+        description: "بيع بضاعة نقداً",
+        lines: [
+          { accountCode: "101", accountName: "الصندوق (النقدية)", debit: 80000, credit: 0 },
+          { accountCode: "401", accountName: "إيرادات المبيعات", debit: 0, credit: 80000 },
+        ],
+        isPosted: false,
+      },
+      {
+        id: Date.now() + 1,
+        date: today,
+        description: "تكلفة البضاعة المباعة",
+        lines: [
+          { accountCode: "501", accountName: "تكلفة البضاعة المباعة", debit: 35000, credit: 0 },
+          { accountCode: "104", accountName: "المخزون", debit: 0, credit: 35000 },
+        ],
+        isPosted: false,
+      },
+      {
+        id: Date.now() + 2,
+        date: today,
+        description: "دفع رواتب الموظفين",
+        lines: [
+          { accountCode: "502", accountName: "مصروف الرواتب", debit: 18000, credit: 0 },
+          { accountCode: "102", accountName: "البنك", debit: 0, credit: 18000 },
+        ],
+        isPosted: false,
+      },
+      {
+        id: Date.now() + 3,
+        date: today,
+        description: "دفع إيجار الشهر",
+        lines: [
+          { accountCode: "503", accountName: "مصروف الإيجار", debit: 7000, credit: 0 },
+          { accountCode: "102", accountName: "البنك", debit: 0, credit: 7000 },
+        ],
+        isPosted: false,
+      },
+      {
+        id: Date.now() + 4,
+        date: today,
+        description: "تقديم خدمات بالأجل",
+        lines: [
+          { accountCode: "103", accountName: "المدينون", debit: 25000, credit: 0 },
+          { accountCode: "402", accountName: "إيرادات خدمات", debit: 0, credit: 25000 },
+        ],
+        isPosted: false,
+      },
+    ];
+    // Apply directly: post each demo entry to T accounts and mark as posted.
+    setTAccounts(prev => {
+      const next = prev.map(a => ({ ...a, debits: [...a.debits], credits: [...a.credits] }));
+      for (const entry of demo) {
+        for (const line of entry.lines) {
+          const acc = next.find(a => a.code === line.accountCode);
+          if (!acc) continue;
+          if (line.debit > 0) acc.debits.push({ amount: line.debit, desc: entry.description });
+          if (line.credit > 0) acc.credits.push({ amount: line.credit, desc: entry.description });
+        }
+      }
+      return next;
+    });
+    setEntries(prev => [...prev, ...demo.map(e => ({ ...e, isPosted: true }))]);
+    auditLog(`تحميل بيانات تجريبية: ${demo.length} قيود مُرحّلة`);
+  }, [auditLog]);
+
+  const resetLab = useCallback(() => {
+    setTAccounts(DEFAULT_ACCOUNTS);
+    setEntries([]);
+    setBankItems(DEFAULT_BANK_ITEMS);
+    setAdjustingEntries([]);
+    setCycleSteps(DEFAULT_CYCLE_STEPS);
+    auditLog("إعادة تعيين المختبر");
+  }, [auditLog]);
+
   return (
     <LabContext.Provider value={{
       tAccounts, setTAccounts,
@@ -128,6 +210,7 @@ export function LabProvider({ children }: { children: ReactNode }) {
       cycleSteps, setCycleSteps,
       auditLog, logs,
       getAccountBalance, postEntryToTAccounts,
+      loadDemoData, resetLab,
     }}>
       {children}
     </LabContext.Provider>
