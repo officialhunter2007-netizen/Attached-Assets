@@ -1,13 +1,33 @@
 import { useLabContext } from "../context";
-import { ArrowLeftRight, CheckCircle2, Circle, ArrowDown } from "lucide-react";
+import { ArrowLeftRight, CheckCircle2, Circle, ArrowDown, ExternalLink } from "lucide-react";
+import type { LabTab } from "../types";
 
-export default function AccountingCycleTab({ onShare }: { onShare: (data: string) => void }) {
+const STEP_TARGET: Record<number, { tab: LabTab; cta: string; explainer: string }> = {
+  1: { tab: "equation", cta: "افتح المعادلة المحاسبية", explainer: "حدّد أثر العملية على الأصول/الخصوم/حقوق الملكية قبل تسجيلها." },
+  2: { tab: "journal", cta: "افتح دفتر القيود", explainer: "سجّل العملية كقيد متوازن (مدين = دائن)." },
+  3: { tab: "t-accounts", cta: "افتح حسابات T", explainer: "رحّل القيود من اليومية إلى حسابات الأستاذ على شكل T." },
+  4: { tab: "t-accounts", cta: "افتح ميزان المراجعة", explainer: "تأكد أن مجموع المدين = مجموع الدائن قبل التسوية." },
+  5: { tab: "adjusting", cta: "افتح قيود التسوية", explainer: "أضف الاستحقاقات والتأجيلات والاستهلاك في نهاية الفترة." },
+  6: { tab: "t-accounts", cta: "افتح ميزان المراجعة المعدّل", explainer: "تحقّق من التوازن بعد التسويات." },
+  7: { tab: "income-statement", cta: "افتح القوائم المالية", explainer: "اعرض قائمة الدخل والميزانية للفترة." },
+  8: { tab: "adjusting", cta: "افتح قيود الإقفال", explainer: "أقفل حسابات الإيرادات والمصروفات في حقوق الملكية." },
+  9: { tab: "t-accounts", cta: "افتح ميزان ما بعد الإقفال", explainer: "تأكد أن الحسابات المؤقتة أُقفلت وأن الدائمة فقط هي المتبقية." },
+};
+
+export default function AccountingCycleTab({ onShare, onJumpTo }: { onShare: (data: string) => void; onJumpTo?: (tab: string) => void }) {
   const { cycleSteps, setCycleSteps, auditLog } = useLabContext();
 
   const toggleStep = (id: number) => {
     setCycleSteps(cycleSteps.map(s => s.id === id ? { ...s, isComplete: !s.isComplete } : s));
     const step = cycleSteps.find(s => s.id === id);
     if (step) auditLog(`${step.isComplete ? "إلغاء" : "إكمال"} خطوة: ${step.name}`);
+  };
+
+  const jumpToStep = (id: number) => {
+    const target = STEP_TARGET[id];
+    if (!target || !onJumpTo) return;
+    auditLog(`الانتقال إلى أداة الخطوة: ${cycleSteps.find(s => s.id === id)?.name || ""}`);
+    onJumpTo(target.tab);
   };
 
   const completedCount = cycleSteps.filter(s => s.isComplete).length;
@@ -58,6 +78,7 @@ export default function AccountingCycleTab({ onShare }: { onShare: (data: string
             emerald: "border-emerald-500/20 bg-emerald-500/5",
           };
           const textMap: Record<string, string> = { blue: "text-blue-400", amber: "text-amber-400", emerald: "text-emerald-400" };
+          const target = STEP_TARGET[step.id];
           return (
             <div key={step.id}>
               {showPhaseHeader && (
@@ -65,22 +86,33 @@ export default function AccountingCycleTab({ onShare }: { onShare: (data: string
                   <span className={textMap[phase?.color || "blue"]}>{phase?.label}</span>
                 </div>
               )}
-              <button onClick={() => toggleStep(step.id)} className={`w-full flex items-start gap-3 p-3 rounded-xl border transition-all text-right ${step.isComplete ? "border-emerald-500/20 bg-emerald-500/5" : "border-white/5 bg-white/[0.02] hover:bg-white/[0.04]"}`}>
-                <div className="mt-0.5">
+              <div className={`flex items-start gap-3 p-3 rounded-xl border transition-all ${step.isComplete ? "border-emerald-500/20 bg-emerald-500/5" : "border-white/5 bg-white/[0.02] hover:bg-white/[0.04]"}`}>
+                <button onClick={() => toggleStep(step.id)} className="mt-0.5 shrink-0" aria-label={step.isComplete ? "إلغاء الإكمال" : "تعليم كمكتمل"}>
                   {step.isComplete ? (
                     <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                   ) : (
-                    <Circle className="w-5 h-5 text-white/20" />
+                    <Circle className="w-5 h-5 text-white/20 hover:text-white/40" />
                   )}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                </button>
+                <div className="flex-1 min-w-0 text-right">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] font-mono text-white/30 bg-white/5 px-1.5 py-0.5 rounded">{step.id}</span>
                     <span className={`text-xs font-bold ${step.isComplete ? "text-emerald-400 line-through" : "text-white"}`}>{step.name}</span>
                   </div>
                   <p className="text-[11px] text-white/50 mt-1">{step.description}</p>
+                  {target && (
+                    <p className="text-[10px] text-white/40 mt-1 leading-relaxed">{target.explainer}</p>
+                  )}
                 </div>
-              </button>
+                {target && onJumpTo && (
+                  <button onClick={() => jumpToStep(step.id)}
+                    className="shrink-0 flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 transition-all">
+                    <ExternalLink className="w-3 h-3" />
+                    <span className="hidden sm:inline">{target.cta}</span>
+                    <span className="sm:hidden">افتح</span>
+                  </button>
+                )}
+              </div>
               {i < cycleSteps.length - 1 && (
                 <div className="flex justify-center py-1">
                   <ArrowDown className="w-3 h-3 text-white/10" />
@@ -92,10 +124,9 @@ export default function AccountingCycleTab({ onShare }: { onShare: (data: string
       </div>
 
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
-        <h4 className="text-xs font-bold text-amber-400 mb-2">💡 نصيحة</h4>
+        <h4 className="text-xs font-bold text-amber-400 mb-2">💡 كيف تستخدم هذه الصفحة؟</h4>
         <p className="text-[11px] text-white/60 leading-relaxed">
-          الدورة المحاسبية هي سلسلة من الخطوات تبدأ بتحليل العمليات وتنتهي بإعداد ميزان المراجعة بعد الإقفال.
-          اضغط على كل خطوة عند إكمالها. يمكنك التنقل بين التبويبات الأخرى (القيود، حسابات T، القوائم المالية) لتنفيذ كل خطوة عملياً.
+          كل خطوة في الدورة المحاسبية مرتبطة بأداة عمل فعلية. اضغط زر «افتح» على يسار الخطوة لتنتقل مباشرة للأداة (مثلاً: «تحليل العمليات» يفتح المعادلة المحاسبية، و«القيود اليومية» يفتح دفتر القيود). علّم الخطوة كمكتملة بالضغط على الدائرة على اليمين بعد إنجازها.
         </p>
       </div>
     </div>

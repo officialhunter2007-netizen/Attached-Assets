@@ -121,7 +121,7 @@ function AccountingLabInner({ onShare, pendingScenario, onClearScenario, subject
       case "equation": return <EquationTab onShare={onShare} />;
       case "t-accounts": return <TAccountsTab onShare={onShare} />;
       case "journal": return <JournalEntriesTab onShare={onShare} />;
-      case "cycle": return <AccountingCycleTab onShare={onShare} />;
+      case "cycle": return <AccountingCycleTab onShare={onShare} onJumpTo={(t) => selectTab(t as LabTab)} />;
       case "income-statement": return <IncomeStatementTab onShare={onShare} />;
       case "balance-sheet": return <BalanceSheetTab onShare={onShare} />;
       case "cash-flow": return <CashFlowTab onShare={onShare} />;
