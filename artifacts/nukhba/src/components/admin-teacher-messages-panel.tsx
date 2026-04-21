@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { BookOpen, RefreshCw, Loader2, GraduationCap, MessageSquare, Users as UsersIcon, X, AlertTriangle, Copy, Download, Check } from "lucide-react";
+import { useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
+import { BookOpen, RefreshCw, Loader2, GraduationCap, MessageSquare, Users as UsersIcon, X, AlertTriangle, Copy, Download, Check, Search } from "lucide-react";
 
 type Course = {
   courseId: number | null;
@@ -394,7 +394,26 @@ type ThreadResponse = {
   nextCursor: string | null;
   nextCursorId: number | null;
   hasMore: boolean;
+  query?: string | null;
+  matchCount?: number | null;
 };
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function highlightMatches(text: string, query: string): ReactNode {
+  if (!query) return text;
+  const re = new RegExp(`(${escapeRegExp(query)})`, "gi");
+  const parts = text.split(re);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <mark key={i} className="bg-amber-300/40 text-white rounded px-0.5">{part}</mark>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+}
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
@@ -420,7 +439,18 @@ function ThreadDrawer({ thread, onClose }: { thread: ThreadKey; onClose: () => v
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"copy" | "download" | null>(null);
   const [exportNotice, setExportNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchCount, setMatchCount] = useState<number | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  // Debounce search input → searchQuery (300ms). Empty string clears search.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setSearchQuery(searchInput.trim());
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
 
   const loadMore = useCallback(async () => {
     setLoading(true);
@@ -433,6 +463,7 @@ function ThreadDrawer({ thread, onClose }: { thread: ThreadKey; onClose: () => v
       });
       if (cursor) params.set("before", cursor);
       if (cursorId !== null) params.set("beforeId", String(cursorId));
+      if (searchQuery) params.set("q", searchQuery);
       const res = await fetch(`/api/admin/insights/teacher-thread?${params.toString()}`, { credentials: "include" });
       if (!res.ok) {
         setError(res.status === 403 ? "هذه البيانات للمشرفين فقط." : "تعذّر تحميل المحادثة.");
@@ -445,21 +476,31 @@ function ThreadDrawer({ thread, onClose }: { thread: ThreadKey; onClose: () => v
       setCursorId(json.nextCursorId);
       setHasMore(json.hasMore);
       setMeta((prev) => prev ?? { user: json.user, course: json.course, totals: json.totals });
+      if (typeof json.matchCount === "number") setMatchCount(json.matchCount);
     } catch {
       setError("تعذّر الاتصال بالخادم.");
     } finally {
       setLoading(false);
     }
-  }, [thread.userId, thread.courseKey, cursor, cursorId]);
+  }, [thread.userId, thread.courseKey, cursor, cursorId, searchQuery]);
 
-  // Initial load
+  // Reset header metadata + clear search whenever the user opens a different
+  // thread, so we don't show stale name/course while the new thread loads.
+  useEffect(() => {
+    setMeta(null);
+    setSearchInput("");
+    setSearchQuery("");
+  }, [thread.userId, thread.courseKey]);
+
+  // Initial load + reload whenever the search query changes. We re-fetch
+  // server-side so partial-page threads still surface every match.
   useEffect(() => {
     setMessages([]);
     setCursor(null);
     setCursorId(null);
     setHasMore(true);
-    setMeta(null);
-    // Trigger fresh load
+    setMatchCount(null);
+    let cancelled = false;
     (async () => {
       setLoading(true);
       setError(null);
@@ -469,25 +510,30 @@ function ThreadDrawer({ thread, onClose }: { thread: ThreadKey; onClose: () => v
           course: thread.courseKey,
           limit: "50",
         });
+        if (searchQuery) params.set("q", searchQuery);
         const res = await fetch(`/api/admin/insights/teacher-thread?${params.toString()}`, { credentials: "include" });
+        if (cancelled) return;
         if (!res.ok) {
           setError(res.status === 403 ? "هذه البيانات للمشرفين فقط." : "تعذّر تحميل المحادثة.");
           setLoading(false);
           return;
         }
         const json = (await res.json()) as ThreadResponse;
+        if (cancelled) return;
         setMessages(json.messages);
         setCursor(json.nextCursor);
         setCursorId(json.nextCursorId);
         setHasMore(json.hasMore);
-        setMeta({ user: json.user, course: json.course, totals: json.totals });
+        setMeta((prev) => prev ?? { user: json.user, course: json.course, totals: json.totals });
+        setMatchCount(typeof json.matchCount === "number" ? json.matchCount : null);
       } catch {
-        setError("تعذّر الاتصال بالخادم.");
+        if (!cancelled) setError("تعذّر الاتصال بالخادم.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [thread.userId, thread.courseKey]);
+    return () => { cancelled = true; };
+  }, [thread.userId, thread.courseKey, searchQuery]);
 
   // Infinite scroll: load more when scrolled near the bottom (older messages)
   useEffect(() => {
@@ -689,6 +735,48 @@ function ThreadDrawer({ thread, onClose }: { thread: ThreadKey; onClose: () => v
           </div>
         </div>
 
+        <div className="px-3 pt-3">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-white/40 absolute top-1/2 -translate-y-1/2 right-2.5 pointer-events-none" />
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="ابحث داخل الرسائل…"
+              className="w-full bg-white/5 border border-white/10 rounded-lg text-[12px] text-white placeholder:text-white/35 pr-8 pl-8 py-1.5 focus:outline-none focus:border-emerald-400/40"
+              aria-label="بحث داخل المحادثة"
+            />
+            {searchInput && (
+              <button
+                onClick={() => setSearchInput("")}
+                className="absolute top-1/2 -translate-y-1/2 left-2 text-white/40 hover:text-white"
+                title="مسح البحث"
+                aria-label="مسح البحث"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {searchQuery && (
+            <div className="mt-1.5 text-[10px] text-white/55 flex items-center gap-2">
+              {loading ? (
+                <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> جاري البحث…</span>
+              ) : matchCount !== null ? (
+                matchCount === 0 ? (
+                  <span className="text-amber-300">لا توجد رسائل تطابق «{searchQuery}»</span>
+                ) : (
+                  <span>
+                    <span className="text-white/85 font-bold">{matchCount}</span> مطابقة لـ «{searchQuery}»
+                    {hasMore && messages.length < matchCount && (
+                      <span className="text-white/40"> — مرّر للأسفل لتحميل الباقي</span>
+                    )}
+                  </span>
+                )
+              ) : null}
+            </div>
+          )}
+        </div>
+
         {exportNotice && (
           <div
             className={`mx-3 mt-3 text-[11px] rounded-lg px-3 py-2 border flex items-center gap-1.5 ${
@@ -745,7 +833,7 @@ function ThreadDrawer({ thread, onClose }: { thread: ThreadKey; onClose: () => v
                 <span className="text-white/40 text-[10px] mr-auto">{formatDateTime(m.createdAt)}</span>
               </div>
               <div className="text-[13px] text-white/90 leading-relaxed whitespace-pre-wrap break-words">
-                {m.content}
+                {searchQuery ? highlightMatches(m.content, searchQuery) : m.content}
               </div>
             </div>
           ))}

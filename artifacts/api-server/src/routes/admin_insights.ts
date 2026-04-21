@@ -258,6 +258,17 @@ router.get("/admin/insights/teacher-thread", async (req, res): Promise<any> => {
 
   const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
 
+  // Optional substring search over message content. We escape LIKE wildcards
+  // (% and _) so the user's input is treated as a literal substring.
+  const qRaw = req.query.q !== undefined && req.query.q !== null ? String(req.query.q) : "";
+  const qTrimmed = qRaw.trim().slice(0, 200);
+  const searchCondition = qTrimmed
+    ? ilike(
+        aiTeacherMessagesTable.content,
+        `%${qTrimmed.replace(/[\\%_]/g, (c) => "\\" + c)}%`,
+      )
+    : undefined;
+
   let beforeDate: Date | null = null;
   if (req.query.before) {
     const d = new Date(String(req.query.before));
@@ -283,6 +294,7 @@ router.get("/admin/insights/teacher-thread", async (req, res): Promise<any> => {
     eq(aiTeacherMessagesTable.userId, userIdNum),
     courseCondition,
     cursorCondition,
+    searchCondition,
   );
 
   const rows = await db
@@ -328,6 +340,21 @@ router.get("/admin/insights/teacher-thread", async (req, res): Promise<any> => {
       courseCondition,
     ));
 
+  // When a search query is active, also return the total number of matches
+  // across the entire thread so the UI can show "X من Y" style counters.
+  let matchCount: number | null = null;
+  if (searchCondition) {
+    const [matchRow] = await db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(aiTeacherMessagesTable)
+      .where(and(
+        eq(aiTeacherMessagesTable.userId, userIdNum),
+        courseCondition,
+        searchCondition,
+      ));
+    matchCount = matchRow?.c ?? 0;
+  }
+
   res.json({
     user: pageRows[0]
       ? { id: pageRows[0].userId, name: pageRows[0].userName, email: pageRows[0].userEmail }
@@ -340,6 +367,8 @@ router.get("/admin/insights/teacher-thread", async (req, res): Promise<any> => {
     nextCursor,
     nextCursorId,
     hasMore,
+    query: qTrimmed || null,
+    matchCount,
   });
 });
 
