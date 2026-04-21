@@ -3,11 +3,12 @@ modules = ["nodejs-24", "python-3.12", "java-graalvm22.3", "postgresql-16"]
 [[artifacts]]
 id = "artifacts/api-server"
 
+[[artifacts]]
+id = "artifacts/mockup-sandbox"
+
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
-build = ["sh", "-c", "pnpm install && pnpm run build:deploy"]
-run = ["sh", "-c", "node artifacts/api-server/dist/index.mjs"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
@@ -15,64 +16,6 @@ env = { "CI" = "true" }
 
 [workflows]
 runButton = "Project"
-
-[[workflows.workflow]]
-name = "artifacts/nukhba: web"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "artifacts/nukhba"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/nukhba run dev"
-cwd = "./artifacts/nukhba"
-waitForPort = 19388
-router = "path"
-
-[workflows.workflow.tasks.env]
-PORT = "19388"
-BASE_PATH = "/"
-
-[[workflows.workflow]]
-name = "artifacts/mockup-sandbox: Component Preview Server"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "XegfDyZt7HqfW2Bb8Ghoy"
-isCanvasWorkflow = true
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/mockup-sandbox run dev"
-cwd = "./artifacts/mockup-sandbox"
-waitForPort = 8081
-
-[workflows.workflow.tasks.env]
-PORT = "8081"
-BASE_PATH = "/__mockup"
-
-[[workflows.workflow]]
-name = "artifacts/api-server: API Server"
-author = "agent"
-mode = "parallel"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "3B4_FFSkEVBkAeYMFRJ2e"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run dev"
-cwd = "./artifacts/api-server"
-waitForPort = 8080
-
-[workflows.workflow.tasks.env]
-PORT = "8080"
 
 [agent]
 stack = "PNPM_WORKSPACE"

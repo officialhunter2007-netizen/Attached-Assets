@@ -11,8 +11,6 @@ export const aiTeacherMessagesTable = pgTable("ai_teacher_messages", {
   content: text("content").notNull(),
   isDiagnostic: integer("is_diagnostic").notNull().default(0),
   stageIndex: integer("stage_index"),
-  courseId: integer("course_id"),
-  courseName: text("course_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("ai_teacher_messages_user_subject_idx").on(t.userId, t.subjectId, t.createdAt),

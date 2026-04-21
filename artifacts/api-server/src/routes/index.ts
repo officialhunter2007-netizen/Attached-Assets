@@ -9,7 +9,6 @@ import summariesRouter from "./summaries";
 import plansRouter from "./plans";
 import supportRouter from "./support";
 import labReportsRouter from "./lab_reports";
-import coursesRouter from "./courses";
 import { adminInsightsRouter } from "./admin_insights";
 
 const router: IRouter = Router();
@@ -24,7 +23,6 @@ router.use(summariesRouter);
 router.use(plansRouter);
 router.use(supportRouter);
 router.use(labReportsRouter);
-router.use(coursesRouter);
 router.use(adminInsightsRouter);
 
 export default router;

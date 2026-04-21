@@ -479,63 +479,6 @@ export default function Subject() {
   const [createEnvError, setCreateEnvError] = useState<string | null>(null);
   const [pendingLabStarter, setPendingLabStarter] = useState<string | null>(null);
   const supportsLabEnv = isCyberSubject || isFoodSubject || isAccountingLabSubject || isYemenSoftSubject;
-
-  // ── University-course mode: gate + selected course (only for uni-* subjects)
-  const isUniSubject = (subject?.id || "").startsWith("uni-");
-  const modeStorageKey = user?.id && subject?.id ? `nukhba::u:${user.id}::subjmode::${subject.id}` : null;
-  const courseStorageKey = user?.id && subject?.id ? `nukhba::u:${user.id}::subjcourse::${subject.id}` : null;
-  const [chatMode, setChatMode] = useState<'personal' | 'course' | null>(() => {
-    if (typeof window === "undefined" || !modeStorageKey) return null;
-    try { const v = localStorage.getItem(modeStorageKey); return v === 'personal' || v === 'course' ? v : null; } catch { return null; }
-  });
-  const [selectedCourse, setSelectedCourse] = useState<{ id: number; courseName: string; emoji: string; fileNames?: string[] } | null>(() => {
-    if (typeof window === "undefined" || !courseStorageKey) return null;
-    try { const raw = localStorage.getItem(courseStorageKey); return raw ? JSON.parse(raw) : null; } catch { return null; }
-  });
-  // ── Server-backed gate decision: only auto-suppress the gate when the user
-  // has either a saved personal plan OR at least one course for this subject.
-  // Otherwise the gate is shown so the user makes a deliberate choice (this
-  // also handles a fresh device where localStorage is empty).
-  const [hasAnyCourses, setHasAnyCourses] = useState<boolean | null>(null);
-  const [hasPersonalPlan, setHasPersonalPlan] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!isUniSubject || !subject?.id || !user?.id) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const [coursesRes, planRes] = await Promise.all([
-          fetch(`/api/courses?specializationId=${encodeURIComponent(subject.id)}`, { credentials: "include" }),
-          fetch(`/api/user-plan?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" }),
-        ]);
-        if (cancelled) return;
-        const cd = await coursesRes.json().catch(() => ({}));
-        const pd = await planRes.json().catch(() => ({}));
-        setHasAnyCourses(Array.isArray(cd?.courses) && cd.courses.length > 0);
-        setHasPersonalPlan(!!pd?.plan?.planHtml);
-      } catch {
-        if (!cancelled) { setHasAnyCourses(false); setHasPersonalPlan(false); }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isUniSubject, subject?.id, user?.id]);
-  // Auto-resolve mode when user already has data on this subject and no
-  // explicit local choice exists. This keeps existing students out of the gate.
-  useEffect(() => {
-    if (!isUniSubject) return;
-    if (chatMode) return;
-    if (hasPersonalPlan === null || hasAnyCourses === null) return;
-    if (hasPersonalPlan && !hasAnyCourses) setChatMode('personal');
-    else if (!hasPersonalPlan && hasAnyCourses) setChatMode('course');
-    // If both or neither, leave gate visible — user must choose.
-  }, [isUniSubject, chatMode, hasPersonalPlan, hasAnyCourses]);
-  useEffect(() => {
-    if (!modeStorageKey) return;
-    try { if (chatMode) localStorage.setItem(modeStorageKey, chatMode); else localStorage.removeItem(modeStorageKey); } catch {}
-  }, [chatMode, modeStorageKey]);
-  useEffect(() => {
-    if (!courseStorageKey) return;
-    try { if (selectedCourse) localStorage.setItem(courseStorageKey, JSON.stringify(selectedCourse)); else localStorage.removeItem(courseStorageKey); } catch {}
-  }, [selectedCourse, courseStorageKey]);
   const { data: lessonViews } = useGetLessonViews();
 
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
@@ -870,31 +813,11 @@ export default function Subject() {
                       <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg shrink-0`}>
                         <span className="text-lg">{subject.emoji}</span>
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-base leading-tight truncate">معلم {subject.name}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                      <div>
+                        <p className="font-bold text-base leading-tight">معلم {subject.name}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                           <p className="text-[11px] text-emerald-400 font-medium">متصل الآن</p>
-                          {isUniSubject && chatMode === 'course' && selectedCourse && (
-                            <button
-                              onClick={() => setSelectedCourse(null)}
-                              title="تغيير المادة"
-                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 transition-colors max-w-[260px] truncate"
-                            >
-                              ملتزم بـ: {(selectedCourse.fileNames && selectedCourse.fileNames.length > 0)
-                                ? selectedCourse.fileNames.join(", ")
-                                : `${selectedCourse.emoji} ${selectedCourse.courseName}`}
-                            </button>
-                          )}
-                          {isUniSubject && chatMode && (
-                            <button
-                              onClick={() => { setChatMode(null); setSelectedCourse(null); }}
-                              title="تبديل وضع الدراسة"
-                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 transition-colors"
-                            >
-                              تبديل الوضع
-                            </button>
-                          )}
                         </div>
                       </div>
                     </>
@@ -956,21 +879,9 @@ export default function Subject() {
               </div>
             </div>
 
-            {isUniSubject && !chatMode ? (
-              <ChatModeGate subject={subject} onChoose={(m) => { setChatMode(m); if (m === 'personal') setSelectedCourse(null); }} />
-            ) : isUniSubject && chatMode === 'course' && !selectedCourse ? (
-              <CoursesPanel
-                subject={subject}
-                onPickCourse={(c) => setSelectedCourse(c)}
-                onBack={() => { setChatMode(null); setSelectedCourse(null); }}
-              />
-            ) : (
             <SubjectPathChat
               subject={subject}
               isFirstSession={!summariesLoading && summaries.length === 0}
-              courseId={isUniSubject && chatMode === 'course' ? selectedCourse?.id ?? null : null}
-              courseName={isUniSubject && chatMode === 'course' ? selectedCourse?.courseName ?? null : null}
-              onExitCourse={() => setSelectedCourse(null)}
               onAccessDenied={() => {
                 setIsChatOpen(false);
                 setLocation(`/subscription?subject=${encodeURIComponent(subject.id)}&subjectName=${encodeURIComponent(subject.name)}`);
@@ -1071,7 +982,6 @@ export default function Subject() {
               }}
               isCreatingCyberEnv={isCreatingCyberEnv}
             />
-            )}
           </div>
         </div>
 
@@ -1262,576 +1172,6 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
   );
 });
 
-// ───────────────────────────────────────────────────────────────────────────
-// Mode gate + courses panel for uni-* subjects
-// ───────────────────────────────────────────────────────────────────────────
-
-function ChatModeGate({
-  subject,
-  onChoose,
-}: {
-  subject: any;
-  onChoose: (mode: 'personal' | 'course') => void;
-}) {
-  return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-      <div className="max-w-2xl mx-auto">
-        <div className="text-center mb-6">
-          <h2 className="text-xl sm:text-2xl font-bold mb-2">كيف تريد أن نتعلم {subject.name}؟</h2>
-          <p className="text-sm text-muted-foreground">اختر الطريقة التي تناسبك. يمكنك التبديل بينهما لاحقاً.</p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button
-            onClick={() => onChoose('personal')}
-            className="text-right rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-4 sm:p-5 transition-all group"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-2xl">🎯</span>
-              <h3 className="font-bold text-base">المسار التعليمي الشخصي</h3>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              معلم خاص يقابلك أولاً ليعرف مستواك وأهدافك، ثم يبني لك خطة دراسية كاملة من الصفر إلى الإتقان.
-            </p>
-          </button>
-          <button
-            onClick={() => onChoose('course')}
-            className="text-right rounded-2xl border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 p-4 sm:p-5 transition-all group"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-2xl">📚</span>
-              <h3 className="font-bold text-base">دراسة مادة جامعية</h3>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              ارفع محاضرات أو مرجع المادة (PDF / DOCX) ليصبح المعلم الذكي ملتزماً بمنهج مادتك بالضبط — لا يُدرّس إلا منها.
-            </p>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CoursesPanel({
-  subject,
-  onPickCourse,
-  onBack,
-}: {
-  subject: any;
-  onPickCourse: (course: { id: number; courseName: string; emoji: string; fileNames: string[] }) => void;
-  onBack: () => void;
-}) {
-  const { user } = useAuth();
-  const [courses, setCourses] = useState<any[]>([]);
-  const [maxCourses, setMaxCourses] = useState(6);
-  const [maxFilesPerCourse, setMaxFilesPerCourse] = useState(2);
-  const [perFileCap, setPerFileCap] = useState(60_000);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newEmoji, setNewEmoji] = useState("📘");
-  const [busyCourseId, setBusyCourseId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [renamingId, setRenamingId] = useState<number | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-
-  const handleRename = async (id: number) => {
-    const name = renameValue.trim();
-    if (!name) { setRenamingId(null); return; }
-    try {
-      await fetch(`/api/courses/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ courseName: name }),
-      });
-    } finally {
-      setRenamingId(null);
-      setRenameValue("");
-      await reload();
-    }
-  };
-
-  const reload = async () => {
-    setLoading(true);
-    try {
-      const r = await fetch(`/api/courses?specializationId=${encodeURIComponent(subject.id)}`, { credentials: "include" });
-      const data = await r.json();
-      setCourses(Array.isArray(data.courses) ? data.courses : []);
-      if (typeof data.maxCourses === "number") setMaxCourses(data.maxCourses);
-      if (typeof data.maxFilesPerCourse === "number") setMaxFilesPerCourse(data.maxFilesPerCourse);
-      if (typeof data.perFileCap === "number") setPerFileCap(data.perFileCap);
-    } catch {
-      setCourses([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-  useEffect(() => { reload(); }, [subject.id, user?.id]);
-
-  const handleCreate = async () => {
-    const name = newName.trim();
-    if (!name) return;
-    setCreating(true);
-    setError(null);
-    try {
-      const r = await fetch(`/api/courses`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ specializationId: subject.id, courseName: name, emoji: newEmoji }),
-      });
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        setError(e.error === "MAX_COURSES_REACHED" ? `وصلت الحد الأقصى (${maxCourses} مواد).` : "تعذّر إنشاء المادة.");
-      } else {
-        setNewName("");
-        setNewEmoji("📘");
-        await reload();
-      }
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    if (!confirm("حذف هذه المادة؟ سيتم حذف الملفات المرفقة أيضاً.")) return;
-    setBusyCourseId(id);
-    try {
-      await fetch(`/api/courses/${id}`, { method: "DELETE", credentials: "include" });
-      await reload();
-    } finally {
-      setBusyCourseId(null);
-    }
-  };
-
-  const handleUpload = async (courseId: number, file: File) => {
-    setBusyCourseId(courseId);
-    setError(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const r = await fetch(`/api/courses/${courseId}/files`, {
-        method: "POST",
-        credentials: "include",
-        body: fd,
-      });
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        setError(e.message || "تعذّر رفع الملف.");
-      } else {
-        await reload();
-      }
-    } catch {
-      setError("تعذّر رفع الملف.");
-    } finally {
-      setBusyCourseId(null);
-    }
-  };
-
-  const handleDeleteFile = async (fileId: number) => {
-    await fetch(`/api/courses/files/${fileId}`, { method: "DELETE", credentials: "include" });
-    await reload();
-  };
-
-  // Track per-file OCR re-extraction state so we can show a spinner + status
-  // on just the row the student clicked (other files stay interactive).
-  const [ocrFileId, setOcrFileId] = useState<number | null>(null);
-  const [ocrStatus, setOcrStatus] = useState<string>("");
-  const [ocrError, setOcrError] = useState<{ fileId: number; message: string } | null>(null);
-
-  const handleReExtractOcr = async (fileId: number) => {
-    setOcrFileId(fileId);
-    setOcrError(null);
-    setOcrStatus("نُرسِل الملف للمعالجة بالـOCR...");
-    // The OCR call can take 10-60s; advance the status text so the spinner
-    // doesn't feel frozen.
-    const phases = [
-      "نقرأ الصفحات ونتعرّف على الحروف...",
-      "نُعيد بناء النص بترتيبه الأصلي...",
-      "نُكمل الصفحات الأخيرة...",
-    ];
-    let phaseIdx = 0;
-    const tick = setInterval(() => {
-      phaseIdx = (phaseIdx + 1) % phases.length;
-      setOcrStatus(phases[phaseIdx]);
-    }, 4500);
-    try {
-      const r = await fetch(`/api/courses/files/${fileId}/ocr`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        setOcrError({ fileId, message: e.message || "تعذّر إعادة الاستخراج بالـOCR." });
-      } else {
-        await reload();
-      }
-    } catch {
-      setOcrError({ fileId, message: "تعذّر إعادة الاستخراج بالـOCR." });
-    } finally {
-      clearInterval(tick);
-      setOcrFileId(null);
-      setOcrStatus("");
-    }
-  };
-
-  const [previewFileId, setPreviewFileId] = useState<number | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewData, setPreviewData] = useState<{ fileName: string; preview: string; totalChars: number; previewChars: number; truncated: boolean } | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-
-  const openPreview = async (fileId: number) => {
-    setPreviewFileId(fileId);
-    setPreviewLoading(true);
-    setPreviewError(null);
-    setPreviewData(null);
-    try {
-      const r = await fetch(`/api/courses/files/${fileId}/preview`, { credentials: "include" });
-      if (!r.ok) {
-        setPreviewError("تعذّر تحميل المعاينة.");
-      } else {
-        const data = await r.json();
-        setPreviewData(data);
-      }
-    } catch {
-      setPreviewError("تعذّر تحميل المعاينة.");
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  const closePreview = () => {
-    setPreviewFileId(null);
-    setPreviewData(null);
-    setPreviewError(null);
-  };
-
-  return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-lg sm:text-xl font-bold">📚 مواد {subject.name}</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">حد أقصى {maxCourses} مواد، وحتى {maxFilesPerCourse} ملف لكل مادة (PDF / DOCX، حتى 10MB).</p>
-          </div>
-          <button onClick={onBack} className="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10">
-            تغيير الوضع
-          </button>
-        </div>
-
-        {error && (
-          <div className="mb-3 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-            {error}
-          </div>
-        )}
-
-        {/* Add new course */}
-        {courses.length < maxCourses && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 mb-4">
-            <p className="text-xs text-muted-foreground mb-2">➕ إضافة مادة جديدة</p>
-            <div className="flex flex-wrap gap-2">
-              <input
-                type="text"
-                value={newEmoji}
-                onChange={(e) => setNewEmoji(e.target.value.slice(0, 4) || "📘")}
-                className="w-14 text-center bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-base"
-                placeholder="📘"
-              />
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="اسم المادة (مثال: تحليل عددي 2)"
-                className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
-                onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-              />
-              <button
-                onClick={handleCreate}
-                disabled={creating || !newName.trim()}
-                className="px-4 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-sm font-bold disabled:opacity-50"
-              >
-                {creating ? "..." : "إضافة"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Courses list */}
-        {loading ? (
-          <div className="text-center text-sm text-muted-foreground py-8">جارٍ التحميل...</div>
-        ) : courses.length === 0 ? (
-          <div className="text-center text-sm text-muted-foreground py-8 border border-dashed border-white/10 rounded-2xl">
-            لا توجد مواد بعد. أضف مادتك الأولى من الأعلى ثم ارفع ملفاتها.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {courses.map((c: any) => {
-              const filesCount = (c.files || []).length;
-              const canUpload = filesCount < maxFilesPerCourse;
-              const canStart = filesCount > 0;
-              return (
-                <div key={c.id} className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="text-2xl shrink-0">{c.emoji || "📘"}</span>
-                      {renamingId === c.id ? (
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onBlur={() => handleRename(c.id)}
-                          onKeyDown={(e) => { if (e.key === "Enter") handleRename(c.id); if (e.key === "Escape") { setRenamingId(null); setRenameValue(""); } }}
-                          className="flex-1 bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-sm font-bold"
-                        />
-                      ) : (
-                        <h3 className="font-bold text-sm sm:text-base truncate">{c.courseName}</h3>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={() => canStart && onPickCourse({ id: c.id, courseName: c.courseName, emoji: c.emoji || "📘", fileNames: (c.files || []).map((f: any) => f.fileName) })}
-                        disabled={!canStart}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={canStart ? "" : "ارفع ملفاً واحداً على الأقل لبدء التعلم"}
-                      >
-                        ابدأ
-                      </button>
-                      <button
-                        onClick={() => { setRenamingId(c.id); setRenameValue(c.courseName); }}
-                        className="text-xs px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10"
-                        title="إعادة تسمية"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => handleDelete(c.id)}
-                        className="text-xs px-2 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-300"
-                      >
-                        🗑
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Files */}
-                  <div className="space-y-1.5 mb-2">
-                    {(c.files || []).map((f: any) => {
-                      const chars = typeof f.extractedChars === "number" ? f.extractedChars : 0;
-                      const clipped = chars > perFileCap;
-                      const usedChars = clipped ? perFileCap : chars;
-                      const pct = perFileCap > 0 ? Math.min(100, Math.round((usedChars / perFileCap) * 100)) : 0;
-                      const fmt = (n: number) => n.toLocaleString("ar-EG");
-                      const suspicious = f.quality === "suspicious";
-                      const qualityReason: string | null = f.qualityReason ?? null;
-                      const qualityHint = (() => {
-                        switch (qualityReason) {
-                          case "ENCODING":
-                            return "النص يبدو مشوّش الترميز — ربما الملف ممسوح ضوئياً أو محمي. جرّب نسخة نصية.";
-                          case "LOW_LETTERS":
-                            return "نسبة الحروف المقروءة منخفضة — ربما الملف صور لا نص. جرّب نسخة نصية.";
-                          case "WHITESPACE":
-                            return "الملف يحتوي فراغات كثيرة وقليل من النص — تحقّق من المعاينة وأعد الرفع إذا لزم.";
-                          case "SHORT_LINES":
-                            return "الأسطر قصيرة جداً — قد يكون الاستخراج مكسوراً. جرّب نسخة أوضح.";
-                          case "TOO_SHORT":
-                            return "النص المستخرج قصير جداً — تأكد من سلامة الملف.";
-                          default:
-                            return "ربما الملف ممسوح ضوئياً، جرّب نسخة نصية.";
-                        }
-                      })();
-                      return (
-                        <div key={f.id} className="bg-black/20 rounded-lg px-2 py-1.5">
-                          <div className="flex items-center justify-between gap-2 text-xs">
-                            <span className="truncate flex items-center gap-1.5">
-                              📄 {f.fileName}
-                              {suspicious ? (
-                                <span
-                                  className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[10px] font-bold"
-                                  title="جودة الاستخراج مشكوك فيها"
-                                >
-                                  ⚠️ جودة منخفضة
-                                </span>
-                              ) : (
-                                <span
-                                  className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-400/20 text-emerald-300/90 text-[10px] font-bold"
-                                  title="النص المستخرج يبدو سليماً"
-                                >
-                                  ✓ جيد
-                                </span>
-                              )}
-                            </span>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <button
-                                onClick={() => openPreview(f.id)}
-                                className="text-sky-300/80 hover:text-sky-300"
-                                title="معاينة النص المستخرج"
-                              >
-                                👁️ معاينة
-                              </button>
-                              <button
-                                onClick={() => handleDeleteFile(f.id)}
-                                className="text-red-300/80 hover:text-red-300"
-                                title="حذف الملف"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                          <div className="mt-1.5 flex items-center gap-2">
-                            <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
-                              <div
-                                className={`h-full ${clipped ? "bg-amber-400/80" : "bg-emerald-400/70"}`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                            <span className={`text-[10px] tabular-nums shrink-0 ${clipped ? "text-amber-300" : "text-muted-foreground"}`}>
-                              {clipped
-                                ? `${fmt(perFileCap)} / ${fmt(chars)} حرف`
-                                : `${fmt(chars)} / ${fmt(perFileCap)} حرف`}
-                            </span>
-                          </div>
-                          {clipped ? (
-                            <p className="mt-1 text-[10px] leading-snug text-amber-300/90">
-                              ⚠️ هذا الملف أطول من سعة المعلّم. لن يقرأ سوى أول {fmt(perFileCap)} حرف ({Math.round((perFileCap / chars) * 100)}% من الملف). للحصول على شرح يغطي الفصول المتأخرة، قسّم الملف أو ارفع مقتطفاً أقصر يبدأ من الجزء المطلوب.
-                            </p>
-                          ) : (
-                            <p className="mt-1 text-[10px] leading-snug text-emerald-300/80">
-                              ✓ المعلّم يقرأ كامل الملف.
-                            </p>
-                          )}
-                          {suspicious && (
-                            <p className="mt-1 text-[10px] leading-snug text-amber-300/90">
-                              ⚠️ هذا الملف قد لا يكون مقروءاً بشكل جيد — {qualityHint}
-                            </p>
-                          )}
-                          {suspicious && (
-                            <div className="mt-1.5 flex items-center justify-between gap-2 flex-wrap">
-                              {f.hasOriginal ? (
-                                <button
-                                  onClick={() => handleReExtractOcr(f.id)}
-                                  disabled={ocrFileId !== null}
-                                  className="text-[10px] font-bold px-2 py-1 rounded-md bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/30 text-sky-200 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
-                                  title="إعادة استخراج النص باستخدام تقنية OCR (تعرّف ضوئي على الحروف). قد تستغرق دقيقة."
-                                >
-                                  {ocrFileId === f.id ? (
-                                    <>
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                      جارٍ الـOCR...
-                                    </>
-                                  ) : (
-                                    <>🔁 إعادة الاستخراج بالـOCR</>
-                                  )}
-                                </button>
-                              ) : (
-                                <span className="text-[10px] text-muted-foreground italic">
-                                  لإعادة الاستخراج بالـOCR، احذف الملف وارفعه من جديد.
-                                </span>
-                              )}
-                              {f.ocrAppliedAt && ocrFileId !== f.id && (
-                                <span className="text-[10px] text-emerald-300/80" title={new Date(f.ocrAppliedAt).toLocaleString("ar-SA")}>
-                                  ✓ سبق تطبيق OCR
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          {ocrFileId === f.id && (
-                            <p className="mt-1 text-[10px] leading-snug text-sky-300/90">
-                              {ocrStatus || "جارٍ المعالجة..."}
-                            </p>
-                          )}
-                          {ocrError && ocrError.fileId === f.id && (
-                            <p className="mt-1 text-[10px] leading-snug text-red-300">
-                              {ocrError.message}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {filesCount === 0 && (
-                      <p className="text-[11px] text-muted-foreground italic">لا توجد ملفات بعد — ارفع المحاضرات أو المرجع لتبدأ.</p>
-                    )}
-                  </div>
-
-                  <label className={`block text-xs ${canUpload ? "cursor-pointer" : "opacity-50 cursor-not-allowed"}`}>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      disabled={!canUpload || busyCourseId === c.id}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) handleUpload(c.id, f);
-                        e.target.value = "";
-                      }}
-                    />
-                    <span className={`inline-block px-3 py-1.5 rounded-lg border border-dashed border-white/15 ${canUpload ? "hover:bg-white/5" : ""}`}>
-                      {busyCourseId === c.id ? "جارٍ الرفع..." : (canUpload ? `📎 رفع ملف (${filesCount}/${maxFilesPerCourse})` : `وصلت حد الملفات (${maxFilesPerCourse}/${maxFilesPerCourse})`)}
-                    </span>
-                  </label>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {previewFileId !== null && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={closePreview}
-        >
-          <div
-            className="bg-zinc-900 border border-white/10 rounded-xl max-w-2xl w-full max-h-[80vh] flex flex-col shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-            dir="rtl"
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold truncate">
-                  👁️ معاينة النص المستخرج{previewData?.fileName ? ` — ${previewData.fileName}` : ""}
-                </h3>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  أول جزء من النص الذي قرأه النظام من ملفك. تحقّق منه للتأكد من جودة الاستخراج.
-                </p>
-              </div>
-              <button
-                onClick={closePreview}
-                className="text-muted-foreground hover:text-white shrink-0 px-2"
-                title="إغلاق"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              {previewLoading && (
-                <p className="text-sm text-muted-foreground">جارٍ تحميل المعاينة...</p>
-              )}
-              {previewError && (
-                <p className="text-sm text-red-300">{previewError}</p>
-              )}
-              {previewData && (
-                <>
-                  <div className="text-[11px] text-muted-foreground mb-2 tabular-nums">
-                    عرض {previewData.previewChars.toLocaleString("ar-EG")} حرف من أصل {previewData.totalChars.toLocaleString("ar-EG")} حرف
-                    {previewData.truncated ? " (مقتطف)" : ""}
-                  </div>
-                  <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed bg-black/30 rounded-lg p-3 font-sans">
-                    {previewData.preview || "(لا يوجد نص)"}
-                  </pre>
-                  {previewData.truncated && (
-                    <p className="mt-2 text-[11px] text-amber-300/90">
-                      ⚠️ هذه فقط بداية الملف. إذا بدا النص مشوّهاً أو غير مفهوم، فالأفضل إعادة الرفع بنسخة أوضح.
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function SubjectPathChat({ 
   subject,
   isFirstSession,
@@ -1898,21 +1238,12 @@ function SubjectPathChat({
   supportsLabEnv?: boolean;
   onCreateLabEnv?: (description: string) => void;
   isCreatingCyberEnv?: boolean;
-  courseId?: number | null;
-  courseName?: string | null;
-  onExitCourse?: () => void;
 }) {
   const { user } = useAuth();
-  // Course mode binds the entire chat to ONE university course.
-  const isCourseMode = !!courseId;
   // SECURITY: scope chat history by user.id so accounts on the same browser
   // never see each other's messages. If user is not yet loaded, we start
   // empty and only persist once we have a verified user.
-  const CHAT_STORAGE_KEY = user?.id
-    ? (isCourseMode
-        ? `nukhba::u:${user.id}::chat::${subject.id}::course::${courseId}`
-        : `nukhba::u:${user.id}::chat::${subject.id}`)
-    : null;
+  const CHAT_STORAGE_KEY = user?.id ? `nukhba::u:${user.id}::chat::${subject.id}` : null;
   const loadInitialChat = (): { messages: ChatMessage[]; currentStage: number } => {
     if (!CHAT_STORAGE_KEY) return { messages: [], currentStage: 0 };
     try {
@@ -1938,11 +1269,7 @@ function SubjectPathChat({
   const [summaryError, setSummaryError] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
-  // In course mode the diagnostic phase is always skipped — the AI is bound to
-  // the user's uploaded files for that one course.
-  const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(
-    isCourseMode ? 'teaching' : (isFirstSession ? 'diagnostic' : 'teaching')
-  );
+  const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
   const [customPlan, setCustomPlan] = useState<string | null>(null);
   const [planLoaded, setPlanLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1986,14 +1313,8 @@ function SubjectPathChat({
     }
   }, [sessionComplete, CHAT_STORAGE_KEY]);
 
-  // Fetch persisted plan from DB on mount (skipped in course mode — courses
-  // do NOT use the personal-plan/diagnostic flow at all).
+  // Fetch persisted plan from DB on mount
   useEffect(() => {
-    if (isCourseMode) {
-      setChatPhase('teaching');
-      setPlanLoaded(true);
-      return;
-    }
     async function fetchPlan() {
       try {
         const res = await fetch(`/api/user-plan?subjectId=${encodeURIComponent(subject.id)}`, {
@@ -2017,7 +1338,7 @@ function SubjectPathChat({
       setPlanLoaded(true);
     }
     fetchPlan();
-  }, [subject.id, isCourseMode]);
+  }, [subject.id]);
 
   // Start session once plan fetch is done — use the persisted stage index and phase
   // Both planLoaded and chatPhase are set together in fetchPlan, so chatPhase is
@@ -2097,7 +1418,6 @@ function SubjectPathChat({
           currentStage: usedStage,
           isDiagnosticPhase: diagMode,
           hasCoding: subject.hasCoding,
-          ...(isCourseMode ? { courseId } : {}),
         })
       });
 
