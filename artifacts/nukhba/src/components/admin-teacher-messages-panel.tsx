@@ -47,10 +47,29 @@ type Msg = {
   userEmail: string | null;
 };
 
+type Alert = {
+  courseId: number;
+  courseName: string | null;
+  subjectName: string | null;
+  sessionCount: number;
+  poorSessions: number;
+  distinctUsers: number;
+  ratio: number;
+  lastAt: string | null;
+};
+
+type AlertThresholds = {
+  minSessions: number;
+  ratioThreshold: number;
+  windowDays: number;
+};
+
 type ApiResponse = {
   topCourses: Course[];
   messages: Msg[];
   filter: { course: string | null };
+  alerts?: Alert[];
+  alertThresholds?: AlertThresholds;
 };
 
 type FilterValue = "all" | "none" | string; // "all" | "none" | numeric courseId
@@ -172,6 +191,43 @@ export function AdminTeacherMessagesPanel() {
       {error && (
         <div className="text-xs text-red-300 bg-red-500/10 border border-red-400/20 rounded-lg px-3 py-2">
           {error}
+        </div>
+      )}
+
+      {/* Poor-session alerts banner */}
+      {data?.alerts && data.alerts.length > 0 && (
+        <div
+          role="alert"
+          className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2.5"
+        >
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-bold text-rose-100">
+                تنبيه: {data.alerts.length === 1 ? "مادة واحدة" : `${data.alerts.length} مواد`} بنسبة جلسات ضعيفة عالية
+              </div>
+              <div className="text-[10px] text-rose-200/75 mb-1.5">
+                نسبة الجلسات الضعيفة تجاوزت {Math.round((data.alertThresholds?.ratioThreshold ?? 0.5) * 100)}% خلال آخر {data.alertThresholds?.windowDays ?? 7} أيام (الحدّ الأدنى: {data.alertThresholds?.minSessions ?? 10} جلسات). افتح المادة لمراجعة الرسائل.
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {data.alerts.map((a) => {
+                  const pct = Math.round(a.ratio * 100);
+                  return (
+                    <button
+                      key={a.courseId}
+                      onClick={() => setFilter(String(a.courseId))}
+                      className="text-[11px] flex items-center gap-1.5 px-2 py-1 rounded border bg-rose-500/15 border-rose-400/40 text-rose-100 hover:bg-rose-500/25 transition-colors max-w-full"
+                      title={`${a.poorSessions} من ${a.sessionCount} جلسة ضعيفة (${pct}%) — ${a.distinctUsers} طالب`}
+                    >
+                      <BookOpen className="w-3 h-3 shrink-0" />
+                      <span className="truncate max-w-[180px]">{a.courseName ?? `مادة #${a.courseId}`}</span>
+                      <span className="text-rose-200/85 shrink-0">{pct}% ({a.poorSessions}/{a.sessionCount})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

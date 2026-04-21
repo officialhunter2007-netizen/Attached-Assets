@@ -93,6 +93,18 @@ router.get("/admin/activity/recent", async (req, res): Promise<any> => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Poor-session alert thresholds. A course is flagged when, over the same
+// rolling window we use for the widget (7 days), it has at least
+// MIN_SESSIONS_FOR_ALERT sessions AND the poor-session ratio crosses
+// POOR_RATIO_ALERT_THRESHOLD. Tune these in one place.
+// ─────────────────────────────────────────────────────────────────────────────
+const POOR_SESSION_ALERT = {
+  windowDays: 7,
+  minSessions: 10,
+  ratioThreshold: 0.5,
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/insights/teacher-messages — recent AI-teacher messages with
 // course binding, plus a "top courses" aggregate. Supports filtering by course.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +118,7 @@ router.get("/admin/insights/teacher-messages", async (req, res): Promise<any> =>
     ? String(rawCourse).trim()
     : null;
 
-  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const since7d = new Date(Date.now() - POOR_SESSION_ALERT.windowDays * 24 * 60 * 60 * 1000);
 
   // Per-course aggregate (last 7d, only sessions actually bound to a course).
   // A "session" is a (userId, courseId) pair within the window. A session is
@@ -214,12 +226,87 @@ router.get("/admin/insights/teacher-messages", async (req, res): Promise<any> =>
     .orderBy(desc(aiTeacherMessagesTable.createdAt))
     .limit(limit);
 
+  // Build alert list independently from the top-20 widget aggregate so we
+  // don't miss flagged courses that have a high poor ratio but aren't in
+  // the top-20-by-message-count slice. We aggregate sessions per courseId
+  // (deduped across subject rows) directly in SQL and apply the threshold.
+  type AlertRow = {
+    courseId: number;
+    courseName: string | null;
+    subjectName: string | null;
+    sessionCount: number | string;
+    poorSessions: number | string;
+    distinctUsers: number | string;
+    lastAt: Date | string | null;
+  };
+  const alertRowsRaw = await db.execute<AlertRow>(sql`
+    with sessions as (
+      select
+        ${aiTeacherMessagesTable.userId}      as user_id,
+        ${aiTeacherMessagesTable.courseId}    as course_id,
+        sum(case when ${aiTeacherMessagesTable.role} = 'user' then 1 else 0 end)      as user_msgs,
+        sum(case when ${aiTeacherMessagesTable.role} = 'assistant' then 1 else 0 end) as asst_msgs,
+        max(${aiTeacherMessagesTable.createdAt}) as last_at
+      from ${aiTeacherMessagesTable}
+      where ${aiTeacherMessagesTable.createdAt} >= ${since7d}
+        and ${aiTeacherMessagesTable.courseId} is not null
+      group by ${aiTeacherMessagesTable.userId}, ${aiTeacherMessagesTable.courseId}
+    ),
+    course_names as (
+      select distinct on (${aiTeacherMessagesTable.courseId})
+        ${aiTeacherMessagesTable.courseId}    as course_id,
+        ${aiTeacherMessagesTable.courseName}  as course_name,
+        ${aiTeacherMessagesTable.subjectName} as subject_name
+      from ${aiTeacherMessagesTable}
+      where ${aiTeacherMessagesTable.createdAt} >= ${since7d}
+        and ${aiTeacherMessagesTable.courseId} is not null
+        and ${aiTeacherMessagesTable.courseName} is not null
+      order by ${aiTeacherMessagesTable.courseId}, ${aiTeacherMessagesTable.createdAt} desc
+    )
+    select
+      s.course_id                                                          as "courseId",
+      cn.course_name                                                       as "courseName",
+      cn.subject_name                                                      as "subjectName",
+      count(*)::int                                                        as "sessionCount",
+      sum(case when s.user_msgs < 2 or s.asst_msgs = 0 then 1 else 0 end)::int as "poorSessions",
+      count(distinct s.user_id)::int                                       as "distinctUsers",
+      max(s.last_at)                                                       as "lastAt"
+    from sessions s
+    left join course_names cn on cn.course_id = s.course_id
+    group by s.course_id, cn.course_name, cn.subject_name
+    having count(*) >= ${POOR_SESSION_ALERT.minSessions}
+       and sum(case when s.user_msgs < 2 or s.asst_msgs = 0 then 1 else 0 end)::float8
+           / nullif(count(*), 0) >= ${POOR_SESSION_ALERT.ratioThreshold}
+  `);
+  const alerts = alertRowsRaw.rows
+    .map((r) => {
+      const sessionCount = Number(r.sessionCount) || 0;
+      const poorSessions = Number(r.poorSessions) || 0;
+      return {
+        courseId: r.courseId,
+        courseName: r.courseName,
+        subjectName: r.subjectName,
+        sessionCount,
+        poorSessions,
+        distinctUsers: Number(r.distinctUsers) || 0,
+        lastAt: r.lastAt,
+        ratio: sessionCount > 0 ? poorSessions / sessionCount : 0,
+      };
+    })
+    .sort((a, b) => b.ratio - a.ratio || b.poorSessions - a.poorSessions);
+
   res.json({
     generatedAt: new Date().toISOString(),
-    windowDays: 7,
+    windowDays: POOR_SESSION_ALERT.windowDays,
     filter: { course: courseFilter },
     topCourses,
     messages,
+    alerts,
+    alertThresholds: {
+      minSessions: POOR_SESSION_ALERT.minSessions,
+      ratioThreshold: POOR_SESSION_ALERT.ratioThreshold,
+      windowDays: POOR_SESSION_ALERT.windowDays,
+    },
   });
 });
 
