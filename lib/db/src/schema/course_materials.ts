@@ -57,3 +57,21 @@ export const materialChapterProgressTable = pgTable("material_chapter_progress",
 export const insertMaterialChapterProgressSchema = createInsertSchema(materialChapterProgressTable).omit({ id: true, updatedAt: true });
 export type InsertMaterialChapterProgress = z.infer<typeof insertMaterialChapterProgressSchema>;
 export type MaterialChapterProgress = typeof materialChapterProgressTable.$inferSelect;
+
+export const materialChunksTable = pgTable("material_chunks", {
+  id: serial("id").primaryKey(),
+  materialId: integer("material_id").notNull(),
+  userId: integer("user_id").notNull(),
+  subjectId: text("subject_id").notNull(),
+  pageNumber: integer("page_number").notNull(),
+  chunkIndex: integer("chunk_index").notNull().default(0),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("material_chunks_material_idx").on(t.materialId),
+  index("material_chunks_material_page_idx").on(t.materialId, t.pageNumber),
+]);
+
+export const insertMaterialChunkSchema = createInsertSchema(materialChunksTable).omit({ id: true, createdAt: true });
+export type InsertMaterialChunk = z.infer<typeof insertMaterialChunkSchema>;
+export type MaterialChunk = typeof materialChunksTable.$inferSelect;

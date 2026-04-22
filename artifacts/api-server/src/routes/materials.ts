@@ -7,6 +7,7 @@ import {
   userSubjectSubscriptionsTable,
   usersTable,
   materialChapterProgressTable,
+  materialChunksTable,
 } from "@workspace/db";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 
@@ -394,6 +395,11 @@ router.delete("/materials/:id", async (req, res): Promise<any> => {
       eq(materialChapterProgressTable.materialId, id),
     ));
 
+  // Drop the per-page retrieval chunks too — otherwise they pile up forever.
+  await db
+    .delete(materialChunksTable)
+    .where(eq(materialChunksTable.materialId, id));
+
   await db.delete(courseMaterialsTable).where(eq(courseMaterialsTable.id, id));
   res.json({ ok: true });
 });
@@ -440,6 +446,8 @@ async function processMaterial(materialId: number) {
   let pageCount = 0;
   let language = "ar";
   let detectedError: string | null = null;
+  // Per-page text collected during extraction. Index = page number (1-based).
+  const pageTexts: Map<number, string> = new Map();
 
   try {
     // Download PDF buffer from object storage
@@ -447,13 +455,47 @@ async function processMaterial(materialId: number) {
     const file = await svc.getObjectEntityFile(row.objectPath);
     const [buf] = await file.download();
 
-    // 1) Try pdf-parse — also catches encrypted PDFs which throw a known error
+    // 1) Try pdf-parse with a pagerender callback so we capture text per page.
     try {
       const pdfParseMod: any = await import("pdf-parse");
       const pdfParse = pdfParseMod.default || pdfParseMod;
-      const result = await pdfParse(buf);
+      let currentPage = 0;
+      const pagerender = async (pageData: any) => {
+        currentPage += 1;
+        const myPage = currentPage;
+        try {
+          const tc = await pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
+          const items = tc?.items || [];
+          // Reconstruct text — newline when y-coordinate jumps (best-effort).
+          let lastY: number | null = null;
+          const pieces: string[] = [];
+          for (const it of items) {
+            const str = (it?.str ?? "").toString();
+            const y = Array.isArray(it?.transform) ? it.transform[5] : null;
+            if (lastY !== null && y !== null && Math.abs(y - lastY) > 4) pieces.push("\n");
+            pieces.push(str);
+            if (y !== null) lastY = y;
+          }
+          const pageText = pieces.join(" ").replace(/[ \t]+/g, " ").replace(/\n /g, "\n").trim();
+          if (pageText) pageTexts.set(myPage, pageText);
+          return pageText;
+        } catch {
+          return "";
+        }
+      };
+      const result = await pdfParse(buf, { pagerender });
       extractedText = (result?.text || "").trim();
-      pageCount = result?.numpages || 0;
+      pageCount = result?.numpages || pageTexts.size || 0;
+      // If pagerender didn't capture but pdf-parse returned a single text blob,
+      // we'll fall back to splitting by form-feed (\f) which pdf-parse uses
+      // between pages.
+      if (pageTexts.size === 0 && extractedText) {
+        const split = extractedText.split(/\f/);
+        split.forEach((t, idx) => {
+          const trimmed = t.trim();
+          if (trimmed) pageTexts.set(idx + 1, trimmed);
+        });
+      }
     } catch (e: any) {
       const msg = String(e?.message || e);
       console.warn("[materials/process] pdf-parse failed:", msg);
@@ -474,6 +516,13 @@ async function processMaterial(materialId: number) {
         const ocrText = await ocrPdfWithGemini(buf, pageCount || 0);
         if (ocrText.trim().length > extractedText.length) {
           extractedText = ocrText.trim();
+          // OCR output uses "--- صفحة N ---" markers — split into pages.
+          const ocrPages = splitOcrTextIntoPages(extractedText);
+          if (ocrPages.size > 0) {
+            pageTexts.clear();
+            for (const [n, t] of ocrPages.entries()) pageTexts.set(n, t);
+            if (!pageCount || pageCount < pageTexts.size) pageCount = pageTexts.size;
+          }
         }
       } catch (e: any) {
         console.warn("[materials/process] OCR failed:", e?.message || e);
@@ -530,6 +579,195 @@ async function processMaterial(materialId: number) {
       updatedAt: new Date(),
     })
     .where(eq(courseMaterialsTable.id, materialId));
+
+  // 4) Persist per-page chunks for retrieval-based citation answers.
+  if (!detectedError && pageTexts.size > 0) {
+    try {
+      await db.delete(materialChunksTable).where(eq(materialChunksTable.materialId, materialId));
+      const records: { materialId: number; userId: number; subjectId: string; pageNumber: number; chunkIndex: number; content: string }[] = [];
+      for (const [page, text] of Array.from(pageTexts.entries()).sort((a, b) => a[0] - b[0])) {
+        const slices = sliceLongPage(text, 2000);
+        slices.forEach((slice, idx) => {
+          if (slice.trim().length === 0) return;
+          records.push({
+            materialId,
+            userId: row.userId,
+            subjectId: row.subjectId,
+            pageNumber: page,
+            chunkIndex: idx,
+            content: slice,
+          });
+        });
+      }
+      // Insert in batches to keep the parameter count safe.
+      const BATCH = 200;
+      for (let i = 0; i < records.length; i += BATCH) {
+        const batch = records.slice(i, i + BATCH);
+        if (batch.length > 0) await db.insert(materialChunksTable).values(batch);
+      }
+    } catch (e: any) {
+      console.warn("[materials/process] chunk persist failed:", e?.message || e);
+    }
+  }
+}
+
+// Split a single page's text into smaller slices when it is unusually long.
+function sliceLongPage(text: string, maxChars: number): string[] {
+  const t = text.trim();
+  if (t.length <= maxChars) return [t];
+  const out: string[] = [];
+  // Prefer splitting on paragraph/sentence boundaries.
+  const paragraphs = t.split(/\n\s*\n/);
+  let cur = "";
+  for (const p of paragraphs) {
+    if ((cur + "\n\n" + p).length > maxChars && cur) {
+      out.push(cur.trim());
+      cur = p;
+    } else {
+      cur = cur ? cur + "\n\n" + p : p;
+    }
+  }
+  if (cur.trim()) out.push(cur.trim());
+  // Hard-cut anything that's still too large.
+  const final: string[] = [];
+  for (const s of out) {
+    if (s.length <= maxChars) { final.push(s); continue; }
+    for (let i = 0; i < s.length; i += maxChars) final.push(s.slice(i, i + maxChars));
+  }
+  return final;
+}
+
+function splitOcrTextIntoPages(ocrText: string): Map<number, string> {
+  const map = new Map<number, string>();
+  // Match both Arabic ("--- صفحة N ---") and English ("--- Page N ---") markers.
+  const re = /---\s*(?:صفحة|Page|page)\s*(\d+)\s*---/g;
+  let lastIdx = 0;
+  let lastPage: number | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(ocrText)) !== null) {
+    if (lastPage !== null) {
+      const slice = ocrText.slice(lastIdx, m.index).trim();
+      if (slice) map.set(lastPage, slice);
+    }
+    lastPage = parseInt(m[1], 10);
+    lastIdx = re.lastIndex;
+  }
+  if (lastPage !== null) {
+    const slice = ocrText.slice(lastIdx).trim();
+    if (slice) map.set(lastPage, slice);
+  }
+  return map;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Search helper: retrieve the most relevant per-page chunks for a query.
+// Uses Postgres full-text search with the 'simple' configuration (works for
+// both Arabic and English since 'simple' just lowercases without stemming),
+// and falls back to ILIKE keyword matching when FTS finds nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+export type RetrievedChunk = {
+  pageNumber: number;
+  chunkIndex: number;
+  content: string;
+  score: number;
+};
+
+export async function searchMaterialChunks(
+  materialId: number,
+  query: string,
+  limit = 6,
+): Promise<RetrievedChunk[]> {
+  const q = (query || "").trim();
+  if (!q) return [];
+  // Strip control chars and limit length defensively.
+  const cleaned = q.replace(/[\u0000-\u001F]/g, " ").slice(0, 500);
+
+  // Build a tsquery-friendly OR query of significant tokens (>=2 chars,
+  // letters/digits in any unicode script).
+  const tokens = Array.from(new Set(
+    cleaned
+      .split(/[^\p{L}\p{N}]+/u)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2),
+  )).slice(0, 12);
+
+  if (tokens.length === 0) return [];
+
+  // FTS pass — rank by ts_rank.
+  const tsQueryStr = tokens.map((t) => t.replace(/['\\]/g, "")).filter(Boolean).join(" | ");
+  let rows: { pageNumber: number; chunkIndex: number; content: string; score: number }[] = [];
+  if (tsQueryStr) {
+    try {
+      const result = await db.execute(sql`
+        SELECT page_number AS "pageNumber",
+               chunk_index AS "chunkIndex",
+               content,
+               ts_rank(to_tsvector('simple', content), to_tsquery('simple', ${tsQueryStr}))::float AS score
+        FROM material_chunks
+        WHERE material_id = ${materialId}
+          AND to_tsvector('simple', content) @@ to_tsquery('simple', ${tsQueryStr})
+        ORDER BY score DESC, page_number ASC
+        LIMIT ${limit}
+      `);
+      rows = (result.rows as any[]).map((r) => ({
+        pageNumber: Number(r.pageNumber ?? r.page_number),
+        chunkIndex: Number(r.chunkIndex ?? r.chunk_index),
+        content: String(r.content ?? ""),
+        score: Number(r.score ?? 0),
+      }));
+    } catch (e: any) {
+      console.warn("[searchMaterialChunks] FTS failed:", e?.message || e);
+    }
+  }
+
+  // Fallback: ILIKE on raw tokens, score by number of matching tokens.
+  if (rows.length === 0) {
+    try {
+      const likeClauses = tokens.map((t) => `%${t.replace(/[%_\\]/g, " ")}%`);
+      const result = await db.execute(sql`
+        SELECT page_number AS "pageNumber",
+               chunk_index AS "chunkIndex",
+               content,
+               (${sql.join(likeClauses.map((p) => sql`(CASE WHEN content ILIKE ${p} THEN 1 ELSE 0 END)`), sql` + `)})::float AS score
+        FROM material_chunks
+        WHERE material_id = ${materialId}
+          AND (${sql.join(likeClauses.map((p) => sql`content ILIKE ${p}`), sql` OR `)})
+        ORDER BY score DESC, page_number ASC
+        LIMIT ${limit}
+      `);
+      rows = (result.rows as any[]).map((r) => ({
+        pageNumber: Number(r.pageNumber ?? r.page_number),
+        chunkIndex: Number(r.chunkIndex ?? r.chunk_index),
+        content: String(r.content ?? ""),
+        score: Number(r.score ?? 0),
+      }));
+    } catch (e: any) {
+      console.warn("[searchMaterialChunks] ILIKE failed:", e?.message || e);
+    }
+  }
+
+  return rows;
+}
+
+// Fetch the first N pages verbatim — used as a fallback for "open the file"
+// type prompts (greetings, "ابدأ التدريس") where the user hasn't asked a
+// specific question we can search on.
+export async function getMaterialOpeningPages(materialId: number, pages = 3): Promise<RetrievedChunk[]> {
+  const result = await db.execute(sql`
+    SELECT page_number AS "pageNumber",
+           chunk_index AS "chunkIndex",
+           content
+    FROM material_chunks
+    WHERE material_id = ${materialId}
+    ORDER BY page_number ASC, chunk_index ASC
+    LIMIT ${pages * 2}
+  `);
+  return (result.rows as any[]).map((r) => ({
+    pageNumber: Number(r.pageNumber ?? r.page_number),
+    chunkIndex: Number(r.chunkIndex ?? r.chunk_index),
+    content: String(r.content ?? ""),
+    score: 0,
+  }));
 }
 
 async function ocrPdfWithGemini(buf: Buffer, _pageCount: number): Promise<string> {
