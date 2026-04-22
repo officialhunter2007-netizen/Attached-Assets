@@ -2017,9 +2017,9 @@ function SubjectPathChat({
                   }
                 </div>
                 {/* Bubble */}
-                <div style={{ direction: 'rtl' }} className="min-w-0 flex-1">
+                <div style={{ direction: 'rtl' }} className={`min-w-0 ${msg.role === 'user' ? '' : 'flex-1'}`}>
                   {msg.role === 'user' ? (
-                    <div className="mr-auto w-fit max-w-[80%] max-sm:max-w-[calc(100vw-70px)] rounded-2xl rounded-br-none px-3 sm:px-4 py-3 text-[14px] sm:text-[15px] leading-relaxed break-words overflow-hidden"
+                    <div className="w-fit max-w-[80%] max-sm:max-w-[calc(100vw-70px)] rounded-2xl rounded-br-none px-3 sm:px-4 py-3 text-[14px] sm:text-[15px] leading-relaxed break-words overflow-hidden"
                       style={{ background: "linear-gradient(135deg, #1e2235 0%, #191c2a 100%)", border: "1px solid rgba(255,255,255,0.1)", overflowWrap: "anywhere" }}>
                       {msg.content}
                     </div>
