@@ -10,18 +10,22 @@ import { Scene7 } from './video_scenes/Scene7';
 import { Scene8 } from './video_scenes/Scene8';
 import { Scene9 } from './video_scenes/Scene9';
 import { Scene10 } from './video_scenes/Scene10';
+import { Scene11 } from './video_scenes/Scene11';
+import { Scene12 } from './video_scenes/Scene12';
 
-const SCENE_DURATIONS = { 
-  intro: 16000, 
-  problem: 20000, 
-  diagnostic: 24000, 
-  accounting: 34000, 
-  it: 34000, 
-  web: 34000, 
-  professor: 40000, 
-  progress: 28000, 
-  quizzes: 30000, 
-  outro: 20000 
+const SCENE_DURATIONS = {
+  intro: 12000,
+  home: 18000,
+  login: 14000,
+  welcome: 16000,
+  learn: 18000,
+  diagnostic: 20000,
+  professor: 24000,
+  accounting: 24000,
+  cyber: 24000,
+  code: 28000,
+  dashboard: 22000,
+  subscription: 24000,
 };
 
 export default function VideoTemplate() {
@@ -55,15 +59,17 @@ export default function VideoTemplate() {
 
       <AnimatePresence initial={false} mode="wait">
         {currentScene === 0 && <Scene1 key="intro" />}
-        {currentScene === 1 && <Scene2 key="problem" />}
-        {currentScene === 2 && <Scene3 key="diagnostic" />}
-        {currentScene === 3 && <Scene4 key="accounting" />}
-        {currentScene === 4 && <Scene5 key="it" />}
-        {currentScene === 5 && <Scene6 key="web" />}
+        {currentScene === 1 && <Scene2 key="home" />}
+        {currentScene === 2 && <Scene3 key="login" />}
+        {currentScene === 3 && <Scene4 key="welcome" />}
+        {currentScene === 4 && <Scene5 key="learn" />}
+        {currentScene === 5 && <Scene6 key="diagnostic" />}
         {currentScene === 6 && <Scene7 key="professor" />}
-        {currentScene === 7 && <Scene8 key="progress" />}
-        {currentScene === 8 && <Scene9 key="quizzes" />}
-        {currentScene === 9 && <Scene10 key="outro" />}
+        {currentScene === 7 && <Scene8 key="accounting" />}
+        {currentScene === 8 && <Scene9 key="cyber" />}
+        {currentScene === 9 && <Scene10 key="code" />}
+        {currentScene === 10 && <Scene11 key="dashboard" />}
+        {currentScene === 11 && <Scene12 key="subscription" />}
       </AnimatePresence>
     </div>
   );

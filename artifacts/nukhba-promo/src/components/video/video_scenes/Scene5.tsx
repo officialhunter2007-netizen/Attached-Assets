@@ -1,34 +1,108 @@
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
-import { transitionWait, ChatBubble } from '../Shared';
+import { BrowserFrame, AppHeader, MousePointer } from '../Shared';
 
-export function Scene5() {
-  const [phase, setPhase] = useState(0);
-
-  useEffect(() => {
-    const timers = [
-      setTimeout(() => setPhase(1), 1000),
-      setTimeout(() => setPhase(2), 5000),
-      setTimeout(() => setPhase(3), 14000),
-      setTimeout(() => setPhase(4), 22000),
-    ];
-    return () => timers.forEach(t => clearTimeout(t));
-  }, []);
-
+export const Scene5 = () => {
   return (
-    <motion.div className="absolute inset-0 flex flex-col items-center justify-center z-10" {...transitionWait}>
-      <motion.div className="w-[60vw] h-[80vh] bg-slate-900 rounded-[3rem] border-8 border-slate-800 p-8 overflow-hidden relative shadow-2xl flex flex-col justify-end">
-        <div className="absolute top-0 left-0 right-0 bg-slate-800/80 backdrop-blur-md p-6 z-20 text-center border-b border-slate-700">
-          <h2 className="text-2xl font-bold text-white">تكنولوجيا المعلومات (IT)</h2>
-        </div>
+    <motion.div
+      key="scene5"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.5 }}
+      className="w-full h-full flex items-center justify-center relative"
+    >
+      <BrowserFrame url="nukhba.app/learn">
+        <AppHeader />
+        
+        <div className="p-12 w-full h-full flex flex-col">
+          <h1 className="text-4xl font-bold text-white mb-10 text-center">مسارات التعلم</h1>
+          
+          {/* Tabs */}
+          <div className="flex justify-center mb-12">
+            <div className="bg-slate-900/80 p-2 rounded-2xl flex gap-2 border border-slate-700/50">
+              <motion.div 
+                animate={{ backgroundColor: ['#059669', '#1e293b'], color: ['#ffffff', '#94a3b8'] }}
+                transition={{ delay: 2, duration: 0.3 }}
+                className="px-10 py-3 rounded-xl font-bold text-xl"
+              >
+                الجامعي
+              </motion.div>
+              <motion.div 
+                animate={{ backgroundColor: ['transparent', '#2563eb'], color: ['#94a3b8', '#ffffff'] }}
+                transition={{ delay: 2, duration: 0.3 }}
+                className="px-10 py-3 rounded-xl font-bold text-xl"
+              >
+                المهارات
+              </motion.div>
+            </div>
+          </div>
 
-        <div className="w-full flex flex-col justify-end pb-8">
-          <ChatBubble text="ما هي قواعد البيانات العلائقية؟" isStudent={true} delay={1} visible={phase >= 1} />
-          <ChatBubble text="هي نوع من قواعد البيانات يخزن البيانات في جداول مرتبطة ببعضها عبر مفاتيح (Keys) لسهولة الاسترجاع والربط." delay={4} visible={phase >= 2} />
-          <ChatBubble text="مثل MySQL؟ وكيف تعمل المفاتيح الأجنبية؟" isStudent={true} delay={12} visible={phase >= 3} />
-          <ChatBubble text="نعم! المفتاح الأجنبي (Foreign Key) يربط سجل في جدول بمفتاح أساسي (Primary Key) في جدول آخر، مما يضمن تكامل البيانات." delay={16} visible={phase >= 4} />
+          {/* Cards Grid */}
+          <div className="relative flex-1">
+            {/* University Cards */}
+            <motion.div 
+              animate={{ opacity: [1, 0], pointerEvents: ['auto', 'none'] }}
+              transition={{ delay: 2.1, duration: 0.3 }}
+              className="absolute inset-0 grid grid-cols-3 gap-8"
+            >
+              {[
+                { title: 'المحاسبة', emoji: '📊', progress: '30%' },
+                { title: 'تكنولوجيا المعلومات', emoji: '💻', progress: '0%' },
+                { title: 'إدارة الأعمال', emoji: '📈', progress: '15%' },
+                { title: 'الهندسة', emoji: '⚙️', progress: '0%' },
+                { title: 'الإحصاء', emoji: '📉', progress: '0%' },
+              ].map((subject, i) => (
+                <div key={i} className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 flex flex-col items-center justify-center hover:border-amber-500/50 transition-colors">
+                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-400/20 to-amber-600/20 flex items-center justify-center text-4xl mb-6 border border-amber-500/20">
+                    {subject.emoji}
+                  </div>
+                  <h3 className="text-2xl font-bold text-white mb-6">{subject.title}</h3>
+                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: subject.progress }} />
+                  </div>
+                </div>
+              ))}
+            </motion.div>
+
+            {/* Skills Cards */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: [0, 1] }}
+              transition={{ delay: 2.2, duration: 0.4 }}
+              className="absolute inset-0 grid grid-cols-3 gap-8"
+            >
+              {[
+                { title: 'البرمجة', emoji: '🧑‍💻', color: 'blue' },
+                { title: 'تطوير الويب', emoji: '🌐', color: 'blue' },
+                { title: 'الأمن السيبراني', emoji: '🛡️', color: 'red' },
+                { title: 'تحليل البيانات', emoji: '📊', color: 'emerald' },
+                { title: 'تصميم UX', emoji: '🎨', color: 'purple' },
+              ].map((skill, i) => (
+                <motion.div 
+                  key={i} 
+                  whileHover={{ scale: 1.05 }}
+                  animate={i === 1 ? { borderColor: ['#334155', '#f59e0b', '#f59e0b'] } : {}}
+                  transition={{ delay: 4, duration: 0.3 }}
+                  className={`bg-slate-900/60 backdrop-blur-xl border ${i===1?'border-amber-500':'border-slate-700/50'} rounded-2xl p-6 flex flex-col items-center justify-center`}
+                >
+                  <div className={`w-20 h-20 rounded-2xl bg-${skill.color}-500/20 flex items-center justify-center text-4xl mb-6 border border-${skill.color}-500/30`}>
+                    {skill.emoji}
+                  </div>
+                  <h3 className="text-2xl font-bold text-white">{skill.title}</h3>
+                </motion.div>
+              ))}
+            </motion.div>
+          </div>
         </div>
-      </motion.div>
+      </BrowserFrame>
+
+      <MousePointer 
+        animate={{ 
+          x: ["60vw", "48vw", "48vw", "52vw", "52vw"], 
+          y: ["80vh", "33vh", "33vh", "65vh", "65vh"], 
+          scale: [1, 1, 0.8, 1, 0.8] 
+        }} 
+      />
     </motion.div>
   );
-}
+};

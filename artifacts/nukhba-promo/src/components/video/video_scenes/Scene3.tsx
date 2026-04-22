@@ -1,80 +1,73 @@
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
-import { transitionWait } from '../Shared';
+import { MousePointer } from '../Shared';
 
-export function Scene3() {
-  const [phase, setPhase] = useState(0);
-
-  useEffect(() => {
-    const timers = [
-      setTimeout(() => setPhase(1), 1000), // Q1
-      setTimeout(() => setPhase(2), 3000), // Q2
-      setTimeout(() => setPhase(3), 5000), // Q3
-      setTimeout(() => setPhase(4), 7000), // Q4
-      setTimeout(() => setPhase(5), 10000), // Build Path
-      setTimeout(() => setPhase(6), 12000), // Show Path
-    ];
-    return () => timers.forEach(t => clearTimeout(t));
-  }, []);
-
+export const Scene3 = () => {
   return (
-    <motion.div className="absolute inset-0 flex flex-col items-center justify-center z-10" {...transitionWait}>
-      
-      <motion.h2 
-        className="text-[4vw] font-bold text-amber-400 mb-12"
-        initial={{ opacity: 0, y: -20 }}
-        animate={phase >= 1 && phase < 5 ? { opacity: 1, y: 0 } : { opacity: 0, y: -20 }}
-      >
-        تشخيص في ٤ أسئلة
-      </motion.h2>
-
-      <div className="flex gap-4 mb-16 h-20">
-        {[1, 2, 3, 4].map(q => (
-          <motion.div 
-            key={q}
-            className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold ${phase >= q ? 'bg-amber-500 text-white' : 'bg-slate-800 text-slate-500'}`}
-            initial={{ scale: 0 }}
-            animate={phase >= 1 && phase < 5 ? { scale: 1 } : { scale: 0 }}
-            transition={{ delay: 0.2 * q, type: "spring" }}
-          >
-            {q}
-          </motion.div>
-        ))}
-      </div>
-
+    <motion.div
+      key="scene3"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ x: '-100%', opacity: 0 }}
+      transition={{ duration: 0.5 }}
+      className="w-full h-full flex items-center justify-center relative bg-[#0a0b10]"
+    >
       <motion.div 
-        className="w-[80vw] bg-slate-800/80 backdrop-blur rounded-3xl p-12 border border-slate-700"
-        initial={{ opacity: 0, scale: 0.9, y: 50 }}
-        animate={phase >= 5 ? { opacity: 1, scale: 1, y: 0 } : { opacity: 0, scale: 0.9, y: 50 }}
-        transition={{ duration: 1, ease: "easeOut" }}
+        initial={{ y: 50, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.5 }}
+        className="w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-3xl p-10 flex flex-col items-center relative"
       >
-        <h3 className="text-[3vw] text-white font-bold text-center mb-12">مسارك التعليمي المخصص</h3>
-        <div className="flex justify-between items-center relative">
-          <div className="absolute top-1/2 left-10 right-10 h-1 bg-slate-700 -z-10" />
-          <motion.div 
-            className="absolute top-1/2 right-10 h-1 bg-amber-500 -z-10 origin-right"
-            initial={{ scaleX: 0 }}
-            animate={phase >= 6 ? { scaleX: 1 } : { scaleX: 0 }}
-            transition={{ duration: 2, ease: "easeInOut" }}
-          />
-          
-          {['الأساسيات', 'التطبيق', 'الاختبار'].map((stage, i) => (
-            <motion.div 
-              key={stage}
-              className="flex flex-col items-center gap-4 bg-slate-900 p-6 rounded-2xl border border-slate-700 w-1/4"
-              initial={{ opacity: 0, y: 20 }}
-              animate={phase >= 6 ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
-              transition={{ delay: 1 + (i * 0.5) }}
-            >
-              <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(217,119,6,0.5)]">
-                {i + 1}
-              </div>
-              <span className="text-xl font-bold text-slate-300">{stage}</span>
-            </motion.div>
-          ))}
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20 mb-8 -mt-16 border border-white/10">
+          <span className="text-white text-3xl font-bold">ن</span>
         </div>
+
+        <h2 className="text-3xl font-bold text-white mb-3">أهلاً بعودتك</h2>
+        <p className="text-white/60 mb-10 text-center">سجل دخولك لمتابعة رحلة تعلمك</p>
+
+        <motion.div 
+          className="w-full bg-white rounded-xl p-4 flex items-center justify-center gap-4 cursor-pointer relative overflow-hidden"
+          whileHover={{ scale: 1.02 }}
+          animate={{ scale: [1, 1, 0.95, 1], backgroundColor: ['#ffffff', '#ffffff', '#f1f5f9', '#ffffff'] }}
+          transition={{ duration: 0.5, delay: 3, times: [0, 0.8, 0.9, 1] }}
+        >
+          <div className="flex gap-1">
+            <div className="w-3 h-3 bg-red-500 rounded-full"/>
+            <div className="w-3 h-3 bg-yellow-500 rounded-full"/>
+            <div className="w-3 h-3 bg-green-500 rounded-full"/>
+            <div className="w-3 h-3 bg-blue-500 rounded-full"/>
+          </div>
+          <span className="text-slate-800 font-bold text-lg">تسجيل الدخول بـ Google</span>
+        </motion.div>
+
+        <p className="text-white/40 mt-8 text-sm">ليس لديك حساب؟ <span className="text-amber-400 font-bold">سجل الآن</span></p>
+
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 4 }}
+          className="absolute inset-0 bg-emerald-500/90 rounded-3xl flex flex-col items-center justify-center z-10"
+        >
+          <motion.div 
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 4.2, type: 'spring' }}
+            className="w-20 h-20 bg-white rounded-full flex items-center justify-center mb-4"
+          >
+            <svg className="w-10 h-10 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+            </svg>
+          </motion.div>
+          <span className="text-white font-bold text-2xl">تم الدخول بنجاح!</span>
+        </motion.div>
       </motion.div>
 
+      <MousePointer 
+        animate={{ 
+          x: ["50vw", "49vw", "49vw"], 
+          y: ["60vh", "54vh", "54vh"], 
+          scale: [1, 1, 0.8, 1] 
+        }} 
+      />
     </motion.div>
   );
-}
+};

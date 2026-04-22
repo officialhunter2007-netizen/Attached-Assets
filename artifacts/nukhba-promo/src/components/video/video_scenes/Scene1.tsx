@@ -1,51 +1,51 @@
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
-import { transitionWait } from '../Shared';
 
-export function Scene1() {
-  const [phase, setPhase] = useState(0);
-
-  useEffect(() => {
-    const timers = [
-      setTimeout(() => setPhase(1), 1000),
-      setTimeout(() => setPhase(2), 3000),
-      setTimeout(() => setPhase(3), 5000),
-    ];
-    return () => timers.forEach(t => clearTimeout(t));
-  }, []);
-
+export const Scene1 = () => {
   return (
-    <motion.div className="absolute inset-0 flex flex-col items-center justify-center z-10" {...transitionWait}>
-      <motion.div 
-        className="w-48 h-48 rounded-3xl bg-gradient-to-tr from-amber-400 to-amber-600 shadow-[0_0_80px_rgba(217,119,6,0.4)] flex items-center justify-center mb-12"
-        initial={{ scale: 0, rotate: -20, opacity: 0 }}
-        animate={{ scale: 1, rotate: 0, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+    <motion.div
+      key="scene1"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.5 }}
+      className="w-full h-full flex flex-col items-center justify-center relative"
+    >
+      <motion.div
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1, rotate: [0, 10, 0] }}
+        transition={{ type: "spring", damping: 12, stiffness: 100, delay: 0.5 }}
+        className="w-40 h-40 rounded-3xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-[0_0_100px_rgba(245,158,11,0.5)] mb-12"
       >
-        <span className="text-white text-8xl font-black">ن</span>
+        <span className="text-white text-8xl font-bold">ن</span>
       </motion.div>
       
-      <div className="overflow-hidden">
-        <motion.h1 
-          className="text-[8vw] font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-amber-500 leading-tight"
-          initial={{ y: '100%' }}
-          animate={phase >= 1 ? { y: 0 } : { y: '100%' }}
-          transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-        >
-          نُخبة
-        </motion.h1>
-      </div>
+      <motion.h1
+        initial={{ y: 50, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 1.5, duration: 0.8 }}
+        className="text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-500 to-amber-600 mb-8"
+      >
+        نُخبة
+      </motion.h1>
 
-      <div className="overflow-hidden mt-6">
-        <motion.p 
-          className="text-[2.5vw] text-slate-300 font-medium"
-          initial={{ y: '100%', opacity: 0 }}
-          animate={phase >= 2 ? { y: 0, opacity: 1 } : { y: '100%', opacity: 0 }}
-          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 2.5, duration: 1 }}
+        className="text-4xl text-white/80"
+      >
+        تعلّم بطريقة{' '}
+        <motion.span
+          animate={{ 
+            color: ['#ffffff', '#f59e0b', '#f59e0b'],
+            textShadow: ['0 0 0px #000', '0 0 20px #f59e0b', '0 0 10px #f59e0b']
+          }}
+          transition={{ delay: 3.5, duration: 1, ease: "easeOut" }}
+          className="font-bold inline-block"
         >
-          معلّم خاص لكل طالب — في كل لحظة، في كل مادة، بكل لغتك.
-        </motion.p>
-      </div>
+          مختلفة تماماً
+        </motion.span>
+      </motion.div>
     </motion.div>
   );
-}
+};
