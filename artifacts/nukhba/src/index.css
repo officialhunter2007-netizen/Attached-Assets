@@ -375,3 +375,134 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* ----------------------------------------------------------------
+   ✨ Polish animations — global utility classes
+   ---------------------------------------------------------------- */
+
+@keyframes nukhba-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes nukhba-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes nukhba-scale-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes nukhba-slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes nukhba-slide-in-left {
+  from { opacity: 0; transform: translateX(-24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes nukhba-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes nukhba-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+@keyframes nukhba-pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0.45); }
+  70%  { box-shadow: 0 0 0 14px rgba(245,158,11,0); }
+  100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+}
+@keyframes nukhba-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+@keyframes nukhba-bounce-in {
+  0%   { opacity: 0; transform: scale(0.7); }
+  50%  { opacity: 1; transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
+.nk-fade-up        { animation: nukhba-fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.nk-fade-in        { animation: nukhba-fade-in 0.5s ease-out both; }
+.nk-scale-in       { animation: nukhba-scale-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.nk-slide-in-right { animation: nukhba-slide-in-right 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.nk-slide-in-left  { animation: nukhba-slide-in-left 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.nk-bounce-in      { animation: nukhba-bounce-in 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.nk-pulse-ring     { animation: nukhba-pulse-ring 2.2s ease-out infinite; }
+.nk-float          { animation: nukhba-float 3.5s ease-in-out infinite; }
+
+.nk-stagger-1 { animation-delay: 0.05s; }
+.nk-stagger-2 { animation-delay: 0.12s; }
+.nk-stagger-3 { animation-delay: 0.20s; }
+.nk-stagger-4 { animation-delay: 0.28s; }
+.nk-stagger-5 { animation-delay: 0.36s; }
+.nk-stagger-6 { animation-delay: 0.44s; }
+
+/* Hover lift — works on cards, tab buttons, list items */
+.nk-hover-lift {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.28s ease;
+  will-change: transform;
+}
+.nk-hover-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -10px rgba(245, 158, 11, 0.25);
+}
+
+/* Subtle press feedback for any clickable element */
+.nk-press {
+  transition: transform 0.12s ease, filter 0.18s ease;
+}
+.nk-press:active {
+  transform: scale(0.97);
+  filter: brightness(1.05);
+}
+
+/* Animated gradient background for premium banners/CTAs */
+.nk-gradient-flow {
+  background-size: 200% 200%;
+  animation: nukhba-gradient-shift 8s ease infinite;
+}
+
+/* Shimmer skeleton for loading states */
+.nk-shimmer {
+  background: linear-gradient(
+    100deg,
+    rgba(255,255,255,0.04) 30%,
+    rgba(255,255,255,0.12) 50%,
+    rgba(255,255,255,0.04) 70%
+  );
+  background-size: 200% 100%;
+  animation: nukhba-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Glow pulse for "new" / important badges */
+.nk-glow-pulse {
+  position: relative;
+}
+.nk-glow-pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: nukhba-pulse-ring 2.2s ease-out infinite;
+}
+
+/* Smooth icon micro-interaction on hover */
+.nk-icon-spin:hover svg { transform: rotate(8deg) scale(1.08); transition: transform 0.3s ease; }
+.nk-icon-spin svg       { transition: transform 0.3s ease; }
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .nk-fade-up, .nk-fade-in, .nk-scale-in,
+  .nk-slide-in-right, .nk-slide-in-left,
+  .nk-bounce-in, .nk-pulse-ring, .nk-float,
+  .nk-gradient-flow, .nk-shimmer,
+  .nk-glow-pulse::after {
+    animation: none !important;
+  }
+  .nk-hover-lift:hover { transform: none; }
+}

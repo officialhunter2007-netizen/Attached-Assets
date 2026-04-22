@@ -6,7 +6,7 @@ import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
 
-const FREE_LESSON_MESSAGE_LIMIT = 15;
+const FREE_LESSON_MESSAGE_LIMIT = 40;
 
 // Accounts with unlimited free access — no quotas, no daily limits, no counters.
 const UNLIMITED_ACCESS_EMAILS = new Set<string>([
