@@ -63,8 +63,10 @@ async function buildAll() {
       "@aws-sdk/*",
       "@azure/*",
       "@opentelemetry/*",
-      "@google-cloud/*",
-      "@google/*",
+      // NOTE: @google-cloud/storage and google-auth-library are intentionally
+      // bundled (not externalized) so the production deployment doesn't depend
+      // on having them installed in node_modules. They are pure HTTP clients
+      // in v7+ and have no native bindings.
       "googleapis",
       "firebase-admin",
       "@parcel/watcher",
