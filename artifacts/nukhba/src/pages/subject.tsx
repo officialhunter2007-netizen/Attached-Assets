@@ -16,6 +16,8 @@ import AccountingLab from "@/components/accounting-lab/accounting-lab";
 import CyberLab from "@/components/cyber-lab/cyber-lab";
 import { DynamicEnvShell } from "@/components/dynamic-env/dynamic-env-shell";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
+import { CourseMaterialsPanel, TeachingModeChoiceCard } from "@/components/course-materials-panel";
+import { BookOpen } from "lucide-react";
 
 interface LessonSummary {
   id: number;
@@ -1272,6 +1274,11 @@ function SubjectPathChat({
   const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
   const [customPlan, setCustomPlan] = useState<string | null>(null);
   const [planLoaded, setPlanLoaded] = useState(false);
+  // Professor-curriculum mode state
+  const [teachingMode, setTeachingMode] = useState<'unset' | 'custom' | 'professor' | null>(null);
+  const [activeMaterialId, setActiveMaterialId] = useState<number | null>(null);
+  const [activeMaterialStarters, setActiveMaterialStarters] = useState<string | null>(null);
+  const [showSourcesPanel, setShowSourcesPanel] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1339,6 +1346,50 @@ function SubjectPathChat({
     }
     fetchPlan();
   }, [subject.id]);
+
+  // Fetch teaching mode (custom vs professor) for this subject
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchMode() {
+      try {
+        const res = await fetch(`/api/teaching-mode?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" });
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setTeachingMode(data.mode || 'unset');
+          setActiveMaterialId(data.activeMaterialId ?? null);
+        }
+      } catch {
+        if (!cancelled) setTeachingMode('unset');
+      }
+    }
+    fetchMode();
+    return () => { cancelled = true; };
+  }, [subject.id]);
+
+  // When active material changes, fetch its starters for the chip row
+  useEffect(() => {
+    if (!activeMaterialId) { setActiveMaterialStarters(null); return; }
+    let cancelled = false;
+    fetch(`/api/materials/${activeMaterialId}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setActiveMaterialStarters(d.starters || null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeMaterialId]);
+
+  const handleChooseMode = async (mode: 'custom' | 'professor') => {
+    setTeachingMode(mode);
+    try {
+      await fetch("/api/teaching-mode", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subjectId: subject.id, mode }),
+      });
+    } catch {}
+    if (mode === 'professor') setShowSourcesPanel(true);
+  };
+
+  const needsModeChoice = teachingMode === 'unset' && isFirstSession && !customPlan;
 
   // Start session once plan fetch is done — use the persisted stage index and phase
   // Both planLoaded and chatPhase are set together in fetchPlan, so chatPhase is
@@ -1847,6 +1898,43 @@ function SubjectPathChat({
     {/* Chat UI — visible only when no panel is open */}
     <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11", display: chatVisible ? "flex" : "none" }}>
 
+      {/* Mode-choice overlay (first session, before diagnostic) */}
+      {needsModeChoice && planLoaded && (
+        <TeachingModeChoiceCard subjectName={subject.name} onChoose={handleChooseMode} />
+      )}
+
+      {/* Sources panel drawer */}
+      <CourseMaterialsPanel
+        subjectId={subject.id}
+        open={showSourcesPanel}
+        onClose={() => setShowSourcesPanel(false)}
+        activeMaterialId={activeMaterialId}
+        onActiveChange={setActiveMaterialId}
+      />
+
+      {/* Mode/sources mini-bar (visible whenever mode is set) */}
+      {teachingMode && teachingMode !== 'unset' && !needsModeChoice && (
+        <div className="shrink-0 px-3 py-2 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "rgba(245,158,11,0.04)" }}>
+          <div className="flex items-center gap-2 min-w-0" style={{ direction: "rtl" }}>
+            {teachingMode === 'professor' ? (
+              <>
+                <span className="text-[11px] font-bold text-amber-300">📚 منهج الأستاذ</span>
+                <span className="text-[10px] text-white/40 truncate">{activeMaterialId ? "ملف نشط" : "لم تختر ملفاً بعد"}</span>
+              </>
+            ) : (
+              <span className="text-[11px] font-bold text-purple-300">🧭 مسار مخصّص</span>
+            )}
+          </div>
+          <button
+            onClick={() => setShowSourcesPanel(true)}
+            className="shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-amber-200 transition-all flex items-center gap-1.5"
+          >
+            <BookOpen className="w-3 h-3" />
+            مصادري
+          </button>
+        </div>
+      )}
+
       {/* Stage progress bar */}
       {chatPhase === 'teaching' && stages.length > 0 && (
         <div className="shrink-0 px-4 py-2.5 border-b border-white/5 flex items-center gap-3" style={{ background: "#0b0d17" }}>
@@ -1985,6 +2073,25 @@ function SubjectPathChat({
 
       {/* Input area */}
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
+        {/* Professor-mode starter chips — show only when chat is empty and we have starters */}
+        {teachingMode === 'professor' && activeMaterialStarters && messages.length <= 1 && !isStreaming && (
+          <div className="max-w-2xl mx-auto mb-2.5 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
+            {activeMaterialStarters
+              .split('\n')
+              .map(s => s.replace(/^[•\-\*\d+\.\)]\s*/, '').trim())
+              .filter(s => s.length > 5)
+              .slice(0, 4)
+              .map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendTeachMessage(q)}
+                  className="text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/60 text-amber-200 transition-all"
+                >
+                  {q}
+                </button>
+              ))}
+          </div>
+        )}
         {messages.length >= 2 && !isStreaming && (
           <div className="max-w-2xl mx-auto mb-2.5 flex justify-center">
             <button

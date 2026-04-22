@@ -10,6 +10,7 @@ import plansRouter from "./plans";
 import supportRouter from "./support";
 import labReportsRouter from "./lab_reports";
 import { adminInsightsRouter } from "./admin_insights";
+import materialsRouter from "./materials";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(plansRouter);
 router.use(supportRouter);
 router.use(labReportsRouter);
 router.use(adminInsightsRouter);
+router.use(materialsRouter);
 
 export default router;
