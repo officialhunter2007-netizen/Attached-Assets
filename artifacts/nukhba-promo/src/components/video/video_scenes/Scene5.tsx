@@ -72,20 +72,20 @@ export const Scene5 = () => {
               className="absolute inset-0 grid grid-cols-3 gap-8"
             >
               {[
-                { title: 'البرمجة', emoji: '🧑‍💻', color: 'blue' },
-                { title: 'تطوير الويب', emoji: '🌐', color: 'blue' },
-                { title: 'الأمن السيبراني', emoji: '🛡️', color: 'red' },
-                { title: 'تحليل البيانات', emoji: '📊', color: 'emerald' },
-                { title: 'تصميم UX', emoji: '🎨', color: 'purple' },
+                { title: 'البرمجة', emoji: '🧑‍💻', tile: 'bg-blue-500/20 border-blue-500/30' },
+                { title: 'تطوير الويب', emoji: '🌐', tile: 'bg-sky-500/20 border-sky-500/30' },
+                { title: 'الأمن السيبراني', emoji: '🛡️', tile: 'bg-red-500/20 border-red-500/30' },
+                { title: 'تحليل البيانات', emoji: '📊', tile: 'bg-emerald-500/20 border-emerald-500/30' },
+                { title: 'تصميم UX', emoji: '🎨', tile: 'bg-purple-500/20 border-purple-500/30' },
               ].map((skill, i) => (
-                <motion.div 
-                  key={i} 
+                <motion.div
+                  key={i}
                   whileHover={{ scale: 1.05 }}
                   animate={i === 1 ? { borderColor: ['#334155', '#f59e0b', '#f59e0b'] } : {}}
                   transition={{ delay: 4, duration: 0.3 }}
                   className={`bg-slate-900/60 backdrop-blur-xl border ${i===1?'border-amber-500':'border-slate-700/50'} rounded-2xl p-6 flex flex-col items-center justify-center`}
                 >
-                  <div className={`w-20 h-20 rounded-2xl bg-${skill.color}-500/20 flex items-center justify-center text-4xl mb-6 border border-${skill.color}-500/30`}>
+                  <div className={`w-20 h-20 rounded-2xl ${skill.tile} flex items-center justify-center text-4xl mb-6 border`}>
                     {skill.emoji}
                   </div>
                   <h3 className="text-2xl font-bold text-white">{skill.title}</h3>
