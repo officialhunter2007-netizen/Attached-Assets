@@ -93,7 +93,7 @@ export const Scene10 = () => {
                       {codeStep >= 2 && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                           <span className="text-white text-lg">425</span>
-                          <span className="text-emerald-500 mr-2">✓ 실행 ناجح</span>
+                          <span className="text-emerald-500 mr-2">✓ تم التشغيل بنجاح</span>
                         </motion.div>
                       )}
                     </div>
