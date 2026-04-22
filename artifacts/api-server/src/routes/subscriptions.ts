@@ -104,11 +104,14 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
     const created = await db.transaction(async (tx) => {
       let discountCodeRow: typeof discountCodesTable.$inferSelect | null = null;
       if (codeNorm) {
+        // Validate code exists and is active. We snapshot the percent on the
+        // request, but we do NOT increment usageCount here — the counter
+        // tracks *approved* subscriptions (real marketer attribution), so it
+        // is incremented in the approval transaction below.
         const [row] = await tx
           .select()
           .from(discountCodesTable)
-          .where(eq(discountCodesTable.code, codeNorm))
-          .for("update");
+          .where(eq(discountCodesTable.code, codeNorm));
         if (!row) {
           throw new Error("INVALID_CODE");
         }
@@ -116,11 +119,6 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
           throw new Error("INACTIVE_CODE");
         }
         discountCodeRow = row;
-        // Atomic increment within the same locked transaction.
-        await tx
-          .update(discountCodesTable)
-          .set({ usageCount: sql`${discountCodesTable.usageCount} + 1` })
-          .where(eq(discountCodesTable.id, row.id));
       }
 
       const percent = discountCodeRow?.percent ?? 0;
@@ -468,6 +466,15 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
 
       if (updatedRows.length === 0) {
         throw new Error("ALREADY_PROCESSED");
+      }
+
+      // If this request used a discount code, increment its usage counter
+      // atomically here (only after the request is officially approved).
+      if (request.discountCodeId) {
+        await tx
+          .update(discountCodesTable)
+          .set({ usageCount: sql`${discountCodesTable.usageCount} + 1` })
+          .where(eq(discountCodesTable.id, request.discountCodeId));
       }
 
       const [insertedCard] = await tx.insert(activationCardsTable).values({

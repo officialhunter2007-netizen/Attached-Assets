@@ -658,6 +658,21 @@ export default function Admin() {
                         <Badge variant="outline" className="border-gold text-gold text-xs">
                           {planLabels[req.planType] || req.planType}
                         </Badge>
+                        {(req as any).discountCode && (
+                          <div className="mt-1 flex items-center gap-1 flex-wrap">
+                            <Badge variant="outline" className="border-purple-500/40 text-purple-300 text-[10px] font-mono">
+                              {(req as any).discountCode} −{(req as any).discountPercent}%
+                            </Badge>
+                            {(req as any).finalPrice != null && (req as any).basePrice != null && (
+                              <span className="text-[10px] text-emerald-400">
+                                {Number((req as any).finalPrice).toLocaleString("ar-EG")}
+                                <span className="text-muted-foreground line-through mr-1">
+                                  {Number((req as any).basePrice).toLocaleString("ar-EG")}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         {(req as any).subjectName ? (
