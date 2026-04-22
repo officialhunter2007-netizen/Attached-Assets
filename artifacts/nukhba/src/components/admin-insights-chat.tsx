@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Sparkles, Send, Loader2, MessageSquarePlus, Brain, User as UserIcon } from "lucide-react";
+import { Sparkles, Send, Loader2, MessageSquarePlus, Brain, User as UserIcon, Download } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+
+type CourseRow = { subjectId: string; subjectName: string | null; students: number; messages: number; lastAt: string };
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
 
@@ -56,6 +58,10 @@ export function AdminInsightsChat() {
   const [focusQuery, setFocusQuery] = useState<string>("");
   const [focusInfo, setFocusInfo] = useState<{ id: number; name: string | null; email: string } | null>(null);
   const [focusNote, setFocusNote] = useState<string | null>(null);
+  const [courses, setCourses] = useState<CourseRow[]>([]);
+  const [exportSubjectId, setExportSubjectId] = useState<string>("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -79,6 +85,48 @@ export function AdminInsightsChat() {
   }, [messages, streamBuf]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/insights/courses?days=7", { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data?.courses)) setCourses(data.courses);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const exportCourse = useCallback(async () => {
+    if (!exportSubjectId || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const url = `/api/admin/insights/course-conversations-export?subjectId=${encodeURIComponent(exportSubjectId)}&days=7`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        setExportError(res.status === 403 ? "هذا التصدير مخصّص للمشرفين فقط." : "تعذّر تنفيذ التصدير.");
+        return;
+      }
+      const blob = await res.blob();
+      const dispo = res.headers.get("Content-Disposition") || "";
+      let filename = "course-conversations.md";
+      const m = dispo.match(/filename\*=UTF-8''([^;]+)/i) || dispo.match(/filename="([^"]+)"/i);
+      if (m) { try { filename = decodeURIComponent(m[1]); } catch { filename = m[1]; } }
+      const dl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = dl; a.download = filename;
+      document.body.appendChild(a); a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(dl), 1500);
+    } catch {
+      setExportError("تعذّر تنفيذ التصدير.");
+    } finally {
+      setExporting(false);
+    }
+  }, [exportSubjectId, exporting]);
 
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -231,6 +279,44 @@ export function AdminInsightsChat() {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Bulk course export */}
+      <div className="px-4 py-2.5 border-b border-white/5 bg-black/20 flex items-center gap-2 flex-wrap">
+        <Download className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+        <span className="text-[11px] text-white/60 shrink-0">تصدير محادثات مادّة كاملة (آخر ٧ أيام):</span>
+        <select
+          value={exportSubjectId}
+          onChange={(e) => { setExportSubjectId(e.target.value); setExportError(null); }}
+          disabled={exporting || courses.length === 0}
+          className="bg-white/[0.05] border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white outline-none focus:border-amber-400/50 disabled:opacity-50"
+          title="اختر المادة"
+        >
+          <option value="">{courses.length === 0 ? "لا توجد محادثات في آخر ٧ أيام" : "اختر مادة…"}</option>
+          {courses.map((c) => (
+            <option key={c.subjectId} value={c.subjectId}>
+              {(c.subjectName || c.subjectId)} — {c.students} طالب · {c.messages} رسالة
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={exportCourse}
+          disabled={!exportSubjectId || exporting}
+          className={`text-[11px] font-bold rounded-lg px-3 py-1.5 flex items-center gap-1.5 transition-all ${
+            !exportSubjectId || exporting
+              ? "bg-white/5 text-white/30 cursor-not-allowed"
+              : "bg-gradient-to-br from-amber-400 to-purple-600 text-white hover:brightness-110 active:scale-95"
+          }`}
+        >
+          {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          {exporting ? "جاري التصدير…" : "تصدير .md"}
+        </button>
+        {exportError && (
+          <span className="text-[10px] text-red-300 bg-red-500/10 border border-red-400/30 rounded px-1.5 py-0.5">
+            {exportError}
+          </span>
+        )}
       </div>
 
       {/* Messages */}

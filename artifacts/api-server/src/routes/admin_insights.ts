@@ -808,4 +808,132 @@ ${contextJson}
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/insights/courses — list of courses (subjects) seen in the AI
+// teacher chat over the last N days, with student + message counts. Used by
+// the bulk-export picker.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/insights/courses", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const rows = await db
+    .select({
+      subjectId: aiTeacherMessagesTable.subjectId,
+      subjectName: aiTeacherMessagesTable.subjectName,
+      students: sql<number>`count(distinct ${aiTeacherMessagesTable.userId})::int`,
+      messages: sql<number>`count(*)::int`,
+      lastAt: sql<Date>`max(${aiTeacherMessagesTable.createdAt})`,
+    })
+    .from(aiTeacherMessagesTable)
+    .where(gte(aiTeacherMessagesTable.createdAt, since))
+    .groupBy(aiTeacherMessagesTable.subjectId, aiTeacherMessagesTable.subjectName)
+    .orderBy(sql`count(*) desc`);
+
+  res.json({ days, courses: rows });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/insights/course-conversations-export
+//   ?subjectId=...&days=7
+// One-click bulk export of every student's AI-teacher conversation in a course
+// for the given time window (default last 7 days). Returns a single combined
+// Markdown transcript as a download.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/insights/course-conversations-export", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const subjectId = String(req.query.subjectId ?? "").trim();
+  if (!subjectId) return res.status(400).json({ error: "subjectId required" });
+
+  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const rows = await db
+    .select({
+      userId: aiTeacherMessagesTable.userId,
+      userName: usersTable.displayName,
+      userEmail: usersTable.email,
+      subjectName: aiTeacherMessagesTable.subjectName,
+      role: aiTeacherMessagesTable.role,
+      content: aiTeacherMessagesTable.content,
+      isDiagnostic: aiTeacherMessagesTable.isDiagnostic,
+      stageIndex: aiTeacherMessagesTable.stageIndex,
+      createdAt: aiTeacherMessagesTable.createdAt,
+    })
+    .from(aiTeacherMessagesTable)
+    .leftJoin(usersTable, eq(aiTeacherMessagesTable.userId, usersTable.id))
+    .where(and(
+      eq(aiTeacherMessagesTable.subjectId, subjectId),
+      gte(aiTeacherMessagesTable.createdAt, since),
+    ))
+    .orderBy(aiTeacherMessagesTable.userId, aiTeacherMessagesTable.createdAt);
+
+  const subjectName = rows.find((r) => r.subjectName)?.subjectName ?? subjectId;
+
+  // Group by user, preserve chronological order within each.
+  const byUser = new Map<number, typeof rows>();
+  for (const r of rows) {
+    const arr = byUser.get(r.userId) ?? [];
+    arr.push(r);
+    byUser.set(r.userId, arr);
+  }
+
+  const fmtDate = (d: Date) => new Date(d).toISOString().replace("T", " ").slice(0, 19) + " UTC";
+  const today = new Date().toISOString().slice(0, 10);
+
+  const lines: string[] = [];
+  lines.push(`# ${subjectName} — تصدير محادثات المعلم الذكي`);
+  lines.push("");
+  lines.push(`- **المادة:** ${subjectName} (\`${subjectId}\`)`);
+  lines.push(`- **النافذة الزمنية:** آخر ${days} يومًا (منذ ${fmtDate(since)})`);
+  lines.push(`- **عدد الطلاب:** ${byUser.size}`);
+  lines.push(`- **إجمالي الرسائل:** ${rows.length}`);
+  lines.push(`- **تاريخ التصدير:** ${fmtDate(new Date())}`);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+
+  if (byUser.size === 0) {
+    lines.push("_لا توجد أي محادثات في هذه النافذة._");
+  } else {
+    let idx = 0;
+    for (const [userId, msgs] of byUser) {
+      idx++;
+      const head = msgs[0];
+      const userName = head.userName ?? "(بدون اسم)";
+      const userEmail = head.userEmail ?? "(بدون إيميل)";
+      lines.push(`## ${idx}. ${userName} — ${userEmail} — ID ${userId}`);
+      lines.push("");
+      lines.push(`_عدد الرسائل: ${msgs.length}_`);
+      lines.push("");
+      for (const m of msgs) {
+        const who = m.role === "user" ? "🧑 الطالب" : m.role === "assistant" ? "🤖 المعلم" : m.role;
+        const tags: string[] = [];
+        if (m.isDiagnostic) tags.push("تشخيصي");
+        if (m.stageIndex !== null && m.stageIndex !== undefined) tags.push(`مرحلة ${m.stageIndex}`);
+        const tagStr = tags.length ? ` _(${tags.join(" · ")})_` : "";
+        lines.push(`### ${who} — ${fmtDate(m.createdAt as any)}${tagStr}`);
+        lines.push("");
+        lines.push(m.content);
+        lines.push("");
+      }
+      lines.push("---");
+      lines.push("");
+    }
+  }
+
+  const safeName = subjectName.replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "course";
+  const filename = `${safeName}-conversations-${today}.md`;
+
+  res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.setHeader("Cache-Control", "no-store");
+  res.send(lines.join("\n"));
+});
+
 export { router as adminInsightsRouter };
