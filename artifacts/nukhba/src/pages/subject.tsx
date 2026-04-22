@@ -1908,12 +1908,14 @@ function SubjectPathChat({
     {/* Chat UI — visible only when no panel is open */}
     <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11", display: chatVisible ? "flex" : "none" }}>
 
-      {/* Mode-choice overlay (first session, before diagnostic) */}
+      {/* Mode-choice overlay (first session, before diagnostic).
+          When shown, the chat UI below is hidden so the choice card fills the
+          screen — no half-screen split. */}
       {needsModeChoice && planLoaded && (
         <TeachingModeChoiceCard subjectName={subject.name} onChoose={handleChooseMode} />
       )}
 
-      {/* Sources panel drawer */}
+      {/* Sources panel drawer (rendered as overlay; safe to mount always) */}
       <CourseMaterialsPanel
         subjectId={subject.id}
         open={showSourcesPanel}
@@ -1922,8 +1924,12 @@ function SubjectPathChat({
         onActiveChange={setActiveMaterialId}
       />
 
+      {/* Everything below renders only AFTER the student has picked a mode,
+          so the choice card and chat never share the screen. */}
+      {!needsModeChoice && (<>
+
       {/* Mode/sources mini-bar (visible whenever mode is set) */}
-      {teachingMode && teachingMode !== 'unset' && !needsModeChoice && (
+      {teachingMode && teachingMode !== 'unset' && (
         <div className="shrink-0 px-3 py-2 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "rgba(245,158,11,0.04)" }}>
           <div className="flex items-center gap-2 min-w-0" style={{ direction: "rtl" }}>
             {teachingMode === 'professor' ? (
@@ -2185,6 +2191,8 @@ function SubjectPathChat({
           Ctrl+Enter للإرسال السريع
         </p>
       </div>
+
+      </>)}
     </div>
     </>
   );
