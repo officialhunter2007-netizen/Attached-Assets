@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, Flame, Target, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2, Monitor, X, AlertTriangle, Clock, FlaskConical, Search } from "lucide-react";
+import { Trophy, Flame, Target, Crown, ChevronLeft, BookOpen, FileText, Lock, ChevronDown, ChevronUp, Loader2, Monitor, X, AlertTriangle, Clock, FlaskConical, Search, Library } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { getSubjectById } from "@/lib/curriculum";
@@ -367,6 +367,57 @@ interface SubjectSub {
   expiresAt: string;
 }
 
+interface MaterialProgressInfo {
+  chaptersTotal: number;
+  completedCount: number;
+  currentChapterIndex: number;
+  currentChapterTitle: string | null;
+}
+
+interface MaterialWithProgress {
+  id: number;
+  fileName: string;
+  status: "processing" | "ready" | "error";
+  subjectId: string;
+  subjectName: string;
+  progress: MaterialProgressInfo | null;
+}
+
+function MaterialProgressCard({ material }: { material: MaterialWithProgress }) {
+  const p = material.progress!;
+  const pct = p.chaptersTotal > 0 ? Math.round((p.completedCount / p.chaptersTotal) * 100) : 0;
+  return (
+    <Link href={`/subject/${material.subjectId}?sources=${material.id}`}>
+      <div className="glass border border-white/5 rounded-2xl p-5 hover:bg-white/5 hover:border-amber-400/30 transition-all cursor-pointer h-full flex flex-col">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+            <BookOpen className="w-5 h-5 text-amber-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h4 className="font-bold text-sm truncate" title={material.fileName}>{material.fileName}</h4>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">{material.subjectName}</p>
+          </div>
+          <ChevronLeft className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
+        </div>
+        <div className="mt-auto">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+            <span>تقدّم القراءة: {p.completedCount} / {p.chaptersTotal} فصول</span>
+            <span className="font-bold text-amber-300">{pct}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+            <div className="h-full bg-gradient-to-l from-amber-400 to-emerald-400 transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          {p.currentChapterTitle && (
+            <p className="mt-2 text-[11px] text-muted-foreground truncate">
+              الفصل الحالي: <span className="text-white/70">{p.currentChapterTitle}</span>
+            </p>
+          )}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 const getMobileCodingDismissKey = (userId: string) => `nukhba_coding_mobile_dismissed_${userId}`;
 
 function MobileCodingWarning({ onDismiss }: { onDismiss: () => void }) {
@@ -409,6 +460,8 @@ export default function Dashboard() {
   const [labReportsLoading, setLabReportsLoading] = useState(true);
   const [mySubjectSubs, setMySubjectSubs] = useState<SubjectSub[]>([]);
   const [showMobileCodingWarning, setShowMobileCodingWarning] = useState(false);
+  const [materials, setMaterials] = useState<MaterialWithProgress[]>([]);
+  const [materialsLoading, setMaterialsLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/lesson-summaries", { credentials: "include" })
@@ -446,6 +499,69 @@ export default function Dashboard() {
       })
       .catch(() => {});
   }, [user?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const subs = mySubjectSubs;
+    if (subs.length === 0) {
+      setMaterials([]);
+      setMaterialsLoading(false);
+      return;
+    }
+    setMaterialsLoading(true);
+    const uniqueSubjects = new Map<string, string>();
+    subs.forEach(s => {
+      if (!uniqueSubjects.has(s.subjectId)) {
+        uniqueSubjects.set(s.subjectId, s.subjectName || getSubjectById(s.subjectId)?.name || s.subjectId);
+      }
+    });
+    interface ApiMaterial {
+      id: number;
+      fileName: string;
+      status: "processing" | "ready" | "error";
+      progress: {
+        chaptersTotal: number;
+        completedCount: number;
+        currentChapterIndex: number;
+        currentChapterTitle: string | null;
+      } | null;
+    }
+    interface ApiMaterialsResponse { materials?: ApiMaterial[] }
+    Promise.all(
+      Array.from(uniqueSubjects.entries()).map(async ([subjectId, subjectName]): Promise<MaterialWithProgress[]> => {
+        try {
+          const r = await fetch(`/api/materials?subjectId=${encodeURIComponent(subjectId)}`, { credentials: "include" });
+          if (!r.ok) return [];
+          const data = (await r.json()) as ApiMaterialsResponse;
+          const list = Array.isArray(data?.materials) ? data.materials : [];
+          return list
+            .filter((m): m is ApiMaterial & { progress: NonNullable<ApiMaterial["progress"]> } =>
+              m.status === "ready" && !!m.progress && m.progress.chaptersTotal > 0)
+            .map((m): MaterialWithProgress => ({
+              id: m.id,
+              fileName: m.fileName,
+              status: m.status,
+              subjectId,
+              subjectName,
+              progress: {
+                chaptersTotal: m.progress.chaptersTotal,
+                completedCount: m.progress.completedCount,
+                currentChapterIndex: m.progress.currentChapterIndex,
+                currentChapterTitle: m.progress.currentChapterTitle ?? null,
+              },
+            }));
+        } catch {
+          return [];
+        }
+      }),
+    )
+      .then(results => {
+        if (cancelled) return;
+        setMaterials(results.flat());
+      })
+      .finally(() => { if (!cancelled) setMaterialsLoading(false); });
+    return () => { cancelled = true; };
+  }, [mySubjectSubs]);
 
   const totalLessons = views?.length || 0;
   const challengesAnswered = views?.filter(v => v.challengeAnswered).length || 0;
@@ -716,6 +832,29 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+        </div>
+
+        <div className="mb-8">
+          <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
+            <div className="w-2 h-8 bg-amber-400 rounded-full" />
+            <Library className="w-6 h-6 text-amber-400" />
+            تقدّم كتبك
+          </h3>
+          {materialsLoading ? (
+            <div className="flex items-center justify-center p-12 text-muted-foreground">
+              <Loader2 className="w-6 h-6 animate-spin ml-2" />
+              جاري التحميل...
+            </div>
+          ) : materials.length === 0 ? (
+            <div className="glass p-10 rounded-3xl border-white/5 text-center text-muted-foreground">
+              <Library className="w-10 h-10 mx-auto mb-4 opacity-30" />
+              <p>لم تُحمِّل أي كتاب PDF بعد. ارفع كتابك من داخل الجلسة لتظهر فصوله وتقدّمك هنا.</p>
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {materials.map(m => <MaterialProgressCard key={m.id} material={m} />)}
+            </div>
+          )}
         </div>
 
         <div className="mb-8">

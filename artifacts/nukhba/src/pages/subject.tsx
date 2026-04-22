@@ -442,7 +442,17 @@ export default function Subject() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
 
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  // If launched with `?sources=<materialId>` (e.g. from the dashboard's
+  // chapter-progress card), open the chat and the Sources side panel
+  // pre-selected to that PDF for quick review.
+  const initialSourcesMaterialId = (() => {
+    if (typeof window === "undefined") return null;
+    const raw = new URLSearchParams(window.location.search).get("sources");
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : -1; // -1 means "open panel only"
+  })();
+  const [isChatOpen, setIsChatOpen] = useState(initialSourcesMaterialId !== null);
   const [isIDEOpen, setIsIDEOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
   const [isYemenSoftOpen, setIsYemenSoftOpen] = useState(false);
@@ -918,6 +928,7 @@ export default function Subject() {
               onReopenDynamicEnv={() => setIsDynamicEnvOpen(true)}
               chatStarter={chatStarter}
               onConsumeChatStarter={() => setChatStarter(null)}
+              initialSourcesMaterialId={initialSourcesMaterialId}
               supportsLabEnv={supportsLabEnv}
               onCreateLabEnv={async (description: string) => {
                 console.log("[create-lab-env] click; isCreatingCyberEnv=", isCreatingCyberEnv, "description=", description);
@@ -1205,6 +1216,7 @@ function SubjectPathChat({
   onReopenDynamicEnv,
   chatStarter,
   onConsumeChatStarter,
+  initialSourcesMaterialId,
   supportsLabEnv,
   onCreateLabEnv,
   isCreatingCyberEnv,
@@ -1238,6 +1250,7 @@ function SubjectPathChat({
   onReopenDynamicEnv?: () => void;
   chatStarter?: string | null;
   onConsumeChatStarter?: () => void;
+  initialSourcesMaterialId?: number | null;
   supportsLabEnv?: boolean;
   onCreateLabEnv?: (description: string) => void;
   isCreatingCyberEnv?: boolean;
@@ -1277,10 +1290,24 @@ function SubjectPathChat({
   const [planLoaded, setPlanLoaded] = useState(false);
   // Professor-curriculum mode state
   const [teachingMode, setTeachingMode] = useState<'unset' | 'custom' | 'professor' | null>(null);
-  const [activeMaterialId, setActiveMaterialId] = useState<number | null>(null);
+  const [activeMaterialId, setActiveMaterialId] = useState<number | null>(
+    initialSourcesMaterialId && initialSourcesMaterialId > 0 ? initialSourcesMaterialId : null,
+  );
   const [activeMaterialStarters, setActiveMaterialStarters] = useState<string | null>(null);
   const [quizPanel, setQuizPanel] = useState<{ open: boolean; kind: QuizKind }>({ open: false, kind: "chapter" });
-  const [showSourcesPanel, setShowSourcesPanel] = useState(false);
+  const [showSourcesPanel, setShowSourcesPanel] = useState(initialSourcesMaterialId != null);
+  const consumedSourcesParamRef = useRef(false);
+  useEffect(() => {
+    if (initialSourcesMaterialId == null || consumedSourcesParamRef.current) return;
+    consumedSourcesParamRef.current = true;
+    // Strip the query param so refreshing or sharing the URL later doesn't
+    // keep re-opening the panel unexpectedly.
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("sources");
+      window.history.replaceState(null, "", url.pathname + (url.search || "") + url.hash);
+    }
+  }, [initialSourcesMaterialId]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1358,7 +1385,12 @@ function SubjectPathChat({
         if (res.ok && !cancelled) {
           const data = await res.json();
           setTeachingMode(data.mode || 'unset');
-          setActiveMaterialId(data.activeMaterialId ?? null);
+          // If the page was opened with `?sources=<materialId>`, keep that
+          // material selected instead of clobbering it with the server's
+          // saved active material.
+          if (initialSourcesMaterialId == null || initialSourcesMaterialId <= 0) {
+            setActiveMaterialId(data.activeMaterialId ?? null);
+          }
         }
       } catch {
         if (!cancelled) setTeachingMode('unset');
