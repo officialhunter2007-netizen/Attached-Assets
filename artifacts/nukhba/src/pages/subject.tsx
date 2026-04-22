@@ -1389,13 +1389,18 @@ function SubjectPathChat({
     if (mode === 'professor') setShowSourcesPanel(true);
   };
 
-  const needsModeChoice = teachingMode === 'unset' && isFirstSession && !customPlan;
+  // Show the mode-choice card whenever the user has never picked a mode for this
+  // subject — applies to first sessions AND returning students who haven't seen
+  // it yet (one-time prompt across all subjects).
+  const needsModeChoice = teachingMode === 'unset';
 
   // Start session once plan fetch is done — use the persisted stage index and phase
   // Both planLoaded and chatPhase are set together in fetchPlan, so chatPhase is
   // already resolved (teaching or diagnostic) before this effect fires.
   useEffect(() => {
     if (!planLoaded) return;
+    // Block auto-starting the diagnostic until the student has chosen a mode.
+    if (needsModeChoice) return;
     // Kick off the first teacher message if the chat has no assistant reply yet
     // (covers fresh sessions AND stale localStorage where only a user message was cached).
     const hasAssistant = messages.some((m) => m.role === "assistant" && (m.content || "").trim().length > 0);

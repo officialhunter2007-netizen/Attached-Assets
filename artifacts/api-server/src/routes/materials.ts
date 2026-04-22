@@ -13,7 +13,8 @@ const router: IRouter = Router();
 
 const MAX_PDFS_PER_SUBJECT_PAID = 4;
 const MAX_PDFS_FREE_TOTAL = 1;
-const MAX_FILE_SIZE_BYTES = 60 * 1024 * 1024; // 60MB
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB hard cap
+const MAX_PAGE_COUNT = 600; // reject anything beyond a typical textbook
 const MAX_EXTRACTED_CHARS = 220_000; // ~55k tokens, fits comfortably with system prompt
 const OCR_PAGE_LIMIT = 80; // safety cap for Gemini OCR fallback cost
 
@@ -119,8 +120,8 @@ router.get("/materials", async (req, res): Promise<any> => {
   res.json({ materials: rows });
 });
 
-// ── POST /api/materials/upload-url  { subjectId, fileName, fileSizeBytes } ────
-router.post("/materials/upload-url", async (req, res): Promise<any> => {
+// ── POST /api/materials/upload-url (alias: /request-upload) ───────────────────
+const requestUploadHandler = async (req: any, res: any): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   const { subjectId, fileName, fileSizeBytes } = req.body ?? {};
@@ -161,7 +162,9 @@ router.post("/materials/upload-url", async (req, res): Promise<any> => {
     console.error("[materials/upload-url] error:", err?.message || err);
     res.status(500).json({ error: "UPLOAD_URL_FAILED" });
   }
-});
+};
+router.post("/materials/upload-url", requestUploadHandler);
+router.post("/materials/request-upload", requestUploadHandler);
 
 // ── POST /api/materials/finalize  { subjectId, fileName, fileSizeBytes, uploadUrl } ──
 router.post("/materials/finalize", async (req, res): Promise<any> => {
@@ -364,7 +367,7 @@ async function processMaterial(materialId: number) {
     const file = await svc.getObjectEntityFile(row.objectPath);
     const [buf] = await file.download();
 
-    // 1) Try pdf-parse
+    // 1) Try pdf-parse — also catches encrypted PDFs which throw a known error
     try {
       const pdfParseMod: any = await import("pdf-parse");
       const pdfParse = pdfParseMod.default || pdfParseMod;
@@ -372,10 +375,18 @@ async function processMaterial(materialId: number) {
       extractedText = (result?.text || "").trim();
       pageCount = result?.numpages || 0;
     } catch (e: any) {
-      console.warn("[materials/process] pdf-parse failed:", e?.message || e);
+      const msg = String(e?.message || e);
+      console.warn("[materials/process] pdf-parse failed:", msg);
+      if (/encrypt|password/i.test(msg)) {
+        detectedError = "هذا الملف محمي بكلمة مرور. يرجى إزالة الحماية ثم رفعه مجدداً.";
+      }
     }
 
-    const looksScanned = extractedText.length < 200 || (pageCount > 0 && extractedText.length / Math.max(pageCount, 1) < 80);
+    if (!detectedError && pageCount > MAX_PAGE_COUNT) {
+      detectedError = `هذا الملف يحوي ${pageCount} صفحة، والحد الأقصى ${MAX_PAGE_COUNT} صفحة. قسّم الملف إلى أجزاء أصغر.`;
+    }
+
+    const looksScanned = !detectedError && (extractedText.length < 200 || (pageCount > 0 && extractedText.length / Math.max(pageCount, 1) < 80));
 
     // 2) Fallback: Gemini vision OCR (cap to OCR_PAGE_LIMIT pages)
     if (looksScanned && process.env.GEMINI_API_KEY) {
@@ -389,7 +400,7 @@ async function processMaterial(materialId: number) {
       }
     }
 
-    if (!extractedText || extractedText.length < 50) {
+    if (!detectedError && (!extractedText || extractedText.length < 50)) {
       detectedError = "تعذّر استخراج نص قابل للقراءة من هذا الملف. حاول رفع نسخة أوضح.";
     }
 

@@ -72,8 +72,8 @@ export function CourseMaterialsPanel({
       setError("الملف يجب أن يكون PDF فقط.");
       return;
     }
-    if (file.size > 60 * 1024 * 1024) {
-      setError("حجم الملف يتجاوز 60 ميغابايت.");
+    if (file.size > 50 * 1024 * 1024) {
+      setError("حجم الملف يتجاوز 50 ميغابايت.");
       return;
     }
     setUploading(true);
@@ -92,7 +92,7 @@ export function CourseMaterialsPanel({
             ? "أنت في الفترة التجريبية: ملف PDF واحد فقط مسموح. اشترك في المادة لرفع حتى 4 ملفات."
             : `وصلت للحد الأقصى (${data.limit ?? 4} ملفات لهذه المادة). احذف ملفاً قديماً لرفع جديد.`);
         } else if (data.error === "FILE_TOO_LARGE") {
-          setError("الملف أكبر من المسموح (60MB).");
+          setError("الملف أكبر من المسموح (50MB).");
         } else {
           setError("تعذّر بدء الرفع — حاول مرة أخرى.");
         }
@@ -175,7 +175,7 @@ export function CourseMaterialsPanel({
         </div>
 
         <p className="text-xs text-white/50 mb-4 leading-relaxed">
-          ارفع ملفات PDF (ملازم، مراجع، شرائح) وسيُدرّسك المعلم منها مباشرةً، فصلاً بفصل.
+          ارفع ملفات PDF (ملازم، مراجع، شرائح) وسيُدرّسك المعلم منها مباشرةً، فصلاً بفصل. الحد الأقصى: 50 ميغابايت و600 صفحة. الملفات المحمية بكلمة مرور غير مدعومة.
         </p>
 
         <input
