@@ -1389,18 +1389,21 @@ function SubjectPathChat({
     if (mode === 'professor') setShowSourcesPanel(true);
   };
 
-  // Show the mode-choice card whenever the user has never picked a mode for this
-  // subject — applies to first sessions AND returning students who haven't seen
-  // it yet (one-time prompt across all subjects).
+  // Wait for /api/teaching-mode to resolve before any auto-start, so the choice
+  // card shows BEFORE the diagnostic kicks off and there's no race window.
+  const teachingModeLoaded = teachingMode !== null;
   const needsModeChoice = teachingMode === 'unset';
+  const chatGated = !teachingModeLoaded || needsModeChoice;
 
   // Start session once plan fetch is done — use the persisted stage index and phase
   // Both planLoaded and chatPhase are set together in fetchPlan, so chatPhase is
   // already resolved (teaching or diagnostic) before this effect fires.
   useEffect(() => {
     if (!planLoaded) return;
-    // Block auto-starting the diagnostic until the student has chosen a mode.
-    if (needsModeChoice) return;
+    // Wait until the teaching-mode fetch has resolved AND, if unset, until the
+    // student has explicitly chosen a mode. This closes the race window where
+    // teachingMode is still `null` and would otherwise let the diagnostic fire.
+    if (chatGated) return;
     // Kick off the first teacher message if the chat has no assistant reply yet
     // (covers fresh sessions AND stale localStorage where only a user message was cached).
     const hasAssistant = messages.some((m) => m.role === "assistant" && (m.content || "").trim().length > 0);
@@ -1413,7 +1416,7 @@ function SubjectPathChat({
       sendTeachMessage("", stages, currentStage, chatPhase === 'diagnostic');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planLoaded, needsModeChoice]);
+  }, [planLoaded, chatGated]);
 
   const triggerSummary = async (allMessages: ChatMessage[]) => {
     setIsSummarizing(true);
@@ -2127,8 +2130,8 @@ function SubjectPathChat({
                 handleSend();
               }
             }}
-            placeholder={quotaExhausted ? "انتهى رصيدك — يرجى تجديد الاشتراك" : "اكتب رسالتك للمعلم..."}
-            disabled={isStreaming || quotaExhausted}
+            placeholder={chatGated ? "اختر طريقة التعلّم أولاً..." : quotaExhausted ? "انتهى رصيدك — يرجى تجديد الاشتراك" : "اكتب رسالتك للمعلم..."}
+            disabled={isStreaming || quotaExhausted || chatGated}
             style={{
               minHeight: "48px",
               maxHeight: "144px",
@@ -2141,7 +2144,7 @@ function SubjectPathChat({
           />
           <button
             type="submit"
-            disabled={!input.trim() || isStreaming || quotaExhausted}
+            disabled={!input.trim() || isStreaming || quotaExhausted || chatGated}
             className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             style={{ background: input.trim() && !isStreaming && !quotaExhausted ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(245,158,11,0.15)", boxShadow: input.trim() && !isStreaming && !quotaExhausted ? "0 4px 15px rgba(245,158,11,0.3)" : "none" }}
           >
