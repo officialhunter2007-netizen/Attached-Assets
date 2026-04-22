@@ -6,6 +6,7 @@ import {
   userSubjectTeachingModesTable,
   userSubjectSubscriptionsTable,
   usersTable,
+  materialChapterProgressTable,
 } from "@workspace/db";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 
@@ -108,6 +109,7 @@ router.get("/materials", async (req, res): Promise<any> => {
       language: courseMaterialsTable.language,
       summary: courseMaterialsTable.summary,
       starters: courseMaterialsTable.starters,
+      outline: courseMaterialsTable.outline,
       createdAt: courseMaterialsTable.createdAt,
     })
     .from(courseMaterialsTable)
@@ -117,7 +119,77 @@ router.get("/materials", async (req, res): Promise<any> => {
     ))
     .orderBy(desc(courseMaterialsTable.createdAt));
 
-  res.json({ materials: rows });
+  // Attach lightweight progress info for each ready material so the UI can
+  // render a per-PDF progress bar without an extra round-trip.
+  const enriched = await Promise.all(rows.map(async (r) => {
+    let progress: { chaptersTotal: number; completedCount: number; currentChapterIndex: number; currentChapterTitle: string | null } | null = null;
+    if (r.status === "ready") {
+      const p = await loadProgress(userId, r.id, r.outline ?? "");
+      progress = {
+        chaptersTotal: p.chapters.length,
+        completedCount: p.completedChapterIndices.length,
+        currentChapterIndex: p.currentChapterIndex,
+        currentChapterTitle: p.chapters[p.currentChapterIndex] ?? null,
+      };
+    }
+    const { outline: _omit, ...rest } = r;
+    return { ...rest, progress };
+  }));
+
+  res.json({ materials: enriched });
+});
+
+// ── GET /api/materials/:id/progress ──────────────────────────────────────────
+router.get("/materials/:id/progress", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+
+  const [mat] = await db
+    .select()
+    .from(courseMaterialsTable)
+    .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
+  if (!mat) return res.status(404).json({ error: "Not found" });
+
+  const p = await loadProgress(userId, id, mat.outline ?? "");
+  res.json({
+    materialId: id,
+    chapters: p.chapters,
+    currentChapterIndex: p.currentChapterIndex,
+    completedChapterIndices: p.completedChapterIndices,
+  });
+});
+
+// ── POST /api/materials/:id/progress  { action, chapterIndex? } ──────────────
+//   action: "advance" | "set" | "complete" | "reset"
+router.post("/materials/:id/progress", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+
+  const [mat] = await db
+    .select()
+    .from(courseMaterialsTable)
+    .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
+  if (!mat) return res.status(404).json({ error: "Not found" });
+
+  const action = String(req.body?.action ?? "");
+  if (!["advance", "set", "complete", "reset"].includes(action)) {
+    return res.status(400).json({ error: "invalid action; expected advance|set|complete|reset" });
+  }
+  const chapterIndex = Number(req.body?.chapterIndex);
+  if ((action === "set" || action === "complete") && !Number.isInteger(chapterIndex)) {
+    return res.status(400).json({ error: "chapterIndex (integer) required for set/complete" });
+  }
+  const updated = await mutateProgress(userId, id, mat.outline ?? "", action, Number.isFinite(chapterIndex) ? chapterIndex : undefined);
+  res.json({
+    materialId: id,
+    chapters: updated.chapters,
+    currentChapterIndex: updated.currentChapterIndex,
+    completedChapterIndices: updated.completedChapterIndices,
+  });
 });
 
 // ── POST /api/materials/upload-url (alias: /request-upload) ───────────────────
@@ -312,6 +384,14 @@ router.delete("/materials/:id", async (req, res): Promise<any> => {
       eq(userSubjectTeachingModesTable.userId, userId),
       eq(userSubjectTeachingModesTable.subjectId, row.subjectId),
       eq(userSubjectTeachingModesTable.activeMaterialId, id),
+    ));
+
+  // Drop any chapter-progress rows for this material so we don't leave orphans.
+  await db
+    .delete(materialChapterProgressTable)
+    .where(and(
+      eq(materialChapterProgressTable.userId, userId),
+      eq(materialChapterProgressTable.materialId, id),
     ));
 
   await db.delete(courseMaterialsTable).where(eq(courseMaterialsTable.id, id));
@@ -532,6 +612,153 @@ ${sample}
   } catch {
     return { outline: "", summary: "", starters: "" };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chapter progress helpers (per-user, per-material)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Parse the AI-generated outline into a flat list of top-level chapter titles.
+// The outline is plain text where chapters are lines starting with "- " (no
+// leading whitespace) and sub-sections are indented with two spaces.
+export function parseChaptersFromOutline(outline: string): string[] {
+  if (!outline) return [];
+  const out: string[] = [];
+  for (const raw of outline.split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, "");
+    if (!line) continue;
+    // Top-level item: starts with "- " (no leading space) OR is unindented and begins with a digit/chapter word.
+    if (/^- \S/.test(line)) {
+      out.push(line.replace(/^-\s+/, "").trim());
+      continue;
+    }
+    if (/^\s/.test(line)) continue; // sub-item, skip
+    // Fallback for unbulleted top-level lines
+    if (/^(الفصل|الباب|Chapter|Unit|Part|\d+[\.\)])/i.test(line)) {
+      out.push(line.trim());
+    }
+  }
+  // De-duplicate while preserving order, cap to a sane number.
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const c of out) {
+    const k = c.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    unique.push(c);
+    if (unique.length >= 40) break;
+  }
+  return unique;
+}
+
+function safeParseStringArray(s: string | null | undefined): string[] {
+  if (!s) return [];
+  try {
+    const v = JSON.parse(s);
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch { return []; }
+}
+function safeParseNumberArray(s: string | null | undefined): number[] {
+  if (!s) return [];
+  try {
+    const v = JSON.parse(s);
+    return Array.isArray(v) ? v.filter((x) => Number.isInteger(x)) : [];
+  } catch { return []; }
+}
+
+export type LoadedProgress = {
+  chapters: string[];
+  currentChapterIndex: number;
+  completedChapterIndices: number[];
+};
+
+export async function loadProgress(userId: number, materialId: number, outline: string): Promise<LoadedProgress> {
+  const [row] = await db
+    .select()
+    .from(materialChapterProgressTable)
+    .where(and(
+      eq(materialChapterProgressTable.userId, userId),
+      eq(materialChapterProgressTable.materialId, materialId),
+    ));
+
+  const fresh = parseChaptersFromOutline(outline);
+
+  if (!row) {
+    if (fresh.length === 0) {
+      return { chapters: [], currentChapterIndex: 0, completedChapterIndices: [] };
+    }
+    await db.insert(materialChapterProgressTable).values({
+      userId,
+      materialId,
+      chapters: JSON.stringify(fresh),
+      currentChapterIndex: 0,
+      completedChapterIndices: "[]",
+    }).onConflictDoNothing();
+    return { chapters: fresh, currentChapterIndex: 0, completedChapterIndices: [] };
+  }
+
+  let chapters = safeParseStringArray(row.chapters);
+  // If the stored chapter list is empty but we now have a parsed outline, hydrate it.
+  if (chapters.length === 0 && fresh.length > 0) {
+    chapters = fresh;
+    await db.update(materialChapterProgressTable)
+      .set({ chapters: JSON.stringify(chapters), updatedAt: new Date() })
+      .where(eq(materialChapterProgressTable.id, row.id));
+  }
+  return {
+    chapters,
+    currentChapterIndex: Math.min(Math.max(row.currentChapterIndex, 0), Math.max(chapters.length - 1, 0)),
+    completedChapterIndices: safeParseNumberArray(row.completedChapterIndices).filter((i) => i >= 0 && i < chapters.length),
+  };
+}
+
+export async function mutateProgress(
+  userId: number,
+  materialId: number,
+  outline: string,
+  action: string,
+  chapterIndex?: number,
+): Promise<LoadedProgress> {
+  const current = await loadProgress(userId, materialId, outline);
+  if (current.chapters.length === 0) return current;
+
+  let { currentChapterIndex, completedChapterIndices } = current;
+  const completed = new Set(completedChapterIndices);
+  const lastIdx = current.chapters.length - 1;
+
+  if (action === "advance") {
+    completed.add(currentChapterIndex);
+    currentChapterIndex = Math.min(currentChapterIndex + 1, lastIdx);
+  } else if (action === "complete" && Number.isInteger(chapterIndex)) {
+    if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) completed.add(chapterIndex!);
+  } else if (action === "set" && Number.isInteger(chapterIndex)) {
+    if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) currentChapterIndex = chapterIndex!;
+  } else if (action === "reset") {
+    completed.clear();
+    currentChapterIndex = 0;
+  }
+
+  const completedArr = Array.from(completed).sort((a, b) => a - b);
+  await db.update(materialChapterProgressTable)
+    .set({
+      currentChapterIndex,
+      completedChapterIndices: JSON.stringify(completedArr),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(materialChapterProgressTable.userId, userId),
+      eq(materialChapterProgressTable.materialId, materialId),
+    ));
+
+  return { chapters: current.chapters, currentChapterIndex, completedChapterIndices: completedArr };
+}
+
+// Convenience: advance the chapter for the active material in a subject (called
+// from /ai/teach when the AI marks a stage complete in professor mode).
+export async function advanceActiveMaterialChapter(userId: number, subjectId: string): Promise<LoadedProgress | null> {
+  const ctx = await getActiveMaterialContext(userId, subjectId);
+  if (!ctx?.material) return null;
+  return mutateProgress(userId, ctx.material.id, ctx.material.outline ?? "", "advance");
 }
 
 // ── Helper exposed for ai/teach to load the active material context ────────────

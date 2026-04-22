@@ -3,7 +3,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
-import { getActiveMaterialContext } from "./materials";
+import { getActiveMaterialContext, loadProgress, advanceActiveMaterialChapter } from "./materials";
 
 const router: IRouter = Router();
 
@@ -771,6 +771,33 @@ ${formattingRules}`;
         const langNote = m.language === "en"
           ? "النص الأصلي بالإنجليزية — أجب بالإنجليزية افتراضياً (نفس لغة المصدر)، إلا إذا طلب الطالب الإجابة بالعربية صراحةً."
           : "النص الأصلي بالعربية — أجب بالعربية افتراضياً، إلا إذا طلب الطالب الإجابة بالإنجليزية.";
+
+        // Per-(user, material) chapter progress so the tutor knows where the
+        // student left off and can say "أكملت الفصل 3، اليوم نبدأ الفصل 4".
+        let chapterProgressBlock = "";
+        try {
+          const prog = await loadProgress(userId, m.id, m.outline ?? "");
+          if (prog.chapters.length > 0) {
+            const completedNames = prog.completedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);
+            const cur = prog.chapters[prog.currentChapterIndex];
+            const next = prog.chapters[prog.currentChapterIndex + 1];
+            chapterProgressBlock = `
+— تقدّم الطالب في فصول الملف —
+عدد الفصول: ${prog.chapters.length}
+الفصول المكتملة سابقاً (${completedNames.length}): ${completedNames.length ? completedNames.join(" | ") : "(لا شيء بعد — الطالب يبدأ من الصفر)"}
+الفصل الحالي (رقم ${prog.currentChapterIndex + 1}): "${cur}"
+${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا هو الفصل الأخير في الملف."}
+
+تعليمات التقدّم:
+- إذا كان عند الطالب فصول مكتملة، ابدأ الجلسة بجملة قصيرة من نوع: "أكملنا الفصل ${prog.completedChapterIndices.length} في آخر مرة، اليوم نبدأ الفصل ${prog.currentChapterIndex + 1}: ${cur}"، ثم انطلق في تدريس الفصل الحالي.
+- لا تقفز إلى الفصل التالي قبل أن يُتقن الطالب الفصل الحالي ويجتاز سؤال إتقانه.
+- عندما تنتهي من تدريس الفصل الحالي وتتأكد من إتقانه، ضع [STAGE_COMPLETE] في آخر ردك — النظام سيُسجّل تلقائياً أن الفصل اكتمل وسينتقل للفصل التالي في الجلسة القادمة.
+`;
+          }
+        } catch (e: any) {
+          console.warn("[ai/teach] progress load error:", e?.message || e);
+        }
+
         const materialBlock = `
 
 ═══ وضع منهج الأستاذ — أنت تُدرّس من الملف المرفوع ═══
@@ -781,6 +808,7 @@ ${langNote}
 
 — الفهرس المُستخرج —
 ${m.outline || "(لم يُستخرج فهرس)"}
+${chapterProgressBlock}
 
 — ملخص الملف (3 نقاط) —
 ${m.summary || ""}
@@ -852,6 +880,27 @@ ${(m.extractedText || "").replace(/<\/?material_content>/gi, "")}
   stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
   const planReady = fullResponse.includes("[PLAN_READY]");
 
+  // Professor mode: a stage-complete signal also means the current chapter of
+  // the active PDF is mastered, so advance the per-(user, material) progress.
+  let materialProgressUpdate: { materialId: number; chaptersTotal: number; completedCount: number; currentChapterIndex: number; currentChapterTitle: string | null } | null = null;
+  if (stageComplete && !isDiagnosticPhase && subjectId) {
+    try {
+      const advanced = await advanceActiveMaterialChapter(userId, subjectId);
+      if (advanced && advanced.chapters.length > 0) {
+        const ctx2 = await getActiveMaterialContext(userId, subjectId);
+        materialProgressUpdate = {
+          materialId: ctx2?.material?.id ?? 0,
+          chaptersTotal: advanced.chapters.length,
+          completedCount: advanced.completedChapterIndices.length,
+          currentChapterIndex: advanced.currentChapterIndex,
+          currentChapterTitle: advanced.chapters[advanced.currentChapterIndex] ?? null,
+        };
+      }
+    } catch (e: any) {
+      console.warn("[ai/teach] chapter advance failed:", e?.message || e);
+    }
+  }
+
   if (subjectId && fullResponse.trim().length > 0) {
     try {
       const cleanAssistant = fullResponse
@@ -885,7 +934,7 @@ ${(m.extractedText || "").replace(/<\/?material_content>/gi, "")}
     }
   }
   const isQuotaExhausted = !unlimited && messagesRemaining === 0;
-  res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady, quotaExhausted: isQuotaExhausted })}\n\n`);
+  res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate })}\n\n`);
   res.end();
 });
 

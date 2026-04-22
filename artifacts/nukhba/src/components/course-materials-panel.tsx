@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { Upload, X, FileText, Loader2, AlertCircle, CheckCircle2, Trash2, BookOpen } from "lucide-react";
 
+export interface MaterialProgress {
+  chaptersTotal: number;
+  completedCount: number;
+  currentChapterIndex: number;
+  currentChapterTitle: string | null;
+}
+
 export interface Material {
   id: number;
   fileName: string;
@@ -12,6 +19,7 @@ export interface Material {
   summary: string | null;
   starters: string | null;
   createdAt: string;
+  progress?: MaterialProgress | null;
 }
 
 export function CourseMaterialsPanel({
@@ -253,6 +261,26 @@ export function CourseMaterialsPanel({
                       {m.status === "ready" && m.summary && (
                         <p className="mt-1.5 text-[11px] text-white/55 leading-relaxed whitespace-pre-line">{m.summary}</p>
                       )}
+                      {m.status === "ready" && m.progress && m.progress.chaptersTotal > 0 && (() => {
+                        const p = m.progress!;
+                        const pct = Math.round((p.completedCount / p.chaptersTotal) * 100);
+                        return (
+                          <div className="mt-2">
+                            <div className="flex items-center justify-between text-[10px] text-white/55 mb-1">
+                              <span>تقدّم القراءة: {p.completedCount} / {p.chaptersTotal} فصول</span>
+                              <span className="font-bold text-amber-300">{pct}%</span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                              <div className="h-full bg-gradient-to-l from-amber-400 to-emerald-400 transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                            {p.currentChapterTitle && (
+                              <p className="mt-1 text-[10px] text-white/45 truncate">
+                                الفصل الحالي: <span className="text-white/70">{p.currentChapterTitle}</span>
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {m.status === "error" && m.errorMessage && (
                         <p className="mt-1.5 text-[11px] text-red-300/80 leading-relaxed">{m.errorMessage}</p>
                       )}
