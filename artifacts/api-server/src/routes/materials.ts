@@ -124,7 +124,14 @@ router.get("/materials", async (req, res): Promise<any> => {
   // Attach lightweight progress info for each ready material so the UI can
   // render a per-PDF progress bar without an extra round-trip.
   const enriched = await Promise.all(rows.map(async (r) => {
-    let progress: { chaptersTotal: number; completedCount: number; currentChapterIndex: number; currentChapterTitle: string | null } | null = null;
+    let progress: {
+      chaptersTotal: number;
+      completedCount: number;
+      currentChapterIndex: number;
+      currentChapterTitle: string | null;
+      chapters: string[];
+      completedChapterIndices: number[];
+    } | null = null;
     if (r.status === "ready") {
       const p = await loadProgress(userId, r.id, r.outline ?? "");
       progress = {
@@ -132,6 +139,8 @@ router.get("/materials", async (req, res): Promise<any> => {
         completedCount: p.completedChapterIndices.length,
         currentChapterIndex: p.currentChapterIndex,
         currentChapterTitle: p.chapters[p.currentChapterIndex] ?? null,
+        chapters: p.chapters,
+        completedChapterIndices: p.completedChapterIndices,
       };
     }
     const { outline: _omit, ...rest } = r;
@@ -178,12 +187,12 @@ router.post("/materials/:id/progress", async (req, res): Promise<any> => {
   if (!mat) return res.status(404).json({ error: "Not found" });
 
   const action = String(req.body?.action ?? "");
-  if (!["advance", "set", "complete", "reset"].includes(action)) {
-    return res.status(400).json({ error: "invalid action; expected advance|set|complete|reset" });
+  if (!["advance", "set", "complete", "uncomplete", "reset"].includes(action)) {
+    return res.status(400).json({ error: "invalid action; expected advance|set|complete|uncomplete|reset" });
   }
   const chapterIndex = Number(req.body?.chapterIndex);
-  if ((action === "set" || action === "complete") && !Number.isInteger(chapterIndex)) {
-    return res.status(400).json({ error: "chapterIndex (integer) required for set/complete" });
+  if ((action === "set" || action === "complete" || action === "uncomplete") && !Number.isInteger(chapterIndex)) {
+    return res.status(400).json({ error: "chapterIndex (integer) required for set/complete/uncomplete" });
   }
   const updated = await mutateProgress(userId, id, mat.outline ?? "", action, Number.isFinite(chapterIndex) ? chapterIndex : undefined);
   res.json({
@@ -970,6 +979,8 @@ export async function mutateProgress(
     currentChapterIndex = Math.min(currentChapterIndex + 1, lastIdx);
   } else if (action === "complete" && Number.isInteger(chapterIndex)) {
     if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) completed.add(chapterIndex!);
+  } else if (action === "uncomplete" && Number.isInteger(chapterIndex)) {
+    if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) completed.delete(chapterIndex!);
   } else if (action === "set" && Number.isInteger(chapterIndex)) {
     if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) currentChapterIndex = chapterIndex!;
   } else if (action === "reset") {

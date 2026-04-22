@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import { Upload, X, FileText, Loader2, AlertCircle, CheckCircle2, Trash2, BookOpen } from "lucide-react";
+import { Upload, X, FileText, Loader2, AlertCircle, CheckCircle2, Trash2, BookOpen, ChevronDown, ChevronLeft, RotateCcw, Circle, Play } from "lucide-react";
 
 export interface MaterialProgress {
   chaptersTotal: number;
   completedCount: number;
   currentChapterIndex: number;
   currentChapterTitle: string | null;
+  chapters?: string[];
+  completedChapterIndices?: number[];
 }
 
 export interface Material {
@@ -40,7 +42,70 @@ export function CourseMaterialsPanel({
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [busyChapter, setBusyChapter] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleExpanded = (id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const callProgress = async (materialId: number, body: Record<string, unknown>, busyKey: string) => {
+    setBusyChapter(busyKey);
+    setError(null);
+    try {
+      const r = await fetch(`/api/materials/${materialId}/progress`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        setError("تعذّر تحديث التقدّم — حاول مرة أخرى.");
+      } else {
+        const data = await r.json();
+        // Optimistically merge into state so the UI reflects the change immediately.
+        setMaterials((prev) => prev.map((m) => {
+          if (m.id !== materialId) return m;
+          const chapters: string[] = data.chapters ?? m.progress?.chapters ?? [];
+          const completed: number[] = data.completedChapterIndices ?? [];
+          return {
+            ...m,
+            progress: {
+              chaptersTotal: chapters.length,
+              completedCount: completed.length,
+              currentChapterIndex: data.currentChapterIndex ?? 0,
+              currentChapterTitle: chapters[data.currentChapterIndex] ?? null,
+              chapters,
+              completedChapterIndices: completed,
+            },
+          };
+        }));
+      }
+    } catch {
+      setError("تعذّر تحديث التقدّم — حاول مرة أخرى.");
+    }
+    setBusyChapter(null);
+  };
+
+  const handleSetCurrent = (materialId: number, chapterIndex: number) =>
+    callProgress(materialId, { action: "set", chapterIndex }, `${materialId}:set:${chapterIndex}`);
+
+  const handleToggleComplete = (materialId: number, chapterIndex: number, currentlyCompleted: boolean) =>
+    callProgress(
+      materialId,
+      { action: currentlyCompleted ? "uncomplete" : "complete", chapterIndex },
+      `${materialId}:complete:${chapterIndex}`,
+    );
+
+  const handleResetProgress = async (materialId: number) => {
+    if (!confirm("سيُعيد هذا تقدّمك في هذا الملف إلى الفصل الأول ويمسح كل العلامات. هل تريد المتابعة؟")) return;
+    await callProgress(materialId, { action: "reset" }, `${materialId}:reset`);
+  };
 
   const refresh = async () => {
     setLoading(true);
@@ -264,6 +329,9 @@ export function CourseMaterialsPanel({
                       {m.status === "ready" && m.progress && m.progress.chaptersTotal > 0 && (() => {
                         const p = m.progress!;
                         const pct = Math.round((p.completedCount / p.chaptersTotal) * 100);
+                        const isExpanded = expandedIds.has(m.id);
+                        const chapters = p.chapters ?? [];
+                        const completedSet = new Set(p.completedChapterIndices ?? []);
                         return (
                           <div className="mt-2">
                             <div className="flex items-center justify-between text-[10px] text-white/55 mb-1">
@@ -277,6 +345,73 @@ export function CourseMaterialsPanel({
                               <p className="mt-1 text-[10px] text-white/45 truncate">
                                 الفصل الحالي: <span className="text-white/70">{p.currentChapterTitle}</span>
                               </p>
+                            )}
+                            {chapters.length > 0 && (
+                              <>
+                                <div className="mt-2 flex items-center gap-2">
+                                  <button
+                                    onClick={() => toggleExpanded(m.id)}
+                                    className="flex items-center gap-1 text-[11px] text-white/60 hover:text-white transition-colors"
+                                  >
+                                    {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+                                    <span>{isExpanded ? "إخفاء الفصول" : "عرض كل الفصول"}</span>
+                                  </button>
+                                  {isExpanded && (
+                                    <button
+                                      onClick={() => handleResetProgress(m.id)}
+                                      disabled={busyChapter === `${m.id}:reset`}
+                                      className="mr-auto flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-white/5 hover:bg-red-500/15 text-white/55 hover:text-red-300 transition-all disabled:opacity-50"
+                                    >
+                                      {busyChapter === `${m.id}:reset` ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                                      <span>إعادة تعيين التقدّم</span>
+                                    </button>
+                                  )}
+                                </div>
+                                {isExpanded && (
+                                  <ul className="mt-2 space-y-1 border-r-2 border-white/10 pr-2">
+                                    {chapters.map((title, idx) => {
+                                      const isCompleted = completedSet.has(idx);
+                                      const isCurrent = p.currentChapterIndex === idx;
+                                      const completeKey = `${m.id}:complete:${idx}`;
+                                      const setKey = `${m.id}:set:${idx}`;
+                                      return (
+                                        <li
+                                          key={idx}
+                                          className={`group flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors ${isCurrent ? "bg-amber-500/10" : "hover:bg-white/[0.04]"}`}
+                                        >
+                                          <button
+                                            onClick={() => handleToggleComplete(m.id, idx, isCompleted)}
+                                            disabled={busyChapter === completeKey}
+                                            title={isCompleted ? "إلغاء العلامة" : "وضع علامة كمكتمل"}
+                                            className="shrink-0 flex items-center justify-center w-5 h-5 rounded hover:bg-white/10 disabled:opacity-50"
+                                          >
+                                            {busyChapter === completeKey ? (
+                                              <Loader2 className="w-3.5 h-3.5 animate-spin text-white/50" />
+                                            ) : isCompleted ? (
+                                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                            ) : (
+                                              <Circle className="w-3.5 h-3.5 text-white/30 group-hover:text-white/60" />
+                                            )}
+                                          </button>
+                                          <button
+                                            onClick={() => handleSetCurrent(m.id, idx)}
+                                            disabled={busyChapter === setKey || isCurrent}
+                                            title={isCurrent ? "الفصل الحالي" : "اجعل هذا هو الفصل الحالي"}
+                                            className={`flex-1 min-w-0 text-right text-[11px] truncate transition-colors ${isCurrent ? "text-amber-300 font-bold cursor-default" : isCompleted ? "text-white/50 hover:text-white" : "text-white/75 hover:text-white"} disabled:cursor-default`}
+                                          >
+                                            <span className="text-white/30 ml-1">{idx + 1}.</span>{title}
+                                          </button>
+                                          {isCurrent && (
+                                            <span className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded">
+                                              <Play className="w-2.5 h-2.5" /> الآن
+                                            </span>
+                                          )}
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                )}
+                              </>
                             )}
                           </div>
                         );
