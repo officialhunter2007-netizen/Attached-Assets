@@ -128,6 +128,98 @@ export default function Subscription() {
   const [activationCode, setActivationCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
+  // Discount code state
+  const [discountInput, setDiscountInput] = useState("");
+  const [discountInfo, setDiscountInfo] = useState<{
+    code: string;
+    percent: number;
+    basePrice: number;
+    finalPrice: number;
+    discountAmount: number;
+  } | null>(null);
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const [discountChecking, setDiscountChecking] = useState(false);
+
+  // Re-validate when plan or region changes (price depends on them).
+  useEffect(() => {
+    if (!discountInfo || !selectedPlan) return;
+    let aborted = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/subscriptions/discount-codes/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ code: discountInfo.code, planType: selectedPlan, region }),
+        });
+        const data = await r.json();
+        if (aborted) return;
+        if (r.ok && data.valid) {
+          setDiscountInfo({
+            code: data.code,
+            percent: data.percent,
+            basePrice: data.basePrice,
+            finalPrice: data.finalPrice,
+            discountAmount: data.discountAmount,
+          });
+        } else {
+          setDiscountInfo(null);
+          setDiscountError(data.message || data.error || "كود غير صالح");
+        }
+      } catch {
+        // Network errors leave existing info; user can re-apply.
+      }
+    })();
+    return () => { aborted = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlan, region]);
+
+  const handleApplyDiscount = async () => {
+    setDiscountError(null);
+    if (!selectedPlan) {
+      setDiscountError("اختر باقة أولاً قبل تطبيق الكود");
+      return;
+    }
+    const code = discountInput.trim().toUpperCase();
+    if (!code) {
+      setDiscountError("أدخل كود الخصم");
+      return;
+    }
+    setDiscountChecking(true);
+    try {
+      const r = await fetch("/api/subscriptions/discount-codes/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ code, planType: selectedPlan, region }),
+      });
+      const data = await r.json();
+      if (r.ok && data.valid) {
+        setDiscountInfo({
+          code: data.code,
+          percent: data.percent,
+          basePrice: data.basePrice,
+          finalPrice: data.finalPrice,
+          discountAmount: data.discountAmount,
+        });
+        setDiscountInput(data.code);
+      } else {
+        setDiscountInfo(null);
+        setDiscountError(data.message || data.error || "كود غير صالح");
+      }
+    } catch (e: any) {
+      setDiscountError("تعذّر التحقق — أعد المحاولة");
+    } finally {
+      setDiscountChecking(false);
+    }
+  };
+
+  const handleClearDiscount = () => {
+    setDiscountInfo(null);
+    setDiscountInput("");
+    setDiscountError(null);
+  };
+
   const [mySubjectSubs, setMySubjectSubs] = useState<any[]>([]);
   useEffect(() => {
     fetch("/api/subscriptions/my-subjects", { credentials: "include" })
@@ -190,6 +282,7 @@ export default function Subscription() {
           // @ts-ignore — extra fields accepted by backend
           subjectId: targetSubjectId,
           subjectName: targetSubjectName ?? undefined,
+          discountCode: discountInfo?.code ?? undefined,
         }
       });
       toast({
@@ -201,6 +294,10 @@ export default function Subscription() {
       setSelectedPlan(null);
       setAccountName("");
       setNotes("");
+      // Clear discount state so the next request starts fresh.
+      setDiscountInfo(null);
+      setDiscountInput("");
+      setDiscountError(null);
       queryClient.invalidateQueries({ queryKey: getGetMySubscriptionRequestsQueryKey() });
       refetchMyRequests();
     } catch (e: any) {
@@ -671,9 +768,73 @@ export default function Subscription() {
 
                 <div className="bg-black/30 p-5 rounded-2xl border border-white/5">
                   <p className="text-sm text-muted-foreground mb-1">المبلغ المطلوب:</p>
-                  <p className="text-gold font-bold text-xl mb-4">
-                    {region === 'north' ? plans[selectedPlan].priceNorth : plans[selectedPlan].priceSouth} ريال
-                  </p>
+                  {discountInfo ? (
+                    <div className="mb-4">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-emerald-400 font-bold text-2xl">
+                          {discountInfo.finalPrice.toLocaleString("ar-EG")} ريال
+                        </span>
+                        <span className="text-sm text-muted-foreground line-through">
+                          {discountInfo.basePrice.toLocaleString("ar-EG")} ريال
+                        </span>
+                      </div>
+                      <p className="text-xs text-emerald-400 mt-1">
+                        خصم {discountInfo.percent}% عبر كود <span className="font-mono font-bold">{discountInfo.code}</span> — وفّرت {discountInfo.discountAmount.toLocaleString("ar-EG")} ريال
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-gold font-bold text-xl mb-4">
+                      {region === 'north' ? plans[selectedPlan].priceNorth : plans[selectedPlan].priceSouth} ريال
+                    </p>
+                  )}
+
+                  {/* Discount code input */}
+                  <div className="mb-4 p-3 rounded-xl bg-purple-500/5 border border-purple-500/20">
+                    <p className="text-xs text-purple-300 font-bold mb-2 text-center">
+                      عندك كود خصم؟ أدخله هنا قبل التحويل
+                    </p>
+                    {discountInfo ? (
+                      <div className="flex items-center justify-between gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-emerald-400" />
+                          <span className="font-mono font-bold text-emerald-400 text-sm">{discountInfo.code}</span>
+                          <span className="text-xs text-emerald-400">−{discountInfo.percent}%</span>
+                        </div>
+                        <button
+                          onClick={handleClearDiscount}
+                          className="text-xs text-muted-foreground hover:text-red-400 transition-colors"
+                          type="button"
+                        >
+                          إزالة
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="مثال: SUMMER20"
+                            className="bg-black/40 h-10 flex-1 text-center font-mono uppercase"
+                            dir="ltr"
+                            value={discountInput}
+                            onChange={(e) => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(null); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyDiscount(); } }}
+                          />
+                          <Button
+                            type="button"
+                            className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/30 h-10"
+                            disabled={discountChecking || !discountInput.trim()}
+                            onClick={handleApplyDiscount}
+                          >
+                            {discountChecking ? "..." : "تطبيق"}
+                          </Button>
+                        </div>
+                        {discountError && (
+                          <p className="text-xs text-red-400 mt-2 text-center">{discountError}</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+
                   <p className="text-sm font-bold mb-2">رقم حساب الكريمي:</p>
                   {region === 'north' ? (
                     <>

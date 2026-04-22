@@ -17,8 +17,29 @@ export const subscriptionRequestsTable = pgTable("subscription_requests", {
   activationCode: text("activation_code"),
   notes: text("notes"),
   adminNote: text("admin_note"),
+  discountCodeId: integer("discount_code_id"),
+  discountCode: text("discount_code"),
+  discountPercent: integer("discount_percent"),
+  basePrice: integer("base_price"),
+  finalPrice: integer("final_price"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Discount codes (admin-managed promo codes) ────────────────────────────────
+export const discountCodesTable = pgTable("discount_codes", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  percent: integer("percent").notNull(),
+  note: text("note"),
+  active: boolean("active").notNull().default(true),
+  usageCount: integer("usage_count").notNull().default(0),
+  createdByUserId: integer("created_by_user_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertDiscountCodeSchema = createInsertSchema(discountCodesTable).omit({ id: true, createdAt: true });
+export type InsertDiscountCode = z.infer<typeof insertDiscountCodeSchema>;
+export type DiscountCode = typeof discountCodesTable.$inferSelect;
 
 export const insertSubscriptionRequestSchema = createInsertSchema(subscriptionRequestsTable).omit({ id: true, createdAt: true });
 export type InsertSubscriptionRequest = z.infer<typeof insertSubscriptionRequestSchema>;

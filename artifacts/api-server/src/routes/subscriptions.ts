@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import {
   db,
   subscriptionRequestsTable,
@@ -7,6 +7,7 @@ import {
   usersTable,
   userSubjectSubscriptionsTable,
   userSubjectFirstLessonsTable,
+  discountCodesTable,
 } from "@workspace/db";
 import {
   CreateSubscriptionRequestBody,
@@ -26,6 +27,32 @@ const PLAN_MESSAGE_LIMITS: Record<string, number> = {
   silver: 60,
   gold: 100,
 };
+
+// Authoritative price table (server-side source of truth).
+const BASE_PRICES: Record<"north" | "south", Record<string, number>> = {
+  north: { bronze: 1000, silver: 2000, gold: 3000 },
+  south: { bronze: 3000, silver: 6000, gold: 9000 },
+};
+
+function getBasePrice(planType: string, region: string): number | null {
+  const r = BASE_PRICES[region as "north" | "south"];
+  if (!r) return null;
+  return r[planType] ?? null;
+}
+
+function computeFinalPrice(basePrice: number, percent: number): number {
+  // Round to nearest integer (YER are whole units).
+  const discounted = basePrice * (1 - percent / 100);
+  return Math.max(0, Math.round(discounted));
+}
+
+function normalizeDiscountCode(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().toUpperCase();
+  if (!trimmed) return null;
+  if (!/^[A-Z0-9_-]{2,32}$/.test(trimmed)) return null;
+  return trimmed;
+}
 
 function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
@@ -60,20 +87,119 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
 
   const user = await getUser(userId);
 
-  const [request] = await db.insert(subscriptionRequestsTable).values({
-    userId,
-    userEmail: user?.email ?? "",
-    userName: user?.displayName ?? null,
-    accountName: parsed.data.accountName,
-    planType: parsed.data.planType,
-    region: parsed.data.region,
-    subjectId,
-    subjectName: subjectName ?? null,
-    notes: parsed.data.notes ?? null,
-    status: "pending",
-  }).returning();
+  const basePrice = getBasePrice(parsed.data.planType, parsed.data.region);
+  if (basePrice == null) {
+    res.status(400).json({ error: "خطة أو منطقة غير صالحة" });
+    return;
+  }
 
-  res.status(201).json(request);
+  const rawDiscountCode = req.body?.discountCode;
+  const codeNorm = rawDiscountCode == null || rawDiscountCode === "" ? null : normalizeDiscountCode(rawDiscountCode);
+  if (rawDiscountCode != null && rawDiscountCode !== "" && !codeNorm) {
+    res.status(400).json({ error: "كود الخصم غير صالح" });
+    return;
+  }
+
+  try {
+    const created = await db.transaction(async (tx) => {
+      let discountCodeRow: typeof discountCodesTable.$inferSelect | null = null;
+      if (codeNorm) {
+        const [row] = await tx
+          .select()
+          .from(discountCodesTable)
+          .where(eq(discountCodesTable.code, codeNorm))
+          .for("update");
+        if (!row) {
+          throw new Error("INVALID_CODE");
+        }
+        if (!row.active) {
+          throw new Error("INACTIVE_CODE");
+        }
+        discountCodeRow = row;
+        // Atomic increment within the same locked transaction.
+        await tx
+          .update(discountCodesTable)
+          .set({ usageCount: sql`${discountCodesTable.usageCount} + 1` })
+          .where(eq(discountCodesTable.id, row.id));
+      }
+
+      const percent = discountCodeRow?.percent ?? 0;
+      const finalPrice = computeFinalPrice(basePrice, percent);
+
+      const [request] = await tx.insert(subscriptionRequestsTable).values({
+        userId,
+        userEmail: user?.email ?? "",
+        userName: user?.displayName ?? null,
+        accountName: parsed.data.accountName,
+        planType: parsed.data.planType,
+        region: parsed.data.region,
+        subjectId,
+        subjectName: subjectName ?? null,
+        notes: parsed.data.notes ?? null,
+        status: "pending",
+        discountCodeId: discountCodeRow?.id ?? null,
+        discountCode: discountCodeRow?.code ?? null,
+        discountPercent: discountCodeRow ? percent : null,
+        basePrice,
+        finalPrice,
+      }).returning();
+
+      return request;
+    });
+
+    res.status(201).json(created);
+  } catch (e: any) {
+    if (e?.message === "INVALID_CODE") {
+      res.status(400).json({ error: "كود الخصم غير موجود" });
+      return;
+    }
+    if (e?.message === "INACTIVE_CODE") {
+      res.status(400).json({ error: "كود الخصم متوقف حالياً" });
+      return;
+    }
+    throw e;
+  }
+});
+
+// ── User: validate a discount code (preview final price) ──────────────────────
+router.post("/subscriptions/discount-codes/validate", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const code = normalizeDiscountCode(req.body?.code);
+  const planType = typeof req.body?.planType === "string" ? req.body.planType : "";
+  const region = typeof req.body?.region === "string" ? req.body.region : "";
+
+  if (!code) {
+    res.json({ valid: false, message: "أدخل كود خصم صحيح (أحرف وأرقام فقط)" });
+    return;
+  }
+
+  const basePrice = getBasePrice(planType, region);
+  if (basePrice == null) {
+    res.status(400).json({ valid: false, message: "خطة أو منطقة غير صالحة" });
+    return;
+  }
+
+  const [row] = await db.select().from(discountCodesTable).where(eq(discountCodesTable.code, code));
+  if (!row) {
+    res.json({ valid: false, message: "كود الخصم غير موجود" });
+    return;
+  }
+  if (!row.active) {
+    res.json({ valid: false, message: "كود الخصم متوقف حالياً" });
+    return;
+  }
+
+  const finalPrice = computeFinalPrice(basePrice, row.percent);
+  res.json({
+    valid: true,
+    code: row.code,
+    percent: row.percent,
+    basePrice,
+    finalPrice,
+    discountAmount: basePrice - finalPrice,
+  });
 });
 
 // ── User: get my requests ──────────────────────────────────────────────────────
@@ -306,49 +432,80 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
     return;
   }
 
-  const code = generateActivationCode();
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 14);
-
-  const messagesLimit = PLAN_MESSAGE_LIMITS[request.planType] ?? 30;
+  // Idempotency: only pending or incomplete requests may be approved.
+  if (request.status !== "pending" && request.status !== "incomplete") {
+    res.status(409).json({ error: `لا يمكن قبول طلب حالته: ${request.status}` });
+    return;
+  }
 
   if (!request.subjectId || request.subjectId === "all") {
     res.status(400).json({ error: "طلب الاشتراك لا يحتوي على مادة محددة. يرجى رفضه وإنشاء طلب جديد بمادة محددة." });
     return;
   }
 
-  const [card] = await db.insert(activationCardsTable).values({
-    activationCode: code,
-    planType: request.planType,
-    region: request.region,
-    subjectId: request.subjectId,
-    subjectName: request.subjectName ?? null,
-    isUsed: true,
-    usedByUserId: request.userId,
-    usedAt: new Date(),
-    expiresAt,
-    subscriptionRequestId: id,
-  }).returning();
+  const code = generateActivationCode();
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 14);
 
-  await db.update(subscriptionRequestsTable).set({
-    status: "approved",
-    activationCode: code,
-    adminNote: null,
-  }).where(eq(subscriptionRequestsTable.id, id));
+  const messagesLimit = PLAN_MESSAGE_LIMITS[request.planType] ?? 30;
 
-  await db.insert(userSubjectSubscriptionsTable).values({
-    userId: request.userId,
-    subjectId: request.subjectId,
-    subjectName: request.subjectName ?? null,
-    plan: request.planType,
-    messagesUsed: 0,
-    messagesLimit,
-    expiresAt,
-    activationCode: code,
-    subscriptionRequestId: id,
-  });
+  // Race-safe approval: conditional update on status. Only the first concurrent
+  // call wins; subsequent calls find updatedRows = 0 and bail out.
+  try {
+    const card = await db.transaction(async (tx) => {
+      const updatedRows = await tx
+        .update(subscriptionRequestsTable)
+        .set({
+          status: "approved",
+          activationCode: code,
+          adminNote: null,
+        })
+        .where(and(
+          eq(subscriptionRequestsTable.id, id),
+          sql`${subscriptionRequestsTable.status} IN ('pending','incomplete')`,
+        ))
+        .returning();
 
-  res.json(card);
+      if (updatedRows.length === 0) {
+        throw new Error("ALREADY_PROCESSED");
+      }
+
+      const [insertedCard] = await tx.insert(activationCardsTable).values({
+        activationCode: code,
+        planType: request.planType,
+        region: request.region,
+        subjectId: request.subjectId!,
+        subjectName: request.subjectName ?? null,
+        isUsed: true,
+        usedByUserId: request.userId,
+        usedAt: new Date(),
+        expiresAt,
+        subscriptionRequestId: id,
+      }).returning();
+
+      await tx.insert(userSubjectSubscriptionsTable).values({
+        userId: request.userId,
+        subjectId: request.subjectId!,
+        subjectName: request.subjectName ?? null,
+        plan: request.planType,
+        messagesUsed: 0,
+        messagesLimit,
+        expiresAt,
+        activationCode: code,
+        subscriptionRequestId: id,
+      });
+
+      return insertedCard;
+    });
+
+    res.json(card);
+  } catch (e: any) {
+    if (e?.message === "ALREADY_PROCESSED") {
+      res.status(409).json({ error: "تمت معالجة هذا الطلب بالفعل" });
+      return;
+    }
+    throw e;
+  }
 });
 
 // ── Admin: reject subscription request ───────────────────────────────────────
@@ -753,6 +910,131 @@ router.patch("/admin/subject-subscriptions/:subId/extend", async (req, res): Pro
     .returning();
 
   res.json({ success: true, subscription: updated });
+});
+
+// ── Admin: list discount codes (with usage counts) ────────────────────────────
+router.get("/admin/discount-codes", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const codes = await db.select().from(discountCodesTable).orderBy(desc(discountCodesTable.createdAt));
+  res.json(codes);
+});
+
+// ── Admin: create discount code ────────────────────────────────────────────────
+router.post("/admin/discount-codes", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const code = normalizeDiscountCode(req.body?.code);
+  const percentRaw = Number(req.body?.percent);
+  const note = typeof req.body?.note === "string" ? req.body.note.trim() : "";
+
+  if (!code) { res.status(400).json({ error: "كود غير صالح (٢-٣٢ حرف/رقم/شرطة)" }); return; }
+  if (!Number.isInteger(percentRaw) || percentRaw < 1 || percentRaw > 99) {
+    res.status(400).json({ error: "نسبة الخصم يجب أن تكون رقماً صحيحاً بين ١ و ٩٩" });
+    return;
+  }
+
+  const [existing] = await db.select().from(discountCodesTable).where(eq(discountCodesTable.code, code));
+  if (existing) { res.status(409).json({ error: "هذا الكود موجود مسبقاً" }); return; }
+
+  const [row] = await db.insert(discountCodesTable).values({
+    code,
+    percent: percentRaw,
+    note: note || null,
+    active: true,
+    usageCount: 0,
+    createdByUserId: adminId,
+  }).returning();
+
+  res.status(201).json(row);
+});
+
+// ── Admin: update discount code (toggle active; edit percent only if unused) ──
+router.patch("/admin/discount-codes/:id", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [row] = await db.select().from(discountCodesTable).where(eq(discountCodesTable.id, id));
+  if (!row) { res.status(404).json({ error: "Code not found" }); return; }
+
+  const updates: Partial<typeof discountCodesTable.$inferInsert> = {};
+
+  if (typeof req.body?.active === "boolean") {
+    updates.active = req.body.active;
+  }
+
+  let percentChanged = false;
+  if (req.body?.percent !== undefined) {
+    if (row.usageCount > 0) {
+      res.status(409).json({ error: "لا يمكن تعديل النسبة بعد أن استُخدم الكود — أنشئ كوداً جديداً" });
+      return;
+    }
+    const p = Number(req.body.percent);
+    if (!Number.isInteger(p) || p < 1 || p > 99) {
+      res.status(400).json({ error: "نسبة الخصم يجب أن تكون رقماً صحيحاً بين ١ و ٩٩" });
+      return;
+    }
+    updates.percent = p;
+    percentChanged = true;
+  }
+
+  if (typeof req.body?.note === "string") {
+    updates.note = req.body.note.trim() || null;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    res.json(row);
+    return;
+  }
+
+  // Race-safe percent update: enforce usage_count = 0 atomically in WHERE clause
+  // so a concurrent request that just incremented usage cannot bypass the rule.
+  const conditions = [eq(discountCodesTable.id, id)];
+  if (percentChanged) {
+    conditions.push(eq(discountCodesTable.usageCount, 0));
+  }
+
+  const updatedRows = await db.update(discountCodesTable)
+    .set(updates)
+    .where(and(...conditions))
+    .returning();
+
+  if (updatedRows.length === 0) {
+    res.status(409).json({ error: "تم استخدام الكود أثناء التعديل — لا يمكن تغيير النسبة" });
+    return;
+  }
+
+  res.json(updatedRows[0]);
+});
+
+// ── Admin: list subscribers who used a discount code ──────────────────────────
+router.get("/admin/discount-codes/:id/subscribers", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const requests = await db
+    .select()
+    .from(subscriptionRequestsTable)
+    .where(eq(subscriptionRequestsTable.discountCodeId, id))
+    .orderBy(desc(subscriptionRequestsTable.createdAt));
+
+  res.json(requests);
 });
 
 export default router;
