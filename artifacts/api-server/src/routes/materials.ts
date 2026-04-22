@@ -1589,4 +1589,186 @@ router.get("/materials/:id/quiz-attempts", async (req, res): Promise<any> => {
   res.json({ materialId: id, attempts });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Backfill: re-extract per-page chunks for older "ready" materials that were
+// processed before the per-page citation system existed. Only touches rows
+// that have zero rows in material_chunks. Leaves course_materials.status alone
+// — failures are logged but do not flip a working material to "error".
+// ─────────────────────────────────────────────────────────────────────────────
+type BackfillResult = { ok: boolean; pages: number; reason?: string };
+
+async function reprocessChunksOnly(materialId: number): Promise<BackfillResult> {
+  const [row] = await db.select().from(courseMaterialsTable).where(eq(courseMaterialsTable.id, materialId));
+  if (!row) return { ok: false, pages: 0, reason: "not_found" };
+
+  const pageTexts = new Map<number, string>();
+  let pageCount = 0;
+  let buf: Buffer;
+
+  try {
+    const svc = new ObjectStorageService();
+    const file = await svc.getObjectEntityFile(row.objectPath);
+    [buf] = await file.download();
+  } catch (e: any) {
+    if (e instanceof ObjectNotFoundError) return { ok: false, pages: 0, reason: "file_missing" };
+    return { ok: false, pages: 0, reason: `download_failed: ${String(e?.message || e).slice(0, 120)}` };
+  }
+
+  try {
+    const pdfParseMod: any = await import("pdf-parse");
+    const pdfParse = pdfParseMod.default || pdfParseMod;
+    let currentPage = 0;
+    const pagerender = async (pageData: any) => {
+      currentPage += 1;
+      const myPage = currentPage;
+      try {
+        const tc = await pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
+        const items = tc?.items || [];
+        let lastY: number | null = null;
+        const pieces: string[] = [];
+        for (const it of items) {
+          const str = (it?.str ?? "").toString();
+          const y = Array.isArray(it?.transform) ? it.transform[5] : null;
+          if (lastY !== null && y !== null && Math.abs(y - lastY) > 4) pieces.push("\n");
+          pieces.push(str);
+          if (y !== null) lastY = y;
+        }
+        const pageText = pieces.join(" ").replace(/[ \t]+/g, " ").replace(/\n /g, "\n").trim();
+        if (pageText) pageTexts.set(myPage, pageText);
+        return pageText;
+      } catch {
+        return "";
+      }
+    };
+    const result = await pdfParse(buf, { pagerender });
+    const extractedText = (result?.text || "").trim();
+    pageCount = result?.numpages || pageTexts.size || 0;
+    if (pageTexts.size === 0 && extractedText) {
+      const split = extractedText.split(/\f/);
+      split.forEach((t: string, idx: number) => {
+        const trimmed = t.trim();
+        if (trimmed) pageTexts.set(idx + 1, trimmed);
+      });
+    }
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    if (/encrypt|password/i.test(msg)) return { ok: false, pages: 0, reason: "encrypted" };
+    return { ok: false, pages: 0, reason: `pdf_parse_failed: ${msg.slice(0, 120)}` };
+  }
+
+  // OCR fallback for scanned PDFs — same heuristic as processMaterial.
+  const totalChars = Array.from(pageTexts.values()).join("").length;
+  const looksScanned = totalChars < 200 || (pageCount > 0 && totalChars / Math.max(pageCount, 1) < 80);
+  if (looksScanned && process.env.GEMINI_API_KEY) {
+    try {
+      const ocrText = await ocrPdfWithGemini(buf, pageCount);
+      if (ocrText.trim().length > totalChars) {
+        const ocrPages = splitOcrTextIntoPages(ocrText.trim());
+        if (ocrPages.size > 0) {
+          pageTexts.clear();
+          for (const [n, t] of ocrPages.entries()) pageTexts.set(n, t);
+        }
+      }
+    } catch (e: any) {
+      console.warn("[materials/backfill] OCR failed for", materialId, e?.message || e);
+    }
+  }
+
+  if (pageTexts.size === 0) return { ok: false, pages: 0, reason: "no_text" };
+
+  try {
+    await db.delete(materialChunksTable).where(eq(materialChunksTable.materialId, materialId));
+    const records: { materialId: number; userId: number; subjectId: string; pageNumber: number; chunkIndex: number; content: string }[] = [];
+    for (const [page, text] of Array.from(pageTexts.entries()).sort((a, b) => a[0] - b[0])) {
+      const slices = sliceLongPage(text, 2000);
+      slices.forEach((slice, idx) => {
+        if (slice.trim().length === 0) return;
+        records.push({
+          materialId,
+          userId: row.userId,
+          subjectId: row.subjectId,
+          pageNumber: page,
+          chunkIndex: idx,
+          content: slice,
+        });
+      });
+    }
+    const BATCH = 200;
+    for (let i = 0; i < records.length; i += BATCH) {
+      const batch = records.slice(i, i + BATCH);
+      if (batch.length > 0) await db.insert(materialChunksTable).values(batch);
+    }
+    return { ok: true, pages: pageTexts.size };
+  } catch (e: any) {
+    return { ok: false, pages: 0, reason: `insert_failed: ${String(e?.message || e).slice(0, 120)}` };
+  }
+}
+
+async function listMaterialsMissingChunks(): Promise<number[]> {
+  const result = await db.execute(sql`
+    SELECT cm.id AS id
+    FROM course_materials cm
+    LEFT JOIN material_chunks mc ON mc.material_id = cm.id
+    WHERE cm.status = 'ready'
+    GROUP BY cm.id
+    HAVING COUNT(mc.id) = 0
+    ORDER BY cm.id ASC
+  `);
+  return (result.rows as any[]).map((r) => Number(r.id ?? r.ID));
+}
+
+async function requireAdmin(req: any): Promise<boolean> {
+  const userId = getUserId(req);
+  if (!userId) return false;
+  const [u] = await db.select({ role: usersTable.role }).from(usersTable).where(eq(usersTable.id, userId));
+  return u?.role === "admin";
+}
+
+// GET /api/admin/materials/backfill-chunks  → preview how many rows need it
+router.get("/admin/materials/backfill-chunks", async (req, res): Promise<any> => {
+  if (!(await requireAdmin(req))) return res.status(403).json({ error: "Forbidden" });
+  const ids = await listMaterialsMissingChunks();
+  res.json({ pendingCount: ids.length, ids });
+});
+
+// POST /api/admin/materials/backfill-chunks  { limit? }
+//   Re-runs the per-page extractor on every "ready" material that has no
+//   material_chunks rows yet. Failures (file missing, encrypted, …) are
+//   logged but do not stop the loop or change the row's status.
+router.post("/admin/materials/backfill-chunks", async (req, res): Promise<any> => {
+  if (!(await requireAdmin(req))) return res.status(403).json({ error: "Forbidden" });
+
+  const requestedLimit = Number(req.body?.limit);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.min(Math.floor(requestedLimit), 200)
+    : 50;
+
+  const allIds = await listMaterialsMissingChunks();
+  const ids = allIds.slice(0, limit);
+
+  const results: { id: number; ok: boolean; pages?: number; reason?: string }[] = [];
+  for (const id of ids) {
+    try {
+      const r = await reprocessChunksOnly(id);
+      results.push({ id, ok: r.ok, pages: r.pages, reason: r.reason });
+      if (r.ok) console.log("[materials/backfill] ok id=", id, "pages=", r.pages);
+      else console.warn("[materials/backfill] skip id=", id, "reason=", r.reason);
+    } catch (e: any) {
+      const reason = String(e?.message || e).slice(0, 160);
+      results.push({ id, ok: false, reason });
+      console.warn("[materials/backfill] threw id=", id, reason);
+    }
+  }
+
+  const succeeded = results.filter((r) => r.ok).length;
+  res.json({
+    totalPending: allIds.length,
+    processed: ids.length,
+    remaining: Math.max(0, allIds.length - ids.length),
+    succeeded,
+    failed: ids.length - succeeded,
+    results,
+  });
+});
+
 export default router;
