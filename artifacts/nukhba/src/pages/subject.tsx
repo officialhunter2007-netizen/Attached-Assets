@@ -17,6 +17,7 @@ import CyberLab from "@/components/cyber-lab/cyber-lab";
 import { DynamicEnvShell } from "@/components/dynamic-env/dynamic-env-shell";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import { CourseMaterialsPanel, TeachingModeChoiceCard } from "@/components/course-materials-panel";
+import { QuizPanel, type QuizKind } from "@/components/quiz-panel";
 import { BookOpen } from "lucide-react";
 
 interface LessonSummary {
@@ -1278,6 +1279,7 @@ function SubjectPathChat({
   const [teachingMode, setTeachingMode] = useState<'unset' | 'custom' | 'professor' | null>(null);
   const [activeMaterialId, setActiveMaterialId] = useState<number | null>(null);
   const [activeMaterialStarters, setActiveMaterialStarters] = useState<string | null>(null);
+  const [quizPanel, setQuizPanel] = useState<{ open: boolean; kind: QuizKind }>({ open: false, kind: "chapter" });
   const [showSourcesPanel, setShowSourcesPanel] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -1933,15 +1935,43 @@ function SubjectPathChat({
               <span className="text-[11px] font-bold text-purple-300">🧭 مسار مخصّص</span>
             )}
           </div>
-          <button
-            onClick={() => setShowSourcesPanel(true)}
-            className="shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-amber-200 transition-all flex items-center gap-1.5"
-          >
-            <BookOpen className="w-3 h-3" />
-            مصادري
-          </button>
+          <div className="shrink-0 flex items-center gap-1.5">
+            {teachingMode === 'professor' && activeMaterialId && (
+              <>
+                <button
+                  onClick={() => setQuizPanel({ open: true, kind: 'chapter' })}
+                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 text-amber-200 transition-all flex items-center gap-1.5"
+                  title="اختبر نفسك على الفصل الحالي"
+                >
+                  📘 اختبرني على هذا الفصل
+                </button>
+                <button
+                  onClick={() => setQuizPanel({ open: true, kind: 'exam' })}
+                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-purple-200 transition-all flex items-center gap-1.5"
+                  title="امتحان شامل من 30 سؤالاً يغطّي كامل الملف"
+                >
+                  🏆 الامتحان النهائي
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => setShowSourcesPanel(true)}
+              className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-amber-200 transition-all flex items-center gap-1.5"
+            >
+              <BookOpen className="w-3 h-3" />
+              مصادري
+            </button>
+          </div>
         </div>
       )}
+
+      {/* Quiz / final exam launcher */}
+      <QuizPanel
+        open={quizPanel.open && !!activeMaterialId}
+        onClose={() => setQuizPanel((q) => ({ ...q, open: false }))}
+        materialId={activeMaterialId}
+        kind={quizPanel.kind}
+      />
 
       {/* Stage progress bar */}
       {chatPhase === 'teaching' && stages.length > 0 && (

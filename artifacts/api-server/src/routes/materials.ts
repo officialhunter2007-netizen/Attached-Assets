@@ -8,6 +8,7 @@ import {
   usersTable,
   materialChapterProgressTable,
   materialChunksTable,
+  quizAttemptsTable,
 } from "@workspace/db";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 
@@ -1030,5 +1031,551 @@ export async function getActiveMaterialContext(userId: number, subjectId: string
   if (!mat || mat.status !== "ready") return { mode: mode.mode, material: null };
   return { mode: mode.mode, material: mat };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quizzes & final exams generated from a PDF
+// ─────────────────────────────────────────────────────────────────────────────
+
+const QUIZ_QUESTION_COUNT = { min: 5, max: 10 };
+const EXAM_QUESTION_COUNT = 30;
+
+type QuizQuestion = {
+  id: string;
+  type: "mcq" | "short";
+  prompt: string;
+  choices?: string[];
+  answer: string;
+  explanation?: string;
+  topic?: string;
+  page?: number | null;
+};
+
+function stripJsonFence(s: string): string {
+  return s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+}
+
+function normalizeText(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[\u064B-\u0652]/g, "") // Arabic diacritics
+    .replace(/[إأآا]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+async function generateQuestionsWithGemini(opts: {
+  text: string;
+  fileName: string;
+  language: string | null;
+  count: number;
+  scopeLabel: string;
+  mcqRatio?: number;
+}): Promise<QuizQuestion[]> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY missing");
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const langWord = (opts.language ?? "ar") === "ar" ? "العربية" : "الإنجليزية";
+  const sample = opts.text.slice(0, 80_000);
+  const mcqCount = Math.max(1, Math.round(opts.count * (opts.mcqRatio ?? 0.7)));
+  const shortCount = Math.max(1, opts.count - mcqCount);
+
+  const prompt = `أنت مولّد امتحانات أكاديمي. اعتمد فقط على النص التالي من ملف "${opts.fileName}" (لغته الأساسية ${langWord})، ولا تخترع أي معلومة من خارجه.
+المطلوب: ${opts.scopeLabel}.
+أنشئ ${opts.count} سؤالاً متنوّعاً (${mcqCount} اختيار من متعدد + ${shortCount} إجابة قصيرة).
+
+أعد JSON فقط — بدون أي شرح أو سياج markdown — بهذا الشكل بالضبط:
+{
+  "questions": [
+    {
+      "type": "mcq",
+      "prompt": "نص السؤال بالعربية",
+      "choices": ["خيار 1", "خيار 2", "خيار 3", "خيار 4"],
+      "answer": "النص الكامل للخيار الصحيح (يجب أن يطابق أحد العناصر في choices)",
+      "explanation": "شرح موجز جداً للحل (سطر أو سطران)",
+      "topic": "الموضوع الفرعي الذي يقيسه السؤال (3-6 كلمات)",
+      "page": 12
+    },
+    {
+      "type": "short",
+      "prompt": "نص السؤال القصير",
+      "answer": "الإجابة النموذجية في 1-3 أسطر",
+      "explanation": "شرح موجز",
+      "topic": "الموضوع الفرعي",
+      "page": 7
+    }
+  ]
+}
+
+قواعد صارمة:
+- جميع الأسئلة بالعربية الفصحى ومأخوذة فعلياً من النص.
+- لكل MCQ بالضبط 4 خيارات، وحقل answer هو نص أحد الخيارات حرفياً.
+- short هي أسئلة مفاهيمية لا تتطلب أكثر من 3 أسطر.
+- نوّع المستويات (تذكّر، فهم، تطبيق، تحليل).
+- اذكر page (رقم صفحة تقديري من النص إن أمكن، وإلا null).
+- تجنّب الأسئلة المكرّرة أو التافهة.
+
+النص:
+"""
+${sample}
+"""`;
+
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.4, maxOutputTokens: 8192, responseMimeType: "application/json" },
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!r.ok) {
+    const body = await r.text();
+    throw new Error(`gemini http ${r.status}: ${body.slice(0, 200)}`);
+  }
+  const data: any = await r.json();
+  const txt = stripJsonFence((data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join(""));
+  let parsed: any;
+  try { parsed = JSON.parse(txt); } catch (e) {
+    throw new Error("model returned non-JSON output");
+  }
+  const arr = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  const out: QuizQuestion[] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const q = arr[i] || {};
+    const type = q.type === "short" ? "short" : "mcq";
+    const prompt = String(q.prompt ?? "").trim();
+    const answer = String(q.answer ?? "").trim();
+    if (!prompt || !answer) continue;
+    if (type === "mcq") {
+      const choices = Array.isArray(q.choices) ? q.choices.map((c: any) => String(c ?? "").trim()).filter(Boolean) : [];
+      if (choices.length < 2) continue;
+      // Make sure answer matches a choice (try fuzzy match on normalized form).
+      const normAns = normalizeText(answer);
+      const matched = choices.find((c: string) => normalizeText(c) === normAns) ?? null;
+      const finalAnswer = matched ?? answer;
+      if (!choices.some((c: string) => normalizeText(c) === normalizeText(finalAnswer))) continue;
+      out.push({
+        id: `q${i + 1}`,
+        type: "mcq",
+        prompt,
+        choices,
+        answer: finalAnswer,
+        explanation: q.explanation ? String(q.explanation).slice(0, 600) : undefined,
+        topic: q.topic ? String(q.topic).slice(0, 120) : undefined,
+        page: Number.isFinite(q.page) ? Number(q.page) : null,
+      });
+    } else {
+      out.push({
+        id: `q${i + 1}`,
+        type: "short",
+        prompt,
+        answer: answer.slice(0, 1200),
+        explanation: q.explanation ? String(q.explanation).slice(0, 600) : undefined,
+        topic: q.topic ? String(q.topic).slice(0, 120) : undefined,
+        page: Number.isFinite(q.page) ? Number(q.page) : null,
+      });
+    }
+  }
+  return out;
+}
+
+// Build a per-chapter context: the chapter title + best chunks retrieved by
+// searching for the title keywords. Falls back to opening pages when nothing
+// matches (e.g. very generic chapter titles).
+async function buildChapterContext(materialId: number, fullText: string, chapterTitle: string): Promise<string> {
+  const hits = await searchMaterialChunks(materialId, chapterTitle, 14);
+  if (hits.length > 0) {
+    return hits
+      .sort((a, b) => a.pageNumber - b.pageNumber || a.chunkIndex - b.chunkIndex)
+      .map((h) => `--- صفحة ${h.pageNumber} ---\n${h.content}`)
+      .join("\n\n");
+  }
+  // Fallback: return the full extracted text (already truncated upstream).
+  return fullText;
+}
+
+// Grade short-answer questions in a single Gemini call. Returns a map id→{correct, feedback}.
+async function gradeShortAnswers(items: { id: string; prompt: string; expected: string; given: string }[]): Promise<Record<string, { correct: boolean; feedback: string }>> {
+  const out: Record<string, { correct: boolean; feedback: string }> = {};
+  if (items.length === 0) return out;
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    // No model — be lenient: any non-empty answer is half-credit (counted wrong here).
+    for (const it of items) out[it.id] = { correct: false, feedback: "تعذّر التقييم التلقائي." };
+    return out;
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const payload = items.map((it) => ({ id: it.id, prompt: it.prompt, expected: it.expected, given: it.given }));
+  const prompt = `أنت مصحّح امتحانات. لكل عنصر في القائمة، قارن إجابة الطالب (given) بالإجابة النموذجية (expected) واحكم هل هي صحيحة جوهرياً (تغطّي المعنى الأساسي حتى مع اختلاف الصياغة).
+
+أعد JSON فقط:
+{ "results": [ { "id": "q1", "correct": true, "feedback": "ملاحظة قصيرة بالعربية (سطر واحد)" }, ... ] }
+
+العناصر:
+${JSON.stringify(payload, null, 0)}`;
+
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 2048, responseMimeType: "application/json" },
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    if (!r.ok) throw new Error(`gemini http ${r.status}`);
+    const data: any = await r.json();
+    const txt = stripJsonFence((data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join(""));
+    const parsed = JSON.parse(txt);
+    const arr = Array.isArray(parsed?.results) ? parsed.results : [];
+    for (const r2 of arr) {
+      if (!r2 || typeof r2.id !== "string") continue;
+      out[r2.id] = {
+        correct: !!r2.correct,
+        feedback: typeof r2.feedback === "string" ? r2.feedback.slice(0, 400) : "",
+      };
+    }
+  } catch (e: any) {
+    console.warn("[quiz/grade-short] failed:", e?.message || e);
+  }
+  // Fill in any missing items with conservative defaults.
+  for (const it of items) {
+    if (!out[it.id]) out[it.id] = { correct: false, feedback: "تعذّر تقييم هذه الإجابة تلقائياً." };
+  }
+  return out;
+}
+
+function questionsForClient(qs: QuizQuestion[]): Array<Omit<QuizQuestion, "answer" | "explanation">> {
+  return qs.map(({ answer: _a, explanation: _e, ...rest }) => rest);
+}
+
+async function loadMaterialOwned(userId: number, id: number) {
+  const [row] = await db
+    .select()
+    .from(courseMaterialsTable)
+    .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
+  return row ?? null;
+}
+
+// ── POST /api/materials/:id/quiz  { chapterIndex? }  → generate chapter quiz ─
+router.post("/materials/:id/quiz", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+  const mat = await loadMaterialOwned(userId, id);
+  if (!mat) return res.status(404).json({ error: "Not found" });
+  if (mat.status !== "ready") return res.status(409).json({ error: "MATERIAL_NOT_READY" });
+  if (!mat.extractedText) return res.status(409).json({ error: "MATERIAL_HAS_NO_TEXT" });
+  if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: "QUIZ_GEN_UNAVAILABLE" });
+
+  const progress = await loadProgress(userId, id, mat.outline ?? "");
+  let chapterIndex: number | null = Number.isInteger(req.body?.chapterIndex)
+    ? Number(req.body.chapterIndex)
+    : progress.currentChapterIndex;
+  if (!progress.chapters.length) chapterIndex = null;
+  const chapterTitle = chapterIndex !== null ? (progress.chapters[chapterIndex] ?? null) : null;
+
+  try {
+    const context = chapterTitle
+      ? await buildChapterContext(id, mat.extractedText, chapterTitle)
+      : mat.extractedText;
+    const scopeLabel = chapterTitle
+      ? `أسئلة تختبر الفصل/القسم: "${chapterTitle}" فقط`
+      : "أسئلة تغطّي الموضوعات الرئيسية في الملف";
+    const desired = Math.min(QUIZ_QUESTION_COUNT.max, Math.max(QUIZ_QUESTION_COUNT.min, 8));
+    const questions = await generateQuestionsWithGemini({
+      text: context,
+      fileName: mat.fileName,
+      language: mat.language,
+      count: desired,
+      scopeLabel,
+      mcqRatio: 0.7,
+    });
+    if (questions.length < QUIZ_QUESTION_COUNT.min) {
+      return res.status(502).json({ error: "QUIZ_GEN_TOO_FEW", got: questions.length });
+    }
+    const trimmed = questions.slice(0, QUIZ_QUESTION_COUNT.max);
+    const [row] = await db.insert(quizAttemptsTable).values({
+      userId,
+      materialId: id,
+      subjectId: mat.subjectId,
+      kind: "chapter",
+      chapterIndex,
+      chapterTitle,
+      questions: JSON.stringify(trimmed),
+      totalQuestions: trimmed.length,
+      status: "in_progress",
+    }).returning();
+
+    res.json({
+      attemptId: row.id,
+      kind: "chapter",
+      chapterIndex,
+      chapterTitle,
+      totalQuestions: trimmed.length,
+      questions: questionsForClient(trimmed),
+    });
+  } catch (e: any) {
+    console.error("[materials/quiz] error:", e?.message || e);
+    res.status(500).json({ error: "QUIZ_GEN_FAILED" });
+  }
+});
+
+// ── POST /api/materials/:id/exam → generate full final exam ──────────────────
+router.post("/materials/:id/exam", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+  const mat = await loadMaterialOwned(userId, id);
+  if (!mat) return res.status(404).json({ error: "Not found" });
+  if (mat.status !== "ready") return res.status(409).json({ error: "MATERIAL_NOT_READY" });
+  if (!mat.extractedText) return res.status(409).json({ error: "MATERIAL_HAS_NO_TEXT" });
+  if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: "QUIZ_GEN_UNAVAILABLE" });
+
+  try {
+    // Ensure we hit exactly EXAM_QUESTION_COUNT questions. The model sometimes
+    // returns fewer than asked, so we run up to 2 backfill passes that fill
+    // only the missing slots. We also dedupe near-identical prompts.
+    const seenPrompts = new Set<string>();
+    const collected: QuizQuestion[] = [];
+    const addUnique = (qs: QuizQuestion[]) => {
+      for (const q of qs) {
+        const key = normalizeText(q.prompt).slice(0, 120);
+        if (!key || seenPrompts.has(key)) continue;
+        seenPrompts.add(key);
+        collected.push({ ...q, id: `q${collected.length + 1}` });
+        if (collected.length >= EXAM_QUESTION_COUNT) break;
+      }
+    };
+    const passes: { count: number; scope: string }[] = [
+      { count: EXAM_QUESTION_COUNT, scope: `امتحان نهائي شامل يغطّي كامل الملف بكل فصوله بشكل متوازن (${EXAM_QUESTION_COUNT} سؤالاً)` },
+    ];
+    addUnique(await generateQuestionsWithGemini({
+      text: mat.extractedText,
+      fileName: mat.fileName,
+      language: mat.language,
+      count: passes[0].count,
+      scopeLabel: passes[0].scope,
+      mcqRatio: 0.75,
+    }));
+    let attempt = 0;
+    while (collected.length < EXAM_QUESTION_COUNT && attempt < 2) {
+      attempt += 1;
+      const missing = EXAM_QUESTION_COUNT - collected.length;
+      // Ask for a few extra to give us slack against duplicates.
+      const ask = Math.min(EXAM_QUESTION_COUNT, missing + 4);
+      try {
+        const more = await generateQuestionsWithGemini({
+          text: mat.extractedText,
+          fileName: mat.fileName,
+          language: mat.language,
+          count: ask,
+          scopeLabel: `أسئلة إضافية لاستكمال امتحان نهائي شامل (${missing} سؤالاً متبقياً) — تنويع في الموضوعات وتجنّب أي تكرار للأفكار السابقة`,
+          mcqRatio: 0.75,
+        });
+        addUnique(more);
+      } catch (e: any) {
+        console.warn("[materials/exam] backfill pass failed:", e?.message || e);
+        break;
+      }
+    }
+    if (collected.length < EXAM_QUESTION_COUNT) {
+      return res.status(502).json({ error: "EXAM_GEN_TOO_FEW", got: collected.length, required: EXAM_QUESTION_COUNT });
+    }
+    const trimmed = collected.slice(0, EXAM_QUESTION_COUNT);
+    const [row] = await db.insert(quizAttemptsTable).values({
+      userId,
+      materialId: id,
+      subjectId: mat.subjectId,
+      kind: "exam",
+      chapterIndex: null,
+      chapterTitle: null,
+      questions: JSON.stringify(trimmed),
+      totalQuestions: trimmed.length,
+      status: "in_progress",
+    }).returning();
+
+    res.json({
+      attemptId: row.id,
+      kind: "exam",
+      totalQuestions: trimmed.length,
+      questions: questionsForClient(trimmed),
+    });
+  } catch (e: any) {
+    console.error("[materials/exam] error:", e?.message || e);
+    res.status(500).json({ error: "EXAM_GEN_FAILED" });
+  }
+});
+
+// ── POST /api/materials/quiz-attempts/:attemptId/submit  { answers } ────────
+router.post("/materials/quiz-attempts/:attemptId/submit", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const attemptId = Number(req.params.attemptId);
+  if (!Number.isFinite(attemptId)) return res.status(400).json({ error: "bad id" });
+
+  const [attempt] = await db
+    .select()
+    .from(quizAttemptsTable)
+    .where(and(eq(quizAttemptsTable.id, attemptId), eq(quizAttemptsTable.userId, userId)));
+  if (!attempt) return res.status(404).json({ error: "Not found" });
+  if (attempt.status === "submitted") {
+    return res.status(409).json({ error: "ALREADY_SUBMITTED", attemptId });
+  }
+
+  const userAnswers: Record<string, string> = req.body?.answers && typeof req.body.answers === "object" ? req.body.answers : {};
+  let questions: QuizQuestion[] = [];
+  try { questions = JSON.parse(attempt.questions); } catch { questions = []; }
+  if (!Array.isArray(questions) || questions.length === 0) {
+    return res.status(409).json({ error: "ATTEMPT_HAS_NO_QUESTIONS" });
+  }
+
+  // Grade MCQs locally; collect short answers for batch grading.
+  const perResults: { id: string; correct: boolean; given: string; expected: string; explanation?: string; topic?: string; feedback?: string; page?: number | null }[] = [];
+  const shortToGrade: { id: string; prompt: string; expected: string; given: string }[] = [];
+
+  for (const q of questions) {
+    const given = String(userAnswers[q.id] ?? "").trim();
+    if (q.type === "mcq") {
+      const correct = !!given && normalizeText(given) === normalizeText(q.answer);
+      perResults.push({ id: q.id, correct, given, expected: q.answer, explanation: q.explanation, topic: q.topic, page: q.page ?? null });
+    } else {
+      shortToGrade.push({ id: q.id, prompt: q.prompt, expected: q.answer, given });
+      perResults.push({ id: q.id, correct: false, given, expected: q.answer, explanation: q.explanation, topic: q.topic, page: q.page ?? null });
+    }
+  }
+
+  if (shortToGrade.length > 0) {
+    const graded = await gradeShortAnswers(shortToGrade);
+    for (const item of perResults) {
+      const g = graded[item.id];
+      if (!g) continue;
+      item.correct = g.correct;
+      item.feedback = g.feedback;
+    }
+  }
+
+  const correctCount = perResults.filter((r) => r.correct).length;
+  const total = perResults.length;
+  const score = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+
+  // Weak-area analysis: group missed questions by topic, take the top 5 by miss count.
+  const missedTopics = new Map<string, number>();
+  for (const r of perResults) {
+    if (r.correct) continue;
+    const t = (r.topic || "موضوع غير محدّد").trim();
+    missedTopics.set(t, (missedTopics.get(t) ?? 0) + 1);
+  }
+  const weakAreas = Array.from(missedTopics.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([topic, missed]) => ({ topic, missed }));
+
+  await db
+    .update(quizAttemptsTable)
+    .set({
+      answers: JSON.stringify(userAnswers),
+      perQuestionResults: JSON.stringify(perResults),
+      weakAreas: JSON.stringify(weakAreas),
+      totalQuestions: total,
+      correctCount,
+      score,
+      status: "submitted",
+      submittedAt: new Date(),
+    })
+    .where(eq(quizAttemptsTable.id, attemptId));
+
+  res.json({
+    attemptId,
+    kind: attempt.kind,
+    chapterIndex: attempt.chapterIndex,
+    chapterTitle: attempt.chapterTitle,
+    score,
+    totalQuestions: total,
+    correctCount,
+    weakAreas,
+    results: perResults,
+    questions, // full questions including correct answers, for review screen
+  });
+});
+
+// ── GET /api/materials/quiz-attempts/:attemptId ──────────────────────────────
+router.get("/materials/quiz-attempts/:attemptId", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const attemptId = Number(req.params.attemptId);
+  if (!Number.isFinite(attemptId)) return res.status(400).json({ error: "bad id" });
+
+  const [attempt] = await db
+    .select()
+    .from(quizAttemptsTable)
+    .where(and(eq(quizAttemptsTable.id, attemptId), eq(quizAttemptsTable.userId, userId)));
+  if (!attempt) return res.status(404).json({ error: "Not found" });
+
+  let questions: QuizQuestion[] = [];
+  try { questions = JSON.parse(attempt.questions); } catch { questions = []; }
+  let perResults: any[] = [];
+  try { perResults = JSON.parse(attempt.perQuestionResults); } catch { perResults = []; }
+  let weakAreas: any[] = [];
+  try { weakAreas = JSON.parse(attempt.weakAreas); } catch { weakAreas = []; }
+
+  res.json({
+    attemptId: attempt.id,
+    kind: attempt.kind,
+    chapterIndex: attempt.chapterIndex,
+    chapterTitle: attempt.chapterTitle,
+    status: attempt.status,
+    score: attempt.score,
+    totalQuestions: attempt.totalQuestions,
+    correctCount: attempt.correctCount,
+    weakAreas,
+    questions: attempt.status === "submitted" ? questions : questionsForClient(questions),
+    results: perResults,
+    createdAt: attempt.createdAt,
+    submittedAt: attempt.submittedAt,
+  });
+});
+
+// ── GET /api/materials/:id/quiz-attempts → list past attempts (history) ──────
+router.get("/materials/:id/quiz-attempts", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+  const mat = await loadMaterialOwned(userId, id);
+  if (!mat) return res.status(404).json({ error: "Not found" });
+
+  const rows = await db
+    .select({
+      id: quizAttemptsTable.id,
+      kind: quizAttemptsTable.kind,
+      chapterIndex: quizAttemptsTable.chapterIndex,
+      chapterTitle: quizAttemptsTable.chapterTitle,
+      status: quizAttemptsTable.status,
+      score: quizAttemptsTable.score,
+      totalQuestions: quizAttemptsTable.totalQuestions,
+      correctCount: quizAttemptsTable.correctCount,
+      weakAreas: quizAttemptsTable.weakAreas,
+      createdAt: quizAttemptsTable.createdAt,
+      submittedAt: quizAttemptsTable.submittedAt,
+    })
+    .from(quizAttemptsTable)
+    .where(and(eq(quizAttemptsTable.userId, userId), eq(quizAttemptsTable.materialId, id)))
+    .orderBy(desc(quizAttemptsTable.createdAt))
+    .limit(30);
+
+  const attempts = rows.map((r) => {
+    let weakAreas: any[] = [];
+    try { weakAreas = JSON.parse(r.weakAreas); } catch { weakAreas = []; }
+    return { ...r, weakAreas };
+  });
+  res.json({ materialId: id, attempts });
+});
 
 export default router;
