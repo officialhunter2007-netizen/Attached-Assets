@@ -590,16 +590,23 @@ ${stateSnap}${userNotes}`;
                 </div>
 
                 <button
-                  onClick={() => next && setActiveId(next.id)}
-                  disabled={!next}
+                  onClick={() => {
+                    if (next) {
+                      setActiveId(next.id);
+                    } else {
+                      // Last screen: finish the session and close the dialog
+                      onClose?.();
+                    }
+                  }}
                   className={`text-xs md:text-sm font-bold rounded-lg px-3 md:px-4 py-2 transition-all flex items-center gap-2 ${
                     next
                       ? "bg-gradient-to-l from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 text-slate-900 shadow-lg shadow-cyan-500/20"
-                      : "bg-emerald-500/15 border border-emerald-400/30 text-emerald-300"
+                      : "bg-gradient-to-l from-emerald-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-300 text-slate-900 shadow-lg shadow-emerald-500/20"
                   }`}
+                  title={next ? "الانتقال للخطوة التالية" : "إنهاء الجلسة وإغلاق المختبر"}
                 >
-                  <span className="sm:hidden">{next ? "التالي" : "النهاية"}</span>
-                  <span className="hidden sm:inline truncate max-w-[140px]">{next ? next.title.replace(/^[\p{Emoji}\s]+/u, "") : "وصلت للنهاية"}</span>
+                  <span className="sm:hidden">{next ? "التالي" : "إنهاء"}</span>
+                  <span className="hidden sm:inline truncate max-w-[160px]">{next ? next.title.replace(/^[\p{Emoji}\s]+/u, "") : "إنهاء الجلسة"}</span>
                   <span>{next ? "←" : "✓"}</span>
                 </button>
               </div>
