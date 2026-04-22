@@ -1413,7 +1413,7 @@ function SubjectPathChat({
       sendTeachMessage("", stages, currentStage, chatPhase === 'diagnostic');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planLoaded]);
+  }, [planLoaded, needsModeChoice]);
 
   const triggerSummary = async (allMessages: ChatMessage[]) => {
     setIsSummarizing(true);

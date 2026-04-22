@@ -768,7 +768,9 @@ ${formattingRules}`;
       const ctx = await getActiveMaterialContext(userId, subjectId);
       if (ctx?.mode === "professor" && ctx.material) {
         const m = ctx.material;
-        const langNote = m.language === "en" ? "النص الأصلي بالإنجليزية — أجب بالعربية ولكن اقتبس بالإنجليزية عند الضرورة." : "النص الأصلي بالعربية.";
+        const langNote = m.language === "en"
+          ? "النص الأصلي بالإنجليزية — أجب بالإنجليزية افتراضياً (نفس لغة المصدر)، إلا إذا طلب الطالب الإجابة بالعربية صراحةً."
+          : "النص الأصلي بالعربية — أجب بالعربية افتراضياً، إلا إذا طلب الطالب الإجابة بالإنجليزية.";
         const materialBlock = `
 
 ═══ وضع منهج الأستاذ — أنت تُدرّس من الملف المرفوع ═══
