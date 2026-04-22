@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, type TargetAndTransition, type VariantLabels } from 'framer-motion';
 
 export const BrowserFrame = ({ children, url = "nukhba.app" }: { children: React.ReactNode, url?: string }) => (
   <motion.div 
@@ -41,7 +41,7 @@ export const AppHeader = ({ title = "نُخبة" }: { title?: string }) => (
   </div>
 );
 
-export const MousePointer = ({ animate }: { animate: any }) => (
+export const MousePointer = ({ animate }: { animate: TargetAndTransition | VariantLabels }) => (
   <motion.div
     initial={{ x: "50vw", y: "50vh", opacity: 0 }}
     animate={animate}

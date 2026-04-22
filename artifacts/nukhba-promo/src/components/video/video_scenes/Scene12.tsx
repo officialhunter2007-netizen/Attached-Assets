@@ -41,45 +41,63 @@ export const Scene12 = () => {
                 <motion.div
                   animate={{ y: step >= 2 ? -300 : 0, opacity: step >= 2 ? 0.2 : 1 }}
                   transition={{ duration: 0.8, ease: "easeInOut" }}
-                  className="flex justify-center gap-6 w-full max-w-6xl mt-8"
+                  className="flex justify-center gap-6 w-full max-w-6xl mt-6"
                 >
-                  {/* البرونزية (Bronze) */}
-                  <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-3xl p-8 flex flex-col">
-                    <div className="text-amber-700/80 text-sm font-bold mb-1">شهري</div>
-                    <h3 className="text-2xl text-white font-bold mb-3">البرونزية</h3>
-                    <div className="text-4xl font-bold text-white mb-6 font-mono">8,000 <span className="text-base text-slate-500">ريال/شهر</span></div>
-                    <ul className="space-y-3 mb-8 flex-1 text-sm">
-                      <li className="flex items-center gap-2 text-slate-300"><span className="text-amber-500">✓</span> مادة واحدة من اختيارك</li>
-                      <li className="flex items-center gap-2 text-slate-300"><span className="text-amber-500">✓</span> المعلّم الذكي + المختبرات</li>
-                      <li className="flex items-center gap-2 text-slate-300"><span className="text-amber-500">✓</span> الاختبارات والملخصات</li>
+                  {/* البرونزية (Bronze — Zap orange, 30 messages) */}
+                  <div className="flex-1 bg-slate-900/60 border border-slate-800 rounded-3xl p-7 flex flex-col">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-11 h-11 rounded-xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center">
+                        <span className="text-orange-400 text-xl">⚡</span>
+                      </div>
+                      <h3 className="text-2xl text-orange-400 font-bold">البرونزية</h3>
+                    </div>
+                    <p className="text-slate-400 text-sm mb-4">ابدأ تجربتك مع المعلم الذكي والمختبرات</p>
+                    <div className="text-3xl font-bold text-white mb-1 font-mono">١٬٠٠٠ <span className="text-base text-slate-500">ريال/شهر</span></div>
+                    <div className="text-amber-400/80 text-sm font-bold mb-5">٣٠ رسالة مع المعلّم الذكي</div>
+                    <ul className="space-y-2.5 mb-6 flex-1 text-xs text-slate-300">
+                      <li className="flex items-start gap-2"><span className="text-orange-400 mt-0.5">✓</span><span>مختبرات تطبيقية تفاعلية</span></li>
+                      <li className="flex items-start gap-2"><span className="text-orange-400 mt-0.5">✓</span><span>تقييم ذكي لعملك في المختبر</span></li>
+                      <li className="flex items-start gap-2"><span className="text-orange-400 mt-0.5">✓</span><span>خطة تعلّم شخصية</span></li>
                     </ul>
                   </div>
 
-                  {/* الفضية (Silver — featured) */}
-                  <div className="flex-1 bg-amber-500/10 border-2 border-amber-500 rounded-3xl p-8 flex flex-col relative transform scale-105 shadow-[0_0_30px_rgba(245,158,11,0.18)]">
-                    <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-amber-500 to-amber-600 text-white px-4 py-1 rounded-full text-sm font-bold shadow-lg whitespace-nowrap">
+                  {/* الفضية (Silver — Star, 60 messages, popular) */}
+                  <div className="flex-1 bg-amber-500/10 border-2 border-amber-500 rounded-3xl p-7 flex flex-col relative transform scale-105 shadow-[0_0_30px_rgba(245,158,11,0.18)]">
+                    <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-amber-500 to-amber-600 text-white px-4 py-1 rounded-full text-xs font-bold shadow-lg whitespace-nowrap">
                       الأكثر طلباً
                     </div>
-                    <div className="text-amber-300 text-sm font-bold mb-1">فصلي</div>
-                    <h3 className="text-2xl text-amber-400 font-bold mb-3">الفضية</h3>
-                    <div className="text-4xl font-bold text-white mb-6 font-mono">25,000 <span className="text-base text-slate-500">ريال/فصل</span></div>
-                    <ul className="space-y-3 mb-8 flex-1 text-sm">
-                      <li className="flex items-center gap-2 text-white"><span className="text-amber-500">✓</span> ٣ مواد كاملة</li>
-                      <li className="flex items-center gap-2 text-white"><span className="text-amber-500">✓</span> منهج أستاذي (PDF غير محدود)</li>
-                      <li className="flex items-center gap-2 text-white"><span className="text-amber-500">✓</span> جميع المختبرات المتقدّمة</li>
-                      <li className="flex items-center gap-2 text-white"><span className="text-amber-500">✓</span> دعم أولوية + شهادات</li>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-11 h-11 rounded-xl bg-slate-300/15 border border-slate-300/30 flex items-center justify-center">
+                        <span className="text-slate-200 text-xl">★</span>
+                      </div>
+                      <h3 className="text-2xl text-slate-200 font-bold">الفضية</h3>
+                    </div>
+                    <p className="text-slate-400 text-sm mb-4">للطالب الجاد — مختبرات أكثر وتدريب أعمق</p>
+                    <div className="text-3xl font-bold text-white mb-1 font-mono">٢٬٠٠٠ <span className="text-base text-slate-500">ريال/شهر</span></div>
+                    <div className="text-amber-400 text-sm font-bold mb-5">٦٠ رسالة مع المعلّم الذكي</div>
+                    <ul className="space-y-2.5 mb-6 flex-1 text-xs text-white">
+                      <li className="flex items-start gap-2"><span className="text-amber-400 mt-0.5">✓</span><span>مختبرات تطبيقية بلا حدود</span></li>
+                      <li className="flex items-start gap-2"><span className="text-amber-400 mt-0.5">✓</span><span>تقارير مفصّلة لكل مختبر</span></li>
+                      <li className="flex items-start gap-2"><span className="text-amber-400 mt-0.5">✓</span><span>توليد دروس وتمارين مخصّصة</span></li>
+                      <li className="flex items-start gap-2"><span className="text-amber-400 mt-0.5">✓</span><span>أولوية في الدعم الفنّي</span></li>
                     </ul>
                   </div>
 
-                  {/* الذهبية (Gold) */}
-                  <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-3xl p-8 flex flex-col">
-                    <div className="text-yellow-500/80 text-sm font-bold mb-1">سنوي</div>
-                    <h3 className="text-2xl text-white font-bold mb-3">الذهبية</h3>
-                    <div className="text-4xl font-bold text-white mb-6 font-mono">75,000 <span className="text-base text-slate-500">ريال/سنة</span></div>
-                    <ul className="space-y-3 mb-8 flex-1 text-sm">
-                      <li className="flex items-center gap-2 text-slate-300"><span className="text-amber-500">✓</span> كل ميزات الفضية</li>
-                      <li className="flex items-center gap-2 text-slate-300"><span className="text-amber-500">✓</span> وصول لكل المسارات</li>
-                      <li className="flex items-center gap-2 text-slate-300"><span className="text-amber-500">✓</span> توفير ٢٥٪ مقابل الشهري</li>
+                  {/* الذهبية (Gold — Gem, 100 messages) */}
+                  <div className="flex-1 bg-slate-900/60 border border-slate-800 rounded-3xl p-7 flex flex-col">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                        <span className="text-amber-400 text-xl">💎</span>
+                      </div>
+                      <h3 className="text-2xl text-amber-400 font-bold">الذهبية</h3>
+                    </div>
+                    <p className="text-slate-400 text-sm mb-4">الخيار الأشمل — تعلّم كثيف ومختبرات بلا توقف</p>
+                    <div className="text-3xl font-bold text-white mb-1 font-mono">٣٬٠٠٠ <span className="text-base text-slate-500">ريال/شهر</span></div>
+                    <div className="text-amber-400 text-sm font-bold mb-5">١٠٠ رسالة مع المعلّم الذكي</div>
+                    <ul className="space-y-2.5 mb-6 flex-1 text-xs text-slate-300">
+                      <li className="flex items-start gap-2"><span className="text-amber-500 mt-0.5">✓</span><span>مختبرات متقدّمة بلا حدود</span></li>
+                      <li className="flex items-start gap-2"><span className="text-amber-500 mt-0.5">✓</span><span>مراجعات أسبوعية للأداء</span></li>
+                      <li className="flex items-start gap-2"><span className="text-amber-500 mt-0.5">✓</span><span>وصول مبكر للميزات الجديدة</span></li>
                     </ul>
                   </div>
                 </motion.div>
@@ -91,7 +109,8 @@ export const Scene12 = () => {
                   transition={{ duration: 0.8, ease: "easeInOut" }}
                   className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-3xl p-8 shadow-2xl relative z-10"
                 >
-                  <h2 className="text-2xl font-bold text-white mb-6">إتمام الاشتراك — الباقة الفضية</h2>
+                  <h2 className="text-2xl font-bold text-white mb-1">إتمام الاشتراك</h2>
+                  <div className="text-slate-400 text-sm mb-6">الباقة الفضية — ٦٠ رسالة / شهر</div>
 
                   <div className="space-y-4 mb-6">
                     <div>
@@ -127,7 +146,9 @@ export const Scene12 = () => {
                         <span className="text-2xl">✓</span>
                         <div>
                           <div>تم تطبيق الخصم بنجاح</div>
-                          <div className="text-emerald-300/90 text-sm font-normal mt-0.5">وفّرت <span className="font-bold text-emerald-300">5,000 ريال</span> على اشتراكك</div>
+                          <div className="text-emerald-300/90 text-sm font-normal mt-0.5">
+                            وفّرت <span className="font-bold text-emerald-300">٤٠٠ ريال</span> على اشتراكك
+                          </div>
                         </div>
                       </motion.div>
                     )}
@@ -144,7 +165,7 @@ export const Scene12 = () => {
                             exit={{ opacity: 0 }}
                             className="text-xl text-slate-500 line-through font-mono"
                           >
-                            25,000
+                            ٢٬٠٠٠
                           </motion.span>
                         )}
                       </AnimatePresence>
@@ -155,7 +176,7 @@ export const Scene12 = () => {
                         transition={{ duration: 0.5, type: 'spring' }}
                         className="text-4xl font-bold font-mono"
                       >
-                        {step >= 5 ? '20,000' : '25,000'}
+                        {step >= 5 ? '١٬٦٠٠' : '٢٬٠٠٠'}
                       </motion.div>
                       <span className="text-lg text-amber-500/60">ريال</span>
                     </div>
@@ -209,7 +230,6 @@ export const Scene12 = () => {
               الدرس الأول مجّاني في كل مادة
             </motion.div>
 
-            {/* Ambient drift to keep frames moving until loop */}
             <motion.div
               className="absolute inset-0 pointer-events-none"
               animate={{ backgroundPosition: ["0px 0px", "100px 100px"] }}
