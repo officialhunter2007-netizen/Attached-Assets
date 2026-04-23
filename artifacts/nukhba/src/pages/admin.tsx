@@ -98,6 +98,7 @@ export default function Admin() {
   const [liveUsersList, setLiveUsersList] = useState<any[]>([]);
 
   useEffect(() => {
+    if (user?.role !== "admin") return;
     const fetchSupportData = () => {
       fetch("/api/admin/support/threads", { credentials: "include" })
         .then(r => r.ok ? r.json() : [])
@@ -118,7 +119,7 @@ export default function Admin() {
     fetchLiveUsers();
     const interval = setInterval(() => { fetchSupportData(); fetchLiveUsers(); }, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.role]);
 
   const handleSupportReply = async (userId: number, subject: string) => {
     if (!replyMessage.trim()) return;
@@ -179,12 +180,12 @@ export default function Admin() {
     gold: <Gem className="w-3.5 h-3.5 text-gold" />,
   };
 
-  const pendingCount = requests?.filter(r => r.status === 'pending').length ?? 0;
+  const pendingCount = requests?.filter((r: any) => r.status === 'pending').length ?? 0;
   const filteredRequests = filterStatus === 'all'
     ? requests
-    : requests?.filter(r => r.status === filterStatus);
+    : requests?.filter((r: any) => r.status === filterStatus);
 
-  const filteredUsers = allUsers?.filter(u => {
+  const filteredUsers = allUsers?.filter((u: any) => {
     if (!userSearch.trim()) return true;
     const q = userSearch.toLowerCase();
     return (
@@ -248,10 +249,13 @@ export default function Admin() {
     try {
       await cancelSubMutation.mutateAsync({ id: cancelTarget.id });
       toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
+      const cancelledUserId = cancelTarget.id;
       setCancelTarget(null);
       queryClient.invalidateQueries({ queryKey: getGetAdminUsersQueryKey() });
-      refetchUsers();
-      refetchStats();
+      queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
+      // Cancel also wipes per-subject subs server-side; clear local cache too
+      setUserSubjectSubs(prev => ({ ...prev, [cancelledUserId]: [] }));
+      setAllSubjectSubs(prev => prev?.filter((s: any) => s.userId !== cancelledUserId) ?? null);
     } catch {
       toast({ variant: "destructive", title: "حدث خطأ أثناء الإلغاء" });
     }
@@ -291,11 +295,13 @@ export default function Admin() {
     if (userSubjectSubs[userId]) return;
     try {
       const r = await fetch(`/api/admin/subject-subscriptions/${userId}`, { credentials: "include" });
-      if (r.ok) {
-        const data = await r.json();
-        setUserSubjectSubs(prev => ({ ...prev, [userId]: data }));
-      }
-    } catch {}
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      setUserSubjectSubs(prev => ({ ...prev, [userId]: Array.isArray(data) ? data : [] }));
+    } catch {
+      setUserSubjectSubs(prev => ({ ...prev, [userId]: [] }));
+      toast({ variant: "destructive", title: "تعذّر تحميل اشتراكات المستخدم" });
+    }
   };
 
   const handleToggleExpand = (userId: number) => {
@@ -337,6 +343,9 @@ export default function Admin() {
           setUserSubjectSubs(prev => ({ ...prev, [targetUserId]: data }));
         }
       } catch {}
+      // Keep stats and the global subscriptions tab in sync
+      queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
+      if (allSubjectSubs !== null) loadAllSubjectSubs();
     } catch (e: any) {
       toast({ variant: "destructive", title: "خطأ", description: e.message });
     } finally {
@@ -356,6 +365,8 @@ export default function Admin() {
         ...prev,
         [userId]: (prev[userId] ?? []).filter(s => s.id !== subId),
       }));
+      setAllSubjectSubs(prev => prev?.filter((s: any) => s.id !== subId) ?? null);
+      queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
     } catch (e: any) {
       toast({ variant: "destructive", title: "خطأ", description: e.message });
     }
@@ -641,7 +652,7 @@ export default function Admin() {
                         {filterStatus === 'pending' ? 'لا توجد طلبات معلقة 🎉' : 'لا توجد طلبات'}
                       </TableCell>
                     </TableRow>
-                  ) : filteredRequests.map((req) => (
+                  ) : filteredRequests.map((req: any) => (
                     <TableRow
                       key={req.id}
                       className={`border-white/5 transition-colors ${
@@ -808,7 +819,7 @@ export default function Admin() {
                         {userSearch ? 'لا توجد نتائج' : 'لا يوجد مستخدمون'}
                       </TableCell>
                     </TableRow>
-                  ) : filteredUsers.map((u) => {
+                  ) : filteredUsers.map((u: any) => {
                     return (
                     <React.Fragment key={u.id}>
                     <TableRow className="border-white/5 hover:bg-white/3">
@@ -1096,7 +1107,7 @@ export default function Admin() {
                 <TableBody>
                   {!cards?.length ? (
                     <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">لا توجد بطاقات</TableCell></TableRow>
-                  ) : cards.map((card) => (
+                  ) : cards.map((card: any) => (
                     <TableRow key={card.id} className="border-white/5">
                       <TableCell>
                         <div className="flex items-center gap-2">

@@ -739,7 +739,13 @@ router.post("/admin/users/:id/cancel-subscription", async (req, res): Promise<vo
 
   if (!updated) { res.status(404).json({ error: "User not found" }); return; }
 
-  res.json({ success: true });
+  // Also revoke all per-subject subscriptions so the user truly loses access
+  const removed = await db
+    .delete(userSubjectSubscriptionsTable)
+    .where(eq(userSubjectSubscriptionsTable.userId, targetId))
+    .returning({ id: userSubjectSubscriptionsTable.id });
+
+  res.json({ success: true, subjectSubscriptionsRevoked: removed.length });
 });
 
 // ── Admin: cancel user's subject-specific subscription ────────────────────────
