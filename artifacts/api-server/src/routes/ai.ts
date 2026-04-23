@@ -757,12 +757,22 @@ ${formattingRules}`;
           const prog = await loadProgress(userId, m.id, m.outline ?? "");
           if (prog.chapters.length > 0) {
             const completedNames = prog.completedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);
+            const skippedNames = prog.skippedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);
             const cur = prog.chapters[prog.currentChapterIndex];
             const next = prog.chapters[prog.currentChapterIndex + 1];
+            const skippedBlock = skippedNames.length
+              ? `
+الفصول التي تجاوزها الطالب يدوياً دون إكمالها (${skippedNames.length}): ${skippedNames.join(" | ")}
+
+تنبيه مهم — الطالب قفز فوق هذه الفصول:
+- قبل الغوص في شرح الفصل الحالي، اطرح على الطالب سؤالاً قصيراً جداً (سؤال أو سؤالين) للتأكد من أنه يُلم بالمفاهيم الأساسية من الفصول المتجاوَزة أعلاه التي قد تكون متطلَّبات سابقة لهذا الفصل.
+- إن تبيّن لك أن مفهوماً جوهرياً من فصل متجاوَز ينقصه، اشرحه باختصار شديد (٣–٥ أسطر) قبل المتابعة، ثم أكمل في الفصل الحالي.
+- لا تفترض أبداً أن الطالب يعرف ما في الفصول المتجاوَزة لمجرد أن ترتيبها أسبق.`
+              : "";
             chapterProgressBlock = `
 — تقدّم الطالب في فصول الملف —
 عدد الفصول: ${prog.chapters.length}
-الفصول المكتملة سابقاً (${completedNames.length}): ${completedNames.length ? completedNames.join(" | ") : "(لا شيء بعد — الطالب يبدأ من الصفر)"}
+الفصول المكتملة سابقاً (${completedNames.length}): ${completedNames.length ? completedNames.join(" | ") : "(لا شيء بعد — الطالب يبدأ من الصفر)"}${skippedBlock}
 الفصل الحالي (رقم ${prog.currentChapterIndex + 1}): "${cur}"
 ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا هو الفصل الأخير في الملف."}
 

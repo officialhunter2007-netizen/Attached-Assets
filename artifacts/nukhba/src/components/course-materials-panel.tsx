@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Upload, X, FileText, Loader2, AlertCircle, CheckCircle2, Trash2, BookOpen, ChevronDown, ChevronLeft, RotateCcw, Circle, Play } from "lucide-react";
+import { Upload, X, FileText, Loader2, AlertCircle, CheckCircle2, Trash2, BookOpen, ChevronDown, ChevronLeft, RotateCcw, Circle, Play, SkipForward } from "lucide-react";
 
 export interface MaterialProgress {
   chaptersTotal: number;
@@ -8,6 +8,7 @@ export interface MaterialProgress {
   currentChapterTitle: string | null;
   chapters?: string[];
   completedChapterIndices?: number[];
+  skippedChapterIndices?: number[];
 }
 
 export interface Material {
@@ -73,6 +74,7 @@ export function CourseMaterialsPanel({
           if (m.id !== materialId) return m;
           const chapters: string[] = data.chapters ?? m.progress?.chapters ?? [];
           const completed: number[] = data.completedChapterIndices ?? [];
+          const skipped: number[] = data.skippedChapterIndices ?? [];
           return {
             ...m,
             progress: {
@@ -82,6 +84,7 @@ export function CourseMaterialsPanel({
               currentChapterTitle: chapters[data.currentChapterIndex] ?? null,
               chapters,
               completedChapterIndices: completed,
+              skippedChapterIndices: skipped,
             },
           };
         }));
@@ -332,6 +335,7 @@ export function CourseMaterialsPanel({
                         const isExpanded = expandedIds.has(m.id);
                         const chapters = p.chapters ?? [];
                         const completedSet = new Set(p.completedChapterIndices ?? []);
+                        const skippedSet = new Set(p.skippedChapterIndices ?? []);
                         return (
                           <div className="mt-2">
                             <div className="flex items-center justify-between text-[10px] text-white/55 mb-1">
@@ -372,12 +376,13 @@ export function CourseMaterialsPanel({
                                     {chapters.map((title, idx) => {
                                       const isCompleted = completedSet.has(idx);
                                       const isCurrent = p.currentChapterIndex === idx;
+                                      const isSkipped = skippedSet.has(idx) && !isCompleted && !isCurrent;
                                       const completeKey = `${m.id}:complete:${idx}`;
                                       const setKey = `${m.id}:set:${idx}`;
                                       return (
                                         <li
                                           key={idx}
-                                          className={`group flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors ${isCurrent ? "bg-amber-500/10" : "hover:bg-white/[0.04]"}`}
+                                          className={`group flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors ${isCurrent ? "bg-amber-500/10" : isSkipped ? "bg-orange-500/5" : "hover:bg-white/[0.04]"}`}
                                         >
                                           <button
                                             onClick={() => handleToggleComplete(m.id, idx, isCompleted)}
@@ -389,6 +394,8 @@ export function CourseMaterialsPanel({
                                               <Loader2 className="w-3.5 h-3.5 animate-spin text-white/50" />
                                             ) : isCompleted ? (
                                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                            ) : isSkipped ? (
+                                              <SkipForward className="w-3.5 h-3.5 text-orange-400/80" />
                                             ) : (
                                               <Circle className="w-3.5 h-3.5 text-white/30 group-hover:text-white/60" />
                                             )}
@@ -396,14 +403,19 @@ export function CourseMaterialsPanel({
                                           <button
                                             onClick={() => handleSetCurrent(m.id, idx)}
                                             disabled={busyChapter === setKey || isCurrent}
-                                            title={isCurrent ? "الفصل الحالي" : "اجعل هذا هو الفصل الحالي"}
-                                            className={`flex-1 min-w-0 text-right text-[11px] truncate transition-colors ${isCurrent ? "text-amber-300 font-bold cursor-default" : isCompleted ? "text-white/50 hover:text-white" : "text-white/75 hover:text-white"} disabled:cursor-default`}
+                                            title={isCurrent ? "الفصل الحالي" : isSkipped ? "تخطّيت هذا الفصل — انقر للعودة إليه" : "اجعل هذا هو الفصل الحالي"}
+                                            className={`flex-1 min-w-0 text-right text-[11px] truncate transition-colors ${isCurrent ? "text-amber-300 font-bold cursor-default" : isCompleted ? "text-white/50 hover:text-white" : isSkipped ? "text-orange-200/80 hover:text-white" : "text-white/75 hover:text-white"} disabled:cursor-default`}
                                           >
                                             <span className="text-white/30 ml-1">{idx + 1}.</span>{title}
                                           </button>
                                           {isCurrent && (
                                             <span className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded">
                                               <Play className="w-2.5 h-2.5" /> الآن
+                                            </span>
+                                          )}
+                                          {isSkipped && (
+                                            <span className="shrink-0 text-[9px] font-bold text-orange-300 bg-orange-500/15 px-1.5 py-0.5 rounded">
+                                              تخطّاه
                                             </span>
                                           )}
                                         </li>

@@ -131,6 +131,7 @@ router.get("/materials", async (req, res): Promise<any> => {
       currentChapterTitle: string | null;
       chapters: string[];
       completedChapterIndices: number[];
+      skippedChapterIndices: number[];
     } | null = null;
     if (r.status === "ready") {
       const p = await loadProgress(userId, r.id, r.outline ?? "");
@@ -141,6 +142,7 @@ router.get("/materials", async (req, res): Promise<any> => {
         currentChapterTitle: p.chapters[p.currentChapterIndex] ?? null,
         chapters: p.chapters,
         completedChapterIndices: p.completedChapterIndices,
+        skippedChapterIndices: p.skippedChapterIndices,
       };
     }
     const { outline: _omit, ...rest } = r;
@@ -169,6 +171,7 @@ router.get("/materials/:id/progress", async (req, res): Promise<any> => {
     chapters: p.chapters,
     currentChapterIndex: p.currentChapterIndex,
     completedChapterIndices: p.completedChapterIndices,
+    skippedChapterIndices: p.skippedChapterIndices,
   });
 });
 
@@ -200,6 +203,7 @@ router.post("/materials/:id/progress", async (req, res): Promise<any> => {
     chapters: updated.chapters,
     currentChapterIndex: updated.currentChapterIndex,
     completedChapterIndices: updated.completedChapterIndices,
+    skippedChapterIndices: updated.skippedChapterIndices,
   });
 });
 
@@ -919,6 +923,7 @@ export type LoadedProgress = {
   chapters: string[];
   currentChapterIndex: number;
   completedChapterIndices: number[];
+  skippedChapterIndices: number[];
 };
 
 export async function loadProgress(userId: number, materialId: number, outline: string): Promise<LoadedProgress> {
@@ -934,7 +939,7 @@ export async function loadProgress(userId: number, materialId: number, outline: 
 
   if (!row) {
     if (fresh.length === 0) {
-      return { chapters: [], currentChapterIndex: 0, completedChapterIndices: [] };
+      return { chapters: [], currentChapterIndex: 0, completedChapterIndices: [], skippedChapterIndices: [] };
     }
     await db.insert(materialChapterProgressTable).values({
       userId,
@@ -942,8 +947,9 @@ export async function loadProgress(userId: number, materialId: number, outline: 
       chapters: JSON.stringify(fresh),
       currentChapterIndex: 0,
       completedChapterIndices: "[]",
+      skippedChapterIndices: "[]",
     }).onConflictDoNothing();
-    return { chapters: fresh, currentChapterIndex: 0, completedChapterIndices: [] };
+    return { chapters: fresh, currentChapterIndex: 0, completedChapterIndices: [], skippedChapterIndices: [] };
   }
 
   let chapters = safeParseStringArray(row.chapters);
@@ -958,6 +964,7 @@ export async function loadProgress(userId: number, materialId: number, outline: 
     chapters,
     currentChapterIndex: Math.min(Math.max(row.currentChapterIndex, 0), Math.max(chapters.length - 1, 0)),
     completedChapterIndices: safeParseNumberArray(row.completedChapterIndices).filter((i) => i >= 0 && i < chapters.length),
+    skippedChapterIndices: safeParseNumberArray(row.skippedChapterIndices).filter((i) => i >= 0 && i < chapters.length),
   };
 }
 
@@ -971,29 +978,52 @@ export async function mutateProgress(
   const current = await loadProgress(userId, materialId, outline);
   if (current.chapters.length === 0) return current;
 
-  let { currentChapterIndex, completedChapterIndices } = current;
+  let { currentChapterIndex, completedChapterIndices, skippedChapterIndices } = current;
   const completed = new Set(completedChapterIndices);
+  const skipped = new Set(skippedChapterIndices);
   const lastIdx = current.chapters.length - 1;
 
   if (action === "advance") {
     completed.add(currentChapterIndex);
+    skipped.delete(currentChapterIndex);
     currentChapterIndex = Math.min(currentChapterIndex + 1, lastIdx);
+    skipped.delete(currentChapterIndex);
   } else if (action === "complete" && Number.isInteger(chapterIndex)) {
-    if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) completed.add(chapterIndex!);
+    if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) {
+      completed.add(chapterIndex!);
+      // Marking a chapter complete clears any prior "skipped" flag on it.
+      skipped.delete(chapterIndex!);
+    }
   } else if (action === "uncomplete" && Number.isInteger(chapterIndex)) {
     if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) completed.delete(chapterIndex!);
   } else if (action === "set" && Number.isInteger(chapterIndex)) {
-    if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) currentChapterIndex = chapterIndex!;
+    if (chapterIndex! >= 0 && chapterIndex! <= lastIdx) {
+      const target = chapterIndex!;
+      // Jumping forward past the next sequential chapter? Flag the chapters
+      // strictly in between as "skipped" so the tutor knows the student
+      // didn't actually study them.
+      if (target > currentChapterIndex + 1) {
+        for (let i = currentChapterIndex + 1; i < target; i++) {
+          if (!completed.has(i)) skipped.add(i);
+        }
+      }
+      // The chapter the student just navigated TO is no longer "skipped".
+      skipped.delete(target);
+      currentChapterIndex = target;
+    }
   } else if (action === "reset") {
     completed.clear();
+    skipped.clear();
     currentChapterIndex = 0;
   }
 
   const completedArr = Array.from(completed).sort((a, b) => a - b);
+  const skippedArr = Array.from(skipped).sort((a, b) => a - b);
   await db.update(materialChapterProgressTable)
     .set({
       currentChapterIndex,
       completedChapterIndices: JSON.stringify(completedArr),
+      skippedChapterIndices: JSON.stringify(skippedArr),
       updatedAt: new Date(),
     })
     .where(and(
@@ -1001,7 +1031,7 @@ export async function mutateProgress(
       eq(materialChapterProgressTable.materialId, materialId),
     ));
 
-  return { chapters: current.chapters, currentChapterIndex, completedChapterIndices: completedArr };
+  return { chapters: current.chapters, currentChapterIndex, completedChapterIndices: completedArr, skippedChapterIndices: skippedArr };
 }
 
 // Convenience: advance the chapter for the active material in a subject (called
