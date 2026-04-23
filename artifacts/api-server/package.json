@@ -21,6 +21,7 @@
     "drizzle-orm": "catalog:",
     "express": "^5",
     "google-auth-library": "^10.6.2",
+    "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "pino": "^9",
     "pino-http": "^10",

@@ -68,10 +68,13 @@ router.get("/teaching-mode", async (req, res): Promise<any> => {
     return m?.id ?? null;
   };
 
-  // No saved row at all → check whether we can infer "professor" from prior
-  // chapter-progress (e.g. a stale row was wiped). If a ready material exists,
-  // restore the most recent one so the student keeps teaching from their PDF
-  // instead of being asked to choose again.
+  // No saved row at all → try two fallbacks before giving up:
+  //   1. A ready material exists for this user+subject → restore "professor"
+  //      mode pointing at the most recent one.
+  //   2. There's no ready material but the student has *previously* worked
+  //      through chapter-progress rows on a (now-deleted/processing) material
+  //      for this subject → still infer "professor" so the next session loads
+  //      in the right mode the moment any material is re-uploaded.
   if (!row) {
     const fallbackId = await pickFallbackMaterial();
     if (fallbackId) {
@@ -84,6 +87,28 @@ router.get("/teaching-mode", async (req, res): Promise<any> => {
         });
       return res.json({ mode: "professor", activeMaterialId: fallbackId });
     }
+
+    // Look for orphan chapter-progress rows tied to this user+subject.
+    const [progressHint] = await db
+      .select({ materialId: materialChapterProgressTable.materialId })
+      .from(materialChapterProgressTable)
+      .innerJoin(courseMaterialsTable, eq(materialChapterProgressTable.materialId, courseMaterialsTable.id))
+      .where(and(
+        eq(materialChapterProgressTable.userId, userId),
+        eq(courseMaterialsTable.subjectId, subjectId),
+      ))
+      .limit(1);
+    if (progressHint) {
+      await db
+        .insert(userSubjectTeachingModesTable)
+        .values({ userId, subjectId, mode: "professor", activeMaterialId: null, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: [userSubjectTeachingModesTable.userId, userSubjectTeachingModesTable.subjectId],
+          set: { mode: "professor", activeMaterialId: null, updatedAt: new Date() },
+        });
+      return res.json({ mode: "professor", activeMaterialId: null });
+    }
+
     return res.json({ mode: "unset", activeMaterialId: null });
   }
 
@@ -920,12 +945,15 @@ export async function getMaterialOpeningPages(materialId: number, pages = 3): Pr
   }));
 }
 
-async function ocrPdfWithGemini(buf: Buffer, _pageCount: number): Promise<string> {
+// One round-trip to Gemini for a single PDF chunk (1-N pages). Returns the
+// extracted text or an empty string on failure. Kept small + side-effect-free
+// so the caller can retry it independently per chunk.
+async function ocrPdfChunk(chunkBuf: Buffer, label: string): Promise<string> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return "";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
 
-  const base64 = buf.toString("base64");
+  const base64 = chunkBuf.toString("base64");
   const body = {
     contents: [{
       role: "user",
@@ -933,26 +961,107 @@ async function ocrPdfWithGemini(buf: Buffer, _pageCount: number): Promise<string
         { inlineData: { mimeType: "application/pdf", data: base64 } },
         {
           text: `استخرج النص الكامل من هذا المستند صفحة بصفحة. ابدأ كل صفحة بسطر "--- صفحة X ---".
-لا تُلخّص ولا تُعدّل، انسخ النص العربي والإنجليزي حرفياً. ${_pageCount > OCR_PAGE_LIMIT ? `ركّز على الصفحات الأهم (الفهرس + أول ${OCR_PAGE_LIMIT} صفحة).` : ""}`,
+لا تُلخّص ولا تُعدّل، انسخ النص العربي والإنجليزي حرفياً.`,
         },
       ],
     }],
     generationConfig: { temperature: 0.0, maxOutputTokens: 8192 },
   };
 
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!r.ok) {
-    console.warn("[ocr] gemini http", r.status, (await r.text()).slice(0, 200));
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!r.ok) {
+      console.warn(`[ocr] ${label} gemini http`, r.status, (await r.text()).slice(0, 200));
+      return "";
+    }
+    const data: any = await r.json();
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    return parts.map((p: { text?: string }) => p?.text || "").join("\n").trim();
+  } catch (e: any) {
+    console.warn(`[ocr] ${label} threw:`, e?.message || e);
     return "";
   }
-  const data: any = await r.json();
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  return parts.map((p: any) => p?.text || "").join("\n").trim();
+}
+
+const OCR_CHUNK_PAGES = 8;   // pages per Gemini call — balances throughput vs failure blast radius
+const OCR_MAX_CHUNKS = 12;   // hard cap on chunks per document (12 * 8 = 96 pages)
+const OCR_RETRY_DELAY_MS = 1500;
+
+// Split the PDF into ≤OCR_CHUNK_PAGES-page chunks, OCR each independently with
+// one retry on failure, then concatenate whatever succeeded. Partial success
+// is still returned — a single bad chunk no longer wipes out the whole doc.
+async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<string> {
+  if (!process.env.GEMINI_API_KEY) return "";
+
+  // Fall back to single-shot if pdf-lib can't open the file (encrypted /
+  // malformed); preserves prior behavior so we never regress to "0 text".
+  let pdfLibMod: any;
+  try {
+    pdfLibMod = await import("pdf-lib");
+  } catch (e: any) {
+    console.warn("[ocr] pdf-lib import failed, single-shot fallback:", e?.message || e);
+    return ocrPdfChunk(buf, "full");
+  }
+  const { PDFDocument } = pdfLibMod;
+
+  let srcDoc: any;
+  try {
+    srcDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
+  } catch (e: any) {
+    console.warn("[ocr] pdf-lib load failed, single-shot fallback:", e?.message || e);
+    return ocrPdfChunk(buf, "full");
+  }
+
+  const totalPages = srcDoc.getPageCount();
+  const effectivePages = Math.min(totalPages, pageCount || totalPages, OCR_CHUNK_PAGES * OCR_MAX_CHUNKS);
+  const chunkRanges: Array<[number, number]> = [];
+  for (let start = 0; start < effectivePages; start += OCR_CHUNK_PAGES) {
+    chunkRanges.push([start, Math.min(start + OCR_CHUNK_PAGES, effectivePages)]);
+  }
+
+  const collected: string[] = [];
+  let succeededChunks = 0;
+  for (const [start, end] of chunkRanges) {
+    const label = `pages ${start + 1}-${end}`;
+    let chunkBuf: Buffer;
+    try {
+      const chunkDoc = await PDFDocument.create();
+      const indices = Array.from({ length: end - start }, (_, i) => start + i);
+      const copied = await chunkDoc.copyPages(srcDoc, indices);
+      copied.forEach((p: any) => chunkDoc.addPage(p));
+      const bytes = await chunkDoc.save();
+      chunkBuf = Buffer.from(bytes);
+    } catch (e: any) {
+      console.warn(`[ocr] ${label} split failed:`, e?.message || e);
+      continue;
+    }
+
+    let text = await ocrPdfChunk(chunkBuf, label);
+    if (text.length < 50) {
+      // One retry per chunk with a small backoff — covers transient 5xx /
+      // rate-limit bumps without re-OCRing the whole document.
+      await new Promise((res) => setTimeout(res, OCR_RETRY_DELAY_MS));
+      text = await ocrPdfChunk(chunkBuf, `${label} (retry)`);
+    }
+    if (text.length > 0) {
+      collected.push(text);
+      succeededChunks++;
+    } else {
+      // Persist a placeholder so chapter numbering downstream stays stable
+      // even when a chunk failed twice. This is the "partial persistence"
+      // requirement — we keep the surviving pages instead of dropping the
+      // whole OCR pass.
+      collected.push(`--- صفحات ${start + 1}-${end}: تعذّر استخراج النص ---`);
+    }
+  }
+
+  console.info(`[ocr] chunked: ${succeededChunks}/${chunkRanges.length} chunks ok, ${effectivePages}/${totalPages} pages attempted`);
+  return collected.join("\n\n").trim();
 }
 
 async function generateMaterialMetadata(text: string, fileName: string, language: string): Promise<{ outline: string; summary: string; starters: string }> {

@@ -1572,6 +1572,7 @@ function SubjectPathChat({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantMsg = "";
+      let emptyStream = false;
       let buffer = "";
 
       // Throttle state updates: batch streaming chunks every 50ms
@@ -1610,6 +1611,7 @@ function SubjectPathChat({
               // counter/streak increments in this case, so the student isn't
               // charged for the silent failure.
               if (assistantMsg.trim().length === 0) {
+                emptyStream = true;
                 setMessages(prev => {
                   const trimmed = [...prev];
                   if (trimmed.length > 0 && trimmed[trimmed.length - 1].role === "assistant" && !trimmed[trimmed.length - 1].content) {
@@ -1679,13 +1681,19 @@ function SubjectPathChat({
           } catch {}
         }
       }
-      // Flush any pending update at stream end
+      // Flush any pending update at stream end. Skip the final overwrite when
+      // the stream produced zero content — the empty-stream guard already
+      // popped the placeholder bubble, so writing assistantMsg ("") back here
+      // would either resurrect the empty bubble or corrupt the previous
+      // assistant message.
       if (updateTimer) { clearTimeout(updateTimer); updateTimer = null; }
-      setMessages(prev => {
-        const nm = [...prev];
-        nm[nm.length - 1] = { role: "assistant", content: assistantMsg };
-        return nm;
-      });
+      if (!emptyStream) {
+        setMessages(prev => {
+          const nm = [...prev];
+          nm[nm.length - 1] = { role: "assistant", content: assistantMsg };
+          return nm;
+        });
+      }
 
       // Persist lab report + teacher feedback so the student can revisit later.
       if (labReportMeta && assistantMsg.trim()) {
