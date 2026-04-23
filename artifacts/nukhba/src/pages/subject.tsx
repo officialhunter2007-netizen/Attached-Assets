@@ -1732,26 +1732,43 @@ function SubjectPathChat({
     triggerSummary(messages);
   };
 
+  // Hoisted so the auto-restart effect below and the countdown UI share one
+  // implementation.
+  const startNextSession = () => {
+    // Wipe the per-session UI state — but DO NOT touch `currentStage`. The
+    // student's progress through the curriculum is persisted server-side
+    // (loaded by fetchPlan into `currentStage`); resetting it here would
+    // throw them back to stage 0. We bump `sessionRestartKey` so the
+    // bootstrap useEffect re-fires after React commits the cleared
+    // `messages` state, avoiding the stale-closure issue you'd get from
+    // calling `sendTeachMessage` synchronously here.
+    setDailyLimitUntil(null);
+    setCountdownExpired(false);
+    setSessionComplete(false);
+    setMessages([]);
+    setQuotaExhausted(false);
+    setSummaryError(false);
+    setIsSummarizing(false);
+    try { if (CHAT_STORAGE_KEY) localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+    setSessionRestartKey((k) => k + 1);
+  };
+
+  // Auto-restart: if the page renders with `dailyLimitUntil` already in the
+  // past (e.g. student returned the morning after hitting the cap), kick off
+  // the next session immediately instead of forcing them to click the
+  // countdown CTA. This is intentionally separate from the Countdown's
+  // `onExpired` callback, which only fires for sessions that were live when
+  // the timer reached zero.
+  useEffect(() => {
+    if (!dailyLimitUntil) return;
+    if (new Date(dailyLimitUntil).getTime() <= Date.now()) {
+      startNextSession();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dailyLimitUntil]);
+
   if (dailyLimitUntil) {
     const expired = countdownExpired || new Date(dailyLimitUntil).getTime() <= Date.now();
-    const startNextSession = () => {
-      // Wipe the per-session UI state — but DO NOT touch `currentStage`. The
-      // student's progress through the curriculum is persisted server-side
-      // (loaded by fetchPlan into `currentStage`); resetting it here would
-      // throw them back to stage 0. We bump `sessionRestartKey` so the
-      // bootstrap useEffect re-fires after React commits the cleared
-      // `messages` state, avoiding the stale-closure issue you'd get from
-      // calling `sendTeachMessage` synchronously here.
-      setDailyLimitUntil(null);
-      setCountdownExpired(false);
-      setSessionComplete(false);
-      setMessages([]);
-      setQuotaExhausted(false);
-      setSummaryError(false);
-      setIsSummarizing(false);
-      try { if (CHAT_STORAGE_KEY) localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
-      setSessionRestartKey((k) => k + 1);
-    };
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
         <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring" }}>
