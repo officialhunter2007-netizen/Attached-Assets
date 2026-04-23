@@ -132,6 +132,7 @@ router.get("/materials", async (req, res): Promise<any> => {
       chapters: string[];
       completedChapterIndices: number[];
       skippedChapterIndices: number[];
+      lastInteractedAt: string | null;
     } | null = null;
     if (r.status === "ready") {
       const p = await loadProgress(userId, r.id, r.outline ?? "");
@@ -143,6 +144,7 @@ router.get("/materials", async (req, res): Promise<any> => {
         chapters: p.chapters,
         completedChapterIndices: p.completedChapterIndices,
         skippedChapterIndices: p.skippedChapterIndices,
+        lastInteractedAt: p.lastInteractedAt ? p.lastInteractedAt.toISOString() : null,
       };
     }
     const { outline: _omit, ...rest } = r;
@@ -924,6 +926,7 @@ export type LoadedProgress = {
   currentChapterIndex: number;
   completedChapterIndices: number[];
   skippedChapterIndices: number[];
+  lastInteractedAt: Date | null;
 };
 
 export async function loadProgress(userId: number, materialId: number, outline: string): Promise<LoadedProgress> {
@@ -939,7 +942,7 @@ export async function loadProgress(userId: number, materialId: number, outline: 
 
   if (!row) {
     if (fresh.length === 0) {
-      return { chapters: [], currentChapterIndex: 0, completedChapterIndices: [], skippedChapterIndices: [] };
+      return { chapters: [], currentChapterIndex: 0, completedChapterIndices: [], skippedChapterIndices: [], lastInteractedAt: null };
     }
     await db.insert(materialChapterProgressTable).values({
       userId,
@@ -949,7 +952,7 @@ export async function loadProgress(userId: number, materialId: number, outline: 
       completedChapterIndices: "[]",
       skippedChapterIndices: "[]",
     }).onConflictDoNothing();
-    return { chapters: fresh, currentChapterIndex: 0, completedChapterIndices: [], skippedChapterIndices: [] };
+    return { chapters: fresh, currentChapterIndex: 0, completedChapterIndices: [], skippedChapterIndices: [], lastInteractedAt: null };
   }
 
   let chapters = safeParseStringArray(row.chapters);
@@ -965,6 +968,7 @@ export async function loadProgress(userId: number, materialId: number, outline: 
     currentChapterIndex: Math.min(Math.max(row.currentChapterIndex, 0), Math.max(chapters.length - 1, 0)),
     completedChapterIndices: safeParseNumberArray(row.completedChapterIndices).filter((i) => i >= 0 && i < chapters.length),
     skippedChapterIndices: safeParseNumberArray(row.skippedChapterIndices).filter((i) => i >= 0 && i < chapters.length),
+    lastInteractedAt: row.lastInteractedAt ?? null,
   };
 }
 
@@ -1019,19 +1023,21 @@ export async function mutateProgress(
 
   const completedArr = Array.from(completed).sort((a, b) => a - b);
   const skippedArr = Array.from(skipped).sort((a, b) => a - b);
+  const now = new Date();
   await db.update(materialChapterProgressTable)
     .set({
       currentChapterIndex,
       completedChapterIndices: JSON.stringify(completedArr),
       skippedChapterIndices: JSON.stringify(skippedArr),
-      updatedAt: new Date(),
+      lastInteractedAt: now,
+      updatedAt: now,
     })
     .where(and(
       eq(materialChapterProgressTable.userId, userId),
       eq(materialChapterProgressTable.materialId, materialId),
     ));
 
-  return { chapters: current.chapters, currentChapterIndex, completedChapterIndices: completedArr, skippedChapterIndices: skippedArr };
+  return { chapters: current.chapters, currentChapterIndex, completedChapterIndices: completedArr, skippedChapterIndices: skippedArr, lastInteractedAt: now };
 }
 
 // Convenience: advance the chapter for the active material in a subject (called

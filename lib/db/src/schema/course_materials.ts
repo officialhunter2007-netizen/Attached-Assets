@@ -50,6 +50,7 @@ export const materialChapterProgressTable = pgTable("material_chapter_progress",
   currentChapterIndex: integer("current_chapter_index").notNull().default(0),
   completedChapterIndices: text("completed_chapter_indices").notNull().default("[]"),
   skippedChapterIndices: text("skipped_chapter_indices").notNull().default("[]"),
+  lastInteractedAt: timestamp("last_interacted_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("material_chapter_progress_user_material_idx").on(t.userId, t.materialId),

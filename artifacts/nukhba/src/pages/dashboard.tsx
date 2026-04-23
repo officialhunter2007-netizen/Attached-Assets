@@ -381,6 +381,8 @@ interface MaterialWithProgress {
   subjectId: string;
   subjectName: string;
   progress: MaterialProgressInfo | null;
+  createdAt: string | null;
+  lastInteractedAt: string | null;
 }
 
 function MaterialProgressCard({ material }: { material: MaterialWithProgress }) {
@@ -519,11 +521,13 @@ export default function Dashboard() {
       id: number;
       fileName: string;
       status: "processing" | "ready" | "error";
+      createdAt?: string | null;
       progress: {
         chaptersTotal: number;
         completedCount: number;
         currentChapterIndex: number;
         currentChapterTitle: string | null;
+        lastInteractedAt?: string | null;
       } | null;
     }
     interface ApiMaterialsResponse { materials?: ApiMaterial[] }
@@ -543,6 +547,8 @@ export default function Dashboard() {
               status: m.status,
               subjectId,
               subjectName,
+              createdAt: m.createdAt ?? null,
+              lastInteractedAt: m.progress.lastInteractedAt ?? null,
               progress: {
                 chaptersTotal: m.progress.chaptersTotal,
                 completedCount: m.progress.completedCount,
@@ -557,7 +563,14 @@ export default function Dashboard() {
     )
       .then(results => {
         if (cancelled) return;
-        setMaterials(results.flat());
+        const flat = results.flat();
+        const ts = (m: MaterialWithProgress): number => {
+          const v = m.lastInteractedAt ?? m.createdAt;
+          const t = v ? Date.parse(v) : NaN;
+          return Number.isFinite(t) ? t : 0;
+        };
+        flat.sort((a, b) => ts(b) - ts(a));
+        setMaterials(flat);
       })
       .finally(() => { if (!cancelled) setMaterialsLoading(false); });
     return () => { cancelled = true; };
