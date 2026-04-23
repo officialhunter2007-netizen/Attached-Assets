@@ -1431,8 +1431,31 @@ function SubjectPathChat({
   // Wait for /api/teaching-mode to resolve before any auto-start, so the choice
   // card shows BEFORE the diagnostic kicks off and there's no race window.
   const teachingModeLoaded = teachingMode !== null;
-  const needsModeChoice = teachingMode === 'unset';
+  // The "professor curriculum vs custom path" choice card must ONLY appear on
+  // the very first session for this subject. Returning students whose mode is
+  // still 'unset' (e.g. a stale row was wiped, or they ended a session before
+  // choosing) should not be re-asked every time the daily countdown expires —
+  // we silently default them to the custom path and drop them straight into
+  // the next lesson.
+  const needsModeChoice = teachingMode === 'unset' && !!isFirstSession;
   const chatGated = !teachingModeLoaded || needsModeChoice;
+
+  // Auto-pick "custom" for returning students who somehow still have an
+  // 'unset' mode, so the chat ungates and the next session starts immediately
+  // after the countdown without surfacing the mode-choice card again.
+  useEffect(() => {
+    if (teachingMode === 'unset' && !isFirstSession) {
+      setTeachingMode('custom');
+      // Best-effort persist; failure is harmless because we'll just retry on
+      // the next render of a returning session.
+      fetch("/api/teaching-mode", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subjectId: subject.id, mode: "custom" }),
+      }).catch(() => {});
+    }
+  }, [teachingMode, isFirstSession, subject.id]);
 
   // Start session once plan fetch is done — use the persisted stage index and phase
   // Both planLoaded and chatPhase are set together in fetchPlan, so chatPhase is
