@@ -377,31 +377,10 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     }
   }
 
-  // ── Streak + session tracking — all users (first-lesson, subscription) ──
-  if (isNewSession && (isFirstLesson || canAccessViaSubscription)) {
-    const today = getYemenDateString();
-    const yesterdayMs = Date.now() + 3 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000;
-    const yesterday = new Date(yesterdayMs).toISOString().slice(0, 10);
-    const lastActive = user.lastActive ?? null;
-    let newStreak = user.streakDays ?? 0;
-
-    if (lastActive === today) {
-      // already active today — no streak change
-    } else if (lastActive === yesterday) {
-      newStreak = newStreak + 1;
-    } else {
-      newStreak = 1;
-    }
-
-    await db.update(usersTable)
-      .set({
-        lastSessionDate: today,
-        lastSessionAt: new Date(),
-        streakDays: newStreak,
-        lastActive: today,
-      })
-      .where(eq(usersTable.id, userId));
-  }
+  // NOTE: streak + lastSessionDate are now updated AFTER the AI successfully
+  // streams a response (see "Post-success daily/streak bookkeeping" below).
+  // Updating them up-front used to "burn" the day's quota even when Anthropic
+  // 4xx'd — leaving the student stuck on the countdown screen until midnight.
 
   // ── Access gate ─────────────────────────────────────────────────────────────
   if (!isFirstLesson && !canAccessViaSubscription) {
@@ -885,16 +864,30 @@ ${retrievedBlock}
     console.warn("[ai/teach] material context error:", e?.message || e);
   }
 
-  // Filter out any history entries with empty/whitespace content — Anthropic
-  // rejects whitespace-only text blocks with a 400, which would crash the
-  // entire turn (and historically caused cascading failures because each
-  // failure still bumped the user's message counter).
+  // Normalise + filter history entries — Anthropic rejects whitespace-only
+  // text blocks with a 400 (which historically crashed the whole turn AND
+  // burned the user's quota). Accept either:
+  //   • content: string
+  //   • content: Array<{ type: "text", text: string }> (e.g. from older clients
+  //     that mirror Anthropic's block format).
+  const normaliseContent = (raw: unknown): string => {
+    if (typeof raw === "string") return raw;
+    if (Array.isArray(raw)) {
+      return raw
+        .map((b: any) => {
+          if (typeof b === "string") return b;
+          if (b && typeof b === "object" && typeof b.text === "string") return b.text;
+          return "";
+        })
+        .join("\n")
+        .trim();
+    }
+    return "";
+  };
   const claudeMessages = (Array.isArray(history) ? history : [])
-    .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim().length > 0)
-    .map((m: any) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
+    .filter((m: any) => m && (m.role === "user" || m.role === "assistant"))
+    .map((m: any) => ({ role: m.role as "user" | "assistant", content: normaliseContent(m.content) }))
+    .filter((m) => m.content.trim().length > 0);
   const trimmedUserMessage = typeof userMessage === "string" ? userMessage.trim() : "";
   if (trimmedUserMessage.length > 0) {
     claudeMessages.push({ role: "user" as const, content: trimmedUserMessage });
@@ -1018,42 +1011,85 @@ ${retrievedBlock}
     }
   }
 
-  // ── Increment message counter (only after a successful AI response) ──
-  if (unlimited) {
-    // No counters, no caps — pass through.
-  } else if (isFirstLesson && firstLessonRecord) {
-    const newCount = firstLessonRecord.freeMessagesUsed + 1;
-    const isNowComplete = newCount >= FREE_LESSON_MESSAGE_LIMIT;
-    await db.update(userSubjectFirstLessonsTable)
-      .set({
-        freeMessagesUsed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1`,
-        ...(isNowComplete ? { completed: true } : {}),
-      })
-      .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
-    if (isNowComplete) {
-      await db.update(usersTable)
-        .set({ firstLessonComplete: true })
-        .where(eq(usersTable.id, userId));
-    }
-  } else if (canAccessViaSubscription) {
-    if (access.canAccessViaSubjectSub && subjectSub) {
-      await db.update(userSubjectSubscriptionsTable)
-        .set({ messagesUsed: subjectSub.messagesUsed + 1 })
-        .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
+  // ── Increment message counter (only after a successful, non-empty AI response) ──
+  // We gate the entire counter block on `fullResponse.trim().length > 0` so that
+  // a stream which ended with zero content deltas (model hiccup, network drop,
+  // safety refusal) does NOT burn the student's quota. The matching frontend
+  // guard removes the empty assistant placeholder bubble in that case.
+  const responseHasContent = fullResponse.trim().length > 0;
+  if (responseHasContent) {
+    if (unlimited) {
+      // No counters, no caps — pass through.
+    } else if (isFirstLesson && firstLessonRecord) {
+      const newCount = firstLessonRecord.freeMessagesUsed + 1;
+      const isNowComplete = newCount >= FREE_LESSON_MESSAGE_LIMIT;
+      await db.update(userSubjectFirstLessonsTable)
+        .set({
+          freeMessagesUsed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1`,
+          ...(isNowComplete ? { completed: true } : {}),
+        })
+        .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
+      if (isNowComplete) {
+        await db.update(usersTable)
+          .set({ firstLessonComplete: true })
+          .where(eq(usersTable.id, userId));
+      }
+    } else if (canAccessViaSubscription) {
+      if (access.canAccessViaSubjectSub && subjectSub) {
+        await db.update(userSubjectSubscriptionsTable)
+          .set({ messagesUsed: subjectSub.messagesUsed + 1 })
+          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
+      }
     }
   }
 
   let messagesRemaining: number | null = null;
+  // Use the +1 only if we actually consumed a message; otherwise report the
+  // pre-call remaining count so the UI doesn't decrement on a no-op turn.
+  const consumed = responseHasContent ? 1 : 0;
   if (unlimited) {
     messagesRemaining = 999999;
   } else if (isFirstLesson && firstLessonRecord) {
-    messagesRemaining = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - (firstLessonRecord.freeMessagesUsed + 1));
+    messagesRemaining = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - (firstLessonRecord.freeMessagesUsed + consumed));
   } else if (canAccessViaSubscription) {
     if (access.canAccessViaSubjectSub && subjectSub) {
-      messagesRemaining = Math.max(0, subjectSub.messagesLimit - (subjectSub.messagesUsed + 1));
+      messagesRemaining = Math.max(0, subjectSub.messagesLimit - (subjectSub.messagesUsed + consumed));
     }
   }
   const isQuotaExhausted = !unlimited && messagesRemaining === 0;
+
+  // ── Post-success daily/streak bookkeeping ──
+  // Only mark today's session as "used" AFTER the AI actually answered. Doing
+  // this up-front used to leave students stuck on the countdown screen when a
+  // 4xx/5xx broke the very first turn. Also requires the response to be
+  // non-empty so a silently-empty stream doesn't burn the day either.
+  if (isNewSession && (isFirstLesson || canAccessViaSubscription) && fullResponse.trim().length > 0) {
+    try {
+      const today = getYemenDateString();
+      const yesterdayMs = Date.now() + 3 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000;
+      const yesterday = new Date(yesterdayMs).toISOString().slice(0, 10);
+      const lastActive = user.lastActive ?? null;
+      let newStreak = user.streakDays ?? 0;
+      if (lastActive === today) {
+        // already counted today
+      } else if (lastActive === yesterday) {
+        newStreak = newStreak + 1;
+      } else {
+        newStreak = 1;
+      }
+      await db.update(usersTable)
+        .set({
+          lastSessionDate: today,
+          lastSessionAt: new Date(),
+          streakDays: newStreak,
+          lastActive: today,
+        })
+        .where(eq(usersTable.id, userId));
+    } catch (err: any) {
+      console.error("[ai/teach] streak update error:", err?.message || err);
+    }
+  }
+
   res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate })}\n\n`);
   res.end();
 });

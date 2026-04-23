@@ -1285,6 +1285,10 @@ function SubjectPathChat({
   const [summaryError, setSummaryError] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
+  const [countdownExpired, setCountdownExpired] = useState(false);
+  // Bumped every time the student clicks "ابدأ الجلسة التالية الآن" so the
+  // bootstrap effect re-fires (its other deps don't change after restart).
+  const [sessionRestartKey, setSessionRestartKey] = useState(0);
   const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
   const [customPlan, setCustomPlan] = useState<string | null>(null);
   const [planLoaded, setPlanLoaded] = useState(false);
@@ -1440,22 +1444,16 @@ function SubjectPathChat({
   const needsModeChoice = teachingMode === 'unset' && !!isFirstSession;
   const chatGated = !teachingModeLoaded || needsModeChoice;
 
-  // Auto-pick "custom" for returning students who somehow still have an
-  // 'unset' mode, so the chat ungates and the next session starts immediately
-  // after the countdown without surfacing the mode-choice card again.
-  useEffect(() => {
-    if (teachingMode === 'unset' && !isFirstSession) {
-      setTeachingMode('custom');
-      // Best-effort persist; failure is harmless because we'll just retry on
-      // the next render of a returning session.
-      fetch("/api/teaching-mode", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subjectId: subject.id, mode: "custom" }),
-      }).catch(() => {});
-    }
-  }, [teachingMode, isFirstSession, subject.id]);
+  // NOTE: we used to silently downgrade returning 'unset' students to 'custom'
+  // here. That was wrong: it threw away professor-mode continuity for anyone
+  // whose teaching-mode row had been wiped (or never written) but who already
+  // had ready PDFs or chapter progress. The backend GET /api/teaching-mode now
+  // restores 'professor' from the most-recent ready material on this user's
+  // subject, so by the time we get here `teachingMode` is the truthful value.
+  // If it's still 'unset' for a returning student, that means there's truly
+  // no material/progress — `needsModeChoice` is already false (gated on
+  // `isFirstSession`), so the chat will boot in custom-style without
+  // overwriting any persisted mode.
 
   // Start session once plan fetch is done — use the persisted stage index and phase
   // Both planLoaded and chatPhase are set together in fetchPlan, so chatPhase is
@@ -1478,7 +1476,7 @@ function SubjectPathChat({
       sendTeachMessage("", stages, currentStage, chatPhase === 'diagnostic');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planLoaded, chatGated]);
+  }, [planLoaded, chatGated, sessionRestartKey]);
 
   const triggerSummary = async (allMessages: ChatMessage[]) => {
     setIsSummarizing(true);
@@ -1606,6 +1604,22 @@ function SubjectPathChat({
             const data = JSON.parse(line.slice(6));
             if (data.done) {
               if (updateTimer) { clearTimeout(updateTimer); updateTimer = null; }
+              // Empty-stream guard: if the model produced zero content (network
+              // hiccup, safety refusal, etc.) drop the empty assistant bubble
+              // and surface a friendly retry hint. The backend already skips
+              // counter/streak increments in this case, so the student isn't
+              // charged for the silent failure.
+              if (assistantMsg.trim().length === 0) {
+                setMessages(prev => {
+                  const trimmed = [...prev];
+                  if (trimmed.length > 0 && trimmed[trimmed.length - 1].role === "assistant" && !trimmed[trimmed.length - 1].content) {
+                    trimmed.pop();
+                  }
+                  return trimmed;
+                });
+                console.warn("[ai/teach] empty stream — dropped placeholder, no quota burned");
+                break;
+              }
               if (data.messagesRemaining !== null && data.messagesRemaining !== undefined) {
                 setMessagesRemaining(data.messagesRemaining);
               }
@@ -1711,28 +1725,69 @@ function SubjectPathChat({
   };
 
   if (dailyLimitUntil) {
+    const expired = countdownExpired || new Date(dailyLimitUntil).getTime() <= Date.now();
+    const startNextSession = () => {
+      // Wipe the per-session UI state — but DO NOT touch `currentStage`. The
+      // student's progress through the curriculum is persisted server-side
+      // (loaded by fetchPlan into `currentStage`); resetting it here would
+      // throw them back to stage 0. We bump `sessionRestartKey` so the
+      // bootstrap useEffect re-fires after React commits the cleared
+      // `messages` state, avoiding the stale-closure issue you'd get from
+      // calling `sendTeachMessage` synchronously here.
+      setDailyLimitUntil(null);
+      setCountdownExpired(false);
+      setSessionComplete(false);
+      setMessages([]);
+      setQuotaExhausted(false);
+      setSummaryError(false);
+      setIsSummarizing(false);
+      try { if (CHAT_STORAGE_KEY) localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+      setSessionRestartKey((k) => k + 1);
+    };
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
         <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring" }}>
           <div className="w-24 h-24 rounded-full bg-gold/10 border-2 border-gold/30 flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(245,158,11,0.15)]">
             <Clock className="w-12 h-12 text-gold" />
           </div>
-          <h3 className="text-2xl font-bold mb-2">أحسنت! أتممت جلستك اليوم 🎯</h3>
-          <p className="text-muted-foreground mb-8 max-w-sm text-sm leading-relaxed">
-            يُفتح لك الدرس التالي تلقائياً في نهاية العد التنازلي — التعلم المنتظم يُرسّخ المعلومة أكثر من الحفظ دفعةً واحدة.
-          </p>
-          <div className="mb-8">
-            <p className="text-xs text-muted-foreground mb-4">الجلسة القادمة تبدأ خلال</p>
-            <Countdown until={dailyLimitUntil} onExpired={() => setDailyLimitUntil(null)} />
+          {expired ? (
+            <>
+              <h3 className="text-2xl font-bold mb-2">جلستك التالية جاهزة! 🎉</h3>
+              <p className="text-muted-foreground mb-8 max-w-sm text-sm leading-relaxed">
+                مرّ يوم جديد — يمكنك بدء الجلسة التالية الآن ومتابعة المسار من حيث توقفت.
+              </p>
+            </>
+          ) : (
+            <>
+              <h3 className="text-2xl font-bold mb-2">أحسنت! أتممت جلستك اليوم 🎯</h3>
+              <p className="text-muted-foreground mb-8 max-w-sm text-sm leading-relaxed">
+                يُفتح لك الدرس التالي تلقائياً في نهاية العد التنازلي — التعلم المنتظم يُرسّخ المعلومة أكثر من الحفظ دفعةً واحدة.
+              </p>
+              <div className="mb-8">
+                <p className="text-xs text-muted-foreground mb-4">الجلسة القادمة تبدأ خلال</p>
+                <Countdown until={dailyLimitUntil} onExpired={() => setCountdownExpired(true)} />
+              </div>
+            </>
+          )}
+          <div className="flex flex-col gap-3 w-full max-w-xs mx-auto">
+            {expired && (
+              <Button
+                onClick={startNextSession}
+                className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl"
+              >
+                <Sparkles className="w-5 h-5 ml-2" />
+                ابدأ الجلسة التالية الآن
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              className="border-white/10 h-10 rounded-xl text-sm"
+              onClick={() => onSessionComplete ? onSessionComplete() : setDailyLimitUntil(null)}
+            >
+              <FileText className="w-4 h-4 ml-2" />
+              عرض الملخصات
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            className="border-white/10 h-10 rounded-xl text-sm"
-            onClick={() => onSessionComplete ? onSessionComplete() : setDailyLimitUntil(null)}
-          >
-            <FileText className="w-4 h-4 ml-2" />
-            عرض الملخصات
-          </Button>
         </motion.div>
       </div>
     );

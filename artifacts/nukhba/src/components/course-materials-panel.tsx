@@ -307,7 +307,12 @@ export function CourseMaterialsPanel({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold text-white truncate flex-1">{m.fileName}</p>
-                        {isActive && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">نشط</span>}
+                        {isActive && m.status === "ready" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">نشط</span>
+                        )}
+                        {m.status === "error" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 font-bold">بحاجة إلى إعادة الرفع</span>
+                        )}
                       </div>
                       <div className="mt-1 flex items-center gap-2 text-[11px] text-white/40">
                         {m.status === "processing" && (

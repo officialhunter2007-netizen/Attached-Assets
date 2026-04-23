@@ -53,9 +53,68 @@ router.get("/teaching-mode", async (req, res): Promise<any> => {
       eq(userSubjectTeachingModesTable.subjectId, subjectId),
     ));
 
+  // Helper: pick the most-recently-uploaded READY material for this subject.
+  const pickFallbackMaterial = async (): Promise<number | null> => {
+    const [m] = await db
+      .select({ id: courseMaterialsTable.id })
+      .from(courseMaterialsTable)
+      .where(and(
+        eq(courseMaterialsTable.userId, userId),
+        eq(courseMaterialsTable.subjectId, subjectId),
+        eq(courseMaterialsTable.status, "ready"),
+      ))
+      .orderBy(desc(courseMaterialsTable.createdAt))
+      .limit(1);
+    return m?.id ?? null;
+  };
+
+  // No saved row at all → check whether we can infer "professor" from prior
+  // chapter-progress (e.g. a stale row was wiped). If a ready material exists,
+  // restore the most recent one so the student keeps teaching from their PDF
+  // instead of being asked to choose again.
   if (!row) {
+    const fallbackId = await pickFallbackMaterial();
+    if (fallbackId) {
+      await db
+        .insert(userSubjectTeachingModesTable)
+        .values({ userId, subjectId, mode: "professor", activeMaterialId: fallbackId, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: [userSubjectTeachingModesTable.userId, userSubjectTeachingModesTable.subjectId],
+          set: { mode: "professor", activeMaterialId: fallbackId, updatedAt: new Date() },
+        });
+      return res.json({ mode: "professor", activeMaterialId: fallbackId });
+    }
     return res.json({ mode: "unset", activeMaterialId: null });
   }
+
+  // Mode is professor but the active material is missing/errored/processing →
+  // fall back to the most-recent ready material so the next session can start
+  // immediately instead of stalling on a broken pointer.
+  if (row.mode === "professor") {
+    let activeId = row.activeMaterialId;
+    if (activeId) {
+      const [mat] = await db
+        .select({ status: courseMaterialsTable.status })
+        .from(courseMaterialsTable)
+        .where(and(
+          eq(courseMaterialsTable.id, activeId),
+          eq(courseMaterialsTable.userId, userId),
+        ));
+      if (!mat || mat.status !== "ready") activeId = null;
+    }
+    if (!activeId) {
+      const fallbackId = await pickFallbackMaterial();
+      if (fallbackId && fallbackId !== row.activeMaterialId) {
+        await db
+          .update(userSubjectTeachingModesTable)
+          .set({ activeMaterialId: fallbackId, updatedAt: new Date() })
+          .where(eq(userSubjectTeachingModesTable.id, row.id));
+      }
+      return res.json({ mode: "professor", activeMaterialId: fallbackId });
+    }
+    return res.json({ mode: "professor", activeMaterialId: activeId });
+  }
+
   res.json({ mode: row.mode, activeMaterialId: row.activeMaterialId });
 });
 
@@ -309,7 +368,11 @@ router.post("/materials/finalize", async (req, res): Promise<any> => {
       })
       .returning();
 
-    // Auto-activate on first material if mode unset
+    // Switch the subject into "professor" mode if the student hasn't picked
+    // anything yet — but DO NOT mark this still-processing material as active.
+    // If extraction fails, an errored material would stay flagged "نشط" even
+    // though it has no usable text. We promote it to active only after
+    // processMaterial confirms status='ready' (see end of processMaterial).
     const [existingMode] = await db
       .select()
       .from(userSubjectTeachingModesTable)
@@ -317,13 +380,13 @@ router.post("/materials/finalize", async (req, res): Promise<any> => {
         eq(userSubjectTeachingModesTable.userId, userId),
         eq(userSubjectTeachingModesTable.subjectId, String(subjectId)),
       ));
-    if (!existingMode || existingMode.mode === "unset" || !existingMode.activeMaterialId) {
+    if (!existingMode || existingMode.mode === "unset") {
       await db
         .insert(userSubjectTeachingModesTable)
-        .values({ userId, subjectId: String(subjectId), mode: "professor", activeMaterialId: row.id, updatedAt: new Date() })
+        .values({ userId, subjectId: String(subjectId), mode: "professor", activeMaterialId: existingMode?.activeMaterialId ?? null, updatedAt: new Date() })
         .onConflictDoUpdate({
           target: [userSubjectTeachingModesTable.userId, userSubjectTeachingModesTable.subjectId],
-          set: { mode: "professor", activeMaterialId: row.id, updatedAt: new Date() },
+          set: { mode: "professor", updatedAt: new Date() },
         });
     }
 
@@ -525,24 +588,43 @@ async function processMaterial(materialId: number) {
       detectedError = `هذا الملف يحوي ${pageCount} صفحة، والحد الأقصى ${MAX_PAGE_COUNT} صفحة. قسّم الملف إلى أجزاء أصغر.`;
     }
 
-    const looksScanned = !detectedError && (extractedText.length < 200 || (pageCount > 0 && extractedText.length / Math.max(pageCount, 1) < 80));
+    // Be more aggressive about deciding the file is scanned/has unusual fonts:
+    // many slide-deck PDFs (e.g. "lec3 c++.pdf") return short pseudo-text from
+    // pdf-parse but actually need OCR to be readable. Trigger OCR whenever the
+    // average page yields fewer than ~120 chars, or the total is under 500.
+    const avgPerPage = pageCount > 0 ? extractedText.length / pageCount : 0;
+    const looksScanned = !detectedError && (
+      extractedText.length < 500 ||
+      (pageCount > 0 && avgPerPage < 120)
+    );
 
-    // 2) Fallback: Gemini vision OCR (cap to OCR_PAGE_LIMIT pages)
+    // 2) Fallback: Gemini vision OCR (cap to OCR_PAGE_LIMIT pages). Retry once
+    //    on transient failures so a single network blip doesn't doom a slide
+    //    deck to "فشل التحليل".
     if (looksScanned && process.env.GEMINI_API_KEY) {
-      try {
-        const ocrText = await ocrPdfWithGemini(buf, pageCount || 0);
-        if (ocrText.trim().length > extractedText.length) {
-          extractedText = ocrText.trim();
-          // OCR output uses "--- صفحة N ---" markers — split into pages.
-          const ocrPages = splitOcrTextIntoPages(extractedText);
-          if (ocrPages.size > 0) {
-            pageTexts.clear();
-            for (const [n, t] of ocrPages.entries()) pageTexts.set(n, t);
-            if (!pageCount || pageCount < pageTexts.size) pageCount = pageTexts.size;
-          }
+      let ocrText = "";
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          ocrText = await ocrPdfWithGemini(buf, pageCount || 0);
+          if (ocrText.trim().length > 0) break;
+        } catch (e: any) {
+          console.warn(`[materials/process] OCR attempt ${attempt + 1} failed:`, e?.message || e);
         }
-      } catch (e: any) {
-        console.warn("[materials/process] OCR failed:", e?.message || e);
+        // brief backoff before the retry
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 1500));
+      }
+      // Accept OCR even when it's only partially better than pdf-parse — slide
+      // decks often yield a couple of dozen extra readable characters per page
+      // that make the difference between "ready" and "error".
+      if (ocrText.trim().length > Math.max(extractedText.length, 200)) {
+        extractedText = ocrText.trim();
+        // OCR output uses "--- صفحة N ---" markers — split into pages.
+        const ocrPages = splitOcrTextIntoPages(extractedText);
+        if (ocrPages.size > 0) {
+          pageTexts.clear();
+          for (const [n, t] of ocrPages.entries()) pageTexts.set(n, t);
+          if (!pageCount || pageCount < pageTexts.size) pageCount = pageTexts.size;
+        }
       }
     }
 
@@ -625,6 +707,57 @@ async function processMaterial(materialId: number) {
     } catch (e: any) {
       console.warn("[materials/process] chunk persist failed:", e?.message || e);
     }
+  }
+
+  // ── Sync teaching-mode pointer with the result of this run ──
+  // SUCCESS: if the subject is in professor mode but has no active material yet
+  //   (because finalize deferred activation), promote this one now.
+  // FAILURE: if this material was somehow already flagged active, clear it so
+  //   the UI doesn't show "نشط" on a broken file. The next ready material —
+  //   or the GET endpoint's fallback — will take over.
+  try {
+    const [modeRow] = await db
+      .select()
+      .from(userSubjectTeachingModesTable)
+      .where(and(
+        eq(userSubjectTeachingModesTable.userId, row.userId),
+        eq(userSubjectTeachingModesTable.subjectId, row.subjectId),
+      ));
+    if (!detectedError) {
+      if (!modeRow) {
+        await db.insert(userSubjectTeachingModesTable).values({
+          userId: row.userId,
+          subjectId: row.subjectId,
+          mode: "professor",
+          activeMaterialId: materialId,
+          updatedAt: new Date(),
+        });
+      } else if (modeRow.mode === "unset" || !modeRow.activeMaterialId) {
+        await db
+          .update(userSubjectTeachingModesTable)
+          .set({ mode: "professor", activeMaterialId: materialId, updatedAt: new Date() })
+          .where(eq(userSubjectTeachingModesTable.id, modeRow.id));
+      } else if (modeRow.activeMaterialId) {
+        // If the previously-active material is itself errored, swap to this fresh ready one.
+        const [prev] = await db
+          .select({ status: courseMaterialsTable.status })
+          .from(courseMaterialsTable)
+          .where(eq(courseMaterialsTable.id, modeRow.activeMaterialId));
+        if (!prev || prev.status !== "ready") {
+          await db
+            .update(userSubjectTeachingModesTable)
+            .set({ activeMaterialId: materialId, updatedAt: new Date() })
+            .where(eq(userSubjectTeachingModesTable.id, modeRow.id));
+        }
+      }
+    } else if (modeRow && modeRow.activeMaterialId === materialId) {
+      await db
+        .update(userSubjectTeachingModesTable)
+        .set({ activeMaterialId: null, updatedAt: new Date() })
+        .where(eq(userSubjectTeachingModesTable.id, modeRow.id));
+    }
+  } catch (e: any) {
+    console.warn("[materials/process] mode sync failed:", e?.message || e);
   }
 }
 
@@ -1112,22 +1245,49 @@ export async function getActiveMaterialContext(userId: number, subjectId: string
       eq(userSubjectTeachingModesTable.subjectId, subjectId),
     ));
   if (!mode) return { mode: "unset", material: null };
-  if (mode.mode !== "professor" || !mode.activeMaterialId) {
-    return { mode: mode.mode, material: null };
+  if (mode.mode !== "professor") return { mode: mode.mode, material: null };
+
+  const matCols = {
+    id: courseMaterialsTable.id,
+    fileName: courseMaterialsTable.fileName,
+    outline: courseMaterialsTable.outline,
+    summary: courseMaterialsTable.summary,
+    extractedText: courseMaterialsTable.extractedText,
+    language: courseMaterialsTable.language,
+    status: courseMaterialsTable.status,
+  };
+
+  let mat: any = null;
+  if (mode.activeMaterialId) {
+    const [m] = await db
+      .select(matCols)
+      .from(courseMaterialsTable)
+      .where(eq(courseMaterialsTable.id, mode.activeMaterialId));
+    if (m && m.status === "ready") mat = m;
   }
-  const [mat] = await db
-    .select({
-      id: courseMaterialsTable.id,
-      fileName: courseMaterialsTable.fileName,
-      outline: courseMaterialsTable.outline,
-      summary: courseMaterialsTable.summary,
-      extractedText: courseMaterialsTable.extractedText,
-      language: courseMaterialsTable.language,
-      status: courseMaterialsTable.status,
-    })
-    .from(courseMaterialsTable)
-    .where(eq(courseMaterialsTable.id, mode.activeMaterialId));
-  if (!mat || mat.status !== "ready") return { mode: mode.mode, material: null };
+  // Fallback: most-recent ready material for this subject. Keeps the session
+  // running even when the saved active pointer is stale or errored.
+  if (!mat) {
+    const [m] = await db
+      .select(matCols)
+      .from(courseMaterialsTable)
+      .where(and(
+        eq(courseMaterialsTable.userId, userId),
+        eq(courseMaterialsTable.subjectId, subjectId),
+        eq(courseMaterialsTable.status, "ready"),
+      ))
+      .orderBy(desc(courseMaterialsTable.createdAt))
+      .limit(1);
+    if (m) {
+      mat = m;
+      // Self-heal the pointer so future calls hit the fast path.
+      await db
+        .update(userSubjectTeachingModesTable)
+        .set({ activeMaterialId: m.id, updatedAt: new Date() })
+        .where(eq(userSubjectTeachingModesTable.id, mode.id));
+    }
+  }
+  if (!mat) return { mode: mode.mode, material: null };
   const recentWeakAreas = await getRecentWeakAreasForMaterial(userId, mat.id);
   return { mode: mode.mode, material: mat, recentWeakAreas };
 }
