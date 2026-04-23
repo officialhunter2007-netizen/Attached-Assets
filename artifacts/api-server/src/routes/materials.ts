@@ -623,27 +623,24 @@ async function processMaterial(materialId: number) {
       (pageCount > 0 && avgPerPage < 120)
     );
 
-    // 2) Fallback: Gemini vision OCR (cap to OCR_PAGE_LIMIT pages). Retry once
-    //    on transient failures so a single network blip doesn't doom a slide
-    //    deck to "فشل التحليل".
+    // 2) Fallback: chunked Gemini vision OCR. The chunker handles per-chunk
+    //    retries internally and tells us how many chunks survived so we can
+    //    decide whether to accept the result or flag the file as broken.
+    let ocrSuccessRatio = 1;     // default 1 == no OCR ran
+    let ocrTextWasAdopted = false;
     if (looksScanned && process.env.GEMINI_API_KEY) {
-      let ocrText = "";
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          ocrText = await ocrPdfWithGemini(buf, pageCount || 0);
-          if (ocrText.trim().length > 0) break;
-        } catch (e: any) {
-          console.warn(`[materials/process] OCR attempt ${attempt + 1} failed:`, e?.message || e);
-        }
-        // brief backoff before the retry
-        if (attempt === 0) await new Promise((r) => setTimeout(r, 1500));
+      let ocr: OcrResult = { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "" };
+      try {
+        ocr = await ocrPdfWithGemini(buf, pageCount || 0);
+      } catch (e: any) {
+        console.warn(`[materials/process] OCR threw:`, e?.message || e);
       }
-      // Accept OCR even when it's only partially better than pdf-parse — slide
-      // decks often yield a couple of dozen extra readable characters per page
-      // that make the difference between "ready" and "error".
-      if (ocrText.trim().length > Math.max(extractedText.length, 200)) {
-        extractedText = ocrText.trim();
-        // OCR output uses "--- صفحة N ---" markers — split into pages.
+      // Length comparison uses ONLY successful-chunk text — placeholders are
+      // intentionally excluded so a mostly-failed OCR can't fake length and
+      // sneak past quality gates.
+      if (ocr.text.length > Math.max(extractedText.length, 200)) {
+        extractedText = ocr.text;
+        ocrTextWasAdopted = true;
         const ocrPages = splitOcrTextIntoPages(extractedText);
         if (ocrPages.size > 0) {
           pageTexts.clear();
@@ -651,6 +648,17 @@ async function processMaterial(materialId: number) {
           if (!pageCount || pageCount < pageTexts.size) pageCount = pageTexts.size;
         }
       }
+      if (ocr.totalChunks > 0) {
+        ocrSuccessRatio = ocr.successfulChunks / ocr.totalChunks;
+      }
+    }
+
+    // Hard quality gate: only fire when OCR actually became the text source.
+    // If pdf-parse already gave us usable text and OCR was just a transient
+    // failure (e.g. Gemini outage) we keep the pdf-parse text instead of
+    // falsely marking the file broken.
+    if (!detectedError && ocrTextWasAdopted && ocrSuccessRatio < 0.5) {
+      detectedError = "تعذّر استخراج معظم صفحات هذا الملف. حاول رفع نسخة أوضح أو غير ممسوحة ضوئياً.";
     }
 
     if (!detectedError && (!extractedText || extractedText.length < 50)) {
@@ -757,12 +765,23 @@ async function processMaterial(materialId: number) {
           activeMaterialId: materialId,
           updatedAt: new Date(),
         });
-      } else if (modeRow.mode === "unset" || !modeRow.activeMaterialId) {
+      } else if (modeRow.mode === "unset") {
+        // Only promote unset → professor. We deliberately do NOT touch
+        // custom-mode rows here even if they have no activeMaterialId — a
+        // student who picked "custom" can still upload PDFs as reference
+        // material without us silently flipping them to professor mode.
         await db
           .update(userSubjectTeachingModesTable)
           .set({ mode: "professor", activeMaterialId: materialId, updatedAt: new Date() })
           .where(eq(userSubjectTeachingModesTable.id, modeRow.id));
-      } else if (modeRow.activeMaterialId) {
+      } else if (modeRow.mode === "professor" && !modeRow.activeMaterialId) {
+        // Already professor but with no pointer (e.g. previous active was
+        // deleted) — safe to point at this fresh ready material.
+        await db
+          .update(userSubjectTeachingModesTable)
+          .set({ activeMaterialId: materialId, updatedAt: new Date() })
+          .where(eq(userSubjectTeachingModesTable.id, modeRow.id));
+      } else if (modeRow.mode === "professor" && modeRow.activeMaterialId) {
         // If the previously-active material is itself errored, swap to this fresh ready one.
         const [prev] = await db
           .select({ status: courseMaterialsTable.status })
@@ -992,11 +1011,21 @@ const OCR_CHUNK_PAGES = 8;   // pages per Gemini call — balances throughput vs
 const OCR_MAX_CHUNKS = 12;   // hard cap on chunks per document (12 * 8 = 96 pages)
 const OCR_RETRY_DELAY_MS = 1500;
 
+interface OcrResult {
+  text: string;          // accumulated successful-chunk text (NO failure placeholders)
+  totalChunks: number;
+  successfulChunks: number;
+  placeholders: string;  // failure markers, kept separately for downstream display
+}
+
 // Split the PDF into ≤OCR_CHUNK_PAGES-page chunks, OCR each independently with
-// one retry on failure, then concatenate whatever succeeded. Partial success
-// is still returned — a single bad chunk no longer wipes out the whole doc.
-async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<string> {
-  if (!process.env.GEMINI_API_KEY) return "";
+// one retry on failure, then return whatever succeeded *plus* explicit success
+// metrics so the caller can decide whether the document is usable. Failure
+// placeholders are returned in a separate `placeholders` string so they never
+// inflate quality checks against the real extracted text.
+async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResult> {
+  const empty: OcrResult = { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "" };
+  if (!process.env.GEMINI_API_KEY) return empty;
 
   // Fall back to single-shot if pdf-lib can't open the file (encrypted /
   // malformed); preserves prior behavior so we never regress to "0 text".
@@ -1005,7 +1034,8 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<string>
     pdfLibMod = await import("pdf-lib");
   } catch (e: any) {
     console.warn("[ocr] pdf-lib import failed, single-shot fallback:", e?.message || e);
-    return ocrPdfChunk(buf, "full");
+    const text = await ocrPdfChunk(buf, "full");
+    return { text, totalChunks: 1, successfulChunks: text.length > 0 ? 1 : 0, placeholders: "" };
   }
   const { PDFDocument } = pdfLibMod;
 
@@ -1014,7 +1044,8 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<string>
     srcDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
   } catch (e: any) {
     console.warn("[ocr] pdf-lib load failed, single-shot fallback:", e?.message || e);
-    return ocrPdfChunk(buf, "full");
+    const text = await ocrPdfChunk(buf, "full");
+    return { text, totalChunks: 1, successfulChunks: text.length > 0 ? 1 : 0, placeholders: "" };
   }
 
   const totalPages = srcDoc.getPageCount();
@@ -1024,7 +1055,8 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<string>
     chunkRanges.push([start, Math.min(start + OCR_CHUNK_PAGES, effectivePages)]);
   }
 
-  const collected: string[] = [];
+  const successful: string[] = [];
+  const placeholders: string[] = [];
   let succeededChunks = 0;
   for (const [start, end] of chunkRanges) {
     const label = `pages ${start + 1}-${end}`;
@@ -1038,6 +1070,7 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<string>
       chunkBuf = Buffer.from(bytes);
     } catch (e: any) {
       console.warn(`[ocr] ${label} split failed:`, e?.message || e);
+      placeholders.push(`--- صفحات ${start + 1}-${end}: تعذّر تقسيم الصفحات ---`);
       continue;
     }
 
@@ -1049,19 +1082,23 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<string>
       text = await ocrPdfChunk(chunkBuf, `${label} (retry)`);
     }
     if (text.length > 0) {
-      collected.push(text);
+      successful.push(text);
       succeededChunks++;
     } else {
-      // Persist a placeholder so chapter numbering downstream stays stable
-      // even when a chunk failed twice. This is the "partial persistence"
-      // requirement — we keep the surviving pages instead of dropping the
-      // whole OCR pass.
-      collected.push(`--- صفحات ${start + 1}-${end}: تعذّر استخراج النص ---`);
+      // Keep a marker so downstream display knows what's missing, but DO NOT
+      // mix it into `text` — placeholders must not inflate length-based
+      // quality checks that decide ready vs error.
+      placeholders.push(`--- صفحات ${start + 1}-${end}: تعذّر استخراج النص ---`);
     }
   }
 
   console.info(`[ocr] chunked: ${succeededChunks}/${chunkRanges.length} chunks ok, ${effectivePages}/${totalPages} pages attempted`);
-  return collected.join("\n\n").trim();
+  return {
+    text: successful.join("\n\n").trim(),
+    totalChunks: chunkRanges.length,
+    successfulChunks: succeededChunks,
+    placeholders: placeholders.join("\n"),
+  };
 }
 
 async function generateMaterialMetadata(text: string, fileName: string, language: string): Promise<{ outline: string; summary: string; starters: string }> {
