@@ -1534,7 +1534,19 @@ function SubjectPathChat({
         return;
       }
 
-      if (!response.body) return;
+      // Any other non-2xx must NOT add an empty assistant placeholder —
+      // doing so would poison the next request's history with a whitespace
+      // assistant turn and Anthropic would reject the whole turn (400).
+      if (!response.ok) {
+        console.error("[teach] non-ok response:", response.status);
+        setIsStreaming(false);
+        return;
+      }
+
+      if (!response.body) {
+        setIsStreaming(false);
+        return;
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();

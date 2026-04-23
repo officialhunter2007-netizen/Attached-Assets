@@ -420,30 +420,8 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  // ── Increment message counter ──────────────────────────────────────────────
-  if (unlimited) {
-    // No counters, no caps — pass through.
-  } else if (isFirstLesson && firstLessonRecord) {
-    const newCount = firstLessonRecord.freeMessagesUsed + 1;
-    const isNowComplete = newCount >= FREE_LESSON_MESSAGE_LIMIT;
-    await db.update(userSubjectFirstLessonsTable)
-      .set({
-        freeMessagesUsed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1`,
-        ...(isNowComplete ? { completed: true } : {}),
-      })
-      .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
-    if (isNowComplete) {
-      await db.update(usersTable)
-        .set({ firstLessonComplete: true })
-        .where(eq(usersTable.id, userId));
-    }
-  } else if (canAccessViaSubscription) {
-    if (access.canAccessViaSubjectSub && subjectSub) {
-      await db.update(userSubjectSubscriptionsTable)
-        .set({ messagesUsed: subjectSub.messagesUsed + 1 })
-        .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
-    }
-  }
+  // ── (Counter increment moved BELOW the AI call so failed requests
+  //     — e.g. Anthropic 4xx, network errors — don't burn the user's quota.)
 
   // ── Load persisted plan + last 2 session summaries from DB ───────────────
   let dbPlanContext = planContext ?? null;
@@ -897,17 +875,35 @@ ${retrievedBlock}
     console.warn("[ai/teach] material context error:", e?.message || e);
   }
 
-  const claudeMessages = history.map((m: any) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content || " ",
-  }));
-  if (userMessage) {
-    claudeMessages.push({ role: "user" as const, content: userMessage });
+  // Filter out any history entries with empty/whitespace content — Anthropic
+  // rejects whitespace-only text blocks with a 400, which would crash the
+  // entire turn (and historically caused cascading failures because each
+  // failure still bumped the user's message counter).
+  const claudeMessages = (Array.isArray(history) ? history : [])
+    .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim().length > 0)
+    .map((m: any) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
+  const trimmedUserMessage = typeof userMessage === "string" ? userMessage.trim() : "";
+  if (trimmedUserMessage.length > 0) {
+    claudeMessages.push({ role: "user" as const, content: trimmedUserMessage });
   } else if (claudeMessages.length === 0) {
     const initPrompt = isDiagnosticPhase
       ? `ابدأ جلسة التشخيص`
       : `ابدأ تدريسي في مرحلة: ${currentStageName}`;
     claudeMessages.push({ role: "user" as const, content: initPrompt });
+  }
+  // Guarantee the conversation we ship to Anthropic actually starts with a
+  // user turn — defensive in case history begins with an assistant entry.
+  while (claudeMessages.length > 0 && claudeMessages[0].role !== "user") {
+    claudeMessages.shift();
+  }
+  if (claudeMessages.length === 0) {
+    claudeMessages.push({
+      role: "user" as const,
+      content: isDiagnosticPhase ? `ابدأ جلسة التشخيص` : `ابدأ تدريسي في مرحلة: ${currentStageName}`,
+    });
   }
 
   let fullResponse = "";
@@ -930,20 +926,40 @@ ${retrievedBlock}
     }
   }
 
-  const stream = anthropic.messages.stream({
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: claudeMessages,
-  });
+  // Open SSE only once we are about to talk to the model.
+  if (!res.headersSent) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+  }
 
-  for await (const event of stream) {
-    if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-      const text = event.delta.text;
-      fullResponse += text;
-      const clean = text.replace("[STAGE_COMPLETE]", "").replace("[PLAN_READY]", "");
-      if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
+  try {
+    const stream = anthropic.messages.stream({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: claudeMessages,
+    });
+
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        const text = event.delta.text;
+        fullResponse += text;
+        const clean = text.replace("[STAGE_COMPLETE]", "").replace("[PLAN_READY]", "");
+        if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
+      }
     }
+  } catch (err: any) {
+    console.error("[ai/teach] anthropic stream error:", err?.message || err);
+    // Stream a friendly Arabic apology so the chat shows something instead of
+    // an empty bubble that would later poison the next turn's history.
+    const friendly = `<p>تعذّر الردّ الآن بسبب خطأ مؤقّت في خدمة المعلّم 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.</p>`;
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ content: friendly })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, error: true })}\n\n`);
+      res.end();
+    }
+    return;
   }
 
   stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
@@ -989,6 +1005,31 @@ ${retrievedBlock}
       }
     } catch (err: any) {
       console.error("[ai/teach] persist assistant msg error:", err?.message || err);
+    }
+  }
+
+  // ── Increment message counter (only after a successful AI response) ──
+  if (unlimited) {
+    // No counters, no caps — pass through.
+  } else if (isFirstLesson && firstLessonRecord) {
+    const newCount = firstLessonRecord.freeMessagesUsed + 1;
+    const isNowComplete = newCount >= FREE_LESSON_MESSAGE_LIMIT;
+    await db.update(userSubjectFirstLessonsTable)
+      .set({
+        freeMessagesUsed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1`,
+        ...(isNowComplete ? { completed: true } : {}),
+      })
+      .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
+    if (isNowComplete) {
+      await db.update(usersTable)
+        .set({ firstLessonComplete: true })
+        .where(eq(usersTable.id, userId));
+    }
+  } else if (canAccessViaSubscription) {
+    if (access.canAccessViaSubjectSub && subjectSub) {
+      await db.update(userSubjectSubscriptionsTable)
+        .set({ messagesUsed: subjectSub.messagesUsed + 1 })
+        .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
     }
   }
 
