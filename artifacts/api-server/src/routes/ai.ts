@@ -847,6 +847,30 @@ ${formatted}
           console.warn("[ai/teach] retrieval failed:", e?.message || e);
         }
 
+        // ── Personalization: surface the topics the student missed in their
+        // recent quiz attempts on this material so the tutor can re-explain
+        // and drill them first instead of repeating things already mastered.
+        let weakAreasBlock = "";
+        try {
+          const weak = ctx.recentWeakAreas ?? [];
+          if (weak.length > 0 && !isDiagnosticPhase) {
+            const lines = weak.map((w, i) => `${i + 1}. ${w.topic} (أخطأ فيها ${w.missed} مرة)`).join("\n");
+            weakAreasBlock = `
+
+— نقاط ضعف الطالب من اختباراته الأخيرة على هذا الملف —
+${lines}
+
+تعليمات التخصيص (إلزامية):
+- ابدأ الجلسة بإعادة شرح أهم نقطة ضعف من القائمة أعلاه بأسلوب مختلف عن المرة السابقة، ثم اطرح سؤالاً قصيراً للتأكد من الفهم قبل المتابعة.
+- ادمج تمارين قصيرة مركّزة على هذه الموضوعات أثناء الشرح، حتى لو كان الفصل الحالي يغطي مواضيع أخرى — اربط بين الموضوعين عند الإمكان.
+- لا تُكرّر الموضوعات التي يُتقنها الطالب بنفس التفصيل؛ اقضِ وقتاً أطول على نقاط الضعف أعلاه.
+- إذا طلب الطالب صراحةً "ركّز على نقاط ضعفي" أو ما يشبهها، اجعل الجلسة كاملةً مراجعة مكثّفة لهذه النقاط قبل المتابعة في الفصل الحالي.
+`;
+          }
+        } catch (e: any) {
+          console.warn("[ai/teach] weak-areas block failed:", e?.message || e);
+        }
+
         const materialBlock = `
 
 ═══ وضع منهج الأستاذ — أنت تُدرّس من الملف المرفوع ═══
@@ -857,7 +881,7 @@ ${langNote}
 
 — الفهرس المُستخرج —
 ${m.outline || "(لم يُستخرج فهرس)"}
-${chapterProgressBlock}
+${chapterProgressBlock}${weakAreasBlock}
 
 — ملخص الملف (3 نقاط) —
 ${m.summary || ""}

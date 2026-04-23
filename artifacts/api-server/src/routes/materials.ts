@@ -359,7 +359,8 @@ router.get("/materials/:id", async (req, res): Promise<any> => {
       eq(courseMaterialsTable.userId, userId),
     ));
   if (!row) return res.status(404).json({ error: "Not found" });
-  res.json(row);
+  const recentWeakAreas = await getRecentWeakAreasForMaterial(userId, id);
+  res.json({ ...row, recentWeakAreas });
 });
 
 // ── DELETE /api/materials/:id ─────────────────────────────────────────────────
@@ -1011,10 +1012,61 @@ export async function advanceActiveMaterialChapter(userId: number, subjectId: st
   return mutateProgress(userId, ctx.material.id, ctx.material.outline ?? "", "advance");
 }
 
+// Aggregate the most recent submitted quiz attempts on a material to surface
+// the topics the student has been getting wrong. We look at the last few
+// attempts (within the last ~30 days) and sum the miss counts per topic, then
+// return the top 5. Used by /ai/teach to personalize the next session and by
+// /api/materials/:id so the UI can show a "focus on my weak areas" chip.
+export async function getRecentWeakAreasForMaterial(
+  userId: number,
+  materialId: number,
+  opts: { maxAttempts?: number; maxAgeDays?: number; topN?: number } = {},
+): Promise<{ topic: string; missed: number }[]> {
+  const maxAttempts = opts.maxAttempts ?? 5;
+  const maxAgeDays = opts.maxAgeDays ?? 30;
+  const topN = opts.topN ?? 5;
+  const sinceMs = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+
+  const rows = await db
+    .select({
+      weakAreas: quizAttemptsTable.weakAreas,
+      submittedAt: quizAttemptsTable.submittedAt,
+    })
+    .from(quizAttemptsTable)
+    .where(and(
+      eq(quizAttemptsTable.userId, userId),
+      eq(quizAttemptsTable.materialId, materialId),
+      eq(quizAttemptsTable.status, "submitted"),
+    ))
+    .orderBy(desc(quizAttemptsTable.submittedAt))
+    .limit(maxAttempts);
+
+  const totals = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.submittedAt || new Date(r.submittedAt).getTime() < sinceMs) continue;
+    let parsed: unknown = [];
+    try { parsed = JSON.parse(r.weakAreas); } catch { parsed = []; }
+    if (!Array.isArray(parsed)) continue;
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
+      const rec = entry as Record<string, unknown>;
+      const topic = String(rec.topic ?? "").trim();
+      const missed = Number(rec.missed ?? 0);
+      if (!topic || !Number.isFinite(missed) || missed <= 0) continue;
+      totals.set(topic, (totals.get(topic) ?? 0) + missed);
+    }
+  }
+  return Array.from(totals.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(([topic, missed]) => ({ topic, missed }));
+}
+
 // ── Helper exposed for ai/teach to load the active material context ────────────
 export async function getActiveMaterialContext(userId: number, subjectId: string): Promise<{
   mode: string;
   material: { id: number; fileName: string; outline: string | null; summary: string | null; extractedText: string | null; language: string | null } | null;
+  recentWeakAreas?: { topic: string; missed: number }[];
 } | null> {
   const [mode] = await db
     .select()
@@ -1040,7 +1092,8 @@ export async function getActiveMaterialContext(userId: number, subjectId: string
     .from(courseMaterialsTable)
     .where(eq(courseMaterialsTable.id, mode.activeMaterialId));
   if (!mat || mat.status !== "ready") return { mode: mode.mode, material: null };
-  return { mode: mode.mode, material: mat };
+  const recentWeakAreas = await getRecentWeakAreasForMaterial(userId, mat.id);
+  return { mode: mode.mode, material: mat, recentWeakAreas };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

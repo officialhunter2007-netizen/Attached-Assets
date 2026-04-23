@@ -1294,6 +1294,7 @@ function SubjectPathChat({
     initialSourcesMaterialId && initialSourcesMaterialId > 0 ? initialSourcesMaterialId : null,
   );
   const [activeMaterialStarters, setActiveMaterialStarters] = useState<string | null>(null);
+  const [activeMaterialWeakAreas, setActiveMaterialWeakAreas] = useState<{ topic: string; missed: number }[]>([]);
   const [quizPanel, setQuizPanel] = useState<{ open: boolean; kind: QuizKind }>({ open: false, kind: "chapter" });
   const [showSourcesPanel, setShowSourcesPanel] = useState(initialSourcesMaterialId != null);
   const consumedSourcesParamRef = useRef(false);
@@ -1402,11 +1403,15 @@ function SubjectPathChat({
 
   // When active material changes, fetch its starters for the chip row
   useEffect(() => {
-    if (!activeMaterialId) { setActiveMaterialStarters(null); return; }
+    if (!activeMaterialId) { setActiveMaterialStarters(null); setActiveMaterialWeakAreas([]); return; }
     let cancelled = false;
     fetch(`/api/materials/${activeMaterialId}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (!cancelled && d) setActiveMaterialStarters(d.starters || null); })
+      .then(d => {
+        if (cancelled || !d) return;
+        setActiveMaterialStarters(d.starters || null);
+        setActiveMaterialWeakAreas(Array.isArray(d.recentWeakAreas) ? d.recentWeakAreas : []);
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [activeMaterialId]);
@@ -2150,9 +2155,18 @@ function SubjectPathChat({
       {/* Input area */}
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
         {/* Professor-mode starter chips — show only when chat is empty and we have starters */}
-        {teachingMode === 'professor' && activeMaterialStarters && messages.length <= 1 && !isStreaming && (
+        {teachingMode === 'professor' && (activeMaterialStarters || activeMaterialWeakAreas.length > 0) && messages.length <= 1 && !isStreaming && (
           <div className="max-w-2xl mx-auto mb-2.5 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
-            {activeMaterialStarters
+            {activeMaterialWeakAreas.length > 0 && (
+              <button
+                onClick={() => sendTeachMessage("ركّز على نقاط ضعفي")}
+                title={activeMaterialWeakAreas.map(w => `${w.topic} (${w.missed})`).join("، ")}
+                className="text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-500/70 text-rose-200 transition-all font-bold"
+              >
+                ركّز على نقاط ضعفي ({activeMaterialWeakAreas.length})
+              </button>
+            )}
+            {activeMaterialStarters && activeMaterialStarters
               .split('\n')
               .map(s => s.replace(/^[•\-\*\d+\.\)]\s*/, '').trim())
               .filter(s => s.length > 5)
