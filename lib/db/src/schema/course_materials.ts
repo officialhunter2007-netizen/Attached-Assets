@@ -1,6 +1,12 @@
-import { pgTable, serial, integer, text, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, uniqueIndex, index, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 export const courseMaterialsTable = pgTable("course_materials", {
   id: serial("id").primaryKey(),
@@ -79,3 +85,15 @@ export const materialChunksTable = pgTable("material_chunks", {
 export const insertMaterialChunkSchema = createInsertSchema(materialChunksTable).omit({ id: true, createdAt: true });
 export type InsertMaterialChunk = z.infer<typeof insertMaterialChunkSchema>;
 export type MaterialChunk = typeof materialChunksTable.$inferSelect;
+
+// Stores the raw PDF bytes for a course material. Kept in a separate table so
+// the bytea column (which can be tens of MB) is never accidentally pulled into
+// list/detail queries that only need metadata. The ON DELETE CASCADE is
+// declared at the database level via the foreign key reference below.
+export const courseMaterialBlobsTable = pgTable("course_material_blobs", {
+  materialId: integer("material_id").primaryKey().references(() => courseMaterialsTable.id, { onDelete: "cascade" }),
+  pdfData: bytea("pdf_data").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CourseMaterialBlob = typeof courseMaterialBlobsTable.$inferSelect;

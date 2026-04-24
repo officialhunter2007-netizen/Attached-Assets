@@ -8,6 +8,7 @@ import multer from "multer";
 import {
   db,
   courseMaterialsTable,
+  courseMaterialBlobsTable,
   userSubjectTeachingModesTable,
   userSubjectSubscriptionsTable,
   usersTable,
@@ -18,9 +19,33 @@ import {
 import {
   ObjectStorageService,
   ObjectNotFoundError,
-  objectStorageClient,
 } from "../lib/objectStorage";
-import { setObjectAclPolicy } from "../lib/objectAcl";
+
+// Marker stored in course_materials.object_path for PDFs that live in the DB
+// (course_material_blobs) instead of Object Storage. Object Storage writes
+// are blocked in deployment by the Replit sidecar's "no allowed resources"
+// error on this bucket — only reads succeed — so all new uploads bypass it.
+// Existing rows uploaded via the legacy signed-URL path keep their
+// /objects/<id> objectPath and are still served from storage on read.
+const DB_BLOB_MARKER = "db://blob";
+
+// Loads the raw PDF bytes for a material row. New uploads (objectPath ===
+// DB_BLOB_MARKER) come from course_material_blobs; legacy rows fall back to
+// Object Storage download.
+async function loadMaterialBuffer(row: { id: number; objectPath: string }): Promise<Buffer> {
+  if (row.objectPath === DB_BLOB_MARKER) {
+    const [blob] = await db
+      .select()
+      .from(courseMaterialBlobsTable)
+      .where(eq(courseMaterialBlobsTable.materialId, row.id));
+    if (!blob) throw new ObjectNotFoundError();
+    return blob.pdfData;
+  }
+  const svc = new ObjectStorageService();
+  const file = await svc.getObjectEntityFile(row.objectPath);
+  const [buf] = await file.download();
+  return buf;
+}
 
 const router: IRouter = Router();
 
@@ -411,64 +436,37 @@ router.post(
     }
 
     try {
-      const svc = new ObjectStorageService();
-      const privateDir = svc.getPrivateObjectDir();
-      const objectId = randomUUID();
+      // Read the multer temp file into memory. Upper bound is MAX_FILE_SIZE_BYTES
+      // (50MB) which is small enough to hold without thrashing on Replit.
+      const buf = await fsp.readFile(file.path);
 
-      // PRIVATE_OBJECT_DIR = "/{bucket}/{prefix}". Split to get bucketName.
-      const segments = privateDir.replace(/^\//, "").split("/").filter(Boolean);
-      if (segments.length < 1) {
-        throw new Error("Invalid PRIVATE_OBJECT_DIR layout");
-      }
-      const bucketName = segments[0];
-      const prefixWithinBucket = segments.slice(1).join("/");
-      const objectNameInBucket = prefixWithinBucket
-        ? `${prefixWithinBucket}/uploads/${objectId}`
-        : `uploads/${objectId}`;
-
-      // Stream temp file → GCS via the same SDK used by the working
-      // /objects/* GET path. resumable:false skips the handshake for <50MB.
-      const gcsFile = objectStorageClient.bucket(bucketName).file(objectNameInBucket);
-      await new Promise<void>((resolve, reject) => {
-        const writeStream = gcsFile.createWriteStream({
-          resumable: false,
-          contentType: "application/pdf",
-          metadata: { contentType: "application/pdf" },
-        });
-        writeStream.once("error", reject);
-        writeStream.once("finish", () => resolve());
-        createReadStream(file.path).once("error", reject).pipe(writeStream);
-      });
-
-      await setObjectAclPolicy(gcsFile, {
-        owner: String(userId),
-        visibility: "private",
-      });
-
-      const objectPath = `/objects/uploads/${objectId}`;
-
-      // Race-window guard: re-check quota and clean up orphan if exceeded.
+      // Race-window guard before INSERT (concurrent uploads could fill quota).
       {
         const q = await checkUploadQuota(userId, subjectId);
-        if (!q.ok) {
-          await gcsFile
-            .delete()
-            .catch((e: any) => console.warn("[materials/upload] orphan cleanup failed:", e?.message || e));
-          return res.status(q.status).json(q.body);
-        }
+        if (!q.ok) return res.status(q.status).json(q.body);
       }
 
-      const [row] = await db
-        .insert(courseMaterialsTable)
-        .values({
-          userId,
-          subjectId,
-          fileName,
-          objectPath,
-          fileSizeBytes: file.size,
-          status: "processing",
-        })
-        .returning();
+      // Atomic insert: course_materials row + course_material_blobs row in
+      // a single transaction so we never end up with metadata pointing at a
+      // missing blob or an orphan blob without metadata.
+      const row = await db.transaction(async (tx) => {
+        const [m] = await tx
+          .insert(courseMaterialsTable)
+          .values({
+            userId,
+            subjectId,
+            fileName,
+            objectPath: DB_BLOB_MARKER,
+            fileSizeBytes: file.size,
+            status: "processing",
+          })
+          .returning();
+        await tx.insert(courseMaterialBlobsTable).values({
+          materialId: m.id,
+          pdfData: buf,
+        });
+        return m;
+      });
 
       const [existingMode] = await db
         .select()
@@ -798,13 +796,17 @@ router.delete("/materials/:id", async (req, res): Promise<any> => {
     ));
   if (!row) return res.status(404).json({ error: "Not found" });
 
-  // Try to delete from storage
-  try {
-    const svc = new ObjectStorageService();
-    const file = await svc.getObjectEntityFile(row.objectPath);
-    await file.delete({ ignoreNotFound: true });
-  } catch (e) {
-    // Continue — DB cleanup is more important
+  // Best-effort delete from Object Storage for legacy rows. Rows with the
+  // DB_BLOB_MARKER objectPath have their bytes in course_material_blobs and
+  // are dropped automatically by the FK CASCADE when the parent row is deleted.
+  if (row.objectPath !== DB_BLOB_MARKER) {
+    try {
+      const svc = new ObjectStorageService();
+      const file = await svc.getObjectEntityFile(row.objectPath);
+      await file.delete({ ignoreNotFound: true });
+    } catch (e) {
+      // Continue — DB cleanup is more important
+    }
   }
 
   // If this was the active material, clear it
@@ -851,6 +853,17 @@ router.get("/materials/:id/file", async (req, res): Promise<any> => {
   if (!row) return res.status(404).json({ error: "Not found" });
 
   try {
+    if (row.objectPath === DB_BLOB_MARKER) {
+      const [blob] = await db
+        .select()
+        .from(courseMaterialBlobsTable)
+        .where(eq(courseMaterialBlobsTable.materialId, row.id));
+      if (!blob) return res.status(404).json({ error: "Not found" });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Cache-Control", "private, max-age=600");
+      res.setHeader("Content-Length", String(blob.pdfData.length));
+      return res.end(blob.pdfData);
+    }
     const svc = new ObjectStorageService();
     const file = await svc.getObjectEntityFile(row.objectPath);
     const [metadata] = await file.getMetadata();
@@ -880,10 +893,9 @@ async function processMaterial(materialId: number) {
   const pageTexts: Map<number, string> = new Map();
 
   try {
-    // Download PDF buffer from object storage
-    const svc = new ObjectStorageService();
-    const file = await svc.getObjectEntityFile(row.objectPath);
-    const [buf] = await file.download();
+    // Load the PDF bytes — from course_material_blobs for new uploads, or
+    // from Object Storage for legacy rows that were uploaded via signed URL.
+    const buf = await loadMaterialBuffer(row);
 
     // 1) Try pdf-parse with a pagerender callback so we capture text per page.
     try {
@@ -2639,9 +2651,7 @@ async function reprocessChunksOnly(materialId: number): Promise<BackfillResult> 
   let buf: Buffer;
 
   try {
-    const svc = new ObjectStorageService();
-    const file = await svc.getObjectEntityFile(row.objectPath);
-    [buf] = await file.download();
+    buf = await loadMaterialBuffer(row);
   } catch (e: any) {
     if (e instanceof ObjectNotFoundError) return { ok: false, pages: 0, reason: "file_missing" };
     return { ok: false, pages: 0, reason: `download_failed: ${String(e?.message || e).slice(0, 120)}` };
