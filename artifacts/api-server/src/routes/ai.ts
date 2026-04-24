@@ -2007,13 +2007,28 @@ const DYNAMIC_ENV_SYSTEM = `أنت مهندس بيئات تعليمية تفاع
 - {"type":"calculator","title":"حاسبة","description":"..."}
 
 **🛠 مكوّنات تقنية متقدمة (للأمن السيبراني/الشبكات/أنظمة التشغيل/البرمجة):**
-- {"type":"webApp","title":"تطبيق ويب صغير","description":"...","html":"<!doctype html>...","height":420}
+- {"type":"webApp","title":"تطبيق ويب صغير","description":"...","html":"<!doctype html>...","height":420,
+    "eventMap":{"login_attempt":[{"op":"set","path":"flags.tried_login","value":true}]}}
    // HTML+JS كامل يعمل داخل iframe معزول (sandbox: allow-scripts allow-forms — بلا allow-same-origin).
-   // يستطيع إرسال أحداث للوالد عبر window.envEmit("type", data). لا تستخدم الكوكيز/localStorage.
-- {"type":"browser","title":"المتصفح","pages":[{"title":"home","url":"https://shop.local/","html":"..."},{"title":"login","url":"/login","html":"..."}]}
-   // يعرض صفحات متعددة قابلة للتصفّح، كل صفحة في iframe بنفس السياسة الأمنية.
-- {"type":"terminal","title":"sh","prompt":"$","bindTo":"shellOutput","height":280}
-   // عارض سطر أوامر للقراءة فقط. lines:[string] أو bindTo لمصفوفة سطور في initialState.
+   // يستطيع إرسال أحداث للوالد عبر window.envEmit("type", data). لا كوكيز/localStorage.
+   // 🔁 eventMap اختياري: يربط أحداث الـ iframe بعمليات mutate تلقائياً (لإكمال المهام).
+   //    المفاتيح = نوع الحدث (أو "*" للكل). القيم = مصفوفة Op من نفس صيغة mutations.
+   //    تدعم استبدال \${event.data} و \${event.data.field} داخل value/path.
+- {"type":"browser","title":"المتصفح","pages":[{"title":"home","url":"https://shop.local/","html":"..."},{"title":"login","url":"/login","html":"..."}],
+    "eventMap":{"xss_fired":[{"op":"set","path":"flags.found_xss","value":true}]}}
+   // يعرض صفحات متعددة قابلة للتصفّح، كل صفحة في iframe بنفس السياسة الأمنية. eventMap بنفس عقد webApp.
+- {"type":"terminal","title":"sh","prompt":"$","interactive":true,
+    "welcome":"Welcome — type 'ls' to begin.",
+    "commands":{"ls":"flag.txt  notes.md","cat flag.txt":"FLAG{example}","whoami":"student"},
+    "fallback":"command not found",
+    "eventMap":{"command:cat flag.txt":[{"op":"set","path":"flags.read_flag","value":true}],"command:*":[{"op":"append","path":"shellHistory","value":"\${event.data.command}"}]},
+    "height":280}
+   // محاكي سطر أوامر تفاعلي:
+   //   • interactive:true → حقل إدخال + سهم أعلى/أسفل لاستدعاء التاريخ.
+   //   • commands: قاموس أوامر→مخرجات (مفتاح كامل أو verb فقط مثل "cat").
+   //   • fallback: مخرجات الأوامر غير المعرّفة (الافتراضي "command not found").
+   //   • eventMap "command:<full>" أولاً، ثم "command:<verb>"، ثم "command:*".
+   // إن أردته للقراءة فقط: احذف interactive/commands واستخدم lines:[string] أو bindTo.
 - {"type":"fileSystemExplorer","title":"النظام","bindTo":"target.fs","allowDownload":true,"height":340}
    // شجرة مجلدات/ملفات. كل عقدة: {name, type:"dir"|"file", children?:{...}, content?:"..."}.
 - {"type":"packetCapture","title":"capture.pcap","bindTo":"capture"}

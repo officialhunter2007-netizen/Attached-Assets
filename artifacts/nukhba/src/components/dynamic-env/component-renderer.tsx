@@ -866,9 +866,31 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
 //   - NO `allow-popups`, `allow-top-navigation`, `allow-modals`, etc.
 // Messages from the iframe are treated as **untrusted telemetry**: we only
 // trust the source window (ev.source check) and use the nonce as a sanity tag.
+// Substitute `${event.data}` and `${event.data.field}` placeholders inside an
+// op's value/path so the AI's eventMap can reference data the iframe sent.
+function interpolateEventOp(value: any, evData: any): any {
+  if (typeof value === "string") {
+    return value.replace(/\$\{event\.data(?:\.([\w.]+))?\}/g, (_m, p) => {
+      try {
+        if (!p) return typeof evData === "string" ? evData : JSON.stringify(evData);
+        let v = evData;
+        for (const seg of String(p).split(".")) v = v?.[seg];
+        return v == null ? "" : (typeof v === "string" ? v : JSON.stringify(v));
+      } catch { return ""; }
+    });
+  }
+  if (Array.isArray(value)) return value.map((v) => interpolateEventOp(v, evData));
+  if (value && typeof value === "object") {
+    const out: any = {};
+    for (const [k, v] of Object.entries(value)) out[k] = interpolateEventOp(v, evData);
+    return out;
+  }
+  return value;
+}
+
 function WebAppBlock({ comp }: { comp: Extract<DynComponent, { type: "webApp" }> }) {
   const ref = useRef<HTMLIFrameElement>(null);
-  const { pushConsole } = useEnvState();
+  const { pushConsole, mutate } = useEnvState();
   // Per-render nonce so the parent can sanity-check postMessage events came
   // from the HTML we just injected (not stale frames/older renders).
   const nonce = useMemo(() => Math.random().toString(36).slice(2, 12) + Date.now().toString(36), [comp.html]);
@@ -903,10 +925,25 @@ function WebAppBlock({ comp }: { comp: Extract<DynComponent, { type: "webApp" }>
         return;
       }
       setEvents((p) => [...p.slice(-19), { type, data: d.data, ts: Date.now() }]);
+      // Translate the iframe event into env state mutations declared by the
+      // AI in `comp.eventMap`. Looks for an exact `type` match first, then a
+      // wildcard `*`. Each op's value/path may reference `${event.data.X}`.
+      const map = comp.eventMap;
+      if (map && typeof map === "object") {
+        const ops = (map as any)[type] || (map as any)["*"];
+        if (Array.isArray(ops) && ops.length > 0) {
+          try {
+            const expanded = ops
+              .filter((o) => o && typeof o.op === "string")
+              .map((o) => interpolateEventOp(o, d.data));
+            mutate(expanded as any);
+          } catch { /* no-op: never let a bad eventMap crash the env */ }
+        }
+      }
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [nonce, pushConsole]);
+  }, [nonce, pushConsole, mutate, comp.eventMap]);
 
   const height = typeof comp.height === "number" && comp.height > 100 ? comp.height : 480;
 
@@ -998,24 +1035,122 @@ function PacketCaptureBlock({ comp, state }: { comp: Extract<DynComponent, { typ
   );
 }
 
-// ─── Read-only terminal/console viewer ─────────────────────────────────────
+// ─── Terminal — read-only OR interactive command simulator ─────────────────
+// When `interactive: true`, the AI provides a `commands` dictionary mapping
+// command strings (e.g. "ls", "cat README", "ifconfig") to their canned
+// output. Unknown commands fall back to `comp.fallback` (or a default
+// "command not found" message). Each typed command also fires through the
+// optional `eventMap` ("command:<name>" or "command:*") so it can mutate
+// state and let tasks auto-complete from terminal usage.
 function TerminalBlock({ comp, state }: { comp: Extract<DynComponent, { type: "terminal" }>; state: any }) {
-  const lines = comp.bindTo ? arr<any>(envUtils.getByPath(state, comp.bindTo)) : arr<any>(comp.lines);
+  const seedLines = comp.bindTo ? arr<any>(envUtils.getByPath(state, comp.bindTo)) : arr<any>(comp.lines);
   const height = typeof comp.height === "number" && comp.height > 80 ? comp.height : 300;
   const prompt = comp.prompt || "$";
+  const interactive = !!comp.interactive;
+  const { mutate } = useEnvState();
+  const [history, setHistory] = useState<string[]>(() => {
+    const out: string[] = [];
+    if (comp.welcome) out.push(String(comp.welcome));
+    return out;
+  });
+  const [input, setInput] = useState("");
+  const [past, setPast] = useState<string[]>([]);
+  const [pastIdx, setPastIdx] = useState<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [history, seedLines]);
+
+  function runCommand(raw: string) {
+    const cmd = raw.trim();
+    setHistory((h) => [...h, `${prompt} ${cmd}`]);
+    if (cmd) setPast((p) => [...p, cmd]);
+    setPastIdx(null);
+    if (!cmd) return;
+    if (cmd === "clear" || cmd === "cls") { setHistory([]); return; }
+    const map = comp.commands || {};
+    let output: string | undefined = map[cmd];
+    if (output == null) {
+      // Try the bare verb: "cat foo.txt" → "cat"
+      const verb = cmd.split(/\s+/)[0];
+      if (verb && map[verb] != null) output = map[verb];
+    }
+    if (output == null) {
+      output = comp.fallback != null ? String(comp.fallback) : `bash: ${cmd.split(/\s+/)[0]}: command not found`;
+    }
+    if (output) setHistory((h) => [...h, output as string]);
+    // Forward to eventMap so commands can advance tasks declaratively.
+    const em = comp.eventMap;
+    if (em && typeof em === "object") {
+      const verb = cmd.split(/\s+/)[0] || "";
+      const ops = (em as any)[`command:${cmd}`] || (em as any)[`command:${verb}`] || (em as any)["command:*"];
+      if (Array.isArray(ops) && ops.length > 0) {
+        try {
+          const evData = { command: cmd, verb, args: cmd.split(/\s+/).slice(1).join(" ") };
+          const expanded = ops
+            .filter((o: any) => o && typeof o.op === "string")
+            .map((o: any) => interpolateEventOp(o, evData));
+          mutate(expanded as any);
+        } catch { /* swallow */ }
+      }
+    }
+  }
+
+  function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") { e.preventDefault(); runCommand(input); setInput(""); return; }
+    if (e.key === "ArrowUp" && past.length > 0) {
+      e.preventDefault();
+      const idx = pastIdx == null ? past.length - 1 : Math.max(0, pastIdx - 1);
+      setPastIdx(idx); setInput(past[idx] || "");
+      return;
+    }
+    if (e.key === "ArrowDown" && past.length > 0) {
+      e.preventDefault();
+      if (pastIdx == null) return;
+      const idx = pastIdx + 1;
+      if (idx >= past.length) { setPastIdx(null); setInput(""); }
+      else { setPastIdx(idx); setInput(past[idx] || ""); }
+      return;
+    }
+  }
+
+  // Renders one "line" — either a seed line from state/lines or an entry the
+  // user produced by typing. Lines starting with `>` get a cyan accent.
+  const renderLine = (l: any, key: string | number) => (
+    <div key={key} className="whitespace-pre-wrap">
+      {typeof l === "string" && l.startsWith(">") ? <span className="text-cyan-300">{l}</span> : <span>{String(l)}</span>}
+    </div>
+  );
+
   return (
     <Card title={comp.title || "الطرفية"}>
       <div
+        ref={scrollRef}
         className="bg-black border border-white/10 rounded p-3 overflow-auto font-mono text-[12px] text-green-300 leading-snug"
         style={{ height }}
         dir="ltr"
       >
-        {lines.length === 0 && <div className="text-white/30">{prompt} <span className="animate-pulse">▌</span></div>}
-        {lines.map((l: any, i: number) => (
-          <div key={i} className="whitespace-pre-wrap">
-            {typeof l === "string" && l.startsWith(">") ? <span className="text-cyan-300">{l}</span> : <span>{String(l)}</span>}
+        {seedLines.length === 0 && history.length === 0 && (
+          <div className="text-white/30">{prompt} <span className="animate-pulse">▌</span></div>
+        )}
+        {seedLines.map((l: any, i: number) => renderLine(l, `s${i}`))}
+        {history.map((l, i) => renderLine(l, `h${i}`))}
+        {interactive && (
+          <div className="flex items-center gap-1 mt-1">
+            <span className="text-cyan-300 select-none">{prompt}</span>
+            <input
+              dir="ltr"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKey}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="flex-1 bg-transparent outline-none text-green-200 font-mono text-[12px] placeholder:text-white/30"
+              placeholder="اكتب أمراً ثم Enter"
+            />
           </div>
-        ))}
+        )}
       </div>
     </Card>
   );
@@ -1093,7 +1228,7 @@ function BrowserBlock({ comp, state }: { comp: Extract<DynComponent, { type: "br
   const current = pages[idx] || null;
   const height = typeof comp.height === "number" && comp.height > 200 ? comp.height : 480;
   const ref = useRef<HTMLIFrameElement>(null);
-  const { pushConsole } = useEnvState();
+  const { pushConsole, mutate } = useEnvState();
   const nonce = useMemo(() => Math.random().toString(36).slice(2, 12) + Date.now().toString(36), [idx, current?.html]);
 
   // Same console-capture bridge as WebAppBlock so console output from any
@@ -1115,11 +1250,25 @@ function BrowserBlock({ comp, state }: { comp: Extract<DynComponent, { type: "br
       if (d.type === "console" && d.data && typeof d.data === "object") {
         const level = (["log", "info", "warn", "error"].includes(d.data.level) ? d.data.level : "log") as "log" | "info" | "warn" | "error";
         pushConsole({ level, text: String(d.data.text ?? "").slice(0, 500) });
+        return;
+      }
+      // eventMap → state mutations (same contract as WebAppBlock).
+      const map = comp.eventMap;
+      if (map && typeof map === "object" && typeof d.type === "string") {
+        const ops = (map as any)[d.type] || (map as any)["*"];
+        if (Array.isArray(ops) && ops.length > 0) {
+          try {
+            const expanded = ops
+              .filter((o: any) => o && typeof o.op === "string")
+              .map((o: any) => interpolateEventOp(o, d.data));
+            mutate(expanded as any);
+          } catch { /* swallow */ }
+        }
       }
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [nonce, pushConsole]);
+  }, [nonce, pushConsole, mutate, comp.eventMap]);
 
   return (
     <Card title={comp.title || "المتصفح"}>
