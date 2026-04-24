@@ -1,10 +1,19 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
-const SECRET = process.env.SESSION_SECRET ?? "nukhba-secret";
-
-if (!process.env.SESSION_SECRET && process.env.NODE_ENV === "production") {
-  throw new Error("SESSION_SECRET is required in production");
+if (!process.env.SESSION_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET is required in production");
+  }
+  // Loud warning so a missing secret in dev/staging is impossible to ignore.
+  // Any non-local environment must set SESSION_SECRET explicitly.
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[session] SESSION_SECRET is not set — using an insecure development fallback. " +
+      "Set SESSION_SECRET in any non-local environment.",
+  );
 }
+
+const SECRET = process.env.SESSION_SECRET ?? "nukhba-dev-only-insecure-fallback";
 
 export type SessionPayload = { userId?: number };
 
