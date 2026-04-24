@@ -2,10 +2,15 @@ modules = ["nodejs-24", "python-3.12", "java-graalvm22.3", "postgresql-16"]
 
 [[artifacts]]
 id = "artifacts/api-server"
-
+ 
+[[artifacts]]
+id = "artifacts/nukhba"
+ 
+[[artifacts]]
+id = "artifacts/nukhba-promo"
+ 
 [[artifacts]]
 id = "artifacts/mockup-sandbox"
-
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
