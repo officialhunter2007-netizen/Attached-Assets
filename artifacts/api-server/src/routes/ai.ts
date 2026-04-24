@@ -1282,7 +1282,15 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
 router.post("/ai/run-code", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  return res.status(503).json({
+    error: "تشغيل الكود معطّل مؤقتاً لأسباب أمنية",
+    code: "RUN_CODE_DISABLED",
+  });
 
+  // ── DISABLED: direct shell exec is unsafe (RCE risk).
+  // Re-enable only after wrapping in a sandbox (Piston/Judge0/etc).
+  // The original implementation is kept below but unreachable.
+  // eslint-disable-next-line no-unreachable
   const { code, language } = req.body as { code: string; language: string };
   if (!code || !language) return res.status(400).json({ error: "Missing code or language" });
 

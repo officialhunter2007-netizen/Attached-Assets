@@ -2,7 +2,8 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { RegisterUserBody, LoginUserBody, UpdateMeBody } from "@workspace/api-zod";
-import { hashPassword, verifyPassword } from "../lib/auth";
+import { hashPassword, verifyPassword, isLegacyPasswordHash } from "../lib/auth";
+import { signSession } from "../lib/session";
 import { OAuth2Client } from "google-auth-library";
 
 const router: IRouter = Router();
@@ -119,6 +120,15 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
+  if (isLegacyPasswordHash(user.passwordHash)) {
+    try {
+      const upgraded = hashPassword(password);
+      await db.update(usersTable).set({ passwordHash: upgraded }).where(eq(usersTable.id, user.id));
+    } catch {
+      // Non-fatal: keep legacy hash if upgrade fails
+    }
+  }
+
   (req as any).session = { userId: user.id };
 
   const { passwordHash: _, ...profile } = user;
@@ -164,8 +174,8 @@ function getFrontendUrl(path = "") {
 
 function setSessionCookie(res: any, userId: number) {
   const isProd = process.env.NODE_ENV === "production";
-  const encoded = Buffer.from(JSON.stringify({ userId })).toString("base64");
-  res.cookie("session", encoded, {
+  const token = signSession({ userId });
+  res.cookie("session", token, {
     httpOnly: true,
     sameSite: isProd ? "none" : "lax",
     secure: isProd,
