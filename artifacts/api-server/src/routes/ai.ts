@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
 import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { isUnlimitedEmail } from "../lib/admins";
 import { getActiveMaterialContext, loadProgress, advanceActiveMaterialChapter, searchMaterialChunks, getMaterialOpeningPages } from "./materials";
 
 const router: IRouter = Router();
@@ -10,12 +11,9 @@ const router: IRouter = Router();
 const FREE_LESSON_MESSAGE_LIMIT = 40;
 
 // Accounts with unlimited free access — no quotas, no daily limits, no counters.
-const UNLIMITED_ACCESS_EMAILS = new Set<string>([
-  "7amr7ahmed7@gmail.com",
-]);
+// Configured via the UNLIMITED_ACCESS_EMAILS env var (comma-separated).
 function isUnlimitedUser(user: { email?: string | null } | null | undefined): boolean {
-  if (!user?.email) return false;
-  return UNLIMITED_ACCESS_EMAILS.has(user.email.trim().toLowerCase());
+  return isUnlimitedEmail(user?.email);
 }
 
 function getUserId(req: any): number | null {
@@ -368,19 +366,46 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const isNewSession = !userMessage;
 
   // ── Session limit (1 session per day, resets at midnight Yemen time) ──
+  // We claim today's date with an atomic conditional UPDATE so that concurrent
+  // requests can't both pass a stale `user.lastSessionDate` check and slip
+  // through. Only one request per day per user wins the claim; the rest get
+  // 429. We remember the previous value so we can roll the claim back if the
+  // AI call later fails (so the student isn't stuck on the countdown screen).
+  const previousLastSessionDate = user.lastSessionDate ?? null;
+  let claimedTodaySession = false;
   if (isNewSession && canAccessViaSubscription && !unlimited) {
     const today = getYemenDateString();
-    if (user.lastSessionDate === today) {
+    const claim = await db
+      .update(usersTable)
+      .set({ lastSessionDate: today })
+      .where(and(
+        eq(usersTable.id, userId),
+        or(
+          isNull(usersTable.lastSessionDate),
+          ne(usersTable.lastSessionDate, today),
+        ),
+      ))
+      .returning({ id: usersTable.id });
+
+    if (claim.length === 0) {
       const nextSessionAt = getNextMidnightYemen().toISOString();
       res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
       return;
     }
+    claimedTodaySession = true;
   }
 
-  // NOTE: streak + lastSessionDate are now updated AFTER the AI successfully
-  // streams a response (see "Post-success daily/streak bookkeeping" below).
-  // Updating them up-front used to "burn" the day's quota even when Anthropic
-  // 4xx'd — leaving the student stuck on the countdown screen until midnight.
+  const rollbackDailyClaim = async () => {
+    if (!claimedTodaySession) return;
+    try {
+      await db.update(usersTable)
+        .set({ lastSessionDate: previousLastSessionDate })
+        .where(eq(usersTable.id, userId));
+    } catch (err: any) {
+      console.error("[ai/teach] daily-claim rollback failed:", err?.message || err);
+    }
+    claimedTodaySession = false;
+  };
 
   // ── Access gate ─────────────────────────────────────────────────────────────
   if (!isFirstLesson && !canAccessViaSubscription) {
@@ -954,6 +979,9 @@ ${retrievedBlock}
     }
   } catch (err: any) {
     console.error("[ai/teach] anthropic stream error:", err?.message || err);
+    // Roll back the atomic daily-session claim so the student isn't stuck
+    // on the countdown screen for the rest of the day after a model error.
+    await rollbackDailyClaim();
     // Stream a friendly Arabic apology so the chat shows something instead of
     // an empty bubble that would later poison the next turn's history.
     const friendly = `<p>تعذّر الردّ الآن بسبب خطأ مؤقّت في خدمة المعلّم 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.</p>`;
@@ -1059,11 +1087,13 @@ ${retrievedBlock}
   const isQuotaExhausted = !unlimited && messagesRemaining === 0;
 
   // ── Post-success daily/streak bookkeeping ──
-  // Only mark today's session as "used" AFTER the AI actually answered. Doing
-  // this up-front used to leave students stuck on the countdown screen when a
-  // 4xx/5xx broke the very first turn. Also requires the response to be
-  // non-empty so a silently-empty stream doesn't burn the day either.
-  if (isNewSession && (isFirstLesson || canAccessViaSubscription) && fullResponse.trim().length > 0) {
+  // The session date itself was already claimed atomically up-front (see the
+  // session-limit block) so concurrent requests can't bypass the daily cap.
+  // Here we only update the streak / lastActive bookkeeping when the AI
+  // actually produced content — and if the stream was empty for a "new session"
+  // request, we roll the daily claim back so the student isn't punished for a
+  // model hiccup.
+  if (isNewSession && responseHasContent && (isFirstLesson || canAccessViaSubscription)) {
     try {
       const today = getYemenDateString();
       const yesterdayMs = Date.now() + 3 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000;
@@ -1079,7 +1109,6 @@ ${retrievedBlock}
       }
       await db.update(usersTable)
         .set({
-          lastSessionDate: today,
           lastSessionAt: new Date(),
           streakDays: newStreak,
           lastActive: today,
@@ -1088,6 +1117,10 @@ ${retrievedBlock}
     } catch (err: any) {
       console.error("[ai/teach] streak update error:", err?.message || err);
     }
+  } else if (isNewSession && !responseHasContent) {
+    // Empty AI response on the very first turn — release today's claim so the
+    // student can retry without waiting until midnight.
+    await rollbackDailyClaim();
   }
 
   res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate })}\n\n`);

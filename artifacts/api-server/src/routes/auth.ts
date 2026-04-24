@@ -4,11 +4,10 @@ import { db, usersTable } from "@workspace/db";
 import { RegisterUserBody, LoginUserBody, UpdateMeBody } from "@workspace/api-zod";
 import { hashPassword, verifyPassword, isLegacyPasswordHash } from "../lib/auth";
 import { signSession } from "../lib/session";
+import { isAdminEmail } from "../lib/admins";
 import { OAuth2Client } from "google-auth-library";
 
 const router: IRouter = Router();
-
-const ADMIN_EMAILS = ["officialhunter2007@gmail.com"];
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -92,7 +91,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     email,
     passwordHash,
     displayName: displayName ?? null,
-    role: ADMIN_EMAILS.includes(email.toLowerCase()) ? "admin" : "user",
+    role: isAdminEmail(email) ? "admin" : "user",
     onboardingDone: false,
     points: 0,
     streakDays: 0,
@@ -249,7 +248,7 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
             googleId: gUser.id,
             displayName: gUser.name,
             profileImage: gUser.picture || null,
-            role: ADMIN_EMAILS.includes(gUser.email.toLowerCase()) ? "admin" : "user",
+            role: isAdminEmail(gUser.email) ? "admin" : "user",
             onboardingDone: false,
             points: 0,
             streakDays: 0,

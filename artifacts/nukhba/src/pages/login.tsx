@@ -7,10 +7,31 @@ export default function Login() {
     const url = `${window.location.origin}/api/auth/google`;
     let inIframe = false;
     try { inIframe = window.self !== window.top; } catch { inIframe = true; }
-    if (inIframe) {
-      window.open(url, "_blank");
-    } else {
+
+    if (!inIframe) {
       window.location.href = url;
+      return;
+    }
+
+    // Inside an iframe (Replit preview, embed, etc.) popups are usually
+    // blocked silently and a same-window navigation gets stuck on Google's
+    // X-Frame-Options screen. Try to break out to the top frame first; if
+    // that's impossible (cross-origin parent), open in a new tab and warn
+    // the user that the embedding context can't host Google sign-in.
+    try {
+      if (window.top && window.top !== window.self) {
+        window.top.location.href = url;
+        return;
+      }
+    } catch {
+      // Cross-origin — fall through to popup + message.
+    }
+
+    const popup = window.open(url, "_blank", "noopener,noreferrer");
+    if (!popup) {
+      alert(
+        "تعذّر فتح صفحة تسجيل الدخول داخل الإطار المضمّن. الرجاء فتح الموقع مباشرةً في المتصفح ثم إعادة المحاولة."
+      );
     }
   };
 
