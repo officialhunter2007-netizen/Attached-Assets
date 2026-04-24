@@ -155,53 +155,52 @@ export function CourseMaterialsPanel({
     setUploading(true);
     setUploadProgress(0);
     try {
-      const r = await fetch("/api/materials/upload-url", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subjectId, fileName: file.name, fileSizeBytes: file.size }),
+      // Single-step server-proxied multipart upload. Replaces the old
+      // (request signed URL → PUT to GCS → finalize) flow which fails in
+      // deployment because the object-storage sidecar refuses to sign write
+      // URLs. The server now streams the file straight into the bucket using
+      // the GCS SDK (sidecar /token auth path, which works in deployment).
+      const form = new FormData();
+      form.append("subjectId", subjectId);
+      form.append("file", file, file.name);
+
+      const result = await new Promise<{ ok: boolean; status: number; data: any }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        // subjectId is duplicated in the query string so the server can run
+        // its auth + quota gate BEFORE buffering the multipart body.
+        xhr.open("POST", `/api/materials/upload?subjectId=${encodeURIComponent(subjectId)}`, true);
+        xhr.withCredentials = true;
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+        };
+        xhr.onload = () => {
+          let parsed: any = {};
+          try { parsed = JSON.parse(xhr.responseText || "{}"); } catch {}
+          resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data: parsed });
+        };
+        xhr.onerror = () => reject(new Error("network"));
+        xhr.send(form);
       });
-      if (!r.ok) {
-        const data = await r.json().catch(() => ({}));
+
+      if (!result.ok) {
+        const data = result.data ?? {};
         if (data.error === "QUOTA_EXCEEDED") {
           setError(data.scope === "free_total"
             ? "أنت في الفترة التجريبية: ملف PDF واحد فقط مسموح. اشترك في المادة لرفع حتى 4 ملفات."
             : `وصلت للحد الأقصى (${data.limit ?? 4} ملفات لهذه المادة). احذف ملفاً قديماً لرفع جديد.`);
         } else if (data.error === "FILE_TOO_LARGE") {
           setError("الملف أكبر من المسموح (50MB).");
+        } else if (data.error === "INVALID_FILE_TYPE") {
+          setError("الملف يجب أن يكون PDF فقط.");
+        } else if (result.status === 401) {
+          setError("الجلسة منتهية — أعد تسجيل الدخول ثم حاول مجدداً.");
         } else {
-          setError("تعذّر بدء الرفع — حاول مرة أخرى.");
+          setError("تعذّر رفع الملف — حاول مرة أخرى.");
         }
-        setUploading(false);
-        return;
-      }
-      const { uploadUrl } = await r.json();
-
-      // Upload via XHR for progress
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("PUT", uploadUrl, true);
-        xhr.setRequestHeader("Content-Type", "application/pdf");
-        xhr.upload.onprogress = (ev) => {
-          if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
-        };
-        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`)));
-        xhr.onerror = () => reject(new Error("network"));
-        xhr.send(file);
-      });
-
-      const fin = await fetch("/api/materials/finalize", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subjectId, fileName: file.name, fileSizeBytes: file.size, uploadUrl }),
-      });
-      if (!fin.ok) {
-        setError("تعذّر تسجيل الملف بعد الرفع.");
       } else {
-        const created = await fin.json();
+        const created = result.data;
         // Set this new material as the active one for this subject (if none selected yet).
-        if (!activeMaterialId) onActiveChange(created.id);
+        if (!activeMaterialId && created?.id) onActiveChange(created.id);
         await refresh();
       }
     } catch (e: any) {

@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import multer from "multer";
 import {
   db,
   courseMaterialsTable,
@@ -10,7 +12,12 @@ import {
   materialChunksTable,
   quizAttemptsTable,
 } from "@workspace/db";
-import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import {
+  ObjectStorageService,
+  ObjectNotFoundError,
+  objectStorageClient,
+} from "../lib/objectStorage";
+import { setObjectAclPolicy } from "../lib/objectAcl";
 
 const router: IRouter = Router();
 
@@ -301,7 +308,218 @@ router.post("/materials/:id/progress", async (req, res): Promise<any> => {
   });
 });
 
+// ── POST /api/materials/upload — server-proxied multipart upload ─────────────
+// This is the PRIMARY upload path. Replaces the legacy signed-URL flow which
+// fails in deployment because the Replit object-storage sidecar's
+// /signed-object-url endpoint returns 401 for write operations even though the
+// /token endpoint (which the @google-cloud/storage SDK uses) works fine.
+//
+// Flow: client POSTs multipart (file + subjectId) → server streams file to
+// the bucket via the GCS SDK (authenticated through the sidecar's /token
+// endpoint, which works in deployment) → server inserts the course_materials
+// row, kicks off processing, and returns { id, status } — same shape the old
+// /finalize endpoint used to return.
+//
+// Memory storage with a hard 50 MB limit is acceptable here: textbook PDFs
+// are typically <20 MB, the limit matches MAX_FILE_SIZE_BYTES, and a few
+// concurrent uploads will not exhaust the deployment's memory.
+const uploadMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE_BYTES, files: 1 },
+});
+
+// Quota helper used by /materials/upload — runs BEFORE we accept body bytes
+// AND again right before INSERT, to close the parallel-upload race window
+// the legacy /finalize path also guarded against.
+async function checkUploadQuota(
+  userId: number,
+  subjectId: string,
+): Promise<{ ok: true } | { ok: false; status: number; body: any }> {
+  const isPaid = await userHasPaidSubjectSub(userId, subjectId);
+  if (isPaid) {
+    const [{ cnt }] = await db
+      .select({ cnt: sql<number>`count(*)::int` })
+      .from(courseMaterialsTable)
+      .where(and(
+        eq(courseMaterialsTable.userId, userId),
+        eq(courseMaterialsTable.subjectId, subjectId),
+      ));
+    if ((cnt ?? 0) >= MAX_PDFS_PER_SUBJECT_PAID) {
+      return {
+        ok: false,
+        status: 409,
+        body: { error: "QUOTA_EXCEEDED", limit: MAX_PDFS_PER_SUBJECT_PAID, scope: "subject" },
+      };
+    }
+  } else {
+    const [{ cnt }] = await db
+      .select({ cnt: sql<number>`count(*)::int` })
+      .from(courseMaterialsTable)
+      .where(eq(courseMaterialsTable.userId, userId));
+    if ((cnt ?? 0) >= MAX_PDFS_FREE_TOTAL) {
+      return {
+        ok: false,
+        status: 409,
+        body: { error: "QUOTA_EXCEEDED", limit: MAX_PDFS_FREE_TOTAL, scope: "free_total" },
+      };
+    }
+  }
+  return { ok: true };
+}
+
+router.post(
+  "/materials/upload",
+  // STAGE 1 — auth + quota gate BEFORE any multipart body is parsed. Without
+  // this, an unauthenticated caller could force the server to buffer up to
+  // MAX_FILE_SIZE_BYTES into memory just to reach the auth check, creating
+  // a trivial memory-exhaustion DoS vector.
+  async (req: any, res: any, next: any) => {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    // We need subjectId for the early quota check, but it's inside the
+    // multipart body. Allow it via query string OR header so it can be
+    // validated up front; the multipart field is also accepted later as a
+    // fallback for older clients.
+    const earlySubjectId = String(req.query?.subjectId ?? req.headers["x-subject-id"] ?? "");
+    if (earlySubjectId) {
+      const q = await checkUploadQuota(userId, earlySubjectId);
+      if (!q.ok) return res.status(q.status).json(q.body);
+    }
+    next();
+  },
+  // STAGE 2 — multer parses the multipart body. Wrapped so multer-specific
+  // errors (LIMIT_FILE_SIZE etc.) become our standard JSON error shape.
+  (req: any, res: any, next: any) => {
+    uploadMiddleware.single("file")(req, res, (err: any) => {
+      if (!err) return next();
+      if (err?.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "FILE_TOO_LARGE", maxBytes: MAX_FILE_SIZE_BYTES });
+      }
+      console.error("[materials/upload] multer error:", err?.message || err);
+      return res.status(400).json({ error: "UPLOAD_PARSE_FAILED" });
+    });
+  },
+  async (req: any, res: any): Promise<any> => {
+    // Re-read userId after multer — req.session is preserved across middlewares
+    // but TypeScript doesn't know that.
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const subjectId = String(
+      req.body?.subjectId ?? req.query?.subjectId ?? req.headers["x-subject-id"] ?? "",
+    );
+    const file = req.file as Express.Multer.File | undefined;
+    if (!subjectId || !file) {
+      return res.status(400).json({ error: "subjectId + file required" });
+    }
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return res.status(413).json({ error: "FILE_TOO_LARGE", maxBytes: MAX_FILE_SIZE_BYTES });
+    }
+    // Defence-in-depth: enforce PDF on the server too. The processing
+    // pipeline assumes PDF — anything else would silently fail extraction.
+    const fileName = String(file.originalname || "").slice(0, 200);
+    if (!fileName.toLowerCase().endsWith(".pdf")) {
+      return res.status(400).json({ error: "INVALID_FILE_TYPE" });
+    }
+
+    // Re-check quota now that subjectId is known (or re-confirmed). This
+    // also runs again right before INSERT to close the parallel-upload race.
+    {
+      const q = await checkUploadQuota(userId, subjectId);
+      if (!q.ok) return res.status(q.status).json(q.body);
+    }
+
+    try {
+      const svc = new ObjectStorageService();
+      const privateDir = svc.getPrivateObjectDir();
+      const objectId = randomUUID();
+      // Path layout matches the legacy flow so processMaterial can locate the
+      // file via the same getObjectEntityFile(objectPath) call.
+      const fullPath = `${privateDir.replace(/\/$/, "")}/uploads/${objectId}`;
+      // Parse "{leading-slash}{bucket}/{objectName}" — handle the leading
+      // slash that PRIVATE_OBJECT_DIR may or may not have.
+      const normalized = fullPath.startsWith("/") ? fullPath : `/${fullPath}`;
+      const segments = normalized.split("/").filter(Boolean);
+      if (segments.length < 2) {
+        throw new Error("Invalid PRIVATE_OBJECT_DIR layout");
+      }
+      const bucketName = segments[0];
+      const objectName = segments.slice(1).join("/");
+
+      // Upload via the GCS SDK (authenticated through sidecar /token).
+      const bucket = objectStorageClient.bucket(bucketName);
+      const gcsFile = bucket.file(objectName);
+      await gcsFile.save(file.buffer, {
+        contentType: "application/pdf",
+        resumable: false,
+        metadata: { contentType: "application/pdf" },
+      });
+
+      // Set ACL the same way the legacy finalize did, so downstream
+      // canAccessObjectEntity checks behave identically.
+      await setObjectAclPolicy(gcsFile, {
+        owner: String(userId),
+        visibility: "private",
+      });
+
+      // Stored objectPath uses the /objects/ entity convention so
+      // getObjectEntityFile() can resolve it later.
+      const objectPath = `/objects/uploads/${objectId}`;
+
+      const [row] = await db
+        .insert(courseMaterialsTable)
+        .values({
+          userId,
+          subjectId,
+          fileName,
+          objectPath,
+          fileSizeBytes: file.size,
+          status: "processing",
+        })
+        .returning();
+
+      // Mirror the teaching-mode default that /finalize sets, so a fresh
+      // student lands in "professor" mode after their first upload.
+      const [existingMode] = await db
+        .select()
+        .from(userSubjectTeachingModesTable)
+        .where(and(
+          eq(userSubjectTeachingModesTable.userId, userId),
+          eq(userSubjectTeachingModesTable.subjectId, subjectId),
+        ));
+      if (!existingMode || existingMode.mode === "unset") {
+        await db
+          .insert(userSubjectTeachingModesTable)
+          .values({
+            userId,
+            subjectId,
+            mode: "professor",
+            activeMaterialId: existingMode?.activeMaterialId ?? null,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [userSubjectTeachingModesTable.userId, userSubjectTeachingModesTable.subjectId],
+            set: { mode: "professor", updatedAt: new Date() },
+          });
+      }
+
+      // Kick off async processing — same fire-and-forget pattern as before.
+      processMaterial(row.id).catch((e) => {
+        console.error("[materials/process] error for", row.id, e?.message || e);
+      });
+
+      return res.json({ id: row.id, status: row.status });
+    } catch (err: any) {
+      console.error("[materials/upload] error:", err?.message || err);
+      return res.status(500).json({ error: "UPLOAD_FAILED" });
+    }
+  },
+);
+
 // ── POST /api/materials/upload-url (alias: /request-upload) ───────────────────
+// LEGACY path — kept for one deployment cycle so older client sessions don't
+// break, but currently fails in deployment due to the sidecar 401 issue
+// described above. New uploads use POST /api/materials/upload instead.
 const requestUploadHandler = async (req: any, res: any): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
