@@ -2324,6 +2324,8 @@ type QuestionGenOpts = {
   count: number;
   scopeLabel: string;
   mcqRatio?: number;
+  pageStart?: number;
+  pageEnd?: number;
 };
 
 function buildQuizPrompt(opts: QuestionGenOpts): string {
@@ -2331,9 +2333,18 @@ function buildQuizPrompt(opts: QuestionGenOpts): string {
   const sample = opts.text.slice(0, 80_000);
   const mcqCount = Math.max(1, Math.round(opts.count * (opts.mcqRatio ?? 0.7)));
   const shortCount = Math.max(1, opts.count - mcqCount);
+  const rangeNote = opts.pageStart && opts.pageEnd
+    ? `\nنطاق الصفحات المسموح: من ${opts.pageStart} إلى ${opts.pageEnd}. ممنوع تماماً أن يكون أي رقم page خارج هذا النطاق.`
+    : "";
   return `أنت مولّد امتحانات أكاديمي. اعتمد فقط على النص التالي من ملف "${opts.fileName}" (لغته الأساسية ${langWord})، ولا تخترع أي معلومة من خارجه.
 المطلوب: ${opts.scopeLabel}.
-أنشئ ${opts.count} سؤالاً متنوّعاً (${mcqCount} اختيار من متعدد + ${shortCount} إجابة قصيرة).
+أنشئ ${opts.count} سؤالاً متنوّعاً (${mcqCount} اختيار من متعدد + ${shortCount} إجابة قصيرة).${rangeNote}
+
+النص أدناه مُقسَّم إلى صفحات بوسوم بهذا الشكل بالضبط:  --- صفحة N ---
+يجب أن يكون رقم page في كل سؤال هو رقم الصفحة المذكور فعلياً في الوسم الذي يسبق المعلومة المُستخدَمة في السؤال داخل النص.
+- لا تختلق أبداً رقم صفحة لم يظهر في النص.
+- لا تخمّن. إذا لم تستطع تحديد الصفحة بدقة، أرجع page = null.
+- لا تذكر أبداً رقماً خارج النطاق المُعطى أعلاه.
 
 أعد JSON فقط — بدون أي شرح أو سياج markdown — بهذا الشكل بالضبط:
 {
@@ -2363,7 +2374,6 @@ function buildQuizPrompt(opts: QuestionGenOpts): string {
 - لكل MCQ بالضبط 4 خيارات، وحقل answer هو نص أحد الخيارات حرفياً.
 - short هي أسئلة مفاهيمية لا تتطلب أكثر من 3 أسطر.
 - نوّع المستويات (تذكّر، فهم، تطبيق، تحليل).
-- اذكر page (رقم صفحة تقديري من النص إن أمكن، وإلا null).
 - تجنّب الأسئلة المكرّرة أو التافهة.
 
 النص:
@@ -2500,19 +2510,108 @@ function hasAnyQuizProvider(): boolean {
   );
 }
 
-// Build a per-chapter context: the chapter title + best chunks retrieved by
-// searching for the title keywords. Falls back to opening pages when nothing
-// matches (e.g. very generic chapter titles).
-async function buildChapterContext(materialId: number, fullText: string, chapterTitle: string): Promise<string> {
-  const hits = await searchMaterialChunks(materialId, chapterTitle, 14);
-  if (hits.length > 0) {
-    return hits
-      .sort((a, b) => a.pageNumber - b.pageNumber || a.chunkIndex - b.chunkIndex)
-      .map((h) => `--- صفحة ${h.pageNumber} ---\n${h.content}`)
-      .join("\n\n");
+// Load all chunks for a page range and assemble them into one string with
+// explicit `--- صفحة N ---` markers before each page. The model NEEDS these
+// markers to attribute page numbers correctly — otherwise it hallucinates
+// (e.g. claiming a question came from page 3 when the text was on page 15).
+// Truncates from the end if the result exceeds maxChars.
+async function loadPaginatedTextForRange(
+  materialId: number,
+  pageStart: number,
+  pageEnd: number,
+  maxChars = 80_000,
+): Promise<{ text: string; usedPages: number[] }> {
+  const start = Math.max(1, Math.min(pageStart, pageEnd));
+  const end = Math.max(start, pageEnd);
+  const result = await db.execute(sql`
+    SELECT page_number AS "pageNumber",
+           chunk_index AS "chunkIndex",
+           content
+    FROM material_chunks
+    WHERE material_id = ${materialId}
+      AND page_number BETWEEN ${start} AND ${end}
+    ORDER BY page_number ASC, chunk_index ASC
+  `);
+  const rows = (result.rows as any[]).map((r) => ({
+    pageNumber: Number(r.pageNumber ?? r.page_number),
+    chunkIndex: Number(r.chunkIndex ?? r.chunk_index),
+    content: String(r.content ?? ""),
+  }));
+  // Group by page so each page header appears exactly once even when the
+  // page spans multiple chunks.
+  const byPage = new Map<number, string[]>();
+  for (const r of rows) {
+    if (!r.content.trim()) continue;
+    const arr = byPage.get(r.pageNumber) ?? [];
+    arr.push(r.content);
+    byPage.set(r.pageNumber, arr);
   }
-  // Fallback: return the full extracted text (already truncated upstream).
-  return fullText;
+  const usedPages: number[] = [];
+  let text = "";
+  for (const page of Array.from(byPage.keys()).sort((a, b) => a - b)) {
+    const block = `\n--- صفحة ${page} ---\n${(byPage.get(page) ?? []).join("\n").trim()}\n`;
+    if (text.length + block.length > maxChars) break;
+    text += block;
+    usedPages.push(page);
+  }
+  return { text: text.trim(), usedPages };
+}
+
+// Build the model context for a quiz scope. Always emits `--- صفحة N ---`
+// markers so the model can attribute pages accurately. Falls back to the
+// full extracted text only when no chunks could be loaded for the range.
+async function buildScopedContext(
+  materialId: number,
+  fullText: string,
+  pageStart: number,
+  pageEnd: number,
+): Promise<string> {
+  const { text } = await loadPaginatedTextForRange(materialId, pageStart, pageEnd);
+  if (text.length > 0) return text;
+  // Last-resort fallback: the chunks table may be empty for very old uploads.
+  // Return the full extracted text so generation still works, but the model
+  // will lose page-attribution accuracy.
+  return fullText.slice(0, 80_000);
+}
+
+// Resolve the (pageStart, pageEnd) tuple a quiz request should target, given
+// the user's input and what's known about the material. Order of precedence:
+//   1. Explicit pageStart/pageEnd in the request body (validated, clamped).
+//   2. The chapter's own startPage/endPage from structuredOutline.
+//   3. The full file (1..pageCount).
+function resolveQuizScope(opts: {
+  pageCount: number | null;
+  bodyPageStart?: unknown;
+  bodyPageEnd?: unknown;
+  chapter?: StructuredChapter | null;
+}): { pageStart: number; pageEnd: number; source: "explicit" | "chapter" | "full" } {
+  const total = Math.max(1, Number(opts.pageCount) || 1);
+  const sNum = Number(opts.bodyPageStart);
+  const eNum = Number(opts.bodyPageEnd);
+  const explicit = Number.isInteger(sNum) && Number.isInteger(eNum) && sNum >= 1 && eNum >= sNum;
+  if (explicit) {
+    const pageStart = Math.max(1, Math.min(total, sNum));
+    const pageEnd = Math.max(pageStart, Math.min(total, eNum));
+    return { pageStart, pageEnd, source: "explicit" };
+  }
+  if (opts.chapter && opts.chapter.startPage && opts.chapter.endPage) {
+    const pageStart = Math.max(1, Math.min(total, opts.chapter.startPage));
+    const pageEnd = Math.max(pageStart, Math.min(total, opts.chapter.endPage));
+    return { pageStart, pageEnd, source: "chapter" };
+  }
+  return { pageStart: 1, pageEnd: total, source: "full" };
+}
+
+// Sanitize page numbers in generated questions: clamp to the requested range,
+// or null when the model returned a page it couldn't possibly know (outside
+// the range we sent it). Better to show no page than a wrong page.
+function sanitizeQuestionPages(qs: QuizQuestion[], pageStart: number, pageEnd: number): QuizQuestion[] {
+  return qs.map((q) => {
+    const p = q.page;
+    if (p == null || !Number.isFinite(p)) return { ...q, page: null };
+    if (p < pageStart || p > pageEnd) return { ...q, page: null };
+    return { ...q, page: Math.round(p) };
+  });
 }
 
 // Grade short-answer questions in a single Gemini call. Returns a map id→{correct, feedback}.
@@ -2592,29 +2691,45 @@ router.post("/materials/:id/quiz", async (req, res): Promise<any> => {
   if (!mat.extractedText) return res.status(409).json({ error: "MATERIAL_HAS_NO_TEXT" });
   if (!hasAnyQuizProvider()) return res.status(503).json({ error: "QUIZ_GEN_UNAVAILABLE" });
 
+  const structuredChapters = safeParseStructuredOutline(mat.structuredOutline);
   const progress = await loadProgress(userId, id, mat.outline ?? "", mat.structuredOutline ?? null);
   let chapterIndex: number | null = Number.isInteger(req.body?.chapterIndex)
     ? Number(req.body.chapterIndex)
     : progress.currentChapterIndex;
-  if (!progress.chapters.length) chapterIndex = null;
-  const chapterTitle = chapterIndex !== null ? (progress.chapters[chapterIndex] ?? null) : null;
+  if (!structuredChapters.length || chapterIndex == null || chapterIndex < 0 || chapterIndex >= structuredChapters.length) {
+    chapterIndex = null;
+  }
+  const chapter = chapterIndex != null ? (structuredChapters[chapterIndex] ?? null) : null;
+  const chapterTitle = chapter?.title ?? (chapterIndex != null ? (progress.chapters[chapterIndex] ?? null) : null);
+
+  // Resolve the page range: explicit body > chapter range > whole file.
+  const { pageStart, pageEnd, source: scopeSource } = resolveQuizScope({
+    pageCount: mat.pageCount ?? null,
+    bodyPageStart: req.body?.pageStart,
+    bodyPageEnd: req.body?.pageEnd,
+    chapter,
+  });
 
   try {
-    const context = chapterTitle
-      ? await buildChapterContext(id, mat.extractedText, chapterTitle)
-      : mat.extractedText;
-    const scopeLabel = chapterTitle
-      ? `أسئلة تختبر الفصل/القسم: "${chapterTitle}" فقط`
-      : "أسئلة تغطّي الموضوعات الرئيسية في الملف";
+    const context = await buildScopedContext(id, mat.extractedText, pageStart, pageEnd);
+    // Build a human-readable scope label that matches what the user picked.
+    const scopeLabel = scopeSource === "chapter" && chapterTitle
+      ? `أسئلة تختبر الفصل/القسم "${chapterTitle}" (صفحات ${pageStart}–${pageEnd}) فقط`
+      : scopeSource === "explicit"
+        ? `أسئلة تغطّي الصفحات من ${pageStart} إلى ${pageEnd} فقط`
+        : "أسئلة تغطّي الموضوعات الرئيسية في كامل الملف";
     const desired = Math.min(QUIZ_QUESTION_COUNT.max, Math.max(QUIZ_QUESTION_COUNT.min, 8));
-    const questions = await generateQuestionsWithGemini({
+    const generated = await generateQuestionsWithGemini({
       text: context,
       fileName: mat.fileName,
       language: mat.language,
       count: desired,
       scopeLabel,
       mcqRatio: 0.7,
+      pageStart,
+      pageEnd,
     });
+    const questions = sanitizeQuestionPages(generated, pageStart, pageEnd);
     if (questions.length < QUIZ_QUESTION_COUNT.min) {
       return res.status(502).json({ error: "QUIZ_GEN_TOO_FEW", got: questions.length });
     }
@@ -2636,6 +2751,9 @@ router.post("/materials/:id/quiz", async (req, res): Promise<any> => {
       kind: "chapter",
       chapterIndex,
       chapterTitle,
+      pageStart,
+      pageEnd,
+      scopeSource,
       totalQuestions: trimmed.length,
       questions: questionsForClient(trimmed),
     });
@@ -2643,6 +2761,38 @@ router.post("/materials/:id/quiz", async (req, res): Promise<any> => {
     console.error("[materials/quiz] error:", e?.message || e);
     res.status(500).json({ error: "QUIZ_GEN_FAILED" });
   }
+});
+
+// ── GET /api/materials/:id/quiz-scope → return chapter & page-range info
+//    used by the quiz panel's scope picker (so the user can choose what
+//    range to be tested on before generation starts).
+router.get("/materials/:id/quiz-scope", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+  const mat = await loadMaterialOwned(userId, id);
+  if (!mat) return res.status(404).json({ error: "Not found" });
+  if (mat.status !== "ready") return res.status(409).json({ error: "MATERIAL_NOT_READY" });
+
+  const structured = safeParseStructuredOutline(mat.structuredOutline);
+  const progress = await loadProgress(userId, id, mat.outline ?? "", mat.structuredOutline ?? null);
+  const currentIndex = structured.length && progress.currentChapterIndex >= 0 && progress.currentChapterIndex < structured.length
+    ? progress.currentChapterIndex
+    : null;
+  const chapters = structured.map((c, i) => ({
+    index: i,
+    title: c.title,
+    startPage: c.startPage,
+    endPage: c.endPage,
+  }));
+  res.json({
+    materialId: id,
+    fileName: mat.fileName,
+    pageCount: mat.pageCount ?? null,
+    currentChapterIndex: currentIndex,
+    chapters,
+  });
 });
 
 // ── POST /api/materials/:id/exam → generate full final exam ──────────────────
@@ -2657,14 +2807,21 @@ router.post("/materials/:id/exam", async (req, res): Promise<any> => {
   if (!mat.extractedText) return res.status(409).json({ error: "MATERIAL_HAS_NO_TEXT" });
   if (!hasAnyQuizProvider()) return res.status(503).json({ error: "QUIZ_GEN_UNAVAILABLE" });
 
+  // The exam covers the entire file. Build a paginated context with real
+  // page markers so questions can be attributed accurately.
+  const pageStart = 1;
+  const pageEnd = Math.max(1, Number(mat.pageCount) || 1);
+
   try {
+    const context = await buildScopedContext(id, mat.extractedText, pageStart, pageEnd);
     // Ensure we hit exactly EXAM_QUESTION_COUNT questions. The model sometimes
     // returns fewer than asked, so we run up to 2 backfill passes that fill
     // only the missing slots. We also dedupe near-identical prompts.
     const seenPrompts = new Set<string>();
     const collected: QuizQuestion[] = [];
     const addUnique = (qs: QuizQuestion[]) => {
-      for (const q of qs) {
+      const cleaned = sanitizeQuestionPages(qs, pageStart, pageEnd);
+      for (const q of cleaned) {
         const key = normalizeText(q.prompt).slice(0, 120);
         if (!key || seenPrompts.has(key)) continue;
         seenPrompts.add(key);
@@ -2676,12 +2833,14 @@ router.post("/materials/:id/exam", async (req, res): Promise<any> => {
       { count: EXAM_QUESTION_COUNT, scope: `امتحان نهائي شامل يغطّي كامل الملف بكل فصوله بشكل متوازن (${EXAM_QUESTION_COUNT} سؤالاً)` },
     ];
     addUnique(await generateQuestionsWithGemini({
-      text: mat.extractedText,
+      text: context,
       fileName: mat.fileName,
       language: mat.language,
       count: passes[0].count,
       scopeLabel: passes[0].scope,
       mcqRatio: 0.75,
+      pageStart,
+      pageEnd,
     }));
     let attempt = 0;
     while (collected.length < EXAM_QUESTION_COUNT && attempt < 2) {
@@ -2691,12 +2850,14 @@ router.post("/materials/:id/exam", async (req, res): Promise<any> => {
       const ask = Math.min(EXAM_QUESTION_COUNT, missing + 4);
       try {
         const more = await generateQuestionsWithGemini({
-          text: mat.extractedText,
+          text: context,
           fileName: mat.fileName,
           language: mat.language,
           count: ask,
           scopeLabel: `أسئلة إضافية لاستكمال امتحان نهائي شامل (${missing} سؤالاً متبقياً) — تنويع في الموضوعات وتجنّب أي تكرار للأفكار السابقة`,
           mcqRatio: 0.75,
+          pageStart,
+          pageEnd,
         });
         addUnique(more);
       } catch (e: any) {

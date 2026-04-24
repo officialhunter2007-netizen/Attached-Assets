@@ -1,6 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, CheckCircle2, XCircle, Trophy, AlertTriangle, BookOpen, RefreshCw, Sparkles, ArrowLeft, ArrowRight } from "lucide-react";
+import {
+  X, Loader2, CheckCircle2, XCircle, Trophy, AlertTriangle, BookOpen,
+  RefreshCw, Sparkles, ArrowLeft, ArrowRight, Target, Library, Layers,
+} from "lucide-react";
 
 export type QuizKind = "chapter" | "exam";
 
@@ -40,6 +43,33 @@ interface SubmitResult {
   questions: QuizQuestion[];
 }
 
+interface ScopeChapter {
+  index: number;
+  title: string;
+  startPage: number;
+  endPage: number;
+}
+
+interface ScopeData {
+  materialId: number;
+  fileName: string;
+  pageCount: number | null;
+  currentChapterIndex: number | null;
+  chapters: ScopeChapter[];
+}
+
+type ScopeMode = "chapter" | "custom" | "full";
+
+type Phase = "idle" | "scope" | "loading" | "answering" | "submitting" | "results" | "error";
+
+interface ResolvedScope {
+  source: "chapter" | "explicit" | "full";
+  pageStart: number;
+  pageEnd: number;
+  chapterTitle: string | null;
+  chapterIndex: number | null;
+}
+
 export function QuizPanel({
   open,
   onClose,
@@ -51,7 +81,7 @@ export function QuizPanel({
   materialId: number | null;
   kind: QuizKind;
 }) {
-  const [phase, setPhase] = useState<"idle" | "loading" | "answering" | "submitting" | "results" | "error">("idle");
+  const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [attemptId, setAttemptId] = useState<number | null>(null);
   const [chapterTitle, setChapterTitle] = useState<string | null>(null);
@@ -59,7 +89,17 @@ export function QuizPanel({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [currentIdx, setCurrentIdx] = useState(0);
   const [result, setResult] = useState<SubmitResult | null>(null);
-  const lastFetchedKey = useRef<string | null>(null);
+
+  // Scope-picker state (chapter quiz only).
+  const [scope, setScope] = useState<ScopeData | null>(null);
+  const [scopeMode, setScopeMode] = useState<ScopeMode>("chapter");
+  const [pickedChapterIdx, setPickedChapterIdx] = useState<number | null>(null);
+  const [customStart, setCustomStart] = useState<number>(1);
+  const [customEnd, setCustomEnd] = useState<number>(1);
+  // Pages actually used for the current run, echoed by the server.
+  const [activeScope, setActiveScope] = useState<ResolvedScope | null>(null);
+
+  const lastInitKey = useRef<string | null>(null);
 
   const reset = () => {
     setError(null);
@@ -69,19 +109,23 @@ export function QuizPanel({
     setAnswers({});
     setCurrentIdx(0);
     setResult(null);
+    setActiveScope(null);
   };
 
+  // Open: for "exam" jump straight to loading; for "chapter" fetch scope info first.
   useEffect(() => {
     if (!open || !materialId) return;
     const key = `${materialId}::${kind}`;
-    if (lastFetchedKey.current === key && phase !== "idle") return;
-    lastFetchedKey.current = key;
+    if (lastInitKey.current === key && phase !== "idle") return;
+    lastInitKey.current = key;
     reset();
+    if (kind === "exam") {
+      startGeneration({ kind: "exam", materialId });
+      return;
+    }
+    // chapter → fetch scope, then show picker
     setPhase("loading");
-    const url = kind === "exam"
-      ? `/api/materials/${materialId}/exam`
-      : `/api/materials/${materialId}/quiz`;
-    fetch(url, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" })
+    fetch(`/api/materials/${materialId}/quiz-scope`, { credentials: "include" })
       .then(async (r) => {
         if (!r.ok) {
           const body = await r.json().catch(() => ({}));
@@ -89,26 +133,90 @@ export function QuizPanel({
         }
         return r.json();
       })
-      .then((data) => {
-        setAttemptId(Number(data.attemptId));
-        setChapterTitle(data.chapterTitle ?? null);
-        setQuestions(Array.isArray(data.questions) ? data.questions : []);
-        setPhase("answering");
-        setCurrentIdx(0);
+      .then((data: ScopeData) => {
+        setScope(data);
+        const idx = data.currentChapterIndex ?? (data.chapters[0]?.index ?? null);
+        setPickedChapterIdx(idx);
+        const total = Math.max(1, data.pageCount ?? 1);
+        const ch = idx != null ? data.chapters.find((c) => c.index === idx) : null;
+        setCustomStart(ch?.startPage ?? 1);
+        setCustomEnd(ch?.endPage ?? Math.min(10, total));
+        // If there are no chapters, default to "full file" mode.
+        setScopeMode(data.chapters.length === 0 ? "full" : "chapter");
+        setPhase("scope");
       })
       .catch((e: any) => {
-        setError(humanizeError(e?.message));
-        setPhase("error");
+        // Soft-fail: skip the picker and generate with defaults.
+        console.warn("[QuizPanel] scope fetch failed:", e?.message || e);
+        startGeneration({ kind: "chapter", materialId });
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, materialId, kind]);
 
   // When closed, reset so re-open generates fresh quiz next time.
   useEffect(() => {
     if (!open) {
-      lastFetchedKey.current = null;
+      lastInitKey.current = null;
       setPhase("idle");
+      setScope(null);
     }
   }, [open]);
+
+  const startGeneration = async (opts: {
+    kind: QuizKind;
+    materialId: number;
+    body?: { chapterIndex?: number | null; pageStart?: number; pageEnd?: number };
+  }) => {
+    reset();
+    setPhase("loading");
+    const url = opts.kind === "exam"
+      ? `/api/materials/${opts.materialId}/exam`
+      : `/api/materials/${opts.materialId}/quiz`;
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(opts.body ?? {}),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error || `HTTP ${r.status}`);
+      }
+      const data = await r.json();
+      setAttemptId(Number(data.attemptId));
+      setChapterTitle(data.chapterTitle ?? null);
+      setQuestions(Array.isArray(data.questions) ? data.questions : []);
+      setActiveScope({
+        source: data.scopeSource ?? (opts.kind === "exam" ? "full" : "chapter"),
+        pageStart: Number(data.pageStart) || 0,
+        pageEnd: Number(data.pageEnd) || 0,
+        chapterTitle: data.chapterTitle ?? null,
+        chapterIndex: data.chapterIndex ?? null,
+      });
+      setPhase("answering");
+      setCurrentIdx(0);
+    } catch (e: any) {
+      setError(humanizeError(e?.message));
+      setPhase("error");
+    }
+  };
+
+  const onConfirmScope = () => {
+    if (!materialId || !scope) return;
+    const total = Math.max(1, scope.pageCount ?? 1);
+    let body: { chapterIndex?: number | null; pageStart?: number; pageEnd?: number } = {};
+    if (scopeMode === "chapter" && pickedChapterIdx != null) {
+      body = { chapterIndex: pickedChapterIdx };
+    } else if (scopeMode === "custom") {
+      const s = Math.max(1, Math.min(total, Math.round(customStart) || 1));
+      const e = Math.max(s, Math.min(total, Math.round(customEnd) || s));
+      body = { pageStart: s, pageEnd: e };
+    } else {
+      body = { pageStart: 1, pageEnd: total };
+    }
+    startGeneration({ kind: "chapter", materialId, body });
+  };
 
   const current = questions[currentIdx];
   const answeredCount = questions.filter((q) => (answers[q.id] ?? "").trim().length > 0).length;
@@ -137,42 +245,33 @@ export function QuizPanel({
     }
   };
 
+  // "اختبار جديد" — go back to scope picker for chapter quizzes, or rerun for exam.
   const retry = () => {
     if (!materialId) return;
-    lastFetchedKey.current = null;
-    reset();
-    // Force re-trigger by toggling phase; useEffect will refetch since key cleared.
-    setPhase("idle");
-    setTimeout(() => {
-      lastFetchedKey.current = `${materialId}::${kind}`;
+    if (kind === "exam") {
+      startGeneration({ kind: "exam", materialId });
+    } else if (scope) {
       reset();
-      setPhase("loading");
-      const url = kind === "exam"
-        ? `/api/materials/${materialId}/exam`
-        : `/api/materials/${materialId}/quiz`;
-      fetch(url, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" })
-        .then(async (r) => {
-          if (!r.ok) {
-            const body = await r.json().catch(() => ({}));
-            throw new Error(body?.error || `HTTP ${r.status}`);
-          }
-          return r.json();
-        })
-        .then((data) => {
-          setAttemptId(Number(data.attemptId));
-          setChapterTitle(data.chapterTitle ?? null);
-          setQuestions(Array.isArray(data.questions) ? data.questions : []);
-          setPhase("answering");
-          setCurrentIdx(0);
-        })
-        .catch((e: any) => {
-          setError(humanizeError(e?.message));
-          setPhase("error");
-        });
-    }, 50);
+      setPhase("scope");
+    } else {
+      // No cached scope (came from error path) → re-init.
+      lastInitKey.current = null;
+      setPhase("idle");
+      setTimeout(() => { lastInitKey.current = ""; setPhase("idle"); }, 30);
+    }
   };
 
+  // How many pages without a confirmed reference (model returned null).
+  // Must be computed before any conditional return to obey the rules of hooks.
+  const unknownPageCount = useMemo(
+    () => questions.filter((q) => !q.page).length,
+    [questions],
+  );
+
   if (!open) return null;
+
+  // Compute the displayed title + subtitle based on phase + active scope.
+  const header = computeHeader(kind, phase, scope, activeScope);
 
   return (
     <AnimatePresence>
@@ -194,32 +293,52 @@ export function QuizPanel({
           <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(139,92,246,0.06))" }}>
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center shrink-0">
-                {kind === "exam" ? <Trophy className="w-5 h-5 text-gold" /> : <BookOpen className="w-5 h-5 text-gold" />}
+                {header.icon}
               </div>
               <div className="min-w-0">
-                <div className="text-base font-black text-white">
-                  {kind === "exam" ? "الامتحان النهائي" : "اختبار الفصل"}
+                <div className="text-base font-black text-white truncate">
+                  {header.title}
                 </div>
-                <div className="text-[11px] text-white/50 truncate">
-                  {kind === "exam"
-                    ? "30 سؤالاً يغطّي كامل الملف"
-                    : (chapterTitle ? `الفصل: ${chapterTitle}` : "اختبار قصير")}
+                <div className="text-[11px] text-white/55 truncate">
+                  {header.subtitle}
                 </div>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 transition-colors"
-              aria-label="إغلاق"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {header.rangeBadge && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-amber-500/15 text-amber-200 border border-amber-500/30">
+                  <Layers className="w-3 h-3" /> {header.rangeBadge}
+                </span>
+              )}
+              <button
+                onClick={onClose}
+                className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 transition-colors"
+                aria-label="إغلاق"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto">
+            {phase === "scope" && scope && (
+              <ScopePicker
+                scope={scope}
+                mode={scopeMode}
+                setMode={setScopeMode}
+                pickedChapterIdx={pickedChapterIdx}
+                setPickedChapterIdx={setPickedChapterIdx}
+                customStart={customStart}
+                customEnd={customEnd}
+                setCustomStart={setCustomStart}
+                setCustomEnd={setCustomEnd}
+                onStart={onConfirmScope}
+              />
+            )}
+
             {phase === "loading" && (
-              <LoadingState kind={kind} />
+              <LoadingState kind={kind} activeScope={activeScope} pendingScope={pendingScopeLabel(scope, scopeMode, pickedChapterIdx, customStart, customEnd, kind)} />
             )}
 
             {phase === "error" && (
@@ -236,6 +355,7 @@ export function QuizPanel({
                 goPrev={() => setCurrentIdx((i) => Math.max(0, i - 1))}
                 goNext={() => setCurrentIdx((i) => Math.min(questions.length - 1, i + 1))}
                 jumpTo={(i) => setCurrentIdx(i)}
+                unknownPageCount={unknownPageCount}
               />
             )}
 
@@ -247,11 +367,11 @@ export function QuizPanel({
             )}
 
             {phase === "results" && result && (
-              <ResultsState result={result} onClose={onClose} onRetry={retry} />
+              <ResultsState result={result} activeScope={activeScope} onClose={onClose} onRetry={retry} />
             )}
           </div>
 
-          {/* Footer for answering phase */}
+          {/* Footer */}
           {phase === "answering" && (
             <div className="shrink-0 border-t border-white/10 px-5 py-3 flex items-center justify-between gap-3" style={{ background: "rgba(255,255,255,0.02)" }}>
               <div className="text-[11px] text-white/50">
@@ -273,13 +393,269 @@ export function QuizPanel({
   );
 }
 
+// ── header helpers ───────────────────────────────────────────────────────────
+
+function computeHeader(
+  kind: QuizKind,
+  phase: Phase,
+  scope: ScopeData | null,
+  active: ResolvedScope | null,
+): { icon: React.ReactNode; title: string; subtitle: string; rangeBadge: string | null } {
+  if (kind === "exam") {
+    return {
+      icon: <Trophy className="w-5 h-5 text-gold" />,
+      title: "الامتحان النهائي الشامل 🏆",
+      subtitle: "30 سؤالاً يغطّي كامل الملف بكل فصوله",
+      rangeBadge: active && active.pageEnd >= active.pageStart && active.pageStart > 0
+        ? `صفحات 1–${active.pageEnd}` : null,
+    };
+  }
+  // chapter / scoped quiz
+  if (phase === "scope") {
+    return {
+      icon: <Target className="w-5 h-5 text-gold" />,
+      title: "تجهيز اختبارك ✨",
+      subtitle: scope?.fileName ? `الملف: ${scope.fileName}` : "اختر النطاق الذي تريد اختباره",
+      rangeBadge: null,
+    };
+  }
+  if (active) {
+    if (active.source === "chapter" && active.chapterTitle) {
+      return {
+        icon: <BookOpen className="w-5 h-5 text-gold" />,
+        title: `📘 اختبار: ${active.chapterTitle}`,
+        subtitle: `صفحات ${active.pageStart}–${active.pageEnd}`,
+        rangeBadge: `صفحات ${active.pageStart}–${active.pageEnd}`,
+      };
+    }
+    if (active.source === "explicit") {
+      return {
+        icon: <Target className="w-5 h-5 text-gold" />,
+        title: "🎯 اختبار مخصّص",
+        subtitle: `صفحات ${active.pageStart}–${active.pageEnd}`,
+        rangeBadge: `صفحات ${active.pageStart}–${active.pageEnd}`,
+      };
+    }
+    return {
+      icon: <Library className="w-5 h-5 text-gold" />,
+      title: "📚 اختبار شامل من الملف",
+      subtitle: `صفحات 1–${active.pageEnd}`,
+      rangeBadge: `كل الملف`,
+    };
+  }
+  return {
+    icon: <BookOpen className="w-5 h-5 text-gold" />,
+    title: "اختبارك المخصّص",
+    subtitle: "نُحضّر الأسئلة...",
+    rangeBadge: null,
+  };
+}
+
+function pendingScopeLabel(
+  scope: ScopeData | null,
+  mode: ScopeMode,
+  pickedIdx: number | null,
+  customStart: number,
+  customEnd: number,
+  kind: QuizKind,
+): string | null {
+  if (kind === "exam") return null;
+  if (!scope) return null;
+  if (mode === "chapter" && pickedIdx != null) {
+    const ch = scope.chapters.find((c) => c.index === pickedIdx);
+    if (ch) return `${ch.title} (صفحات ${ch.startPage}–${ch.endPage})`;
+  }
+  if (mode === "custom") return `صفحات ${customStart}–${customEnd}`;
+  if (mode === "full" && scope.pageCount) return `كل الملف (صفحات 1–${scope.pageCount})`;
+  return null;
+}
+
+// ── Scope picker ─────────────────────────────────────────────────────────────
+
+function ScopePicker({
+  scope, mode, setMode,
+  pickedChapterIdx, setPickedChapterIdx,
+  customStart, customEnd, setCustomStart, setCustomEnd,
+  onStart,
+}: {
+  scope: ScopeData;
+  mode: ScopeMode;
+  setMode: (m: ScopeMode) => void;
+  pickedChapterIdx: number | null;
+  setPickedChapterIdx: (i: number | null) => void;
+  customStart: number;
+  customEnd: number;
+  setCustomStart: (n: number) => void;
+  setCustomEnd: (n: number) => void;
+  onStart: () => void;
+}) {
+  const total = Math.max(1, scope.pageCount ?? 1);
+  const hasChapters = scope.chapters.length > 0;
+  const pickedChapter = pickedChapterIdx != null
+    ? scope.chapters.find((c) => c.index === pickedChapterIdx) ?? null
+    : null;
+  const canStart =
+    (mode === "chapter" && pickedChapter != null) ||
+    (mode === "custom" && customStart >= 1 && customEnd >= customStart && customEnd <= total) ||
+    mode === "full";
+
+  return (
+    <div className="p-5 sm:p-6 space-y-5">
+      <div>
+        <div className="text-white font-black text-base mb-1">اختر نطاق اختبارك</div>
+        <div className="text-[12px] text-white/55 leading-relaxed">
+          سيُولِّد المعلّم أسئلة من الصفحات التي تختارها فقط، مع ذكر رقم الصفحة المرجعية لكل سؤال بدقّة.
+        </div>
+      </div>
+
+      {/* preset cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <ScopeCard
+          icon={<BookOpen className="w-4 h-4" />}
+          label="الفصل الحالي"
+          hint={hasChapters ? "النطاق الموصى به" : "غير متاح"}
+          active={mode === "chapter"}
+          disabled={!hasChapters}
+          onClick={() => setMode("chapter")}
+        />
+        <ScopeCard
+          icon={<Target className="w-4 h-4" />}
+          label="نطاق مخصّص"
+          hint="اختر صفحات محدّدة"
+          active={mode === "custom"}
+          onClick={() => setMode("custom")}
+        />
+        <ScopeCard
+          icon={<Library className="w-4 h-4" />}
+          label="كل الملف"
+          hint={`صفحات 1–${total}`}
+          active={mode === "full"}
+          onClick={() => setMode("full")}
+        />
+      </div>
+
+      {/* Chapter dropdown */}
+      {mode === "chapter" && hasChapters && (
+        <div className="space-y-2">
+          <label className="text-[11px] font-bold text-white/65">اختر الفصل</label>
+          <select
+            value={pickedChapterIdx ?? ""}
+            onChange={(e) => setPickedChapterIdx(Number(e.target.value))}
+            className="w-full p-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-[14px] focus:border-amber-500/50 outline-none"
+            style={{ direction: "rtl" }}
+          >
+            {scope.chapters.map((c) => (
+              <option key={c.index} value={c.index} className="bg-[#0d111e]">
+                {c.title} — صفحات {c.startPage}–{c.endPage}
+              </option>
+            ))}
+          </select>
+          {pickedChapter && (
+            <div className="text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
+              ستُولَّد الأسئلة من <b>{pickedChapter.title}</b> فقط — صفحات {pickedChapter.startPage} إلى {pickedChapter.endPage}.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Custom range */}
+      {mode === "custom" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <NumField label="من صفحة" value={customStart} min={1} max={total} onChange={setCustomStart} />
+            <NumField label="إلى صفحة" value={customEnd} min={Math.max(1, customStart)} max={total} onChange={setCustomEnd} />
+          </div>
+          <div className="text-[11px] text-white/55">
+            عدد الصفحات في الملف: <span className="text-white/85 font-bold">{total}</span>
+          </div>
+        </div>
+      )}
+
+      {mode === "full" && (
+        <div className="text-[12px] text-white/65 bg-white/[0.03] border border-white/10 rounded-xl p-3">
+          ستُولَّد أسئلة من كامل محتوى الملف — يناسب المراجعة الشاملة قبل الاختبار النهائي.
+        </div>
+      )}
+
+      <button
+        onClick={onStart}
+        disabled={!canStart}
+        className="w-full text-sm font-black px-5 py-3 rounded-xl bg-gradient-to-l from-amber-500 to-amber-600 text-black hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
+      >
+        <Sparkles className="w-4 h-4" />
+        ابدأ الاختبار
+      </button>
+    </div>
+  );
+}
+
+function ScopeCard({
+  icon, label, hint, active, disabled, onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`text-right p-3 rounded-2xl border transition-all ${
+        active
+          ? "bg-amber-500/15 border-amber-500/50 ring-1 ring-amber-500/30"
+          : "bg-white/[0.02] border-white/10 hover:bg-white/[0.05] hover:border-white/20"
+      } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
+    >
+      <div className={`flex items-center gap-2 mb-1 ${active ? "text-amber-300" : "text-white/85"}`}>
+        {icon}
+        <span className="text-[13px] font-bold">{label}</span>
+      </div>
+      <div className="text-[10.5px] text-white/55">{hint}</div>
+    </button>
+  );
+}
+
+function NumField({
+  label, value, min, max, onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div>
+      <label className="block text-[11px] font-bold text-white/65 mb-1.5">{label}</label>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (!Number.isFinite(n)) return;
+          onChange(Math.max(min, Math.min(max, Math.round(n))));
+        }}
+        className="w-full p-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-white text-[14px] font-bold text-center focus:border-amber-500/50 outline-none"
+      />
+    </div>
+  );
+}
+
+// ── States ───────────────────────────────────────────────────────────────────
+
 function humanizeError(code?: string): string {
   switch (code) {
     case "MATERIAL_NOT_READY": return "لا يزال الملف قيد المعالجة. حاول بعد لحظات.";
     case "MATERIAL_HAS_NO_TEXT": return "تعذّر استخراج نص قابل للقراءة من هذا الملف.";
     case "QUIZ_GEN_UNAVAILABLE": return "خدمة توليد الأسئلة غير متاحة حالياً.";
     case "QUIZ_GEN_TOO_FEW":
-    case "EXAM_GEN_TOO_FEW": return "تعذّر توليد عدد كافٍ من الأسئلة من هذا الملف. حاول مرة أخرى.";
+    case "EXAM_GEN_TOO_FEW": return "تعذّر توليد عدد كافٍ من الأسئلة من هذا النطاق. جرّب نطاقاً أوسع.";
     case "QUIZ_GEN_FAILED":
     case "EXAM_GEN_FAILED": return "فشل توليد الأسئلة. يرجى المحاولة لاحقاً.";
     case "ALREADY_SUBMITTED": return "هذه المحاولة مُسلّمة بالفعل.";
@@ -287,7 +663,17 @@ function humanizeError(code?: string): string {
   }
 }
 
-function LoadingState({ kind }: { kind: QuizKind }) {
+function LoadingState({
+  kind, activeScope, pendingScope,
+}: {
+  kind: QuizKind;
+  activeScope: ResolvedScope | null;
+  pendingScope: string | null;
+}) {
+  const scopeText = pendingScope
+    ?? (activeScope
+      ? `صفحات ${activeScope.pageStart}–${activeScope.pageEnd}`
+      : null);
   return (
     <div className="p-12 flex flex-col items-center gap-4 text-center">
       <div className="relative">
@@ -295,8 +681,13 @@ function LoadingState({ kind }: { kind: QuizKind }) {
         <Loader2 className="w-10 h-10 animate-spin text-gold relative" />
       </div>
       <div className="text-white font-bold">
-        {kind === "exam" ? "نُولّد امتحانك النهائي من الملف..." : "نُولّد اختباراً مخصّصاً لهذا الفصل..."}
+        {kind === "exam" ? "نُولّد امتحانك النهائي من الملف..." : "نُحضّر اختبارك..."}
       </div>
+      {scopeText && (
+        <div className="text-[12px] text-amber-200 font-semibold bg-amber-500/10 border border-amber-500/25 rounded-full px-3 py-1">
+          {scopeText}
+        </div>
+      )}
       <div className="text-[12px] text-white/50 max-w-sm leading-relaxed">
         نقرأ المحتوى، نختار النقاط الجوهرية، ونصوغ أسئلة متنوّعة المستوى. قد يستغرق ذلك من 15 إلى 40 ثانية.
       </div>
@@ -322,7 +713,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 }
 
 function AnsweringState({
-  questions, current, currentIdx, answers, setAnswer, goPrev, goNext, jumpTo,
+  questions, current, currentIdx, answers, setAnswer, goPrev, goNext, jumpTo, unknownPageCount,
 }: {
   questions: QuizQuestion[];
   current: QuizQuestion;
@@ -332,6 +723,7 @@ function AnsweringState({
   goPrev: () => void;
   goNext: () => void;
   jumpTo: (i: number) => void;
+  unknownPageCount: number;
 }) {
   const progressPct = Math.round(((currentIdx + 1) / questions.length) * 100);
   return (
@@ -370,7 +762,7 @@ function AnsweringState({
 
       {/* The question */}
       <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4 sm:p-5 mb-4">
-        <div className="flex items-start gap-2 mb-3">
+        <div className="flex items-start gap-2 mb-3 flex-wrap">
           <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
             current.type === "mcq" ? "bg-purple-500/15 text-purple-300 border border-purple-500/30"
               : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
@@ -378,10 +770,14 @@ function AnsweringState({
             {current.type === "mcq" ? "اختيار من متعدد" : "إجابة قصيرة"}
           </span>
           {current.page ? (
-            <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 text-white/50 border border-white/10">
-              صفحة {current.page}
+            <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 text-white/60 border border-white/10">
+              📍 صفحة {current.page}
             </span>
-          ) : null}
+          ) : (
+            <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 text-white/35 border border-white/10" title="لم يُحدِّد المعلّم رقم الصفحة بدقّة لتجنّب التخمين">
+              صفحة غير محدّدة
+            </span>
+          )}
         </div>
         <div className="text-white text-[15px] font-semibold leading-relaxed mb-4 whitespace-pre-wrap">{current.prompt}</div>
         {current.type === "mcq" && current.choices ? (
@@ -437,11 +833,26 @@ function AnsweringState({
           التالي <ArrowLeft className="w-4 h-4" />
         </button>
       </div>
+
+      {unknownPageCount > 0 && (
+        <div className="mt-4 text-[10.5px] text-white/45 text-center leading-relaxed">
+          {unknownPageCount === questions.length
+            ? "لم يستطع المعلّم تحديد رقم صفحة مرجعية لهذه الأسئلة بدقّة."
+            : `${unknownPageCount} من الأسئلة بدون رقم صفحة مؤكّد — تم إخفاؤها بدلاً من تخمين رقم خاطئ.`}
+        </div>
+      )}
     </div>
   );
 }
 
-function ResultsState({ result, onClose, onRetry }: { result: SubmitResult; onClose: () => void; onRetry: () => void }) {
+function ResultsState({
+  result, activeScope, onClose, onRetry,
+}: {
+  result: SubmitResult;
+  activeScope: ResolvedScope | null;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
   const passed = result.score >= 60;
   const scoreColor = result.score >= 80 ? "text-emerald-400" : result.score >= 60 ? "text-amber-300" : "text-red-400";
   const scoreBg = result.score >= 80 ? "from-emerald-500/15 to-emerald-500/5 border-emerald-500/30"
@@ -464,6 +875,11 @@ function ResultsState({ result, onClose, onRetry }: { result: SubmitResult; onCl
               أصبت <span className={`font-bold ${scoreColor}`}>{result.correctCount}</span> من أصل {result.totalQuestions}
               {result.chapterTitle ? <> — اختبار: <span className="text-white/90">{result.chapterTitle}</span></> : null}
             </div>
+            {activeScope && activeScope.pageEnd >= activeScope.pageStart && activeScope.pageStart > 0 && (
+              <div className="text-[11px] text-white/50 mt-0.5">
+                النطاق: صفحات {activeScope.pageStart}–{activeScope.pageEnd}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -525,7 +941,7 @@ function ResultsState({ result, onClose, onRetry }: { result: SubmitResult; onCl
                     <span className="text-white/40 ml-1">شرح:</span>{q.explanation}
                   </div>
                 )}
-                {q.page ? <div className="text-white/35 text-[10px]">المرجع: صفحة {q.page}</div> : null}
+                {q.page ? <div className="text-white/35 text-[10px]">📍 المرجع: صفحة {q.page}</div> : null}
               </div>
             </div>
           );
