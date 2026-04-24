@@ -758,7 +758,7 @@ ${formattingRules}`;
         // student left off and can say "أكملت الفصل 3، اليوم نبدأ الفصل 4".
         let chapterProgressBlock = "";
         try {
-          const prog = await loadProgress(userId, m.id, m.outline ?? "");
+          const prog = await loadProgress(userId, m.id, m.outline ?? "", m.structuredOutline ?? null);
           if (prog.chapters.length > 0) {
             const completedNames = prog.completedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);
             const skippedNames = prog.skippedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);

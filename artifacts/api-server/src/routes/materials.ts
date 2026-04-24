@@ -219,7 +219,7 @@ router.get("/materials", async (req, res): Promise<any> => {
       lastInteractedAt: string | null;
     } | null = null;
     if (r.status === "ready") {
-      const p = await loadProgress(userId, r.id, r.outline ?? "");
+      const p = await loadProgress(userId, r.id, r.outline ?? "", r.structuredOutline ?? null);
       progress = {
         chaptersTotal: p.chapters.length,
         completedCount: p.completedChapterIndices.length,
@@ -251,7 +251,7 @@ router.get("/materials/:id/progress", async (req, res): Promise<any> => {
     .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
   if (!mat) return res.status(404).json({ error: "Not found" });
 
-  const p = await loadProgress(userId, id, mat.outline ?? "");
+  const p = await loadProgress(userId, id, mat.outline ?? "", mat.structuredOutline ?? null);
   res.json({
     materialId: id,
     chapters: p.chapters,
@@ -742,6 +742,34 @@ async function processMaterial(materialId: number) {
     }
   }
 
+  // 5) Build the STRUCTURED outline (chapters → key points) so the teacher
+  //    can cover every point without skipping any. This runs after chunks are
+  //    persisted because it relies on the same per-page text. We only do this
+  //    when extraction succeeded and we have meaningful page text — otherwise
+  //    the model would fabricate chapters from nothing.
+  if (!detectedError && pageTexts.size > 0 && process.env.GEMINI_API_KEY) {
+    try {
+      const structured = await generateStructuredChapters(pageTexts, row.fileName, language, pageCount);
+      if (structured.length > 0) {
+        // Derive a simple text outline from chapter titles so legacy code
+        // paths (parseChaptersFromOutline / loadProgress) keep working.
+        const derivedOutline = structured
+          .map((c, i) => `- ${c.title}${c.startPage && c.endPage ? ` (صفحات ${c.startPage}–${c.endPage})` : ""}`)
+          .join("\n");
+        await db
+          .update(courseMaterialsTable)
+          .set({
+            structuredOutline: JSON.stringify(structured),
+            outline: derivedOutline,
+            updatedAt: new Date(),
+          })
+          .where(eq(courseMaterialsTable.id, materialId));
+      }
+    } catch (e: any) {
+      console.warn("[materials/process] structured outline failed:", e?.message || e);
+    }
+  }
+
   // ── Sync teaching-mode pointer with the result of this run ──
   // SUCCESS: if the subject is in professor mode but has no active material yet
   //   (because finalize deferred activation), promote this one now.
@@ -1101,6 +1129,250 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Structured outline: a JSON shape that lets the AI teacher cover every point
+// in every chapter without skipping anything. Stored in
+// course_materials.structured_outline as a JSON string.
+// ─────────────────────────────────────────────────────────────────────────────
+export type StructuredChapter = {
+  idx: number;
+  title: string;
+  startPage: number;
+  endPage: number;
+  summary: string;
+  keyPoints: string[];
+};
+
+export function safeParseStructuredOutline(s: string | null | undefined): StructuredChapter[] {
+  if (!s) return [];
+  try {
+    const v = JSON.parse(s);
+    if (!Array.isArray(v)) return [];
+    return v
+      .map((c, i) => ({
+        idx: Number.isInteger(c?.idx) ? c.idx : i,
+        title: typeof c?.title === "string" ? c.title.trim() : "",
+        startPage: Number.isInteger(c?.startPage) ? Math.max(1, c.startPage) : 1,
+        endPage: Number.isInteger(c?.endPage) ? Math.max(1, c.endPage) : 1,
+        summary: typeof c?.summary === "string" ? c.summary.trim() : "",
+        keyPoints: Array.isArray(c?.keyPoints)
+          ? c.keyPoints.filter((p: any) => typeof p === "string" && p.trim().length > 0).map((p: string) => p.trim()).slice(0, 25)
+          : [],
+      }))
+      .filter((c) => c.title.length > 0)
+      .slice(0, 40);
+  } catch { return []; }
+}
+
+// Build a JSON outline of chapters → key points using Gemini, fed with text
+// that has explicit [صفحة N] markers so the model can cite real page ranges.
+async function generateStructuredChapters(
+  pageTexts: Map<number, string>,
+  fileName: string,
+  language: string,
+  pageCount: number,
+): Promise<StructuredChapter[]> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || pageTexts.size === 0) return [];
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+
+  // Build a page-marked sample. We use a generous budget but truncate to keep
+  // the request manageable. The model only needs enough text to detect chapter
+  // boundaries and extract topic lists; verbatim quoting is not required here.
+  const MAX_CHARS = 90_000;
+  const ordered = Array.from(pageTexts.entries()).sort((a, b) => a[0] - b[0]);
+  const parts: string[] = [];
+  let total = 0;
+  for (const [page, text] of ordered) {
+    const block = `\n--- صفحة ${page} ---\n${text}\n`;
+    if (total + block.length > MAX_CHARS) {
+      parts.push(`\n--- صفحة ${page} ---\n[…النص مقتطع لتوفير السياق…]\n`);
+      break;
+    }
+    parts.push(block);
+    total += block.length;
+  }
+  const sample = parts.join("");
+  const langWord = language === "ar" ? "العربية" : "الإنجليزية";
+
+  const prompt = `أنت مُحلّل مناهج خبير. حلّل النص التالي من ملف "${fileName}" (اللغة: ${langWord}) وأخرج JSON صرف فقط بدون أي markdown أو شرح، بالشكل التالي:
+
+{
+  "chapters": [
+    {
+      "idx": 0,
+      "title": "عنوان الفصل/الباب/الوحدة كما يظهر في الملف (نصياً)",
+      "startPage": 1,
+      "endPage": 12,
+      "summary": "ملخص في 2-3 جمل عما يغطّيه هذا الفصل تحديداً",
+      "keyPoints": [
+        "نقطة جوهرية يجب على المعلّم تغطيتها (مفهوم/تعريف/قاعدة/صيغة/مثال)",
+        "..."
+      ]
+    }
+  ]
+}
+
+قواعد إلزامية:
+- اعتمد على وسوم "--- صفحة N ---" لتحديد startPage و endPage بدقة، ولا تختلق أرقام صفحات.
+- إذا لم تجد فصولاً واضحة في الملف، قسّمه إلى وحدات منطقية (مقدمة، مفاهيم أساسية، تطبيقات، إلخ) وحدّد لها أرقام صفحات حقيقية.
+- keyPoints = القائمة الكاملة لكل ما يجب على المعلّم شرحه في هذا الفصل (5–15 نقطة في الغالب). اشمل: التعريفات، الصيغ، القوانين، التصنيفات، الأمثلة المحورية، الفروقات بين المفاهيم.
+- لا تتجاوز ${Math.min(pageCount || 600, 600)} صفحة. لا تكرّر نفس النقطة بصياغتين.
+- اكتب كل العناوين والنقاط بـ${langWord} (نفس لغة المصدر).
+- 3 إلى 20 فصلاً كحد أقصى. لا تتجاوز 25 نقطة في الفصل الواحد.
+
+النص:
+"""
+${sample}
+"""`;
+
+  const body = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 8192, responseMimeType: "application/json" },
+  };
+
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!r.ok) {
+      console.warn("[structured-outline] gemini http", r.status, (await r.text()).slice(0, 200));
+      return [];
+    }
+    const data: any = await r.json();
+    const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
+    const parsed = JSON.parse(txt);
+    const chapters = Array.isArray(parsed?.chapters) ? parsed.chapters : [];
+    // Normalize idx to be 0-based and contiguous; clamp page ranges to the
+    // real document so a hallucinated endPage can't pull empty chunks.
+    const maxPage = Math.max(pageCount || 0, ordered.length > 0 ? ordered[ordered.length - 1][0] : 1);
+    return chapters
+      .map((c: any, i: number) => {
+        const start = Math.max(1, Math.min(maxPage, Number(c?.startPage) || 1));
+        const endRaw = Number(c?.endPage) || start;
+        const end = Math.max(start, Math.min(maxPage, endRaw));
+        return {
+          idx: i,
+          title: typeof c?.title === "string" ? c.title.trim().slice(0, 200) : `الفصل ${i + 1}`,
+          startPage: start,
+          endPage: end,
+          summary: typeof c?.summary === "string" ? c.summary.trim().slice(0, 600) : "",
+          keyPoints: Array.isArray(c?.keyPoints)
+            ? c.keyPoints
+                .filter((p: any) => typeof p === "string" && p.trim().length > 0)
+                .map((p: string) => p.trim().slice(0, 300))
+                .slice(0, 25)
+            : [],
+        };
+      })
+      .filter((c: StructuredChapter) => c.title.length > 0)
+      .slice(0, 25);
+  } catch (e: any) {
+    console.warn("[structured-outline] failed:", e?.message || e);
+    return [];
+  }
+}
+
+// Fetch all material_chunks rows whose page is within [startPage, endPage].
+// Truncates to a character budget so we never exceed model context limits
+// even on a 50-page chapter. Returns chunks ordered by page then chunkIndex.
+export async function getChapterChunksByPageRange(
+  materialId: number,
+  startPage: number,
+  endPage: number,
+  charBudget = 24_000,
+): Promise<RetrievedChunk[]> {
+  const start = Math.max(1, Math.min(startPage, endPage));
+  const end = Math.max(start, endPage);
+  const result = await db.execute(sql`
+    SELECT page_number AS "pageNumber",
+           chunk_index AS "chunkIndex",
+           content
+    FROM material_chunks
+    WHERE material_id = ${materialId}
+      AND page_number >= ${start}
+      AND page_number <= ${end}
+    ORDER BY page_number ASC, chunk_index ASC
+  `);
+  const rows = (result.rows as any[]).map((r) => ({
+    pageNumber: Number(r.pageNumber ?? r.page_number),
+    chunkIndex: Number(r.chunkIndex ?? r.chunk_index),
+    content: String(r.content ?? ""),
+    score: 0,
+  }));
+  // Stay under the character budget: include from the start until we hit it.
+  const out: RetrievedChunk[] = [];
+  let used = 0;
+  for (const c of rows) {
+    if (used + c.content.length > charBudget) {
+      const remaining = Math.max(0, charBudget - used);
+      if (remaining > 200) {
+        out.push({ ...c, content: c.content.slice(0, remaining) + "\n[…بقية الفصل مقتطعة لحدود السياق…]" });
+      }
+      break;
+    }
+    out.push(c);
+    used += c.content.length;
+  }
+  return out;
+}
+
+// covered_points is stored as JSON: { [chapterIdx: string]: number[] }
+// listing the keyPoint indices that have been taught to this user already.
+export type CoveredPointsMap = Record<string, number[]>;
+
+export async function loadCoveredPoints(userId: number, materialId: number): Promise<CoveredPointsMap> {
+  const [row] = await db
+    .select({ coveredPoints: materialChapterProgressTable.coveredPoints })
+    .from(materialChapterProgressTable)
+    .where(and(
+      eq(materialChapterProgressTable.userId, userId),
+      eq(materialChapterProgressTable.materialId, materialId),
+    ));
+  if (!row?.coveredPoints) return {};
+  try {
+    const v = JSON.parse(row.coveredPoints);
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: CoveredPointsMap = {};
+    for (const [k, arr] of Object.entries(v)) {
+      if (Array.isArray(arr)) {
+        const nums = arr.filter((n) => Number.isInteger(n) && n >= 0 && n < 50);
+        if (nums.length > 0) out[String(k)] = Array.from(new Set(nums)).sort((a, b) => a - b);
+      }
+    }
+    return out;
+  } catch { return {}; }
+}
+
+export async function markPointsCovered(
+  userId: number,
+  materialId: number,
+  chapterIdx: number,
+  pointIndices: number[],
+): Promise<void> {
+  if (!pointIndices || pointIndices.length === 0) return;
+  const sane = pointIndices.filter((n) => Number.isInteger(n) && n >= 0 && n < 50);
+  if (sane.length === 0) return;
+  // Read–merge–write. A tiny race window exists but covered_points is purely
+  // additive (we never remove points without explicit user action) so the
+  // worst case is a duplicate point index which we de-dupe anyway.
+  const current = await loadCoveredPoints(userId, materialId);
+  const key = String(chapterIdx);
+  const existing = new Set(current[key] ?? []);
+  for (const n of sane) existing.add(n);
+  current[key] = Array.from(existing).sort((a, b) => a - b);
+  await db
+    .update(materialChapterProgressTable)
+    .set({ coveredPoints: JSON.stringify(current), updatedAt: new Date() })
+    .where(and(
+      eq(materialChapterProgressTable.userId, userId),
+      eq(materialChapterProgressTable.materialId, materialId),
+    ));
+}
+
 async function generateMaterialMetadata(text: string, fileName: string, language: string): Promise<{ outline: string; summary: string; starters: string }> {
   const key = process.env.GEMINI_API_KEY!;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
@@ -1151,6 +1423,14 @@ ${sample}
 // ─────────────────────────────────────────────────────────────────────────────
 // Chapter progress helpers (per-user, per-material)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Pull chapter titles from the structured outline JSON if available — this is
+// the authoritative source. parseChaptersFromOutline (text-based) remains the
+// fallback for legacy materials processed before structured outlines existed.
+export function chaptersFromStructured(structuredOutline: string | null | undefined): string[] {
+  const chapters = safeParseStructuredOutline(structuredOutline);
+  return chapters.map((c) => c.title).filter((t) => t.length > 0);
+}
 
 // Parse the AI-generated outline into a flat list of top-level chapter titles.
 // The outline is plain text where chapters are lines starting with "- " (no
@@ -1208,7 +1488,7 @@ export type LoadedProgress = {
   lastInteractedAt: Date | null;
 };
 
-export async function loadProgress(userId: number, materialId: number, outline: string): Promise<LoadedProgress> {
+export async function loadProgress(userId: number, materialId: number, outline: string, structuredOutline?: string | null): Promise<LoadedProgress> {
   const [row] = await db
     .select()
     .from(materialChapterProgressTable)
@@ -1217,7 +1497,9 @@ export async function loadProgress(userId: number, materialId: number, outline: 
       eq(materialChapterProgressTable.materialId, materialId),
     ));
 
-  const fresh = parseChaptersFromOutline(outline);
+  // Prefer structured outline (authoritative) and fall back to text parser.
+  const fromStructured = chaptersFromStructured(structuredOutline);
+  const fresh = fromStructured.length > 0 ? fromStructured : parseChaptersFromOutline(outline);
 
   if (!row) {
     if (fresh.length === 0) {
@@ -1380,7 +1662,7 @@ export async function getRecentWeakAreasForMaterial(
 // ── Helper exposed for ai/teach to load the active material context ────────────
 export async function getActiveMaterialContext(userId: number, subjectId: string): Promise<{
   mode: string;
-  material: { id: number; fileName: string; outline: string | null; summary: string | null; extractedText: string | null; language: string | null } | null;
+  material: { id: number; fileName: string; outline: string | null; structuredOutline: string | null; summary: string | null; extractedText: string | null; language: string | null } | null;
   recentWeakAreas?: { topic: string; missed: number }[];
 } | null> {
   const [mode] = await db
@@ -1397,6 +1679,7 @@ export async function getActiveMaterialContext(userId: number, subjectId: string
     id: courseMaterialsTable.id,
     fileName: courseMaterialsTable.fileName,
     outline: courseMaterialsTable.outline,
+    structuredOutline: courseMaterialsTable.structuredOutline,
     summary: courseMaterialsTable.summary,
     extractedText: courseMaterialsTable.extractedText,
     language: courseMaterialsTable.language,
@@ -1679,7 +1962,7 @@ router.post("/materials/:id/quiz", async (req, res): Promise<any> => {
   if (!mat.extractedText) return res.status(409).json({ error: "MATERIAL_HAS_NO_TEXT" });
   if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: "QUIZ_GEN_UNAVAILABLE" });
 
-  const progress = await loadProgress(userId, id, mat.outline ?? "");
+  const progress = await loadProgress(userId, id, mat.outline ?? "", mat.structuredOutline ?? null);
   let chapterIndex: number | null = Number.isInteger(req.body?.chapterIndex)
     ? Number(req.body.chapterIndex)
     : progress.currentChapterIndex;

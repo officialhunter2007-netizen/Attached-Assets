@@ -14,6 +14,18 @@ type TableSpec = {
 
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
+    table: "course_materials",
+    columns: [
+      { name: "structured_outline", ddl: "text" },
+    ],
+  },
+  {
+    table: "material_chapter_progress",
+    columns: [
+      { name: "covered_points", ddl: "text NOT NULL DEFAULT '{}'" },
+    ],
+  },
+  {
     table: "users",
     columns: [
       { name: "messages_used", ddl: "integer NOT NULL DEFAULT 0" },
