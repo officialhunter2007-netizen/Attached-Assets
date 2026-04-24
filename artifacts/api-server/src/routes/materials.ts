@@ -1,7 +1,11 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { createReadStream, promises as fsp } from "fs";
+import { tmpdir } from "os";
+import path from "path";
 import multer from "multer";
+import { Client as ReplitObjectStorageClient } from "@replit/object-storage";
 import {
   db,
   courseMaterialsTable,
@@ -308,25 +312,51 @@ router.post("/materials/:id/progress", async (req, res): Promise<any> => {
   });
 });
 
-// ── POST /api/materials/upload — server-proxied multipart upload ─────────────
+// ── POST /api/materials/upload — server-proxied streaming upload ─────────────
 // This is the PRIMARY upload path. Replaces the legacy signed-URL flow which
 // fails in deployment because the Replit object-storage sidecar's
-// /signed-object-url endpoint returns 401 for write operations even though the
-// /token endpoint (which the @google-cloud/storage SDK uses) works fine.
+// /signed-object-url endpoint returns 401 for write operations.
 //
-// Flow: client POSTs multipart (file + subjectId) → server streams file to
-// the bucket via the GCS SDK (authenticated through the sidecar's /token
-// endpoint, which works in deployment) → server inserts the course_materials
-// row, kicks off processing, and returns { id, status } — same shape the old
-// /finalize endpoint used to return.
+// Flow: client POSTs multipart (file + subjectId) → multer writes the body
+// to a temp file on disk (so we never buffer 50MB in RAM) → server STREAMS
+// the temp file to the bucket via the official @replit/object-storage SDK
+// (which uses the sidecar's working write path) → server inserts the
+// course_materials row, kicks off processing, and returns { id, status } —
+// same shape the legacy /finalize endpoint returned.
 //
-// Memory storage with a hard 50 MB limit is acceptable here: textbook PDFs
-// are typically <20 MB, the limit matches MAX_FILE_SIZE_BYTES, and a few
-// concurrent uploads will not exhaust the deployment's memory.
+// Disk-based multer + read-stream upload keeps memory pressure flat regardless
+// of file size or concurrency, satisfying the architectural streaming
+// requirement.
+const UPLOAD_TMP_DIR = path.join(tmpdir(), "nukhba-uploads");
+// Best-effort tmpdir creation at module load — failures here are harmless
+// because multer will create per-request files lazily.
+fsp.mkdir(UPLOAD_TMP_DIR, { recursive: true }).catch(() => {});
+
 const uploadMiddleware = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOAD_TMP_DIR),
+    filename: (_req, _file, cb) => cb(null, `${randomUUID()}.pdf`),
+  }),
   limits: { fileSize: MAX_FILE_SIZE_BYTES, files: 1 },
 });
+
+// SDK client cache. We DO NOT instantiate at module load — the SDK's
+// constructor fires an unawaited init() that fetches the default bucket from
+// the sidecar; if that fetch fails (or no env vars are set yet), the
+// resulting unhandled rejection crashes the entire process. Lazy
+// instantiation also lets us pass bucketId explicitly (extracted from
+// PRIVATE_OBJECT_DIR) so we never depend on the sidecar's default-bucket
+// endpoint, which is unrelated to the bucket the rest of the app uses.
+let _replitObjectStore: ReplitObjectStorageClient | null = null;
+let _replitObjectStoreBucket: string | null = null;
+function getReplitObjectStore(bucketId: string): ReplitObjectStorageClient {
+  if (_replitObjectStore && _replitObjectStoreBucket === bucketId) {
+    return _replitObjectStore;
+  }
+  _replitObjectStore = new ReplitObjectStorageClient({ bucketId });
+  _replitObjectStoreBucket = bucketId;
+  return _replitObjectStore;
+}
 
 // Quota helper used by /materials/upload — runs BEFORE we accept body bytes
 // AND again right before INSERT, to close the parallel-upload race window
@@ -433,38 +463,65 @@ router.post(
       const svc = new ObjectStorageService();
       const privateDir = svc.getPrivateObjectDir();
       const objectId = randomUUID();
-      // Path layout matches the legacy flow so processMaterial can locate the
-      // file via the same getObjectEntityFile(objectPath) call.
-      const fullPath = `${privateDir.replace(/\/$/, "")}/uploads/${objectId}`;
-      // Parse "{leading-slash}{bucket}/{objectName}" — handle the leading
-      // slash that PRIVATE_OBJECT_DIR may or may not have.
-      const normalized = fullPath.startsWith("/") ? fullPath : `/${fullPath}`;
-      const segments = normalized.split("/").filter(Boolean);
-      if (segments.length < 2) {
+
+      // PRIVATE_OBJECT_DIR layout is "{bucketName}/{prefix...}". We need the
+      // PREFIX-WITHIN-BUCKET so the SDK (which auto-targets the default
+      // bucket) writes to the same physical path the legacy flow used. This
+      // keeps processMaterial's getObjectEntityFile("/objects/uploads/{id}")
+      // resolution working without any change.
+      const normalizedPrivateDir = privateDir.startsWith("/")
+        ? privateDir.slice(1)
+        : privateDir;
+      const segments = normalizedPrivateDir.split("/").filter(Boolean);
+      if (segments.length < 1) {
         throw new Error("Invalid PRIVATE_OBJECT_DIR layout");
       }
       const bucketName = segments[0];
-      const objectName = segments.slice(1).join("/");
+      const prefixWithinBucket = segments.slice(1).join("/"); // may be empty
+      const objectNameInBucket = prefixWithinBucket
+        ? `${prefixWithinBucket}/uploads/${objectId}`
+        : `uploads/${objectId}`;
 
-      // Upload via the GCS SDK (authenticated through sidecar /token).
-      const bucket = objectStorageClient.bucket(bucketName);
-      const gcsFile = bucket.file(objectName);
-      await gcsFile.save(file.buffer, {
-        contentType: "application/pdf",
-        resumable: false,
-        metadata: { contentType: "application/pdf" },
-      });
+      // Stream the temp file straight to the bucket via the official SDK.
+      // uploadFromStream takes a Node Readable and pipes it to the sidecar's
+      // working write path — no signed URL involved, no buffer in memory.
+      const sdkClient = getReplitObjectStore(bucketName);
+      await sdkClient.uploadFromStream(
+        objectNameInBucket,
+        createReadStream(file.path),
+        // compress: false because PDFs are already compressed; recompressing
+        // wastes CPU and provides no benefit. Also keeps download bytes equal
+        // to upload bytes which makes pdf-parse's offsets predictable.
+        { compress: false },
+      );
 
-      // Set ACL the same way the legacy finalize did, so downstream
-      // canAccessObjectEntity checks behave identically.
+      // Set ACL the same way the legacy finalize did, using the existing GCS
+      // SDK file handle. The download path (processMaterial) already uses
+      // this exact code path and works in deployment, so reading the
+      // just-uploaded file's metadata to attach an ACL is safe here.
+      const gcsFile = objectStorageClient.bucket(bucketName).file(objectNameInBucket);
       await setObjectAclPolicy(gcsFile, {
         owner: String(userId),
         visibility: "private",
       });
 
       // Stored objectPath uses the /objects/ entity convention so
-      // getObjectEntityFile() can resolve it later.
+      // getObjectEntityFile() can resolve it later — identical to legacy.
       const objectPath = `/objects/uploads/${objectId}`;
+
+      // FINAL quota check — race-window guard. A concurrent upload may have
+      // landed since the earlier check but before we INSERT. If we are now
+      // over quota, abort BEFORE inserting and clean up the just-uploaded
+      // object so the bucket doesn't accumulate orphans.
+      {
+        const q = await checkUploadQuota(userId, subjectId);
+        if (!q.ok) {
+          await replitObjectStore
+            .delete(objectNameInBucket)
+            .catch((e) => console.warn("[materials/upload] orphan cleanup failed:", e?.message || e));
+          return res.status(q.status).json(q.body);
+        }
+      }
 
       const [row] = await db
         .insert(courseMaterialsTable)
@@ -512,6 +569,18 @@ router.post(
     } catch (err: any) {
       console.error("[materials/upload] error:", err?.message || err);
       return res.status(500).json({ error: "UPLOAD_FAILED" });
+    } finally {
+      // Always remove the multer temp file once we're done with it. Using
+      // unlink (not rm) and swallowing ENOENT keeps cleanup quiet when
+      // multer didn't actually create a file (e.g. limit hit before write).
+      const tmpPath = (req.file as Express.Multer.File | undefined)?.path;
+      if (tmpPath) {
+        fsp.unlink(tmpPath).catch((e: any) => {
+          if (e?.code !== "ENOENT") {
+            console.warn("[materials/upload] tmp cleanup failed:", e?.message || e);
+          }
+        });
+      }
     }
   },
 );
@@ -521,6 +590,10 @@ router.post(
 // break, but currently fails in deployment due to the sidecar 401 issue
 // described above. New uploads use POST /api/materials/upload instead.
 const requestUploadHandler = async (req: any, res: any): Promise<any> => {
+  console.warn(
+    "[materials/upload-url] DEPRECATED legacy signed-URL upload path used — " +
+    "client should switch to POST /api/materials/upload (server-proxy).",
+  );
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   const { subjectId, fileName, fileSizeBytes } = req.body ?? {};
@@ -566,7 +639,13 @@ router.post("/materials/upload-url", requestUploadHandler);
 router.post("/materials/request-upload", requestUploadHandler);
 
 // ── POST /api/materials/finalize  { subjectId, fileName, fileSizeBytes, uploadUrl } ──
+// LEGACY path — kept for one deployment cycle. New uploads use the
+// server-proxy POST /api/materials/upload endpoint instead.
 router.post("/materials/finalize", async (req, res): Promise<any> => {
+  console.warn(
+    "[materials/finalize] DEPRECATED legacy finalize path used — " +
+    "client should switch to POST /api/materials/upload (server-proxy).",
+  );
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   const { subjectId, fileName, fileSizeBytes, uploadUrl } = req.body ?? {};
