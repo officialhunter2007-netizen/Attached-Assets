@@ -51,7 +51,12 @@ app.use((_req: any, res: any, next: any) => {
     if (current === initial) return;
 
     if (session === null || (session && Object.keys(session).length === 0)) {
-      res.clearCookie("session", { path: "/" });
+      res.clearCookie("session", {
+        path: "/",
+        httpOnly: true,
+        sameSite: isProd ? "none" : "lax",
+        secure: isProd,
+      });
       return;
     }
 
