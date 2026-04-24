@@ -2,15 +2,10 @@ modules = ["nodejs-24", "python-3.12", "java-graalvm22.3", "postgresql-16"]
 
 [[artifacts]]
 id = "artifacts/api-server"
- 
-[[artifacts]]
-id = "artifacts/nukhba"
- 
-[[artifacts]]
-id = "artifacts/nukhba-promo"
- 
+
 [[artifacts]]
 id = "artifacts/mockup-sandbox"
+
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
@@ -21,27 +16,6 @@ env = { "CI" = "true" }
 
 [workflows]
 runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start application"
-
-[[workflows.workflow]]
-name = "Start application"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PORT=8080 pnpm --filter @workspace/api-server run dev"
-waitForPort = 8080
 
 [agent]
 stack = "PNPM_WORKSPACE"
