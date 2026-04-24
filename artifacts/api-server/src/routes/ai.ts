@@ -1070,6 +1070,25 @@ ${retrievedBlock}
     .map((m: any) => ({ role: m.role as "user" | "assistant", content: normaliseContent(m.content) }))
     .filter((m) => m.content.trim().length > 0);
   const trimmedUserMessage = typeof userMessage === "string" ? userMessage.trim() : "";
+
+  // ── Deterministic intent detection: lab-environment orchestration ──
+  // If the latest user turn explicitly asks to build/start a practical/
+  // simulation environment, force the teacher to enter the ASK_OPTIONS
+  // orchestration path (2–4 multiple-choice questions, then [[CREATE_LAB_ENV]]).
+  // This prevents the model from drifting into a lecture instead.
+  const LAB_ENV_INTENT_RE = /(?:أريد|اريد|ابن[ِيه]?|اعمل|انشئ|أنشئ|ابدأ)\s*(?:لي\s*)?(?:بيئة|محاكاة|مختبر|سيناريو|تطبيق)\s*(?:تطبيقي[ةه]?|عملي[ةه]?|تفاعلي[ةه]?|تدريبي[ةه]?|مخصص[ةه]?)?/u;
+  const labEnvIntentDetected = !!trimmedUserMessage && LAB_ENV_INTENT_RE.test(trimmedUserMessage);
+  if (labEnvIntentDetected) {
+    systemPrompt = systemPrompt + `
+
+[INTENT_DETECTED: BUILD_LAB_ENV]
+الطالب طلب صراحةً بناء بيئة تطبيقية. التزم بالتنسيق التالي بدقة:
+1) ابدأ فوراً (دون مقدمات طويلة) بسؤال واحد متعدد الخيارات باستخدام الوسم [[ASK_OPTIONS: ...]] لتحديد ما يريد التدرب عليه بالضبط (3–5 خيارات + «غير ذلك»).
+2) بعد إجابته اطرح ١-٢ سؤال متابعة (متعدد الخيارات أيضاً) لتحديد المستوى أو الزاوية أو السياق.
+3) عند اكتمال الصورة، اختم برسالة تحوي وسم واحد: [[CREATE_LAB_ENV: وصف دقيق وموجز للبيئة المطلوبة بناءً على إجاباته]].
+لا تعطِ شرحاً نظرياً قبل بناء البيئة.`;
+  }
+
   if (trimmedUserMessage.length > 0) {
     claudeMessages.push({ role: "user" as const, content: trimmedUserMessage });
   } else if (claudeMessages.length === 0) {

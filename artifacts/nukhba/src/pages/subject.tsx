@@ -824,33 +824,10 @@ export default function Subject() {
                       <span className="hidden sm:inline">IDE</span>
                     </button>
                   )}
-                  {isFoodSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isDynamicEnvOpen && (
-                    <button
-                      onClick={() => setPendingLabStarter("أريد بيئة تطبيقية مخصصة لي في هندسة الأغذية. اطرح عليّ سؤالاً متعدد الخيارات لتحديد ما أريد التدرب عليه بالضبط، مع خيار «غير ذلك» لأكتب طلبي بنفسي.")}
-                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-lime-500/10 border border-lime-500/25 text-lime-400 hover:bg-lime-500/20 transition-all"
-                    >
-                      <span className="text-sm">🔬</span>
-                      <span className="hidden sm:inline">بيئة عملية مخصصة</span>
-                    </button>
-                  )}
-                  {isYemenSoftSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isDynamicEnvOpen && (
-                    <button
-                      onClick={() => setPendingLabStarter("أريد بيئة عملية مخصصة على يمن سوفت. اطرح عليّ سؤالاً متعدد الخيارات لتحديد المهمة المطلوبة، مع خيار «غير ذلك» لأكتب طلبي بنفسي.")}
-                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-teal-500/10 border border-teal-500/25 text-teal-400 hover:bg-teal-500/20 transition-all"
-                    >
-                      <span className="text-sm">🏢</span>
-                      <span className="hidden sm:inline">بيئة عملية مخصصة</span>
-                    </button>
-                  )}
-                  {isAccountingLabSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isDynamicEnvOpen && (
-                    <button
-                      onClick={() => setPendingLabStarter("أريد بيئة عملية مخصصة في المحاسبة. اطرح عليّ سؤالاً متعدد الخيارات لتحديد التطبيق المطلوب، مع خيار «غير ذلك» لأكتب طلبي بنفسي.")}
-                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500/20 transition-all"
-                    >
-                      <span className="text-sm">🎓</span>
-                      <span className="hidden sm:inline">بيئة عملية مخصصة</span>
-                    </button>
-                  )}
+                  {/* Legacy per-subject "بيئة عملية مخصصة" header buttons
+                      were removed. The single universal floating "🧪 ابنِ
+                      بيئة تطبيقية" button now serves every subject and
+                      flows through the same teacher-orchestrated dialog. */}
                   <button
                     onClick={() => setIsChatOpen(false)}
                     className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors text-muted-foreground hover:text-white"
@@ -931,6 +908,7 @@ export default function Subject() {
                 }
               }}
               isCreatingEnv={isCreatingEnv}
+              onStartLabEnvIntent={() => setPendingLabStarter("أريد بناء بيئة تطبيقية تفاعلية مخصصة لي في هذه المادة. اطرح عليّ ٢-٤ أسئلة متعددة الخيارات (مع خيار «غير ذلك») لتحديد ما أريد التدرب عليه ومستواي الحالي، ثم ابنِ البيئة المناسبة.")}
             />
           </div>
         </div>
@@ -1151,6 +1129,7 @@ function SubjectPathChat({
   initialSourcesMaterialId,
   onCreateLabEnv,
   isCreatingEnv,
+  onStartLabEnvIntent,
 }: {
   subject: any;
   isFirstSession?: boolean;
@@ -1180,6 +1159,7 @@ function SubjectPathChat({
   initialSourcesMaterialId?: number | null;
   onCreateLabEnv?: (description: string) => void;
   isCreatingEnv?: boolean;
+  onStartLabEnvIntent?: () => void;
 }) {
   const { user } = useAuth();
   // SECURITY: scope chat history by user.id so accounts on the same browser
@@ -1897,10 +1877,13 @@ function SubjectPathChat({
     )}
     {/* Universal floating "build env" button — available across ALL subjects.
         Hidden when an env already exists (the "return" button takes over),
-        when a panel is open, or while the build is in flight. */}
-    {!pendingDynamicEnv && !anyPanelOpen && !isCreatingEnv && onCreateLabEnv && chatVisible && (
+        when a panel is open, or while the build is in flight.
+        IMPORTANT: this does NOT call /ai/lab/build-env directly. It triggers
+        the teacher-orchestrated dialog (ASK_OPTIONS in /ai/teach), which
+        emits [[CREATE_LAB_ENV]] only after the student picks specifics. */}
+    {!pendingDynamicEnv && !anyPanelOpen && !isCreatingEnv && onStartLabEnvIntent && chatVisible && (
       <button
-        onClick={() => onCreateLabEnv("ابدأ الحوار التشخيصي معي لاختيار البيئة التطبيقية المثلى لمستواي الحالي في هذه المادة.")}
+        onClick={() => onStartLabEnvIntent()}
         className="fixed bottom-20 md:bottom-6 right-4 z-[70] bg-gradient-to-l from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-amber-300/50"
         style={{ direction: "rtl" }}
         title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
@@ -2190,6 +2173,59 @@ function SubjectPathChat({
 
       {/* Input area */}
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
+        {/* Universal subject-specific suggested-prompt chips. Detected from
+            the subject name/id so each domain gets relevant kick-off prompts.
+            Always available (also when chat has progressed) so the student
+            can pivot quickly. Generic fallback covers anything unknown. */}
+        {!isStreaming && !chatGated && !quotaExhausted && (() => {
+          const text = `${String(subject?.id || "")} ${String(subject?.name || "")}`.toLowerCase();
+          const has = (re: RegExp) => re.test(text);
+          let kind: string = "generic";
+          if (has(/cyber|سيبران|أمن.*معلومات|اختراق/)) kind = "cybersecurity";
+          else if (has(/web|ويب|تطبيق.*ويب|http/)) kind = "web-pentest";
+          else if (has(/forensic|جنائي|رقمي.*جنائ/)) kind = "forensics";
+          else if (has(/network|شبكات|tcp|ip|router/)) kind = "networking";
+          else if (has(/linux|os|نظام.*تشغيل|kernel|طرفية/)) kind = "os";
+          else if (has(/program|برمج|code|python|java|javascript|c\+\+/)) kind = "programming";
+          else if (has(/data|بيانات|تحليل|إحصاء|machine|ذكاء.*اصطناع/)) kind = "data-science";
+          else if (has(/food|أغذية|غذائي/)) kind = "food";
+          else if (has(/yemensoft|يمن.*سوفت/)) kind = "yemensoft";
+          else if (has(/account|محاسب|مالي/)) kind = "accounting";
+          else if (has(/business|إدار|تسويق|اقتصاد|ريادة/)) kind = "business";
+          else if (has(/physic|فيزياء/)) kind = "physics";
+          else if (has(/lang|لغة|عرب|إنجليز|نحو|صرف|ترجمة/)) kind = "language";
+          const SUGGESTIONS: Record<string, string[]> = {
+            cybersecurity: ["ابنِ لي بيئة تطبيقية لمحاكاة هجوم تعليمي", "اشرح لي مفهوم XSS بمثال", "أعطني تمرين تشخيص ثغرة"],
+            "web-pentest": ["ابنِ لي بيئة ويب فيها ثغرة لأكتشفها", "اشرح SQL Injection بمثال", "كيف أحمي تطبيقاً من CSRF؟"],
+            forensics: ["ابنِ لي سيناريو تحقيق رقمي", "اشرح دور سجلات النظام في التحقيق", "ما خطوات استخراج الأدلة؟"],
+            networking: ["ابنِ لي بيئة لتحليل حزم شبكة", "اشرح TCP handshake خطوة بخطوة", "كيف أصمم شبكة صغيرة؟"],
+            os: ["ابنِ لي بيئة طرفية لينكس للتدرب", "اشرح صلاحيات الملفات", "كيف أدير العمليات في لينكس؟"],
+            programming: ["ابنِ لي بيئة برمجة لحل مسألة", "اشرح الفرق بين stack و heap", "أعطني تمرين خوارزميات"],
+            "data-science": ["ابنِ لي بيئة لاستكشاف dataset", "اشرح الفرق بين mean و median", "كيف أكتشف القيم الشاذة؟"],
+            food: ["ابنِ لي بيئة محاكاة لمراقبة الجودة", "اشرح معايير سلامة الغذاء", "أعطني تمرين حسابات HACCP"],
+            yemensoft: ["ابنِ لي بيئة تدريب على فاتورة بيع", "اشرح حركة المخزون", "كيف أُنشئ تقرير يومي؟"],
+            accounting: ["ابنِ لي بيئة تدريب على القيود اليومية", "اشرح الميزانية العمومية", "أعطني تمرين ميزان مراجعة"],
+            business: ["ابنِ لي محاكاة قرار إداري", "اشرح تحليل SWOT بمثال", "كيف أُقيم مشروعاً ناشئاً؟"],
+            physics: ["ابنِ لي محاكاة لقانون نيوتن الثاني", "اشرح الفرق بين السرعة والتسارع", "أعطني تمرين على الطاقة"],
+            language: ["ابنِ لي تمرين قواعد تفاعلي", "صحّح هذه الجملة وأشر للقاعدة", "أعطني نصاً للترجمة"],
+            generic: ["ابنِ لي بيئة تطبيقية تفاعلية", "اشرح لي أهم مفهوم في هذه المادة", "أعطني تمريناً يناسب مستواي"],
+          };
+          const items = SUGGESTIONS[kind] || SUGGESTIONS.generic;
+          return (
+            <div className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
+              {items.map((q, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => sendTeachMessage(q)}
+                  className="text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/25 border border-cyan-400/30 hover:border-cyan-400/60 text-cyan-200 hover:text-cyan-100 transition-all"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
         {/* Professor-mode starter chips — show only when chat is empty and we have starters */}
         {teachingMode === 'professor' && (activeMaterialStarters || activeMaterialWeakAreas.length > 0) && messages.length <= 1 && !isStreaming && (
           <div className="max-w-2xl mx-auto mb-2.5 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
