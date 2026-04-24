@@ -7,13 +7,12 @@ import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, Shield, FlaskConical } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { FoodLabPanel } from "@/components/food-lab-panel";
 import { YemenSoftSimulatorV2 } from "@/components/yemensoft/yemensoft-v2";
 import AccountingLab from "@/components/accounting-lab/accounting-lab";
-import CyberLab from "@/components/cyber-lab/cyber-lab";
 import { DynamicEnvShell } from "@/components/dynamic-env/dynamic-env-shell";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import { CourseMaterialsPanel, TeachingModeChoiceCard } from "@/components/course-materials-panel";
@@ -460,11 +459,7 @@ export default function Subject() {
   const isYemenSoftSubject = subject?.id === "skill-yemensoft";
   const isAccountingLabSubject = subject?.id === "uni-accounting";
   const [isAccountingLabOpen, setIsAccountingLabOpen] = useState(false);
-  const CYBER_SUBJECTS = new Set(["uni-cybersecurity", "skill-nmap", "skill-wireshark", "skill-linux", "skill-windows"]);
-  const isCyberSubject = CYBER_SUBJECTS.has(subject?.id || "");
-  const [isCyberLabOpen, setIsCyberLabOpen] = useState(false);
-  const [pendingCyberEnv, setPendingCyberEnv] = useState<any | null>(null);
-  const [isCreatingCyberEnv, setIsCreatingCyberEnv] = useState(false);
+  const [isCreatingEnv, setIsCreatingEnv] = useState(false);
   const [pendingFoodScenario, setPendingFoodScenario] = useState<any | null>(null);
   const [pendingAccountingScenario, setPendingAccountingScenario] = useState<any | null>(null);
   const [pendingYemenSoftScenario, setPendingYemenSoftScenario] = useState<any | null>(null);
@@ -491,7 +486,6 @@ export default function Subject() {
   const [chatStarter, setChatStarter] = useState<string | null>(null);
   const [createEnvError, setCreateEnvError] = useState<string | null>(null);
   const [pendingLabStarter, setPendingLabStarter] = useState<string | null>(null);
-  const supportsLabEnv = isCyberSubject || isFoodSubject || isAccountingLabSubject || isYemenSoftSubject;
   const { data: lessonViews } = useGetLessonViews();
 
   const [summaries, setSummaries] = useState<LessonSummary[]>([]);
@@ -805,22 +799,6 @@ export default function Subject() {
                         <p className="text-[11px] text-muted-foreground">12 أداة أكاديمية تفاعلية</p>
                       </div>
                     </>
-                  ) : isCyberLabOpen ? (
-                    <>
-                      <button
-                        onClick={() => setIsCyberLabOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
-                      >
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                      <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/30 flex items-center justify-center">
-                        <Shield className="w-4 h-4 text-red-400" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-sm">مختبر الأمن السيبراني</p>
-                        <p className="text-[11px] text-muted-foreground">بيئة محاكاة تفاعلية</p>
-                      </div>
-                    </>
                   ) : (
                     <>
                       <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg shrink-0`}>
@@ -873,15 +851,6 @@ export default function Subject() {
                       <span className="hidden sm:inline">بيئة عملية مخصصة</span>
                     </button>
                   )}
-                  {isCyberSubject && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && !isCyberLabOpen && (
-                    <button
-                      onClick={() => setIsCyberLabOpen(true)}
-                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 hover:bg-red-500/20 transition-all"
-                    >
-                      <Shield className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">المختبر</span>
-                    </button>
-                  )}
                   <button
                     onClick={() => setIsChatOpen(false)}
                     className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors text-muted-foreground hover:text-white"
@@ -908,10 +877,6 @@ export default function Subject() {
               onCloseYemenSoft={() => setIsYemenSoftOpen(false)}
               accountingLabOpen={isAccountingLabOpen}
               onCloseAccountingLab={() => setIsAccountingLabOpen(false)}
-              cyberLabOpen={isCyberLabOpen}
-              onCloseCyberLab={() => setIsCyberLabOpen(false)}
-              pendingCyberEnv={pendingCyberEnv}
-              onClearPendingCyberEnv={() => setPendingCyberEnv(null)}
               pendingFoodScenario={pendingFoodScenario}
               onClearPendingFoodScenario={() => setPendingFoodScenario(null)}
               pendingAccountingScenario={pendingAccountingScenario}
@@ -929,78 +894,49 @@ export default function Subject() {
               chatStarter={chatStarter}
               onConsumeChatStarter={() => setChatStarter(null)}
               initialSourcesMaterialId={initialSourcesMaterialId}
-              supportsLabEnv={supportsLabEnv}
               onCreateLabEnv={async (description: string) => {
-                console.log("[create-lab-env] click; isCreatingCyberEnv=", isCreatingCyberEnv, "description=", description);
-                if (isCreatingCyberEnv) return;
+                console.log("[create-lab-env] click; isCreatingEnv=", isCreatingEnv, "description=", description);
+                if (isCreatingEnv) return;
                 setCreateEnvError(null);
-                setIsCreatingCyberEnv(true);
+                setIsCreatingEnv(true);
                 try {
-                  if (isCyberSubject) {
-                    const sid = subject!.id;
-                    const augmented =
-                      sid === "skill-nmap"
-                        ? `سيناريو يركّز على استخدام Nmap للاستطلاع وفحص الشبكة. ${description}`
-                        : sid === "skill-wireshark"
-                        ? `سيناريو يولّد تقاط حركة شبكة (PCAP) لتحليلها بـ Wireshark. ${description}`
-                        : description;
-                    const r = await fetch(`${import.meta.env.BASE_URL}api/ai/cyber/create-env`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      credentials: "include",
-                      body: JSON.stringify({ description: augmented }),
-                    });
-                    console.log("[create-lab-env] cyber response:", r.status);
-                    if (!r.ok) {
-                      const errText = await r.text().catch(() => "");
-                      throw new Error(`فشل إنشاء البيئة (${r.status}): ${errText.slice(0, 200)}`);
-                    }
-                    const data = await r.json();
-                    if (data.env) {
-                      setPendingCyberEnv(data.env);
-                      setIsCyberLabOpen(true);
-                    } else {
-                      throw new Error("الاستجابة لا تحتوي على بيئة صالحة");
-                    }
+                  // Universal AI-built dynamic env — works for ANY subject.
+                  const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/build-env`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ subjectId: subject!.id, description }),
+                  });
+                  console.log("[create-lab-env] dynamic response:", r.status);
+                  if (!r.ok) {
+                    const errText = await r.text().catch(() => "");
+                    throw new Error(`فشل بناء البيئة (${r.status}): ${errText.slice(0, 200)}`);
+                  }
+                  const data = await r.json();
+                  console.log("[create-lab-env] dynamic data:", data);
+                  if (data.env) {
+                    setPendingDynamicEnv(data.env);
+                    setIsDynamicEnvOpen(true);
+                    setIsLabOpen(false);
+                    setIsYemenSoftOpen(false);
+                    setIsAccountingLabOpen(false);
                   } else {
-                    // Non-cyber: build a fully-tailored dynamic env from the description
-                    const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/build-env`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      credentials: "include",
-                      body: JSON.stringify({ subjectId: subject!.id, description }),
-                    });
-                    console.log("[create-lab-env] dynamic response:", r.status);
-                    if (!r.ok) {
-                      const errText = await r.text().catch(() => "");
-                      throw new Error(`فشل بناء البيئة (${r.status}): ${errText.slice(0, 200)}`);
-                    }
-                    const data = await r.json();
-                    console.log("[create-lab-env] dynamic data:", data);
-                    if (data.env) {
-                      setPendingDynamicEnv(data.env);
-                      setIsDynamicEnvOpen(true);
-                      setIsLabOpen(false);
-                      setIsYemenSoftOpen(false);
-                      setIsAccountingLabOpen(false);
-                    } else {
-                      throw new Error("الاستجابة لا تحتوي على بيئة صالحة");
-                    }
+                    throw new Error("الاستجابة لا تحتوي على بيئة صالحة");
                   }
                 } catch (e: any) {
                   console.error("[create-lab-env] failed:", e);
                   setCreateEnvError(e?.message || "حدث خطأ غير متوقع أثناء بناء البيئة");
                 } finally {
-                  setIsCreatingCyberEnv(false);
+                  setIsCreatingEnv(false);
                 }
               }}
-              isCreatingCyberEnv={isCreatingCyberEnv}
+              isCreatingEnv={isCreatingEnv}
             />
           </div>
         </div>
 
         {/* Loading overlay while building env */}
-        {isCreatingCyberEnv && <EnvBuildingOverlay />}
+        {isCreatingEnv && <EnvBuildingOverlay />}
 
         {/* Recommendation modal before opening custom-env chat starter */}
         {pendingLabStarter && (
@@ -1047,7 +983,7 @@ export default function Subject() {
         )}
 
         {/* Error toast */}
-        {createEnvError && !isCreatingCyberEnv && (
+        {createEnvError && !isCreatingEnv && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[92%]">
             <div className="bg-red-950/95 border border-red-500/40 rounded-xl px-4 py-3 shadow-xl flex items-start gap-3">
               <span className="text-xl shrink-0">⚠️</span>
@@ -1111,7 +1047,7 @@ function stripInlineStyles(html: string): string {
 function expandLabEnvTags(html: string): string {
   return html.replace(/\[\[CREATE_LAB_ENV:\s*([^\]]+?)\]\]/g, (_m, desc) => {
     const safe = desc.trim().replace(/"/g, '&quot;');
-    return `<button data-cyber-env="${safe}" class="cyber-create-env-btn" type="button">⚡ افتح هذه البيئة في المختبر</button>`;
+    return `<button data-build-env="${safe}" class="build-env-btn" type="button">⚡ ابنِ هذه البيئة التطبيقية لي الآن</button>`;
   });
 }
 
@@ -1150,10 +1086,10 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
     const root = containerRef.current;
     const handler = (e: Event) => {
       const target = e.target as HTMLElement;
-      const btn = target.closest('[data-cyber-env]') as HTMLElement | null;
+      const btn = target.closest('[data-build-env]') as HTMLElement | null;
       if (btn) {
         e.preventDefault();
-        const desc = btn.getAttribute('data-cyber-env') || '';
+        const desc = btn.getAttribute('data-build-env') || '';
         if (desc) onCreateLabEnv(desc);
       }
     };
@@ -1199,10 +1135,6 @@ function SubjectPathChat({
   onCloseYemenSoft,
   accountingLabOpen,
   onCloseAccountingLab,
-  cyberLabOpen,
-  onCloseCyberLab,
-  pendingCyberEnv,
-  onClearPendingCyberEnv,
   pendingFoodScenario,
   onClearPendingFoodScenario,
   pendingAccountingScenario,
@@ -1217,9 +1149,8 @@ function SubjectPathChat({
   chatStarter,
   onConsumeChatStarter,
   initialSourcesMaterialId,
-  supportsLabEnv,
   onCreateLabEnv,
-  isCreatingCyberEnv,
+  isCreatingEnv,
 }: {
   subject: any;
   isFirstSession?: boolean;
@@ -1233,10 +1164,6 @@ function SubjectPathChat({
   onCloseYemenSoft?: () => void;
   accountingLabOpen?: boolean;
   onCloseAccountingLab?: () => void;
-  cyberLabOpen?: boolean;
-  onCloseCyberLab?: () => void;
-  pendingCyberEnv?: any | null;
-  onClearPendingCyberEnv?: () => void;
   pendingFoodScenario?: any | null;
   onClearPendingFoodScenario?: () => void;
   pendingAccountingScenario?: any | null;
@@ -1251,9 +1178,8 @@ function SubjectPathChat({
   chatStarter?: string | null;
   onConsumeChatStarter?: () => void;
   initialSourcesMaterialId?: number | null;
-  supportsLabEnv?: boolean;
   onCreateLabEnv?: (description: string) => void;
-  isCreatingCyberEnv?: boolean;
+  isCreatingEnv?: boolean;
 }) {
   const { user } = useAuth();
   // SECURITY: scope chat history by user.id so accounts on the same browser
@@ -1948,20 +1874,11 @@ function SubjectPathChat({
     onCloseAccountingLab?.();
     sendTeachMessage(`نتائج من مختبر المحاسبة:\n${content}`);
   };
-  const handleCyberLabShare = (content: string) => {
-    onCloseCyberLab?.();
-    sendTeachMessage(`نتائج من مختبر الأمن السيبراني:\n${content}`);
-  };
-  const handleCyberLabHelp = (context: string) => {
-    onCloseCyberLab?.();
-    sendTeachMessage(context);
-  };
-
-  const anyPanelOpen = !!(ideOpen || labOpen || yemenSoftOpen || accountingLabOpen || cyberLabOpen || (dynamicEnvOpen && pendingDynamicEnv));
+  const anyPanelOpen = !!(ideOpen || labOpen || yemenSoftOpen || accountingLabOpen || (dynamicEnvOpen && pendingDynamicEnv));
   const chatVisible = !anyPanelOpen;
   // Show the "return to your env" button whenever an env exists for this
   // subject but is not currently open AND no other major panel is open.
-  const showReopenEnv = !!pendingDynamicEnv && !dynamicEnvOpen && !ideOpen && !labOpen && !yemenSoftOpen && !accountingLabOpen && !cyberLabOpen;
+  const showReopenEnv = !!pendingDynamicEnv && !dynamicEnvOpen && !ideOpen && !labOpen && !yemenSoftOpen && !accountingLabOpen;
 
   return (
     <>
@@ -1976,6 +1893,20 @@ function SubjectPathChat({
       >
         <span className="text-lg">🧪</span>
         <span className="max-w-[160px] truncate">العودة لبيئتك: {pendingDynamicEnv?.title || "البيئة التطبيقية"}</span>
+      </button>
+    )}
+    {/* Universal floating "build env" button — available across ALL subjects.
+        Hidden when an env already exists (the "return" button takes over),
+        when a panel is open, or while the build is in flight. */}
+    {!pendingDynamicEnv && !anyPanelOpen && !isCreatingEnv && onCreateLabEnv && chatVisible && (
+      <button
+        onClick={() => onCreateLabEnv("ابدأ الحوار التشخيصي معي لاختيار البيئة التطبيقية المثلى لمستواي الحالي في هذه المادة.")}
+        className="fixed bottom-20 md:bottom-6 right-4 z-[70] bg-gradient-to-l from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-amber-300/50"
+        style={{ direction: "rtl" }}
+        title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
+      >
+        <span className="text-lg">🧪</span>
+        <span>ابنِ بيئة تطبيقية</span>
       </button>
     )}
     {/* IDE panel — always mounted */}
@@ -2023,17 +1954,7 @@ function SubjectPathChat({
       />
     </div>
 
-    {/* Cyber Lab panel — always mounted */}
-    <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11", display: cyberLabOpen ? "flex" : "none" }}>
-      <CyberLab
-        onShare={handleCyberLabShare}
-        onAskHelp={handleCyberLabHelp}
-        pendingAIEnv={pendingCyberEnv}
-        onClearPendingEnv={onClearPendingCyberEnv}
-      />
-    </div>
-
-    {/* Dynamic AI-built environment — non-cyber subjects */}
+    {/* Dynamic AI-built environment — universal across all subjects */}
     <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11", display: dynamicEnvOpen && pendingDynamicEnv ? "block" : "none" }}>
       <div className="p-3 sm:p-4 w-full min-w-0">
         {pendingDynamicEnv && (
@@ -2216,7 +2137,7 @@ function SubjectPathChat({
                       <AIMessage
                         content={msg.content}
                         isStreaming={isStreaming && isLastMsg}
-                        onCreateLabEnv={supportsLabEnv ? onCreateLabEnv : undefined}
+                        onCreateLabEnv={onCreateLabEnv}
                         onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
                       />
                       {/* Quick-action buttons under the latest AI message — let

@@ -16,9 +16,6 @@ interface Props {
 }
 
 const KIND_META: Record<LabKind, { label: string; emoji: string; gradient: string; accent: string }> = {
-  cyber:     { label: "أمن سيبراني",    emoji: "🛡️", gradient: "from-red-500/20 to-rose-500/10",      accent: "border-red-500/30 text-red-300" },
-  nmap:      { label: "Nmap",           emoji: "🔍", gradient: "from-cyan-500/20 to-sky-500/10",      accent: "border-cyan-500/30 text-cyan-300" },
-  wireshark: { label: "Wireshark",      emoji: "🦈", gradient: "from-blue-500/20 to-indigo-500/10",   accent: "border-blue-500/30 text-blue-300" },
   food:      { label: "هندسة غذائية",   emoji: "🔬", gradient: "from-lime-500/20 to-emerald-500/10",  accent: "border-lime-500/30 text-lime-300" },
   accounting:{ label: "محاسبة",          emoji: "🎓", gradient: "from-amber-500/20 to-orange-500/10", accent: "border-amber-500/30 text-amber-300" },
   yemensoft: { label: "يمن سوفت",        emoji: "🏢", gradient: "from-teal-500/20 to-cyan-500/10",    accent: "border-teal-500/30 text-teal-300" },

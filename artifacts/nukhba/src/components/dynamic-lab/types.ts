@@ -1,4 +1,4 @@
-export type LabKind = "cyber" | "nmap" | "wireshark" | "food" | "accounting" | "yemensoft";
+export type LabKind = "food" | "accounting" | "yemensoft";
 
 export interface ScenarioTask {
   id: string;

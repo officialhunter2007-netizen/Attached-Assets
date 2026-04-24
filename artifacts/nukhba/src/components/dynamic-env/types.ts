@@ -69,7 +69,27 @@ export type DynComponent =
   | { type: "richDocument"; title: string; sections: Array<{ heading: string; body: string }> }
   | { type: "invoice"; title?: string; bindTo: string; companyName?: string; companyDetails?: string }
   | { type: "trialBalance"; title?: string; entriesPath: string; accountsPath?: string }
-  | { type: "calculator"; title?: string; description?: string; expression?: string };
+  | { type: "calculator"; title?: string; description?: string; expression?: string }
+  // ── Universal interactive primitives (work across ANY subject) ───────────
+  // Sandboxed mini web app — runs AI-generated HTML/JS in an iframe with the
+  // strictest sandbox flags (NEVER allow-same-origin). Communicates with the
+  // host shell via postMessage events tagged with the per-env nonce.
+  | { type: "webApp"; title?: string; html: string; height?: number; description?: string }
+  // Network packet capture viewer — table of frames + decoded layers (L2/L3/L4).
+  | { type: "packetCapture"; title?: string; bindTo?: string; packets?: Array<{ no: number; time: string; src: string; dst: string; protocol: string; length: number; info: string; layers?: Record<string, any> }> }
+  // Read-only terminal/console viewer — for showing simulated command output,
+  // build logs, training trace lines, etc. Pure display, no execution.
+  | { type: "terminal"; title?: string; bindTo?: string; lines?: string[]; prompt?: string; height?: number }
+  // File system explorer — browse a virtual tree (folders + files).
+  // Tree nodes: { name, type: "dir"|"file", children?, content? }
+  | { type: "fileSystemExplorer"; title?: string; bindTo: string; allowDownload?: boolean; height?: number }
+  // Tabbed mini-browser — pretend address bar + a list of "pages" the env
+  // declares. Picking a page renders its HTML in a sandboxed iframe.
+  | { type: "browser"; title?: string; bindTo?: string; pages?: Array<{ url: string; title?: string; html: string }>; height?: number }
+  // Network topology diagram — nodes (hosts/devices) + edges (links).
+  | { type: "networkDiagram"; title?: string; bindTo?: string; nodes?: Array<{ id: string; label: string; kind?: string; x?: number; y?: number }>; edges?: Array<{ from: string; to: string; label?: string }>; height?: number }
+  // Structured log viewer with level badges + optional search/filter.
+  | { type: "logViewer"; title?: string; bindTo?: string; entries?: Array<{ ts?: string; level?: "info" | "warn" | "error" | "debug" | "trace"; source?: string; message: string }>; height?: number };
 
 export type DynScreen = {
   id: string;

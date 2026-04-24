@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DynComponent, DynFormField, DynMutation } from "./types";
 import { useEnvState, envUtils } from "./state-engine";
 
@@ -827,7 +827,379 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
         </Card>
       );
 
+    case "webApp":
+      return <WebAppBlock comp={comp} />;
+
+    case "packetCapture":
+      return <PacketCaptureBlock comp={comp} state={env.state} />;
+
+    case "terminal":
+      return <TerminalBlock comp={comp} state={env.state} />;
+
+    case "fileSystemExplorer":
+      return <FileSystemExplorerBlock comp={comp} state={env.state} />;
+
+    case "browser":
+      return <BrowserBlock comp={comp} state={env.state} />;
+
+    case "networkDiagram":
+      return <NetworkDiagramBlock comp={comp} state={env.state} />;
+
+    case "logViewer":
+      return <LogViewerBlock comp={comp} state={env.state} />;
+
     default:
       return null;
   }
+}
+
+// ─── Sandboxed mini web app ─────────────────────────────────────────────────
+// SECURITY: AI-generated HTML is rendered with the strictest iframe sandbox
+// that still allows scripts to run.
+//   - NO `allow-same-origin`  → iframe runs in an opaque origin and cannot
+//                               read cookies/localStorage/sessionStorage of
+//                               the parent app.
+//   - NO `allow-forms`        → AI HTML cannot submit forms to any origin
+//                               (avoids CSRF-style request triggering against
+//                               our own backend). Authors must use JS-handled
+//                               <button onclick> instead of native <form>.
+//   - NO `allow-popups`, `allow-top-navigation`, `allow-modals`, etc.
+// Messages from the iframe are treated as **untrusted telemetry**: we only
+// trust the source window and use the nonce purely as a sanity tag.
+function WebAppBlock({ comp }: { comp: Extract<DynComponent, { type: "webApp" }> }) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  // Per-render nonce so the parent can sanity-check postMessage events came
+  // from the HTML we just injected (not stale frames/older renders).
+  const nonce = useMemo(() => Math.random().toString(36).slice(2, 12) + Date.now().toString(36), [comp.html]);
+  const [events, setEvents] = useState<Array<{ type: string; data?: any; ts: number }>>([]);
+
+  // Inject a tiny bridge into the user HTML so it can call
+  // window.envEmit(type, data) → parent.postMessage({ __envNonce, type, data })
+  const wrappedHtml = useMemo(() => {
+    const bridge = `<script>(function(){try{window.__envNonce=${JSON.stringify(nonce)};window.envEmit=function(type,data){try{parent.postMessage({__envNonce:window.__envNonce,type:String(type||"event"),data:data},"*")}catch(e){}};}catch(e){}})();<\/script>`;
+    const html = String(comp.html || "");
+    if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, bridge + "</head>");
+    if (/<body[^>]*>/i.test(html)) return html.replace(/<body([^>]*)>/i, "<body$1>" + bridge);
+    return bridge + html;
+  }, [comp.html, nonce]);
+
+  useEffect(() => {
+    function onMsg(ev: MessageEvent) {
+      // Reject any message that did not come from our own iframe window.
+      if (!ref.current || ev.source !== ref.current.contentWindow) return;
+      const d: any = ev.data;
+      if (!d || typeof d !== "object") return;
+      if (d.__envNonce !== nonce) return;
+      const type = typeof d.type === "string" ? d.type.slice(0, 60) : "event";
+      setEvents((p) => [...p.slice(-19), { type, data: d.data, ts: Date.now() }]);
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [nonce]);
+
+  const height = typeof comp.height === "number" && comp.height > 100 ? comp.height : 480;
+
+  return (
+    <Card title={comp.title || "تطبيق ويب"}>
+      {comp.description && <div className="text-xs text-white/60 mb-2">{comp.description}</div>}
+      <iframe
+        ref={ref}
+        title={comp.title || "webApp"}
+        sandbox="allow-scripts"
+        srcDoc={wrappedHtml}
+        className="w-full rounded-lg border border-white/10 bg-white"
+        style={{ height }}
+      />
+      {events.length > 0 && (
+        <details className="mt-2">
+          <summary className="text-xs text-white/60 cursor-pointer hover:text-white/80">أحداث التطبيق ({events.length})</summary>
+          <div className="mt-1 space-y-1 max-h-40 overflow-y-auto" dir="ltr">
+            {events.map((e, i) => (
+              <div key={i} className="text-[11px] font-mono bg-black/40 border border-white/10 rounded p-1.5 text-cyan-200">
+                <span className="text-white/40">{new Date(e.ts).toLocaleTimeString()}</span>{" "}
+                <span className="text-amber-300">{e.type}</span>
+                {e.data !== undefined && <span className="text-white/70"> {typeof e.data === "string" ? e.data : JSON.stringify(e.data).slice(0, 200)}</span>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </Card>
+  );
+}
+
+// ─── Packet capture viewer ──────────────────────────────────────────────────
+function PacketCaptureBlock({ comp, state }: { comp: Extract<DynComponent, { type: "packetCapture" }>; state: any }) {
+  const packets = comp.bindTo ? arr<any>(envUtils.getByPath(state, comp.bindTo)) : arr<any>(comp.packets);
+  const [sel, setSel] = useState<number | null>(null);
+  const selected = sel !== null ? packets[sel] : null;
+  return (
+    <Card title={comp.title || "التقاط الحزم"}>
+      <div className="grid md:grid-cols-2 gap-2">
+        <div className="overflow-x-auto max-h-80 overflow-y-auto border border-white/10 rounded" dir="ltr">
+          <table className="w-full text-[11px] font-mono">
+            <thead className="bg-black/40 text-white/70 sticky top-0">
+              <tr>
+                <th className="p-1 text-left">#</th>
+                <th className="p-1 text-left">Time</th>
+                <th className="p-1 text-left">Source</th>
+                <th className="p-1 text-left">Dest</th>
+                <th className="p-1 text-left">Proto</th>
+                <th className="p-1 text-left">Len</th>
+                <th className="p-1 text-left">Info</th>
+              </tr>
+            </thead>
+            <tbody>
+              {packets.length === 0 && <tr><td colSpan={7} className="text-center text-white/40 p-3">لا توجد حزم.</td></tr>}
+              {packets.map((p: any, i: number) => (
+                <tr key={i} onClick={() => setSel(i)} className={`cursor-pointer ${sel === i ? "bg-cyan-500/20" : "hover:bg-white/5"} border-b border-white/5`}>
+                  <td className="p-1 text-white/60">{p.no ?? i + 1}</td>
+                  <td className="p-1 text-white/70">{p.time ?? ""}</td>
+                  <td className="p-1 text-white/80">{p.src ?? ""}</td>
+                  <td className="p-1 text-white/80">{p.dst ?? ""}</td>
+                  <td className="p-1 text-cyan-300">{p.protocol ?? ""}</td>
+                  <td className="p-1 text-white/60">{p.length ?? ""}</td>
+                  <td className="p-1 text-white/85 truncate max-w-[180px]">{p.info ?? ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="border border-white/10 rounded p-2 bg-black/30 max-h-80 overflow-y-auto" dir="ltr">
+          {selected ? (
+            <div className="text-[11px] font-mono space-y-1">
+              <div className="text-cyan-300 font-bold">Packet #{selected.no ?? (sel! + 1)}</div>
+              <div className="text-white/70">{selected.src} → {selected.dst} [{selected.protocol}]</div>
+              {selected.layers && Object.entries(selected.layers).map(([k, v]) => (
+                <details key={k} open className="border-t border-white/10 pt-1">
+                  <summary className="text-amber-300 cursor-pointer">{k}</summary>
+                  <pre className="text-white/70 whitespace-pre-wrap text-[10px] mt-1">{typeof v === "string" ? v : JSON.stringify(v, null, 2)}</pre>
+                </details>
+              ))}
+              {selected.info && <div className="text-white/85 mt-2 text-xs">{selected.info}</div>}
+            </div>
+          ) : (
+            <div className="text-xs text-white/40 text-center pt-8">اختر حزمة لعرض تفاصيلها.</div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ─── Read-only terminal/console viewer ─────────────────────────────────────
+function TerminalBlock({ comp, state }: { comp: Extract<DynComponent, { type: "terminal" }>; state: any }) {
+  const lines = comp.bindTo ? arr<any>(envUtils.getByPath(state, comp.bindTo)) : arr<any>(comp.lines);
+  const height = typeof comp.height === "number" && comp.height > 80 ? comp.height : 300;
+  const prompt = comp.prompt || "$";
+  return (
+    <Card title={comp.title || "الطرفية"}>
+      <div
+        className="bg-black border border-white/10 rounded p-3 overflow-auto font-mono text-[12px] text-green-300 leading-snug"
+        style={{ height }}
+        dir="ltr"
+      >
+        {lines.length === 0 && <div className="text-white/30">{prompt} <span className="animate-pulse">▌</span></div>}
+        {lines.map((l: any, i: number) => (
+          <div key={i} className="whitespace-pre-wrap">
+            {typeof l === "string" && l.startsWith(">") ? <span className="text-cyan-300">{l}</span> : <span>{String(l)}</span>}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+// ─── File system explorer ──────────────────────────────────────────────────
+type FsNode = { name?: string; type?: "dir" | "file"; children?: any; content?: string; size?: number };
+function FileSystemExplorerBlock({ comp, state }: { comp: Extract<DynComponent, { type: "fileSystemExplorer" }>; state: any }) {
+  const root = envUtils.getByPath(state, comp.bindTo);
+  const [selected, setSelected] = useState<{ path: string; node: FsNode } | null>(null);
+  const height = typeof comp.height === "number" && comp.height > 120 ? comp.height : 360;
+
+  // Build a Blob URL only for the currently-selected file and revoke it when
+  // the selection changes or the block unmounts (avoids leaking object URLs).
+  const downloadUrl = useMemo(() => {
+    if (!selected || selected.node.content == null) return null;
+    return URL.createObjectURL(new Blob([String(selected.node.content)], { type: "text/plain" }));
+  }, [selected]);
+  useEffect(() => {
+    return () => { if (downloadUrl) URL.revokeObjectURL(downloadUrl); };
+  }, [downloadUrl]);
+
+  const renderTree = (node: any, name: string, path: string, depth: number): any => {
+    if (!node || typeof node !== "object") return null;
+    const isDir = node.type === "dir" || (node.children && typeof node.children === "object" && !node.content);
+    const children = node.children && typeof node.children === "object" ? node.children : null;
+    return (
+      <div key={path} style={{ paddingInlineStart: depth * 12 }}>
+        <button
+          onClick={() => !isDir && setSelected({ path, node })}
+          className={`flex items-center gap-1.5 text-xs py-0.5 hover:text-cyan-300 ${selected?.path === path ? "text-cyan-300" : "text-white/80"}`}
+        >
+          <span>{isDir ? "📁" : "📄"}</span>
+          <span dir="ltr">{name}</span>
+        </button>
+        {isDir && children && Object.entries(children).map(([k, v]) => renderTree(v, k, `${path}/${k}`, depth + 1))}
+      </div>
+    );
+  };
+
+  return (
+    <Card title={comp.title || "نظام الملفات"}>
+      <div className="grid md:grid-cols-2 gap-2" style={{ height }}>
+        <div className="overflow-auto border border-white/10 rounded p-2 bg-black/30">
+          {root && typeof root === "object"
+            ? renderTree(root, root.name || "/", "/", 0)
+            : <div className="text-xs text-white/40">لا توجد ملفات.</div>}
+        </div>
+        <div className="overflow-auto border border-white/10 rounded p-2 bg-black/30">
+          {selected ? (
+            <>
+              <div className="text-xs text-cyan-300 mb-1 font-mono" dir="ltr">{selected.path}</div>
+              <pre className="text-[11px] text-white/85 whitespace-pre-wrap font-mono" dir="ltr">{String(selected.node.content ?? "")}</pre>
+              {comp.allowDownload && downloadUrl && (
+                <a
+                  href={downloadUrl}
+                  download={selected.node.name || "file.txt"}
+                  className="inline-block mt-2 text-[11px] bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 rounded px-2 py-1 text-cyan-200"
+                >تنزيل</a>
+              )}
+            </>
+          ) : (
+            <div className="text-xs text-white/40 text-center pt-8">اختر ملفاً لعرض محتواه.</div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ─── Mini sandboxed browser ────────────────────────────────────────────────
+function BrowserBlock({ comp, state }: { comp: Extract<DynComponent, { type: "browser" }>; state: any }) {
+  const pages = comp.bindTo ? arr<any>(envUtils.getByPath(state, comp.bindTo)) : arr<any>(comp.pages);
+  const [idx, setIdx] = useState(0);
+  const current = pages[idx] || null;
+  const height = typeof comp.height === "number" && comp.height > 200 ? comp.height : 480;
+  return (
+    <Card title={comp.title || "المتصفح"}>
+      <div className="flex flex-wrap gap-1 mb-2 border-b border-white/10 pb-1">
+        {pages.length === 0 && <span className="text-xs text-white/40">لا توجد صفحات.</span>}
+        {pages.map((p: any, i: number) => (
+          <button
+            key={i}
+            onClick={() => setIdx(i)}
+            className={`text-xs px-2 py-1 rounded ${idx === i ? "bg-cyan-500/20 text-cyan-200" : "bg-white/5 text-white/70 hover:bg-white/10"}`}
+          >{p.title || p.url}</button>
+        ))}
+      </div>
+      {current && (
+        <>
+          <div className="flex items-center gap-1 mb-1 text-[11px] font-mono text-white/70 bg-black/40 border border-white/10 rounded px-2 py-1" dir="ltr">
+            <span>🌐</span>
+            <span className="truncate">{current.url || "about:blank"}</span>
+          </div>
+          {/* Same sandbox policy as WebAppBlock — see security note above. */}
+          <iframe
+            title={current.url || "browser"}
+            sandbox="allow-scripts"
+            srcDoc={String(current.html || "")}
+            className="w-full rounded-lg border border-white/10 bg-white"
+            style={{ height }}
+          />
+        </>
+      )}
+    </Card>
+  );
+}
+
+// ─── Network topology diagram ──────────────────────────────────────────────
+function NetworkDiagramBlock({ comp, state }: { comp: Extract<DynComponent, { type: "networkDiagram" }>; state: any }) {
+  const data = comp.bindTo ? envUtils.getByPath(state, comp.bindTo) : { nodes: comp.nodes, edges: comp.edges };
+  const nodes = arr<any>(data?.nodes || comp.nodes);
+  const edges = arr<any>(data?.edges || comp.edges);
+  const height = typeof comp.height === "number" && comp.height > 120 ? comp.height : 320;
+  const W = 600, H = height;
+
+  // Compute positions: use provided x/y when present, else auto-layout in a circle.
+  const positioned = nodes.map((n: any, i: number) => {
+    if (typeof n.x === "number" && typeof n.y === "number") return n;
+    const angle = (i / Math.max(nodes.length, 1)) * Math.PI * 2;
+    const r = Math.min(W, H) * 0.36;
+    return { ...n, x: W / 2 + Math.cos(angle) * r, y: H / 2 + Math.sin(angle) * r };
+  });
+  const byId = new Map(positioned.map((n: any) => [n.id, n]));
+
+  return (
+    <Card title={comp.title || "طوبولوجيا الشبكة"}>
+      <div className="bg-black/40 border border-white/10 rounded overflow-hidden" style={{ height }}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full">
+          {edges.map((e: any, i: number) => {
+            const a: any = byId.get(e.from); const b: any = byId.get(e.to);
+            if (!a || !b) return null;
+            return (
+              <g key={i}>
+                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="rgba(34,211,238,0.45)" strokeWidth="1.5" />
+                {e.label && (
+                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4} fontSize="10" fill="#94a3b8" textAnchor="middle">{e.label}</text>
+                )}
+              </g>
+            );
+          })}
+          {positioned.map((n: any) => (
+            <g key={n.id}>
+              <circle cx={n.x} cy={n.y} r="22" fill="rgba(34,211,238,0.18)" stroke="#22d3ee" strokeWidth="1.5" />
+              <text x={n.x} y={n.y + 4} fontSize="11" fill="#e0f2fe" textAnchor="middle" fontWeight="bold">{n.label || n.id}</text>
+              {n.kind && <text x={n.x} y={n.y + 38} fontSize="9" fill="#94a3b8" textAnchor="middle">{n.kind}</text>}
+            </g>
+          ))}
+        </svg>
+      </div>
+    </Card>
+  );
+}
+
+// ─── Structured log viewer ─────────────────────────────────────────────────
+function LogViewerBlock({ comp, state }: { comp: Extract<DynComponent, { type: "logViewer" }>; state: any }) {
+  const entries = comp.bindTo ? arr<any>(envUtils.getByPath(state, comp.bindTo)) : arr<any>(comp.entries);
+  const [filter, setFilter] = useState("");
+  const [level, setLevel] = useState<string>("");
+  const filtered = entries.filter((e: any) => {
+    if (level && e.level !== level) return false;
+    if (filter && !(`${e.message || ""} ${e.source || ""}`.toLowerCase().includes(filter.toLowerCase()))) return false;
+    return true;
+  });
+  const height = typeof comp.height === "number" && comp.height > 120 ? comp.height : 320;
+  const levelColor = (lv?: string) =>
+    lv === "error" ? "bg-red-500/20 text-red-200 border-red-500/40"
+    : lv === "warn" ? "bg-amber-500/20 text-amber-200 border-amber-500/40"
+    : lv === "debug" ? "bg-purple-500/20 text-purple-200 border-purple-500/40"
+    : lv === "trace" ? "bg-white/10 text-white/60 border-white/20"
+    : "bg-cyan-500/20 text-cyan-200 border-cyan-500/40";
+  return (
+    <Card title={comp.title || "السجلات"}>
+      <div className="flex flex-wrap gap-2 mb-2" dir="ltr">
+        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="filter…" className="flex-1 min-w-[120px] bg-black/30 border border-white/15 rounded px-2 py-1 text-xs text-white" />
+        <select value={level} onChange={(e) => setLevel(e.target.value)} className="bg-black/30 border border-white/15 rounded px-2 py-1 text-xs text-white">
+          <option value="">all levels</option>
+          <option value="info">info</option>
+          <option value="warn">warn</option>
+          <option value="error">error</option>
+          <option value="debug">debug</option>
+          <option value="trace">trace</option>
+        </select>
+      </div>
+      <div className="bg-black/40 border border-white/10 rounded p-2 overflow-auto font-mono text-[11px] space-y-0.5" style={{ height }} dir="ltr">
+        {filtered.length === 0 && <div className="text-white/40 text-center py-4">لا توجد سجلات مطابقة.</div>}
+        {filtered.map((e: any, i: number) => (
+          <div key={i} className="flex items-start gap-2 py-0.5 border-b border-white/5">
+            {e.ts && <span className="text-white/40 shrink-0">{e.ts}</span>}
+            {e.level && <span className={`text-[10px] font-bold uppercase border rounded px-1 py-0.5 shrink-0 ${levelColor(e.level)}`}>{e.level}</span>}
+            {e.source && <span className="text-amber-300 shrink-0">{e.source}</span>}
+            <span className="text-white/85 break-all">{e.message}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
 }

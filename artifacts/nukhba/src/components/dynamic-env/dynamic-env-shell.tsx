@@ -89,6 +89,15 @@ function DynamicEnvShellInner({
     setAssistMsgs((p) => [...p, { role: "user", content: prompt }, { role: "assistant", content: "" }]);
     setAssistInput("");
     setAssistBusy(true);
+
+    // Pick the first not-yet-done task as "current task" so the AI
+    // assistant stays anchored on what the student is supposed to do now.
+    const currentTask = (env.tasks || []).find((t) => !doneTasks.has(t.id));
+    // Send only a compact summary of the world state (full state can be huge).
+    const worldStateSummary = summarizeWorldState(envState.state);
+    // Last few assistant↔user turns inside the lab give continuity.
+    const recentHistory = assistMsgs.slice(-8).map((m) => ({ role: m.role, content: m.content }));
+
     try {
       const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/assist`, {
         method: "POST",
@@ -101,6 +110,11 @@ function DynamicEnvShellInner({
           briefing: env.briefing,
           activeScreen: active?.title,
           question: prompt,
+          worldStateSummary,
+          currentTask: currentTask
+            ? { id: currentTask.id, description: currentTask.description, targetScreen: currentTask.targetScreen, hint: currentTask.hint }
+            : undefined,
+          history: recentHistory,
         }),
       });
       if (!r.ok || !r.body) throw new Error("assist failed");
