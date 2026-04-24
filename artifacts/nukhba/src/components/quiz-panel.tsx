@@ -883,7 +883,13 @@ function AnsweringState({
             </span>
           )}
         </div>
-        <div className="text-white text-[15px] font-semibold leading-relaxed mb-4 whitespace-pre-wrap">{current.prompt}</div>
+        {/* dir="auto" lets the browser decide LTR vs RTL per-paragraph so
+            inline code / English identifiers inside Arabic questions don't
+            get mirrored by the parent's RTL context. */}
+        <div
+          dir="auto"
+          className="text-white text-[15px] font-semibold leading-relaxed mb-4 whitespace-pre-wrap"
+        >{current.prompt}</div>
         {current.type === "mcq" && current.choices ? (
           <div className="space-y-2">
             {current.choices.map((c, idx) => {
@@ -909,13 +915,14 @@ function AnsweringState({
             })}
           </div>
         ) : (
+          // dir="auto": browser sets LTR for code/English lines, RTL for Arabic.
           <textarea
+            dir="auto"
             value={answers[current.id] ?? ""}
             onChange={(e) => setAnswer(current.id, e.target.value)}
             rows={4}
             placeholder="اكتب إجابتك هنا..."
             className="w-full p-3 rounded-xl bg-white/[0.03] border border-white/10 focus:border-amber-500/50 focus:bg-white/[0.05] outline-none text-white text-[14px] leading-relaxed resize-none"
-            style={{ direction: "rtl" }}
           />
         )}
       </div>
