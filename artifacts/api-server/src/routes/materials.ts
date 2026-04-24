@@ -312,28 +312,10 @@ router.post("/materials/:id/progress", async (req, res): Promise<any> => {
 });
 
 // ── POST /api/materials/upload — server-proxied streaming upload ─────────────
-// This is the PRIMARY upload path. Replaces the legacy signed-URL flow which
-// fails in deployment because the Replit object-storage sidecar's
-// /signed-object-url endpoint returns 401 for write operations.
-//
-// Flow: client POSTs multipart (file + subjectId) → multer writes the body
-// to a temp file on disk (so we never buffer 50MB in RAM) → server STREAMS
-// the temp file to the bucket via the @google-cloud/storage SDK that the
-// rest of the app already uses for downloads (the sidecar's `/token` auth
-// path that's known to work in deployment) → server inserts the
-// course_materials row, kicks off processing, and returns { id, status } —
-// same shape the legacy /finalize endpoint returned.
-//
-// NOTE: An earlier version of this endpoint used the `@replit/object-storage`
-// SDK; that SDK's internal sidecar call returns "no allowed resources" in
-// deployment for this bucket while GCS calls succeed, so it was removed.
-//
-// Disk-based multer + read-stream upload keeps memory pressure flat regardless
-// of file size or concurrency, satisfying the architectural streaming
-// requirement.
+// Replaces the signed-URL flow (sidecar /signed-object-url returns 401 in
+// deployment). Streams multer disk temp file → GCS via createWriteStream
+// (same SDK auth path used by /objects/* GET, which works in deployment).
 const UPLOAD_TMP_DIR = path.join(tmpdir(), "nukhba-uploads");
-// Best-effort tmpdir creation at module load — failures here are harmless
-// because multer will create per-request files lazily.
 fsp.mkdir(UPLOAD_TMP_DIR, { recursive: true }).catch(() => {});
 
 const uploadMiddleware = multer({
@@ -344,9 +326,7 @@ const uploadMiddleware = multer({
   limits: { fileSize: MAX_FILE_SIZE_BYTES, files: 1 },
 });
 
-// Quota helper used by /materials/upload — runs BEFORE we accept body bytes
-// AND again right before INSERT, to close the parallel-upload race window
-// the legacy /finalize path also guarded against.
+// Quota helper for /materials/upload. Called pre-parse and pre-INSERT.
 async function checkUploadQuota(
   userId: number,
   subjectId: string,
@@ -385,17 +365,10 @@ async function checkUploadQuota(
 
 router.post(
   "/materials/upload",
-  // STAGE 1 — auth + quota gate BEFORE any multipart body is parsed. Without
-  // this, an unauthenticated caller could force the server to buffer up to
-  // MAX_FILE_SIZE_BYTES into memory just to reach the auth check, creating
-  // a trivial memory-exhaustion DoS vector.
+  // Auth + early quota gate before multer reads the body (DoS guard).
   async (req: any, res: any, next: any) => {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    // We need subjectId for the early quota check, but it's inside the
-    // multipart body. Allow it via query string OR header so it can be
-    // validated up front; the multipart field is also accepted later as a
-    // fallback for older clients.
     const earlySubjectId = String(req.query?.subjectId ?? req.headers["x-subject-id"] ?? "");
     if (earlySubjectId) {
       const q = await checkUploadQuota(userId, earlySubjectId);
@@ -403,8 +376,6 @@ router.post(
     }
     next();
   },
-  // STAGE 2 — multer parses the multipart body. Wrapped so multer-specific
-  // errors (LIMIT_FILE_SIZE etc.) become our standard JSON error shape.
   (req: any, res: any, next: any) => {
     uploadMiddleware.single("file")(req, res, (err: any) => {
       if (!err) return next();
@@ -416,8 +387,6 @@ router.post(
     });
   },
   async (req: any, res: any): Promise<any> => {
-    // Re-read userId after multer — req.session is preserved across middlewares
-    // but TypeScript doesn't know that.
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
@@ -431,15 +400,11 @@ router.post(
     if (file.size > MAX_FILE_SIZE_BYTES) {
       return res.status(413).json({ error: "FILE_TOO_LARGE", maxBytes: MAX_FILE_SIZE_BYTES });
     }
-    // Defence-in-depth: enforce PDF on the server too. The processing
-    // pipeline assumes PDF — anything else would silently fail extraction.
     const fileName = String(file.originalname || "").slice(0, 200);
     if (!fileName.toLowerCase().endsWith(".pdf")) {
       return res.status(400).json({ error: "INVALID_FILE_TYPE" });
     }
 
-    // Re-check quota now that subjectId is known (or re-confirmed). This
-    // also runs again right before INSERT to close the parallel-upload race.
     {
       const q = await checkUploadQuota(userId, subjectId);
       if (!q.ok) return res.status(q.status).json(q.body);
@@ -450,30 +415,19 @@ router.post(
       const privateDir = svc.getPrivateObjectDir();
       const objectId = randomUUID();
 
-      // PRIVATE_OBJECT_DIR layout is "{bucketName}/{prefix...}". We need the
-      // PREFIX-WITHIN-BUCKET so the SDK (which auto-targets the default
-      // bucket) writes to the same physical path the legacy flow used. This
-      // keeps processMaterial's getObjectEntityFile("/objects/uploads/{id}")
-      // resolution working without any change.
-      const normalizedPrivateDir = privateDir.startsWith("/")
-        ? privateDir.slice(1)
-        : privateDir;
-      const segments = normalizedPrivateDir.split("/").filter(Boolean);
+      // PRIVATE_OBJECT_DIR = "/{bucket}/{prefix}". Split to get bucketName.
+      const segments = privateDir.replace(/^\//, "").split("/").filter(Boolean);
       if (segments.length < 1) {
         throw new Error("Invalid PRIVATE_OBJECT_DIR layout");
       }
       const bucketName = segments[0];
-      const prefixWithinBucket = segments.slice(1).join("/"); // may be empty
+      const prefixWithinBucket = segments.slice(1).join("/");
       const objectNameInBucket = prefixWithinBucket
         ? `${prefixWithinBucket}/uploads/${objectId}`
         : `uploads/${objectId}`;
 
-      // Stream the temp file straight to GCS via the @google-cloud/storage
-      // SDK. The download path (processMaterial → getObjectEntityFile →
-      // file.createReadStream) already uses this exact SDK in deployment and
-      // works there, so the auth path (sidecar `/token` endpoint) is known
-      // good. resumable:false avoids the multi-step resumable handshake
-      // which is unnecessary for sub-50MB files and adds extra round-trips.
+      // Stream temp file → GCS via the same SDK used by the working
+      // /objects/* GET path. resumable:false skips the handshake for <50MB.
       const gcsFile = objectStorageClient.bucket(bucketName).file(objectNameInBucket);
       await new Promise<void>((resolve, reject) => {
         const writeStream = gcsFile.createWriteStream({
@@ -483,27 +437,17 @@ router.post(
         });
         writeStream.once("error", reject);
         writeStream.once("finish", () => resolve());
-        createReadStream(file.path)
-          .once("error", reject)
-          .pipe(writeStream);
+        createReadStream(file.path).once("error", reject).pipe(writeStream);
       });
 
-      // Set ACL the same way the legacy finalize did. Download path
-      // (processMaterial) uses this same code path in deployment and works,
-      // so attaching the ACL via this client is safe here.
       await setObjectAclPolicy(gcsFile, {
         owner: String(userId),
         visibility: "private",
       });
 
-      // Stored objectPath uses the /objects/ entity convention so
-      // getObjectEntityFile() can resolve it later — identical to legacy.
       const objectPath = `/objects/uploads/${objectId}`;
 
-      // FINAL quota check — race-window guard. A concurrent upload may have
-      // landed since the earlier check but before we INSERT. If we are now
-      // over quota, abort BEFORE inserting and clean up the just-uploaded
-      // object so the bucket doesn't accumulate orphans.
+      // Race-window guard: re-check quota and clean up orphan if exceeded.
       {
         const q = await checkUploadQuota(userId, subjectId);
         if (!q.ok) {
@@ -526,8 +470,6 @@ router.post(
         })
         .returning();
 
-      // Mirror the teaching-mode default that /finalize sets, so a fresh
-      // student lands in "professor" mode after their first upload.
       const [existingMode] = await db
         .select()
         .from(userSubjectTeachingModesTable)
