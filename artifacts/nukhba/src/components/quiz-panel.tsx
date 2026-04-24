@@ -94,8 +94,11 @@ export function QuizPanel({
   const [scope, setScope] = useState<ScopeData | null>(null);
   const [scopeMode, setScopeMode] = useState<ScopeMode>("chapter");
   const [pickedChapterIdx, setPickedChapterIdx] = useState<number | null>(null);
-  const [customStart, setCustomStart] = useState<number>(1);
-  const [customEnd, setCustomEnd] = useState<number>(1);
+  // Stored as raw strings so the student can type freely (clear the field,
+  // type a new number, etc.) without us forcing a value of 1 into empty inputs.
+  // Validation/clamping happens at submit time.
+  const [customStart, setCustomStart] = useState<string>("");
+  const [customEnd, setCustomEnd] = useState<string>("");
   // Pages actually used for the current run, echoed by the server.
   const [activeScope, setActiveScope] = useState<ResolvedScope | null>(null);
 
@@ -137,10 +140,11 @@ export function QuizPanel({
         setScope(data);
         const idx = data.currentChapterIndex ?? (data.chapters[0]?.index ?? null);
         setPickedChapterIdx(idx);
-        const total = Math.max(1, data.pageCount ?? 1);
-        const ch = idx != null ? data.chapters.find((c) => c.index === idx) : null;
-        setCustomStart(ch?.startPage ?? 1);
-        setCustomEnd(ch?.endPage ?? Math.min(10, total));
+        // Leave the custom-range inputs empty — the student types their own
+        // numbers. (Earlier we pre-filled them from the current chapter, but
+        // that produced a "1" placeholder users couldn't easily clear.)
+        setCustomStart("");
+        setCustomEnd("");
         // If there are no chapters, default to "full file" mode.
         setScopeMode(data.chapters.length === 0 ? "full" : "chapter");
         setPhase("scope");
@@ -209,8 +213,14 @@ export function QuizPanel({
     if (scopeMode === "chapter" && pickedChapterIdx != null) {
       body = { chapterIndex: pickedChapterIdx };
     } else if (scopeMode === "custom") {
-      const s = Math.max(1, Math.min(total, Math.round(customStart) || 1));
-      const e = Math.max(s, Math.min(total, Math.round(customEnd) || s));
+      // Inputs are free-form strings — parse once here and clamp into the
+      // valid file range. If either field is empty/non-numeric we abort
+      // (canStart already prevents this from being reached).
+      const sNum = Math.round(Number(customStart));
+      const eNum = Math.round(Number(customEnd));
+      if (!Number.isFinite(sNum) || !Number.isFinite(eNum)) return;
+      const s = Math.max(1, Math.min(total, sNum));
+      const e = Math.max(s, Math.min(total, eNum));
       body = { pageStart: s, pageEnd: e };
     } else {
       body = { pageStart: 1, pageEnd: total };
@@ -501,8 +511,8 @@ function pendingScopeLabel(
   scope: ScopeData | null,
   mode: ScopeMode,
   pickedIdx: number | null,
-  customStart: number,
-  customEnd: number,
+  customStart: string,
+  customEnd: string,
   kind: QuizKind,
 ): string | null {
   if (kind === "exam") return null;
@@ -511,7 +521,7 @@ function pendingScopeLabel(
     const ch = scope.chapters.find((c) => c.index === pickedIdx);
     if (ch) return `${ch.title} (صفحات ${ch.startPage}–${ch.endPage})`;
   }
-  if (mode === "custom") return `صفحات ${customStart}–${customEnd}`;
+  if (mode === "custom" && customStart && customEnd) return `صفحات ${customStart}–${customEnd}`;
   if (mode === "full" && scope.pageCount) return `كل الملف (صفحات 1–${scope.pageCount})`;
   return null;
 }
@@ -529,10 +539,10 @@ function ScopePicker({
   setMode: (m: ScopeMode) => void;
   pickedChapterIdx: number | null;
   setPickedChapterIdx: (i: number | null) => void;
-  customStart: number;
-  customEnd: number;
-  setCustomStart: (n: number) => void;
-  setCustomEnd: (n: number) => void;
+  customStart: string;
+  customEnd: string;
+  setCustomStart: (val: string) => void;
+  setCustomEnd: (val: string) => void;
   onStart: () => void;
 }) {
   const total = Math.max(1, scope.pageCount ?? 1);
@@ -540,9 +550,22 @@ function ScopePicker({
   const pickedChapter = pickedChapterIdx != null
     ? scope.chapters.find((c) => c.index === pickedChapterIdx) ?? null
     : null;
+  // Custom-range start gate: both fields must be filled with numbers that
+  // form a valid range inside the file. Empty fields keep the button disabled
+  // without forcing any default value into the inputs.
+  const customStartNum = Number(customStart);
+  const customEndNum = Number(customEnd);
+  const customRangeValid =
+    customStart.trim() !== "" &&
+    customEnd.trim() !== "" &&
+    Number.isFinite(customStartNum) &&
+    Number.isFinite(customEndNum) &&
+    customStartNum >= 1 &&
+    customEndNum >= customStartNum &&
+    customEndNum <= total;
   const canStart =
     (mode === "chapter" && pickedChapter != null) ||
-    (mode === "custom" && customStart >= 1 && customEnd >= customStart && customEnd <= total) ||
+    (mode === "custom" && customRangeValid) ||
     mode === "full";
 
   return (
@@ -608,8 +631,8 @@ function ScopePicker({
       {mode === "custom" && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <NumField label="من صفحة" value={customStart} min={1} max={total} onChange={setCustomStart} />
-            <NumField label="إلى صفحة" value={customEnd} min={Math.max(1, customStart)} max={total} onChange={setCustomEnd} />
+            <NumField label="من صفحة" value={customStart} min={1} max={total} placeholder="مثلاً 1" onChange={setCustomStart} />
+            <NumField label="إلى صفحة" value={customEnd} min={1} max={total} placeholder={`مثلاً ${total}`} onChange={setCustomEnd} />
           </div>
           <div className="text-[11px] text-white/55">
             عدد الصفحات في الملف: <span className="text-white/85 font-bold">{total}</span>
@@ -666,28 +689,35 @@ function ScopeCard({
 }
 
 function NumField({
-  label, value, min, max, onChange,
+  label, value, min, max, placeholder, onChange,
 }: {
   label: string;
-  value: number;
+  // Free-form string so the field can be cleared completely while typing.
+  // The parent is responsible for parsing/validating before submission.
+  value: string;
   min: number;
   max: number;
-  onChange: (n: number) => void;
+  placeholder?: string;
+  onChange: (val: string) => void;
 }) {
   return (
     <div>
       <label className="block text-[11px] font-bold text-white/65 mb-1.5">{label}</label>
       <input
         type="number"
+        inputMode="numeric"
         min={min}
         max={max}
         value={value}
+        placeholder={placeholder}
         onChange={(e) => {
-          const n = Number(e.target.value);
-          if (!Number.isFinite(n)) return;
-          onChange(Math.max(min, Math.min(max, Math.round(n))));
+          // Forward the raw string. Allow empty so the student can erase
+          // and retype any number without us snapping back to a default.
+          // Strip any non-digit characters defensively.
+          const raw = e.target.value.replace(/[^\d]/g, "");
+          onChange(raw);
         }}
-        className="w-full p-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-white text-[14px] font-bold text-center focus:border-amber-500/50 outline-none"
+        className="w-full p-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-white text-[14px] font-bold text-center focus:border-amber-500/50 outline-none placeholder:text-white/25 placeholder:font-normal"
       />
     </div>
   );
