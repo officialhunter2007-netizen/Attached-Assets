@@ -35,8 +35,10 @@ export function signSession(payload: SessionPayload): string {
 }
 
 export function verifySession(token: string): SessionPayload | null {
-  if (typeof token !== "string" || !token.includes(".")) return null;
-  const [data, sig] = token.split(".");
+  if (typeof token !== "string") return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [data, sig] = parts;
   if (!data || !sig) return null;
   const expected = b64urlEncode(createHmac("sha256", SECRET).update(data).digest());
   const a = Buffer.from(sig);
