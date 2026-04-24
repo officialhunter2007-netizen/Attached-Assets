@@ -14,17 +14,19 @@ run = "pnpm --filter @workspace/api-server run dev"
 
 [services.production]
 
+# Push the schema during the build phase so it happens ONCE per deploy
+# instead of on every autoscale cold start. The build phase has the
+# production DATABASE_URL available, so push targets the right DB.
 [services.production.build]
-args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
+args = ["sh", "-c", "pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/db push-force"]
 
 [services.production.build.env]
 NODE_ENV = "production"
 
+# Run is now stripped down to just node — every container cold start is fast,
+# no DB round-trip on startup.
 [services.production.run]
-# Sync the DB schema right before starting the server, so the production
-# DATABASE_URL is the one being targeted (and so deploy validation isn't
-# blocked by a long-running schema push during the build phase).
-args = ["sh", "-c", "pnpm --filter @workspace/db push-force && node --enable-source-maps artifacts/api-server/dist/index.mjs"]
+args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 
 [services.production.run.env]
 PORT = "8080"
