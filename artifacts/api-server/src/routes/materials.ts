@@ -5,7 +5,6 @@ import { createReadStream, promises as fsp } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import multer from "multer";
-import { Client as ReplitObjectStorageClient } from "@replit/object-storage";
 import {
   db,
   courseMaterialsTable,
@@ -319,10 +318,15 @@ router.post("/materials/:id/progress", async (req, res): Promise<any> => {
 //
 // Flow: client POSTs multipart (file + subjectId) → multer writes the body
 // to a temp file on disk (so we never buffer 50MB in RAM) → server STREAMS
-// the temp file to the bucket via the official @replit/object-storage SDK
-// (which uses the sidecar's working write path) → server inserts the
+// the temp file to the bucket via the @google-cloud/storage SDK that the
+// rest of the app already uses for downloads (the sidecar's `/token` auth
+// path that's known to work in deployment) → server inserts the
 // course_materials row, kicks off processing, and returns { id, status } —
 // same shape the legacy /finalize endpoint returned.
+//
+// NOTE: An earlier version of this endpoint used the `@replit/object-storage`
+// SDK; that SDK's internal sidecar call returns "no allowed resources" in
+// deployment for this bucket while GCS calls succeed, so it was removed.
 //
 // Disk-based multer + read-stream upload keeps memory pressure flat regardless
 // of file size or concurrency, satisfying the architectural streaming
@@ -339,24 +343,6 @@ const uploadMiddleware = multer({
   }),
   limits: { fileSize: MAX_FILE_SIZE_BYTES, files: 1 },
 });
-
-// SDK client cache. We DO NOT instantiate at module load — the SDK's
-// constructor fires an unawaited init() that fetches the default bucket from
-// the sidecar; if that fetch fails (or no env vars are set yet), the
-// resulting unhandled rejection crashes the entire process. Lazy
-// instantiation also lets us pass bucketId explicitly (extracted from
-// PRIVATE_OBJECT_DIR) so we never depend on the sidecar's default-bucket
-// endpoint, which is unrelated to the bucket the rest of the app uses.
-let _replitObjectStore: ReplitObjectStorageClient | null = null;
-let _replitObjectStoreBucket: string | null = null;
-function getReplitObjectStore(bucketId: string): ReplitObjectStorageClient {
-  if (_replitObjectStore && _replitObjectStoreBucket === bucketId) {
-    return _replitObjectStore;
-  }
-  _replitObjectStore = new ReplitObjectStorageClient({ bucketId });
-  _replitObjectStoreBucket = bucketId;
-  return _replitObjectStore;
-}
 
 // Quota helper used by /materials/upload — runs BEFORE we accept body bytes
 // AND again right before INSERT, to close the parallel-upload race window
@@ -482,24 +468,29 @@ router.post(
         ? `${prefixWithinBucket}/uploads/${objectId}`
         : `uploads/${objectId}`;
 
-      // Stream the temp file straight to the bucket via the official SDK.
-      // uploadFromStream takes a Node Readable and pipes it to the sidecar's
-      // working write path — no signed URL involved, no buffer in memory.
-      const sdkClient = getReplitObjectStore(bucketName);
-      await sdkClient.uploadFromStream(
-        objectNameInBucket,
-        createReadStream(file.path),
-        // compress: false because PDFs are already compressed; recompressing
-        // wastes CPU and provides no benefit. Also keeps download bytes equal
-        // to upload bytes which makes pdf-parse's offsets predictable.
-        { compress: false },
-      );
-
-      // Set ACL the same way the legacy finalize did, using the existing GCS
-      // SDK file handle. The download path (processMaterial) already uses
-      // this exact code path and works in deployment, so reading the
-      // just-uploaded file's metadata to attach an ACL is safe here.
+      // Stream the temp file straight to GCS via the @google-cloud/storage
+      // SDK. The download path (processMaterial → getObjectEntityFile →
+      // file.createReadStream) already uses this exact SDK in deployment and
+      // works there, so the auth path (sidecar `/token` endpoint) is known
+      // good. resumable:false avoids the multi-step resumable handshake
+      // which is unnecessary for sub-50MB files and adds extra round-trips.
       const gcsFile = objectStorageClient.bucket(bucketName).file(objectNameInBucket);
+      await new Promise<void>((resolve, reject) => {
+        const writeStream = gcsFile.createWriteStream({
+          resumable: false,
+          contentType: "application/pdf",
+          metadata: { contentType: "application/pdf" },
+        });
+        writeStream.once("error", reject);
+        writeStream.once("finish", () => resolve());
+        createReadStream(file.path)
+          .once("error", reject)
+          .pipe(writeStream);
+      });
+
+      // Set ACL the same way the legacy finalize did. Download path
+      // (processMaterial) uses this same code path in deployment and works,
+      // so attaching the ACL via this client is safe here.
       await setObjectAclPolicy(gcsFile, {
         owner: String(userId),
         visibility: "private",
@@ -516,8 +507,8 @@ router.post(
       {
         const q = await checkUploadQuota(userId, subjectId);
         if (!q.ok) {
-          await sdkClient
-            .delete(objectNameInBucket)
+          await gcsFile
+            .delete()
             .catch((e: any) => console.warn("[materials/upload] orphan cleanup failed:", e?.message || e));
           return res.status(q.status).json(q.body);
         }
