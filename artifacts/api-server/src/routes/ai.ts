@@ -1279,6 +1279,11 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
   }
 });
 
+// ── /api/ai/run-code is permanently disabled ───────────────────────────────────
+// The previous implementation executed user-submitted code via child_process.exec
+// on the host with no sandboxing — a clear RCE vector. The route remains so the
+// frontend gets a structured error; re-enabling it requires routing through an
+// isolated sandbox (Piston, Judge0, gVisor, etc.), not a quick toggle.
 router.post("/ai/run-code", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
@@ -1286,123 +1291,6 @@ router.post("/ai/run-code", async (req, res) => {
     error: "تشغيل الكود معطّل مؤقتاً لأسباب أمنية",
     code: "RUN_CODE_DISABLED",
   });
-
-  // ── DISABLED: direct shell exec is unsafe (RCE risk).
-  // Re-enable only after wrapping in a sandbox (Piston/Judge0/etc).
-  // The original implementation is kept below but unreachable.
-  // eslint-disable-next-line no-unreachable
-  const { code, language } = req.body as { code: string; language: string };
-  if (!code || !language) return res.status(400).json({ error: "Missing code or language" });
-
-  const { exec } = await import("child_process");
-  const { promisify } = await import("util");
-  const { mkdtemp, writeFile, rm } = await import("fs/promises");
-  const { tmpdir } = await import("os");
-  const { join } = await import("path");
-  const execAsync = promisify(exec);
-  const TIMEOUT = 8000;
-  const MAX_BUF = 1024 * 100;
-
-  async function runInTempDir(
-    filename: string,
-    buildCmd: (dir: string) => string,
-    runCmd: (dir: string) => string
-  ) {
-    const dir = await mkdtemp(join(tmpdir(), "nukhba-"));
-    try {
-      await writeFile(join(dir, filename), code, "utf8");
-      try {
-        await execAsync(buildCmd(dir), { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-      } catch (e: any) {
-        return { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-      }
-      try {
-        const { stdout, stderr } = await execAsync(runCmd(dir), { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-        return { output: stdout, error: stderr, exitCode: 0 };
-      } catch (e: any) {
-        return { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-      }
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  }
-
-  try {
-    let result: { output: string; error: string; exitCode: number };
-
-    // ── Interpreted / direct-run languages ──────────────────────────────
-    if (language === "python") {
-      result = await runInTempDir("main.py", (_d) => "true", (d) => `python3 ${join(d, "main.py")}`);
-    } else if (language === "javascript") {
-      result = await runInTempDir("main.js", (_d) => "true", (d) => `node ${join(d, "main.js")}`);
-    } else if (language === "typescript") {
-      result = await runInTempDir("main.ts", (_d) => "true",
-        (d) => `npx --yes ts-node --skip-project --compiler-options '{"module":"commonjs","esModuleInterop":true}' ${join(d, "main.ts")}`);
-    } else if (language === "bash") {
-      result = await runInTempDir("script.sh", (_d) => "true", (d) => `bash ${join(d, "script.sh")}`);
-    } else if (language === "sql") {
-      result = await runInTempDir("main.sql", (_d) => "true", (d) => `sqlite3 :memory: < ${join(d, "main.sql")}`);
-    } else if (language === "dart") {
-      result = await runInTempDir("main.dart", (_d) => "true", (d) => `dart run ${join(d, "main.dart")}`);
-
-    // ── Compiled languages ──────────────────────────────────────────────
-    } else if (language === "cpp") {
-      result = await runInTempDir("main.cpp",
-        (d) => `g++ -o ${join(d, "out")} ${join(d, "main.cpp")}`,
-        (d) => join(d, "out"));
-    } else if (language === "c") {
-      result = await runInTempDir("main.c",
-        (d) => `gcc -o ${join(d, "out")} ${join(d, "main.c")}`,
-        (d) => join(d, "out"));
-
-    // ── JVM languages (Java / Kotlin) ────────────────────────────────────
-    } else if (language === "java") {
-      const dir = await mkdtemp(join(tmpdir(), "nukhba-"));
-      try {
-        await writeFile(join(dir, "Main.java"), code, "utf8");
-        try {
-          await execAsync(`javac ${join(dir, "Main.java")}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-        } catch (e: any) {
-          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-          return res.json(result);
-        }
-        try {
-          const { stdout, stderr } = await execAsync(`java -cp ${dir} Main`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-          result = { output: stdout, error: stderr, exitCode: 0 };
-        } catch (e: any) {
-          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-        }
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
-    } else if (language === "kotlin") {
-      const dir = await mkdtemp(join(tmpdir(), "nukhba-"));
-      try {
-        await writeFile(join(dir, "Main.kt"), code, "utf8");
-        try {
-          await execAsync(`kotlinc ${join(dir, "Main.kt")} -include-runtime -d ${join(dir, "out.jar")}`, { timeout: 45000, maxBuffer: MAX_BUF });
-        } catch (e: any) {
-          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-          return res.json(result);
-        }
-        try {
-          const { stdout, stderr } = await execAsync(`java -jar ${join(dir, "out.jar")}`, { timeout: TIMEOUT, maxBuffer: MAX_BUF });
-          result = { output: stdout, error: stderr, exitCode: 0 };
-        } catch (e: any) {
-          result = { output: e.stdout || "", error: e.stderr || e.message, exitCode: 1 };
-        }
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
-
-    } else {
-      return res.status(400).json({ error: `اللغة غير مدعومة: ${language}` });
-    }
-
-    return res.json(result);
-  } catch (e: any) {
-    return res.json({ output: "", error: e.message || "خطأ غير معروف", exitCode: 1 });
-  }
 });
 
 // ── Cyber Lab: AI-powered command simulation ───────────────────────────────────
