@@ -943,10 +943,12 @@ async function processMaterial(materialId: number) {
       ocrTotalChunks = ocr.totalChunks;
       ocrSuccessfulChunks = ocr.successfulChunks;
       ocrFailedRanges = ocr.failedRanges;
-      // Length comparison uses ONLY successful-chunk text — placeholders are
-      // intentionally excluded so a mostly-failed OCR can't fake length and
-      // sneak past quality gates.
-      if (ocr.text.length > Math.max(extractedText.length, 200)) {
+      // Adopt OCR output whenever AT LEAST ONE chunk succeeded — even short
+      // OCR (e.g. a single 4-page chunk under 200 chars) is more useful than
+      // an empty native-text result. Only refuse to adopt when native pdf
+      // text is already strictly longer (and therefore the OCR would be a
+      // regression).
+      if (ocr.successfulChunks > 0 && ocr.text.length > extractedText.length) {
         extractedText = ocr.text;
         ocrTextWasAdopted = true;
         const ocrPages = splitOcrTextIntoPages(extractedText);
@@ -969,10 +971,10 @@ async function processMaterial(materialId: number) {
     if (!detectedError && !hasAnyUsableText) {
       detectedError = "تعذّر استخراج أي نص من هذا الملف. حاول رفع نسخة أوضح أو غير ممسوحة ضوئياً.";
     }
-    if (!detectedError && ocrTextWasAdopted && ocrSuccessRatio < 1 && ocrFailedRanges.length > 0) {
-      // Soft warning: name the explicit page ranges that couldn't be read so
-      // the user knows which slides to re-scan. Surfaced via errorMessage on
-      // a status="ready" row; the UI renders it in amber instead of red.
+    // Surface partial-OCR warnings whenever some chunks failed, regardless of
+    // whether the OCR text was "adopted" by the length heuristic. The user
+    // still benefits from knowing which pages we couldn't read.
+    if (!detectedError && ocrTotalChunks > 0 && ocrSuccessfulChunks < ocrTotalChunks && ocrFailedRanges.length > 0) {
       const rangeText = ocrFailedRanges
         .map(([s, e]) => (s === e ? `${s}` : `${s}–${e}`))
         .join("، ");
@@ -1407,7 +1409,15 @@ async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chun
       return { ok: false, status: "rate_limited", cooldownMs, reason: `http_${r.status}` };
     }
     if (!r.ok) {
-      console.warn(`[ocr] ${label} ${model} http`, r.status, (await r.text()).slice(0, 200));
+      const body = (await r.text()).slice(0, 200);
+      console.warn(`[ocr] ${label} ${model} http`, r.status, body);
+      // 4xx (other than 429) means we sent something the provider can't or
+      // won't accept — invalid key (401/403), bad request (400), oversized
+      // payload (413). Retrying won't help, so mark fatal to fall through
+      // to the next provider quickly instead of waiting 65s for backoff.
+      if (r.status >= 400 && r.status < 500) {
+        return { ok: false, status: "fatal", reason: `http_${r.status}` };
+      }
       return { ok: false, status: "transient", reason: `http_${r.status}` };
     }
     const data: any = await r.json();
