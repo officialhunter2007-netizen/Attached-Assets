@@ -2136,21 +2136,35 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   const kindLabel = SPECIALIZATION_LABELS[kind];
 
   // Build a minimal but valid env so the UI ALWAYS has something to render.
-  // No matter what goes wrong with the AI call, we surface a usable env with
-  // the user's description and a friendly note instead of a red error toast.
+  // The fallback is now ACTIONABLE: it includes a form that lets the student
+  // refine their request and bounce it back to the AI teacher (ask-ai) so
+  // they're never stuck on an empty page.
   const buildFallbackEnv = (note: string) => ({
     kind,
-    title: "بيئة تطبيقية",
+    title: "بيئة تطبيقية — بحاجة إلى تفاصيل أكثر",
     briefing: description.slice(0, 280),
-    objectives: [],
-    initialState: {},
+    objectives: ["وضّح ما تريد التدرّب عليه بالضبط حتى يبني المعلم الذكي بيئة كاملة لك."],
+    initialState: { lastRequest: description.slice(0, 500) },
     screens: [{
       id: "screen1",
       title: "ابدأ هنا",
       icon: "💡",
       components: [
         { type: "alert", tone: "info", title: "البيئة جاهزة بشكل مبدئي", text: note },
-        { type: "text", markdown: `**ما طلبتَه:** ${description.slice(0, 400)}\n\nيمكنك إعادة المحاولة بوصف أقصر، أو متابعة المحادثة مع المعلم الذكي لتطوير البيئة.` },
+        { type: "text", markdown: `**ما طلبتَه:** ${description.slice(0, 400)}\n\n**اقتراحات لطلب أوضح:**\n- حدّد مهمة واحدة مركّزة (مثال: "تنظيف عمود التواريخ في dataset مبيعات بسيط").\n- اذكر مستواك (مبتدئ / متوسط / متقدم).\n- اذكر الأداة (Python/Pandas، SQL، ورقة عمل…).` },
+        {
+          type: "form",
+          title: "✍️ صِف ما تريد بالضبط واطلب من المعلم بناءه",
+          description: "اكتب وصفاً مركّزاً (جملة أو جملتين) — سيستلمه المعلم الذكي ويبني لك بيئة جديدة على المقاس.",
+          fields: [
+            { name: "focused", label: "الوصف المركّز", type: "textarea", required: true, placeholder: "مثال: بيئة لتطبيق groupby و pivot على بيانات مبيعات شهرية صغيرة." },
+          ],
+          submit: {
+            type: "ask-ai",
+            prompt: "الطالب جرّب بناء بيئة تطبيقية فلم نتمكن من توليدها بالكامل. وصفه الجديد المركّز مرفق أدناه — اقترح عليه ٢-٣ خيارات مركّزة (multiple-choice) ثم ابنِ البيئة عبر [[CREATE_LAB_ENV: …|easy]] فور اختياره.",
+          },
+          submitLabel: "📨 أرسل للمعلم الذكي ليبنِيَها",
+        },
       ],
     }],
     tasks: [], hints: [], successCriteria: [],
@@ -2256,10 +2270,45 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       }
     }
     if (!env) {
-      console.error("[build-env] parse failed. Raw (first 3000):", raw.slice(0, 3000));
-      console.error("[build-env] Raw (last 1000):", raw.slice(-1000));
+      console.error("[build-env] first pass parse failed. Raw (first 1500):", raw.slice(0, 1500));
+      // ─── Auto-retry pass ──────────────────────────────────────────────
+      // The model often fails to produce valid JSON on rich envs (unescaped
+      // quotes inside HTML strings, truncated output, etc). Try ONE more
+      // time with a tighter, simpler prompt before giving up.
+      try {
+        console.log("[build-env] retrying with strict prompt...");
+        const retry = anthropic.messages.stream({
+          model: "claude-sonnet-4-6",
+          max_tokens: 12000,
+          system: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أعد المحاولة. المحاولة السابقة فشلت في إنتاج JSON صالح. التزم الآن بالقواعد التالية بصرامة:
+1. أرجع كائن JSON واحداً صالحاً، بلا أي markdown أو شرح أو نص قبل/بعد.
+2. اجعل البيئة **أبسط** من المحاولة الأولى: شاشة واحدة تكفي، 2-4 مكونات فقط (كرّس واحداً للتفاعل الحقيقي عبر form/editableTable).
+3. تجنّب \`webApp\` و\`browser\` (HTML طويل = خطر تجاوز الحد). استخدم \`form\`, \`editableTable\`, \`kpiGrid\`, \`text\`, \`alert\` فقط.
+4. كل سلسلة نصية: اهرب الاقتباسات بـ \\" داخلها.`,
+          messages: [{ role: "user", content: `التخصص: ${kindLabel} (${kind})\nالموضوع/المتطلب: ${description}\n\nأعد بناء البيئة بشكل أبسط وأقصر، JSON صالح فقط.` }],
+        });
+        let raw2 = "";
+        for await (const event of retry) {
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") raw2 += event.delta.text;
+        }
+        raw2 = raw2.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/i, "").trim();
+        env = tryParse(raw2);
+        if (!env) {
+          const ex2 = extractJsonObject(raw2);
+          if (ex2) {
+            env = tryParse(ex2.text);
+            if (!env) env = tryParse(repairJson(ex2.text));
+          }
+        }
+        if (env) console.log("[build-env] retry pass succeeded.");
+      } catch (retryErr) {
+        console.error("[build-env] retry pass also failed:", retryErr);
+      }
+    }
+    if (!env) {
+      console.error("[build-env] both passes failed — returning actionable fallback env.");
       // Don't throw — return a friendly fallback env so the user never sees a red error.
-      return res.json({ kind, env: buildFallbackEnv("لم نتمكن من توليد البيئة الكاملة هذه المرّة. حاول وصفاً أكثر تركيزاً (مثلاً: \"بيئة لإدخال قيود مبيعات نقدية مع ميزان مراجعة\")، أو تابع مع المعلم الذكي.") });
+      return res.json({ kind, env: buildFallbackEnv("لم نتمكن من توليد البيئة الكاملة هذه المرّة (حتى بعد محاولة ثانية). يرجى وصف ما تريد بدقة في النموذج أدناه — سيستلمه المعلم ويبني لك بيئة جديدة.") });
     }
 
     env.kind = kind;

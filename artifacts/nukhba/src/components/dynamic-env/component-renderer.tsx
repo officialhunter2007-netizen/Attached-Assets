@@ -60,6 +60,24 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Defensive: the AI sometimes generates a form whose `submit` block is
+    // missing (or whose `submit.type` is missing), or a `mutate` with empty
+    // `ops`, or an `ask-ai` with empty `prompt`. Without this guard the
+    // button silently does nothing and the student can't tell whether they
+    // typed wrong or the env is broken — exactly the "buttons don't work"
+    // complaint we're fixing here. Surface a clear, friendly error instead.
+    if (!comp.submit || typeof (comp.submit as any).type !== "string") {
+      setFeedback({ ok: false, msg: "هذا الزر غير مكتمل التهيئة من المعلم الذكي. اطلب منه إعادة بناء البيئة أو وضّح طلبك." });
+      return;
+    }
+    if (comp.submit.type === "mutate" && (!Array.isArray(comp.submit.ops) || comp.submit.ops.length === 0)) {
+      setFeedback({ ok: false, msg: "هذا الزر معطّل: لا يحتوي على أي عملية فعلية. اطلب من المعلم الذكي إعادة بناء البيئة." });
+      return;
+    }
+    if (comp.submit.type === "ask-ai" && !String((comp.submit as any).prompt || "").trim()) {
+      setFeedback({ ok: false, msg: "هذا الزر يرسل سؤالاً للمعلم لكن السؤال مفقود. أعد بناء البيئة." });
+      return;
+    }
     if (comp.submit.type === "check") {
       const tol = comp.submit.tolerance ?? 0.01;
       let allOk = true;
