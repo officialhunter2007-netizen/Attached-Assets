@@ -2317,23 +2317,21 @@ function normalizeText(s: string): string {
     .trim();
 }
 
-async function generateQuestionsWithGemini(opts: {
+type QuestionGenOpts = {
   text: string;
   fileName: string;
   language: string | null;
   count: number;
   scopeLabel: string;
   mcqRatio?: number;
-}): Promise<QuizQuestion[]> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY missing");
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+};
+
+function buildQuizPrompt(opts: QuestionGenOpts): string {
   const langWord = (opts.language ?? "ar") === "ar" ? "العربية" : "الإنجليزية";
   const sample = opts.text.slice(0, 80_000);
   const mcqCount = Math.max(1, Math.round(opts.count * (opts.mcqRatio ?? 0.7)));
   const shortCount = Math.max(1, opts.count - mcqCount);
-
-  const prompt = `أنت مولّد امتحانات أكاديمي. اعتمد فقط على النص التالي من ملف "${opts.fileName}" (لغته الأساسية ${langWord})، ولا تخترع أي معلومة من خارجه.
+  return `أنت مولّد امتحانات أكاديمي. اعتمد فقط على النص التالي من ملف "${opts.fileName}" (لغته الأساسية ${langWord})، ولا تخترع أي معلومة من خارجه.
 المطلوب: ${opts.scopeLabel}.
 أنشئ ${opts.count} سؤالاً متنوّعاً (${mcqCount} اختيار من متعدد + ${shortCount} إجابة قصيرة).
 
@@ -2372,24 +2370,13 @@ async function generateQuestionsWithGemini(opts: {
 """
 ${sample}
 """`;
+}
 
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 8192, responseMimeType: "application/json" },
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  if (!r.ok) {
-    const body = await r.text();
-    throw new Error(`gemini http ${r.status}: ${body.slice(0, 200)}`);
-  }
-  const data: any = await r.json();
-  const txt = stripJsonFence((data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join(""));
+// Parse the model's JSON output into validated QuizQuestion objects. Used for
+// both Gemini and Claude responses since the prompt schema is identical.
+function parseQuizQuestionsJson(txt: string): QuizQuestion[] {
   let parsed: any;
-  try { parsed = JSON.parse(txt); } catch (e) {
+  try { parsed = JSON.parse(stripJsonFence(txt)); } catch (e) {
     throw new Error("model returned non-JSON output");
   }
   const arr = Array.isArray(parsed?.questions) ? parsed.questions : [];
@@ -2403,7 +2390,6 @@ ${sample}
     if (type === "mcq") {
       const choices = Array.isArray(q.choices) ? q.choices.map((c: any) => String(c ?? "").trim()).filter(Boolean) : [];
       if (choices.length < 2) continue;
-      // Make sure answer matches a choice (try fuzzy match on normalized form).
       const normAns = normalizeText(answer);
       const matched = choices.find((c: string) => normalizeText(c) === normAns) ?? null;
       const finalAnswer = matched ?? answer;
@@ -2431,6 +2417,87 @@ ${sample}
     }
   }
   return out;
+}
+
+// True iff the error from a provider should cause us to fall through to the
+// next provider (rate-limited, overloaded) instead of failing the whole call.
+function isQuizProviderRateLimited(e: unknown): boolean {
+  const msg = String((e as any)?.message || e || "");
+  const status = (e as any)?.status;
+  return (
+    status === 429 || status === 503 || status === 529 ||
+    /\bhttp 429\b|\bhttp 503\b|\bhttp 529\b|rate.?limit|overloaded|quota|exceeded/i.test(msg)
+  );
+}
+
+async function generateQuestionsViaGemini(opts: QuestionGenOpts): Promise<QuizQuestion[]> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("gemini_not_configured");
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: buildQuizPrompt(opts) }] }],
+      generationConfig: { temperature: 0.4, maxOutputTokens: 8192, responseMimeType: "application/json" },
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!r.ok) {
+    const body = await r.text();
+    const err: any = new Error(`gemini http ${r.status}: ${body.slice(0, 200)}`);
+    err.status = r.status;
+    throw err;
+  }
+  const data: any = await r.json();
+  const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
+  return parseQuizQuestionsJson(txt);
+}
+
+async function generateQuestionsViaClaude(opts: QuestionGenOpts): Promise<QuizQuestion[]> {
+  if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || !process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL) {
+    throw new Error("anthropic_not_configured");
+  }
+  const { anthropic } = await import("@workspace/integrations-anthropic-ai");
+  const msg = await anthropic.messages.create({
+    model: "claude-sonnet-4-5-20250929",
+    max_tokens: 8192,
+    messages: [{ role: "user", content: buildQuizPrompt(opts) }],
+  });
+  const txt = msg.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+  return parseQuizQuestionsJson(txt);
+}
+
+// Multi-provider question generation. Tries Gemini Flash first (fast +
+// cheap), and falls back to Claude on quota/rate-limit errors so the quiz
+// & exam features keep working when the user's GEMINI_API_KEY runs out.
+// Configuration / parsing errors are NOT retried on the next provider —
+// only rate-limit-class errors trigger fallback. We keep the name
+// `generateQuestionsWithGemini` so call sites don't need to change.
+async function generateQuestionsWithGemini(opts: QuestionGenOpts): Promise<QuizQuestion[]> {
+  const hasGemini = !!process.env.GEMINI_API_KEY;
+  const hasClaude = !!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY && !!process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
+  if (!hasGemini && !hasClaude) throw new Error("no_quiz_provider_configured");
+
+  if (hasGemini) {
+    try {
+      return await generateQuestionsViaGemini(opts);
+    } catch (e: any) {
+      // Fall through to Claude only on rate-limit-class failures. Other
+      // errors (auth, JSON parsing, validation) indicate a real problem
+      // with the request itself — bubble them up.
+      if (!hasClaude || !isQuizProviderRateLimited(e)) throw e;
+      console.warn("[quiz/gen] gemini rate-limited, falling back to claude:", String(e?.message || e).slice(0, 150));
+    }
+  }
+  return await generateQuestionsViaClaude(opts);
+}
+
+function hasAnyQuizProvider(): boolean {
+  return (
+    !!process.env.GEMINI_API_KEY ||
+    (!!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY && !!process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL)
+  );
 }
 
 // Build a per-chapter context: the chapter title + best chunks retrieved by
@@ -2523,7 +2590,7 @@ router.post("/materials/:id/quiz", async (req, res): Promise<any> => {
   if (!mat) return res.status(404).json({ error: "Not found" });
   if (mat.status !== "ready") return res.status(409).json({ error: "MATERIAL_NOT_READY" });
   if (!mat.extractedText) return res.status(409).json({ error: "MATERIAL_HAS_NO_TEXT" });
-  if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: "QUIZ_GEN_UNAVAILABLE" });
+  if (!hasAnyQuizProvider()) return res.status(503).json({ error: "QUIZ_GEN_UNAVAILABLE" });
 
   const progress = await loadProgress(userId, id, mat.outline ?? "", mat.structuredOutline ?? null);
   let chapterIndex: number | null = Number.isInteger(req.body?.chapterIndex)
@@ -2588,7 +2655,7 @@ router.post("/materials/:id/exam", async (req, res): Promise<any> => {
   if (!mat) return res.status(404).json({ error: "Not found" });
   if (mat.status !== "ready") return res.status(409).json({ error: "MATERIAL_NOT_READY" });
   if (!mat.extractedText) return res.status(409).json({ error: "MATERIAL_HAS_NO_TEXT" });
-  if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: "QUIZ_GEN_UNAVAILABLE" });
+  if (!hasAnyQuizProvider()) return res.status(503).json({ error: "QUIZ_GEN_UNAVAILABLE" });
 
   try {
     // Ensure we hit exactly EXAM_QUESTION_COUNT questions. The model sometimes
