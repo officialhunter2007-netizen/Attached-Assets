@@ -161,6 +161,9 @@ function DynamicEnvShellInner({
 
   // MOBILE: side drawers replace permanent panels on small screens.
   const [tasksDrawerOpen, setTasksDrawerOpen] = useState(false);
+  // DESKTOP: the right tasks aside can be collapsed to free horizontal space
+  // when the user wants to focus on the screen content. Persisted in memory only.
+  const [tasksAsideCollapsed, setTasksAsideCollapsed] = useState(false);
   const [objectivesOpen, setObjectivesOpen] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [extraNotes, setExtraNotes] = useState("");
@@ -349,25 +352,57 @@ ${stateSnap}${userNotes}`;
       </div>
 
       <div className="flex flex-1 min-h-0 relative">
-        {/* Tasks/hints panel — desktop: permanent sidebar. Mobile: drawer overlay. */}
+        {/* Tasks/hints panel — desktop: collapsible sidebar. Mobile: drawer overlay. */}
         {tasksDrawerOpen && (
           <div
             className="md:hidden fixed inset-0 z-[80] bg-black/60"
             onClick={() => setTasksDrawerOpen(false)}
           />
         )}
+        {/* Desktop collapsed strip — clickable column to re-open */}
+        {tasksAsideCollapsed && (
+          <button
+            onClick={() => setTasksAsideCollapsed(false)}
+            className="hidden md:flex flex-col items-center gap-3 shrink-0 w-10 border-l border-white/10 bg-black/30 hover:bg-white/5 transition-colors py-3 group"
+            title="إظهار لوحة المهام"
+          >
+            <span className="text-white/40 group-hover:text-cyan-300 text-lg">‹</span>
+            <span
+              className="text-[10px] font-bold text-white/50 group-hover:text-cyan-300 tracking-wider"
+              style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+            >
+              المهام {totalTasks > 0 && `${doneCount}/${totalTasks}`}
+            </span>
+          </button>
+        )}
         <aside
           className={`${tasksDrawerOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"}
-            md:relative md:translate-x-0
+            ${tasksAsideCollapsed ? "md:hidden" : "md:flex"}
+            md:relative md:translate-x-0 md:flex-col
             fixed md:static top-0 right-0 bottom-0 z-[81] md:z-auto
-            w-[85%] max-w-xs md:w-72
+            w-[88%] max-w-sm md:w-[19rem]
             border-l border-white/10 bg-slate-950 md:bg-black/30 p-3 overflow-y-auto shrink-0
             transition-transform duration-200`}
         >
-          {/* Mobile-only drawer header with close */}
-          <div className="md:hidden flex items-center justify-between mb-3 pb-2 border-b border-white/10">
+          {/* Mobile drawer header / desktop collapse button */}
+          <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/10">
             <span className="text-sm font-bold text-white">المهام والتلميحات</span>
-            <button onClick={() => setTasksDrawerOpen(false)} className="text-white/60 hover:text-white text-xl leading-none">×</button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setTasksAsideCollapsed(true)}
+                className="hidden md:inline-flex text-white/50 hover:text-cyan-300 text-base leading-none w-7 h-7 items-center justify-center rounded-md hover:bg-white/5"
+                title="إخفاء اللوحة"
+              >
+                ›
+              </button>
+              <button
+                onClick={() => setTasksDrawerOpen(false)}
+                className="md:hidden text-white/60 hover:text-white text-2xl leading-none w-8 h-8 flex items-center justify-center"
+                aria-label="إغلاق"
+              >
+                ×
+              </button>
+            </div>
           </div>
           <div className="mb-4 rounded-xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-3">
             <div className="flex items-center justify-between mb-2">
@@ -473,7 +508,7 @@ ${stateSnap}${userNotes}`;
                             <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                           )}
                         </div>
-                        <span className={`text-[10px] md:text-[11px] font-bold whitespace-nowrap max-w-[90px] md:max-w-[140px] truncate ${
+                        <span className={`text-[10px] md:text-[11px] font-bold whitespace-nowrap max-w-[120px] md:max-w-[180px] truncate ${
                           isActive ? "text-cyan-300" : isPast ? "text-emerald-300/70" : "text-white/45"
                         }`}>
                           {s.title.replace(/^[\p{Emoji}\s]+/u, "")}
@@ -513,7 +548,9 @@ ${stateSnap}${userNotes}`;
 
           <div className="flex-1 overflow-y-auto p-3 md:p-5 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.02),transparent_50%)]">
             <div className="max-w-5xl mx-auto space-y-3 md:space-y-4">
-              {/* Tasks for this screen — inline call-to-action card */}
+              {/* Tasks for this screen — inline call-to-action card.
+                  On desktop, hide when the right tasks aside is visible to
+                  avoid showing the same tasks twice. */}
               {(() => {
                 const screenTasks = (env.tasks || []).filter((t) => t.targetScreen === activeId);
                 if (screenTasks.length === 0) return null;
@@ -529,23 +566,26 @@ ${stateSnap}${userNotes}`;
                     </div>
                   );
                 }
+                const hideOnDesktop = !tasksAsideCollapsed;
                 return (
-                  <div className="rounded-xl border border-cyan-500/25 bg-gradient-to-l from-cyan-500/[0.06] to-transparent px-4 py-3">
-                    <div className="text-[11px] font-black text-cyan-300 mb-2 flex items-center gap-1.5 uppercase tracking-wider">
-                      <span>🎯</span> مهام هذه الشاشة
+                  <div className={`${hideOnDesktop ? "md:hidden" : ""} rounded-xl border border-cyan-500/25 bg-gradient-to-l from-cyan-500/[0.06] to-transparent px-3 py-3 sm:px-4`}>
+                    <div className="text-[11px] font-black text-cyan-300 mb-2.5 flex items-center gap-1.5 uppercase tracking-wider">
+                      <span>🎯</span> مهام هذه الشاشة ({pending.length})
                     </div>
-                    <ul className="space-y-1.5">
+                    <ul className="space-y-2">
                       {pending.map((t) => (
-                        <li key={t.id} className="flex items-start gap-2 text-[13px] text-white/85">
+                        <li key={t.id}>
                           <button
                             onClick={() => toggleTask(t.id)}
-                            className="shrink-0 mt-0.5 w-4 h-4 rounded border border-white/30 hover:border-cyan-400 hover:bg-cyan-400/10 transition-colors"
+                            className="group w-full text-right flex items-start gap-3 p-2.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.06] active:bg-white/[0.08] border border-white/5 hover:border-cyan-400/30 transition-colors min-h-[44px]"
                             title="ضع علامة منجَزة"
-                          />
-                          <div className="flex-1">
-                            <div className="leading-snug">{t.description}</div>
-                            {t.hint && <div className="text-[11px] text-white/45 mt-0.5">💡 {t.hint}</div>}
-                          </div>
+                          >
+                            <span className="shrink-0 mt-0.5 w-5 h-5 rounded border-2 border-white/30 group-hover:border-cyan-400 group-hover:bg-cyan-400/10 transition-colors" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[13px] text-white/85 leading-snug">{t.description}</div>
+                              {t.hint && <div className="text-[11px] text-white/45 mt-1">💡 {t.hint}</div>}
+                            </div>
+                          </button>
                         </li>
                       ))}
                     </ul>
@@ -614,14 +654,21 @@ ${stateSnap}${userNotes}`;
           })()}
         </main>
 
-        {/* Chat panel — desktop: side panel. Mobile: full-screen drawer. */}
+        {/* Chat panel — always an overlay drawer (mobile + desktop) so it
+            never competes with the screen content for horizontal space. */}
         {chatOpen && (
           <>
-            <div className="md:hidden fixed inset-0 z-[80] bg-black/60" onClick={() => setChatOpen(false)} />
-            <aside className="fixed md:static inset-y-0 left-0 md:inset-auto z-[81] md:z-auto w-[92%] max-w-sm md:w-80 border-r border-white/10 bg-slate-950 md:bg-black/40 flex flex-col shrink-0">
+            <div className="fixed inset-0 z-[80] bg-black/60" onClick={() => setChatOpen(false)} />
+            <aside className="fixed inset-y-0 left-0 z-[81] w-[92%] max-w-sm md:w-96 border-r border-white/10 bg-slate-950 flex flex-col shadow-2xl">
               <div className="p-3 border-b border-white/10 text-sm font-bold text-purple-300 flex items-center justify-between">
                 <span>المساعد الذكي 🤖</span>
-                <button onClick={() => setChatOpen(false)} className="text-white/60 hover:text-white text-xl leading-none md:hidden">×</button>
+                <button
+                  onClick={() => setChatOpen(false)}
+                  className="text-white/60 hover:text-white text-2xl leading-none w-9 h-9 flex items-center justify-center rounded-md hover:bg-white/10"
+                  aria-label="إغلاق المساعد"
+                >
+                  ×
+                </button>
               </div>
             <div ref={chatBoxRef} className="flex-1 overflow-y-auto p-3 space-y-2 text-sm">
               {assistMsgs.length === 0 && (
