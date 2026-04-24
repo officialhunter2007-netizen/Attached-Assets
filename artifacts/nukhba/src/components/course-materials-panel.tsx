@@ -435,6 +435,9 @@ export function CourseMaterialsPanel({
                       {m.status === "error" && m.errorMessage && (
                         <p className="mt-1.5 text-[11px] text-red-300/80 leading-relaxed">{m.errorMessage}</p>
                       )}
+                      {m.status === "ready" && m.errorMessage && (
+                        <p className="mt-1.5 text-[11px] text-amber-300/80 leading-relaxed">⚠️ {m.errorMessage}</p>
+                      )}
                       <div className="mt-2 flex items-center gap-2">
                         {m.status === "ready" && !isActive && (
                           <button onClick={() => handleActivate(m.id)} className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition-all">

@@ -17,6 +17,7 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 - **Build**: esbuild (bundle)
 - **Frontend**: React + Vite + Tailwind CSS + Framer Motion
 - **AI**: OpenAI gpt-5.2 via Replit AI integration (SSE streaming)
+- **PDF processing**: `unpdf` for native text extraction (Node-friendly pdfjs wrapper, no DOM polyfills). OCR fallback chain runs Gemini Flash → Gemini Pro → Anthropic Claude (via Replit AI integrations proxy) for scanned PDFs. Per-provider rate-limit cooldowns prevent hammering the same 429. Soft quality gate: partial OCR success still marks the file `ready` and surfaces a warning instead of failing.
 - **Auth**: Cookie-based sessions (HMAC-SHA256 signed tokens, scrypt-hashed passwords with lazy upgrade from legacy SHA-256)
 
 ## Production deploys

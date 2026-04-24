@@ -889,6 +889,7 @@ async function processMaterial(materialId: number) {
   let pageCount = 0;
   let language = "ar";
   let detectedError: string | null = null;
+  let detectedWarning: string | null = null;
   // Per-page text collected during extraction. Index = page number (1-based).
   const pageTexts: Map<number, string> = new Map();
 
@@ -897,53 +898,17 @@ async function processMaterial(materialId: number) {
     // from Object Storage for legacy rows that were uploaded via signed URL.
     const buf = await loadMaterialBuffer(row);
 
-    // 1) Try pdf-parse with a pagerender callback so we capture text per page.
-    try {
-      const pdfParseMod: any = await import("pdf-parse");
-      const pdfParse = pdfParseMod.default || pdfParseMod;
-      let currentPage = 0;
-      const pagerender = async (pageData: any) => {
-        currentPage += 1;
-        const myPage = currentPage;
-        try {
-          const tc = await pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
-          const items = tc?.items || [];
-          // Reconstruct text — newline when y-coordinate jumps (best-effort).
-          let lastY: number | null = null;
-          const pieces: string[] = [];
-          for (const it of items) {
-            const str = (it?.str ?? "").toString();
-            const y = Array.isArray(it?.transform) ? it.transform[5] : null;
-            if (lastY !== null && y !== null && Math.abs(y - lastY) > 4) pieces.push("\n");
-            pieces.push(str);
-            if (y !== null) lastY = y;
-          }
-          const pageText = pieces.join(" ").replace(/[ \t]+/g, " ").replace(/\n /g, "\n").trim();
-          if (pageText) pageTexts.set(myPage, pageText);
-          return pageText;
-        } catch {
-          return "";
-        }
-      };
-      const result = await pdfParse(buf, { pagerender });
-      extractedText = (result?.text || "").trim();
-      pageCount = result?.numpages || pageTexts.size || 0;
-      // If pagerender didn't capture but pdf-parse returned a single text blob,
-      // we'll fall back to splitting by form-feed (\f) which pdf-parse uses
-      // between pages.
-      if (pageTexts.size === 0 && extractedText) {
-        const split = extractedText.split(/\f/);
-        split.forEach((t, idx) => {
-          const trimmed = t.trim();
-          if (trimmed) pageTexts.set(idx + 1, trimmed);
-        });
-      }
-    } catch (e: any) {
-      const msg = String(e?.message || e);
-      console.warn("[materials/process] pdf-parse failed:", msg);
-      if (/encrypt|password/i.test(msg)) {
+    // 1) Native text extraction via unpdf — works for digital PDFs without
+    //    needing OCR. Returns per-page text so downstream chunking can cite
+    //    real page numbers. Encrypted files surface as a hard error here.
+    {
+      const extracted = await extractPdfTextPerPage(buf);
+      if (extracted.encrypted) {
         detectedError = "هذا الملف محمي بكلمة مرور. يرجى إزالة الحماية ثم رفعه مجدداً.";
       }
+      pageCount = extracted.totalPages;
+      for (const [n, t] of extracted.pages.entries()) pageTexts.set(n, t);
+      extractedText = Array.from(extracted.pages.values()).join("\n\n").trim();
     }
 
     if (!detectedError && pageCount > MAX_PAGE_COUNT) {
@@ -960,18 +925,22 @@ async function processMaterial(materialId: number) {
       (pageCount > 0 && avgPerPage < 120)
     );
 
-    // 2) Fallback: chunked Gemini vision OCR. The chunker handles per-chunk
-    //    retries internally and tells us how many chunks survived so we can
-    //    decide whether to accept the result or flag the file as broken.
+    // 2) Fallback: chunked multi-provider OCR. The chunker handles provider
+    //    fallback internally and reports how many chunks survived so we can
+    //    surface a soft warning instead of failing the whole file.
     let ocrSuccessRatio = 1;     // default 1 == no OCR ran
     let ocrTextWasAdopted = false;
-    if (looksScanned && process.env.GEMINI_API_KEY) {
+    let ocrTotalChunks = 0;
+    let ocrSuccessfulChunks = 0;
+    if (looksScanned) {
       let ocr: OcrResult = { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "" };
       try {
         ocr = await ocrPdfWithGemini(buf, pageCount || 0);
       } catch (e: any) {
         console.warn(`[materials/process] OCR threw:`, e?.message || e);
       }
+      ocrTotalChunks = ocr.totalChunks;
+      ocrSuccessfulChunks = ocr.successfulChunks;
       // Length comparison uses ONLY successful-chunk text — placeholders are
       // intentionally excluded so a mostly-failed OCR can't fake length and
       // sneak past quality gates.
@@ -990,16 +959,19 @@ async function processMaterial(materialId: number) {
       }
     }
 
-    // Hard quality gate: only fire when OCR actually became the text source.
-    // If pdf-parse already gave us usable text and OCR was just a transient
-    // failure (e.g. Gemini outage) we keep the pdf-parse text instead of
-    // falsely marking the file broken.
-    if (!detectedError && ocrTextWasAdopted && ocrSuccessRatio < 0.5) {
-      detectedError = "تعذّر استخراج معظم صفحات هذا الملف. حاول رفع نسخة أوضح أو غير ممسوحة ضوئياً.";
+    // Soft quality gate: only fail the whole file when we have *zero* usable
+    // text. Partial OCR success is still useful — we save what we got, mark
+    // the file as ready, and store a soft warning so the user knows some
+    // pages couldn't be read but they can still ask questions about the rest.
+    const hasAnyUsableText = extractedText.trim().length >= 50 || pageTexts.size > 0;
+    if (!detectedError && !hasAnyUsableText) {
+      detectedError = "تعذّر استخراج أي نص من هذا الملف. حاول رفع نسخة أوضح أو غير ممسوحة ضوئياً.";
     }
-
-    if (!detectedError && (!extractedText || extractedText.length < 50)) {
-      detectedError = "تعذّر استخراج نص قابل للقراءة من هذا الملف. حاول رفع نسخة أوضح.";
+    if (!detectedError && ocrTextWasAdopted && ocrSuccessRatio < 1 && ocrTotalChunks > 0) {
+      // Soft warning: report it via warning-prefix in errorMessage so the UI
+      // can surface "partial extraction" without blocking the user.
+      const failedChunks = ocrTotalChunks - ocrSuccessfulChunks;
+      detectedWarning = `تم استخراج ${ocrSuccessfulChunks} من ${ocrTotalChunks} مقاطع من الملف. بعض الصفحات قد لا تظهر بالكامل (${failedChunks} مقطع تعذّر قراءته).`;
     }
 
     // Detect language from a sample
@@ -1038,7 +1010,7 @@ async function processMaterial(materialId: number) {
     .update(courseMaterialsTable)
     .set({
       status: detectedError ? "error" : "ready",
-      errorMessage: detectedError,
+      errorMessage: detectedError ?? detectedWarning,
       pageCount,
       language,
       extractedText: extractedText || null,
@@ -1329,29 +1301,91 @@ export async function getMaterialOpeningPages(materialId: number, pages = 3): Pr
   }));
 }
 
-// One round-trip to Gemini for a single PDF chunk (1-N pages). Returns the
-// extracted text or an empty string on failure. Kept small + side-effect-free
-// so the caller can retry it independently per chunk.
-async function ocrPdfChunk(chunkBuf: Buffer, label: string): Promise<string> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return "";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+// ─────────────────────────────────────────────────────────────────────────────
+// Native PDF text extraction (pre-OCR).
+//
+// We use `unpdf`, a serverless-friendly wrapper around the legacy pdfjs-dist
+// build that does not require browser globals like `DOMMatrix`. The previous
+// `pdf-parse` v2 dependency threw `DOMMatrix is not defined` in production and
+// forced every PDF — even clean digital ones — into the slow OCR fallback.
+// ─────────────────────────────────────────────────────────────────────────────
+async function extractPdfTextPerPage(buf: Buffer): Promise<{
+  pages: Map<number, string>;
+  totalPages: number;
+  encrypted: boolean;
+  error?: string;
+}> {
+  const pages = new Map<number, string>();
+  try {
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(buf));
+    // mergePages:false returns text as Array<string>, one entry per page.
+    const result = await extractText(pdf, { mergePages: false });
+    const totalPages = result?.totalPages || (Array.isArray(result?.text) ? result.text.length : 0);
+    const arr: string[] = Array.isArray(result?.text) ? result.text : [String(result?.text || "")];
+    arr.forEach((t, idx) => {
+      const trimmed = (t || "").replace(/[ \t]+/g, " ").trim();
+      if (trimmed) pages.set(idx + 1, trimmed);
+    });
+    return { pages, totalPages, encrypted: false };
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    const encrypted = /encrypt|password/i.test(msg);
+    console.warn("[pdf-extract] unpdf failed:", msg);
+    return { pages, totalPages: 0, encrypted, error: msg };
+  }
+}
 
-  const base64 = chunkBuf.toString("base64");
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-provider OCR chain.
+//
+// Each chunk attempts providers in order until one returns usable text. A
+// provider that returns 429/503 is skipped for a cooldown window so we stop
+// hammering the same rate limit. Chain order:
+//   1. Gemini Flash  — cheap & fast, but easily rate-limited on the free key
+//   2. Gemini Pro    — different model = separate quota path
+//   3. Anthropic Claude — via Replit AI Integrations proxy (no user quota)
+// ─────────────────────────────────────────────────────────────────────────────
+type OcrProviderName = "gemini-flash" | "gemini-pro" | "claude";
+
+type OcrProviderResult =
+  | { ok: true; text: string }
+  | { ok: false; status: "rate_limited" | "transient" | "fatal"; cooldownMs?: number; reason: string };
+
+const PROVIDER_COOLDOWN_DEFAULT_MS = 30_000;
+const PROVIDER_COOLDOWN_MAX_MS = 5 * 60_000;
+const providerCooldownUntil = new Map<OcrProviderName, number>();
+
+function isProviderAvailable(p: OcrProviderName): boolean {
+  const until = providerCooldownUntil.get(p) || 0;
+  return Date.now() >= until;
+}
+
+function setProviderCooldown(p: OcrProviderName, ms: number): void {
+  const until = Date.now() + Math.min(Math.max(ms, 1000), PROVIDER_COOLDOWN_MAX_MS);
+  providerCooldownUntil.set(p, until);
+  console.warn(`[ocr] cooldown ${p} for ${Math.round((until - Date.now()) / 1000)}s`);
+}
+
+const OCR_PROMPT = `استخرج النص الكامل من هذا المستند صفحة بصفحة. ابدأ كل صفحة بسطر "--- صفحة X ---".
+لا تُلخّص ولا تُعدّل، انسخ النص العربي والإنجليزي حرفياً.`;
+
+// Gemini provider — single REST call, returns provider result with rate-limit
+// metadata so the chain can switch providers cleanly instead of blind retries.
+async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chunkBuf: Buffer, label: string): Promise<OcrProviderResult> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { ok: false, status: "fatal", reason: "no_api_key" };
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const body = {
     contents: [{
       role: "user",
       parts: [
-        { inlineData: { mimeType: "application/pdf", data: base64 } },
-        {
-          text: `استخرج النص الكامل من هذا المستند صفحة بصفحة. ابدأ كل صفحة بسطر "--- صفحة X ---".
-لا تُلخّص ولا تُعدّل، انسخ النص العربي والإنجليزي حرفياً.`,
-        },
+        { inlineData: { mimeType: "application/pdf", data: chunkBuf.toString("base64") } },
+        { text: OCR_PROMPT },
       ],
     }],
     generationConfig: { temperature: 0.0, maxOutputTokens: 8192 },
   };
-
   try {
     const r = await fetch(url, {
       method: "POST",
@@ -1359,21 +1393,103 @@ async function ocrPdfChunk(chunkBuf: Buffer, label: string): Promise<string> {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(120_000),
     });
+    if (r.status === 429 || r.status === 503) {
+      const retryAfterHeader = r.headers.get("retry-after");
+      const cooldownMs = retryAfterHeader && /^\d+$/.test(retryAfterHeader)
+        ? Number(retryAfterHeader) * 1000
+        : PROVIDER_COOLDOWN_DEFAULT_MS;
+      console.warn(`[ocr] ${label} ${model} ${r.status} → cooldown ${cooldownMs}ms`);
+      return { ok: false, status: "rate_limited", cooldownMs, reason: `http_${r.status}` };
+    }
     if (!r.ok) {
-      console.warn(`[ocr] ${label} gemini http`, r.status, (await r.text()).slice(0, 200));
-      return "";
+      console.warn(`[ocr] ${label} ${model} http`, r.status, (await r.text()).slice(0, 200));
+      return { ok: false, status: "transient", reason: `http_${r.status}` };
     }
     const data: any = await r.json();
     const parts = data?.candidates?.[0]?.content?.parts || [];
-    return parts.map((p: { text?: string }) => p?.text || "").join("\n").trim();
+    const text = parts.map((p: { text?: string }) => p?.text || "").join("\n").trim();
+    if (text.length === 0) return { ok: false, status: "transient", reason: "empty_response" };
+    return { ok: true, text };
   } catch (e: any) {
-    console.warn(`[ocr] ${label} threw:`, e?.message || e);
-    return "";
+    console.warn(`[ocr] ${label} ${model} threw:`, e?.message || e);
+    return { ok: false, status: "transient", reason: String(e?.message || e).slice(0, 100) };
   }
 }
 
-const OCR_CHUNK_PAGES = 8;   // pages per Gemini call — balances throughput vs failure blast radius
-const OCR_MAX_CHUNKS = 12;   // hard cap on chunks per document (12 * 8 = 96 pages)
+// Anthropic Claude provider — uses native PDF input via Replit AI Integrations
+// proxy, so it does not consume the user's own GEMINI_API_KEY quota.
+async function ocrChunkClaude(chunkBuf: Buffer, label: string): Promise<OcrProviderResult> {
+  if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || !process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL) {
+    return { ok: false, status: "fatal", reason: "anthropic_not_configured" };
+  }
+  try {
+    const { anthropic } = await import("@workspace/integrations-anthropic-ai");
+    const msg = await anthropic.messages.create({
+      model: "claude-sonnet-4-5-20250929",
+      max_tokens: 8192,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: chunkBuf.toString("base64") },
+          } as any,
+          { type: "text", text: OCR_PROMPT },
+        ],
+      }],
+    } as any);
+    const text = (msg.content || [])
+      .map((c: any) => (c?.type === "text" ? c.text : ""))
+      .join("\n")
+      .trim();
+    if (text.length === 0) return { ok: false, status: "transient", reason: "empty_response" };
+    return { ok: true, text };
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    const status = e?.status;
+    if (status === 429 || status === 529 || /rate.?limit|overloaded/i.test(msg)) {
+      console.warn(`[ocr] ${label} claude rate-limited:`, msg.slice(0, 150));
+      return { ok: false, status: "rate_limited", cooldownMs: PROVIDER_COOLDOWN_DEFAULT_MS, reason: "rate_limited" };
+    }
+    console.warn(`[ocr] ${label} claude threw:`, msg.slice(0, 200));
+    return { ok: false, status: "transient", reason: msg.slice(0, 100) };
+  }
+}
+
+// Run a chunk through the provider chain. Returns the first successful text,
+// or "" if every provider failed. Updates per-provider cooldowns so subsequent
+// chunks skip a rate-limited provider until its window expires.
+async function ocrPdfChunk(chunkBuf: Buffer, label: string): Promise<string> {
+  const chain: Array<{ name: OcrProviderName; run: () => Promise<OcrProviderResult> }> = [
+    { name: "gemini-flash", run: () => ocrChunkGemini("gemini-2.5-flash", chunkBuf, label) },
+    { name: "gemini-pro", run: () => ocrChunkGemini("gemini-2.5-pro", chunkBuf, label) },
+    { name: "claude", run: () => ocrChunkClaude(chunkBuf, label) },
+  ];
+
+  for (const provider of chain) {
+    if (!isProviderAvailable(provider.name)) {
+      console.info(`[ocr] ${label} skip ${provider.name} (in cooldown)`);
+      continue;
+    }
+    const result = await provider.run();
+    if (result.ok) {
+      console.info(`[ocr] ${label} ok via ${provider.name} (${result.text.length} chars)`);
+      return result.text;
+    }
+    if (result.status === "rate_limited" && result.cooldownMs) {
+      setProviderCooldown(provider.name, result.cooldownMs);
+    } else if (result.status === "fatal") {
+      // Mark fatal providers as cool-down for the rest of the run so we
+      // don't keep paying the latency tax to discover they're unconfigured.
+      setProviderCooldown(provider.name, PROVIDER_COOLDOWN_MAX_MS);
+    }
+    // For "transient" we just move to the next provider without a cooldown.
+  }
+  return "";
+}
+
+const OCR_CHUNK_PAGES = 4;   // smaller chunks = smaller failure blast radius and lower per-call token usage
+const OCR_MAX_CHUNKS = 24;   // hard cap on chunks per document (24 * 4 = 96 pages)
 const OCR_RETRY_DELAY_MS = 1500;
 
 interface OcrResult {
@@ -2657,56 +2773,22 @@ async function reprocessChunksOnly(materialId: number): Promise<BackfillResult> 
     return { ok: false, pages: 0, reason: `download_failed: ${String(e?.message || e).slice(0, 120)}` };
   }
 
-  try {
-    const pdfParseMod: any = await import("pdf-parse");
-    const pdfParse = pdfParseMod.default || pdfParseMod;
-    let currentPage = 0;
-    const pagerender = async (pageData: any) => {
-      currentPage += 1;
-      const myPage = currentPage;
-      try {
-        const tc = await pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
-        const items = tc?.items || [];
-        let lastY: number | null = null;
-        const pieces: string[] = [];
-        for (const it of items) {
-          const str = (it?.str ?? "").toString();
-          const y = Array.isArray(it?.transform) ? it.transform[5] : null;
-          if (lastY !== null && y !== null && Math.abs(y - lastY) > 4) pieces.push("\n");
-          pieces.push(str);
-          if (y !== null) lastY = y;
-        }
-        const pageText = pieces.join(" ").replace(/[ \t]+/g, " ").replace(/\n /g, "\n").trim();
-        if (pageText) pageTexts.set(myPage, pageText);
-        return pageText;
-      } catch {
-        return "";
-      }
-    };
-    const result = await pdfParse(buf, { pagerender });
-    const extractedText = (result?.text || "").trim();
-    pageCount = result?.numpages || pageTexts.size || 0;
-    if (pageTexts.size === 0 && extractedText) {
-      const split = extractedText.split(/\f/);
-      split.forEach((t: string, idx: number) => {
-        const trimmed = t.trim();
-        if (trimmed) pageTexts.set(idx + 1, trimmed);
-      });
-    }
-  } catch (e: any) {
-    const msg = String(e?.message || e);
-    if (/encrypt|password/i.test(msg)) return { ok: false, pages: 0, reason: "encrypted" };
-    return { ok: false, pages: 0, reason: `pdf_parse_failed: ${msg.slice(0, 120)}` };
+  {
+    const extracted = await extractPdfTextPerPage(buf);
+    if (extracted.encrypted) return { ok: false, pages: 0, reason: "encrypted" };
+    pageCount = extracted.totalPages;
+    for (const [n, t] of extracted.pages.entries()) pageTexts.set(n, t);
   }
 
   // OCR fallback for scanned PDFs — same heuristic as processMaterial.
   const totalChars = Array.from(pageTexts.values()).join("").length;
   const looksScanned = totalChars < 200 || (pageCount > 0 && totalChars / Math.max(pageCount, 1) < 80);
-  if (looksScanned && process.env.GEMINI_API_KEY) {
+  if (looksScanned) {
     try {
-      const ocrText = await ocrPdfWithGemini(buf, pageCount);
-      if (ocrText.trim().length > totalChars) {
-        const ocrPages = splitOcrTextIntoPages(ocrText.trim());
+      const ocr = await ocrPdfWithGemini(buf, pageCount);
+      const ocrTextTrimmed = (ocr?.text || "").trim();
+      if (ocrTextTrimmed.length > totalChars) {
+        const ocrPages = splitOcrTextIntoPages(ocrTextTrimmed);
         if (ocrPages.size > 0) {
           pageTexts.clear();
           for (const [n, t] of ocrPages.entries()) pageTexts.set(n, t);
