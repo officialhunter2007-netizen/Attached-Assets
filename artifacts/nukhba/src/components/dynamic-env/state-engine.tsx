@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { DynMutation, DynState } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,12 +146,22 @@ function reducer(state: DynState, action: Action): DynState {
 }
 
 // Context API
+export type LastMutationInfo = {
+  ops: DynMutation[];
+  form?: Record<string, any>;
+  at: number;
+};
+export type ConsoleEntry = { level: "log" | "info" | "warn" | "error"; text: string; at: number };
 type StateCtx = {
   state: DynState;
   initialState: DynState;
   mutate: (ops: DynMutation[], form?: Record<string, any>) => void;
   reset: () => void;
   setState: (s: DynState) => void;
+  lastMutation: LastMutationInfo | null;
+  consoleLog: ConsoleEntry[];
+  pushConsole: (entry: Omit<ConsoleEntry, "at">) => void;
+  clearConsole: () => void;
 };
 
 const Ctx = createContext<StateCtx | null>(null);
@@ -198,12 +208,21 @@ export function EnvStateProvider({
     return () => clearTimeout(t);
   }, [state, storageKey]);
 
+  // Track the last applied mutation so the AI assistant can answer
+  // "ماذا حدث للتو؟" questions with real context.
+  const [lastMutation, setLastMutation] = useState<LastMutationInfo | null>(null);
+  // Ring buffer for console output emitted by sandboxed iframes (webApp/browser).
+  const [consoleLog, setConsoleLog] = useState<ConsoleEntry[]>([]);
+
   const mutate = useCallback((ops: DynMutation[], form?: Record<string, any>) => {
     dispatch({ type: "mutate", ops, form });
+    setLastMutation({ ops, form, at: Date.now() });
   }, []);
 
   const reset = useCallback(() => {
     dispatch({ type: "reset", initial: initialRef.current });
+    setLastMutation(null);
+    setConsoleLog([]);
     if (storageKey) try { localStorage.removeItem(storageKey); } catch {}
   }, [storageKey]);
 
@@ -211,7 +230,30 @@ export function EnvStateProvider({
     dispatch({ type: "replace", state: s });
   }, []);
 
-  const value = useMemo(() => ({ state, initialState: initialRef.current, mutate, reset, setState }), [state, mutate, reset, setState]);
+  const pushConsole = useCallback((entry: Omit<ConsoleEntry, "at">) => {
+    setConsoleLog((prev) => {
+      const next = [...prev, { ...entry, at: Date.now() }];
+      // Keep only the most recent 30 entries to bound memory and prompt size.
+      return next.length > 30 ? next.slice(next.length - 30) : next;
+    });
+  }, []);
+
+  const clearConsole = useCallback(() => setConsoleLog([]), []);
+
+  const value = useMemo(
+    () => ({
+      state,
+      initialState: initialRef.current,
+      mutate,
+      reset,
+      setState,
+      lastMutation,
+      consoleLog,
+      pushConsole,
+      clearConsole,
+    }),
+    [state, mutate, reset, setState, lastMutation, consoleLog, pushConsole, clearConsole]
+  );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

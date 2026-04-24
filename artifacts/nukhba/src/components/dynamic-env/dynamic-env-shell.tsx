@@ -97,6 +97,26 @@ function DynamicEnvShellInner({
     const worldStateSummary = summarizeWorldState(envState.state);
     // Last few assistant↔user turns inside the lab give continuity.
     const recentHistory = assistMsgs.slice(-8).map((m) => ({ role: m.role, content: m.content }));
+    // The very last state mutation, summarized so the AI can answer
+    // "ماذا حدث للتو؟" / "لماذا تغيّرت هذه القيمة؟"
+    const lm = envState.lastMutation;
+    const lastMutation = lm
+      ? {
+          ops: (lm.ops || []).slice(0, 6).map((o: any) => ({
+            action: o?.action,
+            path: o?.path,
+            value: typeof o?.value === "object" ? JSON.stringify(o.value).slice(0, 160) : o?.value,
+          })),
+          form: lm.form ? Object.fromEntries(Object.entries(lm.form).slice(0, 8)) : undefined,
+          ageSeconds: Math.round((Date.now() - lm.at) / 1000),
+        }
+      : null;
+    // Latest console output from any sandboxed webApp/browser iframe so the
+    // AI can debug user code or explain runtime errors live.
+    const consoleOutput = (envState.consoleLog || [])
+      .slice(-12)
+      .map((e: any) => `[${e.level}] ${e.text}`)
+      .join("\n");
 
     try {
       const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/assist`, {
@@ -115,6 +135,8 @@ function DynamicEnvShellInner({
             ? { id: currentTask.id, description: currentTask.description, targetScreen: currentTask.targetScreen, hint: currentTask.hint }
             : undefined,
           history: recentHistory,
+          lastMutation,
+          consoleOutput: consoleOutput || undefined,
         }),
       });
       if (!r.ok || !r.body) throw new Error("assist failed");
@@ -562,6 +584,26 @@ ${stateSnap}${userNotes}`;
 
           <div className="flex-1 overflow-y-auto p-3 md:p-5 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.02),transparent_50%)]">
             <div className="max-w-5xl mx-auto space-y-3 md:space-y-4">
+              {/* Per-screen "اشرح هذه الخطوة" affordance — opens the assistant
+                  pre-filled with the current screen + active task context. */}
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = (env.tasks || []).find((x) => !doneTasks.has(x.id) && x.targetScreen === activeId)
+                      || (env.tasks || []).find((x) => !doneTasks.has(x.id));
+                    const screenName = active?.title || "هذه الشاشة";
+                    const taskPart = t ? ` ومهمتي الحالية: «${t.description}»` : "";
+                    askAi(`اشرح لي هذه الخطوة (${screenName})${taskPart} — ماذا أفعل بالضبط، ولماذا، وما النتيجة المتوقعة؟`);
+                  }}
+                  className="text-[11px] md:text-xs font-bold rounded-full px-3 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 border border-purple-400/30 text-purple-200 hover:text-purple-100 transition-colors flex items-center gap-1.5"
+                  title="افتح المساعد لشرح هذه الخطوة"
+                >
+                  <span>💡</span>
+                  <span>اشرح هذه الخطوة</span>
+                </button>
+              </div>
+
               {/* Tasks for this screen — inline call-to-action card.
                   On desktop, hide when the right tasks aside is visible to
                   avoid showing the same tasks twice. */}
@@ -695,6 +737,43 @@ ${stateSnap}${userNotes}`;
                 </div>
               ))}
             </div>
+            {/* Subject-specific suggested prompts. The set is chosen from
+                env.kind so each subject gets a relevant starting point. */}
+            {(() => {
+              const k = String(env.kind || "generic");
+              const SUGGESTIONS: Record<string, string[]> = {
+                cybersecurity: ["كيف أبدأ هذه البيئة؟", "اشرح الثغرة الموجودة هنا", "ما الخطوة التالية بعد ما فعلتُه للتو؟", "كيف أُثبت أن الهجوم نجح؟"],
+                "web-pentest": ["ما نوع الثغرة في هذه الصفحة؟", "أعطني payload مناسبة (تعليمياً)", "كيف أقرأ ردّ الخادم؟", "كيف أحمي هذا التطبيق لاحقاً؟"],
+                forensics: ["ما الذي تشير إليه هذه السجلات؟", "ما الدليل الأهم هنا؟", "اشرح الـ timeline", "ماذا أكتب في التقرير؟"],
+                networking: ["اشرح هذه الحزمة", "ما البروتوكول المستخدم؟", "ما الخطأ في الإعدادات؟", "كيف أتحقق من الاتصال؟"],
+                os: ["اشرح الأمر الأخير", "كيف أنفّذ هذه المهمة عبر الطرفية؟", "ما الفرق بين الصلاحيات هنا؟", "كيف أرى العمليات النشطة؟"],
+                programming: ["لماذا فشل الكود؟", "اشرح الخطأ في الكونسول", "اقترح إصلاحاً", "ما تحسينات الأداء الممكنة؟"],
+                "data-science": ["ماذا يعني هذا الرسم؟", "ما القيمة الشاذة؟", "اقترح تحويلاً مناسباً للبيانات", "ما الاستنتاج المبدئي؟"],
+                food: ["كيف أحسب نسبة الأمان الغذائي؟", "ما الخطوة التالية في الإنتاج؟", "اشرح المعايير المطلوبة", "ما الخطأ في القراءات؟"],
+                accounting: ["اشرح هذا القيد المحاسبي", "كيف أُرحّله للأستاذ؟", "ما توازن الميزان بعد هذا القيد؟", "أين الخطأ في الفاتورة؟"],
+                yemensoft: ["كيف أُنشئ فاتورة جديدة؟", "اشرح حركة المخزون هذه", "ما تقرير اليوم المتوقع؟", "كيف أصلح خطأ الترحيل؟"],
+                business: ["اشرح هذا المؤشر", "ما تحليل SWOT للحالة؟", "ما الخطوة التالية كصاحب قرار؟", "كيف أبرّر هذا التوصية؟"],
+                physics: ["اشرح القانون المستخدم", "كيف أحسب الناتج خطوة بخطوة؟", "ما تأثير تغيير المتغير الفلاني؟", "أين الخطأ في حسابي؟"],
+                language: ["صحّح هذه الجملة", "اشرح القاعدة المطبقة", "اقترح صياغة أفضل", "ما الترجمة الأدق؟"],
+                generic: ["كيف أبدأ؟", "اشرح الخطوة الحالية", "أعطني تلميحاً دون حلّ كامل", "ما المعيار الذي يثبت أني أنجزتُ المهمة؟"],
+              };
+              const items = SUGGESTIONS[k] || SUGGESTIONS.generic;
+              return (
+                <div className="px-2 pt-2 pb-1 border-t border-white/10 flex flex-wrap gap-1.5">
+                  {items.map((q, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      disabled={assistBusy}
+                      onClick={() => askAi(q)}
+                      className="text-[11px] rounded-full px-2.5 py-1 bg-white/5 hover:bg-purple-500/20 border border-white/10 hover:border-purple-400/40 text-white/75 hover:text-purple-100 disabled:opacity-50 transition-colors"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
             <form
               onSubmit={(e) => { e.preventDefault(); askAi(assistInput); }}
               className="p-2 border-t border-white/10 flex gap-2"

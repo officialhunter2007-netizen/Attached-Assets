@@ -868,6 +868,7 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
 // trust the source window (ev.source check) and use the nonce as a sanity tag.
 function WebAppBlock({ comp }: { comp: Extract<DynComponent, { type: "webApp" }> }) {
   const ref = useRef<HTMLIFrameElement>(null);
+  const { pushConsole } = useEnvState();
   // Per-render nonce so the parent can sanity-check postMessage events came
   // from the HTML we just injected (not stale frames/older renders).
   const nonce = useMemo(() => Math.random().toString(36).slice(2, 12) + Date.now().toString(36), [comp.html]);
@@ -875,8 +876,10 @@ function WebAppBlock({ comp }: { comp: Extract<DynComponent, { type: "webApp" }>
 
   // Inject a tiny bridge into the user HTML so it can call
   // window.envEmit(type, data) → parent.postMessage({ __envNonce, type, data })
+  // The bridge also patches console.log/info/warn/error and window.onerror so
+  // the parent (and the AI assistant) can see runtime output from the sandbox.
   const wrappedHtml = useMemo(() => {
-    const bridge = `<script>(function(){try{window.__envNonce=${JSON.stringify(nonce)};window.envEmit=function(type,data){try{parent.postMessage({__envNonce:window.__envNonce,type:String(type||"event"),data:data},"*")}catch(e){}};}catch(e){}})();<\/script>`;
+    const bridge = `<script>(function(){try{window.__envNonce=${JSON.stringify(nonce)};function send(type,data){try{parent.postMessage({__envNonce:window.__envNonce,type:String(type||"event"),data:data},"*")}catch(e){}}window.envEmit=send;function fmt(a){try{return typeof a==="string"?a:JSON.stringify(a)}catch(e){return String(a)}}["log","info","warn","error"].forEach(function(level){var orig=console[level]&&console[level].bind(console);console[level]=function(){try{send("console",{level:level,text:Array.prototype.map.call(arguments,fmt).join(" ")})}catch(e){}if(orig)orig.apply(null,arguments)}});window.addEventListener("error",function(e){try{send("console",{level:"error",text:(e.message||"error")+(e.filename?" @"+e.filename+":"+e.lineno:"")})}catch(_){}});window.addEventListener("unhandledrejection",function(e){try{send("console",{level:"error",text:"unhandled: "+fmt(e.reason)})}catch(_){}});}catch(e){}})();<\/script>`;
     const html = String(comp.html || "");
     if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, bridge + "</head>");
     if (/<body[^>]*>/i.test(html)) return html.replace(/<body([^>]*)>/i, "<body$1>" + bridge);
@@ -891,11 +894,19 @@ function WebAppBlock({ comp }: { comp: Extract<DynComponent, { type: "webApp" }>
       if (!d || typeof d !== "object") return;
       if (d.__envNonce !== nonce) return;
       const type = typeof d.type === "string" ? d.type.slice(0, 60) : "event";
+      // Console output is forwarded to the central env console buffer so the
+      // AI assistant ("اشرح هذه الخطوة") can see what the sandbox printed.
+      if (type === "console" && d.data && typeof d.data === "object") {
+        const level = (["log", "info", "warn", "error"].includes(d.data.level) ? d.data.level : "log") as "log" | "info" | "warn" | "error";
+        const text = String(d.data.text ?? "").slice(0, 500);
+        pushConsole({ level, text });
+        return;
+      }
       setEvents((p) => [...p.slice(-19), { type, data: d.data, ts: Date.now() }]);
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [nonce]);
+  }, [nonce, pushConsole]);
 
   const height = typeof comp.height === "number" && comp.height > 100 ? comp.height : 480;
 
@@ -1081,6 +1092,35 @@ function BrowserBlock({ comp, state }: { comp: Extract<DynComponent, { type: "br
   const [idx, setIdx] = useState(0);
   const current = pages[idx] || null;
   const height = typeof comp.height === "number" && comp.height > 200 ? comp.height : 480;
+  const ref = useRef<HTMLIFrameElement>(null);
+  const { pushConsole } = useEnvState();
+  const nonce = useMemo(() => Math.random().toString(36).slice(2, 12) + Date.now().toString(36), [idx, current?.html]);
+
+  // Same console-capture bridge as WebAppBlock so console output from any
+  // browsed page flows into the shared env console buffer for the AI.
+  const wrappedHtml = useMemo(() => {
+    if (!current) return "";
+    const bridge = `<script>(function(){try{window.__envNonce=${JSON.stringify(nonce)};function send(type,data){try{parent.postMessage({__envNonce:window.__envNonce,type:String(type||"event"),data:data},"*")}catch(e){}}window.envEmit=send;function fmt(a){try{return typeof a==="string"?a:JSON.stringify(a)}catch(e){return String(a)}}["log","info","warn","error"].forEach(function(level){var orig=console[level]&&console[level].bind(console);console[level]=function(){try{send("console",{level:level,text:Array.prototype.map.call(arguments,fmt).join(" ")})}catch(e){}if(orig)orig.apply(null,arguments)}});window.addEventListener("error",function(e){try{send("console",{level:"error",text:(e.message||"error")+(e.filename?" @"+e.filename+":"+e.lineno:"")})}catch(_){}});}catch(e){}})();<\/script>`;
+    const html = String(current.html || "");
+    if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, bridge + "</head>");
+    if (/<body[^>]*>/i.test(html)) return html.replace(/<body([^>]*)>/i, "<body$1>" + bridge);
+    return bridge + html;
+  }, [current, nonce]);
+
+  useEffect(() => {
+    function onMsg(ev: MessageEvent) {
+      if (!ref.current || ev.source !== ref.current.contentWindow) return;
+      const d: any = ev.data;
+      if (!d || typeof d !== "object" || d.__envNonce !== nonce) return;
+      if (d.type === "console" && d.data && typeof d.data === "object") {
+        const level = (["log", "info", "warn", "error"].includes(d.data.level) ? d.data.level : "log") as "log" | "info" | "warn" | "error";
+        pushConsole({ level, text: String(d.data.text ?? "").slice(0, 500) });
+      }
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [nonce, pushConsole]);
+
   return (
     <Card title={comp.title || "المتصفح"}>
       <div className="flex flex-wrap gap-1 mb-2 border-b border-white/10 pb-1">
@@ -1101,9 +1141,10 @@ function BrowserBlock({ comp, state }: { comp: Extract<DynComponent, { type: "br
           </div>
           {/* Same sandbox policy as WebAppBlock — see security note above. */}
           <iframe
+            ref={ref}
             title={current.url || "browser"}
             sandbox="allow-scripts allow-forms"
-            srcDoc={String(current.html || "")}
+            srcDoc={wrappedHtml}
             className="w-full rounded-lg border border-white/10 bg-white"
             style={{ height }}
           />
