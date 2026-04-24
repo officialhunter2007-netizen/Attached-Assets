@@ -196,6 +196,7 @@ router.get("/materials", async (req, res): Promise<any> => {
       summary: courseMaterialsTable.summary,
       starters: courseMaterialsTable.starters,
       outline: courseMaterialsTable.outline,
+      structuredOutline: courseMaterialsTable.structuredOutline,
       createdAt: courseMaterialsTable.createdAt,
     })
     .from(courseMaterialsTable)
@@ -216,10 +217,14 @@ router.get("/materials", async (req, res): Promise<any> => {
       chapters: string[];
       completedChapterIndices: number[];
       skippedChapterIndices: number[];
+      coveredPointsByChapter: CoveredPointsMap;
       lastInteractedAt: string | null;
     } | null = null;
+    let chapters: StructuredChapter[] = [];
     if (r.status === "ready") {
       const p = await loadProgress(userId, r.id, r.outline ?? "", r.structuredOutline ?? null);
+      const covered = await loadCoveredPoints(userId, r.id);
+      chapters = safeParseStructuredOutline(r.structuredOutline);
       progress = {
         chaptersTotal: p.chapters.length,
         completedCount: p.completedChapterIndices.length,
@@ -228,11 +233,14 @@ router.get("/materials", async (req, res): Promise<any> => {
         chapters: p.chapters,
         completedChapterIndices: p.completedChapterIndices,
         skippedChapterIndices: p.skippedChapterIndices,
+        coveredPointsByChapter: covered,
         lastInteractedAt: p.lastInteractedAt ? p.lastInteractedAt.toISOString() : null,
       };
     }
-    const { outline: _omit, ...rest } = r;
-    return { ...rest, progress };
+    // Strip the heavy outline + structured_outline JSON from the list response.
+    // They're available individually via /api/materials/:id when needed.
+    const { outline: _omit, structuredOutline: _omit2, ...rest } = r;
+    return { ...rest, progress, chapters };
   }));
 
   res.json({ materials: enriched });
@@ -283,7 +291,7 @@ router.post("/materials/:id/progress", async (req, res): Promise<any> => {
   if ((action === "set" || action === "complete" || action === "uncomplete") && !Number.isInteger(chapterIndex)) {
     return res.status(400).json({ error: "chapterIndex (integer) required for set/complete/uncomplete" });
   }
-  const updated = await mutateProgress(userId, id, mat.outline ?? "", action, Number.isFinite(chapterIndex) ? chapterIndex : undefined);
+  const updated = await mutateProgress(userId, id, mat.outline ?? "", action, Number.isFinite(chapterIndex) ? chapterIndex : undefined, mat.structuredOutline ?? null);
   res.json({
     materialId: id,
     chapters: updated.chapters,
@@ -445,6 +453,7 @@ router.get("/materials/:id", async (req, res): Promise<any> => {
       summary: courseMaterialsTable.summary,
       starters: courseMaterialsTable.starters,
       outline: courseMaterialsTable.outline,
+      structuredOutline: courseMaterialsTable.structuredOutline,
       createdAt: courseMaterialsTable.createdAt,
     })
     .from(courseMaterialsTable)
@@ -454,7 +463,93 @@ router.get("/materials/:id", async (req, res): Promise<any> => {
     ));
   if (!row) return res.status(404).json({ error: "Not found" });
   const recentWeakAreas = await getRecentWeakAreasForMaterial(userId, id);
-  res.json({ ...row, recentWeakAreas });
+  const chapters = safeParseStructuredOutline(row.structuredOutline);
+  const coveredPointsByChapter = await loadCoveredPoints(userId, id);
+  res.json({ ...row, chapters, coveredPointsByChapter, recentWeakAreas });
+});
+
+// ── POST /api/materials/:id/reprocess ──────────────────────────────────────
+// Re-runs the structured-outline generation pipeline against the existing
+// per-page chunks. Useful for materials that were uploaded before the
+// structured-outline feature shipped, or when the outline came out poor.
+// Does NOT re-download or re-extract the PDF — that work is preserved.
+router.post("/materials/:id/reprocess", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+
+  const [row] = await db
+    .select()
+    .from(courseMaterialsTable)
+    .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
+  if (!row) return res.status(404).json({ error: "Not found" });
+  if (row.status !== "ready") return res.status(409).json({ error: "MATERIAL_NOT_READY" });
+  if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: "GEMINI_UNAVAILABLE" });
+
+  // Pull all chunks back as a Map<page, joined_text> so the structured
+  // generator gets the same per-page text it would during initial processing.
+  const chunkRows = await db
+    .select({
+      pageNumber: materialChunksTable.pageNumber,
+      chunkIndex: materialChunksTable.chunkIndex,
+      content: materialChunksTable.content,
+    })
+    .from(materialChunksTable)
+    .where(eq(materialChunksTable.materialId, id))
+    .orderBy(materialChunksTable.pageNumber, materialChunksTable.chunkIndex);
+  const pageTexts = new Map<number, string>();
+  for (const c of chunkRows) {
+    const prev = pageTexts.get(c.pageNumber) ?? "";
+    pageTexts.set(c.pageNumber, prev ? `${prev}\n${c.content}` : c.content);
+  }
+  if (pageTexts.size === 0) return res.status(409).json({ error: "NO_CHUNKS_AVAILABLE" });
+
+  try {
+    const structured = await generateStructuredChapters(
+      pageTexts,
+      row.fileName,
+      row.language ?? "ar",
+      row.pageCount ?? pageTexts.size,
+    );
+    if (structured.length === 0) {
+      return res.status(502).json({ error: "OUTLINE_GENERATION_RETURNED_EMPTY" });
+    }
+    const derivedOutline = structured
+      .map((c) => `- ${c.title}${c.startPage && c.endPage ? ` (صفحات ${c.startPage}–${c.endPage})` : ""}`)
+      .join("\n");
+    await db
+      .update(courseMaterialsTable)
+      .set({
+        structuredOutline: JSON.stringify(structured),
+        outline: derivedOutline,
+        updatedAt: new Date(),
+      })
+      .where(eq(courseMaterialsTable.id, id));
+    // Full progress reset: the new structure has different chapter indices, so
+    // any stored completed/skipped/current values are no longer meaningful and
+    // would mis-report state if we kept them. The next loadProgress() call
+    // will rehydrate `chapters` from the new structuredOutline.
+    await db
+      .update(materialChapterProgressTable)
+      .set({
+        chapters: "[]",
+        currentChapterIndex: 0,
+        completedChapterIndices: "[]",
+        skippedChapterIndices: "[]",
+        coveredPoints: "{}",
+        lastInteractedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(materialChapterProgressTable.userId, userId),
+        eq(materialChapterProgressTable.materialId, id),
+      ));
+    res.json({ ok: true, chapterCount: structured.length });
+  } catch (e: any) {
+    console.error("[materials/reprocess] error:", e?.message || e);
+    res.status(500).json({ error: "REPROCESS_FAILED" });
+  }
 });
 
 // ── DELETE /api/materials/:id ─────────────────────────────────────────────────
@@ -1523,6 +1618,35 @@ export async function loadProgress(userId: number, materialId: number, outline: 
     await db.update(materialChapterProgressTable)
       .set({ chapters: JSON.stringify(chapters), updatedAt: new Date() })
       .where(eq(materialChapterProgressTable.id, row.id));
+  } else if (
+    fresh.length > 0 &&
+    chapters.length > 0 &&
+    (chapters.length !== fresh.length ||
+      chapters.some((t, i) => (t || "").trim().toLowerCase() !== (fresh[i] || "").trim().toLowerCase()))
+  ) {
+    // Structured outline produced a different chapter set (different length or
+    // titles). Old completed/skipped/current indices no longer map to the new
+    // chapters, so we reset progress conservatively rather than silently
+    // misreporting completion. Covered points are also cleared since they were
+    // keyed to old chapter indices.
+    chapters = fresh;
+    await db.update(materialChapterProgressTable)
+      .set({
+        chapters: JSON.stringify(chapters),
+        currentChapterIndex: 0,
+        completedChapterIndices: "[]",
+        skippedChapterIndices: "[]",
+        coveredPoints: "{}",
+        updatedAt: new Date(),
+      })
+      .where(eq(materialChapterProgressTable.id, row.id));
+    return {
+      chapters,
+      currentChapterIndex: 0,
+      completedChapterIndices: [],
+      skippedChapterIndices: [],
+      lastInteractedAt: row.lastInteractedAt ?? null,
+    };
   }
   return {
     chapters,
@@ -1539,8 +1663,9 @@ export async function mutateProgress(
   outline: string,
   action: string,
   chapterIndex?: number,
+  structuredOutline?: string | null,
 ): Promise<LoadedProgress> {
-  const current = await loadProgress(userId, materialId, outline);
+  const current = await loadProgress(userId, materialId, outline, structuredOutline);
   if (current.chapters.length === 0) return current;
 
   let { currentChapterIndex, completedChapterIndices, skippedChapterIndices } = current;
@@ -1606,7 +1731,7 @@ export async function mutateProgress(
 export async function advanceActiveMaterialChapter(userId: number, subjectId: string): Promise<LoadedProgress | null> {
   const ctx = await getActiveMaterialContext(userId, subjectId);
   if (!ctx?.material) return null;
-  return mutateProgress(userId, ctx.material.id, ctx.material.outline ?? "", "advance");
+  return mutateProgress(userId, ctx.material.id, ctx.material.outline ?? "", "advance", undefined, ctx.material.structuredOutline ?? null);
 }
 
 // Aggregate the most recent submitted quiz attempts on a material to surface
