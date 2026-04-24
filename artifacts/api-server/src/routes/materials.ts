@@ -932,8 +932,9 @@ async function processMaterial(materialId: number) {
     let ocrTextWasAdopted = false;
     let ocrTotalChunks = 0;
     let ocrSuccessfulChunks = 0;
+    let ocrFailedRanges: Array<[number, number]> = [];
     if (looksScanned) {
-      let ocr: OcrResult = { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "" };
+      let ocr: OcrResult = { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "", failedRanges: [] };
       try {
         ocr = await ocrPdfWithGemini(buf, pageCount || 0);
       } catch (e: any) {
@@ -941,6 +942,7 @@ async function processMaterial(materialId: number) {
       }
       ocrTotalChunks = ocr.totalChunks;
       ocrSuccessfulChunks = ocr.successfulChunks;
+      ocrFailedRanges = ocr.failedRanges;
       // Length comparison uses ONLY successful-chunk text — placeholders are
       // intentionally excluded so a mostly-failed OCR can't fake length and
       // sneak past quality gates.
@@ -967,11 +969,14 @@ async function processMaterial(materialId: number) {
     if (!detectedError && !hasAnyUsableText) {
       detectedError = "تعذّر استخراج أي نص من هذا الملف. حاول رفع نسخة أوضح أو غير ممسوحة ضوئياً.";
     }
-    if (!detectedError && ocrTextWasAdopted && ocrSuccessRatio < 1 && ocrTotalChunks > 0) {
-      // Soft warning: report it via warning-prefix in errorMessage so the UI
-      // can surface "partial extraction" without blocking the user.
-      const failedChunks = ocrTotalChunks - ocrSuccessfulChunks;
-      detectedWarning = `تم استخراج ${ocrSuccessfulChunks} من ${ocrTotalChunks} مقاطع من الملف. بعض الصفحات قد لا تظهر بالكامل (${failedChunks} مقطع تعذّر قراءته).`;
+    if (!detectedError && ocrTextWasAdopted && ocrSuccessRatio < 1 && ocrFailedRanges.length > 0) {
+      // Soft warning: name the explicit page ranges that couldn't be read so
+      // the user knows which slides to re-scan. Surfaced via errorMessage on
+      // a status="ready" row; the UI renders it in amber instead of red.
+      const rangeText = ocrFailedRanges
+        .map(([s, e]) => (s === e ? `${s}` : `${s}–${e}`))
+        .join("، ");
+      detectedWarning = `بعض الصفحات لم نتمكن من قراءتها: ${rangeText}. يمكنك استخدام بقية الملف بشكل طبيعي، أو إعادة رفع نسخة أوضح لتلك الصفحات.`;
     }
 
     // Detect language from a sample
@@ -1432,14 +1437,18 @@ async function ocrChunkClaude(chunkBuf: Buffer, label: string): Promise<OcrProvi
         content: [
           {
             type: "document",
-            source: { type: "base64", media_type: "application/pdf", data: chunkBuf.toString("base64") },
-          } as any,
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: chunkBuf.toString("base64"),
+            },
+          },
           { type: "text", text: OCR_PROMPT },
         ],
       }],
-    } as any);
-    const text = (msg.content || [])
-      .map((c: any) => (c?.type === "text" ? c.text : ""))
+    });
+    const text = msg.content
+      .map((c) => (c.type === "text" ? c.text : ""))
       .join("\n")
       .trim();
     if (text.length === 0) return { ok: false, status: "transient", reason: "empty_response" };
@@ -1456,9 +1465,17 @@ async function ocrChunkClaude(chunkBuf: Buffer, label: string): Promise<OcrProvi
   }
 }
 
+// Per-provider transient-failure retry schedule. We retry only on "transient"
+// errors (network blips, empty responses, 5xx) — never on "rate_limited"
+// (those skip straight to the next provider with the cooldown set) and never
+// on "fatal" (e.g. missing credentials).
+const TRANSIENT_RETRY_DELAYS_MS = [5_000, 15_000, 45_000];
+
 // Run a chunk through the provider chain. Returns the first successful text,
-// or "" if every provider failed. Updates per-provider cooldowns so subsequent
-// chunks skip a rate-limited provider until its window expires.
+// or "" if every provider failed. Each provider gets exponential-backoff
+// retries on transient errors before we fall through to the next provider.
+// Rate-limited providers respect Retry-After (via setProviderCooldown) and
+// are skipped immediately so we don't burn time hammering the same 429.
 async function ocrPdfChunk(chunkBuf: Buffer, label: string): Promise<string> {
   const chain: Array<{ name: OcrProviderName; run: () => Promise<OcrProviderResult> }> = [
     { name: "gemini-flash", run: () => ocrChunkGemini("gemini-2.5-flash", chunkBuf, label) },
@@ -1471,32 +1488,53 @@ async function ocrPdfChunk(chunkBuf: Buffer, label: string): Promise<string> {
       console.info(`[ocr] ${label} skip ${provider.name} (in cooldown)`);
       continue;
     }
-    const result = await provider.run();
-    if (result.ok) {
-      console.info(`[ocr] ${label} ok via ${provider.name} (${result.text.length} chars)`);
-      return result.text;
+
+    // Up to TRANSIENT_RETRY_DELAYS_MS.length + 1 attempts per provider:
+    // 1 initial + N retries on "transient" failures with growing backoff.
+    let attempt = 0;
+    let lastResult: OcrProviderResult | null = null;
+    while (attempt <= TRANSIENT_RETRY_DELAYS_MS.length) {
+      const result = await provider.run();
+      lastResult = result;
+      if (result.ok) {
+        console.info(`[ocr] ${label} ok via ${provider.name} (${result.text.length} chars, attempt ${attempt + 1})`);
+        return result.text;
+      }
+      if (result.status === "rate_limited") {
+        // Retry-After takes precedence: skip to next provider and park this
+        // one for the requested cooldown. No backoff retry on the same provider.
+        if (result.cooldownMs) setProviderCooldown(provider.name, result.cooldownMs);
+        break;
+      }
+      if (result.status === "fatal") {
+        // Cool down fatal providers (e.g. missing API key) for the rest of the
+        // run so we don't pay latency to rediscover they're unconfigured.
+        setProviderCooldown(provider.name, PROVIDER_COOLDOWN_MAX_MS);
+        break;
+      }
+      // status === "transient": back off and retry the same provider.
+      const delay = TRANSIENT_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) break; // exhausted retries → fall to next provider
+      console.warn(`[ocr] ${label} ${provider.name} transient (${result.reason}); retry in ${delay}ms`);
+      await new Promise((r) => setTimeout(r, delay));
+      attempt++;
     }
-    if (result.status === "rate_limited" && result.cooldownMs) {
-      setProviderCooldown(provider.name, result.cooldownMs);
-    } else if (result.status === "fatal") {
-      // Mark fatal providers as cool-down for the rest of the run so we
-      // don't keep paying the latency tax to discover they're unconfigured.
-      setProviderCooldown(provider.name, PROVIDER_COOLDOWN_MAX_MS);
+    if (lastResult && !lastResult.ok) {
+      console.warn(`[ocr] ${label} ${provider.name} exhausted (${lastResult.status}: ${lastResult.reason})`);
     }
-    // For "transient" we just move to the next provider without a cooldown.
   }
   return "";
 }
 
 const OCR_CHUNK_PAGES = 4;   // smaller chunks = smaller failure blast radius and lower per-call token usage
 const OCR_MAX_CHUNKS = 24;   // hard cap on chunks per document (24 * 4 = 96 pages)
-const OCR_RETRY_DELAY_MS = 1500;
 
 interface OcrResult {
   text: string;          // accumulated successful-chunk text (NO failure placeholders)
   totalChunks: number;
   successfulChunks: number;
   placeholders: string;  // failure markers, kept separately for downstream display
+  failedRanges: Array<[number, number]>; // 1-based [startPage, endPage] ranges that produced no text
 }
 
 // Split the PDF into ≤OCR_CHUNK_PAGES-page chunks, OCR each independently with
@@ -1505,8 +1543,17 @@ interface OcrResult {
 // placeholders are returned in a separate `placeholders` string so they never
 // inflate quality checks against the real extracted text.
 async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResult> {
-  const empty: OcrResult = { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "" };
-  if (!process.env.GEMINI_API_KEY) return empty;
+  // Note: name kept for backwards compat — this now drives the full multi-
+  // provider chain (Gemini Flash → Gemini Pro → Claude). It only short-
+  // circuits if NO provider is configured at all; otherwise the chain is
+  // entered so Claude can serve scans even without GEMINI_API_KEY.
+  const hasAnyProvider = Boolean(
+    process.env.GEMINI_API_KEY ||
+    (process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY && process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL)
+  );
+  if (!hasAnyProvider) {
+    return { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "", failedRanges: [] };
+  }
 
   // Fall back to single-shot if pdf-lib can't open the file (encrypted /
   // malformed); preserves prior behavior so we never regress to "0 text".
@@ -1516,7 +1563,7 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
   } catch (e: any) {
     console.warn("[ocr] pdf-lib import failed, single-shot fallback:", e?.message || e);
     const text = await ocrPdfChunk(buf, "full");
-    return { text, totalChunks: 1, successfulChunks: text.length > 0 ? 1 : 0, placeholders: "" };
+    return { text, totalChunks: 1, successfulChunks: text.length > 0 ? 1 : 0, placeholders: "", failedRanges: text.length > 0 ? [] : [[1, pageCount || 1]] };
   }
   const { PDFDocument } = pdfLibMod;
 
@@ -1526,7 +1573,7 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
   } catch (e: any) {
     console.warn("[ocr] pdf-lib load failed, single-shot fallback:", e?.message || e);
     const text = await ocrPdfChunk(buf, "full");
-    return { text, totalChunks: 1, successfulChunks: text.length > 0 ? 1 : 0, placeholders: "" };
+    return { text, totalChunks: 1, successfulChunks: text.length > 0 ? 1 : 0, placeholders: "", failedRanges: text.length > 0 ? [] : [[1, pageCount || 1]] };
   }
 
   const totalPages = srcDoc.getPageCount();
@@ -1538,6 +1585,7 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
 
   const successful: string[] = [];
   const placeholders: string[] = [];
+  const failedRanges: Array<[number, number]> = []; // 1-based, inclusive end
   let succeededChunks = 0;
   for (const [start, end] of chunkRanges) {
     const label = `pages ${start + 1}-${end}`;
@@ -1552,16 +1600,13 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
     } catch (e: any) {
       console.warn(`[ocr] ${label} split failed:`, e?.message || e);
       placeholders.push(`--- صفحات ${start + 1}-${end}: تعذّر تقسيم الصفحات ---`);
+      failedRanges.push([start + 1, end]);
       continue;
     }
 
-    let text = await ocrPdfChunk(chunkBuf, label);
-    if (text.length < 50) {
-      // One retry per chunk with a small backoff — covers transient 5xx /
-      // rate-limit bumps without re-OCRing the whole document.
-      await new Promise((res) => setTimeout(res, OCR_RETRY_DELAY_MS));
-      text = await ocrPdfChunk(chunkBuf, `${label} (retry)`);
-    }
+    // Provider chain handles its own retries with exponential backoff and
+    // rate-limit cooldowns — no per-chunk retry needed here anymore.
+    const text = await ocrPdfChunk(chunkBuf, label);
     if (text.length > 0) {
       successful.push(text);
       succeededChunks++;
@@ -1570,6 +1615,7 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
       // mix it into `text` — placeholders must not inflate length-based
       // quality checks that decide ready vs error.
       placeholders.push(`--- صفحات ${start + 1}-${end}: تعذّر استخراج النص ---`);
+      failedRanges.push([start + 1, end]);
     }
   }
 
@@ -1579,6 +1625,7 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
     totalChunks: chunkRanges.length,
     successfulChunks: succeededChunks,
     placeholders: placeholders.join("\n"),
+    failedRanges,
   };
 }
 
