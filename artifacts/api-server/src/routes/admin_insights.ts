@@ -721,30 +721,73 @@ ${contextJson}
   req.on("close", () => ac.abort());
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${geminiKey}`;
-    const upstream = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: geminiContents,
-        generationConfig: { temperature: 0, topP: 0.8, maxOutputTokens: 2048 },
-        safetySettings: [
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-        ],
-      }),
-      signal: ac.signal,
+    // Gemini frequently returns transient 503 (model overloaded) or 502/504
+    // (gateway). Retry with exponential backoff before giving up; fall back to
+    // gemini-2.5-flash-lite on the last attempt since it has more capacity.
+    const requestBody = JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: geminiContents,
+      generationConfig: { temperature: 0, topP: 0.8, maxOutputTokens: 2048 },
+      safetySettings: [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+      ],
     });
 
-    if (!upstream.ok || !upstream.body) {
-      const errBody = await upstream.text().catch(() => "");
-      console.error("[admin-insights] gemini http error:", upstream.status, errBody.slice(0, 300));
-      const friendly = upstream.status === 429
-        ? "وصل المساعد لحدّ الاستخدام المؤقّت. حاول بعد دقيقة."
-        : "تعذّر الردّ الآن، حاول بعد قليل.";
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const buildUrl = (model: string) =>
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${geminiKey}`;
+    const attemptModels = ["gemini-2.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+    const transientStatuses = new Set([429, 500, 502, 503, 504]);
+
+    let upstream: Response | null = null;
+    let lastStatus = 0;
+    let lastErrBody = "";
+    for (let attempt = 0; attempt < attemptModels.length; attempt++) {
+      if (ac.signal.aborted) return;
+      try {
+        const r = await fetch(buildUrl(attemptModels[attempt]), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: requestBody,
+          signal: ac.signal,
+        });
+        if (r.ok && r.body) {
+          upstream = r;
+          break;
+        }
+        lastStatus = r.status;
+        lastErrBody = await r.text().catch(() => "");
+        if (!transientStatuses.has(r.status)) {
+          // Non-retryable error (auth, bad request, etc.) — stop immediately.
+          break;
+        }
+      } catch (fetchErr: any) {
+        if (fetchErr?.name === "AbortError") return;
+        lastStatus = 0;
+        lastErrBody = String(fetchErr?.message || fetchErr);
+      }
+      // Backoff before next attempt: 600ms, 1500ms.
+      if (attempt < attemptModels.length - 1) {
+        await sleep(attempt === 0 ? 600 : 1500);
+      }
+    }
+
+    if (!upstream || !upstream.body) {
+      console.error("[admin-insights] gemini http error after retries:",
+        lastStatus, lastErrBody.slice(0, 300));
+      let friendly = "تعذّر الردّ الآن، حاول بعد قليل.";
+      if (lastStatus === 429) {
+        friendly = "وصل المساعد لحدّ الاستخدام المؤقّت. حاول بعد دقيقة.";
+      } else if (lastStatus === 503) {
+        friendly = "خدمة الذكاء الاصطناعي مزدحمة الآن. حاول بعد ٣٠ ثانية.";
+      } else if (lastStatus === 401 || lastStatus === 403) {
+        friendly = "إعداد مفتاح الذكاء الاصطناعي غير صحيح — راجع GEMINI_API_KEY.";
+      } else if (lastStatus >= 500) {
+        friendly = "خدمة الذكاء الاصطناعي تواجه عطلاً مؤقتاً. حاول بعد قليل.";
+      }
       res.write(`data: ${JSON.stringify({ error: friendly })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       return res.end();
