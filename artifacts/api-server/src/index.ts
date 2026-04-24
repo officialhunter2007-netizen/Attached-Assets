@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { runStartupMigrations } from "./lib/auto-migrate";
 
 const rawPort = process.env["PORT"];
 
@@ -15,11 +16,22 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
+async function start() {
+  // Auto-add any required columns missing from the live DB.
+  // Wrapped in try/catch internally so the server still starts on failure.
+  await runStartupMigrations();
 
-  logger.info({ port }, "Server listening");
+  app.listen(port, (err) => {
+    if (err) {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
+    }
+
+    logger.info({ port }, "Server listening");
+  });
+}
+
+start().catch((err) => {
+  logger.error({ err }, "Fatal startup error");
+  process.exit(1);
 });

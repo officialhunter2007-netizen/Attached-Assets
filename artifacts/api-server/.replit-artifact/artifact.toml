@@ -14,17 +14,16 @@ run = "pnpm --filter @workspace/api-server run dev"
 
 [services.production]
 
-# Push the schema during the build phase so it happens ONCE per deploy
-# instead of on every autoscale cold start. The build phase has the
-# production DATABASE_URL available, so push targets the right DB.
+# Build is intentionally minimal — DB schema sync is handled at runtime via the
+# admin endpoint POST /api/admin/db/push (see routes/admin_db.ts). Running
+# drizzle-kit push during the build phase was hanging on large schema diffs
+# against Neon and blocking deploys.
 [services.production.build]
-args = ["sh", "-c", "pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/db push-force"]
+args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
 
 [services.production.build.env]
 NODE_ENV = "production"
 
-# Run is now stripped down to just node — every container cold start is fast,
-# no DB round-trip on startup.
 [services.production.run]
 args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 

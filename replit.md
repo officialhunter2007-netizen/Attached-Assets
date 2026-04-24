@@ -17,7 +17,13 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 - **Build**: esbuild (bundle)
 - **Frontend**: React + Vite + Tailwind CSS + Framer Motion
 - **AI**: OpenAI gpt-5.2 via Replit AI integration (SSE streaming)
-- **Auth**: Cookie-based sessions (base64 JSON, SHA-256 hashed passwords)
+- **Auth**: Cookie-based sessions (HMAC-SHA256 signed tokens, scrypt-hashed passwords with lazy upgrade from legacy SHA-256)
+
+## Production deploys
+
+- **Build phase** runs only `pnpm build` for the api-server — no DB push, so deploys are fast and never hang on "Validating database migrations".
+- **Schema sync** is handled at server startup by `artifacts/api-server/src/lib/auto-migrate.ts`: it queries `information_schema` for the live DB columns and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` any missing ones from a hardcoded list. Add new required columns to the `REQUIRED_COLUMNS` array there when extending the schema.
+- For full schema sync (new tables, indexes, FKs) use `pnpm --filter @workspace/db push` in dev; for prod, run the same command from a deployment shell with the prod `DATABASE_URL`.
 
 ## Artifacts
 
