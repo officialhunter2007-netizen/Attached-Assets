@@ -516,9 +516,9 @@ router.post(
       {
         const q = await checkUploadQuota(userId, subjectId);
         if (!q.ok) {
-          await replitObjectStore
+          await sdkClient
             .delete(objectNameInBucket)
-            .catch((e) => console.warn("[materials/upload] orphan cleanup failed:", e?.message || e));
+            .catch((e: any) => console.warn("[materials/upload] orphan cleanup failed:", e?.message || e));
           return res.status(q.status).json(q.body);
         }
       }
