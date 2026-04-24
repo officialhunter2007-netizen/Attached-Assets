@@ -915,14 +915,23 @@ async function processMaterial(materialId: number) {
       detectedError = `هذا الملف يحوي ${pageCount} صفحة، والحد الأقصى ${MAX_PAGE_COUNT} صفحة. قسّم الملف إلى أجزاء أصغر.`;
     }
 
-    // Be more aggressive about deciding the file is scanned/has unusual fonts:
-    // many slide-deck PDFs (e.g. "lec3 c++.pdf") return short pseudo-text from
-    // pdf-parse but actually need OCR to be readable. Trigger OCR whenever the
-    // average page yields fewer than ~120 chars, or the total is under 500.
+    // Decide whether to fall back to OCR. Many slide-deck PDFs return short
+    // pseudo-text from native extraction but actually need OCR to be readable.
+    // Heuristic combines three signals so we don't OCR a perfectly fine short
+    // digital PDF (e.g. a 3-page memo):
+    //   * page coverage ratio — fraction of pages that produced *any* text;
+    //     a healthy digital PDF should be ≥ 60%.
+    //   * total length and avg per page — old size signals.
+    // A digital PDF with high coverage but a low total (e.g. a one-pager)
+    // will pass without OCR.
     const avgPerPage = pageCount > 0 ? extractedText.length / pageCount : 0;
+    const nonEmptyPages = Array.from(pageTexts.values()).filter((t) => t.trim().length >= 20).length;
+    const coverageRatio = pageCount > 0 ? nonEmptyPages / pageCount : 0;
     const looksScanned = !detectedError && (
-      extractedText.length < 500 ||
-      (pageCount > 0 && avgPerPage < 120)
+      pageTexts.size === 0 ||
+      coverageRatio < 0.6 ||
+      (extractedText.length < 200 && coverageRatio < 0.8) ||
+      (pageCount > 0 && avgPerPage < 80)
     );
 
     // 2) Fallback: chunked multi-provider OCR. The chunker handles provider
@@ -1374,6 +1383,23 @@ function setProviderCooldown(p: OcrProviderName, ms: number): void {
   console.warn(`[ocr] cooldown ${p} for ${Math.round((until - Date.now()) / 1000)}s`);
 }
 
+// Parse a Retry-After header value per RFC 7231: either an integer "delay-
+// seconds" or an HTTP-date. Returns the delay in milliseconds, or null when
+// the header is missing/unparseable.
+function parseRetryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed) * 1000;
+  }
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) {
+    const delta = dateMs - Date.now();
+    return delta > 0 ? delta : 0;
+  }
+  return null;
+}
+
 const OCR_PROMPT = `استخرج النص الكامل من هذا المستند صفحة بصفحة. ابدأ كل صفحة بسطر "--- صفحة X ---".
 لا تُلخّص ولا تُعدّل، انسخ النص العربي والإنجليزي حرفياً.`;
 
@@ -1401,10 +1427,7 @@ async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chun
       signal: AbortSignal.timeout(120_000),
     });
     if (r.status === 429 || r.status === 503) {
-      const retryAfterHeader = r.headers.get("retry-after");
-      const cooldownMs = retryAfterHeader && /^\d+$/.test(retryAfterHeader)
-        ? Number(retryAfterHeader) * 1000
-        : PROVIDER_COOLDOWN_DEFAULT_MS;
+      const cooldownMs = parseRetryAfterMs(r.headers.get("retry-after")) ?? PROVIDER_COOLDOWN_DEFAULT_MS;
       console.warn(`[ocr] ${label} ${model} ${r.status} → cooldown ${cooldownMs}ms`);
       return { ok: false, status: "rate_limited", cooldownMs, reason: `http_${r.status}` };
     }
