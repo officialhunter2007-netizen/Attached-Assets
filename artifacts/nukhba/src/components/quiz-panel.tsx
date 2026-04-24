@@ -725,6 +725,174 @@ function NumField({
 
 // ── States ───────────────────────────────────────────────────────────────────
 
+// ── Code-aware prompt renderer ────────────────────────────────────────────────
+
+const CPP_KEYWORDS = new Set([
+  "int","long","short","char","float","double","bool","void","unsigned","signed",
+  "auto","const","static","extern","volatile","register","mutable","inline",
+  "if","else","for","while","do","switch","case","break","continue","return","goto",
+  "class","struct","union","enum","public","private","protected","virtual","override",
+  "new","delete","this","nullptr","true","false","sizeof","typedef","using","namespace",
+  "template","typename","throw","try","catch","include","define","pragma","ifdef","ifndef",
+  "endif","cout","cin","endl","string","vector","map","set","pair","make_pair","push_back",
+]);
+
+type Token = { kind: "kw"|"str"|"num"|"cmt"|"pre"|"op"|"id"|"ws"; text: string };
+
+function tokenizeCpp(line: string): Token[] {
+  const tokens: Token[] = [];
+  let i = 0;
+  while (i < line.length) {
+    // Line comment
+    if (line[i] === "/" && line[i+1] === "/") {
+      tokens.push({ kind: "cmt", text: line.slice(i) });
+      break;
+    }
+    // Preprocessor at start of non-whitespace
+    if (line[i] === "#") {
+      tokens.push({ kind: "pre", text: line.slice(i) });
+      break;
+    }
+    // String literal
+    if (line[i] === '"' || line[i] === "'") {
+      const q = line[i];
+      let j = i + 1;
+      while (j < line.length && line[j] !== q) {
+        if (line[j] === "\\") j++;
+        j++;
+      }
+      tokens.push({ kind: "str", text: line.slice(i, j + 1) });
+      i = j + 1;
+      continue;
+    }
+    // Number
+    if (/[0-9]/.test(line[i]) || (line[i] === "." && /[0-9]/.test(line[i+1] ?? ""))) {
+      let j = i;
+      while (j < line.length && /[0-9a-fA-FxX._uUlL]/.test(line[j])) j++;
+      tokens.push({ kind: "num", text: line.slice(i, j) });
+      i = j;
+      continue;
+    }
+    // Identifier or keyword
+    if (/[a-zA-Z_]/.test(line[i])) {
+      let j = i;
+      while (j < line.length && /[a-zA-Z0-9_]/.test(line[j])) j++;
+      const word = line.slice(i, j);
+      tokens.push({ kind: CPP_KEYWORDS.has(word) ? "kw" : "id", text: word });
+      i = j;
+      continue;
+    }
+    // Multi-char operators
+    const ops2 = ["<<",">>","->","::","==","!=","<=",">=","&&","||","++","--","+=","-=","*=","/="];
+    const op2 = ops2.find((op) => line.startsWith(op, i));
+    if (op2) {
+      tokens.push({ kind: "op", text: op2 });
+      i += op2.length;
+      continue;
+    }
+    // Single-char operator/punctuation
+    if (/[+\-*/=<>&|!^%~?:;,.()\[\]{}]/.test(line[i])) {
+      tokens.push({ kind: "op", text: line[i] });
+      i++;
+      continue;
+    }
+    // Whitespace
+    if (/\s/.test(line[i])) {
+      let j = i;
+      while (j < line.length && /\s/.test(line[j])) j++;
+      tokens.push({ kind: "ws", text: line.slice(i, j) });
+      i = j;
+      continue;
+    }
+    // Fallthrough: unknown char
+    tokens.push({ kind: "id", text: line[i] });
+    i++;
+  }
+  return tokens;
+}
+
+const TOKEN_COLOR: Record<Token["kind"], string> = {
+  kw: "text-sky-300 font-semibold",
+  str: "text-emerald-300",
+  num: "text-amber-300",
+  cmt: "text-white/40 italic",
+  pre: "text-rose-300",
+  op: "text-blue-300",
+  id: "text-white",
+  ws: "",
+};
+
+function isCodeLine(line: string): boolean {
+  if (!line.trim()) return false;
+  // Has Arabic characters → treat as text
+  if (/[\u0600-\u06FF]/.test(line)) return false;
+  // Starts with known code patterns
+  if (/^\s*(#|\/\/|\/\*|int |double |float |char |bool |void |cout|cin|return|if\s*\(|for\s*\(|while\s*\(|class |struct |namespace |using |template|[a-zA-Z_]\w*\s*[=({\[;])/.test(line)) return true;
+  // Contains code-ish operators with no Arabic
+  if (/[{};]|<<|>>|->|::/.test(line)) return true;
+  // Majority of printable chars are ASCII (>70%)
+  const printable = line.replace(/\s/g, "");
+  if (!printable) return false;
+  const ascii = printable.split("").filter((c) => c.charCodeAt(0) < 128).length;
+  return ascii / printable.length > 0.7;
+}
+
+function HighlightedCode({ line }: { line: string }) {
+  const tokens = tokenizeCpp(line || " ");
+  return (
+    <>
+      {tokens.map((tok, i) => (
+        <span key={i} className={TOKEN_COLOR[tok.kind]}>{tok.text}</span>
+      ))}
+    </>
+  );
+}
+
+// Renders the question prompt with automatic code-block detection.
+// Pure-code lines are grouped into a LTR monospace block with syntax
+// highlighting; Arabic prose lines stay RTL with the regular font.
+function PromptWithCode({ text }: { text: string }) {
+  type Segment = { type: "text"; lines: string[] } | { type: "code"; lines: string[] };
+  const segments: Segment[] = [];
+  for (const raw of text.split("\n")) {
+    const isCode = isCodeLine(raw);
+    const last = segments[segments.length - 1];
+    if (last && last.type === (isCode ? "code" : "text")) {
+      last.lines.push(raw);
+    } else {
+      segments.push({ type: isCode ? "code" : "text", lines: [raw] });
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {segments.map((seg, si) => {
+        if (seg.type === "text") {
+          return (
+            <div key={si} dir="auto" className="text-white text-[15px] font-semibold leading-relaxed whitespace-pre-wrap">
+              {seg.lines.join("\n")}
+            </div>
+          );
+        }
+        return (
+          <pre
+            key={si}
+            dir="ltr"
+            className="rounded-xl bg-[#0d111e] border border-white/10 px-4 py-3 text-[13px] leading-relaxed overflow-x-auto font-mono text-left"
+            style={{ unicodeBidi: "isolate" }}
+          >
+            {seg.lines.map((line, li) => (
+              <div key={li}><HighlightedCode line={line} /></div>
+            ))}
+          </pre>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function humanizeError(code?: string): string {
   switch (code) {
     case "MATERIAL_NOT_READY": return "لا يزال الملف قيد المعالجة. حاول بعد لحظات.";
@@ -883,13 +1051,11 @@ function AnsweringState({
             </span>
           )}
         </div>
-        {/* dir="auto" lets the browser decide LTR vs RTL per-paragraph so
-            inline code / English identifiers inside Arabic questions don't
-            get mirrored by the parent's RTL context. */}
-        <div
-          dir="auto"
-          className="text-white text-[15px] font-semibold leading-relaxed mb-4 whitespace-pre-wrap"
-        >{current.prompt}</div>
+        {/* PromptWithCode auto-detects code lines and renders them as a
+            LTR syntax-highlighted block while Arabic prose stays RTL. */}
+        <div className="mb-4">
+          <PromptWithCode text={current.prompt} />
+        </div>
         {current.type === "mcq" && current.choices ? (
           <div className="space-y-2">
             {current.choices.map((c, idx) => {
