@@ -256,12 +256,80 @@ async function signObjectURL({
     }
   );
   if (!response.ok) {
+    // Capture the actual sidecar error body so we can diagnose 401/403/etc.
+    // The sidecar's error messages tell us the root cause (missing creds,
+    // unknown bucket, expired token, etc.) — without this, the surface
+    // error "make sure you're running on Replit" is misleading on Replit
+    // deployments where the sidecar is present but rejecting the request.
+    const errBody = await response.text().catch(() => "<no body>");
+    const dbg =
+      `bucket=${bucketName} method=${method} status=${response.status} ` +
+      `sidecar_body=${errBody.slice(0, 400)}`;
     throw new Error(
-      `Failed to sign object URL, errorcode: ${response.status}, ` +
-        `make sure you're running on Replit`
+      `Failed to sign object URL: ${dbg} — ` +
+        `if you're on Replit, ensure Object Storage is provisioned ` +
+        `(setupObjectStorage) and the deployment has PRIVATE_OBJECT_DIR set.`
     );
   }
 
-  const { signed_url: signedURL } = await response.json();
+  const { signed_url: signedURL } = (await response.json()) as { signed_url: string };
   return signedURL;
+}
+
+// Diagnostic helper: tests the sidecar end-to-end without persisting anything.
+// Returns a structured report showing what's broken (env vars missing, sidecar
+// down, bucket inaccessible, etc.). Used by the admin /diagnostics endpoint.
+export async function diagnoseObjectStorage(): Promise<{
+  envVars: Record<string, "present" | "missing">;
+  sidecar: { ok: boolean; status?: number; bodyPreview?: string; error?: string };
+  signTest: { ok: boolean; error?: string; signedUrlLength?: number };
+}> {
+  // Presence-only — never leak the actual bucket id / private dir path in the
+  // diagnostic response (admins may share screenshots; the values themselves
+  // are not needed to diagnose, only whether the variable is set at all).
+  const envVars: Record<string, "present" | "missing"> = {
+    PRIVATE_OBJECT_DIR: process.env.PRIVATE_OBJECT_DIR ? "present" : "missing",
+    PUBLIC_OBJECT_SEARCH_PATHS: process.env.PUBLIC_OBJECT_SEARCH_PATHS ? "present" : "missing",
+    DEFAULT_OBJECT_STORAGE_BUCKET_ID: process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID ? "present" : "missing",
+  };
+
+  // Probe sidecar reachability.
+  let sidecar: { ok: boolean; status?: number; bodyPreview?: string; error?: string };
+  try {
+    const r = await fetch(`${REPLIT_SIDECAR_ENDPOINT}/health`, {
+      signal: AbortSignal.timeout(5_000),
+    }).catch(() => null);
+    if (r) {
+      const body = await r.text().catch(() => "");
+      sidecar = { ok: r.ok, status: r.status, bodyPreview: body.slice(0, 200) };
+    } else {
+      // Health endpoint may not exist on all sidecars — that's fine, we'll let
+      // the actual sign attempt below verify reachability.
+      sidecar = { ok: true, status: 0, bodyPreview: "no health endpoint" };
+    }
+  } catch (err: any) {
+    sidecar = { ok: false, error: String(err?.message || err) };
+  }
+
+  // Attempt a real sign-URL call against the configured private dir.
+  let signTest: { ok: boolean; error?: string; signedUrlLength?: number };
+  try {
+    if (!envVars.PRIVATE_OBJECT_DIR) {
+      signTest = { ok: false, error: "PRIVATE_OBJECT_DIR not set in environment" };
+    } else {
+      const fullPath = `${envVars.PRIVATE_OBJECT_DIR}/diagnostics/probe-${Date.now()}`;
+      const { bucketName, objectName } = parseObjectPath(fullPath);
+      const url = await signObjectURL({
+        bucketName,
+        objectName,
+        method: "PUT",
+        ttlSec: 60,
+      });
+      signTest = { ok: true, signedUrlLength: url.length };
+    }
+  } catch (err: any) {
+    signTest = { ok: false, error: String(err?.message || err).slice(0, 500) };
+  }
+
+  return { envVars, sidecar, signTest };
 }

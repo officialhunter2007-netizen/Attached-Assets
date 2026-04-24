@@ -9,7 +9,12 @@ import {
   labReportsTable,
   subscriptionRequestsTable,
   aiTeacherMessagesTable,
+  courseMaterialsTable,
+  materialChapterProgressTable,
+  quizAttemptsTable,
+  lessonSummariesTable,
 } from "@workspace/db";
+import { diagnoseObjectStorage } from "../lib/objectStorage";
 
 const router: IRouter = Router();
 
@@ -357,7 +362,19 @@ async function buildAdminContext(focusUser: any | null) {
   // pre-filtered server-side so the AI cannot confuse them with other users.
   let focusUserBlock: any = null;
   if (focusUser) {
-    const [subs, focusEvents, focusLessons, focusLabs, focusSubReqs, focusTeacherMsgs, focusTeacherMsgsBySubject] = await Promise.all([
+    const [
+      subs,
+      focusEvents,
+      focusLessons,
+      focusLabs,
+      focusSubReqs,
+      focusTeacherMsgs,
+      focusTeacherMsgsBySubject,
+      focusMaterials,
+      focusMaterialProgress,
+      focusQuizzes,
+      focusSummaries,
+    ] = await Promise.all([
       db
         .select()
         .from(userSubjectSubscriptionsTable)
@@ -438,6 +455,72 @@ async function buildAdminContext(focusUser: any | null) {
         .groupBy(aiTeacherMessagesTable.subjectId, aiTeacherMessagesTable.subjectName)
         .orderBy(sql`count(*) desc`)
         .limit(20),
+      // Course materials uploaded by this user (PDFs they've added).
+      db
+        .select({
+          id: courseMaterialsTable.id,
+          subjectId: courseMaterialsTable.subjectId,
+          fileName: courseMaterialsTable.fileName,
+          fileSizeBytes: courseMaterialsTable.fileSizeBytes,
+          status: courseMaterialsTable.status,
+          errorMessage: courseMaterialsTable.errorMessage,
+          pageCount: courseMaterialsTable.pageCount,
+          language: courseMaterialsTable.language,
+          summary: sql<string>`left(coalesce(${courseMaterialsTable.summary}, ''), 250)`,
+          createdAt: courseMaterialsTable.createdAt,
+        })
+        .from(courseMaterialsTable)
+        .where(eq(courseMaterialsTable.userId, focusUser.id))
+        .orderBy(desc(courseMaterialsTable.createdAt))
+        .limit(20),
+      // Per-material chapter progress (which chapters they've completed).
+      db
+        .select({
+          materialId: materialChapterProgressTable.materialId,
+          currentChapterIndex: materialChapterProgressTable.currentChapterIndex,
+          completedChapterIndices: materialChapterProgressTable.completedChapterIndices,
+          skippedChapterIndices: materialChapterProgressTable.skippedChapterIndices,
+          lastInteractedAt: materialChapterProgressTable.lastInteractedAt,
+        })
+        .from(materialChapterProgressTable)
+        .where(eq(materialChapterProgressTable.userId, focusUser.id))
+        .orderBy(desc(materialChapterProgressTable.lastInteractedAt))
+        .limit(30),
+      // Quiz attempts (chapter quizzes, final exams, etc.) — most recent.
+      db
+        .select({
+          id: quizAttemptsTable.id,
+          materialId: quizAttemptsTable.materialId,
+          subjectId: quizAttemptsTable.subjectId,
+          kind: quizAttemptsTable.kind,
+          chapterIndex: quizAttemptsTable.chapterIndex,
+          chapterTitle: quizAttemptsTable.chapterTitle,
+          totalQuestions: quizAttemptsTable.totalQuestions,
+          correctCount: quizAttemptsTable.correctCount,
+          score: quizAttemptsTable.score,
+          status: quizAttemptsTable.status,
+          createdAt: quizAttemptsTable.createdAt,
+          submittedAt: quizAttemptsTable.submittedAt,
+        })
+        .from(quizAttemptsTable)
+        .where(eq(quizAttemptsTable.userId, focusUser.id))
+        .orderBy(desc(quizAttemptsTable.createdAt))
+        .limit(40),
+      // Lesson summaries the user generated (their saved study notes).
+      db
+        .select({
+          id: lessonSummariesTable.id,
+          subjectId: lessonSummariesTable.subjectId,
+          subjectName: lessonSummariesTable.subjectName,
+          title: lessonSummariesTable.title,
+          messagesCount: lessonSummariesTable.messagesCount,
+          conversationDate: lessonSummariesTable.conversationDate,
+          createdAt: lessonSummariesTable.createdAt,
+        })
+        .from(lessonSummariesTable)
+        .where(eq(lessonSummariesTable.userId, focusUser.id))
+        .orderBy(desc(lessonSummariesTable.createdAt))
+        .limit(30),
     ]);
 
     focusUserBlock = {
@@ -459,6 +542,14 @@ async function buildAdminContext(focusUser: any | null) {
       subscriptionRequests: focusSubReqs,
       aiTeacherMessages: focusTeacherMsgs,
       aiTeacherMessagesBySubject: focusTeacherMsgsBySubject,
+      // NEW: course materials this user uploaded (file names, status, page counts).
+      courseMaterials: focusMaterials,
+      // NEW: chapter-by-chapter progress on each uploaded material.
+      materialProgress: focusMaterialProgress,
+      // NEW: quiz attempts (chapter quizzes, final exams) with scores.
+      quizAttempts: focusQuizzes,
+      // NEW: lesson summaries the user has generated.
+      lessonSummaries: focusSummaries,
       subjectSubscriptions: subs.map((s) => ({
         subjectId: s.subjectId,
         subjectName: s.subjectName,
@@ -530,6 +621,17 @@ function safeStringifyContext(ctx: any, maxBytes = 80_000): string {
     ["subjectsBreakdown", [40, 20, 10]],
   ];
 
+  // Nested arrays inside focusUser (trim only after top-level trims).
+  const focusTrims: Array<[string, number[]]> = [
+    ["aiTeacherMessages", [80, 40, 20, 10]],
+    ["events", [80, 40, 20]],
+    ["quizAttempts", [30, 15, 8]],
+    ["lessonSummaries", [20, 10, 5]],
+    ["materialProgress", [20, 10, 5]],
+    ["courseMaterials", [15, 8, 4]],
+    ["lessonViews", [20, 10, 5]],
+  ];
+
   for (const [key, sizes] of trims) {
     for (const size of sizes) {
       if (Array.isArray(snapshot[key]) && snapshot[key].length > size) {
@@ -539,8 +641,46 @@ function safeStringifyContext(ctx: any, maxBytes = 80_000): string {
       }
     }
   }
+  for (const [key, sizes] of focusTrims) {
+    for (const size of sizes) {
+      const fu = snapshot.focusUser;
+      if (fu && Array.isArray(fu[key]) && fu[key].length > size) {
+        snapshot = {
+          ...snapshot,
+          focusUser: { ...fu, [key]: fu[key].slice(0, size) },
+        };
+        json = JSON.stringify(snapshot, null, 2);
+        if (json.length <= maxBytes) return json;
+      }
+    }
+  }
   return json; // best effort — always valid JSON
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/diagnostics/storage — admin-only end-to-end probe of the
+// Replit Object Storage sidecar. Surfaces the real reason uploads fail
+// (missing env vars, sidecar 401, bucket mismatch) instead of the generic
+// "Failed to sign object URL" the client used to see.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/diagnostics/storage", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+  try {
+    const report = await diagnoseObjectStorage();
+    return res.json({
+      ok: report.signTest.ok,
+      ...report,
+      hint: report.signTest.ok
+        ? "Object storage is healthy."
+        : report.envVars.PRIVATE_OBJECT_DIR === "missing"
+        ? "PRIVATE_OBJECT_DIR is not set in this environment. In deployments, ensure Object Storage is provisioned for the deployment (Storage tab → reconnect)."
+        : `Sidecar rejected the sign request. See signTest.error for the exact sidecar response.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: String(err?.message || err) });
+  }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/admin/ai/insights — Gemini-powered admin assistant (SSE)
@@ -690,7 +830,7 @@ ${focusResolutionNote ? `\n> ملاحظة: ${focusResolutionNote}\n` : ""}
 
 ## محتوى JSON
 ${focusUser
-  ? `- \`focusUser\`: **هو المصدر الوحيد والنهائي** لكل ما يخصّ هذا المستخدم — اسم/إيميل/ID/اشتراكات/أحداث/دروس/مختبر/طلبات اشتراك/**رسائل المعلم الذكي**. **لا تضف أي حدث أو معلومة ليست داخل هذا الكائن.** إن كان \`focusUser.events\` مصفوفة فارغة فهذا يعني أنه لا توجد أي أحداث في آخر ٧ أيام — قل ذلك صراحة ولا تخترع.\n- \`focusUser.aiTeacherMessages\`: آخر ١٢٠ رسالة بين هذا الطالب والمعلم الذكي (آخر ٧ أيام) مع \`role\` (user/assistant) و\`subjectId\`/\`subjectName\` و\`contentPreview\` (مقتطف من النص). إذا سُئلت "أيش سأل الطالب المعلم؟" أو "في أي مادة كان يدرس؟" استخرج الإجابة من هنا حصرًا، وانقل النصوص حرفيًا (لا تُلخّصها بإعادة صياغة مختلقة). إذا كانت المصفوفة فارغة قل: "لم يرسل أي رسائل للمعلم الذكي خلال الأسبوع الماضي".\n- \`focusUser.aiTeacherMessagesBySubject\`: عدد رسائل الطالب لكل مادة — للإجابة على "كم رسالة وفي أي مواد".\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`: بيانات عامة للمرجعية.`
+  ? `- \`focusUser\`: **هو المصدر الوحيد والنهائي** لكل ما يخصّ هذا المستخدم — اسم/إيميل/ID/اشتراكات/أحداث/دروس/مختبر/طلبات اشتراك/**رسائل المعلم الذكي**/**الملفات المرفوعة**/**الاختبارات**/**الملخّصات**. **لا تضف أي حدث أو معلومة ليست داخل هذا الكائن.** إن كان \`focusUser.events\` مصفوفة فارغة فهذا يعني أنه لا توجد أي أحداث في آخر ٧ أيام — قل ذلك صراحة ولا تخترع.\n- \`focusUser.aiTeacherMessages\`: آخر ١٢٠ رسالة بين هذا الطالب والمعلم الذكي (آخر ٧ أيام) مع \`role\` (user/assistant) و\`subjectId\`/\`subjectName\` و\`contentPreview\` (مقتطف من النص). إذا سُئلت "أيش سأل الطالب المعلم؟" أو "في أي مادة كان يدرس؟" استخرج الإجابة من هنا حصرًا، وانقل النصوص حرفيًا (لا تُلخّصها بإعادة صياغة مختلقة). إذا كانت المصفوفة فارغة قل: "لم يرسل أي رسائل للمعلم الذكي خلال الأسبوع الماضي".\n- \`focusUser.aiTeacherMessagesBySubject\`: عدد رسائل الطالب لكل مادة — للإجابة على "كم رسالة وفي أي مواد".\n- \`focusUser.courseMaterials\`: قائمة الملفات (PDF) التي رفعها الطالب — \`fileName\`, \`subjectId\`, \`pageCount\`, \`status\` (processing/ready/failed)، و\`errorMessage\` لو فشلت المعالجة، و\`summary\` ملخّص قصير. للإجابة على "أيش الملفات اللي رفعها؟" أو "هل نجحت معالجة ملفه؟" استخرج من هنا حرفيًا. إن كانت فارغة: "لم يرفع أي ملف بعد".\n- \`focusUser.materialProgress\`: تقدّم الطالب في كل ملف — \`materialId\`, \`currentChapterIndex\`, \`completedChapterIndices\` (مصفوفة), \`skippedChapterIndices\`, \`lastInteractedAt\`. للإجابة على "وين وصل في كتاب X؟".\n- \`focusUser.quizAttempts\`: محاولات الاختبارات (آخر ٤٠) — \`kind\` (chapter_quiz/final_exam/...), \`chapterTitle\`, \`score\` (٠–١٠٠), \`correctCount\`/\`totalQuestions\`, \`status\` (in_progress/submitted), \`createdAt\`/\`submittedAt\`. للإجابة على "كم درجته في الاختبار؟" أو "أين أخطأ؟".\n- \`focusUser.lessonSummaries\`: الملخّصات التي أنشأها الطالب (آخر ٣٠) — \`title\`, \`subjectName\`, \`messagesCount\`, \`createdAt\`. للإجابة على "أي دروس لخّصها؟".\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`: بيانات عامة للمرجعية.`
   : `- \`usersDirectory\`: آخر ٣٠٠ مستخدم (id, name, email, role). **هذه القائمة هي المرجع الوحيد لأسماء وإيميلات المستخدمين.** ممنوع ذكر أي اسم/إيميل/ID لا يظهر هنا.\n- \`recentTeacherMessages\`: آخر ٦٠ رسالة (آخر ٢٤ ساعة) بين الطلاب والمعلم الذكي عبر المنصّة، فيها \`userId\`/\`userName\`/\`userEmail\`/\`subjectId\`/\`subjectName\`/\`role\`/\`contentPreview\`. استخدمها للإجابة عمّا يسأله الطلاب الآن وفي أي مواد.\n- \`teacherMessagesBySubject\`: تجميع لرسائل آخر ٧ أيام مقسّمة حسب المادة.\n- \`counts\`, \`subjectsBreakdown\`, \`topActive\`, \`topPaths\`, \`recentEvents\`, \`recentLessons\`, \`recentLabs\`, \`recentSubReqs\`: بيانات عامة.`}
 
 ## قواعد صارمة (مخالفتها = فشل)
