@@ -268,6 +268,40 @@ export function QuizPanel({
     [questions],
   );
 
+  // First question whose answer is empty — used to jump there when the user
+  // tries to submit before answering everything. -1 if all answered.
+  const firstUnansweredIdx = useMemo(
+    () => questions.findIndex((q) => !(answers[q.id] ?? "").trim()),
+    [questions, answers],
+  );
+
+  // Track which questions the user has visited so we can mark visited-but-
+  // unanswered ones with a red border (helps the student spot what's missing).
+  const [visited, setVisited] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    if (phase !== "answering") return;
+    setVisited((s) => {
+      if (s.has(currentIdx)) return s;
+      const next = new Set(s);
+      next.add(currentIdx);
+      return next;
+    });
+  }, [currentIdx, phase]);
+  // Reset visited when a fresh quiz loads.
+  useEffect(() => {
+    if (phase === "loading" || phase === "scope") setVisited(new Set());
+  }, [phase]);
+
+  // Submit button handler: if everything is answered, submit; otherwise
+  // navigate to the first missing question instead of being silently disabled.
+  const submitOrJump = () => {
+    if (allAnswered) {
+      submit();
+    } else if (firstUnansweredIdx >= 0) {
+      setCurrentIdx(firstUnansweredIdx);
+    }
+  };
+
   if (!open) return null;
 
   // Compute the displayed title + subtitle based on phase + active scope.
@@ -351,11 +385,15 @@ export function QuizPanel({
                 current={current}
                 currentIdx={currentIdx}
                 answers={answers}
+                visited={visited}
                 setAnswer={(qid, val) => setAnswers((a) => ({ ...a, [qid]: val }))}
                 goPrev={() => setCurrentIdx((i) => Math.max(0, i - 1))}
                 goNext={() => setCurrentIdx((i) => Math.min(questions.length - 1, i + 1))}
                 jumpTo={(i) => setCurrentIdx(i)}
                 unknownPageCount={unknownPageCount}
+                allAnswered={allAnswered}
+                firstUnansweredIdx={firstUnansweredIdx}
+                onSubmit={submitOrJump}
               />
             )}
 
@@ -378,12 +416,20 @@ export function QuizPanel({
                 أُجبت على <span className="text-gold font-bold">{answeredCount}</span> / {questions.length}
               </div>
               <button
-                onClick={submit}
-                disabled={!allAnswered}
-                className="text-sm font-bold px-5 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-amber-600 text-black hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20 flex items-center gap-2"
+                onClick={submitOrJump}
+                className={`text-sm font-bold px-5 py-2.5 rounded-xl shadow-lg flex items-center gap-2 transition-all ${
+                  allAnswered
+                    ? "bg-gradient-to-l from-emerald-500 to-emerald-600 text-white hover:from-emerald-400 hover:to-emerald-500 shadow-emerald-500/20"
+                    : "bg-gradient-to-l from-amber-500 to-amber-600 text-black hover:from-amber-400 hover:to-amber-500 shadow-amber-500/20"
+                }`}
+                title={allAnswered ? "تسليم الاختبار للتصحيح" : "اذهب للسؤال غير المُجاب"}
               >
                 <Sparkles className="w-4 h-4" />
-                {allAnswered ? "تسليم وتصحيح" : `أجب على ${questions.length - answeredCount} سؤالاً متبقياً`}
+                {allAnswered
+                  ? "تسليم وتصحيح ✓"
+                  : firstUnansweredIdx >= 0
+                    ? `↩ اذهب للسؤال ${firstUnansweredIdx + 1}`
+                    : `أجب على ${questions.length - answeredCount} سؤالاً متبقياً`}
               </button>
             </div>
           )}
@@ -713,19 +759,26 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 }
 
 function AnsweringState({
-  questions, current, currentIdx, answers, setAnswer, goPrev, goNext, jumpTo, unknownPageCount,
+  questions, current, currentIdx, answers, visited, setAnswer, goPrev, goNext, jumpTo,
+  unknownPageCount, allAnswered, firstUnansweredIdx, onSubmit,
 }: {
   questions: QuizQuestion[];
   current: QuizQuestion;
   currentIdx: number;
   answers: Record<string, string>;
+  visited: Set<number>;
   setAnswer: (qid: string, val: string) => void;
   goPrev: () => void;
   goNext: () => void;
   jumpTo: (i: number) => void;
   unknownPageCount: number;
+  allAnswered: boolean;
+  firstUnansweredIdx: number;
+  onSubmit: () => void;
 }) {
   const progressPct = Math.round(((currentIdx + 1) / questions.length) * 100);
+  const isLast = currentIdx >= questions.length - 1;
+  const currentAnswered = (answers[current.id] ?? "").trim().length > 0;
   return (
     <div className="p-5 sm:p-6">
       {/* Progress strip */}
@@ -742,16 +795,37 @@ function AnsweringState({
           {questions.map((q, i) => {
             const ans = (answers[q.id] ?? "").trim().length > 0;
             const here = i === currentIdx;
+            const wasVisited = visited.has(i);
+            // Visual hierarchy:
+            //  • current  + answered     → gold + green dot (showing it's saved)
+            //  • current  + empty        → gold + amber pulse (needs answer)
+            //  • answered (not current)  → green
+            //  • visited but empty       → red border (alerts the student)
+            //  • not yet visited         → faint gray
+            let cls: string;
+            if (here && ans) {
+              cls = "bg-gold text-black ring-2 ring-emerald-400/70";
+            } else if (here) {
+              cls = "bg-gold text-black ring-2 ring-amber-300/50 animate-pulse";
+            } else if (ans) {
+              cls = "bg-emerald-500/30 text-emerald-200 border border-emerald-500/40";
+            } else if (wasVisited) {
+              cls = "bg-red-500/10 text-red-300 border border-red-500/50 hover:bg-red-500/20";
+            } else {
+              cls = "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10";
+            }
+            const ttl = ans
+              ? `السؤال ${i + 1} — تمّت الإجابة`
+              : wasVisited
+                ? `السؤال ${i + 1} — لم تُجَب بعد`
+                : `السؤال ${i + 1}`;
             return (
               <button
                 key={q.id}
                 onClick={() => jumpTo(i)}
-                className={`w-7 h-7 rounded-md text-[10px] font-bold transition-all ${
-                  here ? "bg-gold text-black ring-2 ring-amber-300/50"
-                    : ans ? "bg-emerald-500/30 text-emerald-200 border border-emerald-500/40"
-                    : "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10"
-                }`}
-                title={`السؤال ${i + 1}`}
+                className={`w-7 h-7 rounded-md text-[10px] font-bold transition-all ${cls}`}
+                title={ttl}
+                aria-label={ttl}
               >
                 {i + 1}
               </button>
@@ -816,7 +890,10 @@ function AnsweringState({
         )}
       </div>
 
-      {/* Prev/Next */}
+      {/* Prev/Next  ·  on the LAST question, "next" turns into a submit/jump
+         button so the student can clearly finish without hunting for the
+         footer. Disabled-silent buttons confused users (they thought they
+         were stuck on the last question with nothing to press). */}
       <div className="flex items-center justify-between gap-3">
         <button
           onClick={goPrev}
@@ -825,14 +902,48 @@ function AnsweringState({
         >
           <ArrowRight className="w-4 h-4" /> السابق
         </button>
-        <button
-          onClick={goNext}
-          disabled={currentIdx >= questions.length - 1}
-          className="text-sm font-semibold px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
-        >
-          التالي <ArrowLeft className="w-4 h-4" />
-        </button>
+        {isLast ? (
+          <button
+            onClick={onSubmit}
+            className={`text-sm font-bold px-5 py-2 rounded-xl flex items-center gap-1.5 shadow-lg transition-all ${
+              allAnswered
+                ? "bg-gradient-to-l from-emerald-500 to-emerald-600 text-white hover:from-emerald-400 hover:to-emerald-500 shadow-emerald-500/20"
+                : "bg-gradient-to-l from-amber-500 to-amber-600 text-black hover:from-amber-400 hover:to-amber-500 shadow-amber-500/20"
+            }`}
+            title={allAnswered ? "تسليم الاختبار للتصحيح" : "اذهب للسؤال غير المُجاب"}
+          >
+            <Sparkles className="w-4 h-4" />
+            {allAnswered
+              ? "تسليم وتصحيح ✓"
+              : firstUnansweredIdx >= 0
+                ? `↩ السؤال ${firstUnansweredIdx + 1} غير مُجاب`
+                : "تسليم وتصحيح"}
+          </button>
+        ) : (
+          <button
+            onClick={goNext}
+            className="text-sm font-semibold px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 flex items-center gap-1.5"
+          >
+            التالي <ArrowLeft className="w-4 h-4" />
+          </button>
+        )}
       </div>
+
+      {/* Inline hint: when on the last question and the current answer is
+         saved but other questions are still empty, point the student to
+         them so they don't think the system is broken. */}
+      {isLast && currentAnswered && !allAnswered && firstUnansweredIdx >= 0 && (
+        <div className="mt-3 flex items-center justify-center gap-2 text-[12px] text-amber-300/90">
+          <span>تمّت الإجابة على هذا السؤال ✓ — لكن السؤال</span>
+          <button
+            onClick={() => jumpTo(firstUnansweredIdx)}
+            className="font-bold underline decoration-amber-400/60 hover:text-amber-200"
+          >
+            رقم {firstUnansweredIdx + 1}
+          </button>
+          <span>لم يُجَب بعد.</span>
+        </div>
+      )}
 
       {unknownPageCount > 0 && (
         <div className="mt-4 text-[10.5px] text-white/45 text-center leading-relaxed">
