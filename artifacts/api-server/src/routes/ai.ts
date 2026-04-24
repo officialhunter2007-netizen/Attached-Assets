@@ -1561,14 +1561,114 @@ router.post("/ai/run-code", async (req, res) => {
 // Generic AI-generated lab scenarios (Food / Accounting / YemenSoft)
 // ─────────────────────────────────────────────────────────────────────────────
 
-type LabKind = "food" | "accounting" | "yemensoft" | "generic";
+// Universal practice-environment specializations.
+// Legacy kinds (food, accounting, yemensoft) keep their existing scenario
+// pipeline. The new kinds drive the universal `/ai/lab/build-env` builder
+// to pick the right components and example patterns for the subject area.
+type LabKind =
+  | "food" | "accounting" | "yemensoft"
+  | "cybersecurity" | "web-pentest" | "forensics" | "networking" | "os"
+  | "programming" | "data-science" | "business" | "physics" | "language"
+  | "generic";
 
-function detectLabKind(subjectId: string): LabKind {
+const SPECIALIZATION_LABELS: Record<LabKind, string> = {
+  food: "هندسة الأغذية",
+  accounting: "المحاسبة",
+  yemensoft: "يمن سوفت",
+  cybersecurity: "الأمن السيبراني",
+  "web-pentest": "اختبار اختراق الويب",
+  forensics: "التحقيق الرقمي",
+  networking: "الشبكات",
+  os: "أنظمة التشغيل",
+  programming: "البرمجة",
+  "data-science": "علم البيانات",
+  business: "الأعمال والإدارة",
+  physics: "الفيزياء",
+  language: "اللغات",
+  generic: "البيئة التطبيقية",
+};
+
+// Heuristic detection: prefer subject-id mapping for legacy subjects, then
+// look at the user's free-text request for topic keywords (Arabic + English),
+// then fall back to a coarse subject-id scan, then "generic".
+function detectLabKind(subjectId: string, description: string = ""): LabKind {
   const s = (subjectId || "").toLowerCase();
+  const d = (description || "").toLowerCase();
+
+  // Hard mappings for the three legacy specialized labs.
   if (s === "uni-food-eng") return "food";
   if (s === "uni-accounting") return "accounting";
   if (s === "skill-yemensoft") return "yemensoft";
+
+  // Topic detection from the description (works on every subject).
+  // Order matters: more specific patterns first.
+  if (/(sql\s*injection|xss|csrf|burp|owasp|web.?pent|اختراق.*ويب|حقن\s*sql|ثغرات\s*ويب)/i.test(d)) return "web-pentest";
+  if (/(forensic|memory.?dump|volatility|autopsy|disk.?image|تحقيق\s*رقمي|طب\s*شرعي\s*رقمي|استخراج\s*أدلة)/i.test(d)) return "forensics";
+  if (/(wireshark|nmap|tcpdump|packet|pcap|التقاط\s*حزم|بروتوكول\s*شبك|topolog|طوبولوجي|شبكات?)/i.test(d)) return "networking";
+  if (/(linux|bash|shell|kernel|ubuntu|نظام\s*تشغيل|سطر\s*الأوامر|terminal)/i.test(d)) return "os";
+  if (/(cyber|hack|pent|اختراق|أمن\s*سيبر|سيبراني|exploit|metasploit|kali)/i.test(d)) return "cybersecurity";
+  if (/(html|css|javascript|react|vue|الواجه|تصميم\s*ويب)/i.test(d) && !/cyber|اختراق/i.test(d)) return "programming";
+  if (/(python|java|c\+\+|programming|debug|algorithm|برمج|خوارز|كود|دالة)/i.test(d)) return "programming";
+  if (/(dataset|pandas|numpy|machine.?learn|ml\b|بيانات|تعلم\s*آلي|إحصاء|تحليل\s*بيانات)/i.test(d)) return "data-science";
+  if (/(business|marketing|sales|إدارة|تسويق|مبيعات|crm|مشروع\s*ريادي)/i.test(d)) return "business";
+  if (/(physic|mechanic|kinematic|electric|فيزياء|كهرباء|ميكانيك|حركة|قوى)/i.test(d)) return "physics";
+  if (/(language|translation|grammar|لغة|نحو|ترجمة|قواعد\s*اللغة|إعراب)/i.test(d)) return "language";
+
+  // Coarse subject-id fallbacks.
+  if (/(cyber|sec|hack)/i.test(s)) return "cybersecurity";
+  if (/(net|network)/i.test(s)) return "networking";
+  if (/(code|prog|web|html|css|js|py|java)/i.test(s)) return "programming";
+  if (/(data|ds|ml)/i.test(s)) return "data-science";
+  if (/(biz|business|mgmt)/i.test(s)) return "business";
+  if (/phys/i.test(s)) return "physics";
+  if (/lang/i.test(s)) return "language";
   return "generic";
+}
+
+// Per-specialization addendum appended to the universal system prompt.
+// Tells the builder which of the new component types to favour for this
+// subject area, with concrete one-line examples.
+function specializationAddendum(kind: LabKind): string {
+  const common = `\n\n**🎯 تخصيص حسب طبيعة الطلب (${SPECIALIZATION_LABELS[kind]}):**\n`;
+  switch (kind) {
+    case "web-pentest":
+      return common + `استخدم بكثافة: \`webApp\` (تطبيق ويب صغير قابل للاختراق فعلاً، HTML+JS داخل iframe معزول)، \`browser\` (متصفّح بصفحات متعددة لتجربة هجمات XSS/CSRF)، \`logViewer\` (سجلات الوصول/الأخطاء)، \`codeBlock\` (الـ payload المقترح). مثال:
+- {"type":"webApp","title":"موقع متجر مصغّر","html":"<form ...>","height":420}
+- {"type":"browser","pages":[{"title":"login","url":"/login","html":"..."},{"title":"dashboard","url":"/dash","html":"..."}]}
+- {"type":"logViewer","bindTo":"serverLogs"}
+المهام: حقن SQL، XSS مخزّن/منعكس، تجاوز التحقق، CSRF.`;
+    case "cybersecurity":
+      return common + `مزج مناسب: \`terminal\` (مخرجات أوامر الفحص)، \`networkDiagram\` (طوبولوجيا الشبكة المستهدفة)، \`fileSystemExplorer\` (نظام ملفات الضحية بعد الاختراق)، \`logViewer\`، \`codeBlock\`. مثال:
+- {"type":"terminal","bindTo":"shellOutput","prompt":"$","height":260}
+- {"type":"networkDiagram","bindTo":"topology"}  // {nodes:[{id,label,kind,x?,y?}], edges:[{from,to,label?}]}
+- {"type":"fileSystemExplorer","bindTo":"target.fs","allowDownload":true}`;
+    case "forensics":
+      return common + `استخدم: \`fileSystemExplorer\` (نظام ملفات الجهاز المضبوط)، \`logViewer\` (سجلات النظام/التطبيقات)، \`packetCapture\` (إن كان هناك pcap)، \`table\` (عناصر الـ artifacts)، \`codeBlock\` (نتائج volatility/autopsy). يجب أن يجد الطالب أدلة حقيقية مدفونة في initialState.`;
+    case "networking":
+      return common + `الأهم: \`packetCapture\` (قائمة حزم بطبقات OSI قابلة للنقر)، \`networkDiagram\` (طوبولوجيا الشبكة)، \`terminal\` (مخرجات ping/traceroute/ip route)، \`table\` (جداول التوجيه/ARP/MAC). مثال:
+- {"type":"packetCapture","bindTo":"capture","title":"التقاط wlan0"}  // packets:[{no,time,src,dst,protocol,length,info,layers:{Ethernet:"...",IP:"...",TCP:"..."}}]
+- {"type":"networkDiagram","bindTo":"lan"}`;
+    case "os":
+      return common + `الأهم: \`terminal\` (محاكي سطر أوامر للقراءة)، \`fileSystemExplorer\` (شجرة /home و/etc و/var/log)، \`logViewer\` (journalctl/dmesg). أضف \`codeBlock\` لشرح الأوامر و\`form\` من نوع \`mutate\` لتعديل ملفات إعدادات في initialState.`;
+    case "programming":
+      return common + `استخدم \`codeBlock\` لعرض الكود الناقص/الخاطئ، \`webApp\` لتشغيل صفحات HTML/CSS/JS فعلياً داخل iframe، \`form\` نوع \`check\` لمراجعة إجابات الطالب، \`terminal\` لمحاكاة مخرجات تنفيذ. مثال:
+- {"type":"webApp","title":"معاينة صفحة المتجر","html":"<!doctype html>...","height":480}
+- {"type":"codeBlock","language":"python","code":"def add(a,b):\\n  return a-b  # ابحث عن الخطأ"}`;
+    case "data-science":
+      return common + `استخدم: \`table\` و\`editableTable\` لعرض/تنظيف الداتاست، \`chart\` لتصوير التوزيعات، \`codeBlock\` لعرض كود pandas/numpy، \`kpi\` للمقاييس (Accuracy/F1)، \`form\` نوع \`mutate\` لتطبيق فلترات/تحويلات على initialState.`;
+    case "business":
+      return common + `استخدم: \`kpiGrid\` (مؤشرات الأداء)، \`chart\` (المبيعات الشهرية)، \`editableTable\` (قائمة العملاء/المنتجات)، \`form\` نوع \`mutate\` (إصدار طلب شراء/فاتورة تُحدّث الحالة)، \`richDocument\` (تقرير تنفيذي). البيانات يمنية حقيقية بـYER.`;
+    case "physics":
+      return common + `استخدم: \`form\` نوع \`check\` للأسئلة الحسابية مع \`tolerance\`، \`calculator\`، \`chart\` لرسم العلاقات، \`codeBlock\` للقوانين، \`webApp\` لمحاكاة فيزيائية بسيطة (HTML+canvas+JS) داخل iframe. اشرح كل خطوة في \`richDocument\`.`;
+    case "language":
+      return common + `استخدم: \`richDocument\` (نص للقراءة)، \`form\` نوع \`check\` (إعراب/ترجمة/إكمال)، \`form\` نوع \`ask-ai\` (تصحيح كتابة)، \`list\` (مفردات)، \`codeBlock\` (أمثلة شعرية أو نحوية).`;
+    case "food":
+    case "accounting":
+    case "yemensoft":
+      return ""; // legacy kinds use the original prompt as-is
+    default:
+      return common + `استخدم المكوّنات المناسبة لطبيعة الموضوع. عند عرض شيء يتطلب صفحة ويب فعلية → \`webApp\`. عند مخرجات سطر أوامر → \`terminal\`. عند ملفات → \`fileSystemExplorer\`. عند سجلات → \`logViewer\`. عند طوبولوجيا/مخطط شبكة → \`networkDiagram\`. عند حزم شبكة → \`packetCapture\`. عند صفحات متعددة قابلة للتصفّح → \`browser\`.`;
+  }
 }
 
 const FOOD_SCHEMA_PROMPT = `أنت مصمم سيناريوهات هندسة غذائية تفاعلية. ينتج JSON صالحاً يصف تجربة معملية يطبّقها الطالب داخل المختبر الغذائي (الذي يحوي حاسبات حرارية، رسوم نمو/فناء البكتيريا، ومخطط HACCP).
@@ -1752,10 +1852,8 @@ router.post("/ai/lab/assist", async (req, res): Promise<any> => {
   };
   if (!question) return res.status(400).json({ error: "Missing question" });
 
-  const kindLabels: Record<string, string> = {
-    food: "هندسة الأغذية", accounting: "المحاسبة", yemensoft: "يمن سوفت", generic: "البيئة التطبيقية",
-  };
-  const kindLabel = kindLabels[kind || detectLabKind(subjectId)] || "المختبر";
+  const detected = kind || detectLabKind(subjectId, briefing || envTitle || "");
+  const kindLabel = SPECIALIZATION_LABELS[detected as LabKind] || "المختبر";
 
   const contextBlock = scenario
     ? JSON.stringify({
@@ -1889,6 +1987,23 @@ const DYNAMIC_ENV_SYSTEM = `أنت مهندس بيئات تعليمية تفاع
 - {"type":"invoice","title":"معاينة","bindTo":"currentInvoice","companyName":"..."}  // فاتورة مطبوعة من state
 - {"type":"calculator","title":"حاسبة","description":"..."}
 
+**🛠 مكوّنات تقنية متقدمة (للأمن السيبراني/الشبكات/أنظمة التشغيل/البرمجة):**
+- {"type":"webApp","title":"تطبيق ويب صغير","description":"...","html":"<!doctype html>...","height":420}
+   // HTML+JS كامل يعمل داخل iframe معزول (sandbox: allow-scripts allow-forms — بلا allow-same-origin).
+   // يستطيع إرسال أحداث للوالد عبر window.envEmit("type", data). لا تستخدم الكوكيز/localStorage.
+- {"type":"browser","title":"المتصفح","pages":[{"title":"home","url":"https://shop.local/","html":"..."},{"title":"login","url":"/login","html":"..."}]}
+   // يعرض صفحات متعددة قابلة للتصفّح، كل صفحة في iframe بنفس السياسة الأمنية.
+- {"type":"terminal","title":"sh","prompt":"$","bindTo":"shellOutput","height":280}
+   // عارض سطر أوامر للقراءة فقط. lines:[string] أو bindTo لمصفوفة سطور في initialState.
+- {"type":"fileSystemExplorer","title":"النظام","bindTo":"target.fs","allowDownload":true,"height":340}
+   // شجرة مجلدات/ملفات. كل عقدة: {name, type:"dir"|"file", children?:{...}, content?:"..."}.
+- {"type":"packetCapture","title":"capture.pcap","bindTo":"capture"}
+   // عارض حزم على نمط Wireshark. packets:[{no,time,src,dst,protocol,length,info,layers:{Ethernet,IP,TCP,...}}].
+- {"type":"networkDiagram","title":"الطوبولوجيا","bindTo":"topology","height":300}
+   // مخطط شبكة SVG. data:{nodes:[{id,label,kind,x?,y?}], edges:[{from,to,label?}]}.
+- {"type":"logViewer","title":"السجلات","bindTo":"serverLogs","height":300}
+   // سجلات منظّمة. entries:[{ts,level:"info"|"warn"|"error"|"debug"|"trace",source,message}] مع فلتر نص ومستوى.
+
 نماذج (مع 3 أنماط submit):
 - النمط 1 — تحقّق من إجابة (للأسئلة الحسابية):
   {"type":"form","title":"...","fields":[{"name":"answer","label":"...","type":"number","unit":"ر.ي","required":true}],
@@ -1983,7 +2098,8 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   const { subjectId, description } = req.body as { subjectId: string; description: string };
   if (!subjectId || !description) return res.status(400).json({ error: "Missing subjectId or description" });
 
-  const kind = detectLabKind(subjectId);
+  const kind = detectLabKind(subjectId, description);
+  const kindLabel = SPECIALIZATION_LABELS[kind];
 
   // Build a minimal but valid env so the UI ALWAYS has something to render.
   // No matter what goes wrong with the AI call, we surface a usable env with
@@ -2014,8 +2130,10 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       // accounts + inventory + customers + multiple screens) regularly exceed
       // 12k tokens and get truncated → unparseable JSON → no env appears.
       max_tokens: 16384,
-      system: DYNAMIC_ENV_SYSTEM,
-      messages: [{ role: "user", content: `النوع: ${kind}\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة بالضبط لهذا الطلب. أرجع JSON صالحاً فقط دون أي شرح أو markdown.` }],
+      // Append a per-specialization addendum so the same universal builder
+      // produces the right component mix for cyber/networking/programming/etc.
+      system: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind),
+      messages: [{ role: "user", content: `التخصص: ${kindLabel} (${kind})\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة بالضبط لهذا الطلب، باستخدام المكوّنات الأنسب لطبيعة التخصص. أرجع JSON صالحاً فقط دون أي شرح أو markdown.` }],
     });
 
     let raw = "";

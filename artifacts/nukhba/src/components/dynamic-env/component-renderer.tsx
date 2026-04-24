@@ -854,18 +854,18 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
 }
 
 // ─── Sandboxed mini web app ─────────────────────────────────────────────────
-// SECURITY: AI-generated HTML is rendered with the strictest iframe sandbox
-// that still allows scripts to run.
-//   - NO `allow-same-origin`  → iframe runs in an opaque origin and cannot
-//                               read cookies/localStorage/sessionStorage of
-//                               the parent app.
-//   - NO `allow-forms`        → AI HTML cannot submit forms to any origin
-//                               (avoids CSRF-style request triggering against
-//                               our own backend). Authors must use JS-handled
-//                               <button onclick> instead of native <form>.
+// SECURITY contract for AI-generated HTML rendered via iframe srcDoc:
+//   sandbox = "allow-scripts allow-forms"  (and NOTHING else)
+//   - NO `allow-same-origin` → iframe runs in an opaque origin and cannot
+//                              read cookies/localStorage/sessionStorage of
+//                              the parent app. Same-origin AJAX to our API
+//                              would be cross-origin without credentials.
+//   - `allow-forms` is allowed so educational web exercises can demonstrate
+//     real <form> behaviour. Cookies on our backend use SameSite=Lax which
+//     blocks them on cross-site form POSTs from this opaque origin.
 //   - NO `allow-popups`, `allow-top-navigation`, `allow-modals`, etc.
 // Messages from the iframe are treated as **untrusted telemetry**: we only
-// trust the source window and use the nonce purely as a sanity tag.
+// trust the source window (ev.source check) and use the nonce as a sanity tag.
 function WebAppBlock({ comp }: { comp: Extract<DynComponent, { type: "webApp" }> }) {
   const ref = useRef<HTMLIFrameElement>(null);
   // Per-render nonce so the parent can sanity-check postMessage events came
@@ -905,7 +905,7 @@ function WebAppBlock({ comp }: { comp: Extract<DynComponent, { type: "webApp" }>
       <iframe
         ref={ref}
         title={comp.title || "webApp"}
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-forms"
         srcDoc={wrappedHtml}
         className="w-full rounded-lg border border-white/10 bg-white"
         style={{ height }}
@@ -1102,7 +1102,7 @@ function BrowserBlock({ comp, state }: { comp: Extract<DynComponent, { type: "br
           {/* Same sandbox policy as WebAppBlock — see security note above. */}
           <iframe
             title={current.url || "browser"}
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-forms"
             srcDoc={String(current.html || "")}
             className="w-full rounded-lg border border-white/10 bg-white"
             style={{ height }}
