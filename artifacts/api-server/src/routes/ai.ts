@@ -2513,4 +2513,349 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Attack Simulation — independent feature for cybersecurity/networking.
+// 3 endpoints: build a scenario, execute a terminal command, stream assistant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ATTACK_SIM_BUILD_SYSTEM = `أنت مصمّم محاكاة هجمات سيبرانية تعليمية واقعية. أرجع JSON فقط، لا شرح.
+
+**الشكل المطلوب:**
+{
+  "title": "عنوان السيناريو بالعربية",
+  "story": "خلفية السيناريو (٢-٣ أسطر) — لماذا الطالب هنا؟ ما الهدف؟",
+  "difficulty": "beginner|intermediate|advanced",
+  "category": "web|network|forensics|crypto|priv-esc|recon",
+  "objectives": ["هدف ١ بصيغة فعل أمر", "هدف ٢", "هدف ٣"],
+  "studentHost": "attacker",
+  "hosts": [
+    {
+      "id": "attacker",
+      "name": "Kali (أنت)",
+      "ip": "10.10.10.5",
+      "os": "Kali Linux",
+      "role": "attacker",
+      "x": 100, "y": 200,
+      "services": [],
+      "tools": ["nmap","nikto","curl","ssh","hydra","sqlmap","gobuster","dig","whois","ping","netcat"]
+    },
+    {
+      "id": "target1",
+      "name": "Web Server",
+      "ip": "10.10.10.20",
+      "os": "Ubuntu 22.04",
+      "role": "target",
+      "x": 350, "y": 100,
+      "services": [
+        {"port":80,"protocol":"tcp","name":"http","version":"Apache 2.4.52","vulnerable":true,"hint":"وصول للوحة الإدارة بكلمة مرور افتراضية"},
+        {"port":22,"protocol":"tcp","name":"ssh","version":"OpenSSH 8.9p1"}
+      ],
+      "users": [{"name":"admin","password":"admin123","note":"كلمة مرور افتراضية ضعيفة"}],
+      "files": [{"path":"/var/www/html/admin/.env","content":"DB_PASS=secretdb"},{"path":"/root/flag.txt","content":"FLAG{web_to_root_pwn}"}]
+    }
+  ],
+  "edges": [{"from":"attacker","to":"target1","label":"VPN"}],
+  "flags": [
+    {"id":"f1","host":"target1","path":"/root/flag.txt","label":"العلَم النهائي","points":100}
+  ],
+  "hints": [
+    {"trigger":"start","text":"ابدأ بفحص الشبكة بـnmap لاكتشاف الأهداف"},
+    {"trigger":"after_scan","text":"بعد كشف المنافذ، جرّب لوحة الإدارة في المتصفح"}
+  ],
+  "suggestedCommands": [
+    {"cmd":"nmap -sV 10.10.10.0/24","why":"اكتشاف الأجهزة والخدمات"},
+    {"cmd":"curl -I http://10.10.10.20","why":"فحص استجابة الخادم"}
+  ]
+}
+
+**القواعد الذهبية:**
+- اجعل الموضوع تعليمياً واقعياً — IPs مثل 10.10.10.x، خدمات حقيقية، ثغرات معروفة (default creds, SQLi, dir traversal, weak SSH key, exposed .git, etc).
+- ٢-٤ أهداف، ٢-٥ مضيفين (attacker + ١-٤ targets)، ١-٣ flags.
+- لكل خدمة "vulnerable":true يجب أن يكون فيها مسار اختراق منطقي قابل للاستكشاف.
+- لكل ملف حساس (flag, password, key) ضعه في path واقعي.
+- الـx,y إحداثيات بين 50-700 (x) و 50-400 (y) لرسم المخطّط.
+- لو وُصف الطالب موضوعاً عاماً ("شبكة"، "ويب"، "تجاوز صلاحيات")، اقترح سيناريو ملائماً للمستوى.
+- ممنوع: محتوى ضار حقيقي، عناوين حقيقية، أهداف غير قانونية. كل شيء داخل بيئة تعليمية وهمية.`;
+
+// Server-side gate: Attack Simulation is only for cybersecurity / networking subjects.
+// Frontend gating is bypassable, so re-check here against an explicit allowlist
+// derived from the actual curriculum (artifacts/nukhba/src/lib/curriculum.ts) —
+// no loose token matching like a bare "ip" or "tcp".
+const ATTACK_SIM_ALLOWED_SUBJECTS = new Set<string>([
+  "uni-cybersecurity",
+  "skill-security",
+  "skill-networks",
+]);
+// Anchored prefix patterns reserve room for future related subjects without
+// allowing unrelated ids that merely contain the substring "network" mid-word.
+const ATTACK_SIM_ALLOWED_PREFIXES = [
+  /^uni-cyber(security)?(-|$)/,
+  /^skill-(security|networks?|pentest|cyber(sec)?)(-|$)/,
+];
+function isSecuritySubjectId(subjectId?: string | null): boolean {
+  if (!subjectId || typeof subjectId !== "string") return false;
+  const id = subjectId.trim().toLowerCase();
+  if (ATTACK_SIM_ALLOWED_SUBJECTS.has(id)) return true;
+  return ATTACK_SIM_ALLOWED_PREFIXES.some(re => re.test(id));
+}
+
+router.post("/ai/attack-sim/build", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { subjectId, description, difficulty, category } = req.body as {
+    subjectId?: string;
+    description?: string;
+    difficulty?: "beginner" | "intermediate" | "advanced";
+    category?: string;
+  };
+
+  if (!isSecuritySubjectId(subjectId)) {
+    return res.status(403).json({ error: "محاكاة الهجمات متاحة فقط لمواد الأمن السيبراني والشبكات" });
+  }
+
+  const userPrompt = `وصف الطالب: "${(description || "").trim() || "اقترح سيناريو مناسب"}"
+${difficulty ? `المستوى المطلوب: ${difficulty}` : ""}
+${category ? `الفئة المفضّلة: ${category}` : ""}
+${subjectId ? `معرّف المادة: ${subjectId}` : ""}
+
+أرجِع JSON كامل لسيناريو محاكاة هجمة قابل للعب فوراً.`;
+
+  try {
+    const completion = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4000,
+      system: ATTACK_SIM_BUILD_SYSTEM,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+
+    const raw = (completion.content[0] as any)?.text || "";
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("لم يُرجع المعلم سيناريو صالح");
+
+    const scenario = JSON.parse(jsonMatch[0]);
+
+    // Defensive normalization so the UI never crashes on malformed shape.
+    if (!Array.isArray(scenario.hosts) || scenario.hosts.length === 0) {
+      throw new Error("السيناريو لا يحتوي على مضيفين");
+    }
+    if (!scenario.studentHost) {
+      const attacker = scenario.hosts.find((h: any) => h.role === "attacker");
+      scenario.studentHost = attacker?.id || scenario.hosts[0].id;
+    }
+    scenario.objectives = Array.isArray(scenario.objectives) ? scenario.objectives : [];
+    scenario.flags = Array.isArray(scenario.flags) ? scenario.flags : [];
+    scenario.hints = Array.isArray(scenario.hints) ? scenario.hints : [];
+    scenario.edges = Array.isArray(scenario.edges) ? scenario.edges : [];
+    scenario.suggestedCommands = Array.isArray(scenario.suggestedCommands) ? scenario.suggestedCommands : [];
+
+    return res.json({ scenario });
+  } catch (e: any) {
+    console.error("[attack-sim/build] error:", e?.message);
+    return res.status(500).json({ error: e?.message || "فشل بناء السيناريو" });
+  }
+});
+
+const ATTACK_SIM_EXEC_SYSTEM = `أنت محرّك محاكاة "shell" يحاكي تنفيذ أوامر قرصنة أخلاقية تعليمية داخل سيناريو وهمي معزول. أرجع JSON فقط.
+
+**شكل الردّ المطلوب (دائماً):**
+{
+  "stdout": "نصّ المخرجات الواقعي كما يظهر في الطرفية الحقيقية",
+  "stderr": "" أو نص الخطأ إن وجد,
+  "exitCode": 0 أو رقم آخر,
+  "stateUpdate": {
+    "hosts": { "<hostId>": { "discovered":true, "portsScanned":true, "knownServices":["http","ssh"], "compromised":true, "accessLevel":"user|root", "capturedFlags":["f1"] } },
+    "currentHost": "<hostId إذا تغيّر بعد ssh مثلاً>"
+  },
+  "newHints": ["تلميح قصير اختياري بناءً على ما اكتشف الطالب"]
+}
+
+**قواعد المحاكاة:**
+- المخرجات تطابق ما يُنتجه الأمر الحقيقي تماماً (شكل nmap الكلاسيكي، شكل curl -I، شكل ls -la، إلخ).
+- اقرأ السيناريو بدقّة: لا تُظهر منافذ/خدمات/ملفات غير موجودة فيه.
+- ميّز الحالة: لو الطالب لم يكتشف الجهاز بعد ولم يجرّ scan، فلا يستطيع ssh مباشرة (يجب أن يعرف الـIP أوّلاً — ولكن أعطه نتيجة معقولة، لا تتعنّت).
+- بعد nmap ناجح: حدّث hosts.<id>.portsScanned=true و knownServices.
+- بعد ssh ناجح بكلمة مرور صحيحة من scenario.hosts[].users: حدّث compromised=true و accessLevel ثم currentHost=<targetId>.
+- بعد cat لـflag صحيح: أضف الـflag.id إلى capturedFlags.
+- لو الأمر فاشل أو غير معقول، أعطه stderr مفيداً (مثل "Connection refused" أو "Permission denied").
+- ادعم: nmap, curl, wget, ssh, scp, ls, cat, cd, pwd, whoami, id, ifconfig, ip a, ping, dig, whois, netstat, ps, find, grep, sudo, su, exit, hydra, gobuster, sqlmap, nikto, dirb, base64, echo, history, clear, help.
+- لو الأمر غير معروف: stderr="bash: <cmd>: command not found", exitCode=127.
+- أبق المخرجات قصيرة نسبياً (≤30 سطر) ما لم يكن الأمر يستلزم أكثر.
+- ممنوع: محتوى ضار حقيقي، شفرة استغلال حقيقية تعمل خارج المحاكاة. كل شيء وصفي تعليمي.`;
+
+router.post("/ai/attack-sim/exec", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { scenario, networkState, currentHost, command, history, subjectId } = req.body as {
+    scenario: any;
+    networkState: any;
+    currentHost: string;
+    command: string;
+    history?: Array<{ cmd: string; out: string }>;
+    subjectId?: string;
+  };
+
+  if (!isSecuritySubjectId(subjectId)) {
+    return res.status(403).json({ error: "محاكاة الهجمات متاحة فقط لمواد الأمن السيبراني والشبكات" });
+  }
+
+  if (!command || !scenario) {
+    return res.status(400).json({ error: "Missing command or scenario" });
+  }
+
+  const trimmed = String(command).trim();
+  if (!trimmed) {
+    return res.json({ stdout: "", stderr: "", exitCode: 0, stateUpdate: null });
+  }
+
+  const scenarioBlock = JSON.stringify({
+    title: scenario.title,
+    hosts: scenario.hosts,
+    edges: scenario.edges,
+    flags: scenario.flags,
+  }).slice(0, 6000);
+
+  const stateBlock = JSON.stringify(networkState || {}).slice(0, 2000);
+  const recentHistory = (history || []).slice(-6).map(h => `$ ${h.cmd}\n${(h.out || "").slice(0, 300)}`).join("\n---\n");
+
+  const userPrompt = `**السيناريو:**
+${scenarioBlock}
+
+**حالة الشبكة الحالية:**
+${stateBlock}
+
+**المضيف الحالي (الـshell الذي يجلس فيه الطالب):** ${currentHost || scenario.studentHost}
+
+**آخر أوامر:**
+${recentHistory || "(لا أوامر سابقة)"}
+
+**الأمر الجديد:**
+${trimmed}
+
+أرجع JSON بالشكل المحدّد. اجعل المخرجات واقعيّة كما لو كانت من نظام حقيقي.`;
+
+  try {
+    const completion = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1500,
+      system: ATTACK_SIM_EXEC_SYSTEM,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+
+    const raw = (completion.content[0] as any)?.text || "";
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return res.json({
+        stdout: "",
+        stderr: "simulator: failed to interpret command",
+        exitCode: 1,
+        stateUpdate: null,
+      });
+    }
+    const parsed = JSON.parse(jsonMatch[0]);
+    return res.json({
+      stdout: String(parsed.stdout ?? ""),
+      stderr: String(parsed.stderr ?? ""),
+      exitCode: typeof parsed.exitCode === "number" ? parsed.exitCode : 0,
+      stateUpdate: parsed.stateUpdate || null,
+      newHints: Array.isArray(parsed.newHints) ? parsed.newHints : [],
+    });
+  } catch (e: any) {
+    console.error("[attack-sim/exec] error:", e?.message);
+    return res.json({
+      stdout: "",
+      stderr: `simulator: ${e?.message || "internal error"}`,
+      exitCode: 1,
+      stateUpdate: null,
+    });
+  }
+});
+
+router.post("/ai/attack-sim/assist", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { scenario, networkState, currentHost, terminalLog, history, question, subjectId } = req.body as {
+    scenario: any;
+    networkState: any;
+    currentHost: string;
+    terminalLog?: string;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+    question: string;
+    subjectId?: string;
+  };
+
+  if (!isSecuritySubjectId(subjectId)) {
+    return res.status(403).json({ error: "محاكاة الهجمات متاحة فقط لمواد الأمن السيبراني والشبكات" });
+  }
+
+  if (!question) return res.status(400).json({ error: "Missing question" });
+
+  const scenarioContext = scenario ? JSON.stringify({
+    title: scenario.title,
+    story: scenario.story,
+    objectives: scenario.objectives,
+    hosts: (scenario.hosts || []).map((h: any) => ({ id: h.id, name: h.name, ip: h.ip, role: h.role })),
+    flags: scenario.flags,
+    suggestedCommands: scenario.suggestedCommands,
+  }, null, 2).slice(0, 2000) : "(لا سيناريو محمّل)";
+
+  const stateContext = JSON.stringify(networkState || {}).slice(0, 1500);
+  const recentTerminal = (terminalLog || "").slice(-1200);
+
+  const systemPrompt = `أنت مدرّب أمن سيبراني يجلس بجانب الطالب أثناء محاكاة هجمة تعليمية وهميّة. هدفك: أن يتعلّم الطالب التفكير كمختبِر اختراق، لا أن تحلّ المهمة عنه.
+
+**السيناريو:**
+${scenarioContext}
+
+**حالة الشبكة الآن:**
+${stateContext}
+
+**المضيف الحالي:** ${currentHost || "غير محدد"}
+
+**آخر مخرجات الطرفية:**
+${recentTerminal || "(لا مخرجات بعد)"}
+
+**أسلوبك:**
+- ردّ قصير (٢-٤ جمل غالباً).
+- اربط الكلام بما يراه الطالب الآن.
+- لو الطالب عالق: تلميح غير مباشر أوّلاً، ثم أوضح إذا أعاد السؤال.
+- اقترح أمراً أو أمرين محدّدين عند الحاجة (بصيغة \`nmap -sV ...\`).
+- اشرح آخر مخرجات إذا سألك "ماذا يعني هذا؟".
+- لا تحلّ المهمة كاملة دفعة واحدة.
+- استخدم العربية ولغة المجال الصحيحة.
+- لا تستخدم Markdown ثقيلاً.
+
+**ممنوع:** الخروج عن السيناريو، إعطاء الجواب النهائي مباشرة، مناقشة قرصنة حقيقية خارج المحاكاة.`;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const claudeMessages = (Array.isArray(history) ? history : [])
+    .slice(-10)
+    .map((m: any) => ({ role: m.role as "user" | "assistant", content: m.content || " " }));
+  claudeMessages.push({ role: "user", content: question });
+
+  try {
+    const stream = anthropic.messages.stream({
+      model: "claude-sonnet-4-6",
+      max_tokens: 700,
+      system: systemPrompt,
+      messages: claudeMessages,
+    });
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        res.write(`data: ${JSON.stringify({ content: event.delta.text })}\n\n`);
+      }
+    }
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+  } catch (e: any) {
+    res.write(`data: ${JSON.stringify({ error: e?.message || "فشل" })}\n\n`);
+    res.end();
+  }
+});
+
 export default router;

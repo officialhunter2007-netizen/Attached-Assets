@@ -13,6 +13,9 @@ import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { FoodLabPanel } from "@/components/food-lab-panel";
 import { YemenSoftSimulatorV2 } from "@/components/yemensoft/yemensoft-v2";
 import AccountingLab from "@/components/accounting-lab/accounting-lab";
+import { AttackSimulation } from "@/components/attack-sim/attack-simulation";
+import { IntakeDialog as AttackIntakeDialog } from "@/components/attack-sim/intake-dialog";
+import type { AttackScenario } from "@/components/attack-sim/types";
 import { DynamicEnvShell } from "@/components/dynamic-env/dynamic-env-shell";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import { CourseMaterialsPanel, TeachingModeChoiceCard } from "@/components/course-materials-panel";
@@ -460,6 +463,21 @@ export default function Subject() {
   const isAccountingLabSubject = subject?.id === "uni-accounting";
   const [isAccountingLabOpen, setIsAccountingLabOpen] = useState(false);
   const [isCreatingEnv, setIsCreatingEnv] = useState(false);
+  // Attack Simulation — independent feature, only for cybersecurity/networking.
+  const [isAttackSimOpen, setIsAttackSimOpen] = useState(false);
+  const [pendingAttackScenario, setPendingAttackScenario] = useState<AttackScenario | null>(null);
+  const [isAttackIntakeOpen, setIsAttackIntakeOpen] = useState(false);
+  const [isBuildingAttack, setIsBuildingAttack] = useState(false);
+  const [attackBuildError, setAttackBuildError] = useState<string | null>(null);
+  // Mirrors the backend allowlist (artifacts/api-server/src/routes/ai.ts:isSecuritySubjectId).
+  // Keep both in sync whenever a new security/networking subject id is introduced.
+  const isSecuritySubject = (() => {
+    const id = String(subject?.id || "").trim().toLowerCase();
+    if (!id) return false;
+    if (id === "uni-cybersecurity" || id === "skill-security" || id === "skill-networks") return true;
+    return /^uni-cyber(security)?(-|$)/.test(id)
+      || /^skill-(security|networks?|pentest|cyber(sec)?)(-|$)/.test(id);
+  })();
   const [pendingFoodScenario, setPendingFoodScenario] = useState<any | null>(null);
   const [pendingAccountingScenario, setPendingAccountingScenario] = useState<any | null>(null);
   const [pendingYemenSoftScenario, setPendingYemenSoftScenario] = useState<any | null>(null);
@@ -909,12 +927,57 @@ export default function Subject() {
               }}
               isCreatingEnv={isCreatingEnv}
               onStartLabEnvIntent={() => setPendingLabStarter("أريد بناء بيئة تطبيقية تفاعلية مخصصة لي في هذه المادة. اطرح عليّ ٢-٤ أسئلة متعددة الخيارات (مع خيار «غير ذلك») لتحديد ما أريد التدرب عليه ومستواي الحالي، ثم ابنِ البيئة المناسبة.")}
+              attackSimEnabled={isSecuritySubject}
+              attackSimOpen={isAttackSimOpen}
+              pendingAttackScenario={pendingAttackScenario}
+              onOpenAttackIntake={() => { setAttackBuildError(null); setIsAttackIntakeOpen(true); }}
+              onReopenAttackSim={() => setIsAttackSimOpen(true)}
+              onCloseAttackSim={() => setIsAttackSimOpen(false)}
             />
           </div>
         </div>
 
         {/* Loading overlay while building env */}
         {isCreatingEnv && <EnvBuildingOverlay />}
+
+        {/* Attack Simulation intake dialog (security/networking subjects) */}
+        <AttackIntakeDialog
+          open={isAttackIntakeOpen}
+          busy={isBuildingAttack}
+          error={attackBuildError}
+          onCancel={() => { if (!isBuildingAttack) setIsAttackIntakeOpen(false); }}
+          onBuild={async ({ description, difficulty, category }) => {
+            if (isBuildingAttack) return;
+            setAttackBuildError(null);
+            setIsBuildingAttack(true);
+            try {
+              const r = await fetch(`${import.meta.env.BASE_URL}api/ai/attack-sim/build`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ subjectId: subject?.id, description, difficulty, category }),
+              });
+              if (!r.ok) {
+                const t = await r.text().catch(() => "");
+                throw new Error(`فشل بناء السيناريو (${r.status}): ${t.slice(0, 200)}`);
+              }
+              const data = await r.json();
+              if (!data?.scenario) throw new Error("الاستجابة لا تحتوي على سيناريو صالح");
+              setPendingAttackScenario(data.scenario as AttackScenario);
+              setIsAttackSimOpen(true);
+              setIsAttackIntakeOpen(false);
+              // Close other panels so the simulation gets focus.
+              setIsLabOpen(false);
+              setIsYemenSoftOpen(false);
+              setIsAccountingLabOpen(false);
+              setIsDynamicEnvOpen(false);
+            } catch (e: any) {
+              setAttackBuildError(e?.message || "حدث خطأ غير متوقع");
+            } finally {
+              setIsBuildingAttack(false);
+            }
+          }}
+        />
 
         {/* Recommendation modal before opening custom-env chat starter */}
         {pendingLabStarter && (
@@ -1130,6 +1193,12 @@ function SubjectPathChat({
   onCreateLabEnv,
   isCreatingEnv,
   onStartLabEnvIntent,
+  attackSimEnabled,
+  attackSimOpen,
+  pendingAttackScenario,
+  onOpenAttackIntake,
+  onReopenAttackSim,
+  onCloseAttackSim,
 }: {
   subject: any;
   isFirstSession?: boolean;
@@ -1160,6 +1229,12 @@ function SubjectPathChat({
   onCreateLabEnv?: (description: string) => void;
   isCreatingEnv?: boolean;
   onStartLabEnvIntent?: () => void;
+  attackSimEnabled?: boolean;
+  attackSimOpen?: boolean;
+  pendingAttackScenario?: AttackScenario | null;
+  onOpenAttackIntake?: () => void;
+  onReopenAttackSim?: () => void;
+  onCloseAttackSim?: () => void;
 }) {
   const { user } = useAuth();
   // SECURITY: scope chat history by user.id so accounts on the same browser
@@ -1854,11 +1929,12 @@ function SubjectPathChat({
     onCloseAccountingLab?.();
     sendTeachMessage(`نتائج من مختبر المحاسبة:\n${content}`);
   };
-  const anyPanelOpen = !!(ideOpen || labOpen || yemenSoftOpen || accountingLabOpen || (dynamicEnvOpen && pendingDynamicEnv));
+  const anyPanelOpen = !!(ideOpen || labOpen || yemenSoftOpen || accountingLabOpen || (dynamicEnvOpen && pendingDynamicEnv) || (attackSimOpen && pendingAttackScenario));
   const chatVisible = !anyPanelOpen;
   // Show the "return to your env" button whenever an env exists for this
   // subject but is not currently open AND no other major panel is open.
-  const showReopenEnv = !!pendingDynamicEnv && !dynamicEnvOpen && !ideOpen && !labOpen && !yemenSoftOpen && !accountingLabOpen;
+  const showReopenEnv = !!pendingDynamicEnv && !dynamicEnvOpen && !ideOpen && !labOpen && !yemenSoftOpen && !accountingLabOpen && !attackSimOpen;
+  const showReopenAttack = !!pendingAttackScenario && !attackSimOpen && !ideOpen && !labOpen && !yemenSoftOpen && !accountingLabOpen && !dynamicEnvOpen;
 
   return (
     <>
@@ -1890,6 +1966,30 @@ function SubjectPathChat({
       >
         <span className="text-lg">🧪</span>
         <span>ابنِ بيئة تطبيقية</span>
+      </button>
+    )}
+    {/* Attack Simulation: floating "build" button (security/networking only). */}
+    {attackSimEnabled && !pendingAttackScenario && !anyPanelOpen && chatVisible && onOpenAttackIntake && (
+      <button
+        onClick={() => onOpenAttackIntake()}
+        className="fixed bottom-36 md:bottom-20 right-4 z-[70] bg-gradient-to-l from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
+        style={{ direction: "rtl" }}
+        title="ابدأ محاكاة هجمة تعليمية"
+      >
+        <span className="text-lg">🎯</span>
+        <span>محاكاة هجمة</span>
+      </button>
+    )}
+    {/* Attack Simulation: re-open button when scenario exists but panel closed. */}
+    {showReopenAttack && (
+      <button
+        onClick={() => onReopenAttackSim?.()}
+        className="fixed bottom-36 md:bottom-20 right-4 z-[70] bg-red-600 hover:bg-red-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
+        style={{ direction: "rtl" }}
+        title={pendingAttackScenario?.title || "العودة لمحاكاة الهجمة"}
+      >
+        <span className="text-lg">🎯</span>
+        <span className="max-w-[160px] truncate">العودة للمحاكاة</span>
       </button>
     )}
     {/* IDE panel — always mounted */}
@@ -1936,6 +2036,18 @@ function SubjectPathChat({
         subjectId={subject.id}
       />
     </div>
+
+    {/* Attack Simulation panel — independent feature for security subjects.
+        Always mounted (display toggled) so terminal/state survive close/reopen. */}
+    {pendingAttackScenario && (
+      <div className="flex-1 overflow-hidden w-full min-w-0" style={{ background: "#080a11", display: attackSimOpen ? "flex" : "none" }}>
+        <AttackSimulation
+          scenario={pendingAttackScenario}
+          subjectId={subject.id}
+          onClose={() => onCloseAttackSim?.()}
+        />
+      </div>
+    )}
 
     {/* Dynamic AI-built environment — universal across all subjects */}
     <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0" style={{ background: "#080a11", display: dynamicEnvOpen && pendingDynamicEnv ? "block" : "none" }}>
