@@ -78,8 +78,7 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Universal required-field check before any submit handler runs, so empty
-    // required fields can never silently pass through check/mutate/ask-ai.
+    // Required-field check before any submit handler.
     const missing: string[] = [];
     for (const f of (comp.fields || []) as any[]) {
       if (!f?.required) continue;
@@ -94,6 +93,8 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
       setFeedback({ ok: false, msg: `الحقول المطلوبة فارغة: ${missing.join("، ")}` });
       return;
     }
+    // Surface a clear error rather than silently doing nothing for malformed
+    // generator output (missing/empty submit, ops, or prompt).
     if (!comp.submit || typeof (comp.submit as any).type !== "string") {
       setFeedback({ ok: false, msg: "هذا الزر غير مكتمل التهيئة من المعلم الذكي. اطلب منه إعادة بناء البيئة أو وضّح طلبك." });
       return;
@@ -113,8 +114,6 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
       for (const [k, expected] of Object.entries(comp.submit.expected)) {
         const got = String(values[k] ?? "").trim();
         if (typeof expected === "number") {
-          // Normalize Arabic/Persian digits and Arabic separators to ASCII
-          // so users can type "١٢٬٣٤٥٫٦٧" or "12,345.67" and both parse.
           const normalized = normalizeArabicDigits(got).replace(/[,،٬\s]/g, "");
           const n = parseFloat(normalized);
           if (isNaN(n) || Math.abs(n - expected) > Math.abs(expected * tol) + 0.0001) { allOk = false; wrong.push(k); }
@@ -284,9 +283,6 @@ function EditableTable({ comp }: { comp: Extract<DynComponent, { type: "editable
     setEditingId(null); setEditVals({});
   };
 
-  // Mobile-friendly: bigger touch targets (≥44px on inputs/buttons), allow
-  // horizontal scroll, and use slightly larger text in editing mode so
-  // numeric/date inputs are easy to tap with a thumb.
   const inputCls = "w-full bg-black/30 border border-white/15 rounded px-2 py-2 text-white text-sm min-h-[40px]";
 
   return (
