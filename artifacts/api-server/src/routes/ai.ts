@@ -2456,6 +2456,27 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
           ...(firstScreen.components || []),
         ];
       }
+      // Data-oriented kinds get a dataInspector if missing — students see
+      // the live state of the working dataset at a glance.
+      const DATA_KINDS = new Set(["data-science", "business", "engineering"]);
+      if (DATA_KINDS.has(kind)) {
+        const hasInspector = allComps.some((c: any) => c?.type === "dataInspector");
+        if (!hasInspector) {
+          const targetScreen = env.screens[env.screens.length - 1];
+          const firstBindingComp = allComps.find((c: any) => typeof c?.bindTo === "string" && c.bindTo);
+          if (firstBindingComp) {
+            targetScreen.components = [
+              ...(targetScreen.components || []),
+              {
+                type: "dataInspector",
+                title: "نظرة سريعة على البيانات",
+                bindTo: firstBindingComp.bindTo,
+                description: "الحالة الحيّة لهذه البيانات — تتحدّث مع كل تعديل.",
+              },
+            ];
+          }
+        }
+      }
       const PLAYGROUND_KINDS = new Set([
         "programming", "data-science", "web-pentest", "cybersecurity", "language",
       ]);

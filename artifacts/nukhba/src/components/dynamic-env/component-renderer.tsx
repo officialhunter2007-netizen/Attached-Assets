@@ -2070,7 +2070,17 @@ function FileSystemExplorerBlock({ comp, state }: { comp: Extract<DynComponent, 
         <div className="overflow-auto border border-white/10 rounded p-2 bg-black/30 min-h-[180px] max-h-[320px] md:max-h-none">
           {selected ? (
             <>
-              <div className="text-xs text-cyan-300 mb-1 font-mono break-all" dir="ltr">{selected.path}</div>
+              {/* Breadcrumb: split selected path into clickable parts. The last
+                  segment is the current file; earlier segments echo the
+                  directory chain so the user always knows where they are. */}
+              <div className="flex items-center flex-wrap gap-1 mb-2 text-[11px] font-mono" dir="ltr">
+                {selected.path.split("/").filter(Boolean).map((seg, i, arr) => (
+                  <span key={i} className="flex items-center gap-1">
+                    <span className={i === arr.length - 1 ? "text-cyan-300 font-bold" : "text-white/60"}>{seg}</span>
+                    {i < arr.length - 1 && <span className="text-white/30">/</span>}
+                  </span>
+                ))}
+              </div>
               <pre className="text-[12px] md:text-[11px] text-white/85 whitespace-pre-wrap font-mono" dir="ltr">{String(selected.node.content ?? "")}</pre>
               {comp.allowDownload && downloadUrl && (
                 <a
