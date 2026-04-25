@@ -47,3 +47,8 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# متغيّرات البيئة الحسّاسة (لا ترفع هذا الملف إلى GitHub)
+.env
+.env.local
+.env.*.local

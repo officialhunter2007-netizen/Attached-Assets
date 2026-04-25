@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# أدوات التطوير والملفات المؤقّتة
+.local/
+node_modules/
+**/node_modules/
+**/.turbo/
+
+# ملفات البناء (ستُعاد بناؤها داخل Docker)
+**/dist/
+artifacts/nukhba-promo/
+
+# ملفات Replit الخاصة
+.replit
+replit.nix
+.upm/
+
+# ملفات بيئية حسّاسة
+.env
+.env.local
+.env.*.local
+
+# ملفات التطوير
+**/*.log
+.DS_Store
+Thumbs.db
