@@ -17,6 +17,7 @@ import { AttackSimulation } from "@/components/attack-sim/attack-simulation";
 import { IntakeDialog as AttackIntakeDialog } from "@/components/attack-sim/intake-dialog";
 import type { AttackScenario } from "@/components/attack-sim/types";
 import { DynamicEnvShell } from "@/components/dynamic-env/dynamic-env-shell";
+import { MobileDesktopHint } from "@/components/mobile-desktop-hint";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import { CourseMaterialsPanel, TeachingModeChoiceCard } from "@/components/course-materials-panel";
 import { QuizPanel, type QuizKind } from "@/components/quiz-panel";
@@ -553,6 +554,14 @@ export default function Subject() {
     }
   }, [isSubscriptionExpired]);
 
+  // True whenever any interactive lab/panel is currently open. Used to
+  // expand the chat dialog to fill the entire viewport (instead of the
+  // default 860px-wide modal) and to trigger the mobile "use a desktop"
+  // hint, so labs and simulators get the maximum possible canvas.
+  const anyPanelOpen =
+    isIDEOpen || isLabOpen || isYemenSoftOpen || isAccountingLabOpen ||
+    isDynamicEnvOpen || isAttackSimOpen;
+
   const handleSessionComplete = () => {
     setIsChatOpen(false);
     setSummariesLoading(true);
@@ -740,12 +749,14 @@ export default function Subject() {
           <div
             role="dialog"
             aria-modal="true"
-            className="
+            className={`
               max-sm:!w-full max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0
-              sm:max-w-[860px] sm:h-[90vh] sm:rounded-3xl
+              ${anyPanelOpen
+                ? "sm:!max-w-none sm:!w-[100vw] sm:!h-[100dvh] sm:!rounded-none sm:!border-0"
+                : "sm:max-w-[860px] sm:h-[90vh] sm:rounded-3xl"}
               w-full p-0 flex flex-col gap-0 overflow-hidden border shadow-lg
               bg-[#080a11] border-white/8
-            "
+            `}
           >
 
             {/* Header */}
@@ -855,6 +866,8 @@ export default function Subject() {
                 </div>
               </div>
             </div>
+
+            <MobileDesktopHint show={anyPanelOpen} />
 
             <SubjectPathChat
               subject={subject}
