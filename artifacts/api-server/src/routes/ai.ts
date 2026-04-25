@@ -3,6 +3,12 @@ import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
 import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
+import {
+  recordAiUsage,
+  extractAnthropicUsage,
+  extractOpenAIUsage,
+  extractGeminiUsage,
+} from "../lib/ai-usage";
 import { isUnlimitedEmail } from "../lib/admins";
 import {
   getActiveMaterialContext,
@@ -204,26 +210,70 @@ ${grade ? `الصف: ${grade}` : ""}
 
   let fullContent = "";
 
-  const stream = await openai.chat.completions.create({
-    model: "gpt-5.2",
-    max_completion_tokens: 8192,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userMessage },
-    ],
-    stream: true,
-  });
+  const __aiStart = Date.now();
+  let __aiLogged = false;
+  let __usageInfo: any = null;
+  try {
+    const stream = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 8192,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+      stream: true,
+      stream_options: { include_usage: true },
+    });
 
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content;
-    if (content) {
-      fullContent += content;
-      res.write(`data: ${JSON.stringify({ content })}\n\n`);
+    for await (const chunk of stream) {
+      if ((chunk as any).usage) __usageInfo = (chunk as any).usage;
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) {
+        fullContent += content;
+        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+      }
     }
-  }
 
-  res.write(`data: ${JSON.stringify({ done: true, fullContent })}\n\n`);
-  res.end();
+    {
+      const __u = extractOpenAIUsage(__usageInfo);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/lesson",
+        provider: "openai",
+        model: "gpt-5.2",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+      });
+      __aiLogged = true;
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true, fullContent })}\n\n`);
+    res.end();
+  } catch (err: any) {
+    console.error("[ai/lesson] openai stream error:", err?.message || err);
+    if (!__aiLogged) {
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/lesson",
+        provider: "openai",
+        model: "gpt-5.2",
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - __aiStart,
+        status: "error",
+        errorMessage: String(err?.message || err).slice(0, 500),
+      });
+    }
+    try {
+      res.write(`data: ${JSON.stringify({ error: "تعذّر توليد الدرس الآن، حاول بعد قليل." })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    } catch {}
+    res.end();
+  }
 });
 
 router.post("/ai/interview", async (req, res): Promise<void> => {
@@ -270,23 +320,67 @@ router.post("/ai/interview", async (req, res): Promise<void> => {
 
   let fullResponse = "";
 
-  const stream = await openai.chat.completions.create({
-    model: "gpt-5.2",
-    max_completion_tokens: 1024,
-    messages,
-    stream: true,
-  });
+  const __aiStart = Date.now();
+  let __aiLogged = false;
+  let __usageInfo: any = null;
+  try {
+    const stream = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 1024,
+      messages,
+      stream: true,
+      stream_options: { include_usage: true },
+    });
 
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content;
-    if (content) {
-      fullResponse += content;
-      res.write(`data: ${JSON.stringify({ content })}\n\n`);
+    for await (const chunk of stream) {
+      if ((chunk as any).usage) __usageInfo = (chunk as any).usage;
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) {
+        fullResponse += content;
+        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+      }
     }
-  }
 
-  res.write(`data: ${JSON.stringify({ done: true, isReady: fullResponse.startsWith("READY") })}\n\n`);
-  res.end();
+    {
+      const __u = extractOpenAIUsage(__usageInfo);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/interview",
+        provider: "openai",
+        model: "gpt-5.2",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+      });
+      __aiLogged = true;
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true, isReady: fullResponse.startsWith("READY") })}\n\n`);
+    res.end();
+  } catch (err: any) {
+    console.error("[ai/interview] openai stream error:", err?.message || err);
+    if (!__aiLogged) {
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/interview",
+        provider: "openai",
+        model: "gpt-5.2",
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - __aiStart,
+        status: "error",
+        errorMessage: String(err?.message || err).slice(0, 500),
+      });
+    }
+    try {
+      res.write(`data: ${JSON.stringify({ error: "تعذّر متابعة المقابلة الآن، حاول بعد قليل." })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    } catch {}
+    res.end();
+  }
 });
 
 router.post("/ai/build-plan", async (req, res): Promise<void> => {
@@ -330,26 +424,70 @@ router.post("/ai/build-plan", async (req, res): Promise<void> => {
 
   let fullContent = "";
 
-  const stream = await openai.chat.completions.create({
-    model: "gpt-5.2",
-    max_completion_tokens: 8192,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userMessage },
-    ],
-    stream: true,
-  });
+  const __aiStart = Date.now();
+  let __aiLogged = false;
+  let __usageInfo: any = null;
+  try {
+    const stream = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 8192,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+      stream: true,
+      stream_options: { include_usage: true },
+    });
 
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content;
-    if (content) {
-      fullContent += content;
-      res.write(`data: ${JSON.stringify({ content })}\n\n`);
+    for await (const chunk of stream) {
+      if ((chunk as any).usage) __usageInfo = (chunk as any).usage;
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) {
+        fullContent += content;
+        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+      }
     }
-  }
 
-  res.write(`data: ${JSON.stringify({ done: true, fullContent })}\n\n`);
-  res.end();
+    {
+      const __u = extractOpenAIUsage(__usageInfo);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/build-plan",
+        provider: "openai",
+        model: "gpt-5.2",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+      });
+      __aiLogged = true;
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true, fullContent })}\n\n`);
+    res.end();
+  } catch (err: any) {
+    console.error("[ai/build-plan] openai stream error:", err?.message || err);
+    if (!__aiLogged) {
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/build-plan",
+        provider: "openai",
+        model: "gpt-5.2",
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - __aiStart,
+        status: "error",
+        errorMessage: String(err?.message || err).slice(0, 500),
+      });
+    }
+    try {
+      res.write(`data: ${JSON.stringify({ error: "تعذّر توليد الخطة الآن، حاول بعد قليل." })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    } catch {}
+    res.end();
+  }
 });
 
 router.post("/ai/teach", async (req, res): Promise<void> => {
@@ -1172,6 +1310,8 @@ ${retrievedBlock}
     res.setHeader("Connection", "keep-alive");
   }
 
+  const __teachStart = Date.now();
+  let __teachStream: any = null;
   try {
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
@@ -1179,6 +1319,7 @@ ${retrievedBlock}
       system: systemPrompt,
       messages: claudeMessages,
     });
+    __teachStream = stream;
 
     for await (const event of stream) {
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
@@ -1191,7 +1332,36 @@ ${retrievedBlock}
         if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
       }
     }
+
+    try {
+      const __final = await stream.finalMessage();
+      const __u = extractAnthropicUsage(__final);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/teach",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __teachStart,
+      });
+    } catch {}
   } catch (err: any) {
+    void recordAiUsage({
+      userId,
+      subjectId: subjectId ?? null,
+      route: "ai/teach",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: Date.now() - __teachStart,
+      status: "error",
+      errorMessage: String(err?.message ?? err).slice(0, 500),
+    });
+    void __teachStream;
     console.error("[ai/teach] anthropic stream error:", err?.message || err);
     // Roll back the atomic daily-session claim so the student isn't stuck
     // on the countdown screen for the rest of the day after a model error.
@@ -1510,6 +1680,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
     let upstream: Response | null = null;
     let lastStatus = 0;
     let lastErrBody = "";
+    const __helpStart = Date.now();
     for (let attempt = 0; attempt < attemptModels.length; attempt++) {
       if (ac.signal.aborted) return;
       try {
@@ -1539,6 +1710,18 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
     if (!upstream || !upstream.body) {
       console.error("[platform-help] gemini http error after retries:",
         lastStatus, lastErrBody.slice(0, 300));
+      void recordAiUsage({
+        userId,
+        subjectId: null,
+        route: "ai/platform-help",
+        provider: "gemini",
+        model: attemptModels[attemptModels.length - 1],
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - __helpStart,
+        status: "error",
+        errorMessage: `http_${lastStatus}: ${lastErrBody.slice(0, 300)}`,
+      });
       let friendly = "تعذّر الردّ الآن، حاول بعد قليل.";
       if (lastStatus === 429) {
         friendly = "وصل المساعد لحدّ الاستخدام المؤقّت. حاول بعد دقيقة.";
@@ -1557,6 +1740,11 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let __geminiUsage: any = null;
+    const __aiStart = Date.now();
+    const __chosenModel = upstream.url
+      ? (upstream.url.match(/models\/([^:]+):/) || [])[1] || "gemini-2.5-flash"
+      : "gemini-2.5-flash";
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1571,6 +1759,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
         if (!payload || payload === "[DONE]") continue;
         try {
           const parsed = JSON.parse(payload);
+          if (parsed?.usageMetadata) __geminiUsage = parsed.usageMetadata;
           const parts = parsed?.candidates?.[0]?.content?.parts;
           if (Array.isArray(parts)) {
             for (const p of parts) {
@@ -1585,10 +1774,36 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
       }
     }
 
+    {
+      const __u = extractGeminiUsage(__geminiUsage);
+      void recordAiUsage({
+        userId,
+        subjectId: null,
+        route: "ai/platform-help",
+        provider: "gemini",
+        model: __chosenModel,
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+      });
+    }
+
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   } catch (err: any) {
     console.error("[platform-help] error:", err?.message || err);
+    void recordAiUsage({
+      userId,
+      subjectId: null,
+      route: "ai/platform-help",
+      provider: "gemini",
+      model: "gemini-2.5-flash",
+      inputTokens: 0,
+      outputTokens: 0,
+      status: "error",
+      errorMessage: String(err?.message || err).slice(0, 500),
+    });
     try {
       res.write(`data: ${JSON.stringify({ error: "تعذّر الردّ الآن، حاول بعد قليل." })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
@@ -1842,6 +2057,8 @@ router.post("/ai/lab/create-scenario", async (req, res): Promise<any> => {
     : kind === "yemensoft" ? YEMENSOFT_SCHEMA_PROMPT
     : ACCOUNTING_SCHEMA_PROMPT;
 
+  const __aiStart = Date.now();
+  let __aiLogged = false;
   try {
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
@@ -1857,6 +2074,24 @@ router.post("/ai/lab/create-scenario", async (req, res): Promise<any> => {
       }
     }
     raw = raw.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/i, "").trim();
+
+    try {
+      const __final = await stream.finalMessage();
+      const __u = extractAnthropicUsage(__final);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/lab/create-scenario",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+        metadata: { kind },
+      });
+      __aiLogged = true;
+    } catch {}
 
     let scenario: any;
     try {
@@ -1883,6 +2118,21 @@ router.post("/ai/lab/create-scenario", async (req, res): Promise<any> => {
     return res.json({ kind, scenario });
   } catch (e: any) {
     console.error("[create-scenario] error:", e?.message);
+    if (!__aiLogged) {
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/lab/create-scenario",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - __aiStart,
+        status: "error",
+        errorMessage: String(e?.message || e).slice(0, 500),
+        metadata: { kind },
+      });
+    }
     return res.status(500).json({ error: e?.message || "فشل توليد السيناريو" });
   }
 });
@@ -1969,6 +2219,7 @@ ${contextBlock}${liveContextBlock}
     .map((m: any) => ({ role: m.role as "user" | "assistant", content: m.content || " " }));
   claudeMessages.push({ role: "user", content: question });
 
+  const __aiStart = Date.now();
   try {
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
@@ -1981,9 +2232,36 @@ ${contextBlock}${liveContextBlock}
         res.write(`data: ${JSON.stringify({ content: event.delta.text })}\n\n`);
       }
     }
+    try {
+      const __final = await stream.finalMessage();
+      const __u = extractAnthropicUsage(__final);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/lab/assist",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+      });
+    } catch {}
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   } catch (e: any) {
+    void recordAiUsage({
+      userId,
+      subjectId: subjectId ?? null,
+      route: "ai/lab/assist",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: Date.now() - __aiStart,
+      status: "error",
+      errorMessage: String(e?.message || e).slice(0, 500),
+    });
     res.write(`data: ${JSON.stringify({ error: e?.message || "فشل" })}\n\n`);
     res.end();
   }
@@ -2235,6 +2513,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
     tasks: [], hints: [], successCriteria: [],
   });
 
+  const __aiStart = Date.now();
   try {
     console.log("[build-env] start kind=", kind, "desc=", description.slice(0, 120));
     const stream = anthropic.messages.stream({
@@ -2256,6 +2535,23 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       }
     }
     raw = raw.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/i, "").trim();
+
+    try {
+      const __final = await stream.finalMessage();
+      const __u = extractAnthropicUsage(__final);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/lab/build-env",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+        metadata: { kind, attempt: "primary" },
+      });
+    } catch {}
 
     console.log("[build-env] raw length:", raw.length, "preview:", raw.slice(0, 300));
 
@@ -2342,6 +2638,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       // time with a tighter, simpler prompt before giving up.
       try {
         console.log("[build-env] retrying with strict prompt...");
+        const __retryStart = Date.now();
         const retry = anthropic.messages.stream({
           model: "claude-sonnet-4-6",
           max_tokens: 12000,
@@ -2357,6 +2654,22 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
           if (event.type === "content_block_delta" && event.delta.type === "text_delta") raw2 += event.delta.text;
         }
         raw2 = raw2.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/i, "").trim();
+        try {
+          const __retryFinal = await retry.finalMessage();
+          const __ur = extractAnthropicUsage(__retryFinal);
+          void recordAiUsage({
+            userId,
+            subjectId: subjectId ?? null,
+            route: "ai/lab/build-env",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            inputTokens: __ur.inputTokens,
+            outputTokens: __ur.outputTokens,
+            cachedInputTokens: __ur.cachedInputTokens,
+            latencyMs: Date.now() - __retryStart,
+            metadata: { kind, attempt: "retry" },
+          });
+        } catch {}
         env = tryParse(raw2);
         if (!env) {
           const ex2 = extractJsonObject(raw2);
@@ -2543,6 +2856,19 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
     return res.json({ kind, env });
   } catch (e: any) {
     console.error("[build-env] error:", e?.message, e?.stack);
+    void recordAiUsage({
+      userId,
+      subjectId: subjectId ?? null,
+      route: "ai/lab/build-env",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: Date.now() - __aiStart,
+      status: "error",
+      errorMessage: String(e?.message || e).slice(0, 500),
+      metadata: { kind },
+    });
     // Never surface a raw error to the user — return a minimal fallback env
     // so the lab still opens and the user can iterate via the chat assistant.
     return res.json({ kind, env: buildFallbackEnv("حدث اضطراب مؤقّت أثناء توليد البيئة. يمكنك المحاولة مجدّداً بوصف أقصر، أو متابعة الشرح مع المعلم الذكي.") });
@@ -2657,6 +2983,8 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
 
 أرجِع JSON كامل لسيناريو محاكاة هجمة قابل للعب فوراً.`;
 
+  const __aiStart = Date.now();
+  let __aiLogged = false;
   try {
     const completion = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -2664,6 +2992,22 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
       system: ATTACK_SIM_BUILD_SYSTEM,
       messages: [{ role: "user", content: userPrompt }],
     });
+
+    {
+      const __u = extractAnthropicUsage(completion);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/attack-sim/build",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+      });
+      __aiLogged = true;
+    }
 
     const raw = (completion.content[0] as any)?.text || "";
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -2688,6 +3032,20 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
     return res.json({ scenario });
   } catch (e: any) {
     console.error("[attack-sim/build] error:", e?.message);
+    if (!__aiLogged) {
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/attack-sim/build",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - __aiStart,
+        status: "error",
+        errorMessage: String(e?.message || e).slice(0, 500),
+      });
+    }
     return res.status(500).json({ error: e?.message || "فشل بناء السيناريو" });
   }
 });
@@ -2771,6 +3129,8 @@ ${trimmed}
 
 أرجع JSON بالشكل المحدّد. اجعل المخرجات واقعيّة كما لو كانت من نظام حقيقي.`;
 
+  const __aiStart = Date.now();
+  let __aiLogged = false;
   try {
     const completion = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -2778,6 +3138,22 @@ ${trimmed}
       system: ATTACK_SIM_EXEC_SYSTEM,
       messages: [{ role: "user", content: userPrompt }],
     });
+
+    {
+      const __u = extractAnthropicUsage(completion);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/attack-sim/exec",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+      });
+      __aiLogged = true;
+    }
 
     const raw = (completion.content[0] as any)?.text || "";
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -2799,6 +3175,20 @@ ${trimmed}
     });
   } catch (e: any) {
     console.error("[attack-sim/exec] error:", e?.message);
+    if (!__aiLogged) {
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/attack-sim/exec",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - __aiStart,
+        status: "error",
+        errorMessage: String(e?.message || e).slice(0, 500),
+      });
+    }
     return res.json({
       stdout: "",
       stderr: `simulator: ${e?.message || "internal error"}`,
@@ -2874,6 +3264,7 @@ ${recentTerminal || "(لا مخرجات بعد)"}
     .map((m: any) => ({ role: m.role as "user" | "assistant", content: m.content || " " }));
   claudeMessages.push({ role: "user", content: question });
 
+  const __aiStart = Date.now();
   try {
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
@@ -2886,9 +3277,36 @@ ${recentTerminal || "(لا مخرجات بعد)"}
         res.write(`data: ${JSON.stringify({ content: event.delta.text })}\n\n`);
       }
     }
+    try {
+      const __final = await stream.finalMessage();
+      const __u = extractAnthropicUsage(__final);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/attack-sim/assist",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+      });
+    } catch {}
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   } catch (e: any) {
+    void recordAiUsage({
+      userId,
+      subjectId: subjectId ?? null,
+      route: "ai/attack-sim/assist",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: Date.now() - __aiStart,
+      status: "error",
+      errorMessage: String(e?.message || e).slice(0, 500),
+    });
     res.write(`data: ${JSON.stringify({ error: e?.message || "فشل" })}\n\n`);
     res.end();
   }

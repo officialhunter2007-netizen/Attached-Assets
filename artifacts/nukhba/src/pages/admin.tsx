@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { AdminInsightsChat } from "@/components/admin-insights-chat";
 import { AdminDiscountCodes } from "@/components/admin-discount-codes";
+import { AdminAiUsage } from "@/components/admin-ai-usage";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -588,6 +589,10 @@ export default function Admin() {
               <Brain className="w-3.5 h-3.5" />
               مساعد ذكي
               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gradient-to-l from-amber-500 to-purple-500 text-white">AI</span>
+            </TabsTrigger>
+            <TabsTrigger value="ai-usage" className="flex items-center gap-1.5">
+              <Brain className="w-3.5 h-3.5 text-emerald-400" />
+              تكاليف الذكاء الاصطناعي
             </TabsTrigger>
           </TabsList>
 
@@ -1245,6 +1250,11 @@ export default function Admin() {
           {/* AI Insights Tab */}
           <TabsContent value="ai-insights">
             <AdminInsightsChat />
+          </TabsContent>
+
+          {/* AI Usage / Cost Tracking Tab */}
+          <TabsContent value="ai-usage">
+            <AdminAiUsage />
           </TabsContent>
         </Tabs>
       </div>

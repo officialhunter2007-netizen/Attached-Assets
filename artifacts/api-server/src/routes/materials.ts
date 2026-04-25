@@ -20,6 +20,13 @@ import {
   ObjectStorageService,
   ObjectNotFoundError,
 } from "../lib/objectStorage";
+import {
+  recordAiUsage,
+  extractAnthropicUsage,
+  extractGeminiUsage,
+} from "../lib/ai-usage";
+
+type AiUsageCtx = { userId: number | null; subjectId?: string | null; materialId?: number | null };
 
 // Marker stored in course_materials.object_path for PDFs that live in the DB
 // (course_material_blobs) instead of Object Storage. Object Storage writes
@@ -739,6 +746,7 @@ router.post("/materials/:id/reprocess", async (req, res): Promise<any> => {
       row.fileName,
       row.language ?? "ar",
       row.pageCount ?? pageTexts.size,
+      { userId, subjectId: row.subjectId, materialId: id },
     );
     if (structured.length === 0) {
       return res.status(502).json({ error: "OUTLINE_GENERATION_RETURNED_EMPTY" });
@@ -884,6 +892,7 @@ router.get("/materials/:id/file", async (req, res): Promise<any> => {
 async function processMaterial(materialId: number) {
   const [row] = await db.select().from(courseMaterialsTable).where(eq(courseMaterialsTable.id, materialId));
   if (!row) return;
+  const __ctx: AiUsageCtx = { userId: row.userId, subjectId: row.subjectId, materialId };
 
   let extractedText = "";
   let pageCount = 0;
@@ -945,7 +954,7 @@ async function processMaterial(materialId: number) {
     if (looksScanned) {
       let ocr: OcrResult = { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "", failedRanges: [] };
       try {
-        ocr = await ocrPdfWithGemini(buf, pageCount || 0);
+        ocr = await ocrPdfWithGemini(buf, pageCount || 0, __ctx);
       } catch (e: any) {
         console.warn(`[materials/process] OCR threw:`, e?.message || e);
       }
@@ -1013,7 +1022,7 @@ async function processMaterial(materialId: number) {
 
   if (extractedText && process.env.GEMINI_API_KEY) {
     try {
-      const meta = await generateMaterialMetadata(extractedText, row.fileName, language);
+      const meta = await generateMaterialMetadata(extractedText, row.fileName, language, __ctx);
       outline = meta.outline;
       summary = meta.summary;
       starters = meta.starters;
@@ -1074,7 +1083,7 @@ async function processMaterial(materialId: number) {
   //    the model would fabricate chapters from nothing.
   if (!detectedError && pageTexts.size > 0 && process.env.GEMINI_API_KEY) {
     try {
-      const structured = await generateStructuredChapters(pageTexts, row.fileName, language, pageCount);
+      const structured = await generateStructuredChapters(pageTexts, row.fileName, language, pageCount, __ctx);
       if (structured.length > 0) {
         // Derive a simple text outline from chapter titles so legacy code
         // paths (parseChaptersFromOutline / loadProgress) keep working.
@@ -1405,7 +1414,7 @@ const OCR_PROMPT = `استخرج النص الكامل من هذا المستن�
 
 // Gemini provider — single REST call, returns provider result with rate-limit
 // metadata so the chain can switch providers cleanly instead of blind retries.
-async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chunkBuf: Buffer, label: string): Promise<OcrProviderResult> {
+async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chunkBuf: Buffer, label: string, ctx?: AiUsageCtx): Promise<OcrProviderResult> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { ok: false, status: "fatal", reason: "no_api_key" };
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
@@ -1419,6 +1428,7 @@ async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chun
     }],
     generationConfig: { temperature: 0.0, maxOutputTokens: 8192 },
   };
+  const __aiStart = Date.now();
   try {
     const r = await fetch(url, {
       method: "POST",
@@ -1444,6 +1454,21 @@ async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chun
       return { ok: false, status: "transient", reason: `http_${r.status}` };
     }
     const data: any = await r.json();
+    {
+      const __u = extractGeminiUsage(data?.usageMetadata);
+      void recordAiUsage({
+        userId: ctx?.userId ?? null,
+        subjectId: ctx?.subjectId ?? null,
+        route: "materials/ocr",
+        provider: "gemini",
+        model,
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+        metadata: ctx?.materialId ? { materialId: ctx.materialId, label } : { label },
+      });
+    }
     const parts = data?.candidates?.[0]?.content?.parts || [];
     const text = parts.map((p: { text?: string }) => p?.text || "").join("\n").trim();
     if (text.length === 0) return { ok: false, status: "transient", reason: "empty_response" };
@@ -1456,10 +1481,11 @@ async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chun
 
 // Anthropic Claude provider — uses native PDF input via Replit AI Integrations
 // proxy, so it does not consume the user's own GEMINI_API_KEY quota.
-async function ocrChunkClaude(chunkBuf: Buffer, label: string): Promise<OcrProviderResult> {
+async function ocrChunkClaude(chunkBuf: Buffer, label: string, ctx?: AiUsageCtx): Promise<OcrProviderResult> {
   if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || !process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL) {
     return { ok: false, status: "fatal", reason: "anthropic_not_configured" };
   }
+  const __aiStart = Date.now();
   try {
     const { anthropic } = await import("@workspace/integrations-anthropic-ai");
     const msg = await anthropic.messages.create({
@@ -1480,6 +1506,21 @@ async function ocrChunkClaude(chunkBuf: Buffer, label: string): Promise<OcrProvi
         ],
       }],
     });
+    {
+      const __u = extractAnthropicUsage(msg);
+      void recordAiUsage({
+        userId: ctx?.userId ?? null,
+        subjectId: ctx?.subjectId ?? null,
+        route: "materials/ocr",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5-20250929",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+        metadata: ctx?.materialId ? { materialId: ctx.materialId, label } : { label },
+      });
+    }
     const text = msg.content
       .map((c) => (c.type === "text" ? c.text : ""))
       .join("\n")
@@ -1509,11 +1550,11 @@ const TRANSIENT_RETRY_DELAYS_MS = [5_000, 15_000, 45_000];
 // retries on transient errors before we fall through to the next provider.
 // Rate-limited providers respect Retry-After (via setProviderCooldown) and
 // are skipped immediately so we don't burn time hammering the same 429.
-async function ocrPdfChunk(chunkBuf: Buffer, label: string): Promise<string> {
+async function ocrPdfChunk(chunkBuf: Buffer, label: string, ctx?: AiUsageCtx): Promise<string> {
   const chain: Array<{ name: OcrProviderName; run: () => Promise<OcrProviderResult> }> = [
-    { name: "gemini-flash", run: () => ocrChunkGemini("gemini-2.5-flash", chunkBuf, label) },
-    { name: "gemini-pro", run: () => ocrChunkGemini("gemini-2.5-pro", chunkBuf, label) },
-    { name: "claude", run: () => ocrChunkClaude(chunkBuf, label) },
+    { name: "gemini-flash", run: () => ocrChunkGemini("gemini-2.5-flash", chunkBuf, label, ctx) },
+    { name: "gemini-pro", run: () => ocrChunkGemini("gemini-2.5-pro", chunkBuf, label, ctx) },
+    { name: "claude", run: () => ocrChunkClaude(chunkBuf, label, ctx) },
   ];
 
   for (const provider of chain) {
@@ -1575,7 +1616,7 @@ interface OcrResult {
 // metrics so the caller can decide whether the document is usable. Failure
 // placeholders are returned in a separate `placeholders` string so they never
 // inflate quality checks against the real extracted text.
-async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResult> {
+async function ocrPdfWithGemini(buf: Buffer, pageCount: number, ctx?: AiUsageCtx): Promise<OcrResult> {
   // Note: name kept for backwards compat — this now drives the full multi-
   // provider chain (Gemini Flash → Gemini Pro → Claude). It only short-
   // circuits if NO provider is configured at all; otherwise the chain is
@@ -1595,7 +1636,7 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
     pdfLibMod = await import("pdf-lib");
   } catch (e: any) {
     console.warn("[ocr] pdf-lib import failed, single-shot fallback:", e?.message || e);
-    const text = await ocrPdfChunk(buf, "full");
+    const text = await ocrPdfChunk(buf, "full", ctx);
     return { text, totalChunks: 1, successfulChunks: text.length > 0 ? 1 : 0, placeholders: "", failedRanges: text.length > 0 ? [] : [[1, pageCount || 1]] };
   }
   const { PDFDocument } = pdfLibMod;
@@ -1605,7 +1646,7 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
     srcDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
   } catch (e: any) {
     console.warn("[ocr] pdf-lib load failed, single-shot fallback:", e?.message || e);
-    const text = await ocrPdfChunk(buf, "full");
+    const text = await ocrPdfChunk(buf, "full", ctx);
     return { text, totalChunks: 1, successfulChunks: text.length > 0 ? 1 : 0, placeholders: "", failedRanges: text.length > 0 ? [] : [[1, pageCount || 1]] };
   }
 
@@ -1639,7 +1680,7 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number): Promise<OcrResu
 
     // Provider chain handles its own retries with exponential backoff and
     // rate-limit cooldowns — no per-chunk retry needed here anymore.
-    const text = await ocrPdfChunk(chunkBuf, label);
+    const text = await ocrPdfChunk(chunkBuf, label, ctx);
     if (text.length > 0) {
       successful.push(text);
       succeededChunks++;
@@ -1704,10 +1745,12 @@ async function generateStructuredChapters(
   fileName: string,
   language: string,
   pageCount: number,
+  ctx?: AiUsageCtx,
 ): Promise<StructuredChapter[]> {
   const key = process.env.GEMINI_API_KEY;
   if (!key || pageTexts.size === 0) return [];
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const __aiStart = Date.now();
 
   // Build a page-marked sample. We use a generous budget but truncate to keep
   // the request manageable. The model only needs enough text to detect chapter
@@ -1776,6 +1819,21 @@ ${sample}
       return [];
     }
     const data: any = await r.json();
+    {
+      const __u = extractGeminiUsage(data?.usageMetadata);
+      void recordAiUsage({
+        userId: ctx?.userId ?? null,
+        subjectId: ctx?.subjectId ?? null,
+        route: "materials/structured-outline",
+        provider: "gemini",
+        model: "gemini-2.5-flash",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+        metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
+      });
+    }
     const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
     const parsed = JSON.parse(txt);
     const chapters = Array.isArray(parsed?.chapters) ? parsed.chapters : [];
@@ -1906,9 +1964,10 @@ export async function markPointsCovered(
     ));
 }
 
-async function generateMaterialMetadata(text: string, fileName: string, language: string): Promise<{ outline: string; summary: string; starters: string }> {
+async function generateMaterialMetadata(text: string, fileName: string, language: string, ctx?: AiUsageCtx): Promise<{ outline: string; summary: string; starters: string }> {
   const key = process.env.GEMINI_API_KEY!;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const __aiStart = Date.now();
   const sample = text.slice(0, 60000);
   const langWord = language === "ar" ? "العربية" : "الإنجليزية";
 
@@ -1940,6 +1999,21 @@ ${sample}
     return { outline: "", summary: "", starters: "" };
   }
   const data: any = await r.json();
+  {
+    const __u = extractGeminiUsage(data?.usageMetadata);
+    void recordAiUsage({
+      userId: ctx?.userId ?? null,
+      subjectId: ctx?.subjectId ?? null,
+      route: "materials/metadata",
+      provider: "gemini",
+      model: "gemini-2.5-flash",
+      inputTokens: __u.inputTokens,
+      outputTokens: __u.outputTokens,
+      cachedInputTokens: __u.cachedInputTokens,
+      latencyMs: Date.now() - __aiStart,
+      metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
+    });
+  }
   const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
   try {
     const parsed = JSON.parse(txt);
@@ -2440,10 +2514,11 @@ function isQuizProviderRateLimited(e: unknown): boolean {
   );
 }
 
-async function generateQuestionsViaGemini(opts: QuestionGenOpts): Promise<QuizQuestion[]> {
+async function generateQuestionsViaGemini(opts: QuestionGenOpts, ctx?: AiUsageCtx & { kind?: string }): Promise<QuizQuestion[]> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("gemini_not_configured");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const __aiStart = Date.now();
   const r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2460,20 +2535,51 @@ async function generateQuestionsViaGemini(opts: QuestionGenOpts): Promise<QuizQu
     throw err;
   }
   const data: any = await r.json();
+  {
+    const __u = extractGeminiUsage(data?.usageMetadata);
+    void recordAiUsage({
+      userId: ctx?.userId ?? null,
+      subjectId: ctx?.subjectId ?? null,
+      route: `materials/${ctx?.kind || "quiz"}-gen`,
+      provider: "gemini",
+      model: "gemini-2.5-flash",
+      inputTokens: __u.inputTokens,
+      outputTokens: __u.outputTokens,
+      cachedInputTokens: __u.cachedInputTokens,
+      latencyMs: Date.now() - __aiStart,
+      metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
+    });
+  }
   const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
   return parseQuizQuestionsJson(txt);
 }
 
-async function generateQuestionsViaClaude(opts: QuestionGenOpts): Promise<QuizQuestion[]> {
+async function generateQuestionsViaClaude(opts: QuestionGenOpts, ctx?: AiUsageCtx & { kind?: string }): Promise<QuizQuestion[]> {
   if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || !process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL) {
     throw new Error("anthropic_not_configured");
   }
   const { anthropic } = await import("@workspace/integrations-anthropic-ai");
+  const __aiStart = Date.now();
   const msg = await anthropic.messages.create({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 8192,
     messages: [{ role: "user", content: buildQuizPrompt(opts) }],
   });
+  {
+    const __u = extractAnthropicUsage(msg);
+    void recordAiUsage({
+      userId: ctx?.userId ?? null,
+      subjectId: ctx?.subjectId ?? null,
+      route: `materials/${ctx?.kind || "quiz"}-gen`,
+      provider: "anthropic",
+      model: "claude-sonnet-4-5-20250929",
+      inputTokens: __u.inputTokens,
+      outputTokens: __u.outputTokens,
+      cachedInputTokens: __u.cachedInputTokens,
+      latencyMs: Date.now() - __aiStart,
+      metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
+    });
+  }
   const txt = msg.content.map((c) => (c.type === "text" ? c.text : "")).join("");
   return parseQuizQuestionsJson(txt);
 }
@@ -2484,14 +2590,14 @@ async function generateQuestionsViaClaude(opts: QuestionGenOpts): Promise<QuizQu
 // Configuration / parsing errors are NOT retried on the next provider —
 // only rate-limit-class errors trigger fallback. We keep the name
 // `generateQuestionsWithGemini` so call sites don't need to change.
-async function generateQuestionsWithGemini(opts: QuestionGenOpts): Promise<QuizQuestion[]> {
+async function generateQuestionsWithGemini(opts: QuestionGenOpts, ctx?: AiUsageCtx & { kind?: string }): Promise<QuizQuestion[]> {
   const hasGemini = !!process.env.GEMINI_API_KEY;
   const hasClaude = !!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY && !!process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
   if (!hasGemini && !hasClaude) throw new Error("no_quiz_provider_configured");
 
   if (hasGemini) {
     try {
-      return await generateQuestionsViaGemini(opts);
+      return await generateQuestionsViaGemini(opts, ctx);
     } catch (e: any) {
       // Fall through to Claude only on rate-limit-class failures. Other
       // errors (auth, JSON parsing, validation) indicate a real problem
@@ -2500,7 +2606,7 @@ async function generateQuestionsWithGemini(opts: QuestionGenOpts): Promise<QuizQ
       console.warn("[quiz/gen] gemini rate-limited, falling back to claude:", String(e?.message || e).slice(0, 150));
     }
   }
-  return await generateQuestionsViaClaude(opts);
+  return await generateQuestionsViaClaude(opts, ctx);
 }
 
 function hasAnyQuizProvider(): boolean {
@@ -2615,7 +2721,7 @@ function sanitizeQuestionPages(qs: QuizQuestion[], pageStart: number, pageEnd: n
 }
 
 // Grade short-answer questions in a single Gemini call. Returns a map id→{correct, feedback}.
-async function gradeShortAnswers(items: { id: string; prompt: string; expected: string; given: string }[]): Promise<Record<string, { correct: boolean; feedback: string }>> {
+async function gradeShortAnswers(items: { id: string; prompt: string; expected: string; given: string }[], ctx?: AiUsageCtx): Promise<Record<string, { correct: boolean; feedback: string }>> {
   const out: Record<string, { correct: boolean; feedback: string }> = {};
   if (items.length === 0) return out;
   const key = process.env.GEMINI_API_KEY;
@@ -2626,6 +2732,7 @@ async function gradeShortAnswers(items: { id: string; prompt: string; expected: 
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const __aiStart = Date.now();
   const payload = items.map((it) => ({ id: it.id, prompt: it.prompt, expected: it.expected, given: it.given }));
   const prompt = `أنت مصحّح امتحانات. لكل عنصر في القائمة، قارن إجابة الطالب (given) بالإجابة النموذجية (expected) واحكم هل هي صحيحة جوهرياً (تغطّي المعنى الأساسي حتى مع اختلاف الصياغة).
 
@@ -2647,6 +2754,21 @@ ${JSON.stringify(payload, null, 0)}`;
     });
     if (!r.ok) throw new Error(`gemini http ${r.status}`);
     const data: any = await r.json();
+    {
+      const __u = extractGeminiUsage(data?.usageMetadata);
+      void recordAiUsage({
+        userId: ctx?.userId ?? null,
+        subjectId: ctx?.subjectId ?? null,
+        route: "materials/grade-short",
+        provider: "gemini",
+        model: "gemini-2.5-flash",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+        metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
+      });
+    }
     const txt = stripJsonFence((data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join(""));
     const parsed = JSON.parse(txt);
     const arr = Array.isArray(parsed?.results) ? parsed.results : [];
@@ -2728,7 +2850,7 @@ router.post("/materials/:id/quiz", async (req, res): Promise<any> => {
       mcqRatio: 0.7,
       pageStart,
       pageEnd,
-    });
+    }, { userId, subjectId: mat.subjectId, materialId: id, kind: "quiz" });
     const questions = sanitizeQuestionPages(generated, pageStart, pageEnd);
     if (questions.length < QUIZ_QUESTION_COUNT.min) {
       return res.status(502).json({ error: "QUIZ_GEN_TOO_FEW", got: questions.length });
@@ -2841,7 +2963,7 @@ router.post("/materials/:id/exam", async (req, res): Promise<any> => {
       mcqRatio: 0.75,
       pageStart,
       pageEnd,
-    }));
+    }, { userId, subjectId: mat.subjectId, materialId: id, kind: "exam" }));
     let attempt = 0;
     while (collected.length < EXAM_QUESTION_COUNT && attempt < 2) {
       attempt += 1;
@@ -2858,7 +2980,7 @@ router.post("/materials/:id/exam", async (req, res): Promise<any> => {
           mcqRatio: 0.75,
           pageStart,
           pageEnd,
-        });
+        }, { userId, subjectId: mat.subjectId, materialId: id, kind: "exam-backfill" });
         addUnique(more);
       } catch (e: any) {
         console.warn("[materials/exam] backfill pass failed:", e?.message || e);
@@ -2932,7 +3054,7 @@ router.post("/materials/quiz-attempts/:attemptId/submit", async (req, res): Prom
   }
 
   if (shortToGrade.length > 0) {
-    const graded = await gradeShortAnswers(shortToGrade);
+    const graded = await gradeShortAnswers(shortToGrade, { userId, subjectId: attempt.subjectId ?? null, materialId: attempt.materialId ?? null });
     for (const item of perResults) {
       const g = graded[item.id];
       if (!g) continue;
@@ -3093,7 +3215,7 @@ async function reprocessChunksOnly(materialId: number): Promise<BackfillResult> 
   const looksScanned = totalChars < 200 || (pageCount > 0 && totalChars / Math.max(pageCount, 1) < 80);
   if (looksScanned) {
     try {
-      const ocr = await ocrPdfWithGemini(buf, pageCount);
+      const ocr = await ocrPdfWithGemini(buf, pageCount, { userId: row.userId, subjectId: row.subjectId, materialId });
       const ocrTextTrimmed = (ocr?.text || "").trim();
       if (ocrTextTrimmed.length > totalChars) {
         const ocrPages = splitOcrTextIntoPages(ocrTextTrimmed);

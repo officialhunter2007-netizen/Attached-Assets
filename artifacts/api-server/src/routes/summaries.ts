@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { db, lessonSummariesTable, usersTable, userSubjectFirstLessonsTable } from "@workspace/db";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { recordAiUsage, extractAnthropicUsage } from "../lib/ai-usage";
 
 const router: IRouter = Router();
 
@@ -56,6 +57,7 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
 - HTML داخل div واحد فقط، ألوان: عناوين #F59E0B، إنجازات #10B981
 - لا Markdown. لا ** أو #. كل شيء HTML`;
 
+  const __aiStart = Date.now();
   try {
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -67,6 +69,19 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
           content: `المادة: ${subjectName}\n\nمحادثة الجلسة:\n${conversationText}\n\nاكتب الملخص والعنوان.`,
         },
       ],
+    });
+
+    const __u = extractAnthropicUsage(response);
+    void recordAiUsage({
+      userId,
+      subjectId: subjectId ?? null,
+      route: "ai/summarize-lesson",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      inputTokens: __u.inputTokens,
+      outputTokens: __u.outputTokens,
+      cachedInputTokens: __u.cachedInputTokens,
+      latencyMs: Date.now() - __aiStart,
     });
 
     const rawText = response.content[0]?.type === "text" ? response.content[0].text : "{}";
@@ -125,6 +140,18 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
     res.json(saved);
   } catch (err: any) {
     console.error("Summarize error:", err);
+    void recordAiUsage({
+      userId,
+      subjectId: subjectId ?? null,
+      route: "ai/summarize-lesson",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: Date.now() - __aiStart,
+      status: "error",
+      errorMessage: String(err?.message || err).slice(0, 500),
+    });
     res.status(500).json({ error: "Failed to generate summary" });
   }
 });

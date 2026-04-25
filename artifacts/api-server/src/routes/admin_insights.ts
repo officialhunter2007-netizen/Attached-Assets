@@ -15,6 +15,7 @@ import {
   lessonSummariesTable,
 } from "@workspace/db";
 import { diagnoseObjectStorage } from "../lib/objectStorage";
+import { recordAiUsage, extractGeminiUsage } from "../lib/ai-usage";
 
 const router: IRouter = Router();
 
@@ -860,6 +861,9 @@ ${contextJson}
   const ac = new AbortController();
   req.on("close", () => ac.abort());
 
+  const __insightsStart = Date.now();
+  let __insightsModel = "gemini-2.5-flash";
+
   try {
     // Gemini frequently returns transient 503 (model overloaded) or 502/504
     // (gateway). Retry with exponential backoff before giving up; fall back to
@@ -885,6 +889,9 @@ ${contextJson}
     let upstream: Response | null = null;
     let lastStatus = 0;
     let lastErrBody = "";
+    let usedModel = attemptModels[0];
+    __insightsModel = usedModel;
+    const __aiStart = __insightsStart;
     for (let attempt = 0; attempt < attemptModels.length; attempt++) {
       if (ac.signal.aborted) return;
       try {
@@ -896,6 +903,8 @@ ${contextJson}
         });
         if (r.ok && r.body) {
           upstream = r;
+          usedModel = attemptModels[attempt];
+          __insightsModel = usedModel;
           break;
         }
         lastStatus = r.status;
@@ -918,6 +927,18 @@ ${contextJson}
     if (!upstream || !upstream.body) {
       console.error("[admin-insights] gemini http error after retries:",
         lastStatus, lastErrBody.slice(0, 300));
+      void recordAiUsage({
+        userId: adminId,
+        subjectId: null,
+        route: "admin/ai-insights",
+        provider: "gemini",
+        model: usedModel,
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - __aiStart,
+        status: "error",
+        errorMessage: `http_${lastStatus}: ${lastErrBody.slice(0, 300)}`,
+      });
       let friendly = "تعذّر الردّ الآن، حاول بعد قليل.";
       if (lastStatus === 429) {
         friendly = "وصل المساعد لحدّ الاستخدام المؤقّت. حاول بعد دقيقة.";
@@ -936,6 +957,7 @@ ${contextJson}
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let lastUsageMetadata: any = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -950,6 +972,7 @@ ${contextJson}
         if (!payload || payload === "[DONE]") continue;
         try {
           const parsed = JSON.parse(payload);
+          if (parsed?.usageMetadata) lastUsageMetadata = parsed.usageMetadata;
           const parts = parsed?.candidates?.[0]?.content?.parts;
           if (Array.isArray(parts)) {
             for (const p of parts) {
@@ -962,6 +985,22 @@ ${contextJson}
           // ignore non-JSON keep-alives
         }
       }
+    }
+
+    {
+      const __u = extractGeminiUsage(lastUsageMetadata);
+      void recordAiUsage({
+        userId: adminId,
+        subjectId: null,
+        route: "admin/ai-insights",
+        provider: "gemini",
+        model: usedModel,
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+        metadata: focusUser ? { focusUserId: focusUser.id } : null,
+      });
     }
 
     res.write(`data: ${JSON.stringify({
@@ -983,6 +1022,18 @@ ${contextJson}
       return;
     }
     console.error("[admin-insights] error:", err?.message || err);
+    void recordAiUsage({
+      userId: adminId,
+      subjectId: null,
+      route: "admin/ai-insights",
+      provider: "gemini",
+      model: __insightsModel,
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: Date.now() - __insightsStart,
+      status: "error",
+      errorMessage: String(err?.message || err).slice(0, 500),
+    });
     try {
       res.write(`data: ${JSON.stringify({ error: "تعذّر الردّ الآن، حاول بعد قليل." })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

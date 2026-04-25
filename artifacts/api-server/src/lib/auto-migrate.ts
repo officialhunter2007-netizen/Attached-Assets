@@ -12,6 +12,46 @@ type TableSpec = {
   columns: ColumnSpec[];
 };
 
+type FullTableSpec = {
+  /** Unqualified table name. */
+  table: string;
+  /** Full CREATE TABLE IF NOT EXISTS ... statement. */
+  createSql: string;
+  /** Optional CREATE INDEX IF NOT EXISTS statements. */
+  indexes?: string[];
+};
+
+const REQUIRED_TABLES: FullTableSpec[] = [
+  {
+    table: "ai_usage_events",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "ai_usage_events" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer REFERENCES "users"("id") ON DELETE SET NULL,
+        "subject_id" text,
+        "route" text NOT NULL,
+        "provider" text NOT NULL,
+        "model" text NOT NULL,
+        "input_tokens" integer NOT NULL DEFAULT 0,
+        "output_tokens" integer NOT NULL DEFAULT 0,
+        "cached_input_tokens" integer NOT NULL DEFAULT 0,
+        "cost_usd" numeric(14, 8) NOT NULL DEFAULT 0,
+        "latency_ms" integer,
+        "status" text NOT NULL DEFAULT 'success',
+        "error_message" text,
+        "metadata" jsonb,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_ai_usage_user" ON "ai_usage_events" ("user_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_ai_usage_created" ON "ai_usage_events" ("created_at")`,
+      `CREATE INDEX IF NOT EXISTS "idx_ai_usage_model" ON "ai_usage_events" ("model")`,
+      `CREATE INDEX IF NOT EXISTS "idx_ai_usage_route" ON "ai_usage_events" ("route")`,
+    ],
+  },
+];
+
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
     table: "course_materials",
@@ -113,9 +153,35 @@ export async function ensureRequiredColumns(): Promise<{
   return { added, errors };
 }
 
+async function ensureRequiredTables(): Promise<{
+  created: string[];
+  errors: Array<{ table: string; error: string }>;
+}> {
+  const created: string[] = [];
+  const errors: Array<{ table: string; error: string }> = [];
+
+  for (const spec of REQUIRED_TABLES) {
+    try {
+      await db.execute(sql.raw(spec.createSql));
+      for (const idx of spec.indexes ?? []) {
+        await db.execute(sql.raw(idx));
+      }
+      created.push(spec.table);
+    } catch (err: any) {
+      errors.push({ table: spec.table, error: err?.message ?? String(err) });
+      logger.error(
+        { table: spec.table, err: err?.message },
+        "auto-migrate: failed to create table",
+      );
+    }
+  }
+  return { created, errors };
+}
+
 export async function runStartupMigrations(): Promise<void> {
   const start = Date.now();
   try {
+    await ensureRequiredTables();
     const { added, errors } = await ensureRequiredColumns();
     const ms = Date.now() - start;
     if (added.length === 0 && errors.length === 0) {

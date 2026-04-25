@@ -57,7 +57,7 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 
 ## DB Schema
 
-Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subscription_requests, activation_cards, referrals, conversations, messages, **user_subject_subscriptions** (per-subject sub tracking), **user_subject_first_lessons** (per-subject paywall)
+Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subscription_requests, activation_cards, referrals, conversations, messages, **user_subject_subscriptions** (per-subject sub tracking), **user_subject_first_lessons** (per-subject paywall), **ai_usage_events** (per-LLM-call tracking: provider/model/tokens/cost_usd/latency_ms/status, indexed by user_id+created_at+model)
 
 ## API Routes
 
@@ -73,6 +73,7 @@ Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subs
 - `DELETE /api/admin/revoke-subject-subscription/:subId` — revoke subject subscription
 - `GET/POST /api/referrals/*` — referral system
 - `POST /api/ai/*` — AI endpoints (lesson, interview, build-plan, teach) — SSE streaming
+- `GET /api/admin/ai-usage/*` — admin AI cost & token analytics (summary, timeseries, users, user/:id, events). Every LLM call across the codebase records via `recordAiUsage()` (`artifacts/api-server/src/lib/ai-usage.ts`); pricing per model in `lib/ai-pricing.ts`. Auto-migrate creates `ai_usage_events` on boot.
 
 ## Design System
 
