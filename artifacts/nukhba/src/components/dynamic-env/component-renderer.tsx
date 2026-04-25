@@ -113,10 +113,14 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
       for (const [k, expected] of Object.entries(comp.submit.expected)) {
         const got = String(values[k] ?? "").trim();
         if (typeof expected === "number") {
-          const n = parseFloat(got.replace(/,/g, ""));
+          // Normalize Arabic/Persian digits and Arabic separators to ASCII
+          // so users can type "١٢٬٣٤٥٫٦٧" or "12,345.67" and both parse.
+          const normalized = normalizeArabicDigits(got).replace(/[,،٬\s]/g, "");
+          const n = parseFloat(normalized);
           if (isNaN(n) || Math.abs(n - expected) > Math.abs(expected * tol) + 0.0001) { allOk = false; wrong.push(k); }
         } else {
-          if (got.toLowerCase().replace(/\s+/g, "") !== String(expected).toLowerCase().replace(/\s+/g, "")) { allOk = false; wrong.push(k); }
+          const norm = (s: string) => normalizeArabicDigits(s).toLowerCase().replace(/\s+/g, "");
+          if (norm(got) !== norm(String(expected))) { allOk = false; wrong.push(k); }
         }
       }
       setFeedback({ ok: allOk, msg: allOk ? (comp.submit.correctMessage || "إجابة صحيحة! ✓") : (comp.submit.incorrectMessage || `راجع الحقول: ${wrong.join("، ")}`) });
@@ -238,6 +242,7 @@ function EditableTable({ comp }: { comp: Extract<DynComponent, { type: "editable
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editVals, setEditVals] = useState<Record<string, any>>({});
   const [search, setSearch] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
   const idField = comp.idField || "id";
   const allowAdd = comp.allowAdd !== false;
   const allowDelete = comp.allowDelete !== false;
@@ -247,6 +252,20 @@ function EditableTable({ comp }: { comp: Extract<DynComponent, { type: "editable
     : items;
 
   const add = () => {
+    setAddError(null);
+    const empty = comp.columns.every((c) => {
+      const v = draft[c.key];
+      return v === undefined || v === null || (typeof v === "string" && v.trim() === "");
+    });
+    if (empty) {
+      setAddError("لا يمكن إضافة صف فارغ — املأ حقلاً واحداً على الأقل.");
+      return;
+    }
+    const draftId = draft[idField];
+    if (draftId !== undefined && draftId !== "" && items.some((it) => String(it[idField]) === String(draftId))) {
+      setAddError(`القيمة «${draftId}» موجودة في «${idField}» — يجب أن تكون فريدة.`);
+      return;
+    }
     const obj: any = { ...draft };
     for (const c of comp.columns) if (c.type === "number") obj[c.key] = envUtils.toNumber(obj[c.key]);
     env.mutate([{ op: "append", path: comp.bindTo, value: obj, idField }]);
@@ -349,6 +368,9 @@ function EditableTable({ comp }: { comp: Extract<DynComponent, { type: "editable
           )}
         </table>
       </div>
+      {addError && (
+        <div className="mt-2 text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2">{addError}</div>
+      )}
     </Card>
   );
 }
@@ -381,6 +403,16 @@ function JournalEditor({ comp }: { comp: Extract<DynComponent, { type: "journalE
     if (!desc.trim()) { setError("يجب إدخال وصف القيد."); return; }
     const validLines = lines.filter((l) => l.account && (envUtils.toNumber(l.debit) > 0 || envUtils.toNumber(l.credit) > 0));
     if (validLines.length < 2) { setError("القيد يجب أن يحتوي على طرفين على الأقل."); return; }
+    if (accounts.length > 0) {
+      const codes = new Set(accounts.map((a: any) => String(a.code)));
+      const missing = validLines
+        .map((l) => l.account)
+        .filter((acc) => !codes.has(String(acc)));
+      if (missing.length > 0) {
+        setError(`الحساب «${missing[0]}» غير موجود في دليل الحسابات.`);
+        return;
+      }
+    }
 
     const entryId = `je-${Date.now()}`;
     env.mutate([
