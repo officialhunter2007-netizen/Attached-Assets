@@ -23,9 +23,9 @@ import { generateActivationCode } from "../lib/auth";
 const router: IRouter = Router();
 
 const PLAN_MESSAGE_LIMITS: Record<string, number> = {
-  bronze: 30,
-  silver: 60,
-  gold: 100,
+  bronze: 20,
+  silver: 40,
+  gold: 70,
 };
 
 // Authoritative price table (server-side source of truth).
@@ -275,7 +275,17 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
     .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
   const now = new Date();
-  const hasSubjectSub = !!(subjectSub && new Date(subjectSub.expiresAt) > now && subjectSub.messagesUsed < subjectSub.messagesLimit);
+  // messagesLimit is now a *daily* cap that resets when the user claims a new
+  // daily session. If the user hasn't claimed a session today (lastSessionDate
+  // != today in Yemen TZ), then the persisted messagesUsed is from a previous
+  // day and will be reset on the next /ai/teach call, so we should treat their
+  // effective remaining-for-today as the full limit.
+  const todayYemen = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const isStaleCounter = (user.lastSessionDate ?? null) !== todayYemen;
+  const effectiveMessagesUsed = subjectSub
+    ? (isStaleCounter ? 0 : subjectSub.messagesUsed)
+    : 0;
+  const hasSubjectSub = !!(subjectSub && new Date(subjectSub.expiresAt) > now && effectiveMessagesUsed < subjectSub.messagesLimit);
 
   const hasAccess = isFirstLesson || hasSubjectSub;
 
@@ -284,7 +294,7 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
   let planType: string | null = null;
 
   if (hasSubjectSub && subjectSub) {
-    messagesRemaining = subjectSub.messagesLimit - subjectSub.messagesUsed;
+    messagesRemaining = subjectSub.messagesLimit - effectiveMessagesUsed;
     expiresAt = subjectSub.expiresAt.toISOString();
     planType = subjectSub.plan;
   }
@@ -342,7 +352,11 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     return;
   }
 
-  const messagesLimit = PLAN_MESSAGE_LIMITS[card.planType] ?? 30;
+  const messagesLimit = PLAN_MESSAGE_LIMITS[card.planType];
+  if (!messagesLimit) {
+    res.status(400).json({ success: false, message: `نوع الباقة غير معروف: ${card.planType}` });
+    return;
+  }
   const subscriptionExpiresAt = card.expiresAt ?? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
 
   await db.update(activationCardsTable).set({
@@ -445,7 +459,11 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 14);
 
-  const messagesLimit = PLAN_MESSAGE_LIMITS[request.planType] ?? 30;
+  const messagesLimit = PLAN_MESSAGE_LIMITS[request.planType];
+  if (!messagesLimit) {
+    res.status(400).json({ error: `نوع الباقة غير معروف في الطلب: ${request.planType}` });
+    return;
+  }
 
   // Race-safe approval: conditional update on status. Only the first concurrent
   // call wins; subsequent calls find updatedRows = 0 and bail out.

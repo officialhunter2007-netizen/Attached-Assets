@@ -370,9 +370,9 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
   const unlimited = isUnlimitedUser(user);
   // For unlimited users, force-grant access regardless of subscription/first-lesson state.
-  const { isFirstLesson: rawFirstLesson, canAccessViaSubscription: rawCanAccess, hasActiveSub: rawHasActive, quotaExhausted, subjectSub, firstLessonRecord } = access;
+  const { isFirstLesson: rawFirstLesson, canAccessViaSubscription: rawCanAccess, hasActiveSub: rawHasActive, subjectSub, firstLessonRecord } = access;
   const isFirstLesson = unlimited ? false : rawFirstLesson;
-  const canAccessViaSubscription = unlimited ? true : rawCanAccess;
+  let canAccessViaSubscription = unlimited ? true : rawCanAccess;
   const hasActiveSub = unlimited ? true : rawHasActive;
   const isNewSession = !userMessage;
 
@@ -382,9 +382,17 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   // through. Only one request per day per user wins the claim; the rest get
   // 429. We remember the previous value so we can roll the claim back if the
   // AI call later fails (so the student isn't stuck on the countdown screen).
+  //
+  // IMPORTANT: We gate this on `hasActiveSub` (subscription not expired), NOT
+  // on `canAccessViaSubscription` (which also requires messagesUsed < limit).
+  // The reason: messagesLimit is now a *daily* cap, and messagesUsed only
+  // gets reset *during* this claim block. If we required canAccessViaSubscription
+  // here, a user who finished yesterday at the cap would be permanently locked
+  // out — they could never reach the reset code.
   const previousLastSessionDate = user.lastSessionDate ?? null;
+  const previousMessagesUsed = subjectSub?.messagesUsed ?? null;
   let claimedTodaySession = false;
-  if (isNewSession && canAccessViaSubscription && !unlimited) {
+  if (isNewSession && hasActiveSub && !unlimited) {
     const today = getYemenDateString();
     const claim = await db
       .update(usersTable)
@@ -404,6 +412,25 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       return;
     }
     claimedTodaySession = true;
+
+    // ── Daily message-counter reset ─────────────────────────────────────────────
+    // The subscription's messagesLimit is now interpreted as a *daily* cap.
+    // Whenever a user successfully claims a new daily session we reset
+    // messagesUsed for that subject's subscription back to 0 so today's quota
+    // starts fresh. After this reset, recompute canAccessViaSubscription so
+    // the access gate below sees the fresh state.
+    if (subjectSub) {
+      try {
+        await db
+          .update(userSubjectSubscriptionsTable)
+          .set({ messagesUsed: 0 })
+          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
+        subjectSub.messagesUsed = 0;
+        canAccessViaSubscription = subjectSub.messagesLimit > 0;
+      } catch (err: any) {
+        console.error("[ai/teach] daily messagesUsed reset failed:", err?.message || err);
+      }
+    }
   }
 
   const rollbackDailyClaim = async () => {
@@ -412,6 +439,15 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       await db.update(usersTable)
         .set({ lastSessionDate: previousLastSessionDate })
         .where(eq(usersTable.id, userId));
+      // Restore the previous messagesUsed value too so the user doesn't
+      // silently get a free top-up if the AI call failed before they used
+      // any of today's messages.
+      if (subjectSub && previousMessagesUsed !== null) {
+        await db.update(userSubjectSubscriptionsTable)
+          .set({ messagesUsed: previousMessagesUsed })
+          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
+        subjectSub.messagesUsed = previousMessagesUsed;
+      }
     } catch (err: any) {
       console.error("[ai/teach] daily-claim rollback failed:", err?.message || err);
     }
@@ -1383,7 +1419,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
 - **الأسعار**: تختلف بين الشمال والجنوب، اعرض الاثنين عند سؤال السعر.
 
 ### البرونزية
-- ٣٠ رسالة مع المعلم الذكي للمادة المختارة.
+- ٢٠ رسالة يومياً مع المعلم الذكي للمادة المختارة (تتجدّد كل يوم).
 - مختبرات تطبيقية تفاعلية تُبنى حسب الدرس.
 - تقييم ذكي لعملك في المختبر مع نقاط القوة والتطوير.
 - خطة تعلم شخصية مبنية على مستواك.
@@ -1391,7 +1427,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
 - السعر: ١٬٠٠٠ ريال (الشمال) / ٣٬٠٠٠ ريال (الجنوب).
 
 ### الفضّية (الأكثر شيوعًا)
-- ٦٠ رسالة مع المعلم الذكي للمادة المختارة.
+- ٤٠ رسالة يومياً مع المعلم الذكي للمادة المختارة (تتجدّد كل يوم).
 - مختبرات تطبيقية تفاعلية بلا حدود (ضمن نفس المادة).
 - تقارير مفصّلة عن الأداء في كل مختبر (إبداعات / نقاط للصقل / خطوة تالية).
 - خطة تعلم تتطوّر مع تقدّمك ومراجعات دورية.
@@ -1400,7 +1436,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
 - السعر: ٢٬٠٠٠ ريال (الشمال) / ٦٬٠٠٠ ريال (الجنوب).
 
 ### الذهبية
-- ١٠٠ رسالة مع المعلم الذكي للمادة المختارة.
+- ٧٠ رسالة يومياً مع المعلم الذكي للمادة المختارة (تتجدّد كل يوم).
 - مختبرات تطبيقية متقدمة بلا حدود (ضمن نفس المادة).
 - تقييم احترافي مفصّل لكل مختبر مع تأمل وخطوة تالية.
 - خطة تعلم متكاملة + مراجعات أسبوعية للأداء.

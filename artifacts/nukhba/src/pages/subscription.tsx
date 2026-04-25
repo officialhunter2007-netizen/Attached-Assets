@@ -34,7 +34,7 @@ const plans: Record<PlanKey, {
   bronze: {
     name: "البرونزية",
     icon: <Zap className="w-7 h-7 text-orange-400" />,
-    messages: 30,
+    messages: 20,
     priceNorth: "١٬٠٠٠ ريال",
     priceSouth: "٣٬٠٠٠ ريال",
     priceNorthNum: "١٬٠٠٠",
@@ -42,7 +42,7 @@ const plans: Record<PlanKey, {
     desc: "ابدأ تجربتك مع المعلم الذكي والمختبرات التطبيقية",
     color: "text-orange-400",
     features: [
-      "٣٠ رسالة مع المعلم الذكي المتخصص",
+      "٢٠ رسالة يومياً مع المعلم الذكي المتخصص",
       "مختبرات تطبيقية تفاعلية تُبنى لك حسب الدرس",
       "تقييم ذكي لعملك في المختبر مع نقاط القوة والتطوير",
       "خطة تعلم شخصية مبنية على مستواك",
@@ -52,7 +52,7 @@ const plans: Record<PlanKey, {
   silver: {
     name: "الفضية",
     icon: <Star className="w-7 h-7 text-slate-300" />,
-    messages: 60,
+    messages: 40,
     priceNorth: "٢٬٠٠٠ ريال",
     priceSouth: "٦٬٠٠٠ ريال",
     priceNorthNum: "٢٬٠٠٠",
@@ -60,7 +60,7 @@ const plans: Record<PlanKey, {
     desc: "للطالب الجاد — مختبرات أكثر وتدريب أعمق",
     color: "text-slate-300",
     features: [
-      "٦٠ رسالة مع المعلم الذكي المتخصص",
+      "٤٠ رسالة يومياً مع المعلم الذكي المتخصص",
       "مختبرات تطبيقية تفاعلية بلا حدود",
       "تقارير مفصّلة عن أدائك في كل مختبر (إبداعات / نقاط للصقل / خطوة تالية)",
       "خطة تعلم تتطوّر مع تقدمك ومراجعات دورية",
@@ -72,7 +72,7 @@ const plans: Record<PlanKey, {
   gold: {
     name: "الذهبية",
     icon: <Gem className="w-7 h-7 text-gold" />,
-    messages: 100,
+    messages: 70,
     priceNorth: "٣٬٠٠٠ ريال",
     priceSouth: "٩٬٠٠٠ ريال",
     priceNorthNum: "٣٬٠٠٠",
@@ -80,7 +80,7 @@ const plans: Record<PlanKey, {
     desc: "الخيار الأشمل — تعلّم كثيف ومختبرات بلا توقف",
     color: "text-gold",
     features: [
-      "١٠٠ رسالة مع المعلم الذكي المتخصص",
+      "٧٠ رسالة يومياً مع المعلم الذكي المتخصص",
       "مختبرات تطبيقية تفاعلية متقدمة بلا حدود",
       "تقييم احترافي مفصّل لكل مختبر مع تأمل وخطوة تالية",
       "خطة تعلم متكاملة + مراجعات أسبوعية للأداء",

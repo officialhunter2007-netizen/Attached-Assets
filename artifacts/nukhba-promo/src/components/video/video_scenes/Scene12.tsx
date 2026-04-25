@@ -53,7 +53,7 @@ export const Scene12 = () => {
                     </div>
                     <p className="text-slate-400 text-sm mb-4">ابدأ تجربتك مع المعلم الذكي والمختبرات</p>
                     <div className="text-3xl font-bold text-white mb-1 font-mono">١٬٠٠٠ <span className="text-base text-slate-500">ريال/شهر</span></div>
-                    <div className="text-amber-400/80 text-sm font-bold mb-5">٣٠ رسالة مع المعلّم الذكي</div>
+                    <div className="text-amber-400/80 text-sm font-bold mb-5">٢٠ رسالة يومياً مع المعلّم الذكي</div>
                     <ul className="space-y-2.5 mb-6 flex-1 text-xs text-slate-300">
                       <li className="flex items-start gap-2"><span className="text-orange-400 mt-0.5">✓</span><span>مختبرات تطبيقية تفاعلية</span></li>
                       <li className="flex items-start gap-2"><span className="text-orange-400 mt-0.5">✓</span><span>تقييم ذكي لعملك في المختبر</span></li>
@@ -74,7 +74,7 @@ export const Scene12 = () => {
                     </div>
                     <p className="text-slate-400 text-sm mb-4">للطالب الجاد — مختبرات أكثر وتدريب أعمق</p>
                     <div className="text-3xl font-bold text-white mb-1 font-mono">٢٬٠٠٠ <span className="text-base text-slate-500">ريال/شهر</span></div>
-                    <div className="text-amber-400 text-sm font-bold mb-5">٦٠ رسالة مع المعلّم الذكي</div>
+                    <div className="text-amber-400 text-sm font-bold mb-5">٤٠ رسالة يومياً مع المعلّم الذكي</div>
                     <ul className="space-y-2.5 mb-6 flex-1 text-xs text-white">
                       <li className="flex items-start gap-2"><span className="text-amber-400 mt-0.5">✓</span><span>مختبرات تطبيقية بلا حدود</span></li>
                       <li className="flex items-start gap-2"><span className="text-amber-400 mt-0.5">✓</span><span>تقارير مفصّلة لكل مختبر</span></li>
@@ -93,7 +93,7 @@ export const Scene12 = () => {
                     </div>
                     <p className="text-slate-400 text-sm mb-4">الخيار الأشمل — تعلّم كثيف ومختبرات بلا توقف</p>
                     <div className="text-3xl font-bold text-white mb-1 font-mono">٣٬٠٠٠ <span className="text-base text-slate-500">ريال/شهر</span></div>
-                    <div className="text-amber-400 text-sm font-bold mb-5">١٠٠ رسالة مع المعلّم الذكي</div>
+                    <div className="text-amber-400 text-sm font-bold mb-5">٧٠ رسالة يومياً مع المعلّم الذكي</div>
                     <ul className="space-y-2.5 mb-6 flex-1 text-xs text-slate-300">
                       <li className="flex items-start gap-2"><span className="text-amber-500 mt-0.5">✓</span><span>مختبرات متقدّمة بلا حدود</span></li>
                       <li className="flex items-start gap-2"><span className="text-amber-500 mt-0.5">✓</span><span>مراجعات أسبوعية للأداء</span></li>
@@ -110,7 +110,7 @@ export const Scene12 = () => {
                   className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-3xl p-8 shadow-2xl relative z-10"
                 >
                   <h2 className="text-2xl font-bold text-white mb-1">إتمام الاشتراك</h2>
-                  <div className="text-slate-400 text-sm mb-6">الباقة الفضية — ٦٠ رسالة / شهر</div>
+                  <div className="text-slate-400 text-sm mb-6">الباقة الفضية — ٤٠ رسالة يومياً</div>
 
                   <div className="space-y-4 mb-6">
                     <div>

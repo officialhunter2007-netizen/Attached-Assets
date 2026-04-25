@@ -631,9 +631,9 @@ export default function Dashboard() {
                 <h3 className="font-bold text-gold mb-1">اشترك في نُخبة</h3>
                 <p className="text-sm text-muted-foreground mb-2">وصول غير محدود مع كل المواد والمسارات</p>
                 <div className="space-y-1 text-xs text-muted-foreground mb-4">
-                  <div>🟤 برونز — ٣٠ رسالة / ١٤ يوم</div>
-                  <div>⚪ فضة — ٦٠ رسالة / ١٤ يوم</div>
-                  <div>🟡 ذهب — ١٠٠ رسالة / ١٤ يوم</div>
+                  <div>🟤 برونز — ٢٠ رسالة يومياً / ١٤ يوم</div>
+                  <div>⚪ فضة — ٤٠ رسالة يومياً / ١٤ يوم</div>
+                  <div>🟡 ذهب — ٧٠ رسالة يومياً / ١٤ يوم</div>
                 </div>
               </div>
               <Link href="/subscription">

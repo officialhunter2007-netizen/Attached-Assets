@@ -340,18 +340,18 @@ export default function Welcome() {
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div className="bg-black/30 rounded-xl p-2 text-center border border-amber-700/20">
                   <div className="font-bold text-amber-600">برونز</div>
-                  <div className="text-muted-foreground">٣٠ رسالة</div>
-                  <div className="text-muted-foreground">كل ١٤ يوم</div>
+                  <div className="text-muted-foreground">٢٠ رسالة يومياً</div>
+                  <div className="text-muted-foreground">لمدة ١٤ يوم</div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-2 text-center border border-zinc-400/20">
                   <div className="font-bold text-zinc-300">فضة</div>
-                  <div className="text-muted-foreground">٦٠ رسالة</div>
-                  <div className="text-muted-foreground">كل ١٤ يوم</div>
+                  <div className="text-muted-foreground">٤٠ رسالة يومياً</div>
+                  <div className="text-muted-foreground">لمدة ١٤ يوم</div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-2 text-center border border-gold/20">
                   <div className="font-bold text-gold">ذهب</div>
-                  <div className="text-muted-foreground">١٠٠ رسالة</div>
-                  <div className="text-muted-foreground">كل ١٤ يوم</div>
+                  <div className="text-muted-foreground">٧٠ رسالة يومياً</div>
+                  <div className="text-muted-foreground">لمدة ١٤ يوم</div>
                 </div>
               </div>
             </div>
