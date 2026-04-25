@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DynComponent, DynFormField, DynMutation } from "./types";
 import { useEnvState, envUtils } from "./state-engine";
+import { useEnvTheme } from "./theme";
 
 type Ctx = {
   onAction?: (action: { type: string; [k: string]: any }) => void;
@@ -20,12 +21,29 @@ function fmtNumber(v: any, format?: string, decimals = 2): string {
   return v == null ? "" : String(v);
 }
 
-function Card({ title, action, children }: { title?: string; action?: ReactNode; children: ReactNode }) {
+function Card({ title, action, children, accentBar = true }: { title?: string; action?: ReactNode; children: ReactNode; accentBar?: boolean }) {
+  const t = useEnvTheme();
+  // The themed surface uses CSS vars set by the shell. The optional accent
+  // bar (right-side in RTL) gives every subject a recognisable visual stripe
+  // without overwhelming the content.
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-4 mb-3">
+    <div
+      className="relative rounded-xl border p-4 mb-3"
+      style={{
+        background: "var(--env-surface, rgba(255,255,255,0.04))",
+        borderColor: "var(--env-surface-border, rgba(255,255,255,0.10))",
+      }}
+    >
+      {accentBar && (
+        <span
+          aria-hidden
+          className="absolute top-3 bottom-3 right-0 w-[3px] rounded-l-full opacity-70"
+          style={{ background: t.accent }}
+        />
+      )}
       {(title || action) && (
         <div className="flex items-center justify-between mb-3">
-          {title && <h3 className="font-bold text-white">{title}</h3>}
+          {title && <h3 className="font-bold text-white text-base leading-tight">{title}</h3>}
           {action}
         </div>
       )}
@@ -573,6 +591,7 @@ function InvoiceBlock({ comp }: { comp: Extract<DynComponent, { type: "invoice" 
 
 // ─── Calculator ──────────────────────────────────────────────────────────────
 function Calculator({ comp }: { comp: Extract<DynComponent, { type: "calculator" }> }) {
+  const t = useEnvTheme();
   const [expr, setExpr] = useState(comp.expression || "");
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -580,10 +599,16 @@ function Calculator({ comp }: { comp: Extract<DynComponent, { type: "calculator"
   const calc = () => {
     setError(null);
     try {
-      // Whitelist: only digits, operators, parens, decimal, spaces
-      if (!/^[\d+\-*/().\s%]+$/.test(expr)) throw new Error("استخدم الأرقام والعمليات فقط");
+      // Accept Arabic-Indic digits + Arabic operators (×÷−) + ^ as power.
+      // Strip thousands separators (Latin "," or Arabic "،") so common
+      // formatted numbers like "1,500" or "١٬٥٠٠" are accepted.
+      const cleaned = normalizeArabicDigits(expr)
+        .replace(/[,،٬]/g, "")
+        .replace(/\^/g, "**");
+      // Whitelist: digits, operators, parens, decimal, spaces, %, * (for **)
+      if (!/^[\d+\-*/().\s%]+$/.test(cleaned)) throw new Error("استخدم الأرقام والعمليات فقط");
       // eslint-disable-next-line no-new-func
-      const r = Function(`"use strict"; return (${expr})`)();
+      const r = Function(`"use strict"; return (${cleaned})`)();
       setResult(typeof r === "number" && isFinite(r) ? r.toLocaleString("ar-EG", { maximumFractionDigits: 6 }) : String(r));
     } catch (e: any) {
       setError(e.message || "تعبير غير صحيح");
@@ -595,10 +620,31 @@ function Calculator({ comp }: { comp: Extract<DynComponent, { type: "calculator"
     <Card title={comp.title || "حاسبة"}>
       {comp.description && <p className="text-xs text-white/70 mb-2">{comp.description}</p>}
       <div className="flex gap-2 mb-2">
-        <input dir="ltr" value={expr} onChange={(e) => setExpr(e.target.value)} placeholder="مثال: 1500*0.15+200" className="flex-1 bg-black/30 border border-white/15 rounded p-2 text-white text-sm font-mono" />
-        <button onClick={calc} className="bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded px-4 text-sm">احسب</button>
+        <input
+          dir="ltr"
+          inputMode="decimal"
+          value={expr}
+          onChange={(e) => setExpr(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); calc(); } }}
+          placeholder="مثال: 1500*0.15+200  أو  ١٥٠٠×٠٫١٥+٢٠٠"
+          className="flex-1 min-w-0 bg-black/30 border border-white/15 rounded p-2 text-white text-sm font-mono min-h-[44px]"
+        />
+        <button
+          onClick={calc}
+          className="font-bold rounded px-4 text-sm transition-opacity hover:opacity-90 min-h-[44px] shrink-0"
+          style={{ background: t.primaryBtnBg, color: t.primaryBtnText }}
+        >
+          احسب
+        </button>
       </div>
-      {result !== null && <div className="text-sm text-green-300 bg-green-500/10 border border-green-500/30 rounded p-2">= {result}</div>}
+      {result !== null && (
+        <div
+          className="text-base p-2 rounded font-mono font-bold"
+          style={{ background: t.accentSoft, border: `1px solid ${t.accentBorder}`, color: t.accentText }}
+        >
+          = {result}
+        </div>
+      )}
       {error && <div className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2">{error}</div>}
     </Card>
   );
@@ -866,9 +912,583 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
     case "logViewer":
       return <LogViewerBlock comp={comp} state={env.state} />;
 
+    case "conceptCard":
+      return <ConceptCardBlock comp={comp} />;
+
+    case "achievement":
+      return <AchievementBlock comp={comp} state={env.state} />;
+
+    case "freePlayground":
+      return <FreePlaygroundBlock comp={comp} ctx={ctx} />;
+
+    case "dataInspector":
+      return <DataInspectorBlock comp={comp} state={env.state} />;
+
     default:
       return null;
   }
+}
+
+// Convert Arabic-Indic and Eastern-Arabic-Indic digits to ASCII so the
+// Calculator (and other numeric inputs) accept "١٥٠٠+٢٠٠" natively.
+function normalizeArabicDigits(s: string): string {
+  if (!s) return s;
+  const map: Record<string, string> = {
+    "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
+    "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
+    "۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4",
+    "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9",
+    "،": ",", "٫": ".", "٬": ",", "−": "-", "×": "*", "÷": "/",
+  };
+  return s.replace(/[٠-٩۰-۹،٫٬−×÷]/g, (ch) => map[ch] ?? ch);
+}
+
+// ─── Concept simplification card ───────────────────────────────────────────
+function ConceptCardBlock({ comp }: { comp: Extract<DynComponent, { type: "conceptCard" }> }) {
+  const t = useEnvTheme();
+  const tone = comp.tone || "intro";
+  const icon = comp.icon || (tone === "warning" ? "⚠️" : tone === "tip" ? "💡" : "🧠");
+  return (
+    <div
+      className="relative rounded-2xl border-r-4 p-4 md:p-5 mb-3 overflow-hidden"
+      style={{
+        background: `linear-gradient(135deg, ${t.accentSoft}, transparent 70%)`,
+        borderColor: t.accentBorder,
+        borderRightColor: t.accent,
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-xl"
+          style={{ background: t.accentSoft, border: `1px solid ${t.accentBorder}` }}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] font-black uppercase tracking-wider mb-1" style={{ color: t.accentText }}>
+            {tone === "warning" ? "انتبه" : tone === "tip" ? "تلميح ذهبي" : "فكرة المفهوم"}
+          </div>
+          <h4 className="text-base md:text-lg font-black text-white leading-snug mb-2">{comp.title}</h4>
+          <p className="text-sm text-white/85 leading-relaxed whitespace-pre-wrap">{comp.idea}</p>
+          {comp.everydayExample && (
+            <div
+              className="mt-3 rounded-lg px-3 py-2 text-[13px] text-white/90 leading-relaxed border-r-2"
+              style={{ background: "rgba(255,255,255,0.04)", borderRightColor: t.accent }}
+            >
+              <span className="text-[11px] font-black uppercase tracking-wider mr-1" style={{ color: t.accentText }}>مثال من حياتك اليومية ·</span>
+              {comp.everydayExample}
+            </div>
+          )}
+          {comp.ruleOfThumb && (
+            <div className="mt-2 text-[12px] text-white/75 italic">
+              <span className="font-bold" style={{ color: t.accentText }}>قاعدة بسيطة:</span>{" "}{comp.ruleOfThumb}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Achievement / motivation badge ────────────────────────────────────────
+function AchievementBlock({ comp, state }: { comp: Extract<DynComponent, { type: "achievement" }>; state: any }) {
+  const t = useEnvTheme();
+  // Predicate evaluation — same shape as DynTask.completeWhen.
+  const visible = useMemo(() => {
+    const w = comp.showWhen;
+    if (!w) return true;
+    const v = envUtils.getByPath(state, w.path);
+    switch (w.op) {
+      case "exists": return v !== undefined && v !== null && v !== "";
+      case "equals": return v === w.value;
+      case "gte": return envUtils.toNumber(v) >= envUtils.toNumber(w.value);
+      case "lte": return envUtils.toNumber(v) <= envUtils.toNumber(w.value);
+      case "lengthGte": return Array.isArray(v) && v.length >= envUtils.toNumber(w.value);
+      default: return true;
+    }
+  }, [comp.showWhen, state]);
+  if (!visible) return null;
+  const icon = comp.icon || "🏆";
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl border p-3 md:p-4 mb-3 flex items-center gap-3"
+      style={{
+        background: `linear-gradient(90deg, ${t.accentSoft}, transparent)`,
+        borderColor: t.accentBorder,
+      }}
+    >
+      <div
+        className="absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-30 blur-2xl"
+        style={{ background: t.accent }}
+        aria-hidden
+      />
+      <div
+        className="relative shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
+        style={{ background: t.accentSoft, border: `1px solid ${t.accentBorder}` }}
+      >
+        {icon}
+      </div>
+      <div className="relative min-w-0 flex-1">
+        <div className="text-[11px] font-black uppercase tracking-wider" style={{ color: t.accentText }}>
+          إنجاز جديد
+        </div>
+        <div className="text-sm md:text-base font-black text-white leading-tight">{comp.title}</div>
+        {comp.description && <div className="text-xs text-white/70 mt-0.5 leading-snug">{comp.description}</div>}
+      </div>
+      {typeof comp.points === "number" && comp.points > 0 && (
+        <div
+          className="relative shrink-0 px-3 py-1.5 rounded-full text-xs font-black"
+          style={{ background: t.accent, color: t.primaryBtnText }}
+        >
+          +{comp.points} نقطة
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Free experimentation playground ──────────────────────────────────────
+// Four flavors. Each is a real, no-grading tool the student can play with
+// to develop intuition. Sandboxed iframe used for js/cssPreview to keep the
+// host page safe (same security contract as WebAppBlock).
+function FreePlaygroundBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "freePlayground" }>; ctx: Ctx }) {
+  const t = useEnvTheme();
+  const flavor = comp.flavor;
+  const labels: Record<string, string> = {
+    js: "مختبر JavaScript",
+    regex: "مختبر التعبيرات النمطية (Regex)",
+    cssPreview: "مختبر HTML + CSS",
+    math: "حاسبة بمتغيرات",
+  };
+  const title = comp.title || labels[flavor] || "مختبر التجريب";
+
+  return (
+    <Card title={title}>
+      {comp.description && <p className="text-xs text-white/70 mb-2 leading-relaxed">{comp.description}</p>}
+      <div
+        className="text-[11px] mb-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border"
+        style={{ background: t.accentSoft, borderColor: t.accentBorder, color: t.accentText }}
+      >
+        <span>🧪</span>
+        <span className="font-bold">منطقة تجريب حرّة — جرّب، عدّل، اكسر، تعلّم</span>
+      </div>
+      {flavor === "js" && <PlaygroundJS seed={comp.seed} height={comp.height} />}
+      {flavor === "regex" && <PlaygroundRegex pattern={comp.seed} testText={comp.secondarySeed} />}
+      {flavor === "cssPreview" && <PlaygroundCss html={comp.seed} css={comp.secondarySeed} height={comp.height} />}
+      {flavor === "math" && <PlaygroundMath seed={comp.seed} />}
+      {Array.isArray(comp.challenges) && comp.challenges.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-white/10">
+          <div className="text-[11px] font-black uppercase tracking-wider mb-2" style={{ color: t.accentText }}>
+            تحدّيات سريعة جرّبها
+          </div>
+          <ul className="space-y-1.5">
+            {comp.challenges.slice(0, 6).map((c, i) => (
+              <li key={i} className="flex items-start gap-2 text-[12px] text-white/80">
+                <button
+                  onClick={() => ctx.onAskAi?.(`في مختبر ${labels[flavor]}: «${c}» — اشرح لي كيف أنفّذ هذا التحدي خطوة بخطوة دون أن تعطيني الحل كاملاً.`)}
+                  className="shrink-0 text-xs rounded-full px-2 py-0.5 border hover:opacity-80 transition-opacity"
+                  style={{ background: t.accentSoft, borderColor: t.accentBorder, color: t.accentText }}
+                  title="اطلب من المساعد إرشادك"
+                >
+                  ?
+                </button>
+                <span className="leading-relaxed">{c}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function PlaygroundJS({ seed, height }: { seed?: string; height?: number }) {
+  const t = useEnvTheme();
+  const [code, setCode] = useState<string>(seed || "// جرّب — مثال:\nconst nums = [1, 2, 3, 4, 5];\nconst sum = nums.reduce((a, b) => a + b, 0);\nconsole.log('المجموع =', sum);\n");
+  const [logs, setLogs] = useState<Array<{ level: string; text: string }>>([]);
+  const [runId, setRunId] = useState(0);
+  const [killed, setKilled] = useState(false);
+  const ref = useRef<HTMLIFrameElement>(null);
+  const watchdogRef = useRef<number | null>(null);
+  const nonce = useMemo(() => "pgjs-" + Math.random().toString(36).slice(2, 10), [runId]);
+  const h = typeof height === "number" && height > 100 ? height : 220;
+
+  const srcDoc = useMemo(() => {
+    if (runId === 0) return "";
+    if (killed) return "";
+    // The injected runtime sends a "ready" ping when it loads, then a "done"
+    // ping after eval finishes. The parent watchdog uses these to detect
+    // hangs (infinite loops) and rip out the iframe srcDoc to kill execution.
+    const safe = JSON.stringify(code);
+    return `<!doctype html><html><head><meta charset="utf-8"></head><body><script>(function(){try{var n=${JSON.stringify(nonce)};function send(level,args){try{var t=Array.prototype.map.call(args,function(a){try{return typeof a==='string'?a:JSON.stringify(a)}catch(e){return String(a)}}).join(' ');parent.postMessage({__pg:n,level:level,text:t},'*')}catch(e){}}['log','info','warn','error'].forEach(function(lv){var orig=console[lv];console[lv]=function(){send(lv,arguments);if(orig)try{orig.apply(console,arguments)}catch(e){}}});window.addEventListener('error',function(e){send('error',[e.message||'error'])});parent.postMessage({__pg:n,level:'__ready'},'*');}catch(e){}try{(function(){var __code=${safe};(0,eval)(__code);})();}catch(e){try{parent.postMessage({__pg:${JSON.stringify(nonce)},level:'error',text:String(e&&e.message||e)},'*')}catch(_){}}try{parent.postMessage({__pg:${JSON.stringify(nonce)},level:'__done'},'*')}catch(_){}})();<\/script></body></html>`;
+  }, [runId, nonce, code, killed]);
+
+  useEffect(() => {
+    function onMsg(ev: MessageEvent) {
+      if (!ref.current || ev.source !== ref.current.contentWindow) return;
+      const d: any = ev.data;
+      if (!d || typeof d !== "object" || d.__pg !== nonce) return;
+      // Internal lifecycle messages: clear the watchdog when execution ends.
+      if (d.level === "__done" || d.level === "__ready") {
+        if (d.level === "__done" && watchdogRef.current) {
+          window.clearTimeout(watchdogRef.current);
+          watchdogRef.current = null;
+        }
+        return;
+      }
+      setLogs((p) => [...p.slice(-39), { level: String(d.level || "log"), text: String(d.text || "").slice(0, 500) }]);
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [nonce]);
+
+  // Watchdog: if a run does not signal __done within 3s, assume an infinite
+  // loop and forcibly kill the iframe (re-mount removes the running script).
+  useEffect(() => {
+    if (runId === 0) return;
+    if (killed) return;
+    if (watchdogRef.current) window.clearTimeout(watchdogRef.current);
+    watchdogRef.current = window.setTimeout(() => {
+      setLogs((p) => [...p, { level: "error", text: "⏱ إيقاف تلقائي: تجاوز الكود ٣ ثوانٍ (حلقة لا نهائية محتملة)." }]);
+      setKilled(true);
+      watchdogRef.current = null;
+    }, 3000);
+    return () => {
+      if (watchdogRef.current) {
+        window.clearTimeout(watchdogRef.current);
+        watchdogRef.current = null;
+      }
+    };
+  }, [runId, killed]);
+
+  const run = () => { setLogs([]); setKilled(false); setRunId((n) => n + 1); };
+
+  return (
+    <div className="space-y-2">
+      <textarea
+        dir="ltr"
+        spellCheck={false}
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        className="w-full bg-black/60 border border-white/15 rounded-lg p-2 text-green-200 text-[12px] font-mono leading-relaxed resize-y"
+        style={{ minHeight: h }}
+      />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={run}
+          className="text-sm font-bold rounded-lg px-4 py-2 transition-opacity hover:opacity-90"
+          style={{ background: t.primaryBtnBg, color: t.primaryBtnText }}
+        >
+          ▶ تشغيل
+        </button>
+        <button
+          onClick={() => setLogs([])}
+          className="text-xs rounded-lg px-3 py-2 bg-white/5 hover:bg-white/10 text-white/70 border border-white/10"
+        >
+          مسح السجل
+        </button>
+        <span className="text-[11px] text-white/40">يعمل في صندوق رمل معزول — لا وصول للإنترنت أو لتطبيقك.</span>
+      </div>
+      {srcDoc && (
+        <iframe
+          ref={ref}
+          title="js-playground"
+          sandbox="allow-scripts"
+          srcDoc={srcDoc}
+          className="hidden"
+          style={{ width: 0, height: 0 }}
+        />
+      )}
+      <div className="bg-black/70 border border-white/10 rounded-lg p-2 max-h-48 overflow-y-auto font-mono text-[11px] space-y-0.5" dir="ltr">
+        {logs.length === 0
+          ? <div className="text-white/40 text-center py-2">— لا توجد مخرجات بعد — اضغط تشغيل —</div>
+          : logs.map((l, i) => (
+            <div key={i} className={
+              l.level === "error" ? "text-red-300"
+              : l.level === "warn" ? "text-amber-300"
+              : "text-green-200"
+            }>
+              <span className="text-white/40 ml-1">[{l.level}]</span>{l.text}
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
+function PlaygroundRegex({ pattern, testText }: { pattern?: string; testText?: string }) {
+  const [pat, setPat] = useState<string>(pattern || "\\b\\w+@\\w+\\.\\w+\\b");
+  const [flags, setFlags] = useState<string>("g");
+  const [text, setText] = useState<string>(testText || "تواصل معنا: support@nukhba.ye أو ali.ahmed@example.com للدعم.");
+  // Hard caps protect the UI from catastrophic-backtracking patterns: keep
+  // pattern <= 300 chars and test text <= 5000 chars. Even pathological
+  // patterns stay tractable on inputs of this size.
+  const PATTERN_MAX = 300;
+  const TEXT_MAX = 5000;
+  const result = useMemo(() => {
+    if (!pat) return { ok: true as const, matches: [] as Array<{ index: number; text: string }>, error: null as string | null };
+    if (pat.length > PATTERN_MAX) return { ok: false as const, matches: [], error: `النمط طويل جداً (الحد الأقصى ${PATTERN_MAX} حرفاً)` };
+    if (text.length > TEXT_MAX) return { ok: false as const, matches: [], error: `النص طويل جداً (الحد الأقصى ${TEXT_MAX} حرف)` };
+    try {
+      const re = new RegExp(pat, flags || undefined);
+      const matches: Array<{ index: number; text: string }> = [];
+      if (flags.includes("g")) {
+        let m: RegExpExecArray | null;
+        let guard = 0;
+        while ((m = re.exec(text)) !== null && guard++ < 200) {
+          matches.push({ index: m.index, text: m[0] });
+          if (m[0].length === 0) re.lastIndex++;
+        }
+      } else {
+        const m = re.exec(text);
+        if (m) matches.push({ index: m.index, text: m[0] });
+      }
+      return { ok: true as const, matches, error: null };
+    } catch (e: any) {
+      return { ok: false as const, matches: [], error: e?.message || "regex غير صالح" };
+    }
+  }, [pat, flags, text]);
+
+  // Highlight matches in the text by walking through them in index order.
+  const highlighted = useMemo(() => {
+    if (!result.ok || result.matches.length === 0) return [<span key="t">{text}</span>];
+    const out: any[] = [];
+    let cur = 0;
+    result.matches.forEach((m, i) => {
+      if (m.index > cur) out.push(<span key={"p" + i}>{text.slice(cur, m.index)}</span>);
+      out.push(<mark key={"m" + i} className="bg-amber-400/40 text-amber-50 rounded px-0.5">{m.text}</mark>);
+      cur = m.index + (m.text.length || 1);
+    });
+    if (cur < text.length) out.push(<span key="end">{text.slice(cur)}</span>);
+    return out;
+  }, [result, text]);
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-[1fr_auto] gap-2">
+        <input dir="ltr" value={pat} onChange={(e) => setPat(e.target.value)} placeholder="النمط" className="bg-black/40 border border-white/15 rounded p-2 text-white text-[12px] font-mono" />
+        <input dir="ltr" value={flags} onChange={(e) => setFlags(e.target.value.replace(/[^gimsuy]/g, ""))} placeholder="الأعلام" className="w-20 bg-black/40 border border-white/15 rounded p-2 text-white text-[12px] font-mono text-center" />
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        className="w-full bg-black/30 border border-white/15 rounded p-2 text-white text-sm leading-relaxed"
+      />
+      {result.error && <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2">{result.error}</div>}
+      {result.ok && (
+        <>
+          <div className="rounded-lg border border-white/10 bg-white/5 p-3 leading-relaxed text-sm whitespace-pre-wrap">
+            {highlighted}
+          </div>
+          <div className="text-[12px] text-white/70">
+            مطابقات: <span className="font-bold text-white">{result.matches.length}</span>
+            {result.matches.length > 0 && (
+              <span className="ml-2" dir="ltr">
+                {result.matches.slice(0, 8).map((m, i) => (
+                  <span key={i} className="inline-block mx-1 px-1.5 py-0.5 bg-amber-400/15 text-amber-200 rounded text-[11px] font-mono">{m.text}</span>
+                ))}
+                {result.matches.length > 8 && <span className="text-white/50">…</span>}
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PlaygroundCss({ html, css, height }: { html?: string; css?: string; height?: number }) {
+  const t = useEnvTheme();
+  const [h, setH] = useState<string>(html || `<div class="card">\n  <h2>مرحبا بك</h2>\n  <p>عدّل CSS وشاهد النتيجة فوراً.</p>\n  <button>اضغط</button>\n</div>`);
+  const [c, setC] = useState<string>(css || `body{font-family:system-ui,'Tajawal',sans-serif;background:#0f172a;color:#fff;padding:24px;direction:rtl}\n.card{background:linear-gradient(135deg,#1e293b,#0f172a);padding:18px;border-radius:14px;border:1px solid #334155;max-width:320px}\nh2{color:#22d3ee;margin:0 0 8px}\nbutton{margin-top:12px;background:#22d3ee;color:#022c33;border:0;padding:8px 14px;border-radius:8px;font-weight:bold;cursor:pointer}`);
+  const srcDoc = useMemo(
+    () => `<!doctype html><html><head><meta charset="utf-8"><style>${c}</style></head><body>${h}</body></html>`,
+    [h, c]
+  );
+  const ph = typeof height === "number" && height > 120 ? height : 260;
+  return (
+    <div className="grid lg:grid-cols-2 gap-2">
+      <div className="space-y-2">
+        <div className="text-[11px] font-bold text-white/60 uppercase tracking-wider">HTML</div>
+        <textarea dir="ltr" value={h} onChange={(e) => setH(e.target.value)} className="w-full bg-black/40 border border-white/15 rounded p-2 text-white text-[12px] font-mono leading-relaxed resize-y" style={{ minHeight: 120 }} />
+        <div className="text-[11px] font-bold text-white/60 uppercase tracking-wider">CSS</div>
+        <textarea dir="ltr" value={c} onChange={(e) => setC(e.target.value)} className="w-full bg-black/40 border border-white/15 rounded p-2 text-white text-[12px] font-mono leading-relaxed resize-y" style={{ minHeight: 160 }} />
+      </div>
+      <div>
+        <div className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: t.accent }} /> معاينة حيّة
+        </div>
+        <iframe
+          title="css-preview"
+          sandbox="allow-scripts"
+          srcDoc={srcDoc}
+          className="w-full rounded-lg border border-white/10 bg-white"
+          style={{ height: ph }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PlaygroundMath({ seed }: { seed?: string }) {
+  const t = useEnvTheme();
+  const [vars, setVars] = useState<string>(seed?.split("|")[0] || "x = 12\ny = 8\nمعدل_الفائدة = 0.05");
+  const [expr, setExpr] = useState<string>(seed?.split("|")[1] || "(x + y) * (1 + معدل_الفائدة)");
+  const result = useMemo(() => {
+    try {
+      const norm = normalizeArabicDigits;
+      const parsedVars: Record<string, number> = {};
+      const lines = norm(vars).split(/\n|;/).map((l) => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        const m = line.match(/^([\p{L}_][\p{L}\d_]*)\s*=\s*(.+)$/u);
+        if (!m) continue;
+        const raw = m[2].replace(/,/g, "");
+        const val = parseFloat(raw);
+        if (!isNaN(val)) parsedVars[m[1]] = val;
+      }
+      let safeExpr = norm(expr);
+      // Replace each variable name (longest-first to avoid partial overlap)
+      Object.keys(parsedVars).sort((a, b) => b.length - a.length).forEach((name) => {
+        safeExpr = safeExpr.split(name).join(`(${parsedVars[name]})`);
+      });
+      // Whitelist: digits, parens, operators, decimal, spaces, ^ (we'll convert to **)
+      const cleaned = safeExpr.replace(/\^/g, "**");
+      if (!/^[\d+\-*/().\s%*]+$/.test(cleaned)) {
+        return { ok: false as const, value: null as any, error: "تعبير غير مفهوم — تأكّد من تعريف كل المتغيرات." };
+      }
+      // eslint-disable-next-line no-new-func
+      const v = Function(`"use strict"; return (${cleaned})`)();
+      return { ok: true as const, value: v, error: null, vars: parsedVars };
+    } catch (e: any) {
+      return { ok: false as const, value: null, error: e?.message || "خطأ في الحساب" };
+    }
+  }, [vars, expr]);
+
+  return (
+    <div className="space-y-2">
+      <div className="grid md:grid-cols-2 gap-2">
+        <div>
+          <div className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1">المتغيرات (سطر لكل واحد)</div>
+          <textarea value={vars} onChange={(e) => setVars(e.target.value)} rows={4} className="w-full bg-black/30 border border-white/15 rounded p-2 text-white text-sm font-mono leading-relaxed" />
+        </div>
+        <div>
+          <div className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1">التعبير</div>
+          <textarea value={expr} onChange={(e) => setExpr(e.target.value)} rows={4} className="w-full bg-black/30 border border-white/15 rounded p-2 text-white text-sm font-mono leading-relaxed" />
+        </div>
+      </div>
+      {result.ok ? (
+        <div
+          className="rounded-lg p-3 text-center font-mono"
+          style={{ background: t.accentSoft, border: `1px solid ${t.accentBorder}` }}
+        >
+          <div className="text-[11px] uppercase tracking-wider opacity-80" style={{ color: t.accentText }}>الناتج</div>
+          <div className="text-2xl font-black" style={{ color: t.accentText }}>
+            {typeof result.value === "number" && isFinite(result.value)
+              ? result.value.toLocaleString("ar-EG", { maximumFractionDigits: 6 })
+              : String(result.value)}
+          </div>
+        </div>
+      ) : (
+        <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2">{result.error}</div>
+      )}
+    </div>
+  );
+}
+
+// ─── Live data inspector ───────────────────────────────────────────────────
+function DataInspectorBlock({ comp, state }: { comp: Extract<DynComponent, { type: "dataInspector" }>; state: any }) {
+  const t = useEnvTheme();
+  const data = comp.bindTo ? envUtils.getByPath(state, comp.bindTo) : comp.data;
+  const renderValue = (v: any): ReactNode => {
+    if (v == null) return <span className="text-white/40">∅</span>;
+    if (typeof v === "boolean") return <span className="text-amber-300">{v ? "true" : "false"}</span>;
+    if (typeof v === "number") return <span className="text-cyan-300">{v.toLocaleString("ar-EG")}</span>;
+    if (typeof v === "string") return <span className="text-emerald-200">"{v}"</span>;
+    return <code className="text-white/70 text-[11px]">{JSON.stringify(v).slice(0, 60)}{JSON.stringify(v).length > 60 ? "…" : ""}</code>;
+  };
+
+  let body: ReactNode;
+  if (Array.isArray(data) && data.length > 0 && data.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
+    const keys = Array.from(new Set(data.flatMap((row) => Object.keys(row)))).slice(0, 8);
+    body = (
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-white/10 text-white/60">
+              {keys.map((k) => <th key={k} className="px-2 py-1.5 text-right font-medium">{k}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {data.slice(0, 25).map((row, i) => (
+              <tr key={i} className="border-b border-white/5">
+                {keys.map((k) => <td key={k} className="px-2 py-1.5">{renderValue(row?.[k])}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {data.length > 25 && <div className="text-[11px] text-white/40 text-center py-2">… و{data.length - 25} عنصر إضافي</div>}
+      </div>
+    );
+  } else if (Array.isArray(data) && data.every((x) => typeof x === "number")) {
+    const nums = data as number[];
+    const sum = nums.reduce((a, b) => a + b, 0);
+    const avg = nums.length > 0 ? sum / nums.length : 0;
+    const min = nums.length > 0 ? Math.min(...nums) : 0;
+    const max = nums.length > 0 ? Math.max(...nums) : 0;
+    body = (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+        {[
+          { label: "العدد", v: nums.length },
+          { label: "المجموع", v: sum },
+          { label: "المتوسط", v: avg.toFixed(2) },
+          { label: "الأصغر / الأكبر", v: `${min} / ${max}` },
+        ].map((s, i) => (
+          <div key={i} className="rounded-lg p-2 border" style={{ background: t.accentSoft, borderColor: t.accentBorder }}>
+            <div className="text-[10px] text-white/60 uppercase">{s.label}</div>
+            <div className="text-lg font-black" style={{ color: t.accentText }}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+    );
+  } else if (data && typeof data === "object" && !Array.isArray(data)) {
+    body = (
+      <dl className="text-sm space-y-1">
+        {Object.entries(data).slice(0, 30).map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-3 py-1 border-b border-white/5">
+            <dt className="text-white/60 font-mono text-xs">{k}</dt>
+            <dd className="text-left">{renderValue(v)}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  } else if (Array.isArray(data)) {
+    body = (
+      <ul className="text-sm space-y-1">
+        {data.slice(0, 30).map((v, i) => (
+          <li key={i} className="flex gap-2 border-b border-white/5 py-1">
+            <span className="text-white/40 font-mono w-8 text-left">{i}</span>
+            <span>{renderValue(v)}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  } else {
+    body = (
+      <div className="text-center py-4">
+        <div className="text-3xl font-black" style={{ color: t.accentText }}>{renderValue(data)}</div>
+        <div className="text-[11px] text-white/40 mt-1">{data == null ? "لا توجد بيانات على هذا المسار" : `النوع: ${typeof data}`}</div>
+      </div>
+    );
+  }
+
+  return (
+    <Card title={comp.title || (comp.bindTo ? `📊 معاينة: ${comp.bindTo}` : "معاينة بيانات")}>
+      {comp.description && <p className="text-xs text-white/60 mb-2">{comp.description}</p>}
+      {body}
+    </Card>
+  );
 }
 
 // ─── Sandboxed mini web app ─────────────────────────────────────────────────
@@ -1322,14 +1942,17 @@ function BrowserBlock({ comp, state }: { comp: Extract<DynComponent, { type: "br
 }
 
 // ─── Network topology diagram ──────────────────────────────────────────────
+// Uses a fixed viewBox + preserveAspectRatio so the SVG scales fluidly on
+// every device. Accent colours come from the active subject theme so
+// "networking" feels distinctly different from "cybersecurity".
 function NetworkDiagramBlock({ comp, state }: { comp: Extract<DynComponent, { type: "networkDiagram" }>; state: any }) {
+  const t = useEnvTheme();
   const data = comp.bindTo ? envUtils.getByPath(state, comp.bindTo) : { nodes: comp.nodes, edges: comp.edges };
   const nodes = arr<any>(data?.nodes || comp.nodes);
   const edges = arr<any>(data?.edges || comp.edges);
   const height = typeof comp.height === "number" && comp.height > 120 ? comp.height : 320;
-  const W = 600, H = height;
+  const W = 600, H = 360;
 
-  // Compute positions: use provided x/y when present, else auto-layout in a circle.
   const positioned = nodes.map((n: any, i: number) => {
     if (typeof n.x === "number" && typeof n.y === "number") return n;
     const angle = (i / Math.max(nodes.length, 1)) * Math.PI * 2;
@@ -1341,24 +1964,24 @@ function NetworkDiagramBlock({ comp, state }: { comp: Extract<DynComponent, { ty
   return (
     <Card title={comp.title || "طوبولوجيا الشبكة"}>
       <div className="bg-black/40 border border-white/10 rounded overflow-hidden" style={{ height }}>
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full">
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" className="w-full h-full block">
           {edges.map((e: any, i: number) => {
             const a: any = byId.get(e.from); const b: any = byId.get(e.to);
             if (!a || !b) return null;
             return (
               <g key={i}>
-                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="rgba(34,211,238,0.45)" strokeWidth="1.5" />
+                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={t.accentBorder} strokeWidth="1.5" />
                 {e.label && (
-                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4} fontSize="10" fill="#94a3b8" textAnchor="middle">{e.label}</text>
+                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4} fontSize="11" fill="#cbd5e1" textAnchor="middle">{e.label}</text>
                 )}
               </g>
             );
           })}
           {positioned.map((n: any) => (
             <g key={n.id}>
-              <circle cx={n.x} cy={n.y} r="22" fill="rgba(34,211,238,0.18)" stroke="#22d3ee" strokeWidth="1.5" />
-              <text x={n.x} y={n.y + 4} fontSize="11" fill="#e0f2fe" textAnchor="middle" fontWeight="bold">{n.label || n.id}</text>
-              {n.kind && <text x={n.x} y={n.y + 38} fontSize="9" fill="#94a3b8" textAnchor="middle">{n.kind}</text>}
+              <circle cx={n.x} cy={n.y} r="24" fill={t.accentSoft} stroke={t.accent} strokeWidth="1.5" />
+              <text x={n.x} y={n.y + 4} fontSize="12" fill="#f1f5f9" textAnchor="middle" fontWeight="bold">{n.label || n.id}</text>
+              {n.kind && <text x={n.x} y={n.y + 40} fontSize="10" fill="#94a3b8" textAnchor="middle">{n.kind}</text>}
             </g>
           ))}
         </svg>

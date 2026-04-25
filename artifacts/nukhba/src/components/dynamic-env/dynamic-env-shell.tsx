@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { DynamicEnv } from "./types";
 import { ComponentRenderer } from "./component-renderer";
 import { EnvStateProvider, useEnvState } from "./state-engine";
+import { EnvThemeProvider, themeForKind, themeCssVars, KIND_THEMES } from "./theme";
 import { useAuth } from "@/lib/auth-context";
 
 type AssistMsg = { role: "user" | "assistant"; content: string };
@@ -27,10 +28,19 @@ export function DynamicEnvShell({
     return `nukhba::u:${user.id}::env-state::${subjectId}::${slug}`;
   }, [user?.id, subjectId, env.title]);
 
+  // Pick a theme: explicit env.theme wins, else map by env.kind. Falls back
+  // to the neutral cyan "generic" theme if neither matches.
+  const theme = useMemo(() => {
+    const explicit = env.theme && KIND_THEMES[env.theme] ? KIND_THEMES[env.theme] : null;
+    return explicit || themeForKind(env.kind);
+  }, [env.theme, env.kind]);
+
   return (
-    <EnvStateProvider initialState={env.initialState || {}} storageKey={storageKey}>
-      <DynamicEnvShellInner env={env} subjectId={subjectId} onClose={onClose} onSubmitToTeacher={onSubmitToTeacher} />
-    </EnvStateProvider>
+    <EnvThemeProvider theme={theme}>
+      <EnvStateProvider initialState={env.initialState || {}} storageKey={storageKey}>
+        <DynamicEnvShellInner env={env} subjectId={subjectId} onClose={onClose} onSubmitToTeacher={onSubmitToTeacher} />
+      </EnvStateProvider>
+    </EnvThemeProvider>
   );
 }
 
@@ -63,6 +73,10 @@ function DynamicEnvShellInner({
   onSubmitToTeacher?: (report: string, meta: { envTitle: string; envBriefing: string }) => void;
 }) {
   const envState = useEnvState();
+  const theme = useMemo(() => {
+    const explicit = env.theme && KIND_THEMES[env.theme] ? KIND_THEMES[env.theme] : null;
+    return explicit || themeForKind(env.kind);
+  }, [env.theme, env.kind]);
   const screens = env.screens || [];
   const [activeId, setActiveId] = useState<string>(screens[0]?.id || "");
   const [doneTasks, setDoneTasks] = useState<Set<string>>(new Set());
@@ -71,6 +85,9 @@ function DynamicEnvShellInner({
   const [assistMsgs, setAssistMsgs] = useState<AssistMsg[]>([]);
   const [assistInput, setAssistInput] = useState("");
   const [assistBusy, setAssistBusy] = useState(false);
+  // Lightweight motivation: an ephemeral banner that appears for ~5s after
+  // a task is checked off. Holds a friendly message + an optional fun fact.
+  const [pulse, setPulse] = useState<{ msg: string; fact?: string; key: number } | null>(null);
   const chatBoxRef = useRef<HTMLDivElement>(null);
 
   const active = useMemo(() => screens.find((s) => s.id === activeId) || screens[0], [screens, activeId]);
@@ -183,13 +200,55 @@ function DynamicEnvShellInner({
     }
   };
 
+  // Built-in motivational lines, picked per subject kind so they "feel"
+  // local and relevant. Used when env.encouragement is not provided.
+  const DEFAULT_ENCOURAGE: Record<string, string[]> = {
+    cybersecurity: ["خطوة جيدة، أيها المخترق الأخلاقي 🥷", "كل ثغرة تكتشفها تحمي مستخدماً حقيقياً", "الأناة في التحقيق نصف النجاح"],
+    "web-pentest": ["payload فعّالة! تابع التحقق من الأثر", "كل طلب HTTP قصة كاملة — اقرأها بهدوء"],
+    forensics: ["دليل جديد في الملف! وثّقه قبل أن تنساه", "العين المتأنية ترى ما لا يراه الآخرون"],
+    networking: ["الحزمة وصلت! تتبّع المسار للنهاية", "كل بروتوكول له لغة — وأنت تتعلّمها"],
+    os: ["أمر ناجح في الطرفية ✓", "السيطرة على الصدفة = السيطرة على النظام"],
+    programming: ["الكود يعمل! جرّب حالة حافة الآن", "كل bug تصلحه = خبرة تتراكم"],
+    "data-science": ["استنتاج جيد من البيانات", "الرسم يكشف ما لا تكشفه الأرقام"],
+    business: ["قرار مدروس ✓", "كل مؤشر يحكي قصة — استمع لها"],
+    physics: ["معادلة محلولة بدقة", "الفيزياء تفسّر العالم — وأنت تفهمها"],
+    language: ["جملة سليمة 100%", "كل قاعدة تتقنها = طلاقة أكبر"],
+    food: ["معايير الجودة محققة ✓", "السلامة الغذائية حماية للناس"],
+    accounting: ["قيد متوازن 🌟", "الميزان لا يكذب — وأنت أتقنته"],
+    yemensoft: ["عملية تم ترحيلها بنجاح", "نظام يمن سوفت يكافئ الدقة"],
+    generic: ["خطوة ممتازة!", "كل مهمة تنجزها = مستوى جديد"],
+  };
+
+  const pickEncouragement = (): { msg: string; fact?: string } => {
+    const list = (env.encouragement && env.encouragement.length > 0)
+      ? env.encouragement
+      : (DEFAULT_ENCOURAGE[String(env.kind || "generic")] || DEFAULT_ENCOURAGE.generic);
+    const msg = list[Math.floor(Math.random() * list.length)];
+    const facts = env.funFacts || [];
+    const fact = facts.length > 0 ? facts[Math.floor(Math.random() * facts.length)] : undefined;
+    return { msg, fact };
+  };
+
   const toggleTask = (id: string) => {
     setDoneTasks((p) => {
+      const had = p.has(id);
       const n = new Set(p);
-      if (n.has(id)) n.delete(id); else n.add(id);
+      if (had) n.delete(id); else n.add(id);
+      // Only celebrate when going from undone → done (not when un-checking).
+      if (!had) {
+        const { msg, fact } = pickEncouragement();
+        setPulse({ msg, fact, key: Date.now() });
+      }
       return n;
     });
   };
+
+  // Auto-dismiss the celebratory banner.
+  useEffect(() => {
+    if (!pulse) return;
+    const t = setTimeout(() => setPulse((cur) => (cur && cur.key === pulse.key ? null : cur)), 5500);
+    return () => clearTimeout(t);
+  }, [pulse]);
 
   const totalTasks = env.tasks?.length || 0;
   const doneCount = doneTasks.size;
@@ -263,15 +322,25 @@ ${stateSnap}${userNotes}`;
   };
 
   return (
-    <div className="bg-gradient-to-b from-slate-950 to-slate-900 text-white md:rounded-2xl md:border border-white/10 overflow-hidden flex flex-col shadow-2xl" style={{ minHeight: 600 }}>
-      <div className="relative bg-gradient-to-l from-cyan-600/15 via-slate-900/40 to-purple-600/15 p-4 md:p-5 border-b border-white/10">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.08),transparent_60%)] pointer-events-none" />
+    <div
+      className="bg-gradient-to-b from-slate-950 to-slate-900 text-white md:rounded-2xl md:border border-white/10 overflow-hidden flex flex-col shadow-2xl"
+      style={{ minHeight: 600, ...themeCssVars(theme) }}
+    >
+      <style>{`@keyframes envPulse{0%{opacity:0;transform:translateY(-4px) scale(0.98)}60%{opacity:1;transform:translateY(0) scale(1.01)}100%{opacity:1;transform:translateY(0) scale(1)}}`}</style>
+      <div
+        className="relative p-4 md:p-5 border-b border-white/10"
+        style={{ background: `linear-gradient(105deg, ${theme.gradFrom}, rgba(2,6,23,0.55) 55%, ${theme.gradFrom})` }}
+      >
+        <div className="absolute inset-0 pointer-events-none" style={{ background: theme.bgRadial }} />
         <div className="relative flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-400/30 text-cyan-200 uppercase tracking-wider">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                بيئة تطبيقية
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider"
+                style={{ background: theme.accentSoft, border: `1px solid ${theme.accentBorder}`, color: theme.accentText }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: theme.accent }} />
+                {theme.label}
               </span>
               {totalTasks > 0 && (
                 <span className="text-[10px] text-white/50 font-medium">{doneCount}/{totalTasks} مهمة</span>
@@ -317,11 +386,40 @@ ${stateSnap}${userNotes}`;
         </div>
 
         {totalTasks > 0 && (
-          <div className="relative mt-4 h-1 w-full bg-white/5 rounded-full overflow-hidden">
+          <div className="relative mt-4 h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-l from-cyan-400 via-cyan-300 to-emerald-400 transition-all duration-500 shadow-[0_0_12px_rgba(34,211,238,0.4)]"
-              style={{ width: `${progress}%` }}
+              className="h-full transition-all duration-500"
+              style={{
+                width: `${progress}%`,
+                background: `linear-gradient(90deg, ${theme.accent}, ${theme.accentText})`,
+                boxShadow: `0 0 12px ${theme.accentBorder}`,
+              }}
             />
+          </div>
+        )}
+
+        {/* Ephemeral encouragement banner — appears briefly when a task is
+            ticked off. Built into the header so it does not push layout. */}
+        {pulse && (
+          <div
+            key={pulse.key}
+            className="relative mt-3 rounded-xl p-2.5 flex items-start gap-2.5"
+            style={{
+              background: `linear-gradient(90deg, ${theme.accentSoft}, transparent 80%)`,
+              border: `1px solid ${theme.accentBorder}`,
+              animation: "envPulse 0.6s ease-out",
+            }}
+          >
+            <span className="text-xl shrink-0">🎉</span>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-bold" style={{ color: theme.accentText }}>{pulse.msg}</div>
+              {pulse.fact && <div className="text-[11px] text-white/70 mt-0.5 leading-snug">معلومة سريعة: {pulse.fact}</div>}
+            </div>
+            <button
+              onClick={() => setPulse(null)}
+              className="text-white/50 hover:text-white text-xs shrink-0"
+              aria-label="إغلاق الإشعار"
+            >×</button>
           </div>
         )}
 

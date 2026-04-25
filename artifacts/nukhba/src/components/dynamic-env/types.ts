@@ -98,7 +98,27 @@ export type DynComponent =
   // Network topology diagram — nodes (hosts/devices) + edges (links).
   | { type: "networkDiagram"; title?: string; bindTo?: string; nodes?: Array<{ id: string; label: string; kind?: string; x?: number; y?: number }>; edges?: Array<{ from: string; to: string; label?: string }>; height?: number }
   // Structured log viewer with level badges + optional search/filter.
-  | { type: "logViewer"; title?: string; bindTo?: string; entries?: Array<{ ts?: string; level?: "info" | "warn" | "error" | "debug" | "trace"; source?: string; message: string }>; height?: number };
+  | { type: "logViewer"; title?: string; bindTo?: string; entries?: Array<{ ts?: string; level?: "info" | "warn" | "error" | "debug" | "trace"; source?: string; message: string }>; height?: number }
+  // ── Concept simplification card — themed, friendly, includes a real-life
+  //    everyday example so the student can "feel" the abstract idea before
+  //    using it. Use it at the top of a screen to set the mental model.
+  | { type: "conceptCard"; title: string; idea: string; everydayExample?: string; ruleOfThumb?: string; icon?: string; tone?: "intro" | "tip" | "warning" }
+  // ── Achievement/celebratory inline badge that fires when a state predicate
+  //    becomes true (or always shows when no predicate). Used for motivation.
+  | { type: "achievement"; title: string; description?: string; icon?: string; points?: number; showWhen?: { path: string; op: "exists" | "equals" | "gte" | "lte" | "lengthGte"; value?: any } }
+  // ── Free-experimentation playground — a mini real tool the student can
+  //    play with to build intuition (no "right answer", just the tool):
+  //    • js: tiny JavaScript REPL with a Run button (sandboxed iframe)
+  //    • regex: live regex tester (pattern + flags + test text → matches)
+  //    • cssPreview: live HTML+CSS editor with iframe preview
+  //    • math: expression evaluator with named variables
+  //    Optional `seed` provides starting code/text. Optional `challenges` are
+  //    one-line invitations the AI can suggest the student try.
+  | { type: "freePlayground"; title?: string; flavor: "js" | "regex" | "cssPreview" | "math"; seed?: string; secondarySeed?: string; height?: number; challenges?: string[]; description?: string }
+  // ── Live data inspector — reveals any path of `state` (or static `data`)
+  //    in a friendly way: array of objects → table; primitive → big value;
+  //    object → key/value list; array of numbers → mini summary stats.
+  | { type: "dataInspector"; title?: string; bindTo?: string; data?: any; description?: string };
 
 export type DynScreen = {
   id: string;
@@ -124,11 +144,17 @@ export type DynamicEnv = {
   title: string;
   briefing: string;
   objectives: string[];
-  initialState?: DynState;     // ← NEW: starting world state (accounts, inventory, etc.)
+  initialState?: DynState;     // starting world state (accounts, inventory, etc.)
   screens: DynScreen[];
   tasks: DynTask[];
   hints?: string[];
   successCriteria?: string[];
+  // Optional theme override. If unset, the shell picks a theme by `kind`.
+  theme?: string;
+  // Optional motivational hooks read by the shell (encouragement banners,
+  // streak counter, friendly "did you know" lines). All optional.
+  encouragement?: string[];
+  funFacts?: string[];
 };
 
 export type AskOptionsBlock = {

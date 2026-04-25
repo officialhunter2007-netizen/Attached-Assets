@@ -1651,36 +1651,36 @@ function specializationAddendum(kind: LabKind): string {
   const common = `\n\n**🎯 تخصيص حسب طبيعة الطلب (${SPECIALIZATION_LABELS[kind]}):**\n`;
   switch (kind) {
     case "web-pentest":
-      return common + `استخدم بكثافة: \`webApp\` (تطبيق ويب صغير قابل للاختراق فعلاً، HTML+JS داخل iframe معزول)، \`browser\` (متصفّح بصفحات متعددة لتجربة هجمات XSS/CSRF)، \`logViewer\` (سجلات الوصول/الأخطاء)، \`codeBlock\` (الـ payload المقترح). مثال:
-- {"type":"webApp","title":"موقع متجر مصغّر","html":"<form ...>","height":420}
-- {"type":"browser","pages":[{"title":"login","url":"/login","html":"..."},{"title":"dashboard","url":"/dash","html":"..."}]}
-- {"type":"logViewer","bindTo":"serverLogs"}
+      return common + `🎨 theme: "web-pentest" (برتقالي/أحمر داكن).
+استخدم بكثافة: \`webApp\` (تطبيق ويب صغير قابل للاختراق فعلاً، HTML+JS داخل iframe معزول)، \`browser\` (متصفّح بصفحات متعددة لتجربة هجمات XSS/CSRF)، \`logViewer\` (سجلات الوصول/الأخطاء)، \`codeBlock\` (الـ payload المقترح)، \`freePlayground\` نوع "regex" أو "cssPreview" (لتجريب payloads بحرية)، \`achievement\` لكل ثغرة يكتشفها الطالب، \`conceptCard\` يبسط ما هي XSS/CSRF/SQLi قبل البدء.
 المهام: حقن SQL، XSS مخزّن/منعكس، تجاوز التحقق، CSRF.`;
     case "cybersecurity":
-      return common + `مزج مناسب: \`terminal\` (مخرجات أوامر الفحص)، \`networkDiagram\` (طوبولوجيا الشبكة المستهدفة)، \`fileSystemExplorer\` (نظام ملفات الضحية بعد الاختراق)، \`logViewer\`، \`codeBlock\`. مثال:
-- {"type":"terminal","bindTo":"shellOutput","prompt":"$","height":260}
-- {"type":"networkDiagram","bindTo":"topology"}  // {nodes:[{id,label,kind,x?,y?}], edges:[{from,to,label?}]}
-- {"type":"fileSystemExplorer","bindTo":"target.fs","allowDownload":true}`;
+      return common + `🎨 theme: "cybersecurity" (أخضر terminal على خلفية سوداء).
+مزج مناسب: \`terminal\` التفاعلي (مع \`commands\` متعددة)، \`networkDiagram\` (طوبولوجيا الشبكة المستهدفة)، \`fileSystemExplorer\` (نظام ملفات الضحية بعد الاختراق)، \`logViewer\`، \`conceptCard\` ("ما هو الـport scanning؟" بمثال يمني)، \`achievement\` عند كل علم \`flags.\` يصبح true، \`freePlayground\` نوع "js" لتجربة سكربتات بسيطة.`;
     case "forensics":
-      return common + `استخدم: \`fileSystemExplorer\` (نظام ملفات الجهاز المضبوط)، \`logViewer\` (سجلات النظام/التطبيقات)، \`packetCapture\` (إن كان هناك pcap)، \`table\` (عناصر الـ artifacts)، \`codeBlock\` (نتائج volatility/autopsy). يجب أن يجد الطالب أدلة حقيقية مدفونة في initialState.`;
+      return common + `🎨 theme: "forensics" (بنفسجي تحقيقي).
+استخدم: \`fileSystemExplorer\` (نظام ملفات الجهاز المضبوط)، \`logViewer\` (سجلات النظام/التطبيقات)، \`packetCapture\` (إن كان هناك pcap)، \`table\` (عناصر الـ artifacts)، \`dataInspector\` (لتتبّع الأدلة المكتشفة في state)، \`achievement\` ("📁 دليل جديد"). يجب أن يجد الطالب أدلة حقيقية مدفونة في initialState.`;
     case "networking":
-      return common + `الأهم: \`packetCapture\` (قائمة حزم بطبقات OSI قابلة للنقر)، \`networkDiagram\` (طوبولوجيا الشبكة)، \`terminal\` (مخرجات ping/traceroute/ip route)، \`table\` (جداول التوجيه/ARP/MAC). مثال:
-- {"type":"packetCapture","bindTo":"capture","title":"التقاط wlan0"}  // packets:[{no,time,src,dst,protocol,length,info,layers:{Ethernet:"...",IP:"...",TCP:"..."}}]
-- {"type":"networkDiagram","bindTo":"lan"}`;
+      return common + `🎨 theme: "networking" (أزرق سماوي).
+الأهم: \`packetCapture\` (قائمة حزم بطبقات OSI قابلة للنقر)، \`networkDiagram\` (طوبولوجيا الشبكة)، \`terminal\` (مخرجات ping/traceroute/ip route)، \`conceptCard\` يبسّط OSI/TCP/UDP بأمثلة (الرسالة الورقية، الواتساب)، \`achievement\` (مثلاً "اكتشفت سبب فقدان الحزم").`;
     case "os":
-      return common + `الأهم: \`terminal\` (محاكي سطر أوامر للقراءة)، \`fileSystemExplorer\` (شجرة /home و/etc و/var/log)، \`logViewer\` (journalctl/dmesg). أضف \`codeBlock\` لشرح الأوامر و\`form\` من نوع \`mutate\` لتعديل ملفات إعدادات في initialState.`;
+      return common + `🎨 theme: "os" (أخضر مزرق - terminal).
+الأهم: \`terminal\` (محاكي سطر أوامر تفاعلي مع commands كاملة)، \`fileSystemExplorer\` (شجرة /home و/etc و/var/log)، \`logViewer\` (journalctl/dmesg)، \`conceptCard\` (الصلاحيات Unix بمثال "مفتاح البيت")، \`freePlayground\` نوع "js" أحياناً لشرح فكرة، \`achievement\` لكل أمر متقن.`;
     case "programming":
-      return common + `استخدم \`codeBlock\` لعرض الكود الناقص/الخاطئ، \`webApp\` لتشغيل صفحات HTML/CSS/JS فعلياً داخل iframe، \`form\` نوع \`check\` لمراجعة إجابات الطالب، \`terminal\` لمحاكاة مخرجات تنفيذ. مثال:
-- {"type":"webApp","title":"معاينة صفحة المتجر","html":"<!doctype html>...","height":480}
-- {"type":"codeBlock","language":"python","code":"def add(a,b):\\n  return a-b  # ابحث عن الخطأ"}`;
+      return common + `🎨 theme: "programming" (نيلي).
+استخدم \`codeBlock\` للكود الناقص/الخاطئ، \`webApp\` لتشغيل صفحات HTML/CSS/JS فعلياً، \`form\` نوع \`check\`، \`freePlayground\` نوع "js" أو "cssPreview" (إلزامي تقريباً — يعطي الطالب ساحة تجريب حقيقية)، \`conceptCard\` يبسّط (loops/functions/objects) بأمثلة، \`achievement\` لكل ميزة منجزة.`;
     case "data-science":
-      return common + `استخدم: \`table\` و\`editableTable\` لعرض/تنظيف الداتاست، \`chart\` لتصوير التوزيعات، \`codeBlock\` لعرض كود pandas/numpy، \`kpi\` للمقاييس (Accuracy/F1)، \`form\` نوع \`mutate\` لتطبيق فلترات/تحويلات على initialState.`;
+      return common + `🎨 theme: "data-science" (فوشيا).
+استخدم: \`table\` و\`editableTable\` لعرض/تنظيف الداتاست، \`chart\` لتصوير التوزيعات، \`dataInspector\` (لكشف الإحصاءات السريعة)، \`codeBlock\` لكود pandas/numpy، \`kpi\` للمقاييس، \`freePlayground\` نوع "math" لتجربة معادلات سريعة، \`conceptCard\` (Mean/Median/Mode بمثال أسعار التمر في السوق).`;
     case "business":
-      return common + `استخدم: \`kpiGrid\` (مؤشرات الأداء)، \`chart\` (المبيعات الشهرية)، \`editableTable\` (قائمة العملاء/المنتجات)، \`form\` نوع \`mutate\` (إصدار طلب شراء/فاتورة تُحدّث الحالة)، \`richDocument\` (تقرير تنفيذي). البيانات يمنية حقيقية بـYER.`;
+      return common + `🎨 theme: "business" (ذهبي).
+استخدم: \`kpiGrid\`، \`chart\`، \`editableTable\`، \`form\` نوع \`mutate\`، \`richDocument\`، \`conceptCard\` (يبسّط مؤشرات مثل ROI و Margin بأمثلة من تجارة يمنية)، \`achievement\` لكل قرار استراتيجي.`;
     case "physics":
-      return common + `استخدم: \`form\` نوع \`check\` للأسئلة الحسابية مع \`tolerance\`، \`calculator\`، \`chart\` لرسم العلاقات، \`codeBlock\` للقوانين، \`webApp\` لمحاكاة فيزيائية بسيطة (HTML+canvas+JS) داخل iframe. اشرح كل خطوة في \`richDocument\`.`;
+      return common + `🎨 theme: "physics" (سماوي علمي).
+استخدم: \`form\` نوع \`check\` مع \`tolerance\`، \`calculator\`، \`freePlayground\` نوع "math" (إلزامي — يفهم بها العلاقة بالتجريب)، \`chart\`، \`codeBlock\` للقوانين، \`webApp\` لمحاكاة canvas، \`conceptCard\` (يربط القانون بمثال يومي).`;
     case "language":
-      return common + `استخدم: \`richDocument\` (نص للقراءة)، \`form\` نوع \`check\` (إعراب/ترجمة/إكمال)، \`form\` نوع \`ask-ai\` (تصحيح كتابة)، \`list\` (مفردات)، \`codeBlock\` (أمثلة شعرية أو نحوية).`;
+      return common + `🎨 theme: "language" (وردي دافئ).
+استخدم: \`richDocument\` للنصوص، \`form\` نوع \`check\` (إعراب/ترجمة)، \`form\` نوع \`ask-ai\` (تصحيح)، \`list\` للمفردات، \`freePlayground\` نوع "regex" لشرح أنماط القواعد، \`conceptCard\` يبسّط القاعدة بأمثلة من قصائد يمنية معروفة، \`achievement\` لكل قاعدة متقنة.`;
     case "food":
     case "accounting":
     case "yemensoft":
@@ -2038,6 +2038,21 @@ const DYNAMIC_ENV_SYSTEM = `أنت مهندس بيئات تعليمية تفاع
 - {"type":"logViewer","title":"السجلات","bindTo":"serverLogs","height":300}
    // سجلات منظّمة. entries:[{ts,level:"info"|"warn"|"error"|"debug"|"trace",source,message}] مع فلتر نص ومستوى.
 
+**🎓 مكوّنات تبسيط المفاهيم والتحفيز (الأهم لتجربة طالب ممتعة):**
+- {"type":"conceptCard","title":"ما هو الـDNS بكلمات بسيطة؟","idea":"DNS هو دفتر هواتف الإنترنت — يحوّل اسم الموقع إلى عنوان رقمي.","everydayExample":"كأنك تطلب «بيت أبو علي» بدل أن تحفظ إحداثياته على الخريطة. الإنترنت يفعل المثل لكن بسرعة الضوء.","ruleOfThumb":"إذا فشل DNS = الموقع موجود لكنك لا تجد عنوانه.","tone":"intro"}
+   // ابدأ بها أول كل شاشة جديدة لتأطير المفهوم بكلمات بسيطة + مثال من حياة يمنية. tone: "intro" | "tip" | "warning".
+- {"type":"achievement","title":"اكتشفت ثغرة XSS!","description":"هذه أول ثغرة حقن سكربتات تكتشفها — مستوى متوسط جداً في عالم الـWeb.","icon":"🥷","points":50,"showWhen":{"path":"flags.found_xss","op":"equals","value":true}}
+   // ضعها في شاشة الخطوة، تظهر تلقائياً لما يصير شرطها صحيحاً (op: exists|equals|gte|lte|lengthGte). نقاط اختيارية للتحفيز.
+- {"type":"freePlayground","flavor":"js","title":"العب بالـArrays","seed":"const nums = [10,20,30];\\nconsole.log(nums.map(n => n*2));","challenges":["جرّب filter بدل map","احسب المتوسط بـreduce"],"description":"منطقة حرّة — جرّب أي كود."}
+   // أربع نكهات لمختبرات تجريب حقيقية:
+   //   • js          → REPL جافاسكربت معزول مع Run + console
+   //   • regex       → اختبر النمط مباشرة (seed=النمط، secondarySeed=النص)
+   //   • cssPreview  → HTML+CSS مع معاينة حيّة (seed=HTML، secondarySeed=CSS)
+   //   • math        → معادلة بمتغيرات (seed="x=5\\ny=10|x*y+2")
+   // challenges: قائمة أفكار يقترحها المساعد — كل واحدة لها زر "?" يفتح المساعد.
+- {"type":"dataInspector","title":"معاينة المخزون","bindTo":"inventory","description":"شاهد البيانات الحيّة لأي مسار من initialState — مفيد لفهم ما يحصل خلف الكواليس."}
+   // معاينة ذكية لأي مسار في state: مصفوفة كائنات → جدول، مصفوفة أرقام → إحصاءات، كائن → key/value، قيمة فردية → عرض كبير.
+
 نماذج (مع 3 أنماط submit):
 - النمط 1 — تحقّق من إجابة (للأسئلة الحسابية):
   {"type":"form","title":"...","fields":[{"name":"answer","label":"...","type":"number","unit":"ر.ي","required":true}],
@@ -2123,7 +2138,21 @@ H. **عمق التفاعل الإلزامي:**
    - كل شاشة تحتوي على عنصر تفاعلي واحد على الأقل + عنصر عرض واحد (kpi/table/chart) يعكس نتيجة التفاعل.
    - ربط بين الشاشات: تأكّد أن إجراءً في شاشة واحدة يُرى أثره في شاشة أخرى عبر bindTo.
 
-I. **اللغة في النصوص**: عربية فصحى مهنية، خالية من الأخطاء، بدون ايموجي داخل briefing/objectives (الإيموجي للأيقونات والعناوين فقط).`;
+I. **اللغة في النصوص**: عربية فصحى مهنية، خالية من الأخطاء، بدون ايموجي داخل briefing/objectives (الإيموجي للأيقونات والعناوين فقط).
+
+J. **🎨 السمة الموضوعية (إلزامي):** أضف حقل \`"theme"\` في الجذر بقيمة واحدة من:
+   "cybersecurity" | "web-pentest" | "forensics" | "networking" | "os" | "programming" | "data-science" | "business" | "physics" | "language" | "food" | "accounting" | "yemensoft" | "generic"
+   اختر السمة المطابقة لطبيعة الموضوع — هي تتحكم بالألوان (الأمن=أخضر داكن، الويب-pentest=برتقالي، التحقيق=بنفسجي، الشبكات=أزرق، البرمجة=نيلي، البيانات=فوشيا، الأعمال=ذهبي، الفيزياء=سماوي، اللغات=وردي، الأغذية=ليموني، المحاسبة=أصفر، يمن سوفت=زمردي). إن لم تضع \`theme\` ستُستنتج من \`kind\` تلقائياً.
+
+K. **🎓 تبسيط وتحفيز إلزامي:**
+   - **conceptCard** في أول كل شاشة معقّدة (المفهوم بـ١-٣ جمل + \`everydayExample\` يمني محسوس + \`ruleOfThumb\` بكلمات أم).
+   - **achievement** عند كل إنجاز كبير في القصة (شرط واضح في \`showWhen\` يربطه بحالة العالم) — يحوّل المهام إلى رحلة بطل.
+   - **freePlayground** عند المواضيع التي يستفيد فيها التجريب الحرّ (برمجة/regex/CSS/رياضيات) — على الأقل واحد في الشاشة المناسبة، مع \`challenges\` ٢-٤ تحديات قصيرة.
+   - **dataInspector** عند الحاجة لكشف ما يحدث خلف الكواليس (علم البيانات / تتبّع التغييرات).
+
+L. **🌍 اللغة الإنسانية:** اكتب كأنك أستاذ شغوف يحب أن يفهم طالبه — تجنّب المصطلحات الجافة، اربط كل مفهوم بمثال يمني محسوس (سوق صنعاء، محل في عدن، مزرعة في إب)، واحتفل بكل خطوة.
+
+M. **📱 موبايل-أولاً:** كل شاشة يجب أن تكون قابلة للاستخدام على شاشة ٣٧٥px عرض. استعمل \`height\` معتدلاً (٢٤٠-٤٢٠) للمكونات الكبيرة. تجنّب جداول ذات أكثر من ٤-٥ أعمدة.`;
 
 router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   const userId = getUserId(req);
@@ -2320,6 +2349,19 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
     env.hints = Array.isArray(env.hints) ? env.hints : [];
     env.successCriteria = Array.isArray(env.successCriteria) ? env.successCriteria : [];
 
+    // Default theme: if the model didn't pick one, derive it from the
+    // detected `kind` so every env still gets the right subject palette.
+    const VALID_THEMES = new Set([
+      "cybersecurity", "web-pentest", "forensics", "networking", "os",
+      "programming", "data-science", "business", "physics", "language",
+      "food", "accounting", "yemensoft", "generic",
+    ]);
+    if (typeof env.theme !== "string" || !VALID_THEMES.has(env.theme)) {
+      env.theme = VALID_THEMES.has(kind) ? kind : "generic";
+    }
+    if (!Array.isArray(env.encouragement)) delete env.encouragement;
+    if (!Array.isArray(env.funFacts)) delete env.funFacts;
+
     // Normalize each screen + each component shape so frontend renderer never crashes on missing arrays
     env.screens = env.screens
       .filter((s: any) => s && typeof s === "object")
@@ -2353,6 +2395,26 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
                 break;
               case "chart":
                 c.series = Array.isArray(c.series) ? c.series : [];
+                break;
+              case "freePlayground":
+                // Coerce flavor to a known value to avoid a blank renderer.
+                if (!["js", "regex", "cssPreview", "math"].includes(c.flavor)) c.flavor = "js";
+                if (Array.isArray(c.challenges)) {
+                  c.challenges = c.challenges.filter((x: any) => typeof x === "string").slice(0, 6);
+                }
+                break;
+              case "achievement":
+                if (c.showWhen && typeof c.showWhen === "object") {
+                  if (!["exists", "equals", "gte", "lte", "lengthGte"].includes(c.showWhen.op)) {
+                    delete c.showWhen;
+                  }
+                }
+                break;
+              case "conceptCard":
+                if (!["intro", "tip", "warning"].includes(c.tone)) c.tone = "intro";
+                break;
+              case "dataInspector":
+                // No special normalization; bindTo or data both fine.
                 break;
             }
             return c;
