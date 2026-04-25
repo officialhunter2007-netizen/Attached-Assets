@@ -26,6 +26,17 @@ export type QualityProfile = {
   remainingDays: number;
   forceHaiku: boolean;
   isFreeTier: boolean;
+  /**
+   * Pedagogical wind-down level — converts pure cost pressure into a warm
+   * teacher behaviour. Higher = the AI teacher gently encourages the student
+   * to take a break / consolidate / continue tomorrow, even when message
+   * limits aren't reached. Smooth scale, never blocks the student.
+   *   0 → no nudge, teach freely.
+   *   1 → at natural endings, hint that the student has covered a lot.
+   *   2 → after this complete idea, suggest a short break + brief recap.
+   *   3 → warmly wrap up the session, praise the effort, propose tomorrow.
+   */
+  windDownLevel: 0 | 1 | 2 | 3;
 };
 
 export type BudgetState = {
@@ -188,6 +199,15 @@ export function deriveQualityProfile(state: BudgetState): QualityProfile {
     materialChunkBytes = Math.min(materialChunkBytes, 12000);
   }
 
+  // Pedagogical wind-down: converts cost pressure into a warm teacher
+  // behaviour rather than a cold throttle. Steps are intentionally wide so
+  // the student crosses each threshold no more than ~once per session.
+  let windDownLevel: 0 | 1 | 2 | 3;
+  if (r < 1.2) windDownLevel = 0;
+  else if (r < 1.7) windDownLevel = 1;
+  else if (r < 2.3) windDownLevel = 2;
+  else windDownLevel = 3;
+
   return {
     maxTokens,
     sonnetProbability,
@@ -200,7 +220,47 @@ export function deriveQualityProfile(state: BudgetState): QualityProfile {
     remainingDays: Math.max(0, state.totalDays - state.elapsedDays),
     forceHaiku: sonnetProbability < 0.005,
     isFreeTier: state.isFreeTier,
+    windDownLevel,
   };
+}
+
+/**
+ * Build a short Arabic instruction the AI teacher will respect at the end of
+ * its reply. Designed to feel like genuine pedagogical care, not a system
+ * limit. Returns an empty string when no nudge is needed.
+ *
+ * Critical paths (diagnostic, brand-new session) should bypass this entirely
+ * at the call-site so we never wind down a student who has barely started.
+ */
+export function getWindDownHint(level: 0 | 1 | 2 | 3): string {
+  if (level === 0) return "";
+  if (level === 1) {
+    return `
+
+[توجيه تربوي رقيق — لا تذكره صراحةً للطالب]
+أكمل شرحك بشكل طبيعي، ولكن إذا انتهت فكرة كاملة بشكل طبيعي خلال هذا الرد، فأضف في النهاية جملة قصيرة دافئة (سطر واحد) تُثني فيها على تركيز الطالب وتذكّره بأنه أنجز قدراً جيداً اليوم. لا تُجبره على التوقف، فقط أشِر بلطف.`;
+  }
+  if (level === 2) {
+    return `
+
+[توجيه تربوي — اختم الفكرة الحالية بأناقة]
+أكمل الفكرة الحالية بإتقان، ثم اختم الرد بفقرة قصيرة (٢-٣ أسطر) بصوت معلّم محبّ:
+- اعترف بجهد الطالب اليوم بصدق وبدون مبالغة.
+- لخّص في جملة ما تعلّمه في هذه الجلسة.
+- اقترح عليه استراحة قصيرة لترسيخ ما فهمه، أو مراجعة سريعة لما سبق.
+- وضّح أنك ستكون هنا متى عاد ليكمل من نفس النقطة.
+الهدف: أن يشعر بأن المعلم يهتم بفهمه لا بسرعته. لا تذكر شيئاً عن ميزانية أو رسائل أو حدود.`;
+  }
+  return `
+
+[توجيه تربوي مهم — اختم الجلسة بدفء]
+هذه نقطة جيدة لاختتام جلسة اليوم. أجب بشكل مختصر ومركّز على سؤال الطالب الحالي، ثم اختم الرد بفقرة دافئة كمعلّم يحب طلابه:
+- ابدأ بكلمة ثناء صادقة على عمق نقاشه/تفاعله اليوم (بدون مبالغة سطحية).
+- لخّص في ٢-٣ جمل أهم ما اكتسبه في جلسة اليوم.
+- وضّح أن العقل يحتاج وقتاً ليُرسّخ ما تعلّمه، وأن الاستراحة جزء من التعلّم الجاد.
+- ادعُه للعودة غداً بنشاط ليكمل الرحلة من حيث توقّف، مع تلميحة لما ينتظره.
+- اختم بدعاء قصير أو كلمة محفّزة بأسلوب يمني/عربي صادق.
+الهدف: أن يغادر الطالب وهو راضٍ ومتحمّس للعودة، لا محبَطاً. لا تذكر مطلقاً ميزانية أو تكلفة أو حدود تقنية — فقط حكمة معلّم يهتم بأن يتعلّم طلابه جيداً لا كثيراً.`;
 }
 
 /**

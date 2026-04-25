@@ -9,7 +9,7 @@ import {
   extractOpenAIUsage,
   extractGeminiUsage,
 } from "../lib/ai-usage";
-import { getQualityProfile, type QualityProfile } from "../lib/cost-balancer";
+import { getQualityProfile, getWindDownHint, type QualityProfile } from "../lib/cost-balancer";
 import { isUnlimitedEmail } from "../lib/admins";
 import {
   getActiveMaterialContext,
@@ -1280,6 +1280,24 @@ ${retrievedBlock}
 2) بعد إجابته اطرح ١-٢ سؤال متابعة (متعدد الخيارات أيضاً) لتحديد المستوى أو الزاوية أو السياق.
 3) عند اكتمال الصورة، اختم برسالة تحوي وسم واحد: [[CREATE_LAB_ENV: وصف دقيق وموجز للبيئة المطلوبة بناءً على إجاباته]].
 لا تعطِ شرحاً نظرياً قبل بناء البيئة.`;
+  }
+
+  // ── Pedagogical wind-down nudge ─────────────────────────────────────────────
+  // Convert pure cost pressure into a warm teacher behaviour: when the student
+  // is past pace, instruct the teacher to wrap the session up affectionately
+  // (praise, recap, propose tomorrow) instead of silently shrinking responses.
+  // We deliberately skip this on diagnostic + brand-new sessions (so we never
+  // wind down a student who just started) and on lab/build flows (where the
+  // teacher must complete the orchestration first).
+  if (
+    !unlimited &&
+    !isDiagnosticPhase &&
+    !isNewSession &&
+    !labEnvIntentDetected &&
+    !trimmedUserMessage.startsWith("[LAB_REPORT]") &&
+    qualityProfile.windDownLevel > 0
+  ) {
+    systemPrompt = systemPrompt + getWindDownHint(qualityProfile.windDownLevel);
   }
 
   if (trimmedUserMessage.length > 0) {
