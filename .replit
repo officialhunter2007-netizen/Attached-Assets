@@ -35,12 +35,13 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm --filter @workspace/nukhba run dev & PORT=8080 pnpm --filter @workspace/api-server run dev"
-waitForPort = 3000
+args = "PORT=5000 pnpm --filter @workspace/nukhba run dev & PORT=8080 pnpm --filter @workspace/api-server run dev"
+waitForPort = 5000
 
 [agent]
-stack = "PNPM_WORKSPACE"
+stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
+integrations = ["javascript_openai_ai_integrations:2.0.0", "javascript_anthropic_ai_integrations:2.0.0"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
