@@ -1310,11 +1310,30 @@ ${retrievedBlock}
     res.setHeader("Connection", "keep-alive");
   }
 
+  // ── Smart model routing: Sonnet for complex turns (~20%), Haiku for routine ones (~80%) ──
+  const useHaiku = (() => {
+    // Always Sonnet for diagnostic phase — precise student assessment is critical
+    if (isDiagnosticPhase) return false;
+    // Always Sonnet for session opening — sets the learning tone
+    if (isNewSession) return false;
+    // Always Sonnet when building lab environments — complex orchestration
+    if (labEnvIntentDetected) return false;
+    // Always Sonnet for lab report feedback — requires careful analysis
+    if (trimmedUserMessage.startsWith("[LAB_REPORT]")) return false;
+    // Sonnet for long/complex student messages (likely deep discussion or confusion)
+    if (trimmedUserMessage.length > 250) return false;
+    // Sonnet in professor mode (PDF material) — accuracy & citation required
+    if (systemPrompt.includes("═══ وضع منهج الأستاذ")) return false;
+    // Everything else → Haiku (fast, ~8× cheaper, handles routine teaching turns well)
+    return true;
+  })();
+  const teachModel = useHaiku ? "claude-haiku-4-5" : "claude-sonnet-4-6";
+
   const __teachStart = Date.now();
   let __teachStream: any = null;
   try {
     const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
+      model: teachModel,
       max_tokens: 4096,
       system: systemPrompt,
       messages: claudeMessages,
@@ -1341,7 +1360,7 @@ ${retrievedBlock}
         subjectId: subjectId ?? null,
         route: "ai/teach",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: teachModel,
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -1354,7 +1373,7 @@ ${retrievedBlock}
       subjectId: subjectId ?? null,
       route: "ai/teach",
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: teachModel,
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __teachStart,
