@@ -17,13 +17,28 @@ export function getByPath(obj: any, path: string): any {
   return cur;
 }
 
+// Reject path segments that could pollute prototypes or escape the
+// intended root object. Mutations from AI-generated envs must stay in
+// the env's own state graph.
+const FORBIDDEN_SEGMENTS = new Set(["__proto__", "prototype", "constructor"]);
+function isSafeSegment(seg: string): boolean {
+  return !FORBIDDEN_SEGMENTS.has(seg) && seg.length < 100;
+}
+function isSafePath(path: string): boolean {
+  if (typeof path !== "string" || !path) return false;
+  if (path.length > 500) return false;
+  return path.split(".").every(isSafeSegment);
+}
+
 function setByPath(obj: any, path: string, value: any): any {
+  if (!isSafePath(path)) return obj;
   const parts = path.split(".");
   if (parts.length === 0) return value;
   const head = parts[0];
   const rest = parts.slice(1).join(".");
   if (Array.isArray(obj)) {
     const idx = Number(head);
+    if (!Number.isFinite(idx) || idx < 0) return obj;
     const copy = obj.slice();
     if (rest) copy[idx] = setByPath(copy[idx] ?? {}, rest, value);
     else copy[idx] = value;
@@ -35,10 +50,24 @@ function setByPath(obj: any, path: string, value: any): any {
   return copy;
 }
 
-// Substitute {form.x} and {state.path} placeholders in a string value
+// Substitute {form.x} and {state.path} placeholders in a string value.
+// **Type preservation**: if the entire string is a single placeholder
+// (e.g. "{form.qty}" or "{state.inventory.0.price}"), return the raw value
+// without coercing to string — so numbers stay numbers, booleans stay
+// booleans, objects/arrays remain structured. This is critical because
+// `add`/`sub`/`incrementInArray` rely on numeric values.
+const SINGLE_PLACEHOLDER_RE = /^\{(form|state)\.([^}]+)\}$/;
 function interpolate(value: any, ctx: { form: Record<string, any>; state: DynState }): any {
   if (typeof value === "string") {
+    const single = value.match(SINGLE_PLACEHOLDER_RE);
+    if (single) {
+      const [, kind, p] = single;
+      if (kind === "state" && !isSafePath(p)) return undefined;
+      return kind === "form" ? ctx.form[p] : getByPath(ctx.state, p);
+    }
+    // Mixed-content strings: substitute each placeholder with its string form.
     return value.replace(/\{(form|state)\.([^}]+)\}/g, (_m, kind, p) => {
+      if (kind === "state" && !isSafePath(p)) return "";
       const v = kind === "form" ? ctx.form[p] : getByPath(ctx.state, p);
       return v == null ? "" : String(v);
     });
@@ -61,8 +90,12 @@ function toNumber(v: any): number {
   return 0;
 }
 
-// Apply a single mutation to state
+// Apply a single mutation to state. Any unsafe path or unknown op returns
+// the prior state unchanged — ensuring a single broken op never corrupts
+// the whole world.
 function applyMutation(state: DynState, mut: DynMutation, form: Record<string, any> = {}): DynState {
+  if (!mut || typeof mut !== "object" || typeof mut.path !== "string") return state;
+  if (!isSafePath(mut.path)) return state;
   const ctx = { form, state };
   const path = mut.path;
   switch (mut.op) {
@@ -132,9 +165,17 @@ type Action =
 function reducer(state: DynState, action: Action): DynState {
   switch (action.type) {
     case "mutate": {
-      let next = state;
-      for (const op of action.ops) next = applyMutation(next, op, action.form || {});
-      return next;
+      // Atomic semantics: try every op against a working copy. If any single
+      // op throws (defensive), revert to the original state so the user is
+      // never left with a half-applied mutation.
+      try {
+        let next = state;
+        for (const op of action.ops) next = applyMutation(next, op, action.form || {});
+        return next;
+      } catch (err) {
+        if (typeof console !== "undefined") console.error("[env-state] mutation aborted:", err);
+        return state;
+      }
     }
     case "reset":
       return JSON.parse(JSON.stringify(action.initial || {}));

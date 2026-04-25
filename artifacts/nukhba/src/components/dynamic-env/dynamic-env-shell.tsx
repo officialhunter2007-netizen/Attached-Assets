@@ -92,6 +92,17 @@ function DynamicEnvShellInner({
 
   const active = useMemo(() => screens.find((s) => s.id === activeId) || screens[0], [screens, activeId]);
 
+  // Extract the first conceptCard from any screen so we can surface its
+  // single-line "idea" in the header as a quick-glance "زاوية الفكرة"
+  // anchor — the student sees the core idea even before scrolling.
+  const headerIdea = useMemo<string | undefined>(() => {
+    for (const s of screens) {
+      const c = (s.components || []).find((x: any) => x?.type === "conceptCard" && typeof x?.idea === "string" && x.idea.trim());
+      if (c) return String((c as any).idea).trim();
+    }
+    return undefined;
+  }, [screens]);
+
   useEffect(() => {
     if (chatBoxRef.current) chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
   }, [assistMsgs, chatOpen]);
@@ -229,6 +240,13 @@ function DynamicEnvShellInner({
     return { msg, fact };
   };
 
+  // Streak counter — counts CONSECUTIVE task completions in this session
+  // (not unchecks). Reaching the 25%/50%/75%/100% mark of total tasks fires
+  // a quarter-medal in addition to the regular encouragement banner.
+  const [streak, setStreak] = useState(0);
+  const [medal, setMedal] = useState<{ pct: number; key: number } | null>(null);
+  const lastQuarterRef = useRef<number>(0);
+
   const toggleTask = (id: string) => {
     setDoneTasks((p) => {
       const had = p.has(id);
@@ -236,12 +254,33 @@ function DynamicEnvShellInner({
       if (had) n.delete(id); else n.add(id);
       // Only celebrate when going from undone → done (not when un-checking).
       if (!had) {
+        setStreak((s) => s + 1);
         const { msg, fact } = pickEncouragement();
         setPulse({ msg, fact, key: Date.now() });
+        const total = env.tasks?.length || 0;
+        if (total > 0) {
+          const newDone = n.size;
+          const pct = Math.floor((newDone / total) * 100);
+          const quarter = pct >= 100 ? 100 : pct >= 75 ? 75 : pct >= 50 ? 50 : pct >= 25 ? 25 : 0;
+          if (quarter > 0 && quarter > lastQuarterRef.current) {
+            lastQuarterRef.current = quarter;
+            setMedal({ pct: quarter, key: Date.now() });
+          }
+        }
+      } else {
+        // Un-checking breaks the streak.
+        setStreak(0);
       }
       return n;
     });
   };
+
+  // Auto-dismiss the medal after 4s.
+  useEffect(() => {
+    if (!medal) return;
+    const t = setTimeout(() => setMedal((cur) => (cur && cur.key === medal.key ? null : cur)), 4000);
+    return () => clearTimeout(t);
+  }, [medal]);
 
   // Auto-dismiss the celebratory banner.
   useEffect(() => {
@@ -348,6 +387,21 @@ ${stateSnap}${userNotes}`;
             </div>
             <h2 className="text-lg md:text-2xl font-black text-white tracking-tight leading-tight">{env.title}</h2>
             <p className="text-xs md:text-sm text-white/70 mt-2 leading-relaxed line-clamp-3 md:line-clamp-none whitespace-pre-line">{env.briefing}</p>
+            {/* "زاوية الفكرة" — quick-glance core idea pulled from the first conceptCard. */}
+            {headerIdea && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg p-2"
+                style={{ background: theme.accentSoft, border: `1px solid ${theme.accentBorder}` }}>
+                <span className="text-[11px] font-black px-1.5 py-0.5 rounded shrink-0"
+                  style={{ background: theme.accent, color: theme.primaryBtnText }}>الفكرة</span>
+                <span className="text-[12px] md:text-sm leading-relaxed text-white/90 min-w-0 flex-1">{headerIdea}</span>
+                <button
+                  onClick={() => askAi(`اشرح لي هذه الفكرة بمثال من الحياة اليومية، بأسلوب بسيط ومختصر:\n"${headerIdea}"`)}
+                  className="text-[11px] font-bold rounded px-2 py-1 shrink-0 transition-opacity hover:opacity-90 min-h-[32px]"
+                  style={{ background: theme.primaryBtnBg, color: theme.primaryBtnText }}
+                  title="اطلب من المعلم الذكي أن يشرحها بمثال يومي"
+                >اشرح بمثال يومي</button>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
             <button
@@ -395,6 +449,39 @@ ${stateSnap}${userNotes}`;
                 boxShadow: `0 0 12px ${theme.accentBorder}`,
               }}
             />
+          </div>
+        )}
+
+        {/* Quarter medal — appears briefly when the student crosses 25/50/75/100%. */}
+        {medal && (
+          <div
+            key={medal.key}
+            className="relative mt-3 rounded-xl p-3 flex items-center gap-3"
+            style={{
+              background: `linear-gradient(90deg, ${theme.accentSoft}, transparent)`,
+              border: `2px solid ${theme.accentBorder}`,
+              animation: "envPulse 0.7s ease-out",
+            }}
+          >
+            <div
+              className="w-12 h-12 rounded-full flex items-center justify-center text-xl font-black shrink-0"
+              style={{ background: theme.accent, color: theme.primaryBtnText, boxShadow: `0 0 16px ${theme.accentBorder}` }}
+            >
+              {medal.pct === 100 ? "🏆" : medal.pct === 75 ? "🥇" : medal.pct === 50 ? "🥈" : "🥉"}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-black" style={{ color: theme.accentText }}>
+                {medal.pct === 100 ? "أنهيت البيئة بالكامل!" : `أنجزت ${medal.pct}% — استمر!`}
+              </div>
+              {streak > 1 && (
+                <div className="text-[11px] text-white/70 mt-0.5">سلسلة متتالية: {streak} مهام بدون توقف 🔥</div>
+              )}
+            </div>
+            <button
+              onClick={() => setMedal(null)}
+              className="text-white/50 hover:text-white text-xs shrink-0"
+              aria-label="إغلاق الميدالية"
+            >×</button>
           </div>
         )}
 

@@ -2431,6 +2431,56 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       hint: t.hint,
     }));
 
+    // ─── Mandatory motivation/clarity enforcement ─────────────────────────
+    // Every generated env MUST contain at least one `conceptCard` (so the
+    // student starts with a clear, simplified idea) and at least one
+    // `freePlayground` for kinds where free experimentation is meaningful
+    // (programming, data-science, web-pentest, cybersecurity, language).
+    // If the model omitted them, inject sensible defaults so the user never
+    // gets a dry, motivation-less env.
+    if (env.screens.length > 0) {
+      const firstScreen = env.screens[0];
+      const allComps = env.screens.flatMap((s: any) => s.components || []);
+      const hasConcept = allComps.some((c: any) => c?.type === "conceptCard");
+      if (!hasConcept) {
+        firstScreen.components = [
+          {
+            type: "conceptCard",
+            title: "الفكرة باختصار",
+            tone: "intro",
+            idea: env.briefing || env.title,
+            example: "ابدأ بالتطبيق الفعلي على البيانات/النموذج في الأسفل لترى المفهوم يعمل أمامك.",
+            rule: "تعلّم بالممارسة: جرّب، لاحظ النتيجة، ثم عدّل وكرّر.",
+          },
+          ...(firstScreen.components || []),
+        ];
+      }
+      const PLAYGROUND_KINDS = new Set([
+        "programming", "data-science", "web-pentest", "cybersecurity", "language",
+      ]);
+      const hasPlayground = allComps.some((c: any) => c?.type === "freePlayground");
+      if (!hasPlayground && PLAYGROUND_KINDS.has(kind)) {
+        const flavor =
+          kind === "programming" || kind === "data-science" ? "js"
+          : kind === "web-pentest" || kind === "cybersecurity" ? "regex"
+          : "js";
+        const lastScreen = env.screens[env.screens.length - 1];
+        lastScreen.components = [
+          ...(lastScreen.components || []),
+          {
+            type: "freePlayground",
+            title: "ساحة التجريب الحرّ",
+            description: "جرّب أفكارك هنا — لا أحكام، فقط استكشاف.",
+            flavor,
+            challenges: [
+              "غيّر قيمة واحدة وراقب الفرق في النتيجة.",
+              "اكتب نسخة بأسلوبك الخاص واشرحها لزميل وهمي.",
+            ],
+          },
+        ];
+      }
+    }
+
     return res.json({ kind, env });
   } catch (e: any) {
     console.error("[build-env] error:", e?.message, e?.stack);

@@ -242,14 +242,17 @@ function EditableTable({ comp }: { comp: Extract<DynComponent, { type: "editable
     setEditingId(null); setEditVals({});
   };
 
-  const inputCls = "w-full bg-black/30 border border-white/15 rounded p-1.5 text-white text-xs";
+  // Mobile-friendly: bigger touch targets (≥44px on inputs/buttons), allow
+  // horizontal scroll, and use slightly larger text in editing mode so
+  // numeric/date inputs are easy to tap with a thumb.
+  const inputCls = "w-full bg-black/30 border border-white/15 rounded px-2 py-2 text-white text-sm min-h-[40px]";
 
   return (
     <Card
       title={comp.title}
-      action={<input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث..." className="text-xs bg-black/30 border border-white/15 rounded px-2 py-1 text-white w-32" />}
+      action={<input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث..." className="text-sm bg-black/30 border border-white/15 rounded px-2 py-2 text-white w-32 min-h-[40px]" />}
     >
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto -mx-2 md:mx-0 px-2 md:px-0">
         <table className="w-full text-sm text-right">
           <thead>
             <tr className="border-b border-white/10 text-white/70">
@@ -282,16 +285,16 @@ function EditableTable({ comp }: { comp: Extract<DynComponent, { type: "editable
                     </td>
                   ))}
                   <td className="px-2 py-2 text-xs">
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       {isEditing ? (
                         <>
-                          <button onClick={saveEdit} className="text-green-300 hover:text-green-200 px-2 py-1 rounded bg-green-500/10">حفظ</button>
-                          <button onClick={() => { setEditingId(null); setEditVals({}); }} className="text-white/60 hover:text-white px-2 py-1 rounded bg-white/5">إلغاء</button>
+                          <button onClick={saveEdit} className="text-green-300 hover:text-green-200 px-3 py-2 rounded bg-green-500/10 min-h-[40px] text-sm font-bold">حفظ</button>
+                          <button onClick={() => { setEditingId(null); setEditVals({}); }} className="text-white/60 hover:text-white px-3 py-2 rounded bg-white/5 min-h-[40px] text-sm">إلغاء</button>
                         </>
                       ) : (
                         <>
-                          <button onClick={() => startEdit(it)} className="text-cyan-300 hover:text-cyan-200 px-2 py-1 rounded bg-cyan-500/10">تعديل</button>
-                          {allowDelete && <button onClick={() => del(it[idField])} className="text-red-300 hover:text-red-200 px-2 py-1 rounded bg-red-500/10">حذف</button>}
+                          <button onClick={() => startEdit(it)} className="text-cyan-300 hover:text-cyan-200 px-3 py-2 rounded bg-cyan-500/10 min-h-[40px] text-sm font-bold">تعديل</button>
+                          {allowDelete && <button onClick={() => del(it[idField])} className="text-red-300 hover:text-red-200 px-3 py-2 rounded bg-red-500/10 min-h-[40px] text-sm">حذف</button>}
                         </>
                       )}
                     </div>
@@ -316,7 +319,7 @@ function EditableTable({ comp }: { comp: Extract<DynComponent, { type: "editable
                   </td>
                 ))}
                 <td className="px-2 py-2">
-                  <button onClick={add} className="bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold px-3 py-1 rounded text-xs w-full">+ إضافة</button>
+                  <button onClick={add} className="bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold px-3 py-2 rounded text-sm w-full min-h-[44px]">+ إضافة</button>
                 </td>
               </tr>
             </tfoot>
@@ -375,11 +378,13 @@ function JournalEditor({ comp }: { comp: Extract<DynComponent, { type: "journalE
     setDesc(""); setLines([{ account: "", debit: "", credit: "" }, { account: "", debit: "", credit: "" }]); setError(null);
   };
 
-  const inputCls = "w-full bg-black/30 border border-white/15 rounded p-1.5 text-white text-xs";
+  // Touch-friendly inputs (≥40px tall) so journal entries are usable on
+  // small screens. Date/number inputs in particular need real space to tap.
+  const inputCls = "w-full bg-black/30 border border-white/15 rounded px-2 py-2 text-white text-sm min-h-[40px]";
 
   return (
     <Card title={comp.title || "قيد يومية جديد"}>
-      <div className="grid grid-cols-2 gap-3 mb-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <div>
           <label className="block text-xs text-white/70 mb-1">التاريخ</label>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
@@ -389,7 +394,8 @@ function JournalEditor({ comp }: { comp: Extract<DynComponent, { type: "journalE
           <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="مثلاً: شراء بضاعة نقداً" className={inputCls} />
         </div>
       </div>
-      <table className="w-full text-xs text-right mb-3">
+      <div className="overflow-x-auto -mx-2 md:mx-0 px-2 md:px-0">
+      <table className="w-full text-xs text-right mb-3 min-w-[460px]">
         <thead>
           <tr className="border-b border-white/10 text-white/70">
             <th className="p-1.5 font-medium">الحساب</th>
@@ -424,9 +430,10 @@ function JournalEditor({ comp }: { comp: Extract<DynComponent, { type: "journalE
           </tr>
         </tbody>
       </table>
+      </div>
       <div className="flex gap-2 items-center flex-wrap">
-        <button onClick={addLine} className="text-xs bg-white/10 hover:bg-white/15 px-3 py-1.5 rounded text-white">+ إضافة سطر</button>
-        <button onClick={post} disabled={!balanced || !desc.trim()} className="text-xs bg-cyan-500 hover:bg-cyan-400 disabled:bg-white/10 disabled:text-white/40 text-slate-900 font-bold px-3 py-1.5 rounded">ترحيل القيد</button>
+        <button onClick={addLine} className="text-sm bg-white/10 hover:bg-white/15 px-4 py-2 rounded text-white min-h-[44px] font-bold">+ إضافة سطر</button>
+        <button onClick={post} disabled={!balanced || !desc.trim()} className="text-sm bg-cyan-500 hover:bg-cyan-400 disabled:bg-white/10 disabled:text-white/40 text-slate-900 font-bold px-4 py-2 rounded min-h-[44px]">ترحيل القيد</button>
         {!balanced && sumD + sumC > 0 && <span className="text-xs text-red-300">⚠ غير متوازن (فرق: {Math.abs(sumD - sumC).toLocaleString("ar-EG")})</span>}
         {balanced && <span className="text-xs text-green-300">✓ القيد متوازن</span>}
         {error && <span className="text-xs text-red-300">{error}</span>}
@@ -1774,7 +1781,7 @@ function TerminalBlock({ comp, state }: { comp: Extract<DynComponent, { type: "t
         {seedLines.map((l: any, i: number) => renderLine(l, `s${i}`))}
         {history.map((l, i) => renderLine(l, `h${i}`))}
         {interactive && (
-          <div className="flex items-center gap-1 mt-1">
+          <div className="flex items-center gap-1 mt-1 min-h-[44px]">
             <span className="text-cyan-300 select-none">{prompt}</span>
             <input
               dir="ltr"
@@ -1784,7 +1791,8 @@ function TerminalBlock({ comp, state }: { comp: Extract<DynComponent, { type: "t
               spellCheck={false}
               autoCapitalize="off"
               autoCorrect="off"
-              className="flex-1 bg-transparent outline-none text-green-200 font-mono text-[12px] placeholder:text-white/30"
+              inputMode="text"
+              className="flex-1 min-w-0 bg-transparent outline-none text-green-200 font-mono text-[13px] md:text-[12px] placeholder:text-white/30 py-2"
               placeholder="اكتب أمراً ثم Enter"
             />
           </div>
