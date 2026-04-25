@@ -955,6 +955,11 @@ function ConceptCardBlock({ comp }: { comp: Extract<DynComponent, { type: "conce
   const t = useEnvTheme();
   const tone = comp.tone || "intro";
   const icon = comp.icon || (tone === "warning" ? "⚠️" : tone === "tip" ? "💡" : "🧠");
+  // On mobile we collapse the example/rule by default so the screen stays
+  // scannable; the student opens "اقرأ المزيد" when they want depth. Desktop
+  // shows everything inline.
+  const [expanded, setExpanded] = useState(false);
+  const hasMore = !!(comp.everydayExample || comp.ruleOfThumb);
   return (
     <div
       className="relative rounded-2xl border-r-4 p-4 md:p-5 mb-3 overflow-hidden"
@@ -977,19 +982,31 @@ function ConceptCardBlock({ comp }: { comp: Extract<DynComponent, { type: "conce
           </div>
           <h4 className="text-base md:text-lg font-black text-white leading-snug mb-2">{comp.title}</h4>
           <p className="text-sm text-white/85 leading-relaxed whitespace-pre-wrap">{comp.idea}</p>
-          {comp.everydayExample && (
-            <div
-              className="mt-3 rounded-lg px-3 py-2 text-[13px] text-white/90 leading-relaxed border-r-2"
-              style={{ background: "rgba(255,255,255,0.04)", borderRightColor: t.accent }}
+          {/* Collapsible body — open by default on md+ via class, manually on mobile. */}
+          <div className={`${expanded ? "block" : "hidden"} md:block`}>
+            {comp.everydayExample && (
+              <div
+                className="mt-3 rounded-lg px-3 py-2 text-[13px] text-white/90 leading-relaxed border-r-2"
+                style={{ background: "rgba(255,255,255,0.04)", borderRightColor: t.accent }}
+              >
+                <span className="text-[11px] font-black uppercase tracking-wider mr-1" style={{ color: t.accentText }}>مثال من حياتك اليومية ·</span>
+                {comp.everydayExample}
+              </div>
+            )}
+            {comp.ruleOfThumb && (
+              <div className="mt-2 text-[12px] text-white/75 italic">
+                <span className="font-bold" style={{ color: t.accentText }}>قاعدة بسيطة:</span>{" "}{comp.ruleOfThumb}
+              </div>
+            )}
+          </div>
+          {hasMore && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="md:hidden mt-2 text-[12px] font-bold rounded px-3 py-1.5 min-h-[36px]"
+              style={{ background: t.accentSoft, color: t.accentText, border: `1px solid ${t.accentBorder}` }}
             >
-              <span className="text-[11px] font-black uppercase tracking-wider mr-1" style={{ color: t.accentText }}>مثال من حياتك اليومية ·</span>
-              {comp.everydayExample}
-            </div>
-          )}
-          {comp.ruleOfThumb && (
-            <div className="mt-2 text-[12px] text-white/75 italic">
-              <span className="font-bold" style={{ color: t.accentText }}>قاعدة بسيطة:</span>{" "}{comp.ruleOfThumb}
-            </div>
+              {expanded ? "إخفاء التفاصيل" : "اقرأ المزيد ▾"}
+            </button>
           )}
         </div>
       </div>
@@ -1066,6 +1083,7 @@ function FreePlaygroundBlock({ comp, ctx }: { comp: Extract<DynComponent, { type
     regex: "مختبر التعبيرات النمطية (Regex)",
     cssPreview: "مختبر HTML + CSS",
     math: "حاسبة بمتغيرات",
+    sql: "مختبر SQL (SELECT)",
   };
   const title = comp.title || labels[flavor] || "مختبر التجريب";
 
@@ -1083,6 +1101,7 @@ function FreePlaygroundBlock({ comp, ctx }: { comp: Extract<DynComponent, { type
       {flavor === "regex" && <PlaygroundRegex pattern={comp.seed} testText={comp.secondarySeed} />}
       {flavor === "cssPreview" && <PlaygroundCss html={comp.seed} css={comp.secondarySeed} height={comp.height} />}
       {flavor === "math" && <PlaygroundMath seed={comp.seed} />}
+      {flavor === "sql" && <PlaygroundSql seed={comp.seed} tables={comp.tables} />}
       {Array.isArray(comp.challenges) && comp.challenges.length > 0 && (
         <div className="mt-3 pt-3 border-t border-white/10">
           <div className="text-[11px] font-black uppercase tracking-wider mb-2" style={{ color: t.accentText }}>
@@ -1404,6 +1423,151 @@ function PlaygroundMath({ seed }: { seed?: string }) {
   );
 }
 
+// ─── PlaygroundSql ─────────────────────────────────────────────────────────
+// A *very* small SELECT-only SQL evaluator over an in-memory `tables` object.
+// Supported grammar (case-insensitive):
+//   SELECT  <col,col,... | *>
+//   FROM    <table>
+//   [WHERE  <col> <op> <value>]   ops: = != <> > >= < <= LIKE
+//   [ORDER BY <col> [ASC|DESC]]
+//   [LIMIT <n>]
+// Strings may be single- or double-quoted. Numbers are parsed as numbers.
+// LIKE supports `%` wildcard. No JOIN, GROUP BY, or subqueries — by design,
+// we want students to *experiment* with the basics safely. All evaluation
+// happens locally in JS — no network, no real DB connection.
+function PlaygroundSql({ seed, tables: tablesProp }: { seed?: string; tables?: Record<string, Array<Record<string, any>>> }) {
+  const t = useEnvTheme();
+  const defaultTables = useMemo<Record<string, Array<Record<string, any>>>>(() => ({
+    students: [
+      { id: 1, name: "علي الحضرمي", grade: 92, city: "صنعاء" },
+      { id: 2, name: "سارة الزبيدي", grade: 88, city: "عدن" },
+      { id: 3, name: "محمد الصبري", grade: 75, city: "تعز" },
+      { id: 4, name: "ليلى النهدي", grade: 95, city: "صنعاء" },
+      { id: 5, name: "خالد المقدشي", grade: 60, city: "الحديدة" },
+    ],
+  }), []);
+  const tables = (tablesProp && Object.keys(tablesProp).length > 0) ? tablesProp : defaultTables;
+  const tableNames = Object.keys(tables);
+  const [query, setQuery] = useState<string>(seed || `SELECT name, grade FROM ${tableNames[0] || "students"} WHERE grade >= 80 ORDER BY grade DESC LIMIT 10`);
+
+  const result = useMemo(() => {
+    try {
+      const q = String(query || "").trim().replace(/;\s*$/, "");
+      if (!q) return { ok: false as const, error: "اكتب استعلام SELECT للبدء." };
+      // Parse pieces with case-insensitive regex.
+      const m = q.match(/^\s*SELECT\s+(.+?)\s+FROM\s+([\p{L}_][\p{L}\d_]*)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+([\p{L}_][\p{L}\d_]*)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+(\d+))?\s*$/iu);
+      if (!m) return { ok: false as const, error: "صيغة غير مدعومة. الشكل: SELECT cols FROM table [WHERE ...] [ORDER BY col] [LIMIT n]" };
+      const [, selectList, tableName, whereClause, orderCol, orderDir, limitStr] = m;
+      const tbl = tables[tableName];
+      if (!Array.isArray(tbl)) return { ok: false as const, error: `لا يوجد جدول باسم «${tableName}». الجداول المتاحة: ${tableNames.join(", ")}` };
+      const cols = selectList.trim() === "*"
+        ? null
+        : selectList.split(",").map((c) => c.trim()).filter(Boolean);
+      // WHERE — single predicate only.
+      let pred: ((row: any) => boolean) | null = null;
+      if (whereClause) {
+        const w = whereClause.match(/^\s*([\p{L}_][\p{L}\d_]*)\s*(=|!=|<>|>=|<=|>|<|LIKE)\s*(.+?)\s*$/iu);
+        if (!w) return { ok: false as const, error: "WHERE: استخدم الشكل col OP value (مثلاً grade >= 80)." };
+        const [, wcol, opRaw, valRaw] = w;
+        const op = opRaw.toUpperCase();
+        let val: any = valRaw.trim();
+        if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
+          val = val.slice(1, -1);
+        } else if (/^-?\d+(\.\d+)?$/.test(val)) {
+          val = Number(val);
+        }
+        pred = (row: any) => {
+          const cell = row[wcol];
+          switch (op) {
+            case "=": return cell == val; // eslint-disable-line eqeqeq
+            case "!=":
+            case "<>": return cell != val; // eslint-disable-line eqeqeq
+            case ">": return Number(cell) > Number(val);
+            case ">=": return Number(cell) >= Number(val);
+            case "<": return Number(cell) < Number(val);
+            case "<=": return Number(cell) <= Number(val);
+            case "LIKE": {
+              const pat = String(val).replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*");
+              return new RegExp("^" + pat + "$", "i").test(String(cell ?? ""));
+            }
+            default: return false;
+          }
+        };
+      }
+      let rows = pred ? tbl.filter(pred) : tbl.slice();
+      if (orderCol) {
+        const dir = (orderDir || "ASC").toUpperCase() === "DESC" ? -1 : 1;
+        rows = rows.slice().sort((a: any, b: any) => {
+          const av = a[orderCol], bv = b[orderCol];
+          if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+          return String(av ?? "").localeCompare(String(bv ?? ""), "ar") * dir;
+        });
+      }
+      if (limitStr) rows = rows.slice(0, parseInt(limitStr, 10));
+      const projected = cols
+        ? rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c]])))
+        : rows;
+      const headers = projected.length > 0
+        ? Object.keys(projected[0])
+        : (cols || (tbl[0] ? Object.keys(tbl[0]) : []));
+      return { ok: true as const, rows: projected, headers, count: projected.length };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || "تعذّر تنفيذ الاستعلام." };
+    }
+  }, [query, tables, tableNames]);
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] text-white/60">
+        الجداول المتاحة:{" "}
+        {tableNames.map((n) => (
+          <code key={n} className="mx-1 px-1.5 py-0.5 rounded bg-white/5 text-cyan-300" dir="ltr">{n}</code>
+        ))}
+      </div>
+      <textarea
+        dir="ltr"
+        spellCheck={false}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        rows={4}
+        className="w-full bg-black/60 border border-white/15 rounded-lg p-2 text-emerald-200 text-[12px] font-mono leading-relaxed"
+      />
+      <div className="text-[11px] text-white/40">
+        مدعوم: SELECT · FROM · WHERE (=,!=,&gt;,&gt;=,&lt;,&lt;=,LIKE) · ORDER BY · LIMIT.
+      </div>
+      {result.ok ? (
+        <div className="border border-white/10 rounded-lg overflow-x-auto bg-black/30" dir="ltr">
+          <table className="w-full text-xs font-mono">
+            <thead className="bg-white/5">
+              <tr>
+                {result.headers.map((h) => (
+                  <th key={h} className="p-2 text-left text-white/70 font-bold">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {result.rows.length === 0
+                ? <tr><td colSpan={result.headers.length || 1} className="p-3 text-center text-white/40">— لا توجد نتائج —</td></tr>
+                : result.rows.map((row: any, i: number) => (
+                  <tr key={i} className="border-t border-white/5">
+                    {result.headers.map((h) => (
+                      <td key={h} className="p-2 text-white/85">{row[h] == null ? "∅" : String(row[h])}</td>
+                    ))}
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          <div className="px-2 py-1 text-[11px] text-white/50 border-t border-white/10" style={{ color: t.accentText }}>
+            {result.count} صف{result.count === 1 ? "" : (result.count === 2 ? "ان" : "وف")}
+          </div>
+        </div>
+      ) : (
+        <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2">{result.error}</div>
+      )}
+    </div>
+  );
+}
+
 // ─── Live data inspector ───────────────────────────────────────────────────
 function DataInspectorBlock({ comp, state }: { comp: Extract<DynComponent, { type: "dataInspector" }>; state: any }) {
   const t = useEnvTheme();
@@ -1629,36 +1793,36 @@ function PacketCaptureBlock({ comp, state }: { comp: Extract<DynComponent, { typ
   return (
     <Card title={comp.title || "التقاط الحزم"}>
       <div className="grid md:grid-cols-2 gap-2">
-        <div className="overflow-x-auto max-h-80 overflow-y-auto border border-white/10 rounded" dir="ltr">
-          <table className="w-full text-[11px] font-mono">
+        <div className="overflow-x-auto max-h-80 overflow-y-auto border border-white/10 rounded -mx-1 md:mx-0" dir="ltr">
+          <table className="w-full text-[11px] md:text-[11px] text-[12px] font-mono min-w-[520px]">
             <thead className="bg-black/40 text-white/70 sticky top-0">
               <tr>
-                <th className="p-1 text-left">#</th>
-                <th className="p-1 text-left">Time</th>
-                <th className="p-1 text-left">Source</th>
-                <th className="p-1 text-left">Dest</th>
-                <th className="p-1 text-left">Proto</th>
-                <th className="p-1 text-left">Len</th>
-                <th className="p-1 text-left">Info</th>
+                <th className="p-1.5 text-left">#</th>
+                <th className="p-1.5 text-left">Time</th>
+                <th className="p-1.5 text-left">Source</th>
+                <th className="p-1.5 text-left">Dest</th>
+                <th className="p-1.5 text-left">Proto</th>
+                <th className="p-1.5 text-left">Len</th>
+                <th className="p-1.5 text-left">Info</th>
               </tr>
             </thead>
             <tbody>
               {packets.length === 0 && <tr><td colSpan={7} className="text-center text-white/40 p-3">لا توجد حزم.</td></tr>}
               {packets.map((p: any, i: number) => (
                 <tr key={i} onClick={() => setSel(i)} className={`cursor-pointer ${sel === i ? "bg-cyan-500/20" : "hover:bg-white/5"} border-b border-white/5`}>
-                  <td className="p-1 text-white/60">{p.no ?? i + 1}</td>
-                  <td className="p-1 text-white/70">{p.time ?? ""}</td>
-                  <td className="p-1 text-white/80">{p.src ?? ""}</td>
-                  <td className="p-1 text-white/80">{p.dst ?? ""}</td>
-                  <td className="p-1 text-cyan-300">{p.protocol ?? ""}</td>
-                  <td className="p-1 text-white/60">{p.length ?? ""}</td>
-                  <td className="p-1 text-white/85 truncate max-w-[180px]">{p.info ?? ""}</td>
+                  <td className="p-2 text-white/60">{p.no ?? i + 1}</td>
+                  <td className="p-2 text-white/70">{p.time ?? ""}</td>
+                  <td className="p-2 text-white/80">{p.src ?? ""}</td>
+                  <td className="p-2 text-white/80">{p.dst ?? ""}</td>
+                  <td className="p-2 text-cyan-300">{p.protocol ?? ""}</td>
+                  <td className="p-2 text-white/60">{p.length ?? ""}</td>
+                  <td className="p-2 text-white/85 truncate max-w-[180px]">{p.info ?? ""}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="border border-white/10 rounded p-2 bg-black/30 max-h-80 overflow-y-auto" dir="ltr">
+        <div className="border border-white/10 rounded p-2 bg-black/30 max-h-80 min-h-[160px] overflow-y-auto" dir="ltr">
           {selected ? (
             <div className="text-[11px] font-mono space-y-1">
               <div className="text-cyan-300 font-bold">Packet #{selected.no ?? (sel! + 1)}</div>
@@ -1824,37 +1988,40 @@ function FileSystemExplorerBlock({ comp, state }: { comp: Extract<DynComponent, 
     const isDir = node.type === "dir" || (node.children && typeof node.children === "object" && !node.content);
     const children = node.children && typeof node.children === "object" ? node.children : null;
     return (
-      <div key={path} style={{ paddingInlineStart: depth * 12 }}>
+      <div key={path} style={{ paddingInlineStart: depth * 14 }}>
         <button
           onClick={() => !isDir && setSelected({ path, node })}
-          className={`flex items-center gap-1.5 text-xs py-0.5 hover:text-cyan-300 ${selected?.path === path ? "text-cyan-300" : "text-white/80"}`}
+          className={`flex items-center gap-2 text-sm md:text-xs py-2 md:py-1 min-h-[36px] md:min-h-0 hover:text-cyan-300 w-full text-right ${selected?.path === path ? "text-cyan-300" : "text-white/80"}`}
         >
           <span>{isDir ? "📁" : "📄"}</span>
-          <span dir="ltr">{name}</span>
+          <span dir="ltr" className="truncate">{name}</span>
         </button>
         {isDir && children && Object.entries(children).map(([k, v]) => renderTree(v, k, `${path}/${k}`, depth + 1))}
       </div>
     );
   };
 
+  // On mobile we use auto height with a sane min so the explorer doesn't
+  // collapse to nothing; desktop respects the explicit `height` prop so the
+  // two panes align side-by-side.
   return (
     <Card title={comp.title || "نظام الملفات"}>
-      <div className="grid md:grid-cols-2 gap-2" style={{ height }}>
-        <div className="overflow-auto border border-white/10 rounded p-2 bg-black/30">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:!h-[var(--fs-h)]" style={{ ["--fs-h" as any]: `${height}px` }}>
+        <div className="overflow-auto border border-white/10 rounded p-2 bg-black/30 min-h-[180px] max-h-[260px] md:max-h-none">
           {root && typeof root === "object"
             ? renderTree(root, root.name || "/", "/", 0)
             : <div className="text-xs text-white/40">لا توجد ملفات.</div>}
         </div>
-        <div className="overflow-auto border border-white/10 rounded p-2 bg-black/30">
+        <div className="overflow-auto border border-white/10 rounded p-2 bg-black/30 min-h-[180px] max-h-[320px] md:max-h-none">
           {selected ? (
             <>
-              <div className="text-xs text-cyan-300 mb-1 font-mono" dir="ltr">{selected.path}</div>
-              <pre className="text-[11px] text-white/85 whitespace-pre-wrap font-mono" dir="ltr">{String(selected.node.content ?? "")}</pre>
+              <div className="text-xs text-cyan-300 mb-1 font-mono break-all" dir="ltr">{selected.path}</div>
+              <pre className="text-[12px] md:text-[11px] text-white/85 whitespace-pre-wrap font-mono" dir="ltr">{String(selected.node.content ?? "")}</pre>
               {comp.allowDownload && downloadUrl && (
                 <a
                   href={downloadUrl}
                   download={selected.node.name || "file.txt"}
-                  className="inline-block mt-2 text-[11px] bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 rounded px-2 py-1 text-cyan-200"
+                  className="inline-block mt-2 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 rounded px-3 py-2 text-cyan-200 min-h-[36px]"
                 >تنزيل</a>
               )}
             </>

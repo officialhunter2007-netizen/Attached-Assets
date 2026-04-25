@@ -1671,7 +1671,7 @@ function specializationAddendum(kind: LabKind): string {
 استخدم \`codeBlock\` للكود الناقص/الخاطئ، \`webApp\` لتشغيل صفحات HTML/CSS/JS فعلياً، \`form\` نوع \`check\`، \`freePlayground\` نوع "js" أو "cssPreview" (إلزامي تقريباً — يعطي الطالب ساحة تجريب حقيقية)، \`conceptCard\` يبسّط (loops/functions/objects) بأمثلة، \`achievement\` لكل ميزة منجزة.`;
     case "data-science":
       return common + `🎨 theme: "data-science" (فوشيا).
-استخدم: \`table\` و\`editableTable\` لعرض/تنظيف الداتاست، \`chart\` لتصوير التوزيعات، \`dataInspector\` (لكشف الإحصاءات السريعة)، \`codeBlock\` لكود pandas/numpy، \`kpi\` للمقاييس، \`freePlayground\` نوع "math" لتجربة معادلات سريعة، \`conceptCard\` (Mean/Median/Mode بمثال أسعار التمر في السوق).`;
+استخدم: \`table\` و\`editableTable\` لعرض/تنظيف الداتاست، \`chart\` لتصوير التوزيعات، \`dataInspector\` (لكشف الإحصاءات السريعة)، \`codeBlock\` لكود pandas/numpy، \`kpi\` للمقاييس، \`freePlayground\` نوع "sql" (لتجربة استعلامات SELECT على بيانات صغيرة تعرّفها بنفسك في \`tables\`) أو "math" لتجربة معادلات سريعة، \`conceptCard\` (Mean/Median/Mode بمثال أسعار التمر في السوق).`;
     case "business":
       return common + `🎨 theme: "business" (ذهبي).
 استخدم: \`kpiGrid\`، \`chart\`، \`editableTable\`، \`form\` نوع \`mutate\`، \`richDocument\`، \`conceptCard\` (يبسّط مؤشرات مثل ROI و Margin بأمثلة من تجارة يمنية)، \`achievement\` لكل قرار استراتيجي.`;
@@ -2449,8 +2449,10 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
             title: "الفكرة باختصار",
             tone: "intro",
             idea: env.briefing || env.title,
-            example: "ابدأ بالتطبيق الفعلي على البيانات/النموذج في الأسفل لترى المفهوم يعمل أمامك.",
-            rule: "تعلّم بالممارسة: جرّب، لاحظ النتيجة، ثم عدّل وكرّر.",
+            // Schema fields: `everydayExample` + `ruleOfThumb` (NOT example/rule).
+            // Renderer surfaces these in the concept card body.
+            everydayExample: "ابدأ بالتطبيق الفعلي على البيانات/النموذج في الأسفل لترى المفهوم يعمل أمامك.",
+            ruleOfThumb: "تعلّم بالممارسة: جرّب، لاحظ النتيجة، ثم عدّل وكرّر.",
           },
           ...(firstScreen.components || []),
         ];
@@ -2461,7 +2463,8 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       const hasPlayground = allComps.some((c: any) => c?.type === "freePlayground");
       if (!hasPlayground && PLAYGROUND_KINDS.has(kind)) {
         const flavor =
-          kind === "programming" || kind === "data-science" ? "js"
+          kind === "data-science" ? "sql"
+          : kind === "programming" ? "js"
           : kind === "web-pentest" || kind === "cybersecurity" ? "regex"
           : "js";
         const lastScreen = env.screens[env.screens.length - 1];

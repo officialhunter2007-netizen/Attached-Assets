@@ -114,7 +114,7 @@ export type DynComponent =
   //    • math: expression evaluator with named variables
   //    Optional `seed` provides starting code/text. Optional `challenges` are
   //    one-line invitations the AI can suggest the student try.
-  | { type: "freePlayground"; title?: string; flavor: "js" | "regex" | "cssPreview" | "math"; seed?: string; secondarySeed?: string; height?: number; challenges?: string[]; description?: string }
+  | { type: "freePlayground"; title?: string; flavor: "js" | "regex" | "cssPreview" | "math" | "sql"; seed?: string; secondarySeed?: string; height?: number; challenges?: string[]; description?: string; tables?: Record<string, Array<Record<string, any>>> }
   // ── Live data inspector — reveals any path of `state` (or static `data`)
   //    in a friendly way: array of objects → table; primitive → big value;
   //    object → key/value list; array of numbers → mini summary stats.
