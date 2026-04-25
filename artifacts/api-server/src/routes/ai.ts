@@ -2397,8 +2397,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
                 c.series = Array.isArray(c.series) ? c.series : [];
                 break;
               case "freePlayground":
-                // Coerce flavor to a known value to avoid a blank renderer.
-                if (!["js", "regex", "cssPreview", "math"].includes(c.flavor)) c.flavor = "js";
+                if (!["js", "regex", "cssPreview", "math", "sql"].includes(c.flavor)) c.flavor = "js";
                 if (Array.isArray(c.challenges)) {
                   c.challenges = c.challenges.filter((x: any) => typeof x === "string").slice(0, 6);
                 }

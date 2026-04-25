@@ -78,12 +78,22 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Defensive: the AI sometimes generates a form whose `submit` block is
-    // missing (or whose `submit.type` is missing), or a `mutate` with empty
-    // `ops`, or an `ask-ai` with empty `prompt`. Without this guard the
-    // button silently does nothing and the student can't tell whether they
-    // typed wrong or the env is broken — exactly the "buttons don't work"
-    // complaint we're fixing here. Surface a clear, friendly error instead.
+    // Universal required-field check before any submit handler runs, so empty
+    // required fields can never silently pass through check/mutate/ask-ai.
+    const missing: string[] = [];
+    for (const f of (comp.fields || []) as any[]) {
+      if (!f?.required) continue;
+      const v = values[f.name];
+      const empty =
+        v === undefined || v === null || v === "" ||
+        (typeof v === "string" && v.trim() === "") ||
+        (Array.isArray(v) && v.length === 0);
+      if (empty) missing.push(f.label || f.name);
+    }
+    if (missing.length > 0) {
+      setFeedback({ ok: false, msg: `الحقول المطلوبة فارغة: ${missing.join("، ")}` });
+      return;
+    }
     if (!comp.submit || typeof (comp.submit as any).type !== "string") {
       setFeedback({ ok: false, msg: "هذا الزر غير مكتمل التهيئة من المعلم الذكي. اطلب منه إعادة بناء البيئة أو وضّح طلبك." });
       return;
@@ -193,11 +203,24 @@ function FormFieldInput({ f, value, onChange }: { f: DynFormField; value: any; o
         })()
       ) : f.type === "checkbox" ? (
         <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4" />
+      ) : f.type === "number" ? (
+        <input
+          className={baseCls}
+          type="number"
+          step="any"
+          placeholder={(f as any).placeholder}
+          value={value ?? ""}
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (raw === "") { onChange(""); return; }
+            const n = Number(raw);
+            onChange(Number.isFinite(n) ? n : raw);
+          }}
+        />
       ) : (
         <input
           className={baseCls}
-          type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
-          step="any"
+          type={f.type === "date" ? "date" : "text"}
           placeholder={(f as any).placeholder}
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
