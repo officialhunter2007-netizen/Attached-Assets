@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DynComponent, DynFormField, DynMutation } from "./types";
 import { useEnvState, envUtils } from "./state-engine";
 import { useEnvTheme } from "./theme";
+import { CodeEditor } from "./code-editor";
 
 type Ctx = {
   onAction?: (action: { type: string; [k: string]: any }) => void;
@@ -1242,13 +1243,12 @@ function PlaygroundJS({ seed, height }: { seed?: string; height?: number }) {
 
   return (
     <div className="space-y-2">
-      <textarea
-        dir="ltr"
-        spellCheck={false}
+      <CodeEditor
+        language="javascript"
         value={code}
-        onChange={(e) => setCode(e.target.value)}
-        className="w-full bg-black/60 border border-white/15 rounded-lg p-2 text-green-200 text-[12px] font-mono leading-relaxed resize-y"
-        style={{ minHeight: h }}
+        onChange={setCode}
+        minHeight={h}
+        ariaLabel="محرر JavaScript"
       />
       <div className="flex items-center gap-2">
         <button
@@ -1389,9 +1389,9 @@ function PlaygroundCss({ html, css, height }: { html?: string; css?: string; hei
     <div className="grid lg:grid-cols-2 gap-2">
       <div className="space-y-2">
         <div className="text-[11px] font-bold text-white/60 uppercase tracking-wider">HTML</div>
-        <textarea dir="ltr" value={h} onChange={(e) => setH(e.target.value)} className="w-full bg-black/40 border border-white/15 rounded p-2 text-white text-[12px] font-mono leading-relaxed resize-y" style={{ minHeight: 120 }} />
+        <CodeEditor language="html" value={h} onChange={setH} minHeight={120} ariaLabel="محرر HTML" />
         <div className="text-[11px] font-bold text-white/60 uppercase tracking-wider">CSS</div>
-        <textarea dir="ltr" value={c} onChange={(e) => setC(e.target.value)} className="w-full bg-black/40 border border-white/15 rounded p-2 text-white text-[12px] font-mono leading-relaxed resize-y" style={{ minHeight: 160 }} />
+        <CodeEditor language="css" value={c} onChange={setC} minHeight={160} ariaLabel="محرر CSS" />
       </div>
       <div>
         <div className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 flex items-center gap-1.5">
