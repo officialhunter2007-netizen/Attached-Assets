@@ -9,6 +9,7 @@ import {
   extractOpenAIUsage,
   extractGeminiUsage,
 } from "../lib/ai-usage";
+import { getQualityProfile, type QualityProfile } from "../lib/cost-balancer";
 import { isUnlimitedEmail } from "../lib/admins";
 import {
   getActiveMaterialContext,
@@ -513,6 +514,19 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   let canAccessViaSubscription = unlimited ? true : rawCanAccess;
   const hasActiveSub = unlimited ? true : rawHasActive;
   const isNewSession = !userMessage;
+
+  // ── Smart cost balancer ─────────────────────────────────────────────────────
+  // Computes per-student budget pace (50% of paid price, spread over the
+  // subscription window) and returns a quality profile that smoothly scales
+  // model choice, max_tokens, history depth, and material-context bytes —
+  // starting from the very first token, with no perceptible cliffs.
+  // Unlimited (admin/test) users bypass the balancer and always get max quality.
+  const qualityProfile: QualityProfile = await getQualityProfile({
+    userId,
+    subjectId: subjectId ?? null,
+    subjectSub: subjectSub ?? null,
+    bypass: unlimited,
+  });
 
   // ── Session limit (1 session per day, resets at midnight Yemen time) ──
   // We claim today's date with an atomic conditional UPDATE so that concurrent
@@ -1019,7 +1033,7 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
               m.id,
               activeChapter.startPage,
               activeChapter.endPage,
-              24000,
+              qualityProfile.materialChunkBytes,
             );
             if (chapterChunks.length > 0) {
               const formatted = chapterChunks
@@ -1239,10 +1253,15 @@ ${retrievedBlock}
     }
     return "";
   };
-  const claudeMessages = (Array.isArray(history) ? history : [])
+  const claudeMessagesAll = (Array.isArray(history) ? history : [])
     .filter((m: any) => m && (m.role === "user" || m.role === "assistant"))
     .map((m: any) => ({ role: m.role as "user" | "assistant", content: normaliseContent(m.content) }))
     .filter((m) => m.content.trim().length > 0);
+  // Apply budget-driven history trim. We always keep the *most recent* turns
+  // (the conversation tail carries the live context the model needs).
+  const claudeMessages = claudeMessagesAll.length > qualityProfile.historyLimit
+    ? claudeMessagesAll.slice(-qualityProfile.historyLimit)
+    : claudeMessagesAll;
   const trimmedUserMessage = typeof userMessage === "string" ? userMessage.trim() : "";
 
   // ── Deterministic intent detection: lab-environment orchestration ──
@@ -1310,23 +1329,43 @@ ${retrievedBlock}
     res.setHeader("Connection", "keep-alive");
   }
 
-  // ── Smart model routing: Sonnet for complex turns (~20%), Haiku for routine ones (~80%) ──
-  const useHaiku = (() => {
-    // Always Sonnet for diagnostic phase — precise student assessment is critical
-    if (isDiagnosticPhase) return false;
-    // Always Sonnet for session opening — sets the learning tone
-    if (isNewSession) return false;
-    // Always Sonnet when building lab environments — complex orchestration
-    if (labEnvIntentDetected) return false;
-    // Always Sonnet for lab report feedback — requires careful analysis
-    if (trimmedUserMessage.startsWith("[LAB_REPORT]")) return false;
-    // Sonnet for long/complex student messages (likely deep discussion or confusion)
-    if (trimmedUserMessage.length > 250) return false;
-    // Sonnet in professor mode (PDF material) — accuracy & citation required
-    if (systemPrompt.includes("═══ وضع منهج الأستاذ")) return false;
-    // Everything else → Haiku (fast, ~8× cheaper, handles routine teaching turns well)
-    return true;
-  })();
+  // ── Smart model routing — budget-aware ───────────────────────────────────────
+  // Two layers cooperate to keep AI cost ≤ 50% of what the student paid:
+  //  1. Critical paths (diagnostic, session opener, lab env, lab report) always
+  //     get Sonnet UNLESS the user is way over budget AND the balancer forces
+  //     haiku — even then, diagnostic + session opener stay on Sonnet because
+  //     they shape the student's whole learning path.
+  //  2. Routine teaching turns use a probability dial driven by the cost
+  //     balancer: sonnetProbability slides from 0.20 (under budget) down to 0
+  //     (way over budget). No cliffs — the student never feels a sudden drop.
+  // Always-Sonnet protections: diagnostic + the very first session opener
+  // shape the student's whole learning path, so they stay on Sonnet even
+  // when way over budget. Lab env / lab report are weaker protections —
+  // they're spammable, so the balancer is allowed to drop them to Haiku
+  // once the student is significantly past pace.
+  const isEssentialQuality = isDiagnosticPhase || isNewSession;
+  const isSpammableCritical =
+    labEnvIntentDetected || trimmedUserMessage.startsWith("[LAB_REPORT]");
+
+  let useHaiku: boolean;
+  if (isEssentialQuality) {
+    useHaiku = false;
+  } else if (isSpammableCritical) {
+    // Honour the critical path UNLESS the student is significantly over budget,
+    // closing the "spam [LAB_REPORT] to force Sonnet" abuse vector.
+    useHaiku = qualityProfile.paceRatio > 1.7;
+  } else if (qualityProfile.forceHaiku) {
+    useHaiku = true;
+  } else {
+    const isComplexHint =
+      trimmedUserMessage.length > 250 ||
+      systemPrompt.includes("═══ وضع منهج الأستاذ");
+    // Complex hints get a 2× Sonnet boost (still capped at the dial).
+    const sonnetChance = isComplexHint
+      ? Math.min(qualityProfile.sonnetProbability * 2, 0.4)
+      : qualityProfile.sonnetProbability;
+    useHaiku = Math.random() >= sonnetChance;
+  }
   const teachModel = useHaiku ? "claude-haiku-4-5" : "claude-sonnet-4-6";
 
   const __teachStart = Date.now();
@@ -1334,7 +1373,7 @@ ${retrievedBlock}
   try {
     const stream = anthropic.messages.stream({
       model: teachModel,
-      max_tokens: 4096,
+      max_tokens: qualityProfile.maxTokens,
       system: systemPrompt,
       messages: claudeMessages,
     });

@@ -40,6 +40,14 @@ export const aiUsageEventsTable = pgTable(
     createdIdx: index("idx_ai_usage_created").on(t.createdAt),
     modelIdx: index("idx_ai_usage_model").on(t.model),
     routeIdx: index("idx_ai_usage_route").on(t.route),
+    // Composite index for the cost-balancer's per-user time-window SUM query.
+    userCreatedIdx: index("idx_ai_usage_user_created").on(t.userId, t.createdAt),
+    // Composite index for the per-(user, subject) variant of the same query.
+    userSubjectCreatedIdx: index("idx_ai_usage_user_subject_created").on(
+      t.userId,
+      t.subjectId,
+      t.createdAt,
+    ),
   }),
 );
 
