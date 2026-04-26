@@ -50,6 +50,32 @@ type UserRow = {
   lastActive: string | null;
 };
 
+type DailyBudgetRow = {
+  subscriptionId: number;
+  userId: number | null;
+  userEmail: string | null;
+  userName: string | null;
+  subjectId: string | null;
+  subjectName: string | null;
+  plan: string | null;
+  region: string | null;
+  todaySpentUsd: number;
+  dailyCapUsd: number;
+  dailyRatio: number;
+  totalSpentUsd: number;
+  capUsd: number;
+  totalRatio: number;
+  daysRemaining: number;
+  dailyMode: "ok" | "exhausted";
+  forceCheapModel: boolean;
+};
+
+type DailyBudgetTop = {
+  asOf: string;
+  startOfTodayYemen: string;
+  rows: DailyBudgetRow[];
+};
+
 type UserDetail = {
   window: Window;
   user: { id: number; email: string | null; displayName: string | null; role: string | null };
@@ -122,6 +148,7 @@ export function AdminAiUsage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [timeseries, setTimeseries] = useState<Timeseries | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [dailyBudgetTop, setDailyBudgetTop] = useState<DailyBudgetTop | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [drillUserId, setDrillUserId] = useState<number | null>(null);
@@ -142,15 +169,18 @@ export function AdminAiUsage() {
     setLoading(true);
     try {
       const qs = `from=${encodeURIComponent(window.from)}&to=${encodeURIComponent(window.to)}`;
-      const [s, t, u] = await Promise.all([
+      const [s, t, u, b] = await Promise.all([
         fetch(`/api/admin/ai-usage/summary?${qs}`, { credentials: "include" }).then((r) => r.json()),
         fetch(`/api/admin/ai-usage/timeseries?${qs}&granularity=${granularity}`, { credentials: "include" }).then((r) => r.json()),
         fetch(`/api/admin/ai-usage/users?${qs}&limit=25&sortBy=cost`, { credentials: "include" }).then((r) => r.json()),
+        // Daily-budget-top is window-independent (always "today" in Yemen TZ).
+        fetch(`/api/admin/ai-usage/daily-budget-top?limit=5`, { credentials: "include" }).then((r) => r.json()),
       ]);
       if (s?.error) throw new Error(s.error);
       setSummary(s);
       setTimeseries(t);
       setUsers(u?.users || []);
+      setDailyBudgetTop(b?.error ? null : b);
     } catch (err: any) {
       toast({ title: "فشل تحميل البيانات", description: String(err?.message || err), variant: "destructive" });
     } finally {
@@ -269,6 +299,100 @@ export function AdminAiUsage() {
           tone="sky"
         />
       </div>
+
+      {/* Daily-rolling budget — top spenders TODAY (Yemen TZ).
+         Always shows "today" in Yemen TZ regardless of the selected window
+         preset; the cap is daily-rolling so a 30d preset would dilute the
+         per-day signal. */}
+      <section className="glass rounded-2xl border border-white/10 overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between flex-wrap gap-2">
+          <h3 className="font-bold text-sm flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-rose-400" />
+            أعلى المشتركين بالتكلفة اليوم — حسب نسبة استهلاك الميزانية اليومية
+          </h3>
+          <span className="text-[11px] text-muted-foreground">
+            {dailyBudgetTop ? `حتى ${fmtFullDateTime(dailyBudgetTop.asOf)}` : "—"}
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          {!dailyBudgetTop || dailyBudgetTop.rows.length === 0 ? (
+            <div className="p-6 text-center text-xs text-muted-foreground">
+              لا يوجد مشتركون قاموا باستهلاك ميزانية اليوم بعد.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="bg-black/30">
+                <TableRow className="border-white/5">
+                  <TableHead className="text-right">المشترك</TableHead>
+                  <TableHead className="text-right">المادة</TableHead>
+                  <TableHead className="text-right">الباقة</TableHead>
+                  <TableHead className="text-right">صرف اليوم</TableHead>
+                  <TableHead className="text-right">حد اليوم</TableHead>
+                  <TableHead className="text-right">نسبة اليوم</TableHead>
+                  <TableHead className="text-right">الإجمالي / السقف</TableHead>
+                  <TableHead className="text-right">أيام متبقية</TableHead>
+                  <TableHead className="text-right">الحالة</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dailyBudgetTop.rows.map((r) => {
+                  const pctDaily = Math.min(100, Math.round(r.dailyRatio * 100));
+                  const pctTotal = Math.min(100, Math.round(r.totalRatio * 100));
+                  const dailyTone = pctDaily >= 100
+                    ? "text-rose-400"
+                    : pctDaily >= 75
+                      ? "text-amber-400"
+                      : "text-emerald-400";
+                  return (
+                    <TableRow key={r.subscriptionId} className="border-white/5">
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold">{r.userName || "—"}</span>
+                          <span className="text-[10px] text-muted-foreground" dir="ltr">{r.userEmail || ""}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">{r.subjectName || r.subjectId || "—"}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px]">
+                          {r.plan || "—"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{fmtMoney(r.todaySpentUsd)}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{fmtMoney(r.dailyCapUsd)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2 min-w-[120px]">
+                          <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                            <div
+                              className={`h-full ${pctDaily >= 100 ? "bg-rose-500" : pctDaily >= 75 ? "bg-amber-500" : "bg-emerald-500"}`}
+                              style={{ width: `${pctDaily}%` }}
+                            />
+                          </div>
+                          <span className={`text-[11px] font-bold ${dailyTone} tabular-nums`}>{pctDaily}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-[11px] text-muted-foreground">
+                        {fmtMoney(r.totalSpentUsd)} / {fmtMoney(r.capUsd)} ({pctTotal}%)
+                      </TableCell>
+                      <TableCell className="text-xs">{fmtArabicNumber(r.daysRemaining)}</TableCell>
+                      <TableCell>
+                        {r.dailyMode === "exhausted" ? (
+                          <Badge className="bg-rose-500/15 border-rose-500/30 text-rose-300 text-[10px]" variant="outline">
+                            انتقل للنموذج السريع
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-emerald-500/15 border-emerald-500/30 text-emerald-300 text-[10px]" variant="outline">
+                            ضمن الميزانية
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </section>
 
       {/* Time series area chart */}
       <section className="glass rounded-2xl border border-white/10 p-4">

@@ -4,7 +4,10 @@ import {
   db,
   aiUsageEventsTable,
   usersTable,
+  userSubjectSubscriptionsTable,
 } from "@workspace/db";
+import { getCostCapStatus } from "../lib/cost-cap";
+import { getStartOfTodayYemen } from "../lib/yemen-time";
 
 const router: IRouter = Router();
 
@@ -407,6 +410,106 @@ router.get("/admin/ai-usage/user/:id", async (req, res): Promise<any> => {
   } catch (e: any) {
     console.error("[ai-usage/user] error:", e?.message || e);
     res.status(500).json({ error: "USER_DETAIL_FAILED" });
+  }
+});
+
+// ── GET /api/admin/ai-usage/daily-budget-top ────────────────────────────────
+// Top active subscriptions by today's daily-budget consumption ratio.
+// Surfaces students who are pushing the new daily-rolling cap so the platform
+// owner can verify the redistribution policy behaves as designed.
+router.get("/admin/ai-usage/daily-budget-top", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+  const limit = Math.min(20, Math.max(1, Number(req.query.limit || 5)));
+
+  try {
+    const startOfToday = getStartOfTodayYemen();
+
+    // Step 1: pull the top spenders TODAY (per active subscription) — filter
+    // server-side by joining usage events to active subscriptions on the
+    // (userId, subjectId) pair the cost-cap is also keyed on.
+    const todaysTop = await db
+      .select({
+        subscriptionId: userSubjectSubscriptionsTable.id,
+        userId: userSubjectSubscriptionsTable.userId,
+        subjectId: userSubjectSubscriptionsTable.subjectId,
+        subjectName: userSubjectSubscriptionsTable.subjectName,
+        plan: userSubjectSubscriptionsTable.plan,
+        region: userSubjectSubscriptionsTable.region,
+        createdAt: userSubjectSubscriptionsTable.createdAt,
+        expiresAt: userSubjectSubscriptionsTable.expiresAt,
+        paidPriceYer: userSubjectSubscriptionsTable.paidPriceYer,
+        userEmail: usersTable.email,
+        userName: usersTable.displayName,
+        todaySpentRaw: sql<string>`coalesce(sum(${aiUsageEventsTable.costUsd}), 0)::text`,
+      })
+      .from(userSubjectSubscriptionsTable)
+      .leftJoin(usersTable, eq(usersTable.id, userSubjectSubscriptionsTable.userId))
+      .leftJoin(
+        aiUsageEventsTable,
+        and(
+          eq(aiUsageEventsTable.userId, userSubjectSubscriptionsTable.userId),
+          eq(aiUsageEventsTable.subjectId, userSubjectSubscriptionsTable.subjectId),
+          gte(aiUsageEventsTable.createdAt, startOfToday),
+        ),
+      )
+      .where(sql`${userSubjectSubscriptionsTable.expiresAt} > now()`)
+      .groupBy(
+        userSubjectSubscriptionsTable.id,
+        usersTable.email,
+        usersTable.displayName,
+      )
+      .orderBy(desc(sql`coalesce(sum(${aiUsageEventsTable.costUsd}), 0)`))
+      .limit(Math.max(limit * 4, 20));
+
+    // Step 2: compute the authoritative daily-budget status for each candidate
+    // (small N — the heaviest 20 today). Reuses the live `getCostCapStatus`
+    // logic so the admin view never drifts from what the router actually sees.
+    const enriched = await Promise.all(
+      todaysTop
+        .filter((r) => Number(r.todaySpentRaw || 0) > 0)
+        .map(async (r) => {
+          const status = await getCostCapStatus(r.userId, {
+            id: r.subscriptionId,
+            subjectId: r.subjectId,
+            createdAt: r.createdAt,
+            expiresAt: r.expiresAt,
+            paidPriceYer: r.paidPriceYer,
+            region: r.region,
+            plan: r.plan,
+          });
+          const dailyRatio = status.dailyCapUsd > 0 ? status.todaySpentUsd / status.dailyCapUsd : 0;
+          return {
+            subscriptionId: r.subscriptionId,
+            userId: r.userId,
+            userEmail: r.userEmail,
+            userName: r.userName,
+            subjectId: r.subjectId,
+            subjectName: r.subjectName,
+            plan: r.plan,
+            region: r.region,
+            todaySpentUsd: status.todaySpentUsd,
+            dailyCapUsd: status.dailyCapUsd,
+            dailyRatio,
+            totalSpentUsd: status.spentUsd,
+            capUsd: status.capUsd,
+            totalRatio: status.ratio,
+            daysRemaining: status.daysRemaining,
+            dailyMode: status.dailyMode,
+            forceCheapModel: status.forceCheapModel,
+          };
+        }),
+    );
+
+    enriched.sort((a, b) => b.dailyRatio - a.dailyRatio);
+    res.json({
+      asOf: new Date().toISOString(),
+      startOfTodayYemen: startOfToday.toISOString(),
+      rows: enriched.slice(0, limit),
+    });
+  } catch (e: any) {
+    console.error("[ai-usage/daily-budget-top] error:", e?.message || e);
+    res.status(500).json({ error: "DAILY_BUDGET_FAILED" });
   }
 });
 

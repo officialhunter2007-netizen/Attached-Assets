@@ -12,6 +12,7 @@ import {
 import { isUnlimitedEmail } from "../lib/admins";
 import { getCostCapStatus } from "../lib/cost-cap";
 import { pickTeachingModel, detectDeepReasoning, detectMasteryCheckFromHistory, detectLabReport } from "../lib/teaching-router";
+import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
 import {
   getActiveMaterialContext,
   loadProgress,
@@ -146,19 +147,10 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   };
 }
 
-// Yemen is UTC+3
-function getYemenDateString(): string {
-  return new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-function getNextMidnightYemen(): Date {
-  const YEMEN_OFFSET_MS = 3 * 60 * 60 * 1000;
-  const nowYemen = new Date(Date.now() + YEMEN_OFFSET_MS);
-  const tomorrowYemen = new Date(nowYemen);
-  tomorrowYemen.setUTCHours(0, 0, 0, 0);
-  tomorrowYemen.setUTCDate(tomorrowYemen.getUTCDate() + 1);
-  return new Date(tomorrowYemen.getTime() - YEMEN_OFFSET_MS);
-}
+// Yemen-TZ helpers (`getYemenDateString`, `getNextMidnightYemen`) are imported
+// at the top of this file from `../lib/yemen-time` — single source of truth so
+// the daily-rolling cost-cap budget and the daily-session/messages reset share
+// the exact same midnight boundary.
 
 const TEACHER_CSS = `
 <style>
@@ -553,19 +545,21 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   // RED LINE: a student's AI cost on this subscription must NEVER exceed 50%
   // of what they paid. Free-tier students are protected by the message-count
   // limit instead, so we skip the cap there. Unlimited admins are exempt.
+  //
+  // The cost-cap is now a daily-rolling QUALITY throttle, not a hard block:
+  // when today's slice of the remaining budget is consumed `forceCheapModel`
+  // flips to true and the router downgrades to Haiku for the rest of the day.
+  // Tomorrow at Yemen midnight a fresh daily slice is computed automatically.
+  // No paid student is ever silenced mid-subscription on cost grounds — the
+  // only legitimate refusals are free-tier 15-msg cap, daily 20/40/70 message
+  // cap, and natural subscription expiry, all handled elsewhere.
   const costStatus = unlimited || isFirstLesson || !subjectSub
-    ? { spentUsd: 0, capUsd: 0, ratio: 0, mode: "ok" as const, forceCheapModel: false, blocked: false }
+    ? {
+        spentUsd: 0, todaySpentUsd: 0, capUsd: 0, dailyCapUsd: 0, daysRemaining: 0,
+        ratio: 0, mode: "ok" as const, dailyMode: "ok" as const,
+        forceCheapModel: false, blocked: false as const,
+      }
     : await getCostCapStatus(userId, subjectSub);
-  if (costStatus.blocked) {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    const friendly = `<div><p>وصلت إلى الحد الأقصى لتكلفة المعلم الذكي على اشتراكك الحالي 🌙</p><p>لحماية التوازن بين ما دفعت وما تحصل عليه، يتوقف المعلم مؤقتاً حتى تجديد اشتراكك.</p><p>راجع ما تعلّمته في صفحة الجلسات السابقة، وعندما تكون جاهزاً جدّد الاشتراك من صفحة الباقات.</p></div>`;
-    res.write(`data: ${JSON.stringify({ content: friendly })}\n\n`);
-    res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, quotaExhausted: true, messagesRemaining: 0, costCapped: true })}\n\n`);
-    res.end();
-    return;
-  }
 
   // ── Session limit (1 session per day, resets at midnight Yemen time) ──
   // We claim today's date with an atomic conditional UPDATE so that concurrent
@@ -1545,7 +1539,7 @@ ${retrievedBlock}
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
         latencyMs: Date.now() - __teachStart,
-        metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode },
+        metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode },
       });
     } catch {}
   } catch (err: any) {
@@ -1560,7 +1554,7 @@ ${retrievedBlock}
       latencyMs: Date.now() - __teachStart,
       status: "error",
       errorMessage: String(err?.message ?? err).slice(0, 500),
-      metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode },
+      metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode },
     });
     void __teachStream;
     console.error("[ai/teach] anthropic stream error:", err?.message || err);
@@ -1662,12 +1656,14 @@ ${retrievedBlock}
   // (>= 60% of cap). The card costs ~$0.001 each — small per call but enough
   // to push a near-cap student over the 50%-of-paid red line if we're not
   // disciplined. We'd rather drop the bonus than break the promise.
+  // `costStatus.blocked` is dropped (always false now); cards still pause on
+  // any day where `forceCheapModel` is true, then resume the next morning at
+  // Yemen midnight when a fresh daily slice is allocated.
   const shouldGenerateStudyCard = stageComplete
     && !isDiagnosticPhase
     && !!subjectId
     && fullResponse.trim().length > 0
     && !isFirstLesson
-    && !costStatus.blocked
     && !costStatus.forceCheapModel;
   if (shouldGenerateStudyCard) {
     const cardStart = Date.now();

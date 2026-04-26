@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import claudeLogo from "@assets/image_1777231831214.png";
 import { AppLayout } from "@/components/layout/app-layout";
 import { markLeftSubPageWithoutSub, clearLeftSubPageWithoutSub } from "@/components/welcome-offer-modal";
 import {
@@ -798,6 +799,99 @@ export default function Subscription() {
               <p className="text-xs sm:text-sm text-center text-foreground/80 leading-relaxed">
                 <span className="text-gold font-bold">الخلاصة:</span> أنت لا تدفع مقابل "محادثة" — أنت تستثمر في معلّم متخصّص يرافقك خطوة بخطوة حتى تتقن مادتك.
               </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Claude branding + smart-rotation reassurance ─────────────────── */}
+        <div className="mb-14" dir="rtl">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl sm:text-3xl font-black flex items-center justify-center gap-3 mb-3">
+              <ShieldCheck className="w-7 h-7 text-gold" />
+              تقنية المعلّم وضمان الجودة
+            </h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
+              نريدك أن تعرف بالضبط ما الذي يقف خلف معلّمك الذكي في نُخبة، ولماذا يبقى معك حتى آخر يوم في اشتراكك.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-5">
+            {/* Card A — Claude branding */}
+            <div className="glass rounded-3xl border-2 border-gold/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(245,158,11,0.06)] flex flex-col">
+              <div className="flex items-center gap-4 mb-5">
+                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white flex items-center justify-center p-2 shadow-md">
+                  <img
+                    src={claudeLogo}
+                    alt="Claude by Anthropic"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <div className="flex-1">
+                  <div className="text-[11px] sm:text-xs font-bold text-gold/80 mb-1 tracking-wide">
+                    POWERED BY
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
+                    مدعوم بأقوى تقنيات Claude من Anthropic
+                  </h3>
+                </div>
+              </div>
+              <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
+                معلّمك في نُخبة لا يعمل على ChatGPT ولا DeepSeek — بل على عائلة <span className="text-gold font-bold">Claude</span> من Anthropic، إحدى أقوى نماذج الذكاء الاصطناعي في العالم اليوم.
+              </p>
+              <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>
+                    <span className="font-bold text-foreground">النموذج العميق</span> للحظات التي تستحق التفكير الدقيق: التشخيص، اختبار الفهم، تقارير المختبر، ولحظات "لم أفهم".
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>
+                    <span className="font-bold text-foreground">النموذج السريع</span> للأسئلة اليومية والإجابات الفورية — استجابة خاطفة دون انتظار.
+                  </span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Card B — Smart daily rotation reassurance */}
+            <div className="glass rounded-3xl border-2 border-emerald-500/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(16,185,129,0.06)] flex flex-col">
+              <div className="flex items-center gap-4 mb-5">
+                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+                  <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-[11px] sm:text-xs font-bold text-emerald-400/90 mb-1 tracking-wide">
+                    ضمان الاستمرارية
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
+                    نظام جودة ذكي طوال الأسبوعين
+                  </h3>
+                </div>
+              </div>
+              <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
+                صمّمنا نظاماً يضمن لك خدمة <span className="text-emerald-400 font-bold">متّسقة وعادلة</span> طوال أيام اشتراكك الـ١٤ — لصالحك أنت قبل أي شيء آخر.
+              </p>
+              <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>
+                    لن يُقطع عنك المعلّم في منتصف الاشتراك مهما كان استخدامك — ستستمر في التعلّم كل يوم حتى آخر يوم.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>
+                    النموذجان (العميق والسريع) يتناوبان داخل اليوم بحسب نوع سؤالك، فيصلك دائماً النموذج المناسب للحظة المناسبة.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>
+                    كل صباح يُجدَّد رصيدك اليومي تلقائياً — اليوم الجديد يبدأ دائماً بصفحة بيضاء.
+                  </span>
+                </li>
+              </ul>
             </div>
           </div>
         </div>

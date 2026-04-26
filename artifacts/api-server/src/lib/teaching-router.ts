@@ -61,9 +61,17 @@ export function pickTeachingModel(input: RouterInput): RouterDecision {
     return { model: HAIKU, provider: "anthropic", reason: "free_tier_locked_haiku" };
   }
 
-  // Hard rule: cost cap getting close → Haiku only.
+  // Daily-rolling budget exhausted → Haiku for the rest of the day.
+  // Two distinct reasons help admin analytics see whether students are hitting
+  // the *daily* slice (expected; resets at Yemen midnight) vs the *lifetime*
+  // 50%-of-paid cap (rare; should never happen before daily exhaustion fires
+  // first, but covered for defense-in-depth). Both downgrade quality only —
+  // the student is never blocked mid-subscription.
   if (input.costStatus.forceCheapModel) {
-    return { model: HAIKU, provider: "anthropic", reason: `cost_cap_${input.costStatus.mode}` };
+    const reason = input.costStatus.spentUsd >= input.costStatus.capUsd
+      ? "total_cap_exhausted"
+      : "daily_cap_exhausted";
+    return { model: HAIKU, provider: "anthropic", reason };
   }
 
   // Selective Sonnet usage — strict whitelist only.
