@@ -50,6 +50,42 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE INDEX IF NOT EXISTS "idx_ai_usage_route" ON "ai_usage_events" ("route")`,
     ],
   },
+  {
+    table: "student_mistakes",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "student_mistakes" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "subject_id" text NOT NULL,
+        "topic" text NOT NULL,
+        "mistake" text NOT NULL,
+        "correction" text,
+        "resolved" boolean NOT NULL DEFAULT false,
+        "resolved_at" timestamp with time zone,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "student_mistakes_user_subject_idx" ON "student_mistakes" ("user_id", "subject_id", "resolved")`,
+    ],
+  },
+  {
+    table: "study_cards",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "study_cards" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "subject_id" text NOT NULL,
+        "stage_index" integer,
+        "stage_name" text,
+        "card_html" text NOT NULL,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "study_cards_user_subject_idx" ON "study_cards" ("user_id", "subject_id", "created_at")`,
+    ],
+  },
 ];
 
 const REQUIRED_COLUMNS: TableSpec[] = [
@@ -90,6 +126,13 @@ const REQUIRED_COLUMNS: TableSpec[] = [
       { name: "profile_image", ddl: "text" },
       { name: "role", ddl: "text NOT NULL DEFAULT 'user'" },
       { name: "password_hash", ddl: "text" },
+    ],
+  },
+  {
+    table: "user_subject_subscriptions",
+    columns: [
+      { name: "paid_price_yer", ddl: "integer" },
+      { name: "region", ddl: "text" },
     ],
   },
 ];
