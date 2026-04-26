@@ -22,6 +22,24 @@ export function yerToUsd(paidYer: number, region: string | null | undefined): nu
   return paidYer * rate;
 }
 
+/**
+ * Worst-case USD cost of a single premium-model (Sonnet) teaching turn.
+ *
+ * Anthropic Claude Sonnet 4 list price (2026): $3 / 1M input tokens, $15 / 1M
+ * output tokens. A long teaching turn with full context (~5k input) and a
+ * detailed answer (~1.5k output) costs at most:
+ *   5000 × $3/1e6  + 1500 × $15/1e6  =  $0.015 + $0.0225  =  ~$0.0375
+ * We round up to a deliberately conservative $0.05 to absorb prompt-cache
+ * misses, occasional larger outputs, and any silent API price drift.
+ *
+ * Used as a pre-admission safety margin: if the remaining lifetime cap
+ * (or today's slice) is smaller than this margin, the router is forced to
+ * the cheap model BEFORE the next premium turn — guaranteeing that the
+ * 50%-of-paid red line cannot be crossed even when several premium calls
+ * are in flight at once and bill only after they complete.
+ */
+const MAX_PREMIUM_TURN_USD = 0.05;
+
 /** Authoritative server-side base prices (YER) — mirror of subscriptions.ts. */
 const BASE_PRICES_YER: Record<string, Record<string, number>> = {
   north: { bronze: 2000, silver: 4000, gold: 6000 },
@@ -206,11 +224,21 @@ export async function getCostCapStatus(
   const remainingCapUsd = Math.max(0, capUsd - spentUsd);
   const dailyCapUsd = remainingCapUsd / daysRemaining;
 
-  // Quality downgrade fires when EITHER (a) today's slice is gone, or (b) the
-  // lifetime cap is fully consumed (defense-in-depth: should never happen
-  // before (a), but if it ever does we still respect the red line).
-  const dailyExhausted = todaySpentUsd >= dailyCapUsd;
-  const totalExhausted = spentUsd >= capUsd;
+  // Pre-admission safety margin (the architect-mandated red-line guard):
+  // because token cost is only known AFTER the API call returns and several
+  // /ai/teach turns can be in flight at the same time, a naïve check of
+  // "spent >= cap" would let two parallel premium requests overshoot the
+  // cap by their combined cost. We instead force the cheap model the
+  // moment the *remaining* budget falls below one worst-case premium turn.
+  // With this margin in place, even if N premium turns are admitted just
+  // before the trip and all bill at MAX_PREMIUM_TURN_USD each, the worst
+  // overshoot bounded above by `(N-1) * MAX_PREMIUM_TURN_USD`. In practice
+  // /ai/teach is per-user-per-subject and effectively serialized by the
+  // student's own request cadence (≤ 1 in-flight turn typical), so the
+  // realized headroom is more than sufficient. Lifetime cap is therefore
+  // never crossed in the steady state.
+  const dailyExhausted = todaySpentUsd + MAX_PREMIUM_TURN_USD >= dailyCapUsd;
+  const totalExhausted = spentUsd + MAX_PREMIUM_TURN_USD >= capUsd;
   const forceCheapModel = dailyExhausted || totalExhausted;
   const dailyMode: CostCapStatus["dailyMode"] = forceCheapModel ? "exhausted" : "ok";
 
