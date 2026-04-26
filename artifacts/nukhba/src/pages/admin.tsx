@@ -34,6 +34,7 @@ import {
 import { AdminInsightsChat } from "@/components/admin-insights-chat";
 import { AdminDiscountCodes } from "@/components/admin-discount-codes";
 import { AdminAiUsage } from "@/components/admin-ai-usage";
+import { AdminDbMonitor } from "@/components/admin-db-monitor";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -593,6 +594,10 @@ export default function Admin() {
             <TabsTrigger value="ai-usage" className="flex items-center gap-1.5">
               <Brain className="w-3.5 h-3.5 text-emerald-400" />
               تكاليف الذكاء الاصطناعي
+            </TabsTrigger>
+            <TabsTrigger value="db-monitor" className="flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-sky-400" />
+              قاعدة البيانات
             </TabsTrigger>
           </TabsList>
 
@@ -1255,6 +1260,11 @@ export default function Admin() {
           {/* AI Usage / Cost Tracking Tab */}
           <TabsContent value="ai-usage">
             <AdminAiUsage />
+          </TabsContent>
+
+          {/* DB Monitor Tab */}
+          <TabsContent value="db-monitor">
+            <AdminDbMonitor />
           </TabsContent>
         </Tabs>
       </div>

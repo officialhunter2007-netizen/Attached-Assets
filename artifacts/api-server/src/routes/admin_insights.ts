@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and, gte, or, ilike } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lt, or, ilike } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -1168,6 +1168,121 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
   res.setHeader("Cache-Control", "no-store");
   res.send(lines.join("\n"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/admin/conversation-logs
+// Delete conversation messages for a specific user+subject pair.
+// ─────────────────────────────────────────────────────────────────────────────
+router.delete("/admin/conversation-logs", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const userId = Number(req.query.userId);
+  const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : null;
+
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return res.status(400).json({ error: "userId مطلوب وصحيح" });
+  }
+  if (!subjectId) {
+    return res.status(400).json({ error: "subjectId مطلوب" });
+  }
+
+  try {
+    const result = await db
+      .delete(aiTeacherMessagesTable)
+      .where(and(
+        eq(aiTeacherMessagesTable.userId, userId),
+        eq(aiTeacherMessagesTable.subjectId, subjectId),
+      ))
+      .returning({ id: aiTeacherMessagesTable.id });
+
+    res.json({ ok: true, deleted: result.length });
+  } catch (err: any) {
+    console.error("[admin/conversation-logs] delete error:", err?.message || err);
+    res.status(500).json({ error: "DELETE_FAILED" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/admin/conversation-logs/bulk
+// Bulk-purge conversation messages older than N days.
+// ─────────────────────────────────────────────────────────────────────────────
+router.delete("/admin/conversation-logs/bulk", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const days = Number(req.query.olderThanDays);
+  if (!Number.isFinite(days) || days < 1) {
+    return res.status(400).json({ error: "olderThanDays يجب أن يكون عدداً موجباً" });
+  }
+
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  try {
+    const result = await db
+      .delete(aiTeacherMessagesTable)
+      .where(lt(aiTeacherMessagesTable.createdAt, cutoff))
+      .returning({ id: aiTeacherMessagesTable.id });
+
+    res.json({ ok: true, deleted: result.length, cutoff: cutoff.toISOString() });
+  } catch (err: any) {
+    console.error("[admin/conversation-logs/bulk] delete error:", err?.message || err);
+    res.status(500).json({ error: "BULK_DELETE_FAILED" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/db-size
+// Returns total DB size in MB + per-table breakdown (size + row estimate).
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/db-size", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  try {
+    const [dbRow] = await db.execute<{ total_bytes: string }>(
+      sql`SELECT pg_database_size(current_database())::text AS total_bytes`,
+    );
+    const totalBytes = Number((dbRow as any).total_bytes ?? 0);
+
+    const tableRows = await db.execute<{
+      table_name: string;
+      total_bytes: string;
+      data_bytes: string;
+      index_bytes: string;
+      row_estimate: string;
+    }>(sql`
+      SELECT
+        t.tablename AS table_name,
+        (pg_total_relation_size('"' || t.tablename || '"'))::text AS total_bytes,
+        (pg_relation_size('"' || t.tablename || '"'))::text AS data_bytes,
+        (pg_indexes_size('"' || t.tablename || '"'))::text AS index_bytes,
+        (c.reltuples::bigint)::text AS row_estimate
+      FROM pg_tables t
+      JOIN pg_class c ON c.relname = t.tablename
+      WHERE t.schemaname = 'public'
+      ORDER BY pg_total_relation_size('"' || t.tablename || '"') DESC
+      LIMIT 30
+    `);
+
+    const tables = (tableRows as any[]).map((r: any) => ({
+      name: r.table_name,
+      totalMb: Number(r.total_bytes) / (1024 * 1024),
+      dataMb: Number(r.data_bytes) / (1024 * 1024),
+      indexMb: Number(r.index_bytes) / (1024 * 1024),
+      rowEstimate: Number(r.row_estimate),
+    }));
+
+    res.json({
+      totalMb: totalBytes / (1024 * 1024),
+      totalBytes,
+      tables,
+    });
+  } catch (err: any) {
+    console.error("[admin/db-size] error:", err?.message || err);
+    res.status(500).json({ error: "DB_SIZE_FAILED" });
+  }
 });
 
 export { router as adminInsightsRouter };

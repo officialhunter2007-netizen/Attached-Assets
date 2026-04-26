@@ -8,7 +8,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   RefreshCw, DollarSign, Activity, Users as UsersIcon, Zap,
-  TrendingUp, AlertCircle, X,
+  TrendingUp, X,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -60,12 +60,6 @@ type UserDetail = {
   recent: Array<{ id: number; createdAt: string; route: string; provider: string; model: string; inputTokens: number; outputTokens: number; costUsd: number; latencyMs: number | null; status: string; subjectId: string | null }>;
 };
 
-type EventRow = {
-  id: number; createdAt: string; userId: number | null; userEmail: string | null; userName: string | null;
-  route: string; provider: string; model: string; inputTokens: number; outputTokens: number;
-  cachedInputTokens: number; costUsd: number; latencyMs: number | null; status: string;
-  errorMessage: string | null; subjectId: string | null;
-};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const PRESETS: Array<{ key: string; label: string; ms: number | null }> = [
@@ -128,9 +122,6 @@ export function AdminAiUsage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [timeseries, setTimeseries] = useState<Timeseries | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
-  const [events, setEvents] = useState<EventRow[]>([]);
-  const [eventsTotal, setEventsTotal] = useState(0);
-  const [eventsOffset, setEventsOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [drillUserId, setDrillUserId] = useState<number | null>(null);
@@ -151,19 +142,15 @@ export function AdminAiUsage() {
     setLoading(true);
     try {
       const qs = `from=${encodeURIComponent(window.from)}&to=${encodeURIComponent(window.to)}`;
-      const [s, t, u, e] = await Promise.all([
+      const [s, t, u] = await Promise.all([
         fetch(`/api/admin/ai-usage/summary?${qs}`, { credentials: "include" }).then((r) => r.json()),
         fetch(`/api/admin/ai-usage/timeseries?${qs}&granularity=${granularity}`, { credentials: "include" }).then((r) => r.json()),
         fetch(`/api/admin/ai-usage/users?${qs}&limit=25&sortBy=cost`, { credentials: "include" }).then((r) => r.json()),
-        fetch(`/api/admin/ai-usage/events?limit=50&offset=0`, { credentials: "include" }).then((r) => r.json()),
       ]);
       if (s?.error) throw new Error(s.error);
       setSummary(s);
       setTimeseries(t);
       setUsers(u?.users || []);
-      setEvents(e?.events || []);
-      setEventsTotal(e?.total || 0);
-      setEventsOffset(0);
     } catch (err: any) {
       toast({ title: "فشل تحميل البيانات", description: String(err?.message || err), variant: "destructive" });
     } finally {
@@ -172,18 +159,6 @@ export function AdminAiUsage() {
   }, [window.from, window.to, granularity, toast]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
-
-  const loadMoreEvents = useCallback(async () => {
-    const nextOffset = eventsOffset + 50;
-    try {
-      const r = await fetch(`/api/admin/ai-usage/events?limit=50&offset=${nextOffset}`, { credentials: "include" });
-      const data = await r.json();
-      setEvents((prev) => [...prev, ...(data?.events || [])]);
-      setEventsOffset(nextOffset);
-    } catch (e: any) {
-      toast({ title: "تعذّر تحميل المزيد", description: String(e?.message || e), variant: "destructive" });
-    }
-  }, [eventsOffset, toast]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -483,58 +458,6 @@ export function AdminAiUsage() {
             </TableBody>
           </Table>
         </div>
-      </section>
-
-      {/* Recent events */}
-      <section className="glass rounded-2xl border border-white/10 overflow-hidden">
-        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
-          <h3 className="font-bold text-sm">أحدث الطلبات</h3>
-          <span className="text-xs text-muted-foreground">{fmtArabicNumber(events.length)} من {fmtArabicNumber(eventsTotal)}</span>
-        </div>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader className="bg-black/30">
-              <TableRow className="border-white/5">
-                <TableHead className="text-right">الوقت</TableHead>
-                <TableHead className="text-right">المستخدم</TableHead>
-                <TableHead className="text-right">المسار</TableHead>
-                <TableHead className="text-right">النموذج</TableHead>
-                <TableHead className="text-right">الدخل</TableHead>
-                <TableHead className="text-right">الخرج</TableHead>
-                <TableHead className="text-right">التكلفة</TableHead>
-                <TableHead className="text-right">الزمن</TableHead>
-                <TableHead className="text-right">الحالة</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {events.map((e) => (
-                <TableRow key={e.id} className="border-white/5">
-                  <TableCell className="text-xs text-muted-foreground" dir="ltr">{fmtFullDateTime(e.createdAt)}</TableCell>
-                  <TableCell className="text-xs">{e.userName || e.userEmail || (e.userId ? `#${e.userId}` : "—")}</TableCell>
-                  <TableCell className="font-mono text-[10px]">{e.route}</TableCell>
-                  <TableCell className="font-mono text-[10px]" dir="ltr">{e.model}</TableCell>
-                  <TableCell className="font-mono text-xs">{fmtTokens(e.inputTokens)}</TableCell>
-                  <TableCell className="font-mono text-xs">{fmtTokens(e.outputTokens)}</TableCell>
-                  <TableCell className="font-bold text-emerald-400 text-xs">{fmtMoney(e.costUsd)}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{e.latencyMs ? `${e.latencyMs}ms` : "—"}</TableCell>
-                  <TableCell>
-                    {e.status === "error"
-                      ? <Badge className="bg-red-500/20 text-red-300 border-red-500/30 gap-1"><AlertCircle className="w-3 h-3" />خطأ</Badge>
-                      : <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30">نجاح</Badge>}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {events.length === 0 && (
-                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-6">{loading ? "جارٍ التحميل…" : "لا توجد طلبات"}</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-        {events.length < eventsTotal && (
-          <div className="px-4 py-3 border-t border-white/10 text-center">
-            <Button size="sm" variant="outline" onClick={loadMoreEvents}>تحميل المزيد</Button>
-          </div>
-        )}
       </section>
 
       {/* Drill-down dialog */}

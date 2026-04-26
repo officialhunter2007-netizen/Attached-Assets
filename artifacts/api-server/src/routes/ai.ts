@@ -32,6 +32,36 @@ const router: IRouter = Router();
 // message is paid AI cost the platform absorbs without revenue.
 const FREE_LESSON_MESSAGE_LIMIT = 15;
 
+/**
+ * Extract a compact, human-readable excerpt from an AI teaching response for
+ * storage in ai_teacher_messages. We strip markdown formatting and take the
+ * first ~maxChars characters, trimmed to the nearest sentence boundary. This
+ * keeps the table small while giving admins enough context to understand what
+ * was taught. Full AI responses are never stored.
+ */
+function extractTeachingExcerpt(text: string, maxChars = 300): string {
+  const plain = text
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*{1,3}([^*\n]+)\*{1,3}/g, "$1")
+    .replace(/`[^`\n]+`/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\n{2,}/g, " ")
+    .replace(/\n/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (plain.length <= maxChars) return plain;
+  const sub = plain.slice(0, maxChars);
+  const sentenceEnds = [".", "؟", "!", "؟", "\u060C"];
+  let best = -1;
+  for (const ch of sentenceEnds) {
+    const idx = sub.lastIndexOf(ch);
+    if (idx > best) best = idx;
+  }
+  if (best > maxChars * 0.4) return plain.slice(0, best + 1).trim();
+  return sub.trimEnd() + "…";
+}
+
 // Accounts with unlimited free access — no quotas, no daily limits, no counters.
 // Configured via the UNLIMITED_ACCESS_EMAILS env var (comma-separated).
 function isUnlimitedUser(user: { email?: string | null } | null | undefined): boolean {
@@ -1728,12 +1758,16 @@ ${retrievedBlock}
         .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
         .trim();
       if (cleanAssistant.length > 0) {
+        // Store a compact excerpt (~300 chars) of the AI response instead of
+        // the full text to keep ai_teacher_messages row sizes small. The excerpt
+        // is enough for the admin to understand the teaching content.
+        const excerpt = extractTeachingExcerpt(cleanAssistant, 300);
         await db.insert(aiTeacherMessagesTable).values({
           userId,
           subjectId,
           subjectName: subjectName ?? null,
           role: "assistant",
-          content: cleanAssistant.slice(0, 8000),
+          content: excerpt,
           isDiagnostic: isDiagnosticPhase ? 1 : 0,
           stageIndex: typeof currentStage === "number" ? currentStage : null,
         });
