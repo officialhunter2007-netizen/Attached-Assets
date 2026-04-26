@@ -23,12 +23,30 @@ export function yerToUsd(paidYer: number, region: string | null | undefined): nu
 
 /** Authoritative server-side base prices (YER) — mirror of subscriptions.ts. */
 const BASE_PRICES_YER: Record<string, Record<string, number>> = {
+  north: { bronze: 2000, silver: 4000, gold: 6000 },
+  south: { bronze: 6000, silver: 12000, gold: 18000 },
+};
+
+/**
+ * LEGACY price table — used ONLY as the cost-cap fallback for old
+ * `user_subject_subscriptions` rows that pre-date `paid_price_yer` AND were
+ * created before the 2026-04-26 price doubling. Using the *old* (lower)
+ * prices here keeps the AI cost cap honest for legacy students who actually
+ * paid the old rates — using the new doubled prices would silently double
+ * their AI budget and violate the "AI cost ≤ 50% of what they paid" red line.
+ *
+ * NOTE: Brand-new subscriptions never hit this fallback because
+ * `paid_price_yer` is populated from `finalPrice` at approval time
+ * (see `subscriptions.ts` approve handler), so they always use the actual
+ * amount paid (post-discount).
+ */
+const LEGACY_BASE_PRICES_YER: Record<string, Record<string, number>> = {
   north: { bronze: 1000, silver: 2000, gold: 3000 },
   south: { bronze: 3000, silver: 6000, gold: 9000 },
 };
 
 export function inferPaidYerFromPlan(planType: string, region: string | null | undefined): number {
-  const r = (region && BASE_PRICES_YER[region]) || BASE_PRICES_YER.south;
+  const r = (region && LEGACY_BASE_PRICES_YER[region]) || LEGACY_BASE_PRICES_YER.south;
   return r[planType] ?? 0;
 }
 

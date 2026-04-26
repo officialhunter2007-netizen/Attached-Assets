@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
+import { markLeftSubPageWithoutSub, clearLeftSubPageWithoutSub } from "@/components/welcome-offer-modal";
 import {
   useCreateSubscriptionRequest,
   useActivateSubscription,
@@ -35,10 +36,10 @@ const plans: Record<PlanKey, {
     name: "البرونزية",
     icon: <Zap className="w-7 h-7 text-orange-400" />,
     messages: 20,
-    priceNorth: "١٬٠٠٠ ريال",
-    priceSouth: "٣٬٠٠٠ ريال",
-    priceNorthNum: "١٬٠٠٠",
-    priceSouthNum: "٣٬٠٠٠",
+    priceNorth: "٢٬٠٠٠ ريال",
+    priceSouth: "٦٬٠٠٠ ريال",
+    priceNorthNum: "٢٬٠٠٠",
+    priceSouthNum: "٦٬٠٠٠",
     desc: "ابدأ تجربتك مع المعلم الذكي والمختبرات التطبيقية",
     color: "text-orange-400",
     features: [
@@ -53,10 +54,10 @@ const plans: Record<PlanKey, {
     name: "الفضية",
     icon: <Star className="w-7 h-7 text-slate-300" />,
     messages: 40,
-    priceNorth: "٢٬٠٠٠ ريال",
-    priceSouth: "٦٬٠٠٠ ريال",
-    priceNorthNum: "٢٬٠٠٠",
-    priceSouthNum: "٦٬٠٠٠",
+    priceNorth: "٤٬٠٠٠ ريال",
+    priceSouth: "١٢٬٠٠٠ ريال",
+    priceNorthNum: "٤٬٠٠٠",
+    priceSouthNum: "١٢٬٠٠٠",
     desc: "للطالب الجاد — مختبرات أكثر وتدريب أعمق",
     color: "text-slate-300",
     features: [
@@ -73,10 +74,10 @@ const plans: Record<PlanKey, {
     name: "الذهبية",
     icon: <Gem className="w-7 h-7 text-gold" />,
     messages: 70,
-    priceNorth: "٣٬٠٠٠ ريال",
-    priceSouth: "٩٬٠٠٠ ريال",
-    priceNorthNum: "٣٬٠٠٠",
-    priceSouthNum: "٩٬٠٠٠",
+    priceNorth: "٦٬٠٠٠ ريال",
+    priceSouth: "١٨٬٠٠٠ ريال",
+    priceNorthNum: "٦٬٠٠٠",
+    priceSouthNum: "١٨٬٠٠٠",
     desc: "الخيار الأشمل — تعلّم كثيف ومختبرات بلا توقف",
     color: "text-gold",
     features: [
@@ -89,6 +90,14 @@ const plans: Record<PlanKey, {
       "أولوية قصوى في الدعم الفني",
     ],
   },
+};
+
+// Numeric price table mirrors backend `BASE_PRICES` — used for client-side
+// display only (e.g. computing the welcome offer's halved total). The
+// authoritative price is always re-computed on the server.
+const BASE_PRICES_DISPLAY: Record<"north" | "south", Record<PlanKey, number>> = {
+  north: { bronze: 2000, silver: 4000, gold: 6000 },
+  south: { bronze: 6000, silver: 12000, gold: 18000 },
 };
 
 const allSubjectsFlat = [
@@ -127,6 +136,104 @@ export default function Subscription() {
   const [notes, setNotes] = useState("");
   const [activationCode, setActivationCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
+
+  // Welcome offer (50% off, auto-applied for first-time visitors who left
+  // and came back). Backend is source of truth.
+  const [welcomeOffer, setWelcomeOffer] = useState<{
+    active: boolean;
+    expiresAt: string | null;
+    percent: number;
+  }>({ active: false, expiresAt: null, percent: 50 });
+  const submittedRef = useRef(false);
+  useEffect(() => { submittedRef.current = submitted; }, [submitted]);
+
+  // Track first visit to subscription page + read welcome offer state.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await fetch("/api/subscriptions/welcome-offer/visit", {
+          method: "POST", credentials: "include",
+        });
+      } catch {}
+      try {
+        const r = await fetch("/api/subscriptions/welcome-offer", { credentials: "include" });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (cancelled) return;
+        setWelcomeOffer({
+          active: !!data.active,
+          expiresAt: data.expiresAt ?? null,
+          percent: data.percent ?? 50,
+        });
+        if (data.active) clearLeftSubPageWithoutSub();
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // On unmount / page hide: notify the server that the user left the
+  // subscription page without subscribing. The server uses this as a
+  // precondition for welcome-offer eligibility, so we cannot rely on
+  // sessionStorage alone (which a curious client could bypass by calling
+  // /show directly). We use sendBeacon for reliability across both
+  // SPA navigations and full page unloads (close tab / refresh).
+  useEffect(() => {
+    const sendLeaveBeacon = () => {
+      if (submittedRef.current) return;
+      try {
+        const url = "/api/subscriptions/welcome-offer/leave";
+        const blob = new Blob([JSON.stringify({})], { type: "application/json" });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(url, blob);
+        } else {
+          // Fallback: keepalive fetch.
+          fetch(url, { method: "POST", credentials: "include", keepalive: true }).catch(() => {});
+        }
+      } catch {}
+    };
+    const onPageHide = () => sendLeaveBeacon();
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      if (!submittedRef.current) {
+        markLeftSubPageWithoutSub();
+        sendLeaveBeacon();
+      }
+    };
+  }, []);
+
+  // When welcome offer becomes active, drop any previously-entered coupon
+  // (red line: cannot stack discounts).
+  useEffect(() => {
+    if (welcomeOffer.active) {
+      setDiscountInfo(null);
+      setDiscountInput("");
+      setDiscountError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [welcomeOffer.active]);
+
+  // Live countdown for the active welcome banner.
+  const [welcomeNow, setWelcomeNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!welcomeOffer.active) return;
+    const t = setInterval(() => setWelcomeNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [welcomeOffer.active]);
+
+  const welcomeRemainingMs = welcomeOffer.expiresAt
+    ? Math.max(0, new Date(welcomeOffer.expiresAt).getTime() - welcomeNow)
+    : 0;
+  const welcomeRemainingLabel = (() => {
+    if (!welcomeOffer.active || welcomeRemainingMs <= 0) return "";
+    const totalSec = Math.floor(welcomeRemainingMs / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${pad(h)} : ${pad(m)} : ${pad(s)}`;
+  })();
 
   // Discount code state
   const [discountInput, setDiscountInput] = useState("");
@@ -230,15 +337,16 @@ export default function Subscription() {
 
   const createReqMutation = useCreateSubscriptionRequest();
   const activateMutation = useActivateSubscription();
-  const { data: myRequests, refetch: refetchMyRequests } = useGetMySubscriptionRequests();
+  const { data: myRequestsRaw, refetch: refetchMyRequests } = useGetMySubscriptionRequests();
+  const myRequests = Array.isArray(myRequestsRaw) ? myRequestsRaw : [];
 
-  const latestRequest = myRequests
-    ?.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0];
+  const latestRequest = [...myRequests]
+    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0];
 
   const subjectRequest = targetSubjectId
-    ? myRequests
-        ?.filter((r: any) => r.subjectId === targetSubjectId)
-        ?.sort((a: any, b: any) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0]
+    ? [...myRequests]
+        .filter((r: any) => r.subjectId === targetSubjectId)
+        .sort((a: any, b: any) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0]
     : latestRequest;
 
   const hasPendingRequest = subjectRequest?.status === "pending";
@@ -291,6 +399,10 @@ export default function Subscription() {
         className: "bg-emerald-600 border-none text-white"
       });
       setSubmitted(true);
+      submittedRef.current = true;
+      clearLeftSubPageWithoutSub();
+      // Welcome offer is single-use — refresh state from backend.
+      setWelcomeOffer({ active: false, expiresAt: null, percent: 50 });
       setSelectedPlan(null);
       setAccountName("");
       setNotes("");
@@ -768,7 +880,25 @@ export default function Subscription() {
 
                 <div className="bg-black/30 p-5 rounded-2xl border border-white/5">
                   <p className="text-sm text-muted-foreground mb-1">المبلغ المطلوب:</p>
-                  {discountInfo ? (
+                  {welcomeOffer.active ? (() => {
+                    const basePriceNum = (BASE_PRICES_DISPLAY[region] as any)[selectedPlan] as number;
+                    const finalPriceNum = Math.round(basePriceNum * (1 - welcomeOffer.percent / 100));
+                    return (
+                      <div className="mb-4">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-gold font-bold text-2xl" data-testid="welcome-final-price">
+                            {finalPriceNum.toLocaleString("ar-EG")} ريال
+                          </span>
+                          <span className="text-sm text-muted-foreground line-through">
+                            {basePriceNum.toLocaleString("ar-EG")} ريال
+                          </span>
+                        </div>
+                        <p className="text-xs text-gold mt-1">
+                          خصم {welcomeOffer.percent}٪ عبر العرض الترحيبي — وفّرت {(basePriceNum - finalPriceNum).toLocaleString("ar-EG")} ريال
+                        </p>
+                      </div>
+                    );
+                  })() : discountInfo ? (
                     <div className="mb-4">
                       <div className="flex items-baseline gap-2">
                         <span className="text-emerald-400 font-bold text-2xl">
@@ -788,52 +918,78 @@ export default function Subscription() {
                     </p>
                   )}
 
-                  {/* Discount code input */}
-                  <div className="mb-4 p-3 rounded-xl bg-purple-500/5 border border-purple-500/20">
-                    <p className="text-xs text-purple-300 font-bold mb-2 text-center">
-                      عندك كود خصم؟ أدخله هنا قبل التحويل
-                    </p>
-                    {discountInfo ? (
-                      <div className="flex items-center justify-between gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="w-4 h-4 text-emerald-400" />
-                          <span className="font-mono font-bold text-emerald-400 text-sm">{discountInfo.code}</span>
-                          <span className="text-xs text-emerald-400">−{discountInfo.percent}%</span>
-                        </div>
-                        <button
-                          onClick={handleClearDiscount}
-                          className="text-xs text-muted-foreground hover:text-red-400 transition-colors"
-                          type="button"
-                        >
-                          إزالة
-                        </button>
+                  {/* Welcome offer banner — replaces coupon input when active */}
+                  {welcomeOffer.active ? (
+                    <div
+                      className="mb-4 p-4 rounded-xl bg-gradient-to-br from-gold/15 via-amber-500/10 to-orange-500/10 border border-gold/40"
+                      data-testid="welcome-offer-banner"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Sparkles className="w-5 h-5 text-gold" />
+                        <p className="font-bold text-gold">العرض الترحيبي مُفعّل — خصم {welcomeOffer.percent}٪</p>
                       </div>
-                    ) : (
-                      <>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="مثال: SUMMER20"
-                            className="bg-black/40 h-10 flex-1 text-center font-mono uppercase"
-                            dir="ltr"
-                            value={discountInput}
-                            onChange={(e) => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(null); }}
-                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyDiscount(); } }}
-                          />
-                          <Button
+                      <p className="text-xs text-zinc-300 leading-relaxed mb-2">
+                        سيُطبَّق الخصم تلقائياً عند إرسال طلب الاشتراك. لا حاجة لإدخال أي كود.
+                      </p>
+                      <div className="flex items-center justify-center gap-2 text-xs text-zinc-400 bg-black/40 rounded-lg py-2">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>ينتهي خلال:</span>
+                        <span className="font-mono font-bold text-gold tabular-nums" data-testid="welcome-banner-countdown">
+                          {welcomeRemainingLabel}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-zinc-500 text-center mt-2">
+                        لا يمكن إدخال كود خصم آخر مع هذا العرض.
+                      </p>
+                    </div>
+                  ) : (
+                    /* Discount code input */
+                    <div className="mb-4 p-3 rounded-xl bg-purple-500/5 border border-purple-500/20">
+                      <p className="text-xs text-purple-300 font-bold mb-2 text-center">
+                        عندك كود خصم؟ أدخله هنا قبل التحويل
+                      </p>
+                      {discountInfo ? (
+                        <div className="flex items-center justify-between gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4 text-emerald-400" />
+                            <span className="font-mono font-bold text-emerald-400 text-sm">{discountInfo.code}</span>
+                            <span className="text-xs text-emerald-400">−{discountInfo.percent}%</span>
+                          </div>
+                          <button
+                            onClick={handleClearDiscount}
+                            className="text-xs text-muted-foreground hover:text-red-400 transition-colors"
                             type="button"
-                            className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/30 h-10"
-                            disabled={discountChecking || !discountInput.trim()}
-                            onClick={handleApplyDiscount}
                           >
-                            {discountChecking ? "..." : "تطبيق"}
-                          </Button>
+                            إزالة
+                          </button>
                         </div>
-                        {discountError && (
-                          <p className="text-xs text-red-400 mt-2 text-center">{discountError}</p>
-                        )}
-                      </>
-                    )}
-                  </div>
+                      ) : (
+                        <>
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="مثال: SUMMER20"
+                              className="bg-black/40 h-10 flex-1 text-center font-mono uppercase"
+                              dir="ltr"
+                              value={discountInput}
+                              onChange={(e) => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(null); }}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyDiscount(); } }}
+                            />
+                            <Button
+                              type="button"
+                              className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/30 h-10"
+                              disabled={discountChecking || !discountInput.trim()}
+                              onClick={handleApplyDiscount}
+                            >
+                              {discountChecking ? "..." : "تطبيق"}
+                            </Button>
+                          </div>
+                          {discountError && (
+                            <p className="text-xs text-red-400 mt-2 text-center">{discountError}</p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   <p className="text-sm font-bold mb-2">رقم حساب الكريمي:</p>
                   {region === 'north' ? (

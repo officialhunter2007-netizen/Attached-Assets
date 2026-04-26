@@ -27,6 +27,12 @@ export const usersTable = pgTable("users", {
   lastSessionAt: timestamp("last_session_at", { withTimezone: true }),
   referralSessionsLeft: integer("referral_sessions_left").notNull().default(0),
   tryhackmeUsername: text("tryhackme_username"),
+  // Welcome offer (50% off for first-time visitors who leave subscription page).
+  subPageFirstVisitedAt: timestamp("sub_page_first_visited_at", { withTimezone: true }),
+  subPageLeftAt: timestamp("sub_page_left_at", { withTimezone: true }),
+  welcomeOfferShownAt: timestamp("welcome_offer_shown_at", { withTimezone: true }),
+  welcomeOfferExpiresAt: timestamp("welcome_offer_expires_at", { withTimezone: true }),
+  welcomeOfferUsedAt: timestamp("welcome_offer_used_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

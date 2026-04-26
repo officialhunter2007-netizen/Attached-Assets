@@ -30,9 +30,14 @@ const PLAN_MESSAGE_LIMITS: Record<string, number> = {
 
 // Authoritative price table (server-side source of truth).
 const BASE_PRICES: Record<"north" | "south", Record<string, number>> = {
-  north: { bronze: 1000, silver: 2000, gold: 3000 },
-  south: { bronze: 3000, silver: 6000, gold: 9000 },
+  north: { bronze: 2000, silver: 4000, gold: 6000 },
+  south: { bronze: 6000, silver: 12000, gold: 18000 },
 };
+
+// Welcome offer: 50% off for first-time subscription page visitors who
+// leave without subscribing — auto-applied on next subscription within 24h.
+const WELCOME_OFFER_PERCENT = 50;
+const WELCOME_OFFER_DURATION_MS = 24 * 60 * 60 * 1000;
 
 function getBasePrice(planType: string, region: string): number | null {
   const r = BASE_PRICES[region as "north" | "south"];
@@ -100,28 +105,57 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
     return;
   }
 
+  // Read welcome offer state OUTSIDE the transaction (read-only snapshot)
+  // and re-check inside the transaction with an atomic conditional update so
+  // it cannot be double-spent.
+  const welcomeState = await getWelcomeOfferState(userId);
+  const welcomeActive = welcomeState.active;
+
+  // Red line: cannot stack welcome offer with another discount code.
+  if (welcomeActive && codeNorm) {
+    res.status(400).json({
+      error: "لا يمكن استخدام كود خصم آخر مع العرض الترحيبي ٥٠٪. يكفيك خصم واحد فقط.",
+    });
+    return;
+  }
+
   try {
     const created = await db.transaction(async (tx) => {
       let discountCodeRow: typeof discountCodesTable.$inferSelect | null = null;
-      if (codeNorm) {
-        // Validate code exists and is active. We snapshot the percent on the
-        // request, but we do NOT increment usageCount here — the counter
-        // tracks *approved* subscriptions (real marketer attribution), so it
-        // is incremented in the approval transaction below.
+      let percent = 0;
+      let welcomeApplied = false;
+
+      if (welcomeActive) {
+        // Atomic conditional consume: only succeeds if the welcome offer is
+        // still active for this user (not yet used, not expired).
+        const consumeResult = await tx
+          .update(usersTable)
+          .set({ welcomeOfferUsedAt: new Date() } as any)
+          .where(and(
+            eq(usersTable.id, userId),
+            sql`${(usersTable as any).welcomeOfferShownAt} IS NOT NULL` as any,
+            sql`${(usersTable as any).welcomeOfferUsedAt} IS NULL` as any,
+            sql`${(usersTable as any).welcomeOfferExpiresAt} > NOW()` as any,
+          ))
+          .returning({ id: usersTable.id });
+
+        if (consumeResult.length > 0) {
+          welcomeApplied = true;
+          percent = WELCOME_OFFER_PERCENT;
+        }
+        // If the conditional update did not match (race / expired), fall
+        // through to the normal flow without any discount.
+      } else if (codeNorm) {
         const [row] = await tx
           .select()
           .from(discountCodesTable)
           .where(eq(discountCodesTable.code, codeNorm));
-        if (!row) {
-          throw new Error("INVALID_CODE");
-        }
-        if (!row.active) {
-          throw new Error("INACTIVE_CODE");
-        }
+        if (!row) throw new Error("INVALID_CODE");
+        if (!row.active) throw new Error("INACTIVE_CODE");
         discountCodeRow = row;
+        percent = row.percent;
       }
 
-      const percent = discountCodeRow?.percent ?? 0;
       const finalPrice = computeFinalPrice(basePrice, percent);
 
       const [request] = await tx.insert(subscriptionRequestsTable).values({
@@ -136,8 +170,8 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
         notes: parsed.data.notes ?? null,
         status: "pending",
         discountCodeId: discountCodeRow?.id ?? null,
-        discountCode: discountCodeRow?.code ?? null,
-        discountPercent: discountCodeRow ? percent : null,
+        discountCode: welcomeApplied ? "WELCOME50" : (discountCodeRow?.code ?? null),
+        discountPercent: percent || null,
         basePrice,
         finalPrice,
       }).returning();
@@ -197,6 +231,190 @@ router.post("/subscriptions/discount-codes/validate", async (req, res): Promise<
     basePrice,
     finalPrice,
     discountAmount: basePrice - finalPrice,
+  });
+});
+
+// ── Welcome offer (50% off, first-time visitor, 24h, single-use) ──────────────
+async function userHasAnySubscription(userId: number): Promise<boolean> {
+  const rows = await db
+    .select({ id: userSubjectSubscriptionsTable.id })
+    .from(userSubjectSubscriptionsTable)
+    .where(eq(userSubjectSubscriptionsTable.userId, userId))
+    .limit(1);
+  if (rows.length > 0) return true;
+  const reqRows = await db
+    .select({ id: subscriptionRequestsTable.id })
+    .from(subscriptionRequestsTable)
+    .where(eq(subscriptionRequestsTable.userId, userId))
+    .limit(1);
+  return reqRows.length > 0;
+}
+
+type WelcomeOfferState = {
+  eligibleToShow: boolean;
+  active: boolean;
+  expiresAt: Date | null;
+  shownAt: Date | null;
+  usedAt: Date | null;
+  percent: number;
+  hasAnySubscription: boolean;
+  visited: boolean;
+};
+
+async function getWelcomeOfferState(userId: number): Promise<WelcomeOfferState> {
+  const user = await getUser(userId);
+  if (!user) {
+    return {
+      eligibleToShow: false, active: false,
+      expiresAt: null, shownAt: null, usedAt: null,
+      percent: WELCOME_OFFER_PERCENT, hasAnySubscription: false, visited: false,
+    };
+  }
+  const hasAnySubscription = await userHasAnySubscription(userId);
+  const now = Date.now();
+  const shownAt = (user as any).welcomeOfferShownAt ?? null;
+  const expiresAt = (user as any).welcomeOfferExpiresAt ?? null;
+  const usedAt = (user as any).welcomeOfferUsedAt ?? null;
+  const visited = (user as any).subPageFirstVisitedAt != null;
+  const left = (user as any).subPageLeftAt != null;
+
+  const active = !!shownAt && !usedAt && !!expiresAt && new Date(expiresAt).getTime() > now;
+  // Server-side eligibility: must have visited the subscription page AND
+  // recorded a "leave" event (the page sends a beacon on unmount). This
+  // closes the bypass where a client could call /show without ever leaving.
+  const eligibleToShow = !shownAt && visited && left && !hasAnySubscription;
+
+  return {
+    eligibleToShow, active,
+    expiresAt: expiresAt ? new Date(expiresAt) : null,
+    shownAt: shownAt ? new Date(shownAt) : null,
+    usedAt: usedAt ? new Date(usedAt) : null,
+    percent: WELCOME_OFFER_PERCENT,
+    hasAnySubscription, visited,
+  };
+}
+
+// Mark first visit to subscription page (idempotent — only sets if null and
+// user has never subscribed).
+router.post("/subscriptions/welcome-offer/visit", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const hasAny = await userHasAnySubscription(userId);
+  if (hasAny) {
+    res.json({ ok: true, visited: false, reason: "has_subscription" });
+    return;
+  }
+
+  await db
+    .update(usersTable)
+    .set({ subPageFirstVisitedAt: new Date() } as any)
+    .where(and(
+      eq(usersTable.id, userId),
+      sql`${usersTable.subPageFirstVisitedAt} IS NULL` as any,
+    ));
+
+  res.json({ ok: true, visited: true });
+});
+
+// Mark that the user left the subscription page (called from page unmount /
+// beforeunload via navigator.sendBeacon for reliability across navigations).
+// This is a precondition for `eligibleToShow` so it cannot be bypassed by
+// directly calling /welcome-offer/show.
+router.post("/subscriptions/welcome-offer/leave", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const hasAny = await userHasAnySubscription(userId);
+  if (hasAny) {
+    res.json({ ok: true, recorded: false, reason: "has_subscription" });
+    return;
+  }
+
+  // Only record if the user actually visited (visit endpoint must run first).
+  // Always update to the latest leave timestamp.
+  await db
+    .update(usersTable)
+    .set({ subPageLeftAt: new Date() } as any)
+    .where(and(
+      eq(usersTable.id, userId),
+      sql`${(usersTable as any).subPageFirstVisitedAt} IS NOT NULL` as any,
+      sql`${(usersTable as any).welcomeOfferShownAt} IS NULL` as any,
+    ));
+
+  res.json({ ok: true, recorded: true });
+});
+
+// Get welcome offer state.
+router.get("/subscriptions/welcome-offer", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const state = await getWelcomeOfferState(userId);
+  res.json({
+    eligibleToShow: state.eligibleToShow,
+    active: state.active,
+    expiresAt: state.expiresAt,
+    shownAt: state.shownAt,
+    usedAt: state.usedAt,
+    percent: state.percent,
+    hasAnySubscription: state.hasAnySubscription,
+    durationMs: WELCOME_OFFER_DURATION_MS,
+  });
+});
+
+// Mark popup as shown — atomic, starts the 24h countdown. Idempotent: if
+// already shown, returns existing values.
+router.post("/subscriptions/welcome-offer/show", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const state = await getWelcomeOfferState(userId);
+  if (state.shownAt) {
+    res.json({
+      ok: true, alreadyShown: true,
+      shownAt: state.shownAt, expiresAt: state.expiresAt,
+      active: state.active, percent: state.percent,
+    });
+    return;
+  }
+  if (!state.eligibleToShow) {
+    res.status(400).json({ error: "OFFER_NOT_ELIGIBLE" });
+    return;
+  }
+
+  const now = new Date();
+  const expires = new Date(now.getTime() + WELCOME_OFFER_DURATION_MS);
+  // Fully atomic conditional update: re-asserts ALL eligibility conditions
+  // inside the WHERE clause so a TOCTOU between getWelcomeOfferState() above
+  // and this UPDATE cannot mark `shownAt` for a user who is no longer eligible
+  // (e.g., a parallel request created a subscription record meanwhile).
+  const result = await db
+    .update(usersTable)
+    .set({ welcomeOfferShownAt: now, welcomeOfferExpiresAt: expires } as any)
+    .where(and(
+      eq(usersTable.id, userId),
+      sql`${(usersTable as any).welcomeOfferShownAt} IS NULL` as any,
+      sql`${(usersTable as any).subPageFirstVisitedAt} IS NOT NULL` as any,
+      sql`${(usersTable as any).subPageLeftAt} IS NOT NULL` as any,
+      sql`NOT EXISTS (SELECT 1 FROM ${userSubjectSubscriptionsTable} WHERE ${userSubjectSubscriptionsTable.userId} = ${userId})` as any,
+      sql`NOT EXISTS (SELECT 1 FROM ${subscriptionRequestsTable} WHERE ${subscriptionRequestsTable.userId} = ${userId})` as any,
+    ))
+    .returning({ shownAt: (usersTable as any).welcomeOfferShownAt, expiresAt: (usersTable as any).welcomeOfferExpiresAt });
+
+  if (result.length === 0) {
+    // Race: someone else already set it — fetch and return existing.
+    const fresh = await getWelcomeOfferState(userId);
+    res.json({
+      ok: true, alreadyShown: true,
+      shownAt: fresh.shownAt, expiresAt: fresh.expiresAt,
+      active: fresh.active, percent: fresh.percent,
+    });
+    return;
+  }
+
+  res.json({
+    ok: true, alreadyShown: false,
+    shownAt: now, expiresAt: expires, active: true, percent: WELCOME_OFFER_PERCENT,
   });
 });
 
