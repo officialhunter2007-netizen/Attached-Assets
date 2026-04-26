@@ -1527,11 +1527,20 @@ function SubjectPathChat({
     const usedStage = stageParam ?? currentStage;
     const diagMode = isDiagnostic ?? (chatPhase === 'diagnostic');
 
+    // Network safety net: a teaching reply should arrive within ~90s. Without
+    // this, a stalled connection could leave the UI hanging on the spinner
+    // until the browser's default socket timeout (often 5+ minutes), and the
+    // student would have no way to retry. AbortController lets us bail out
+    // cleanly and surface a clear error message.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90_000);
+
     try {
       const response = await fetch('/api/ai/teach', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: controller.signal,
         body: JSON.stringify({
           subjectId: subject.id,
           subjectName: subject.name,
@@ -1563,13 +1572,24 @@ function SubjectPathChat({
       // Any other non-2xx must NOT add an empty assistant placeholder —
       // doing so would poison the next request's history with a whitespace
       // assistant turn and Anthropic would reject the whole turn (400).
+      // But the student still deserves visible feedback — show a clear,
+      // friendly error message instead of leaving the chat eerily silent.
       if (!response.ok) {
         console.error("[teach] non-ok response:", response.status);
+        const status = response.status;
+        const errorHtml = status === 401 || status === 419
+          ? `<p><em>⚠️ انتهت جلستك. سجّل الدخول مجدّداً للمتابعة.</em></p>`
+          : `<p><em>⚠️ تعذّر الردّ بسبب خلل مؤقّت في الخادم (${status}). أعد المحاولة بعد لحظات — لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`;
+        setMessages(prev => [...prev, { role: 'assistant', content: errorHtml }]);
+        clearTimeout(timeoutId);
         setIsStreaming(false);
         return;
       }
 
       if (!response.body) {
+        const errorHtml = `<p><em>⚠️ لم يصل أي ردّ من الخادم. أعد المحاولة بعد لحظات.</em></p>`;
+        setMessages(prev => [...prev, { role: 'assistant', content: errorHtml }]);
+        clearTimeout(timeoutId);
         setIsStreaming(false);
         return;
       }
@@ -1716,10 +1736,32 @@ function SubjectPathChat({
           }),
         }).catch(() => {});
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      // Network failure path: fetch threw (offline, DNS failure, server
+      // unreachable, or our 90s AbortController fired). The student is
+      // staring at an empty bubble — replace it with a clearly-marked error
+      // message so they know what happened and how to recover.
+      networkErrored = true;
+      const aborted = e?.name === 'AbortError';
+      console.error('[teach] network error:', aborted ? 'timeout' : e?.message || e);
+      const errorHtml = aborted
+        ? `<p><em>⚠️ استغرقت الاستجابة وقتاً طويلاً وتمّ قطعها. تحقّق من الاتصال وأعد إرسال رسالتك — لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`
+        : `<p><em>⚠️ تعذّر الاتصال بالمعلّم الآن. تحقّق من الإنترنت وأعد المحاولة بعد لحظات — لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`;
+      setMessages(prev => {
+        const updated = [...prev];
+        // If we already added an empty assistant placeholder (stream had
+        // started but died), replace it. Otherwise append a new bubble.
+        if (updated.length > 0 && updated[updated.length - 1].role === 'assistant' && !updated[updated.length - 1].content) {
+          updated[updated.length - 1] = { role: 'assistant', content: errorHtml };
+        } else {
+          updated.push({ role: 'assistant', content: errorHtml });
+        }
+        return updated;
+      });
     } finally {
+      clearTimeout(timeoutId);
       setIsStreaming(false);
+      void networkErrored;
     }
   };
 

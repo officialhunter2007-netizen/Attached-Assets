@@ -1539,34 +1539,96 @@ ${retrievedBlock}
   const maxTokens = chosenModel === "claude-haiku-4-5" ? 2048 : 4096;
 
   const __teachStart = Date.now();
-  let __teachStream: any = null;
-  try {
-    const stream = anthropic.messages.stream({
-      model: chosenModel,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: claudeMessages,
-    });
-    __teachStream = stream;
 
-    for await (const event of stream) {
-      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-        const text = event.delta.text;
-        fullResponse += text;
-        const clean = text
-          .replace("[STAGE_COMPLETE]", "")
-          .replace("[PLAN_READY]", "")
-          .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
-          .replace(/\[MISTAKE:[^\]]*\]/gi, "")
-          .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
-          .replace(/\[STUDY_CARD_HINT\]/gi, "");
-        if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
+  // ── Resilience: classify which provider errors are safe to retry ─────────
+  // Transient errors (rate limits, overloaded, gateway/network) are retried
+  // with exponential backoff and a Haiku fallback. We ONLY retry when no
+  // bytes have been streamed to the student yet — a mid-stream failure
+  // cannot be retried without duplicating text on the wire.
+  const HAIKU_MODEL = "claude-haiku-4-5";
+  const isTransientError = (e: any): boolean => {
+    const code = (e as any)?.status ?? (e as any)?.statusCode;
+    if (code === 408 || code === 425 || code === 429 || code === 500 || code === 502 || code === 503 || code === 504 || code === 529) return true;
+    const msg = String((e as any)?.message ?? e ?? "");
+    return /timeout|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network|socket hang up|overloaded|temporarily unavailable/i.test(msg);
+  };
+
+  let __finalMessage: any = null;
+  let __activeModel: string = chosenModel;
+  let __activeMaxTokens = maxTokens;
+  let __lastErr: any = null;
+  let __attempts = 0;
+  let __fellBackToHaiku = false;
+
+  // Up to 3 attempts: original model → Haiku fallback → Haiku one more time.
+  // Loop short-circuits as soon as fullResponse has any bytes (mid-stream
+  // failure is non-retryable) or we get a successful finalMessage.
+  while (__attempts < 3) {
+    __attempts++;
+    __lastErr = null;
+    try {
+      const stream = anthropic.messages.stream({
+        model: __activeModel,
+        max_tokens: __activeMaxTokens,
+        system: systemPrompt,
+        messages: claudeMessages,
+      });
+
+      for await (const event of stream) {
+        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+          const text = event.delta.text;
+          fullResponse += text;
+          const clean = text
+            .replace("[STAGE_COMPLETE]", "")
+            .replace("[PLAN_READY]", "")
+            .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
+            .replace(/\[MISTAKE:[^\]]*\]/gi, "")
+            .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
+            .replace(/\[STUDY_CARD_HINT\]/gi, "");
+          if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
+        }
+      }
+
+      try {
+        __finalMessage = await stream.finalMessage();
+      } catch {}
+      break; // success
+    } catch (err: any) {
+      __lastErr = err;
+      // Mid-stream errors cannot be retried — partial text is already on the
+      // wire and a retry would produce duplicate/garbled output.
+      if (fullResponse !== "") {
+        console.warn("[ai/teach] mid-stream error (no retry):", err?.status, err?.message || err);
+        break;
+      }
+      if (!isTransientError(err)) {
+        console.error("[ai/teach] non-retryable model error:", err?.status, err?.message || err);
+        break;
+      }
+      if (__attempts >= 3) {
+        console.error("[ai/teach] exhausted retries on transient error:", err?.status, err?.message || err);
+        break;
+      }
+      // Backoff: 400ms, 1000ms before next attempt.
+      await new Promise((r) => setTimeout(r, 400 * __attempts + (__attempts > 1 ? 600 : 0)));
+      // After the first transient failure, fall back to Haiku for remaining
+      // attempts. Haiku has separate provider capacity and is rarely
+      // overloaded simultaneously with Sonnet — gives us defence in depth.
+      if (__activeModel !== HAIKU_MODEL) {
+        __activeModel = HAIKU_MODEL;
+        __activeMaxTokens = 2048;
+        __fellBackToHaiku = true;
+        console.warn(`[ai/teach] retry ${__attempts}: falling back to Haiku after transient error: ${err?.status} ${err?.message || err}`);
+      } else {
+        console.warn(`[ai/teach] retry ${__attempts}: Haiku also failed transiently, retrying: ${err?.status} ${err?.message || err}`);
       }
     }
+  }
 
+  // ── Success path: record usage telemetry ────────────────────────────────
+  if (__finalMessage) {
     try {
-      const __final = await stream.finalMessage();
-      const __u = extractAnthropicUsage(__final);
+      const __u = extractAnthropicUsage(__finalMessage);
       // Cap-context: enforces the red-line invariant in the accounting layer.
       // When set, recordAiUsage clamps `costUsd` so SUM never exceeds capUsd
       // for this (userId, subjectId, since-subscription-start) window — the
@@ -1583,16 +1645,19 @@ ${retrievedBlock}
         subjectId: subjectId ?? null,
         route: "ai/teach",
         provider: "anthropic",
-        model: chosenModel,
+        model: __activeModel,
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
         latencyMs: Date.now() - __teachStart,
-        metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode },
+        metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode, attempts: __attempts, fellBackToHaiku: __fellBackToHaiku },
         capContext: __capCtx,
       });
     } catch {}
-  } catch (err: any) {
+  }
+
+  // ── Failure path: rollback claims + emit friendly apology ───────────────
+  if (__lastErr && !__finalMessage) {
     const __capCtxErr = subjectSub && costStatus.capUsd > 0 ? {
       userId,
       subjectId: subjectSub.subjectId,
@@ -1604,26 +1669,29 @@ ${retrievedBlock}
       subjectId: subjectId ?? null,
       route: "ai/teach",
       provider: "anthropic",
-      model: chosenModel,
+      model: __activeModel,
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __teachStart,
       status: "error",
-      errorMessage: String(err?.message ?? err).slice(0, 500),
-      metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode },
+      errorMessage: String(__lastErr?.message ?? __lastErr).slice(0, 500),
+      metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode, attempts: __attempts, fellBackToHaiku: __fellBackToHaiku },
       capContext: __capCtxErr,
     });
-    void __teachStream;
-    console.error("[ai/teach] anthropic stream error:", err?.message || err);
+    console.error("[ai/teach] anthropic stream error after retries:", __lastErr?.message || __lastErr);
     // Roll back the atomic daily-session claim so the student isn't stuck
     // on the countdown screen for the rest of the day after a model error.
     await rollbackDailyClaim();
     // Roll back the free-tier claim too — student shouldn't lose a free
     // message for a server-side failure they couldn't see.
     await rollbackFreeClaim();
-    // Stream a friendly Arabic apology so the chat shows something instead of
-    // an empty bubble that would later poison the next turn's history.
-    const friendly = `<p>تعذّر الردّ الآن بسبب خطأ مؤقّت في خدمة المعلّم 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.</p>`;
+    // Stream a friendly Arabic apology. Two cases:
+    //   • Total failure (fullResponse empty) → only the apology is shown.
+    //   • Mid-stream failure → apology is appended to the partial response,
+    //     so the student knows the answer was cut short and can retry.
+    const friendly = fullResponse === ""
+      ? `<p>تعذّر الردّ الآن بسبب خطأ مؤقّت في خدمة المعلّم 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.</p>`
+      : `<p><em>⚠️ انقطع الاتصال أثناء الردّ. أعد إرسال رسالتك لإكمال الفكرة. لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`;
     if (!res.writableEnded) {
       res.write(`data: ${JSON.stringify({ content: friendly })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true, error: true })}\n\n`);
