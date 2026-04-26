@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
-import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable } from "@workspace/db";
+import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable, studentMistakesTable, studyCardsTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import {
@@ -10,6 +10,8 @@ import {
   extractGeminiUsage,
 } from "../lib/ai-usage";
 import { isUnlimitedEmail } from "../lib/admins";
+import { getCostCapStatus } from "../lib/cost-cap";
+import { pickTeachingModel, detectDeepReasoning, detectMasteryCheckFromHistory, detectLabReport } from "../lib/teaching-router";
 import {
   getActiveMaterialContext,
   loadProgress,
@@ -25,7 +27,10 @@ import {
 
 const router: IRouter = Router();
 
-const FREE_LESSON_MESSAGE_LIMIT = 40;
+// RED-LINE constraint: free first lesson is exactly 15 messages, no exceptions.
+// Increasing this number directly threatens platform survival — every extra
+// message is paid AI cost the platform absorbs without revenue.
+const FREE_LESSON_MESSAGE_LIMIT = 15;
 
 // Accounts with unlimited free access — no quotas, no daily limits, no counters.
 // Configured via the UNLIMITED_ACCESS_EMAILS env var (comma-separated).
@@ -514,6 +519,24 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const hasActiveSub = unlimited ? true : rawHasActive;
   const isNewSession = !userMessage;
 
+  // ── Cost-cap check (paid students) ──────────────────────────────────────────
+  // RED LINE: a student's AI cost on this subscription must NEVER exceed 50%
+  // of what they paid. Free-tier students are protected by the message-count
+  // limit instead, so we skip the cap there. Unlimited admins are exempt.
+  const costStatus = unlimited || isFirstLesson || !subjectSub
+    ? { spentUsd: 0, capUsd: 0, ratio: 0, mode: "ok" as const, forceCheapModel: false, blocked: false }
+    : await getCostCapStatus(userId, subjectSub);
+  if (costStatus.blocked) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    const friendly = `<div><p>وصلت إلى الحد الأقصى لتكلفة المعلم الذكي على اشتراكك الحالي 🌙</p><p>لحماية التوازن بين ما دفعت وما تحصل عليه، يتوقف المعلم مؤقتاً حتى تجديد اشتراكك.</p><p>راجع ما تعلّمته في صفحة الجلسات السابقة، وعندما تكون جاهزاً جدّد الاشتراك من صفحة الباقات.</p></div>`;
+    res.write(`data: ${JSON.stringify({ content: friendly })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, quotaExhausted: true, messagesRemaining: 0, costCapped: true })}\n\n`);
+    res.end();
+    return;
+  }
+
   // ── Session limit (1 session per day, resets at midnight Yemen time) ──
   // We claim today's date with an atomic conditional UPDATE so that concurrent
   // requests can't both pass a stale `user.lastSessionDate` check and slip
@@ -609,8 +632,112 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  // ── (Counter increment moved BELOW the AI call so failed requests
-  //     — e.g. Anthropic 4xx, network errors — don't burn the user's quota.)
+  // ── Atomic free-tier claim (close the bypass race) ──────────────────────────
+  // RED LINE: a free-tier student must NEVER exceed FREE_LESSON_MESSAGE_LIMIT
+  // messages, even by sending parallel requests, logging out and back in, or
+  // any other trick. The previous code did a "check then increment AFTER the
+  // AI call" pattern, which lets N concurrent requests all pass the same
+  // stale check and bypass the cap. We replace it with an atomic conditional
+  // UPDATE that only succeeds if the counter is still under the cap. Anything
+  // beyond the cap is refused immediately, BEFORE any AI tokens are spent.
+  let freeClaimRolledBack = false;
+  let freeClaimedNow = false;
+  if (isFirstLesson && firstLessonRecord) {
+    const claim = await db
+      .update(userSubjectFirstLessonsTable)
+      .set({
+        freeMessagesUsed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1`,
+        completed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1 >= ${FREE_LESSON_MESSAGE_LIMIT}`,
+      })
+      .where(and(
+        eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id),
+        sql`${userSubjectFirstLessonsTable.freeMessagesUsed} < ${FREE_LESSON_MESSAGE_LIMIT}`,
+        eq(userSubjectFirstLessonsTable.completed, false),
+      ))
+      .returning({ used: userSubjectFirstLessonsTable.freeMessagesUsed });
+
+    if (claim.length === 0) {
+      // The conditional update found no eligible row → this user already used
+      // all 15 free messages for this subject. Block immediately.
+      try {
+        await db.update(usersTable)
+          .set({ firstLessonComplete: true })
+          .where(eq(usersTable.id, userId));
+      } catch {}
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      const farewell = `<div><p>انتهت رسائلك المجانية الـ 15 على هذا التخصص ✨</p><p>راجع ما تعلّمته في صفحة الجلسات السابقة. للاستمرار، اختر باقة من صفحة الاشتراكات.</p></div>`;
+      res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, quotaExhausted: true, messagesRemaining: 0, firstLessonDone: true })}\n\n`);
+      res.end();
+      return;
+    }
+    freeClaimedNow = true;
+    // Reflect the new count locally so messagesRemaining math stays correct.
+    firstLessonRecord.freeMessagesUsed = claim[0].used;
+    if (claim[0].used >= FREE_LESSON_MESSAGE_LIMIT) {
+      firstLessonRecord.completed = true;
+      try {
+        await db.update(usersTable)
+          .set({ firstLessonComplete: true })
+          .where(eq(usersTable.id, userId));
+      } catch {}
+    }
+  }
+
+  // Roll the free-tier claim back if the AI call later fails so the student
+  // doesn't lose a message they never received a reply for.
+  const rollbackFreeClaim = async () => {
+    if (!freeClaimedNow || freeClaimRolledBack || !firstLessonRecord) return;
+    try {
+      await db
+        .update(userSubjectFirstLessonsTable)
+        .set({
+          freeMessagesUsed: sql`GREATEST(0, ${userSubjectFirstLessonsTable.freeMessagesUsed} - 1)`,
+          completed: false,
+        })
+        .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
+      firstLessonRecord.freeMessagesUsed = Math.max(0, firstLessonRecord.freeMessagesUsed - 1);
+      firstLessonRecord.completed = false;
+      freeClaimRolledBack = true;
+    } catch (err: any) {
+      console.error("[ai/teach] free-tier rollback failed:", err?.message || err);
+    }
+  };
+
+  // ── Load student mistakes bank (top 10 unresolved) ───────────────────────
+  // The mistakes bank lets the teacher remember what the student got wrong in
+  // earlier sessions and weave targeted practice/review into the new turn.
+  // This is a key teaching-depth lever: without it the model has zero memory
+  // of the student's specific weak spots between sessions.
+  let mistakesBankNote = "";
+  let activeMistakes: Array<{ id: number; topic: string; mistake: string }> = [];
+  if (!isDiagnosticPhase && subjectId) {
+    try {
+      const rows = await db
+        .select({
+          id: studentMistakesTable.id,
+          topic: studentMistakesTable.topic,
+          mistake: studentMistakesTable.mistake,
+        })
+        .from(studentMistakesTable)
+        .where(and(
+          eq(studentMistakesTable.userId, userId),
+          eq(studentMistakesTable.subjectId, subjectId),
+          eq(studentMistakesTable.resolved, false),
+        ))
+        .orderBy(desc(studentMistakesTable.createdAt))
+        .limit(10);
+      activeMistakes = rows;
+      if (rows.length > 0) {
+        const lines = rows.map((r) => `  • [#${r.id}] (${r.topic}) — ${r.mistake.slice(0, 200)}`).join("\n");
+        mistakesBankNote = `\n--- بنك أخطاء الطالب النشطة (مرجعك للمراجعة المستهدفة) ---\n${lines}\n---\n`;
+      }
+    } catch (err: any) {
+      console.warn("[ai/teach] mistakes bank load failed:", err?.message || err);
+    }
+  }
 
   // ── Load persisted plan + last 2 session summaries from DB ───────────────
   let dbPlanContext = planContext ?? null;
@@ -795,6 +922,23 @@ ${formattingRules}`;
 
 ${dbPlanContext ? `--- خطة الطالب الشخصية (مرجعك المقدّس في كل جلسة) ---\n${dbPlanContext}\n---\n` : ""}
 ${sessionContextNote}
+${mistakesBankNote}
+**📚 استخدام بنك الأخطاء (مهم للعمق التعليمي):**
+- إذا ظهرت قائمة "بنك أخطاء الطالب النشطة" أعلاه، فهذه أخطاء حقيقية وقع فيها الطالب في جلسات سابقة ولم يُصحَّح فهمها بعد.
+- اربط شرحك الجديد بالأخطاء ذات الصلة عندما يكون ذلك طبيعياً (لا تذكرها كلها مرة واحدة). مثال: "لاحظت قبل أيام أنك خلطت بين [س] و [ص] — دعنا نتأكد الآن أن هذه النقطة ثابتة قبل أن نكمل."
+- عندما يبرهن الطالب أنه فهم خطأً معيناً وأجاب على سؤال يقيس هذا الفهم بشكل صحيح، **أدرج وسماً منفرداً في نهاية الرد:** \`[MISTAKE_RESOLVED: <id>]\` حيث <id> هو الرقم الذي يظهر بين [#] في القائمة. هذا الوسم لن يُعرض للطالب — سيُستخدم لتحديث بنك الأخطاء.
+- عندما يقع الطالب في خطأ مفاهيمي **جديد** (سوء فهم، خلط بين مفهومين، تطبيق قاعدة في غير محلها)، **سجّله في نهاية الرد** بالوسم: \`[MISTAKE: الموضوع المختصر ||| وصف الخطأ بدقة في جملة واحدة]\`. مثال: \`[MISTAKE: أنواع البسترة ||| الطالب يعتقد أن HTST تُلغي جميع الأبواغ بينما هي للخلايا الخضرية فقط]\`. لا تسجّل أكثر من خطأ واحد في الرد الواحد، ولا تسجّل أخطاءً سطحية (إملاء، حساب بسيط).
+
+**🪞 بوابة "الشرح المعكوس" قبل [STAGE_COMPLETE] (لا تتجاوزها):**
+- قبل وضع [STAGE_COMPLETE]، يجب أن يكون الطالب قد قام بـ "شرح معكوس" واحد على الأقل: شرح أحد مفاهيم المرحلة بكلماته الخاصة كأنه يدرّس زميلاً.
+- اطرح صراحة: "قبل ما ننهي المرحلة، اشرح لي [س] بطريقتك أنت — كأنك تشرحه لزميل لأول مرة. أريد أسلوبك، ليس إعادة كلماتي."
+- إذا كان شرحه ضحلاً أو حفظاً للكلمات بدون فهم، اطرح سؤالاً يكشف الفجوة ولا تنهِ المرحلة.
+
+**🛠️ مشروع تطبيقي مصغّر مع كل [STAGE_COMPLETE]:**
+- بعد اجتياز بوابة الشرح المعكوس، ابعث في نفس الرد قبل [STAGE_COMPLETE] **مهمة تطبيقية مصغّرة** تُكتب بالوسم:
+  \`[[MINI_PROJECT: عنوان المهمة | وصف عملي ≤3 أسطر يحدد المخرج المتوقع]]\`
+- المهمة قصيرة (≤30 دقيقة عمل للطالب)، تربط بين مفاهيم المرحلة، ولها مخرج ملموس واحد.
+- المهمة اختيارية للطالب — لا تنتظره ينجزها، فقط اقترحها كتعزيز.
 
 **التزام صارم بالخطة الشخصية:**
 - الخطة أعلاه بُنيت من **إجابات الطالب نفسه** في جلسة التشخيص (مستواه، طموحه، نقاط ضعفه، وقته، أسلوبه). هي **عقد بينك وبينه**.
@@ -1310,12 +1454,40 @@ ${retrievedBlock}
     res.setHeader("Connection", "keep-alive");
   }
 
+  // ── Smart model routing ──────────────────────────────────────────────────
+  // Rules (enforced together by pickTeachingModel):
+  //   • Free first lesson  → Haiku (always, no exceptions)
+  //   • Cost cap ≥ 60%    → Haiku (forced cheap)
+  //   • Otherwise          → Sonnet for high-leverage moments (~30% of paid
+  //                          traffic), Haiku for the rest (~70%).
+  // Plan-generation turn: ONLY the synthesis turn at the end of the diagnostic
+  // phase (after all 4 questions have been asked + answered). The 4 diagnostic
+  // questions themselves are simple Q&A and stay on Haiku.
+  const historyAssistantTurns = Array.isArray(history)
+    ? history.filter((m: any) => m && m.role === "assistant").length
+    : 0;
+  const isDiagnosticPlanGen = !!isDiagnosticPhase && historyAssistantTurns >= 4;
+  const routerDecision = pickTeachingModel({
+    isFreeFirstLesson: !!isFirstLesson,
+    isDiagnosticPlanGen,
+    isLabReport: detectLabReport(trimmedUserMessage),
+    isMasteryCheck: detectMasteryCheckFromHistory(history),
+    userMessageLength: trimmedUserMessage.length,
+    needsDeepReasoning: detectDeepReasoning(trimmedUserMessage),
+    costStatus,
+    isUnlimited: unlimited,
+  });
+  const chosenModel = routerDecision.model;
+  // Haiku is cheaper but smaller — keep its ceiling tighter to avoid runaway
+  // outputs that would dent the student's cost budget.
+  const maxTokens = chosenModel === "claude-haiku-4-5" ? 2048 : 4096;
+
   const __teachStart = Date.now();
   let __teachStream: any = null;
   try {
     const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      model: chosenModel,
+      max_tokens: maxTokens,
       system: systemPrompt,
       messages: claudeMessages,
     });
@@ -1328,7 +1500,10 @@ ${retrievedBlock}
         const clean = text
           .replace("[STAGE_COMPLETE]", "")
           .replace("[PLAN_READY]", "")
-          .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "");
+          .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
+          .replace(/\[MISTAKE:[^\]]*\]/gi, "")
+          .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
+          .replace(/\[STUDY_CARD_HINT\]/gi, "");
         if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
       }
     }
@@ -1341,11 +1516,12 @@ ${retrievedBlock}
         subjectId: subjectId ?? null,
         route: "ai/teach",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: chosenModel,
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
         latencyMs: Date.now() - __teachStart,
+        metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode },
       });
     } catch {}
   } catch (err: any) {
@@ -1354,18 +1530,22 @@ ${retrievedBlock}
       subjectId: subjectId ?? null,
       route: "ai/teach",
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: chosenModel,
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __teachStart,
       status: "error",
       errorMessage: String(err?.message ?? err).slice(0, 500),
+      metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode },
     });
     void __teachStream;
     console.error("[ai/teach] anthropic stream error:", err?.message || err);
     // Roll back the atomic daily-session claim so the student isn't stuck
     // on the countdown screen for the rest of the day after a model error.
     await rollbackDailyClaim();
+    // Roll back the free-tier claim too — student shouldn't lose a free
+    // message for a server-side failure they couldn't see.
+    await rollbackFreeClaim();
     // Stream a friendly Arabic apology so the chat shows something instead of
     // an empty bubble that would later poison the next turn's history.
     const friendly = `<p>تعذّر الردّ الآن بسبب خطأ مؤقّت في خدمة المعلّم 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.</p>`;
@@ -1379,6 +1559,46 @@ ${retrievedBlock}
 
   stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
   const planReady = fullResponse.includes("[PLAN_READY]");
+
+  // ── Persist mistakes-bank tags from this turn ────────────────────────────
+  // The teaching prompt instructs the model to emit at most one new
+  // [MISTAKE: topic ||| description] per response and any number of
+  // [MISTAKE_RESOLVED: id] tags when prior mistakes are demonstrably fixed.
+  // We parse, validate, and store them — the cleanup regex above already
+  // strips them from what the student sees in the stream.
+  if (subjectId && fullResponse.trim().length > 0 && !isDiagnosticPhase) {
+    try {
+      const newMistakeMatch = fullResponse.match(/\[MISTAKE:\s*([^|\]]+?)\s*\|\|\|\s*([^\]]+?)\s*\]/i);
+      if (newMistakeMatch) {
+        const topic = newMistakeMatch[1].trim().slice(0, 120);
+        const mistake = newMistakeMatch[2].trim().slice(0, 800);
+        if (topic && mistake) {
+          await db.insert(studentMistakesTable).values({
+            userId,
+            subjectId,
+            topic,
+            mistake,
+            resolved: false,
+          });
+        }
+      }
+      const resolvedIds = Array.from(fullResponse.matchAll(/\[MISTAKE_RESOLVED:\s*(\d{1,6})\s*\]/gi))
+        .map((m) => Number(m[1]))
+        .filter((n) => Number.isInteger(n) && activeMistakes.some((am) => am.id === n));
+      if (resolvedIds.length > 0) {
+        for (const mid of resolvedIds) {
+          await db.update(studentMistakesTable)
+            .set({ resolved: true, resolvedAt: new Date() })
+            .where(and(
+              eq(studentMistakesTable.id, mid),
+              eq(studentMistakesTable.userId, userId),
+            ));
+        }
+      }
+    } catch (err: any) {
+      console.warn("[ai/teach] mistakes persist failed:", err?.message || err);
+    }
+  }
 
   // Professor mode — point coverage tracking. The model emits [POINT_DONE:N]
   // tags each time it actually teaches a point from the chapter checklist.
@@ -1406,6 +1626,83 @@ ${retrievedBlock}
     }
   } catch (e: any) {
     console.warn("[ai/teach] point coverage persist failed:", e?.message || e);
+  }
+
+  // ── Auto-generate a study card on stage completion ───────────────────────
+  // When the model signals [STAGE_COMPLETE], spin off one cheap Haiku call to
+  // distil this stage into a one-screen review card the student can revisit
+  // later. This is fire-and-forget — the student's chat does NOT wait on it.
+  // Cost: ~$0.001 per card (Haiku, ~600 in / ~400 out). Skip on free tier and
+  // when the cost cap is past 60% to keep our promise.
+  // Tight guard: skip study cards once we hit the "forceCheapModel" threshold
+  // (>= 60% of cap). The card costs ~$0.001 each — small per call but enough
+  // to push a near-cap student over the 50%-of-paid red line if we're not
+  // disciplined. We'd rather drop the bonus than break the promise.
+  const shouldGenerateStudyCard = stageComplete
+    && !isDiagnosticPhase
+    && !!subjectId
+    && fullResponse.trim().length > 0
+    && !isFirstLesson
+    && !costStatus.blocked
+    && !costStatus.forceCheapModel;
+  if (shouldGenerateStudyCard) {
+    const cardStart = Date.now();
+    const cardSubjectId = subjectId;
+    const cardStageIdx = typeof currentStage === "number" ? currentStage : null;
+    const cardStageName = currentStageName;
+    const cardContext = fullResponse
+      .replace(/\[STAGE_COMPLETE\]/g, "")
+      .replace(/\[MISTAKE:[^\]]*\]/gi, "")
+      .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
+      .replace(/\[\[[^\]]+\]\]/g, "")
+      .slice(0, 4000);
+    (async () => {
+      try {
+        const cardSystem = `أنت مساعد تعليمي. مهمتك: تلخيص ما تعلّمه الطالب في هذه المرحلة في **بطاقة مراجعة HTML واحدة** قصيرة وكثيفة، تُعرض لاحقاً في دفتر مراجعته.
+
+القواعد:
+- الناتج HTML نظيف فقط (لا Markdown، ولا أسوار أكواد بثلاث علامات اقتباس عكسية).
+- ابدأ بـ <div class="study-card"> وانتهِ بـ </div>.
+- داخلها: <h4>عنوان المرحلة</h4>، ثم <ul> بـ 4–6 نقاط مفتاحية، ثم <p class="tip"> "نصيحة تذكر" واحدة قصيرة.
+- لا تتجاوز 800 حرف إجمالاً.
+- اكتب بالعربية الفصحى البسيطة.`;
+        const cardUser = `المرحلة: "${cardStageName}"\n\nمحتوى الجلسة (آخر رد للمعلم بعد إكمال المرحلة):\n${cardContext}`;
+        const cardRes = await anthropic.messages.create({
+          model: "claude-haiku-4-5",
+          max_tokens: 600,
+          system: cardSystem,
+          messages: [{ role: "user", content: cardUser }],
+        });
+        const cardText = (cardRes.content || [])
+          .filter((b: any) => b.type === "text")
+          .map((b: any) => b.text)
+          .join("")
+          .trim();
+        if (cardText.length > 50) {
+          await db.insert(studyCardsTable).values({
+            userId,
+            subjectId: cardSubjectId,
+            stageIndex: cardStageIdx,
+            stageName: cardStageName,
+            cardHtml: cardText.slice(0, 4000),
+          });
+        }
+        const cu = extractAnthropicUsage(cardRes);
+        void recordAiUsage({
+          userId,
+          subjectId: cardSubjectId,
+          route: "ai/teach:study-card",
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          inputTokens: cu.inputTokens,
+          outputTokens: cu.outputTokens,
+          cachedInputTokens: cu.cachedInputTokens,
+          latencyMs: Date.now() - cardStart,
+        });
+      } catch (err: any) {
+        console.warn("[ai/teach] study card generation failed:", err?.message || err);
+      }
+    })();
   }
 
   // Professor mode: a stage-complete signal also means the current chapter of
@@ -1452,35 +1749,27 @@ ${retrievedBlock}
     }
   }
 
-  // ── Increment message counter (only after a successful, non-empty AI response) ──
-  // We gate the entire counter block on `fullResponse.trim().length > 0` so that
-  // a stream which ended with zero content deltas (model hiccup, network drop,
-  // safety refusal) does NOT burn the student's quota. The matching frontend
-  // guard removes the empty assistant placeholder bubble in that case.
+  // ── Counter bookkeeping (post-AI) ──────────────────────────────────────
+  // Free-tier counter was already incremented atomically BEFORE the AI call
+  // (see "Atomic free-tier claim" above) to close the bypass race. If the
+  // stream produced no content we roll that increment back here so the
+  // student isn't punished for a silent failure.
   const responseHasContent = fullResponse.trim().length > 0;
-  if (responseHasContent) {
-    if (unlimited) {
-      // No counters, no caps — pass through.
-    } else if (isFirstLesson && firstLessonRecord) {
-      const newCount = firstLessonRecord.freeMessagesUsed + 1;
-      const isNowComplete = newCount >= FREE_LESSON_MESSAGE_LIMIT;
-      await db.update(userSubjectFirstLessonsTable)
-        .set({
-          freeMessagesUsed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1`,
-          ...(isNowComplete ? { completed: true } : {}),
-        })
-        .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
-      if (isNowComplete) {
-        await db.update(usersTable)
-          .set({ firstLessonComplete: true })
-          .where(eq(usersTable.id, userId));
-      }
-    } else if (canAccessViaSubscription) {
-      if (access.canAccessViaSubjectSub && subjectSub) {
-        await db.update(userSubjectSubscriptionsTable)
-          .set({ messagesUsed: subjectSub.messagesUsed + 1 })
-          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
-      }
+  if (!responseHasContent) {
+    await rollbackFreeClaim();
+  }
+  // Paid subscription counter still increments after the call — that path
+  // doesn't have the same race window because the daily-claim block above
+  // already serialises requests through an atomic conditional update on the
+  // `lastSessionDate` column.
+  if (responseHasContent && !unlimited && !isFirstLesson && canAccessViaSubscription) {
+    if (access.canAccessViaSubjectSub && subjectSub) {
+      // Atomic increment so parallel within-session requests can't both read
+      // the same stale `subjectSub.messagesUsed` and skip past the daily cap.
+      await db.update(userSubjectSubscriptionsTable)
+        .set({ messagesUsed: sql`${userSubjectSubscriptionsTable.messagesUsed} + 1` })
+        .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
+      subjectSub.messagesUsed = subjectSub.messagesUsed + 1;
     }
   }
 
@@ -1491,10 +1780,15 @@ ${retrievedBlock}
   if (unlimited) {
     messagesRemaining = 999999;
   } else if (isFirstLesson && firstLessonRecord) {
-    messagesRemaining = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - (firstLessonRecord.freeMessagesUsed + consumed));
+    // freeMessagesUsed already reflects the atomic pre-call increment, so we
+    // don't add `consumed` again here — that would double-count.
+    messagesRemaining = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - firstLessonRecord.freeMessagesUsed);
   } else if (canAccessViaSubscription) {
     if (access.canAccessViaSubjectSub && subjectSub) {
-      messagesRemaining = Math.max(0, subjectSub.messagesLimit - (subjectSub.messagesUsed + consumed));
+      // subjectSub.messagesUsed already reflects the post-call atomic
+      // increment performed above, so we don't add `consumed` again — that
+      // would double-count and report 1 message fewer than truly remaining.
+      messagesRemaining = Math.max(0, subjectSub.messagesLimit - subjectSub.messagesUsed);
     }
   }
   const isQuotaExhausted = !unlimited && messagesRemaining === 0;

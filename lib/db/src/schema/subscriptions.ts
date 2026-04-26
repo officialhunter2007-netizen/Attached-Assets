@@ -89,6 +89,10 @@ export const userSubjectSubscriptionsTable = pgTable("user_subject_subscriptions
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   activationCode: text("activation_code"),
   subscriptionRequestId: integer("subscription_request_id"),
+  // Price the student paid (YER) and region (north/south) — used to enforce
+  // the cost-cap rule (AI cost ≤ 50% of what they paid).
+  paidPriceYer: integer("paid_price_yer").notNull().default(0),
+  region: text("region"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

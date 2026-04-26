@@ -57,7 +57,7 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 
 ## DB Schema
 
-Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subscription_requests, activation_cards, referrals, conversations, messages, **user_subject_subscriptions** (per-subject sub tracking), **user_subject_first_lessons** (per-subject paywall), **ai_usage_events** (per-LLM-call tracking: provider/model/tokens/cost_usd/latency_ms/status, indexed by user_id+created_at+model)
+Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subscription_requests, activation_cards, referrals, conversations, messages, **user_subject_subscriptions** (per-subject sub tracking — now also stores `paid_price_yer` + `region` so we know exactly how many Riyals each student paid for each subscription, used by the cost cap), **user_subject_first_lessons** (per-subject paywall), **ai_usage_events** (per-LLM-call tracking: provider/model/tokens/cost_usd/latency_ms/status, indexed by user_id+created_at+model), **student_mistakes** (per-subject mistakes bank — topic + short text + resolved flag, surfaced back into the teaching prompt every few sessions until resolved), **study_cards** (one HTML "what you mastered today" card per stage-completion, generated cheaply by Haiku and persisted for the dashboard)
 
 ## API Routes
 
@@ -74,6 +74,27 @@ Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subs
 - `GET/POST /api/referrals/*` — referral system
 - `POST /api/ai/*` — AI endpoints (lesson, interview, build-plan, teach) — SSE streaming
 - `GET /api/admin/ai-usage/*` — admin AI cost & token analytics (summary, timeseries, users, user/:id, events). Every LLM call across the codebase records via `recordAiUsage()` (`artifacts/api-server/src/lib/ai-usage.ts`); pricing per model in `lib/ai-pricing.ts`. Auto-migrate creates `ai_usage_events` on boot.
+
+## AI cost protection & smart model routing (`/ai/teach`)
+
+Three red lines, all enforced server-side in `artifacts/api-server/src/routes/ai.ts`:
+
+1. **Free first-lesson allowance is exactly 15 messages per user per subject** (`FREE_LESSON_MESSAGE_LIMIT = 15`). Cannot be bypassed by logout, refresh, cookie clear, or parallel requests — the gate is an **atomic conditional UPDATE** on `user_subject_first_lessons` that increments the counter only if it's still under 15, runs **before** the AI call, and is rolled back via `rollbackFreeClaim()` only on stream error or empty response. Free-tier turns always use Haiku (Sonnet is never called during the free phase).
+
+2. **AI cost per subscription can never exceed 50% of what the student paid.** Implemented in `artifacts/api-server/src/lib/cost-cap.ts`:
+   - `yerToUsd(yer, region)` converts paid Riyals to USD (north 1/600, south 1/2800 — hardcoded for now, see follow-up to move to admin settings).
+   - `getCostCapStatus(userId, subjectId)` sums `ai_usage_events.cost_usd` for that user+subject and compares against `0.5 × paidUsd`.
+   - Three states: `ok` (<60% used), `forceCheapModel` (≥60%, route forces Haiku), `blocked` (≥100%, request rejected with friendly Arabic message: "استنفدت رصيد جلستك لهذا التخصص — جدّد اشتراكك للمواصلة").
+   - Cap is read **before** every paid-tier `/ai/teach` call.
+
+3. **Sonnet's share of teaching turns stays around 30% for paid traffic.** `artifacts/api-server/src/lib/teaching-router.ts` exposes `pickTeachingModel(signals)` which returns Sonnet for: diagnostic plan-generation turn, mastery-check turn, lab-report feedback, confusion keywords (`ما فهمت`, `اشرح تاني`, `غير واضح`, etc.), unusually long student messages, and `detectDeepReasoning()` matches. Everything else routes to Haiku (`max_tokens=2048`). Free tier and `forceCheapModel` cap state always force Haiku regardless.
+
+Other teaching-depth pieces in the same file:
+- **Mistakes bank**: top 10 unresolved `student_mistakes` rows are loaded and injected into the teaching system prompt. The teacher emits `[MISTAKE: topic ||| text]` to add new ones and `[MISTAKE_RESOLVED: <id>]` to mark them resolved; both tags are parsed off the streamed output and persisted.
+- **Per-stage study card**: when the teacher emits `[STAGE_COMPLETE]`, a fire-and-forget Haiku call generates a compact HTML "what you mastered today" card and saves it to `study_cards` (gated by `!forceCheapModel` to protect tight-budget subscriptions).
+- **Teach-back gate + mini-project**: prompt-level rules require a teach-back before `[STAGE_COMPLETE]`, and ask the teacher to propose one applied `[[MINI_PROJECT: ...]]` per stage.
+
+Subscription writes in `artifacts/api-server/src/routes/subscriptions.ts` (4 insert sites) all populate `paid_price_yer` + `region` from the requested plan, so the cost cap has accurate paid amounts to work from.
 
 ## Design System
 

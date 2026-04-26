@@ -365,6 +365,11 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     usedAt: new Date(),
   }).where(eq(activationCardsTable.id, card.id));
 
+  // Capture region + price-paid on the subscription so the cost-cap enforcer
+  // (50%-of-paid red line) can compute the per-subscription budget without a
+  // join to the activation card.
+  const cardRegion = card.region ?? "south";
+  const cardBasePrice = getBasePrice(card.planType, cardRegion) ?? 0;
   await db.insert(userSubjectSubscriptionsTable).values({
     userId,
     subjectId: card.subjectId,
@@ -374,6 +379,8 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     messagesLimit,
     expiresAt: subscriptionExpiresAt,
     activationCode: code,
+    paidPriceYer: cardBasePrice,
+    region: cardRegion,
   });
 
   res.json({
@@ -508,6 +515,10 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         subscriptionRequestId: id,
       }).returning();
 
+      // Persist the price the student actually paid (after any discount) on
+      // the subscription so the cost-cap enforcer treats real revenue, not
+      // the list price.
+      const paidYer = request.finalPrice ?? request.basePrice ?? getBasePrice(request.planType, request.region) ?? 0;
       await tx.insert(userSubjectSubscriptionsTable).values({
         userId: request.userId,
         subjectId: request.subjectId!,
@@ -518,6 +529,8 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         expiresAt,
         activationCode: code,
         subscriptionRequestId: id,
+        paidPriceYer: paidYer,
+        region: request.region,
       });
 
       return insertedCard;
@@ -790,7 +803,7 @@ router.post("/admin/users/:id/grant-subject-subscription", async (req, res): Pro
   const targetId = parseInt(req.params.id, 10);
   if (isNaN(targetId)) { res.status(400).json({ error: "Invalid user id" }); return; }
 
-  const { subjectId, subjectName, planType, daysValid = 14 } = req.body;
+  const { subjectId, subjectName, planType, daysValid = 14, region: bodyRegion } = req.body;
   if (!subjectId || !planType || !PLAN_MESSAGE_LIMITS[planType]) {
     res.status(400).json({ error: "subjectId and valid planType required" });
     return;
@@ -798,6 +811,12 @@ router.post("/admin/users/:id/grant-subject-subscription", async (req, res): Pro
 
   const messagesLimit = PLAN_MESSAGE_LIMITS[planType];
   const expiresAt = new Date(Date.now() + daysValid * 24 * 60 * 60 * 1000);
+  // Admin-grant path: assume south region (more conservative cap) when the
+  // admin doesn't explicitly pass one. Price defaults to the list price for
+  // that region so the cost cap still applies — admins shouldn't be able to
+  // accidentally create a "free" sub that bypasses the 50%-of-paid rule.
+  const region = bodyRegion === "north" || bodyRegion === "south" ? bodyRegion : "south";
+  const paidYer = getBasePrice(planType, region) ?? 0;
 
   const [sub] = await db.insert(userSubjectSubscriptionsTable).values({
     userId: targetId,
@@ -807,6 +826,8 @@ router.post("/admin/users/:id/grant-subject-subscription", async (req, res): Pro
     messagesUsed: 0,
     messagesLimit,
     expiresAt,
+    paidPriceYer: paidYer,
+    region,
   }).returning();
 
   res.json({ success: true, subscription: sub });
@@ -854,7 +875,7 @@ router.post("/admin/grant-subject-subscription", async (req, res): Promise<void>
   const admin = await getUser(adminId);
   if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
 
-  const { userId, subjectId, subjectName, plan, daysValid = 14 } = req.body;
+  const { userId, subjectId, subjectName, plan, daysValid = 14, region: bodyRegion } = req.body;
   if (!userId || !subjectId || !plan || !PLAN_MESSAGE_LIMITS[plan]) {
     res.status(400).json({ error: "userId, subjectId, and valid plan required" });
     return;
@@ -862,6 +883,10 @@ router.post("/admin/grant-subject-subscription", async (req, res): Promise<void>
 
   const messagesLimit = PLAN_MESSAGE_LIMITS[plan];
   const expiresAt = new Date(Date.now() + daysValid * 24 * 60 * 60 * 1000);
+  // Same logic as the per-user grant route — default to south region with the
+  // matching list price so the cost-cap rule remains enforceable.
+  const region = bodyRegion === "north" || bodyRegion === "south" ? bodyRegion : "south";
+  const paidYer = getBasePrice(plan, region) ?? 0;
 
   const [sub] = await db.insert(userSubjectSubscriptionsTable).values({
     userId,
@@ -871,6 +896,8 @@ router.post("/admin/grant-subject-subscription", async (req, res): Promise<void>
     messagesUsed: 0,
     messagesLimit,
     expiresAt,
+    paidPriceYer: paidYer,
+    region,
   }).returning();
 
   res.json({ success: true, subscription: sub });
