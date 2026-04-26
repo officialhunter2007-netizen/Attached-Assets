@@ -1220,12 +1220,17 @@ router.delete("/admin/conversation-logs/bulk", async (req, res): Promise<any> =>
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   try {
-    const result = await db
-      .delete(aiTeacherMessagesTable)
-      .where(lt(aiTeacherMessagesTable.createdAt, cutoff))
-      .returning({ id: aiTeacherMessagesTable.id });
+    const countResult = await db.execute<{ cnt: string }>(sql`
+      WITH deleted AS (
+        DELETE FROM ai_teacher_messages
+        WHERE created_at < ${cutoff}
+        RETURNING 1
+      )
+      SELECT count(*)::text AS cnt FROM deleted
+    `);
+    const deleted = Number((countResult.rows[0] as any)?.cnt ?? 0);
 
-    res.json({ ok: true, deleted: result.length, cutoff: cutoff.toISOString() });
+    res.json({ ok: true, deleted, cutoff: cutoff.toISOString() });
   } catch (err: any) {
     console.error("[admin/conversation-logs/bulk] delete error:", err?.message || err);
     res.status(500).json({ error: "BULK_DELETE_FAILED" });
@@ -1241,12 +1246,13 @@ router.get("/admin/db-size", async (req, res): Promise<any> => {
   if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
 
   try {
-    const [dbRow] = await db.execute<{ total_bytes: string }>(
+    const dbResult = await db.execute<{ total_bytes: string }>(
       sql`SELECT pg_database_size(current_database())::text AS total_bytes`,
     );
-    const totalBytes = Number((dbRow as any).total_bytes ?? 0);
+    const dbRow = dbResult.rows[0] as any;
+    const totalBytes = Number(dbRow?.total_bytes ?? 0);
 
-    const tableRows = await db.execute<{
+    const tableResult = await db.execute<{
       table_name: string;
       total_bytes: string;
       data_bytes: string;
@@ -1266,7 +1272,7 @@ router.get("/admin/db-size", async (req, res): Promise<any> => {
       LIMIT 30
     `);
 
-    const tables = (tableRows as any[]).map((r: any) => ({
+    const tables = (tableResult.rows as any[]).map((r: any) => ({
       name: r.table_name,
       totalMb: Number(r.total_bytes) / (1024 * 1024),
       dataMb: Number(r.data_bytes) / (1024 * 1024),

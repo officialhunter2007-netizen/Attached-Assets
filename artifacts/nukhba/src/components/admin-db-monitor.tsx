@@ -79,6 +79,11 @@ export function AdminDbMonitor() {
   const [bulkDays, setBulkDays] = useState<string>("30");
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
+  const [showStudentDialog, setShowStudentDialog] = useState(false);
+  const [studentUserId, setStudentUserId] = useState<string>("");
+  const [studentSubjectId, setStudentSubjectId] = useState<string>("");
+  const [studentDeleting, setStudentDeleting] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -128,6 +133,34 @@ export function AdminDbMonitor() {
     }
   }, [bulkDays, load, toast]);
 
+  const studentDelete = useCallback(async () => {
+    const uid = studentUserId.trim();
+    const sid = studentSubjectId.trim();
+    if (!uid || !sid) {
+      toast({ title: "أدخل معرّف الطالب ومعرّف المادة", variant: "destructive" });
+      return;
+    }
+    setStudentDeleting(true);
+    try {
+      const url = `/api/admin/conversation-logs?userId=${encodeURIComponent(uid)}&subjectId=${encodeURIComponent(sid)}`;
+      const r = await fetch(url, { method: "DELETE", credentials: "include" });
+      const json = await r.json();
+      if (!r.ok || json?.error) throw new Error(json?.error || "خطأ");
+      toast({
+        title: "تم حذف المحادثة",
+        description: `حُذفت ${json.deleted} رسالة للطالب ${uid} في المادة ${sid}`,
+      });
+      setShowStudentDialog(false);
+      setStudentUserId("");
+      setStudentSubjectId("");
+      await load();
+    } catch (err: any) {
+      toast({ title: "فشل الحذف", description: String(err?.message || err), variant: "destructive" });
+    } finally {
+      setStudentDeleting(false);
+    }
+  }, [studentUserId, studentSubjectId, load, toast]);
+
   const totalMb = data?.totalMb ?? 0;
   const ratio = Math.min(1, totalMb / WARN_MB);
   const colorCls = severityColor(ratio);
@@ -141,6 +174,15 @@ export function AdminDbMonitor() {
           <h3 className="font-bold text-sm">حجم قاعدة البيانات</h3>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-orange-400 border-orange-500/30 hover:bg-orange-500/10"
+            onClick={() => setShowStudentDialog(true)}
+          >
+            <Trash2 className="w-4 h-4" />
+            حذف محادثة طالب
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -240,6 +282,65 @@ export function AdminDbMonitor() {
           </div>
         )}
       </div>
+
+      {/* Per-student delete dialog */}
+      <Dialog open={showStudentDialog} onOpenChange={setShowStudentDialog}>
+        <DialogContent className="max-w-sm bg-black/95 border-white/10">
+          <DialogTitle className="flex items-center gap-2 text-orange-400">
+            <Trash2 className="w-4 h-4" />
+            حذف محادثة طالب محدد
+          </DialogTitle>
+          <div dir="rtl" className="space-y-4 mt-2">
+            <p className="text-sm text-muted-foreground">
+              سيتم حذف جميع رسائل المحادثة الخاصة بهذا الطالب في المادة المحددة نهائياً. لا يمكن التراجع.
+            </p>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">معرّف الطالب (userId)</label>
+                <input
+                  type="text"
+                  value={studentUserId}
+                  onChange={(e) => setStudentUserId(e.target.value)}
+                  placeholder="مثال: 42"
+                  className="w-full bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-sm text-right"
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">معرّف المادة (subjectId)</label>
+                <input
+                  type="text"
+                  value={studentSubjectId}
+                  onChange={(e) => setStudentSubjectId(e.target.value)}
+                  placeholder="مثال: 3"
+                  className="w-full bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-sm text-right"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setShowStudentDialog(false); setStudentUserId(""); setStudentSubjectId(""); }}
+                disabled={studentDeleting}
+              >
+                إلغاء
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={studentDelete}
+                disabled={studentDeleting || !studentUserId.trim() || !studentSubjectId.trim()}
+                className="gap-1 bg-orange-600 hover:bg-orange-700"
+              >
+                {studentDeleting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                {studentDeleting ? "جارٍ الحذف…" : "تأكيد الحذف"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Bulk delete dialog */}
       <Dialog open={showBulkDialog} onOpenChange={setShowBulkDialog}>
