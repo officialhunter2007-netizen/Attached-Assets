@@ -248,7 +248,12 @@ export async function getCostCapStatus(
   const dailyExhausted = todaySpentUsd + MAX_PREMIUM_TURN_USD >= dailyCapUsd;
   const totalExhausted = spentUsd + MAX_PREMIUM_TURN_USD >= capUsd;
   const forceCheapModel = dailyExhausted || totalExhausted;
-  const dailyMode: CostCapStatus["dailyMode"] = forceCheapModel ? "exhausted" : "ok";
+  // dailyMode strictly tracks today's slice (NOT lifetime exhaustion); analytics
+  // consumers that need exact attribution between "today's slice gone" vs
+  // "lifetime cap hit" should rely on `dailyExhausted` / `totalExhausted` /
+  // routerReason. Keeping dailyMode strictly daily makes the field semantics
+  // match its name.
+  const dailyMode: CostCapStatus["dailyMode"] = dailyExhausted ? "exhausted" : "ok";
 
   return {
     spentUsd,
