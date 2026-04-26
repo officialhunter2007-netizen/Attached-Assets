@@ -1,0 +1,74 @@
+*** System restart required ***
+  _____
+ / ___/___  _  _ _____ _   ___  ___
+| |   / _ \| \| |_   _/ \ | _ )/ _ \
+| |__| (_) | .` | | |/ _ \| _ \ (_) |
+ \____\___/|_|\_| |_/_/ \_|___/\___/
+
+Welcome!
+
+This server is hosted by Contabo. If you have any questions or need help,
+please raise a support ticket from your customer control panel.
+Last login: Sat Apr 25 22:47:19 2026 from 31.31.188.191
+root@vmi3256829:~# ls
+'1537215372$.txt'   nukhba   snap
+root@vmi3256829:~# cd nukhba
+root@vmi3256829:~/nukhba# ls
+Attached-Assets
+root@vmi3256829:~/nukhba# Attached-Assets/
+-bash: Attached-Assets/: Is a directory
+root@vmi3256829:~/nukhba# cd Attached-Assets/
+root@vmi3256829:~/nukhba/Attached-Assets# ls
+artifacts        docker              lib           pnpm-lock.yaml       replit.md  tsconfig.base.json
+attached_assets  docker-compose.yml  package.json  pnpm-workspace.yaml  scripts    tsconfig.json
+root@vmi3256829:~/nukhba/Attached-Assets# git pull && bash docker/deploy.sh --update
+remote: Enumerating objects: 111, done.
+remote: Counting objects: 100% (111/111), done.
+remote: Compressing objects: 100% (17/17), done.
+remote: Total 76 (delta 58), reused 76 (delta 58), pack-reused 0 (from 0)
+Unpacking objects: 100% (76/76), 632.31 KiB | 4.16 MiB/s, done.
+From https://github.com/officialhunter2007-netizen/Attached-Assets
+   10fd913..2c59b90  main       -> origin/main
+Updating 10fd913..2c59b90
+Fast-forward
+ artifacts/api-server/src/lib/ai-pricing.ts                           | 137 ++++++
+ artifacts/api-server/src/lib/ai-usage.ts                             | 115 +++++
+ artifacts/api-server/src/lib/auto-migrate.ts                         |  66 +++
+ artifacts/api-server/src/routes/admin_insights.ts                    |  51 +++
+ artifacts/api-server/src/routes/ai.ts                                | 562 ++++++++++++++++++++++---
+ artifacts/api-server/src/routes/ai_usage.ts                          | 466 +++++++++++++++++++++
+ artifacts/api-server/src/routes/index.ts                             |   2 +
+ artifacts/api-server/src/routes/materials.ts                         | 172 ++++++--
+ artifacts/api-server/src/routes/subscriptions.ts                     |  32 +-
+ artifacts/api-server/src/routes/summaries.ts                         |  27 ++
+ artifacts/nukhba-promo/src/components/video/video_scenes/Scene12.tsx |   8 +-
+ artifacts/nukhba/src/components/admin-ai-usage.tsx                   | 694 +++++++++++++++++++++++++++++++
+ artifacts/nukhba/src/pages/admin.tsx                                 |  10 +
+ artifacts/nukhba/src/pages/dashboard.tsx                             |   6 +-
+ artifacts/nukhba/src/pages/home.tsx                                  |  14 +-
+ artifacts/nukhba/src/pages/subscription.tsx                          |  12 +-
+ artifacts/nukhba/src/pages/welcome.tsx                               |  12 +-
+ artifacts/nukhba/video-script.md                                     |   6 +-
+ attached_assets/image_1777114752203.png                              | Bin 0 -> 14564 bytes
+ attached_assets/image_1777115010604.png                              | Bin 0 -> 209582 bytes
+ attached_assets/image_1777116767519.png                              | Bin 0 -> 147716 bytes
+ attached_assets/image_1777116849727.png                              | Bin 0 -> 152980 bytes
+ attached_assets/image_1777117665145.png                              | Bin 0 -> 99734 bytes
+ attached_assets/image_1777118301902.png                              | Bin 0 -> 14748 bytes
+ lib/db/src/schema/ai_usage.ts                                        |  47 +++
+ lib/db/src/schema/index.ts                                           |   1 +
+ replit.md                                                            |   3 +-
+ 27 files changed, 2327 insertions(+), 116 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/ai-pricing.ts
+ create mode 100644 artifacts/api-server/src/lib/ai-usage.ts
+ create mode 100644 artifacts/api-server/src/routes/ai_usage.ts
+ create mode 100644 artifacts/nukhba/src/components/admin-ai-usage.tsx
+ create mode 100644 attached_assets/image_1777114752203.png
+ create mode 100644 attached_assets/image_1777115010604.png
+ create mode 100644 attached_assets/image_1777116767519.png
+ create mode 100644 attached_assets/image_1777116849727.png
+ create mode 100644 attached_assets/image_1777117665145.png
+ create mode 100644 attached_assets/image_1777118301902.png
+ create mode 100644 lib/db/src/schema/ai_usage.ts
+[ERROR]  ملف .env غير موجود. انسخ .env.example إلى .env وأكمل القيم.
+root@vmi3256829:~/nukhba/Attached-Assets#
