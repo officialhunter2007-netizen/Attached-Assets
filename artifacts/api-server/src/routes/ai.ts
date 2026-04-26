@@ -728,11 +728,12 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
           eq(studentMistakesTable.resolved, false),
         ))
         .orderBy(desc(studentMistakesTable.createdAt))
-        .limit(10);
+        .limit(2); // Spec: surface UP TO 2 unresolved items per turn — keeps
+                   // the prompt slim and matches the "quietly revisit" cadence.
       activeMistakes = rows;
       if (rows.length > 0) {
         const lines = rows.map((r) => `  • [#${r.id}] (${r.topic}) — ${r.mistake.slice(0, 200)}`).join("\n");
-        mistakesBankNote = `\n--- بنك أخطاء الطالب النشطة (مرجعك للمراجعة المستهدفة) ---\n${lines}\n---\n`;
+        mistakesBankNote = `\n--- بنك أخطاء الطالب النشطة (راجعها بهدوء عند المناسبة، حدّ أقصى ${rows.length}) ---\n${lines}\n---\n`;
       }
     } catch (err: any) {
       console.warn("[ai/teach] mistakes bank load failed:", err?.message || err);
@@ -1460,16 +1461,9 @@ ${retrievedBlock}
   //   • Cost cap ≥ 60%    → Haiku (forced cheap)
   //   • Otherwise          → Sonnet for high-leverage moments (~30% of paid
   //                          traffic), Haiku for the rest (~70%).
-  // Plan-generation turn: ONLY the synthesis turn at the end of the diagnostic
-  // phase (after all 4 questions have been asked + answered). The 4 diagnostic
-  // questions themselves are simple Q&A and stay on Haiku.
-  const historyAssistantTurns = Array.isArray(history)
-    ? history.filter((m: any) => m && m.role === "assistant").length
-    : 0;
-  const isDiagnosticPlanGen = !!isDiagnosticPhase && historyAssistantTurns >= 4;
   const routerDecision = pickTeachingModel({
     isFreeFirstLesson: !!isFirstLesson,
-    isDiagnosticPlanGen,
+    isDiagnostic: !!isDiagnosticPhase,
     isLabReport: detectLabReport(trimmedUserMessage),
     isMasteryCheck: detectMasteryCheckFromHistory(history),
     userMessageLength: trimmedUserMessage.length,

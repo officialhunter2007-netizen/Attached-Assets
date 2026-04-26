@@ -10,11 +10,12 @@ export type RouterDecision = {
 export type RouterInput = {
   /** Free first-lesson tier — ALWAYS Haiku, no exceptions (cost protection). */
   isFreeFirstLesson: boolean;
-  /** ONLY the diagnostic plan-generation turn (the 5th turn after the 4
-   *  diagnostic Q&A exchanges) — NOT every diagnostic turn. The 4 diagnostic
-   *  questions themselves are simple Q&A and route to Haiku. Plan generation
-   *  is the one-shot synthesis step that benefits from Sonnet's reasoning. */
-  isDiagnosticPlanGen: boolean;
+  /** Any diagnostic-phase turn (the 4 questions + the plan-generation
+   *  synthesis turn). Diagnostic is a one-time-per-subject high-leverage
+   *  phase that sets the entire learning plan, so even on paid traffic
+   *  it stays on Sonnet. (Free-tier diagnostic is still locked to Haiku
+   *  by the `isFreeFirstLesson` rule above, which fires first.) */
+  isDiagnostic: boolean;
   /** Lab report feedback turn (student message starts with [LAB_REPORT] or
    *  contains "نتائج من المختبر"/"نتائج من البيئة") — Sonnet for quality. */
   isLabReport: boolean;
@@ -40,18 +41,15 @@ const HAIKU = "claude-haiku-4-5" as const;
  *
  * Goals:
  *  1. RED LINE: free tier and cost-capped students NEVER touch Sonnet.
- *  2. ~30% Sonnet usage on paid traffic — reserved EXCLUSIVELY for the
- *     moments where Sonnet's reasoning depth produces measurable teaching
- *     gains:
- *       • Diagnostic plan-generation turn (NOT every diagnostic turn — only
- *         the synthesis step after all 4 questions have been answered)
+ *  2. ~30% Sonnet usage on paid traffic — reserved for the moments where
+ *     Sonnet's reasoning depth produces measurable teaching gains:
+ *       • Entire diagnostic phase (4 questions + plan-generation synthesis)
+ *         — one-time-per-subject and decides the whole learning plan
  *       • Mastery / teach-back check before stage completion
  *       • Lab report feedback turn
  *       • Confusion keywords (lock for any "I don't understand" signal)
- *       • Long student messages (≥600 chars — raised from 400 to keep the
- *         Sonnet share near 30%)
- *     Everything else — including session openers and the 4 diagnostic
- *     questions themselves — routes to Haiku.
+ *       • Long student messages (≥600 chars)
+ *     Everything else — incremental Q&A, session openers — routes to Haiku.
  */
 export function pickTeachingModel(input: RouterInput): RouterDecision {
   if (input.isUnlimited) {
@@ -69,8 +67,8 @@ export function pickTeachingModel(input: RouterInput): RouterDecision {
   }
 
   // Selective Sonnet usage — strict whitelist only.
-  if (input.isDiagnosticPlanGen) {
-    return { model: SONNET, provider: "anthropic", reason: "diagnostic_plan_generation" };
+  if (input.isDiagnostic) {
+    return { model: SONNET, provider: "anthropic", reason: "diagnostic_phase" };
   }
   if (input.isMasteryCheck) {
     return { model: SONNET, provider: "anthropic", reason: "mastery_check" };
