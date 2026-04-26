@@ -465,19 +465,60 @@ router.get("/admin/ai-usage/daily-budget-top", async (req, res): Promise<any> =>
     // Step 2: compute the authoritative daily-budget status for each candidate
     // (small N — the heaviest 20 today). Reuses the live `getCostCapStatus`
     // logic so the admin view never drifts from what the router actually sees.
+    // Alongside the snapshot we also fetch a per-subscription 7-day trend so
+    // the admin can verify the redistribution policy is actually smoothing
+    // spend across days (not concentrating it on day 1) — single bucket
+    // query per row keyed off Yemen-local-day, then projected back into a
+    // dense 7-element array on the server.
+    const sevenDaysAgo = new Date(startOfToday.getTime() - 6 * 24 * 60 * 60 * 1000);
     const enriched = await Promise.all(
       todaysTop
         .filter((r) => Number(r.todaySpentRaw || 0) > 0)
         .map(async (r) => {
-          const status = await getCostCapStatus(r.userId, {
-            id: r.subscriptionId,
-            subjectId: r.subjectId,
-            createdAt: r.createdAt,
-            expiresAt: r.expiresAt,
-            paidPriceYer: r.paidPriceYer,
-            region: r.region,
-            plan: r.plan,
-          });
+          const [status, trendRows] = await Promise.all([
+            getCostCapStatus(r.userId, {
+              id: r.subscriptionId,
+              subjectId: r.subjectId,
+              createdAt: r.createdAt,
+              expiresAt: r.expiresAt,
+              paidPriceYer: r.paidPriceYer,
+              region: r.region,
+              plan: r.plan,
+            }),
+            // Bucket spend by Yemen-local day for the last 7 days. We add a
+            // 3-hour offset to UTC so the day boundary aligns with Asia/Aden
+            // (UTC+3, no DST). Returns rows like {day: '2026-04-25', total: '0.0123'}.
+            db.execute<{ day: string; total: string }>(sql`
+              SELECT
+                to_char((${aiUsageEventsTable.createdAt} + interval '3 hours')::date, 'YYYY-MM-DD') AS day,
+                coalesce(sum(${aiUsageEventsTable.costUsd}), 0)::text AS total
+              FROM ${aiUsageEventsTable}
+              WHERE ${aiUsageEventsTable.userId} = ${r.userId}
+                AND ${aiUsageEventsTable.subjectId} = ${r.subjectId}
+                AND ${aiUsageEventsTable.createdAt} >= ${sevenDaysAgo.toISOString()}
+              GROUP BY day
+              ORDER BY day ASC
+            `),
+          ]);
+
+          // Densify the 7-day window: the SQL only emits days with activity,
+          // so we project into a fixed-length array indexed by day-offset
+          // from `sevenDaysAgo` so the client can render a simple sparkline
+          // without re-bucketing.
+          const trendByDay = new Map<string, number>();
+          const rows = (trendRows as any).rows ?? trendRows ?? [];
+          for (const tr of rows) {
+            trendByDay.set(tr.day, Number(tr.total) || 0);
+          }
+          const last7DaysUsd: { day: string; spentUsd: number }[] = [];
+          for (let i = 0; i < 7; i++) {
+            const d = new Date(sevenDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
+            // Format the same way the SQL projects (Yemen-local YYYY-MM-DD).
+            const yemenDate = new Date(d.getTime() + 3 * 60 * 60 * 1000)
+              .toISOString().slice(0, 10);
+            last7DaysUsd.push({ day: yemenDate, spentUsd: trendByDay.get(yemenDate) || 0 });
+          }
+
           const dailyRatio = status.dailyCapUsd > 0 ? status.todaySpentUsd / status.dailyCapUsd : 0;
           return {
             subscriptionId: r.subscriptionId,
@@ -497,6 +538,7 @@ router.get("/admin/ai-usage/daily-budget-top", async (req, res): Promise<any> =>
             daysRemaining: status.daysRemaining,
             dailyMode: status.dailyMode,
             forceCheapModel: status.forceCheapModel,
+            last7DaysUsd,
           };
         }),
     );

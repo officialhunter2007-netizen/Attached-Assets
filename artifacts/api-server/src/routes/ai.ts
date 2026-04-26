@@ -557,6 +557,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     ? {
         spentUsd: 0, todaySpentUsd: 0, capUsd: 0, dailyCapUsd: 0, daysRemaining: 0,
         ratio: 0, mode: "ok" as const, dailyMode: "ok" as const,
+        dailyExhausted: false, totalExhausted: false,
         forceCheapModel: false, blocked: false as const,
       }
     : await getCostCapStatus(userId, subjectSub);

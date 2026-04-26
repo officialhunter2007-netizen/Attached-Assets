@@ -68,6 +68,8 @@ type DailyBudgetRow = {
   daysRemaining: number;
   dailyMode: "ok" | "exhausted";
   forceCheapModel: boolean;
+  /** Spend by Yemen-local day for the past 7 days (oldest first). */
+  last7DaysUsd: { day: string; spentUsd: number }[];
 };
 
 type DailyBudgetTop = {
@@ -331,6 +333,7 @@ export function AdminAiUsage() {
                   <TableHead className="text-right">نسبة اليوم</TableHead>
                   <TableHead className="text-right">الإجمالي / السقف</TableHead>
                   <TableHead className="text-right">أيام متبقية</TableHead>
+                  <TableHead className="text-right">آخر ٧ أيام</TableHead>
                   <TableHead className="text-right">الحالة</TableHead>
                 </TableRow>
               </TableHeader>
@@ -374,6 +377,37 @@ export function AdminAiUsage() {
                         {fmtMoney(r.totalSpentUsd)} / {fmtMoney(r.capUsd)} ({pctTotal}%)
                       </TableCell>
                       <TableCell className="text-xs">{fmtArabicNumber(r.daysRemaining)}</TableCell>
+                      <TableCell>
+                        {/* 7-day spend sparkline. Each bar = one Yemen-local day,
+                            oldest on the left. Heights normalize to the row's
+                            own max so smoothing/spikes are visible per
+                            subscription regardless of plan size. */}
+                        {(() => {
+                          const series = r.last7DaysUsd ?? [];
+                          const max = Math.max(0.000001, ...series.map((d) => d.spentUsd));
+                          return (
+                            <div className="flex items-end gap-[2px] h-7" dir="ltr" title={series.map((d) => `${d.day}: $${d.spentUsd.toFixed(4)}`).join("\n")}>
+                              {series.map((d, i) => {
+                                const h = Math.max(2, Math.round((d.spentUsd / max) * 28));
+                                const isToday = i === series.length - 1;
+                                return (
+                                  <div
+                                    key={d.day}
+                                    style={{ height: `${h}px` }}
+                                    className={`w-2 rounded-sm ${
+                                      isToday
+                                        ? "bg-amber-400"
+                                        : d.spentUsd > 0
+                                          ? "bg-emerald-400/70"
+                                          : "bg-white/10"
+                                    }`}
+                                  />
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell>
                         {r.dailyMode === "exhausted" ? (
                           <Badge className="bg-rose-500/15 border-rose-500/30 text-rose-300 text-[10px]" variant="outline">
