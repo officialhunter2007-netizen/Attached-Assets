@@ -86,7 +86,11 @@ export type CostCapStatus = {
   mode: "ok" | "tight" | "capped";
   /** "ok" while today's spend < dailyCapUsd, "exhausted" when today's slice is used up. */
   dailyMode: "ok" | "exhausted";
-  /** When true, the router MUST pick the cheapest model. */
+  /** True when today's slice (minus the per-turn safety margin) is exhausted. */
+  dailyExhausted: boolean;
+  /** True when the lifetime cap (minus the per-turn safety margin) is exhausted. */
+  totalExhausted: boolean;
+  /** When true, the router MUST pick the cheapest model. Equals `dailyExhausted || totalExhausted`. */
   forceCheapModel: boolean;
   /**
    * Always `false`. Kept on the type so existing call sites compile, but the
@@ -135,6 +139,8 @@ export async function getCostCapStatus(
       ratio: 0,
       mode: "ok",
       dailyMode: "ok",
+      dailyExhausted: false,
+      totalExhausted: false,
       forceCheapModel: true,
       blocked: false,
     };
@@ -161,6 +167,8 @@ export async function getCostCapStatus(
       ratio: 1,
       mode: "capped",
       dailyMode: "exhausted",
+      dailyExhausted: true,
+      totalExhausted: true,
       forceCheapModel: true,
       blocked: false,
     };
@@ -251,6 +259,8 @@ export async function getCostCapStatus(
     ratio,
     mode,
     dailyMode,
+    dailyExhausted,
+    totalExhausted,
     forceCheapModel,
     // RED LINE: never block a paid student mid-subscription. The daily
     // quality downgrade is the *only* throttle — silence is never an option.

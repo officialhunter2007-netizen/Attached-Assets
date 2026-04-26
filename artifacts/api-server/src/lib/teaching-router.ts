@@ -68,7 +68,11 @@ export function pickTeachingModel(input: RouterInput): RouterDecision {
   // first, but covered for defense-in-depth). Both downgrade quality only —
   // the student is never blocked mid-subscription.
   if (input.costStatus.forceCheapModel) {
-    const reason = input.costStatus.spentUsd >= input.costStatus.capUsd
+    // Read the explicit predicates from cost-cap so analytics reasons exactly
+    // match the trigger predicate (both already account for the per-turn
+    // safety margin). When both fire at once the lifetime cap wins because
+    // it is the harder ceiling.
+    const reason = input.costStatus.totalExhausted
       ? "total_cap_exhausted"
       : "daily_cap_exhausted";
     return { model: HAIKU, provider: "anthropic", reason };
