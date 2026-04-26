@@ -472,6 +472,12 @@ router.get("/admin/ai-usage/daily-budget-top", async (req, res): Promise<any> =>
     const sevenDaysAgo = new Date(startOfToday.getTime() - 6 * 24 * 60 * 60 * 1000);
     const enriched = await Promise.all(
       candidates.map(async (r) => {
+        // Lower-bound the 7-day trend window by the subscription's createdAt
+        // so a fresh re-subscription on the same subject doesn't show pre-
+        // current-subscription spend in its sparkline (telemetry accuracy).
+        const trendWindowStart = r.createdAt && r.createdAt > sevenDaysAgo
+          ? r.createdAt
+          : sevenDaysAgo;
         const [status, trendResult] = await Promise.all([
           getCostCapStatus(r.userId, {
             id: r.subscriptionId,
@@ -492,7 +498,7 @@ router.get("/admin/ai-usage/daily-budget-top", async (req, res): Promise<any> =>
             FROM ${aiUsageEventsTable}
             WHERE ${aiUsageEventsTable.userId} = ${r.userId}
               AND ${aiUsageEventsTable.subjectId} = ${r.subjectId}
-              AND ${aiUsageEventsTable.createdAt} >= ${sevenDaysAgo.toISOString()}
+              AND ${aiUsageEventsTable.createdAt} >= ${trendWindowStart.toISOString()}
             GROUP BY day
             ORDER BY day ASC
           `),
