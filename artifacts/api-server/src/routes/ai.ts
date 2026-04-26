@@ -1530,6 +1530,17 @@ ${retrievedBlock}
     try {
       const __final = await stream.finalMessage();
       const __u = extractAnthropicUsage(__final);
+      // Cap-context: enforces the red-line invariant in the accounting layer.
+      // When set, recordAiUsage clamps `costUsd` so SUM never exceeds capUsd
+      // for this (userId, subjectId, since-subscription-start) window — the
+      // platform absorbs any provider charges past the cap, but the
+      // student-facing UX (Haiku fallback) is preserved end-to-end.
+      const __capCtx = subjectSub && costStatus.capUsd > 0 ? {
+        userId,
+        subjectId: subjectSub.subjectId,
+        windowStart: subjectSub.createdAt,
+        capUsd: costStatus.capUsd,
+      } : null;
       void recordAiUsage({
         userId,
         subjectId: subjectId ?? null,
@@ -1541,9 +1552,16 @@ ${retrievedBlock}
         cachedInputTokens: __u.cachedInputTokens,
         latencyMs: Date.now() - __teachStart,
         metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode },
+        capContext: __capCtx,
       });
     } catch {}
   } catch (err: any) {
+    const __capCtxErr = subjectSub && costStatus.capUsd > 0 ? {
+      userId,
+      subjectId: subjectSub.subjectId,
+      windowStart: subjectSub.createdAt,
+      capUsd: costStatus.capUsd,
+    } : null;
     void recordAiUsage({
       userId,
       subjectId: subjectId ?? null,
@@ -1556,6 +1574,7 @@ ${retrievedBlock}
       status: "error",
       errorMessage: String(err?.message ?? err).slice(0, 500),
       metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode },
+      capContext: __capCtxErr,
     });
     void __teachStream;
     console.error("[ai/teach] anthropic stream error:", err?.message || err);
