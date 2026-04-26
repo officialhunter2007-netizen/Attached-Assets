@@ -130,12 +130,12 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
         // still active for this user (not yet used, not expired).
         const consumeResult = await tx
           .update(usersTable)
-          .set({ welcomeOfferUsedAt: new Date() } as any)
+          .set({ welcomeOfferUsedAt: new Date() })
           .where(and(
             eq(usersTable.id, userId),
-            sql`${(usersTable as any).welcomeOfferShownAt} IS NOT NULL` as any,
-            sql`${(usersTable as any).welcomeOfferUsedAt} IS NULL` as any,
-            sql`${(usersTable as any).welcomeOfferExpiresAt} > NOW()` as any,
+            sql`${usersTable.welcomeOfferShownAt} IS NOT NULL`,
+            sql`${usersTable.welcomeOfferUsedAt} IS NULL`,
+            sql`${usersTable.welcomeOfferExpiresAt} > NOW()`,
           ))
           .returning({ id: usersTable.id });
 
@@ -272,11 +272,11 @@ async function getWelcomeOfferState(userId: number): Promise<WelcomeOfferState> 
   }
   const hasAnySubscription = await userHasAnySubscription(userId);
   const now = Date.now();
-  const shownAt = (user as any).welcomeOfferShownAt ?? null;
-  const expiresAt = (user as any).welcomeOfferExpiresAt ?? null;
-  const usedAt = (user as any).welcomeOfferUsedAt ?? null;
-  const visited = (user as any).subPageFirstVisitedAt != null;
-  const left = (user as any).subPageLeftAt != null;
+  const shownAt = user.welcomeOfferShownAt ?? null;
+  const expiresAt = user.welcomeOfferExpiresAt ?? null;
+  const usedAt = user.welcomeOfferUsedAt ?? null;
+  const visited = user.subPageFirstVisitedAt != null;
+  const left = user.subPageLeftAt != null;
 
   const active = !!shownAt && !usedAt && !!expiresAt && new Date(expiresAt).getTime() > now;
   // Server-side eligibility: must have visited the subscription page AND
@@ -308,10 +308,10 @@ router.post("/subscriptions/welcome-offer/visit", async (req, res): Promise<void
 
   await db
     .update(usersTable)
-    .set({ subPageFirstVisitedAt: new Date() } as any)
+    .set({ subPageFirstVisitedAt: new Date() })
     .where(and(
       eq(usersTable.id, userId),
-      sql`${usersTable.subPageFirstVisitedAt} IS NULL` as any,
+      sql`${usersTable.subPageFirstVisitedAt} IS NULL`,
     ));
 
   res.json({ ok: true, visited: true });
@@ -335,11 +335,11 @@ router.post("/subscriptions/welcome-offer/leave", async (req, res): Promise<void
   // Always update to the latest leave timestamp.
   await db
     .update(usersTable)
-    .set({ subPageLeftAt: new Date() } as any)
+    .set({ subPageLeftAt: new Date() })
     .where(and(
       eq(usersTable.id, userId),
-      sql`${(usersTable as any).subPageFirstVisitedAt} IS NOT NULL` as any,
-      sql`${(usersTable as any).welcomeOfferShownAt} IS NULL` as any,
+      sql`${usersTable.subPageFirstVisitedAt} IS NOT NULL`,
+      sql`${usersTable.welcomeOfferShownAt} IS NULL`,
     ));
 
   res.json({ ok: true, recorded: true });
@@ -390,16 +390,16 @@ router.post("/subscriptions/welcome-offer/show", async (req, res): Promise<void>
   // (e.g., a parallel request created a subscription record meanwhile).
   const result = await db
     .update(usersTable)
-    .set({ welcomeOfferShownAt: now, welcomeOfferExpiresAt: expires } as any)
+    .set({ welcomeOfferShownAt: now, welcomeOfferExpiresAt: expires })
     .where(and(
       eq(usersTable.id, userId),
-      sql`${(usersTable as any).welcomeOfferShownAt} IS NULL` as any,
-      sql`${(usersTable as any).subPageFirstVisitedAt} IS NOT NULL` as any,
-      sql`${(usersTable as any).subPageLeftAt} IS NOT NULL` as any,
-      sql`NOT EXISTS (SELECT 1 FROM ${userSubjectSubscriptionsTable} WHERE ${userSubjectSubscriptionsTable.userId} = ${userId})` as any,
-      sql`NOT EXISTS (SELECT 1 FROM ${subscriptionRequestsTable} WHERE ${subscriptionRequestsTable.userId} = ${userId})` as any,
+      sql`${usersTable.welcomeOfferShownAt} IS NULL`,
+      sql`${usersTable.subPageFirstVisitedAt} IS NOT NULL`,
+      sql`${usersTable.subPageLeftAt} IS NOT NULL`,
+      sql`NOT EXISTS (SELECT 1 FROM ${userSubjectSubscriptionsTable} WHERE ${userSubjectSubscriptionsTable.userId} = ${userId})`,
+      sql`NOT EXISTS (SELECT 1 FROM ${subscriptionRequestsTable} WHERE ${subscriptionRequestsTable.userId} = ${userId})`,
     ))
-    .returning({ shownAt: (usersTable as any).welcomeOfferShownAt, expiresAt: (usersTable as any).welcomeOfferExpiresAt });
+    .returning({ shownAt: usersTable.welcomeOfferShownAt, expiresAt: usersTable.welcomeOfferExpiresAt });
 
   if (result.length === 0) {
     // Race: someone else already set it — fetch and return existing.
