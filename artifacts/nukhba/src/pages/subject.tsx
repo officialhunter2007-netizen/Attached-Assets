@@ -1107,19 +1107,30 @@ function expandLabEnvTags(html: string): string {
 
 // Extracts [[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| غير ذلك]] from content
 // Uses ||| as delimiter so question/options can safely contain a single |
+// Uses [\s\S]+? (non-greedy any-char) so single `]` inside the question or
+// options (e.g. programming examples like `arr[0]`) doesn't break the parser —
+// the `]]` closing fence is what terminates the match.
 function extractAskOptions(content: string): { stripped: string; ask: { question: string; options: string[]; allowOther: boolean } | null } {
-  const m = content.match(/\[\[ASK_OPTIONS:\s*([^\]]+?)\]\]/);
+  const m = content.match(/\[\[ASK_OPTIONS:\s*([\s\S]+?)\]\]/);
   if (!m) return { stripped: content, ask: null };
   // Prefer ||| delimiter; fall back to single | only if ||| not present
   const raw = m[1];
   const parts = (raw.includes("|||") ? raw.split("|||") : raw.split("|"))
     .map((s) => s.trim())
     .filter(Boolean);
-  if (parts.length < 2) return { stripped: content.replace(m[0], ""), ask: null };
+  // After stripping the tag, also collapse any wrapper tags it left empty
+  // (e.g. the model put it inside its own <p>...</p> or <div>...</div>).
+  const cleanStripped = (raw0: string) =>
+    raw0
+      .replace(m[0], "")
+      .replace(/<(p|div|span)[^>]*>\s*<\/\1>/gi, "")
+      .replace(/(\s*<br\s*\/?>\s*){2,}/gi, "<br/>")
+      .trim();
+  if (parts.length < 2) return { stripped: cleanStripped(content), ask: null };
   const [question, ...rawOpts] = parts;
   const allowOther = rawOpts.some((o) => /غير\s*ذلك/i.test(o) || /^other$/i.test(o));
   const options = rawOpts.filter((o) => !(/غير\s*ذلك/i.test(o) || /^other$/i.test(o)));
-  return { stripped: content.replace(m[0], ""), ask: { question, options, allowOther } };
+  return { stripped: cleanStripped(content), ask: { question, options, allowOther } };
 }
 
 const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void }) {
