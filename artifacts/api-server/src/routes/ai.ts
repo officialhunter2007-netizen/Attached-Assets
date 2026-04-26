@@ -26,7 +26,7 @@ import {
 
 const router: IRouter = Router();
 
-const FREE_LESSON_MESSAGE_LIMIT = 40;
+const FREE_LESSON_MESSAGE_LIMIT = 15;
 
 // Accounts with unlimited free access — no quotas, no daily limits, no counters.
 // Configured via the UNLIMITED_ACCESS_EMAILS env var (comma-separated).
@@ -1366,7 +1366,11 @@ ${retrievedBlock}
     labEnvIntentDetected || trimmedUserMessage.startsWith("[LAB_REPORT]");
 
   let useHaiku: boolean;
-  if (isEssentialQuality) {
+  // Free-tier users always get Haiku — even on diagnostic and new sessions.
+  // This prevents economic abuse of the "critical path" Sonnet guarantee.
+  if (qualityProfile.isFreeTier) {
+    useHaiku = true;
+  } else if (isEssentialQuality) {
     useHaiku = false;
   } else if (isSpammableCritical) {
     // Honour the critical path UNLESS the student is significantly over budget,

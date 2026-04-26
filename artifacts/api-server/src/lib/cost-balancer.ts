@@ -10,7 +10,10 @@ export const PLAN_USD_BUDGET_CAP: Record<string, number> = {
   gold: 3.5,
 };
 
-const FREE_TIER_USD_CAP = 0.08;
+// Free tier: cap at $0.03 per user (≈ 7–10 Haiku exchanges).
+// This prevents abuse of the free lesson while still giving a genuine taste
+// of the platform. Students who want more must subscribe.
+const FREE_TIER_USD_CAP = 0.03;
 const DEFAULT_SUBSCRIPTION_DAYS = 14;
 const SECONDS_PER_DAY = 86_400;
 
@@ -189,14 +192,14 @@ export function deriveQualityProfile(state: BudgetState): QualityProfile {
   else if (r <= 2.0) materialChunkBytes = Math.round(lerp(18000, 12000, (r - 1.5) / 0.5));
   else materialChunkBytes = Math.round(lerp(12000, 8000, (r - 2.0) / 2.0));
 
-  // Free-tier (no paid subscription): cap each dial below the bronze ceiling.
-  // This is a baseline policy, applied via Math.min so it still composes
-  // smoothly with the pace curves above.
+  // Free-tier (no paid subscription): hard caps to prevent economic abuse.
+  // Sonnet is completely disabled (0%) — Haiku only. This keeps the cost per
+  // free user firmly below the $0.03 cap even across all 15 allowed messages.
   if (state.isFreeTier) {
-    maxTokens = Math.min(maxTokens, 2500);
-    sonnetProbability = Math.min(sonnetProbability, 0.05);
-    historyLimit = Math.min(historyLimit, 12);
-    materialChunkBytes = Math.min(materialChunkBytes, 12000);
+    maxTokens = Math.min(maxTokens, 2000);
+    sonnetProbability = 0;          // Haiku only — no Sonnet on free tier
+    historyLimit = Math.min(historyLimit, 8);
+    materialChunkBytes = Math.min(materialChunkBytes, 8000);
   }
 
   // Pedagogical wind-down: converts cost pressure into a warm teacher
