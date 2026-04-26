@@ -1,5 +1,29 @@
 import type { CostCapStatus } from "./cost-cap";
 
+/**
+ * Router invariants — unit-style assertions documented as comments. Any
+ * change that breaks one of these MUST be flagged in code review.
+ *
+ *   I1 (NEVER BLOCK):  pickTeachingModel never returns a "block" / refusal
+ *                       outcome. The output is always a valid model choice.
+ *                       The platform never silences a paid student on cost
+ *                       grounds; the only legitimate refusals (free-tier
+ *                       15-msg cap, daily 20/40/70-msg cap, expired sub)
+ *                       are enforced upstream of this router.
+ *
+ *   I2 (FREE TIER):    isFreeFirstLesson === true  ⇒  model === HAIKU.
+ *
+ *   I3 (UNLIMITED):    isUnlimited === true        ⇒  model === SONNET.
+ *
+ *   I4 (FORCE CHEAP):  costStatus.forceCheapModel === true  ⇒  model === HAIKU.
+ *                       Reason is `total_cap_exhausted` when the lifetime cap
+ *                       (with safety margin) is hit, otherwise
+ *                       `daily_cap_exhausted`. Both downgrade quality only.
+ *
+ *   I5 (REASON SHAPE): every decision carries a non-empty `reason` string
+ *                       suitable for analytics aggregation.
+ */
+
 export type RouterDecision = {
   model: "claude-sonnet-4-6" | "claude-haiku-4-5";
   provider: "anthropic";
