@@ -1575,9 +1575,10 @@ function SubjectPathChat({
     setIsStreaming(true);
     // A new turn supersedes any prior truncation banner — either the retry
     // button is what fired this call, or the student has decided to move
-    // on with a fresh question. Either way the stale banner shouldn't
+    // on with a fresh question. Either way the stale banners shouldn't
     // hover over the new exchange.
     setStreamTruncated(null);
+    setDiagnosticIncomplete(false);
     if (text) {
       setMessages(prev => [...prev, { role: "user", content: text }]);
     }
@@ -1848,14 +1849,19 @@ function SubjectPathChat({
       }
 
       // ── Diagnostic completeness check ──────────────────────────────────
-      // If we asked for the diagnostic plan and got substantive content but
-      // [PLAN_READY] never arrived (truncation past max_tokens, model went
-      // off-script, or transient network blip), surface a recovery banner so
-      // the student isn't stranded with a half-finished plan and no path
-      // forward. The retry button below clears the chat and re-runs the
-      // diagnostic from scratch with the now-higher max_tokens ceiling.
-      if (diagMode && !gotPlanReady && !emptyStream && assistantMsg.trim().length > 200) {
-        console.warn('[teach] diagnostic finished without [PLAN_READY] — likely truncation');
+      // We only fire the "plan incomplete" banner when two things are true
+      // simultaneously:
+      //   1. The server's terminating `done` event never arrived — meaning the
+      //      stream was physically cut off mid-flight (network drop, proxy
+      //      timeout, max_tokens truncation).
+      //   2. We're in diagnostic mode and [PLAN_READY] wasn't seen.
+      //
+      // Without the `!gotDoneEvent` guard, this banner used to fire after
+      // every single Q&A question in the diagnostic phase because those
+      // messages are > 200 chars but legitimately have no [PLAN_READY].
+      // Now we only show it when the stream actually stopped unexpectedly.
+      if (diagMode && !gotPlanReady && !gotDoneEvent && !emptyStream && assistantMsg.trim().length > 200) {
+        console.warn('[teach] diagnostic stream cut off without [PLAN_READY] — likely truncation');
         setDiagnosticIncomplete(true);
       }
 
@@ -1865,12 +1871,18 @@ function SubjectPathChat({
       // that event AND we did write some content to the bubble, the network
       // (or the proxy) cut us off mid-flight. Silently leaving a half-sentence
       // in the chat is the bug the student photographed; surface a visible
-      // retry banner so they know what happened and can re-send. We skip this
-      // for diagnostic mode (the dedicated diagnosticIncomplete banner above
-      // covers it) and for the empty-stream path (its own guard handles it).
-      if (!gotDoneEvent && !emptyStream && !diagMode && assistantMsg.trim().length > 0 && text.trim().length > 0) {
+      // retry banner so they know what happened and can re-send.
+      if (!gotDoneEvent && !emptyStream && assistantMsg.trim().length > 0 && text.trim().length > 0) {
         console.warn('[teach] stream ended without done event — likely network truncation');
-        setStreamTruncated({ lastUserMessage: text });
+        if (diagMode) {
+          // diagMode: handled above by the diagnosticIncomplete banner unless
+          // the message was too short to be a plan attempt.
+          if (assistantMsg.trim().length <= 200) {
+            setStreamTruncated({ lastUserMessage: text });
+          }
+        } else {
+          setStreamTruncated({ lastUserMessage: text });
+        }
       }
 
       // Persist lab report + teacher feedback so the student can revisit later.
