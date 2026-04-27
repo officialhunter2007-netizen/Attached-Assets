@@ -61,10 +61,10 @@ function setSseHeaders(res: import("express").Response): void {
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
-  // Express types `flushHeaders` on the underlying ServerResponse.
-  if (typeof (res as any).flushHeaders === "function") {
-    (res as any).flushHeaders();
-  }
+  // `flushHeaders` is defined on the underlying http.ServerResponse and
+  // re-exported on Express's Response — call it via optional chaining so
+  // the type system is happy without resorting to `any` casts.
+  res.flushHeaders?.();
 }
 
 /**
@@ -1636,6 +1636,16 @@ ${retrievedBlock}
     }
   }, 15_000);
 
+  // ── Resource-cleanup safety net ─────────────────────────────────────────
+  // Everything from here to the end of the route is wrapped in a try/finally
+  // so the heartbeat interval and the request-close listener are ALWAYS
+  // released, even if a downstream operation (DB write, telemetry call,
+  // counter update) throws. Without this, a single transient DB failure
+  // mid-bookkeeping would leak a setInterval that fires forever and a
+  // listener pinned to the request object — eventually exhausting timers
+  // and node's MaxListeners warning under load.
+  try {
+
   // Up to 3 attempts: original model → Haiku fallback → Haiku one more time.
   // Loop short-circuits as soon as fullResponse has any bytes (mid-stream
   // failure is non-retryable) or we get a successful finalMessage.
@@ -1773,8 +1783,7 @@ ${retrievedBlock}
       res.write(`data: ${JSON.stringify({ done: true, error: true })}\n\n`);
       res.end();
     }
-    clearInterval(heartbeat);
-    req.off("close", onClientClose);
+    // Heartbeat + listener cleanup happens in the route's finally block.
     return;
   }
 
@@ -2085,8 +2094,14 @@ ${retrievedBlock}
       res.end();
     } catch {}
   }
-  clearInterval(heartbeat);
-  req.off("close", onClientClose);
+  } finally {
+    // Always release the heartbeat timer and close listener — runs on the
+    // success tail, on every early `return`, and on any thrown exception
+    // from the bookkeeping above. Without this we leak one interval +
+    // listener per failed request, which compounds quickly under load.
+    clearInterval(heartbeat);
+    req.off("close", onClientClose);
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
