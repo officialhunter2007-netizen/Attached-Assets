@@ -1536,7 +1536,19 @@ ${retrievedBlock}
   const chosenModel = routerDecision.model;
   // Haiku is cheaper but smaller — keep its ceiling tighter to avoid runaway
   // outputs that would dent the student's cost budget.
-  const maxTokens = chosenModel === "claude-haiku-4-5" ? 2048 : 4096;
+  // ── DIAGNOSTIC EXCEPTION ────────────────────────────────────────────────
+  // The diagnostic phase ends with a *full personalized plan* (5–8 phases,
+  // each with a paragraph in Arabic). Arabic averages ~1.5 chars/token in
+  // Anthropic's tokenizer, so a 7-phase plan can easily exceed 4096 tokens
+  // and get truncated mid-sentence — leaving the student stranded with no
+  // [PLAN_READY] tag and no automatic transition to teaching. We give
+  // diagnostic responses the maximum supported ceiling regardless of model
+  // (8192 for both Sonnet 4.6 and Haiku 4.5) so the plan always finishes
+  // — free-tier and cost-capped students route to Haiku, and they deserve
+  // a complete plan too.
+  const maxTokens = isDiagnosticPhase
+    ? 8192
+    : (chosenModel === "claude-haiku-4-5" ? 2048 : 4096);
 
   const __teachStart = Date.now();
 

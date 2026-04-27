@@ -1297,6 +1297,22 @@ function SubjectPathChat({
   const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
   const [customPlan, setCustomPlan] = useState<string | null>(null);
   const [planLoaded, setPlanLoaded] = useState(false);
+  // Set to `true` the moment the diagnostic stream finishes with [PLAN_READY].
+  // A dedicated effect watches this + isStreaming so the very next teacher
+  // message (Phase 1, kicked off automatically) starts immediately after the
+  // student has had a moment to glance at the plan. Without this trigger the
+  // student would see a beautiful plan and then... nothing — chat sits idle.
+  const [pendingTeachStart, setPendingTeachStart] = useState(false);
+  // Mirrors `isStreaming` for use inside delayed callbacks (setTimeout) where
+  // closing over the latest streaming state via React state would be stale.
+  // The auto-start timer reads this just before firing Phase 1 to make sure
+  // the student didn't manually send a message during the 700ms delay window.
+  const isStreamingRef = useRef(false);
+  useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
+  // Set to `true` if the diagnostic stream ended without [PLAN_READY] (e.g.
+  // truncation past max_tokens, network blip, model refusal). We surface a
+  // visible retry button so the student never gets silently stranded.
+  const [diagnosticIncomplete, setDiagnosticIncomplete] = useState(false);
   // Professor-curriculum mode state
   const [teachingMode, setTeachingMode] = useState<'unset' | 'custom' | 'professor' | null>(null);
   const [activeMaterialId, setActiveMaterialId] = useState<number | null>(
@@ -1517,6 +1533,30 @@ function SubjectPathChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatStarter, planLoaded, isStreaming]);
 
+  // After the diagnostic finishes with [PLAN_READY], chatPhase flips to
+  // 'teaching' and pendingTeachStart is set. We then fire the *first* teaching
+  // message (Phase 1) automatically — but only after the diagnostic stream has
+  // fully ended (isStreaming === false), to avoid concurrent requests, and
+  // with a tiny delay so the student can register that the plan finished.
+  useEffect(() => {
+    if (!pendingTeachStart) return;
+    if (isStreaming) return;
+    if (chatPhase !== 'teaching') return;
+    // Consume the flag immediately to prevent re-entry on subsequent renders
+    // (e.g. if isStreaming flips between calls).
+    setPendingTeachStart(false);
+    const t = setTimeout(() => {
+      // Final runtime guard: if the student manually fired a message during
+      // the 700ms delay window, isStreamingRef will be true and we abort —
+      // the student's message takes precedence over our auto-trigger.
+      if (isStreamingRef.current) return;
+      // Empty text + explicit isDiagnostic=false starts Phase 1 cleanly.
+      sendTeachMessage("", stages, 0, false);
+    }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingTeachStart, isStreaming, chatPhase]);
+
   const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }) => {
     setIsStreaming(true);
     if (text) {
@@ -1599,6 +1639,12 @@ function SubjectPathChat({
       let assistantMsg = "";
       let emptyStream = false;
       let buffer = "";
+      // Tracks whether the diagnostic stream actually emitted [PLAN_READY].
+      // If diagMode was true but this stays false at end-of-stream AND we
+      // produced substantive content, the plan was almost-certainly truncated
+      // (or the model went off-script) — surface a clear retry banner so the
+      // student isn't silently stranded staring at a half-finished plan.
+      let gotPlanReady = false;
 
       // Throttle state updates: batch streaming chunks every 50ms
       let updateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1651,6 +1697,7 @@ function SubjectPathChat({
                 setMessagesRemaining(data.messagesRemaining);
               }
               if (data.planReady) {
+                gotPlanReady = true;
                 setCustomPlan(assistantMsg);
                 setChatPhase('teaching');
                 // Persist plan to DB
@@ -1664,6 +1711,11 @@ function SubjectPathChat({
                     currentStageIndex: 0,
                   }),
                 }).catch(() => {});
+                // Trigger automatic start of Phase 1: a watcher effect picks
+                // this up once the current stream has fully ended (so we don't
+                // race with isStreaming === true). Without this, the student
+                // sees the plan and then nothing happens.
+                setPendingTeachStart(true);
               }
               // Quota exhausted — disable input, trigger summary, show exhausted screen
               if (data.quotaExhausted || data.messagesRemaining === 0) {
@@ -1718,6 +1770,18 @@ function SubjectPathChat({
           nm[nm.length - 1] = { role: "assistant", content: assistantMsg };
           return nm;
         });
+      }
+
+      // ── Diagnostic completeness check ──────────────────────────────────
+      // If we asked for the diagnostic plan and got substantive content but
+      // [PLAN_READY] never arrived (truncation past max_tokens, model went
+      // off-script, or transient network blip), surface a recovery banner so
+      // the student isn't stranded with a half-finished plan and no path
+      // forward. The retry button below clears the chat and re-runs the
+      // diagnostic from scratch with the now-higher max_tokens ceiling.
+      if (diagMode && !gotPlanReady && !emptyStream && assistantMsg.trim().length > 200) {
+        console.warn('[teach] diagnostic finished without [PLAN_READY] — likely truncation');
+        setDiagnosticIncomplete(true);
       }
 
       // Persist lab report + teacher feedback so the student can revisit later.
@@ -2440,6 +2504,32 @@ function SubjectPathChat({
             >
               <FileText className="w-4 h-4" />
               إنهاء الجلسة وحفظ الملخص
+            </button>
+          </div>
+        )}
+        {diagnosticIncomplete && !isStreaming && (
+          <div className="max-w-2xl mx-auto mb-3 p-4 rounded-xl bg-rose-500/15 border border-rose-500/40 shadow-lg shadow-rose-500/10">
+            <div className="text-rose-200 text-sm font-bold mb-2">
+              ⚠️ يبدو أن الخطة لم تكتمل
+            </div>
+            <div className="text-rose-100/90 text-sm mb-3 leading-relaxed">
+              لم تصل علامة نهاية الخطة من المعلم — قد تكون انقطعت أثناء التوليد. اضغط الزر أدناه لإعادة بناء الخطة من جديد.
+            </div>
+            <button
+              onClick={() => {
+                setDiagnosticIncomplete(false);
+                setMessages([]);
+                setCustomPlan(null);
+                setChatPhase('diagnostic');
+                setPendingTeachStart(false);
+                // Re-run the diagnostic from a clean slate. The higher
+                // max_tokens ceiling on the backend now makes truncation
+                // very unlikely on the second pass.
+                setTimeout(() => sendTeachMessage("", stages, 0, true), 200);
+              }}
+              className="text-sm font-bold text-rose-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-rose-500/40 hover:bg-rose-500/60 border border-rose-400/50"
+            >
+              أعد بناء الخطة
             </button>
           </div>
         )}
