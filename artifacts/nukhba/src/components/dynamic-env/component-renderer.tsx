@@ -1,8 +1,33 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import type { DynComponent, DynFormField, DynMutation } from "./types";
 import { useEnvState, envUtils } from "./state-engine";
 import { useEnvTheme } from "./theme";
 import { CodeEditor } from "./code-editor";
+
+// Configure once: GFM + line breaks so the AI's markdown prose renders
+// correctly (bullets, bold, headings, separators, etc.).
+marked.setOptions({ gfm: true, breaks: true });
+
+// Render a markdown string to safe HTML for use in dangerouslySetInnerHTML.
+// Used by text / richDocument / conceptCard components whose content is
+// authored by the AI and may contain any markdown formatting.
+function mdToHtml(md: string): string {
+  if (!md) return "";
+  const html = marked.parse(md) as string;
+  return DOMPurify.sanitize(html, { ADD_ATTR: ["target"], FORBID_TAGS: ["script", "style"] });
+}
+
+// Convenience wrapper that renders a markdown string into the DOM safely.
+function Markdown({ children, className = "" }: { children: string; className?: string }) {
+  return (
+    <div
+      className={`prose prose-invert prose-sm max-w-none ${className}`}
+      dangerouslySetInnerHTML={{ __html: mdToHtml(children || "") }}
+    />
+  );
+}
 
 type Ctx = {
   onAction?: (action: { type: string; [k: string]: any }) => void;
@@ -716,7 +741,11 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
 
   switch (comp.type) {
     case "text":
-      return <div className="prose prose-invert prose-sm max-w-none mb-3 text-white/90 whitespace-pre-wrap">{comp.markdown}</div>;
+      // The AI authors this as markdown (bullets, bold, headings, horizontal
+      // rules, etc.). Rendering it as a raw string showed every `**`, `---`,
+      // and `- ` literally. Pass through marked + DOMPurify so formatting
+      // renders correctly in the environment panel.
+      return <Markdown className="mb-3 text-white/90">{comp.markdown}</Markdown>;
 
     case "alert":
       return (
@@ -757,8 +786,26 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
 
     case "table": {
       const bound = comp.bindTo ? arr<any>(envUtils.getByPath(env.state, comp.bindTo)) : null;
+      // When the AI provides `bindTo` but omits `columnKeys`, using the
+      // Arabic display-name columns as data keys always returns empty.
+      // Fall back to the first data object's own keys (excluding
+      // single-char hidden fields like "id" only when they outnumber columns)
+      // so the table shows real data even when the AI forgot columnKeys.
+      const resolvedKeys = ((): string[] => {
+        if (comp.columnKeys && comp.columnKeys.length > 0) return comp.columnKeys;
+        if (!bound || bound.length === 0) return comp.columns;
+        const sample = bound[0];
+        if (!sample || typeof sample !== "object") return comp.columns;
+        const objKeys = Object.keys(sample);
+        // If count matches exactly, use them directly.
+        if (objKeys.length === comp.columns.length) return objKeys;
+        // Otherwise pick the first N keys that look like data fields (skip
+        // internal _-prefixed ones but keep everything else).
+        const dataKeys = objKeys.filter((k) => !k.startsWith("_"));
+        return dataKeys.slice(0, comp.columns.length);
+      })();
       const rows: any[][] = bound
-        ? bound.map((it: any) => (comp.columnKeys || comp.columns).map((k: string) => it?.[k] ?? ""))
+        ? bound.map((it: any) => resolvedKeys.map((k: string) => it?.[k] ?? ""))
         : arr<any>(comp.rows);
       return (
         <Card title={comp.title}>
@@ -943,7 +990,8 @@ export function ComponentRenderer({ comp, ctx }: { comp: DynComponent; ctx: Ctx 
             {arr<any>(comp.sections).map((s, i) => (
               <div key={i}>
                 <h4 className="font-bold text-cyan-300 mb-1">{s.heading}</h4>
-                <p className="text-sm text-white/85 whitespace-pre-wrap">{s.body}</p>
+                {/* Body may contain markdown — render it properly */}
+                <Markdown className="text-sm text-white/85">{s.body || ""}</Markdown>
               </div>
             ))}
           </div>
@@ -1033,7 +1081,7 @@ function ConceptCardBlock({ comp }: { comp: Extract<DynComponent, { type: "conce
             {tone === "warning" ? "انتبه" : tone === "tip" ? "تلميح ذهبي" : "فكرة المفهوم"}
           </div>
           <h4 className="text-base md:text-lg font-black text-white leading-snug mb-2">{comp.title}</h4>
-          <p className="text-sm text-white/85 leading-relaxed whitespace-pre-wrap">{comp.idea}</p>
+          <Markdown className="text-sm text-white/85 leading-relaxed">{comp.idea}</Markdown>
           {/* Collapsible body — open by default on md+ via class, manually on mobile. */}
           <div className={`${expanded ? "block" : "hidden"} md:block`}>
             {comp.everydayExample && (
@@ -1042,7 +1090,7 @@ function ConceptCardBlock({ comp }: { comp: Extract<DynComponent, { type: "conce
                 style={{ background: "rgba(255,255,255,0.04)", borderRightColor: t.accent }}
               >
                 <span className="text-[11px] font-black uppercase tracking-wider mr-1" style={{ color: t.accentText }}>مثال من حياتك اليومية ·</span>
-                {comp.everydayExample}
+                <Markdown className="inline">{comp.everydayExample}</Markdown>
               </div>
             )}
             {comp.ruleOfThumb && (
