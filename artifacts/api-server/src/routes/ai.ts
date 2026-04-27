@@ -276,7 +276,7 @@ ${grade ? `الصف: ${grade}` : ""}
   let __usageInfo: any = null;
   try {
     const stream = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "openai/gpt-4o",
       max_completion_tokens: 8192,
       messages: [
         { role: "system", content: systemPrompt },
@@ -302,7 +302,7 @@ ${grade ? `الصف: ${grade}` : ""}
         subjectId: subjectId ?? null,
         route: "ai/lesson",
         provider: "openai",
-        model: "gpt-5.2",
+        model: "openai/gpt-4o",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -321,7 +321,7 @@ ${grade ? `الصف: ${grade}` : ""}
         subjectId: subjectId ?? null,
         route: "ai/lesson",
         provider: "openai",
-        model: "gpt-5.2",
+        model: "openai/gpt-4o",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __aiStart,
@@ -386,7 +386,7 @@ router.post("/ai/interview", async (req, res): Promise<void> => {
   let __usageInfo: any = null;
   try {
     const stream = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "openai/gpt-4o",
       max_completion_tokens: 1024,
       messages,
       stream: true,
@@ -409,7 +409,7 @@ router.post("/ai/interview", async (req, res): Promise<void> => {
         subjectId: subjectId ?? null,
         route: "ai/interview",
         provider: "openai",
-        model: "gpt-5.2",
+        model: "openai/gpt-4o",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -428,7 +428,7 @@ router.post("/ai/interview", async (req, res): Promise<void> => {
         subjectId: subjectId ?? null,
         route: "ai/interview",
         provider: "openai",
-        model: "gpt-5.2",
+        model: "openai/gpt-4o",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __aiStart,
@@ -490,7 +490,7 @@ router.post("/ai/build-plan", async (req, res): Promise<void> => {
   let __usageInfo: any = null;
   try {
     const stream = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "openai/gpt-4o",
       max_completion_tokens: 8192,
       messages: [
         { role: "system", content: systemPrompt },
@@ -516,7 +516,7 @@ router.post("/ai/build-plan", async (req, res): Promise<void> => {
         subjectId: subjectId ?? null,
         route: "ai/build-plan",
         provider: "openai",
-        model: "gpt-5.2",
+        model: "openai/gpt-4o",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -535,7 +535,7 @@ router.post("/ai/build-plan", async (req, res): Promise<void> => {
         subjectId: subjectId ?? null,
         route: "ai/build-plan",
         provider: "openai",
-        model: "gpt-5.2",
+        model: "openai/gpt-4o",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __aiStart,
@@ -1576,7 +1576,7 @@ ${retrievedBlock}
   // a complete plan too.
   const maxTokens = isDiagnosticPhase
     ? 8192
-    : (chosenModel === "claude-haiku-4-5" ? 2048 : 4096);
+    : (chosenModel === "anthropic/claude-3-haiku" ? 2048 : 4096);
 
   const __teachStart = Date.now();
 
@@ -1585,7 +1585,7 @@ ${retrievedBlock}
   // with exponential backoff and a Haiku fallback. We ONLY retry when no
   // bytes have been streamed to the student yet — a mid-stream failure
   // cannot be retried without duplicating text on the wire.
-  const HAIKU_MODEL = "claude-haiku-4-5";
+  const HAIKU_MODEL = "anthropic/claude-3-haiku";
   const isTransientError = (e: any): boolean => {
     const code = (e as any)?.status ?? (e as any)?.statusCode;
     if (code === 408 || code === 425 || code === 429 || code === 500 || code === 502 || code === 503 || code === 504 || code === 529) return true;
@@ -1900,7 +1900,7 @@ ${retrievedBlock}
 - اكتب بالعربية الفصحى البسيطة.`;
         const cardUser = `المرحلة: "${cardStageName}"\n\nمحتوى الجلسة (آخر رد للمعلم بعد إكمال المرحلة):\n${cardContext}`;
         const cardRes = await anthropic.messages.create({
-          model: "claude-haiku-4-5",
+          model: "anthropic/claude-3-haiku",
           max_tokens: 600,
           system: cardSystem,
           messages: [{ role: "user", content: cardUser }],
@@ -1925,7 +1925,7 @@ ${retrievedBlock}
           subjectId: cardSubjectId,
           route: "ai/teach:study-card",
           provider: "anthropic",
-          model: "claude-haiku-4-5",
+          model: "anthropic/claude-3-haiku",
           inputTokens: cu.inputTokens,
           outputTokens: cu.outputTokens,
           cachedInputTokens: cu.cachedInputTokens,
@@ -2625,7 +2625,7 @@ router.post("/ai/lab/create-scenario", async (req, res): Promise<any> => {
   let __aiLogged = false;
   try {
     const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-3-5-sonnet",
       max_tokens: 3000,
       system: sysPrompt,
       messages: [{ role: "user", content: description }],
@@ -2647,7 +2647,7 @@ router.post("/ai/lab/create-scenario", async (req, res): Promise<any> => {
         subjectId: subjectId ?? null,
         route: "ai/lab/create-scenario",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: "anthropic/claude-3-5-sonnet",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -2688,7 +2688,7 @@ router.post("/ai/lab/create-scenario", async (req, res): Promise<any> => {
         subjectId: subjectId ?? null,
         route: "ai/lab/create-scenario",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: "anthropic/claude-3-5-sonnet",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __aiStart,
@@ -2786,7 +2786,7 @@ ${contextBlock}${liveContextBlock}
   const __aiStart = Date.now();
   try {
     const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-3-5-sonnet",
       max_tokens: 600,
       system: systemPrompt,
       messages: claudeMessages,
@@ -2804,7 +2804,7 @@ ${contextBlock}${liveContextBlock}
         subjectId: subjectId ?? null,
         route: "ai/lab/assist",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: "anthropic/claude-3-5-sonnet",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -2819,7 +2819,7 @@ ${contextBlock}${liveContextBlock}
       subjectId: subjectId ?? null,
       route: "ai/lab/assist",
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-3-5-sonnet",
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __aiStart,
@@ -3085,7 +3085,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   try {
     console.log("[build-env] start kind=", kind, "desc=", description.slice(0, 120));
     const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-3-5-sonnet",
       // Bumped from 12000 → 16384 because rich accounting envs (full chart of
       // accounts + inventory + customers + multiple screens) regularly exceed
       // 12k tokens and get truncated → unparseable JSON → no env appears.
@@ -3112,7 +3112,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
         subjectId: subjectId ?? null,
         route: "ai/lab/build-env",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: "anthropic/claude-3-5-sonnet",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -3208,7 +3208,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
         console.log("[build-env] retrying with strict prompt...");
         const __retryStart = Date.now();
         const retry = anthropic.messages.stream({
-          model: "claude-sonnet-4-6",
+          model: "anthropic/claude-3-5-sonnet",
           max_tokens: 12000,
           system: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أعد المحاولة. المحاولة السابقة فشلت في إنتاج JSON صالح. التزم الآن بالقواعد التالية بصرامة:
 1. أرجع كائن JSON واحداً صالحاً، بلا أي markdown أو شرح أو نص قبل/بعد.
@@ -3230,7 +3230,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
             subjectId: subjectId ?? null,
             route: "ai/lab/build-env",
             provider: "anthropic",
-            model: "claude-sonnet-4-6",
+            model: "anthropic/claude-3-5-sonnet",
             inputTokens: __ur.inputTokens,
             outputTokens: __ur.outputTokens,
             cachedInputTokens: __ur.cachedInputTokens,
@@ -3429,7 +3429,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       subjectId: subjectId ?? null,
       route: "ai/lab/build-env",
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-3-5-sonnet",
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __aiStart,
@@ -3555,7 +3555,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
   let __aiLogged = false;
   try {
     const completion = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-3-5-sonnet",
       max_tokens: 4000,
       system: ATTACK_SIM_BUILD_SYSTEM,
       messages: [{ role: "user", content: userPrompt }],
@@ -3568,7 +3568,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/build",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: "anthropic/claude-3-5-sonnet",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -3606,7 +3606,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/build",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: "anthropic/claude-3-5-sonnet",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __aiStart,
@@ -3701,7 +3701,7 @@ ${trimmed}
   let __aiLogged = false;
   try {
     const completion = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-3-5-sonnet",
       max_tokens: 1500,
       system: ATTACK_SIM_EXEC_SYSTEM,
       messages: [{ role: "user", content: userPrompt }],
@@ -3714,7 +3714,7 @@ ${trimmed}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/exec",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: "anthropic/claude-3-5-sonnet",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -3749,7 +3749,7 @@ ${trimmed}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/exec",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: "anthropic/claude-3-5-sonnet",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __aiStart,
@@ -3835,7 +3835,7 @@ ${recentTerminal || "(لا مخرجات بعد)"}
   const __aiStart = Date.now();
   try {
     const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-3-5-sonnet",
       max_tokens: 700,
       system: systemPrompt,
       messages: claudeMessages,
@@ -3853,7 +3853,7 @@ ${recentTerminal || "(لا مخرجات بعد)"}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/assist",
         provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        model: "anthropic/claude-3-5-sonnet",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -3868,7 +3868,7 @@ ${recentTerminal || "(لا مخرجات بعد)"}
       subjectId: subjectId ?? null,
       route: "ai/attack-sim/assist",
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-3-5-sonnet",
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __aiStart,
