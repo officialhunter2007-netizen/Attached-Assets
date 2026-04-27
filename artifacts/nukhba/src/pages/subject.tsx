@@ -1463,7 +1463,15 @@ function SubjectPathChat({
   // we silently default them to the custom path and drop them straight into
   // the next lesson.
   const needsModeChoice = teachingMode === 'unset' && !!isFirstSession;
-  const chatGated = !teachingModeLoaded || needsModeChoice;
+  // Professor mode is meaningless without source material — the AI must teach
+  // FROM the student's PDFs/notes, not invent a parallel custom path. If the
+  // student picks 'أستاذي' but never uploads a file (or closes the sources
+  // drawer without activating one), gate the chat so they can't accidentally
+  // get the diagnostic + custom-style teaching pretending to be professor mode.
+  // The gate UI gives them two paths forward: upload material now, OR switch
+  // to the custom-path mode which doesn't need any source files.
+  const needsMaterial = teachingMode === 'professor' && !activeMaterialId;
+  const chatGated = !teachingModeLoaded || needsModeChoice || needsMaterial;
 
   // NOTE: we used to silently downgrade returning 'unset' students to 'custom'
   // here. That was wrong: it threw away professor-mode continuity for anyone
@@ -2213,6 +2221,50 @@ function SubjectPathChat({
         <TeachingModeChoiceCard subjectName={subject.name} onChoose={handleChooseMode} />
       )}
 
+      {/* Professor-mode-without-material gate. Shown when the student picked
+          'أستاذي' but hasn't activated any source file yet. Without this, the
+          chat would silently fall back to custom-style teaching while still
+          claiming to be in professor mode — confusing and wrong. */}
+      {!needsModeChoice && needsMaterial && planLoaded && (
+        <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex items-center justify-center" style={{ direction: "rtl", background: "#080a11" }}>
+          <div className="max-w-xl w-full">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
+                <span className="text-3xl">📚</span>
+              </div>
+              <h2 className="text-2xl font-black text-white mb-2">أرفق ملازمك أو كتاب الأستاذ</h2>
+              <p className="text-sm text-white/60 leading-relaxed">
+                اخترت <span className="font-bold text-amber-300">منهج الأستاذ</span> — لا أستطيع تدريسك حتى ترفع ملف PDF (ملزمة، فصلاً من كتاب، أو شرحاً) لأشرح لك منه فصلاً بفصل بنفس ترتيبه ومصطلحاته.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => setShowSourcesPanel(true)}
+                className="w-full p-4 rounded-2xl border-2 border-amber-500/60 hover:border-amber-500 bg-amber-500/15 hover:bg-amber-500/25 transition-all flex items-center justify-center gap-3 group"
+              >
+                <BookOpen className="w-5 h-5 text-amber-300 group-hover:text-amber-200" />
+                <span className="text-base font-bold text-amber-200 group-hover:text-white">ارفع ملزمتك الآن</span>
+              </button>
+
+              <div className="text-center text-xs text-white/30 py-1">— أو —</div>
+
+              <button
+                onClick={() => handleChooseMode('custom')}
+                className="w-full p-4 rounded-2xl border-2 border-white/10 hover:border-purple-500/60 bg-white/[0.03] hover:bg-purple-500/10 transition-all flex items-center justify-center gap-3 group"
+              >
+                <span className="text-2xl">🧭</span>
+                <span className="text-base font-bold text-white group-hover:text-purple-300">حوّلني إلى المسار المخصّص بدلاً من ذلك</span>
+              </button>
+            </div>
+
+            <p className="text-center text-[11px] text-white/30 mt-5">
+              المسار المخصّص لا يحتاج ملازم — المعلم يبني لك خطة كاملة بناءً على مستواك وأهدافك.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Sources panel drawer (rendered as overlay; safe to mount always) */}
       <CourseMaterialsPanel
         subjectId={subject.id}
@@ -2222,9 +2274,10 @@ function SubjectPathChat({
         onActiveChange={setActiveMaterialId}
       />
 
-      {/* Everything below renders only AFTER the student has picked a mode,
-          so the choice card and chat never share the screen. */}
-      {!needsModeChoice && (<>
+      {/* Everything below renders only AFTER the student has picked a mode AND
+          (if professor) activated a source file — so the choice card, the
+          material-required gate, and the chat never share the screen. */}
+      {!needsModeChoice && !needsMaterial && (<>
 
       {/* Mode/sources mini-bar (visible whenever mode is set) */}
       {teachingMode && teachingMode !== 'unset' && (
