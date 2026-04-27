@@ -8,7 +8,7 @@ RUN corepack enable && corepack prepare pnpm@10 --activate
 WORKDIR /app
 
 # ملفات الـworkspace الجذرية
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 
 # حزم lib وscripts (تبعيات مشتركة)
 COPY lib/ ./lib/

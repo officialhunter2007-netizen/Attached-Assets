@@ -10,7 +10,7 @@ RUN corepack enable && corepack prepare pnpm@10 --activate
 WORKDIR /app
 
 # نسخ ملفات الـworkspace الجذرية أوّلاً (layer caching)
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 
 # نسخ حزم lib (تُستخدم كـworkspace dependencies في الـbuild)
 COPY lib/ ./lib/

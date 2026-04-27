@@ -1,0 +1,106 @@
+root@vmi3256829:~/nukhba/Attached-Assets# git pull && bash docker/deploy.sh --update
+remote: Enumerating objects: 20, done.
+remote: Counting objects: 100% (20/20), done.
+remote: Compressing objects: 100% (4/4), done.
+remote: Total 13 (delta 9), reused 13 (delta 9), pack-reused 0 (from 0)
+Unpacking objects: 100% (13/13), 6.68 KiB | 525.00 KiB/s, done.
+From https://github.com/officialhunter2007-netizen/Attached-Assets
+   f77126c..0d1c8e3  main       -> origin/main
+Updating f77126c..0d1c8e3
+Fast-forward
+ artifacts/api-server/src/routes/ai.ts                                |   6 +-
+ ...3256829-nukhba-Attached-Assets-cp-env-example-e_1777323520080.txt | 158 +++++++++++++++++++++++++++++++
+ ...3256829-nukhba-Attached-Assets-git-pull-bash-do_1777323318841.txt | 108 +++++++++++++++++++++
+ 3 files changed, 269 insertions(+), 3 deletions(-)
+ create mode 100644 attached_assets/Pasted-root-vmi3256829-nukhba-Attached-Assets-cp-env-example-e_1777323520080.txt
+ create mode 100644 attached_assets/Pasted-root-vmi3256829-nukhba-Attached-Assets-git-pull-bash-do_1777323318841.txt
+[NUKHBA] إعادة بناء الصور وتحديث الخدمات...
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] Building 28.7s (28/31)
+ => [internal] load local bake definitions                                                             0.0s
+ => => reading from stdin 1.02kB                                                                       0.0s
+ => [nginx internal] load build definition from Dockerfile                                             0.0s
+ => => transferring dockerfile: 1.98kB                                                                 0.0s
+ => [api internal] load build definition from Dockerfile                                               0.0s
+ => => transferring dockerfile: 2.10kB                                                                 0.0s
+ => [api internal] load metadata for docker.io/library/node:22                                         0.4s
+ => [nginx internal] load metadata for docker.io/library/nginx:1.27-alpine                             0.4s
+ => [api internal] load metadata for docker.io/library/node:22-alpine                                  0.4s
+ => [nginx internal] load .dockerignore                                                                0.0s
+ => => transferring context: 465B                                                                      0.0s
+ => CACHED [api builder 1/9] FROM docker.io/library/node:22@sha256:9059d9d7db987b86299e052ff6630cd95e  0.1s
+ => => resolve docker.io/library/node:22@sha256:9059d9d7db987b86299e052ff6630cd95e5a770336967c21110e5  0.1s
+ => [nginx internal] load build context                                                                0.0s
+ => => transferring context: 48.36kB                                                                   0.0s
+ => CACHED [nginx stage-1 1/3] FROM docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b0  0.1s
+ => => resolve docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f  0.1s
+ => [api production 1/3] FROM docker.io/library/node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafc  0.1s
+ => => resolve docker.io/library/node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d  0.1s
+ => [api internal] load build context                                                                  0.0s
+ => => transferring context: 251.70kB                                                                  0.0s
+ => CACHED [api production 2/3] WORKDIR /app                                                           0.0s
+ => [nginx builder 2/9] RUN corepack enable && corepack prepare pnpm@10 --activate                     4.0s
+ => [nginx builder 3/9] WORKDIR /app                                                                   0.1s
+ => [api builder 4/9] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./                          0.2s
+ => [api builder 5/9] COPY lib/ ./lib/                                                                 0.1s
+ => [api builder 6/9] COPY scripts/ ./scripts/                                                         0.1s
+ => [api builder 7/9] COPY artifacts/api-server/ ./artifacts/api-server/                               0.1s
+ => CACHED [nginx builder  4/10] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./               0.0s
+ => CACHED [nginx builder  5/10] COPY lib/ ./lib/                                                      0.0s
+ => CACHED [nginx builder  6/10] COPY scripts/ ./scripts/                                              0.0s
+ => [nginx builder  7/10] COPY artifacts/nukhba/ ./artifacts/nukhba/                                   0.1s
+ => [api builder 8/9] RUN pnpm install --frozen-lockfile                                              18.7s
+ => [nginx builder  8/10] COPY attached_assets/ ./attached_assets/                                     0.1s
+ => [nginx builder  9/10] RUN pnpm install --frozen-lockfile                                          18.9s
+ => CANCELED [api builder 9/9] RUN pnpm --filter @workspace/api-server run build                       4.7s
+ => ERROR [nginx builder 10/10] RUN pnpm --filter @workspace/nukhba run build                          3.9s
+------
+ > [nginx builder 10/10] RUN pnpm --filter @workspace/nukhba run build:
+2.493
+2.493 > @workspace/nukhba@0.0.0 build /app/artifacts/nukhba
+2.493 > vite build --config vite.config.ts
+2.493
+2.991 ▲ [WARNING] Cannot find base config file "../../tsconfig.base.json" [tsconfig.json]
+2.991
+2.991     tsconfig.json:2:13:
+2.991       2 │   "extends": "../../tsconfig.base.json",
+2.991         ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~
+2.991
+3.375 vite v7.3.1 building client environment for production...
+3.536 ✓ 0 modules transformed.
+3.544 ✗ Build failed in 117ms
+3.562 error during build:
+3.562 [vite:build-html] failed to resolve "extends":"../../tsconfig.base.json" in /app/artifacts/nukhba/tsconfig.json
+3.562 file: /app/artifacts/nukhba/index.html
+3.562     at resolveExtends (file:///app/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:5809:8)
+3.562     at parseExtends (file:///app/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:5775:71)
+3.562     at parse$13 (file:///app/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:5677:23)
+3.562     at async loadTsconfigJsonForFile (file:///app/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:6286:37)
+3.562     at async transformWithEsbuild (file:///app/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:6086:55)
+3.562     at async Object.transform (file:///app/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:6172:20)
+3.562     at async transform (file:///app/node_modules/.pnpm/rollup@4.59.0/node_modules/rollup/dist/es/shared/node-entry.js:21269:16)
+3.562     at async ModuleLoader.addModuleSource (file:///app/node_modules/.pnpm/rollup@4.59.0/node_modules/rollup/dist/es/shared/node-entry.js:21497:36)
+3.662 /app/artifacts/nukhba:
+3.662  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/nukhba@0.0.0 build: `vite build --config vite.config.ts`
+3.662 Exit status 1
+------
+[+] build 0/2
+ ⠙ Image attached-assets-api   Building                                                                28.9s
+ ⠙ Image attached-assets-nginx Building                                                                28.9s
+Dockerfile:29
+
+--------------------
+
+  27 |     ENV NODE_ENV=production
+
+  28 |     ENV BASE_PATH=/
+
+  29 | >>> RUN pnpm --filter @workspace/nukhba run build
+
+  30 |
+
+  31 |     # ═══════════════════════════════════════════════════════════════════
+
+--------------------
+
+target nginx: failed to solve: process "/bin/sh -c pnpm --filter @workspace/nukhba run build" did not complete successfully: exit code: 1
