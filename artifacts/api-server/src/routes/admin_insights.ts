@@ -15,8 +15,7 @@ import {
   lessonSummariesTable,
 } from "@workspace/db";
 import { diagnoseObjectStorage } from "../lib/objectStorage";
-import { recordAiUsage } from "../lib/ai-usage";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { openai } from "@workspace/integrations-openai-ai-server";
 
 const router: IRouter = Router();
 
@@ -849,7 +848,7 @@ ${contextJson}
 
 أجب الآن على سؤال المشرف. إن كان JSON لا يحوي الإجابة، قُلها صراحةً بدون اختراع.`;
 
-  const anthropicMessages = cleanMessages.map((m) => ({
+  const chatMessages: Array<{ role: "user" | "assistant"; content: string }> = cleanMessages.map((m) => ({
     role: m.role as "user" | "assistant",
     content: m.content,
   }));
@@ -858,25 +857,24 @@ ${contextJson}
   req.on("close", () => ac.abort());
 
   try {
-    const stream = anthropic.messages.stream(
+    const stream = await openai.chat.completions.create(
       {
-        model: "anthropic/claude-3-5-sonnet",
+        model: "meta-llama/llama-3.3-70b-instruct:free",
         max_tokens: 2048,
-        system: systemPrompt,
-        messages: anthropicMessages,
+        temperature: 0,
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...chatMessages,
+        ],
+        stream: true,
       },
-      { signal: ac.signal } as any,
+      { signal: ac.signal },
     );
 
-    for await (const event of stream) {
+    for await (const chunk of stream) {
       if (ac.signal.aborted) break;
-      if (
-        event.type === "content_block_delta" &&
-        (event as any).delta?.type === "text_delta"
-      ) {
-        const text = (event as any).delta.text;
-        if (text) res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
-      }
+      const text = chunk.choices[0]?.delta?.content;
+      if (text) res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
     }
 
     res.write(`data: ${JSON.stringify({
