@@ -15,7 +15,8 @@ import {
   lessonSummariesTable,
 } from "@workspace/db";
 import { diagnoseObjectStorage } from "../lib/objectStorage";
-import { recordAiUsage, extractGeminiUsage } from "../lib/ai-usage";
+import { recordAiUsage } from "../lib/ai-usage";
+import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
 
@@ -709,11 +710,6 @@ router.post("/admin/ai/insights", async (req, res): Promise<any> => {
     return res.status(400).json({ error: "last message must be from user" });
   }
 
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    return res.status(500).json({ error: "AI not configured" });
-  }
-
   // Resolve focus user — priority: explicit field → auto-detect from last user msg
   let focusUser: any = null;
   let focusResolutionNote = "";
@@ -853,162 +849,42 @@ ${contextJson}
 
 أجب الآن على سؤال المشرف. إن كان JSON لا يحوي الإجابة، قُلها صراحةً بدون اختراع.`;
 
-  const geminiContents = cleanMessages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
+  const anthropicMessages = cleanMessages.map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
   }));
 
   const ac = new AbortController();
   req.on("close", () => ac.abort());
 
-  const __insightsStart = Date.now();
-  let __insightsModel = "gemini-2.5-flash";
-
   try {
-    // Gemini frequently returns transient 503 (model overloaded) or 502/504
-    // (gateway). Retry with exponential backoff before giving up; fall back to
-    // gemini-2.5-flash-lite on the last attempt since it has more capacity.
-    const requestBody = JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: geminiContents,
-      generationConfig: { temperature: 0, topP: 0.8, maxOutputTokens: 2048 },
-      safetySettings: [
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-      ],
-    });
+    const stream = anthropic.messages.stream(
+      {
+        model: "anthropic/claude-3-5-sonnet",
+        max_tokens: 2048,
+        system: systemPrompt,
+        messages: anthropicMessages,
+      },
+      { signal: ac.signal } as any,
+    );
 
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-    const buildUrl = (model: string) =>
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${geminiKey}`;
-    const attemptModels = ["gemini-2.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
-    const transientStatuses = new Set([429, 500, 502, 503, 504]);
-
-    let upstream: Response | null = null;
-    let lastStatus = 0;
-    let lastErrBody = "";
-    let usedModel = attemptModels[0];
-    __insightsModel = usedModel;
-    const __aiStart = __insightsStart;
-    for (let attempt = 0; attempt < attemptModels.length; attempt++) {
-      if (ac.signal.aborted) return;
-      try {
-        const r = await fetch(buildUrl(attemptModels[attempt]), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: requestBody,
-          signal: ac.signal,
-        });
-        if (r.ok && r.body) {
-          upstream = r;
-          usedModel = attemptModels[attempt];
-          __insightsModel = usedModel;
-          break;
-        }
-        lastStatus = r.status;
-        lastErrBody = await r.text().catch(() => "");
-        if (!transientStatuses.has(r.status)) {
-          // Non-retryable error (auth, bad request, etc.) — stop immediately.
-          break;
-        }
-      } catch (fetchErr: any) {
-        if (fetchErr?.name === "AbortError") return;
-        lastStatus = 0;
-        lastErrBody = String(fetchErr?.message || fetchErr);
+    for await (const event of stream) {
+      if (ac.signal.aborted) break;
+      if (
+        event.type === "content_block_delta" &&
+        (event as any).delta?.type === "text_delta"
+      ) {
+        const text = (event as any).delta.text;
+        if (text) res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
       }
-      // Backoff before next attempt: 600ms, 1500ms.
-      if (attempt < attemptModels.length - 1) {
-        await sleep(attempt === 0 ? 600 : 1500);
-      }
-    }
-
-    if (!upstream || !upstream.body) {
-      console.error("[admin-insights] gemini http error after retries:",
-        lastStatus, lastErrBody.slice(0, 300));
-      void recordAiUsage({
-        userId: adminId,
-        subjectId: null,
-        route: "admin/ai-insights",
-        provider: "gemini",
-        model: usedModel,
-        inputTokens: 0,
-        outputTokens: 0,
-        latencyMs: Date.now() - __aiStart,
-        status: "error",
-        errorMessage: `http_${lastStatus}: ${lastErrBody.slice(0, 300)}`,
-      });
-      let friendly = "تعذّر الردّ الآن، حاول بعد قليل.";
-      if (lastStatus === 429) {
-        friendly = "وصل المساعد لحدّ الاستخدام المؤقّت. حاول بعد دقيقة.";
-      } else if (lastStatus === 503) {
-        friendly = "خدمة الذكاء الاصطناعي مزدحمة الآن. حاول بعد ٣٠ ثانية.";
-      } else if (lastStatus === 401 || lastStatus === 403) {
-        friendly = "إعداد مفتاح الذكاء الاصطناعي غير صحيح — راجع GEMINI_API_KEY.";
-      } else if (lastStatus >= 500) {
-        friendly = "خدمة الذكاء الاصطناعي تواجه عطلاً مؤقتاً. حاول بعد قليل.";
-      }
-      res.write(`data: ${JSON.stringify({ error: friendly })}\n\n`);
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      return res.end();
-    }
-
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let lastUsageMetadata: any = null;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const payload = trimmed.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
-        try {
-          const parsed = JSON.parse(payload);
-          if (parsed?.usageMetadata) lastUsageMetadata = parsed.usageMetadata;
-          const parts = parsed?.candidates?.[0]?.content?.parts;
-          if (Array.isArray(parts)) {
-            for (const p of parts) {
-              if (typeof p?.text === "string" && p.text.length > 0) {
-                res.write(`data: ${JSON.stringify({ content: p.text })}\n\n`);
-              }
-            }
-          }
-        } catch {
-          // ignore non-JSON keep-alives
-        }
-      }
-    }
-
-    {
-      const __u = extractGeminiUsage(lastUsageMetadata);
-      void recordAiUsage({
-        userId: adminId,
-        subjectId: null,
-        route: "admin/ai-insights",
-        provider: "gemini",
-        model: usedModel,
-        inputTokens: __u.inputTokens,
-        outputTokens: __u.outputTokens,
-        cachedInputTokens: __u.cachedInputTokens,
-        latencyMs: Date.now() - __aiStart,
-        metadata: focusUser ? { focusUserId: focusUser.id } : null,
-      });
     }
 
     res.write(`data: ${JSON.stringify({
       done: true,
       contextStats: {
-        events: context.recentEvents.length,
-        labs: context.recentLabs.length,
-        lessons: context.recentLessons.length,
+        events: context.recentEvents?.length ?? 0,
+        labs: context.recentLabs?.length ?? 0,
+        lessons: context.recentLessons?.length ?? 0,
         focusUser: focusUser ? { id: focusUser.id, email: focusUser.email, name: focusUser.displayName } : null,
         focusResolutionNote: focusResolutionNote || null,
         focusAutoDetected,
@@ -1017,23 +893,11 @@ ${contextJson}
     })}\n\n`);
     res.end();
   } catch (err: any) {
-    if (err?.name === "AbortError") {
+    if (err?.name === "AbortError" || ac.signal.aborted) {
       try { res.end(); } catch {}
       return;
     }
     console.error("[admin-insights] error:", err?.message || err);
-    void recordAiUsage({
-      userId: adminId,
-      subjectId: null,
-      route: "admin/ai-insights",
-      provider: "gemini",
-      model: __insightsModel,
-      inputTokens: 0,
-      outputTokens: 0,
-      latencyMs: Date.now() - __insightsStart,
-      status: "error",
-      errorMessage: String(err?.message || err).slice(0, 500),
-    });
     try {
       res.write(`data: ${JSON.stringify({ error: "تعذّر الردّ الآن، حاول بعد قليل." })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
