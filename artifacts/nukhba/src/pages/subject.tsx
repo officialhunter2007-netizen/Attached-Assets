@@ -1313,6 +1313,12 @@ function SubjectPathChat({
   // truncation past max_tokens, network blip, model refusal). We surface a
   // visible retry button so the student never gets silently stranded.
   const [diagnosticIncomplete, setDiagnosticIncomplete] = useState(false);
+  // Set when a regular teaching reply ended without the server's terminating
+  // `done` event — almost always a network/proxy truncation. Holds the user's
+  // last message so the retry button can re-send it without making the
+  // student retype anything. Cleared when retry fires or when the next
+  // successful turn completes.
+  const [streamTruncated, setStreamTruncated] = useState<{ lastUserMessage: string } | null>(null);
   // Professor-curriculum mode state
   const [teachingMode, setTeachingMode] = useState<'unset' | 'custom' | 'professor' | null>(null);
   const [activeMaterialId, setActiveMaterialId] = useState<number | null>(
@@ -1567,6 +1573,11 @@ function SubjectPathChat({
 
   const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }) => {
     setIsStreaming(true);
+    // A new turn supersedes any prior truncation banner — either the retry
+    // button is what fired this call, or the student has decided to move
+    // on with a fresh question. Either way the stale banner shouldn't
+    // hover over the new exchange.
+    setStreamTruncated(null);
     if (text) {
       setMessages(prev => [...prev, { role: "user", content: text }]);
     }
@@ -1643,7 +1654,11 @@ function SubjectPathChat({
       }
 
       const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      // `fatal: false` keeps the decoder lenient — invalid bytes become U+FFFD
+      // instead of throwing, so we never bail out of the loop because of a
+      // single garbled chunk. The end-of-stream flush below recovers any
+      // pending partial UTF-8 sequence (Arabic glyphs are 2–3 bytes each).
+      const decoder = new TextDecoder("utf-8", { fatal: false });
       let assistantMsg = "";
       let emptyStream = false;
       let buffer = "";
@@ -1653,20 +1668,33 @@ function SubjectPathChat({
       // (or the model went off-script) — surface a clear retry banner so the
       // student isn't silently stranded staring at a half-finished plan.
       let gotPlanReady = false;
+      // Tracks whether the server actually sent its terminating
+      // `data: {"done": true}` event. If the underlying reader hits EOF
+      // *without* having seen this event, the stream was truncated by the
+      // network/proxy mid-flight — every legitimate completion path on the
+      // server emits `done`. We use this to distinguish "the model finished
+      // and politely said goodbye" from "the cable got yanked out".
+      let gotDoneEvent = false;
 
-      // Throttle state updates: batch streaming chunks every 50ms
+      // Throttle state updates: batch streaming chunks every 50ms.
+      // CRITICAL: the previous implementation captured the `content` argument
+      // in the timer's closure at the FIRST call, which meant every chunk
+      // that arrived during the 50ms window was silently lost — only the
+      // first chunk of each window was ever rendered. We now read from a
+      // ref that always holds the latest accumulated text, so the timer
+      // paints whatever exists at the moment it fires, never a stale slice.
+      const latestContentRef = { current: "" };
       let updateTimer: ReturnType<typeof setTimeout> | null = null;
-      const scheduleUpdate = (content: string) => {
-        if (!updateTimer) {
-          updateTimer = setTimeout(() => {
-            setMessages(prev => {
-              const nm = [...prev];
-              nm[nm.length - 1] = { role: "assistant", content };
-              return nm;
-            });
-            updateTimer = null;
-          }, 50);
-        }
+      const scheduleUpdate = () => {
+        if (updateTimer) return;
+        updateTimer = setTimeout(() => {
+          setMessages(prev => {
+            const nm = [...prev];
+            nm[nm.length - 1] = { role: "assistant", content: latestContentRef.current };
+            return nm;
+          });
+          updateTimer = null;
+        }, 50);
       };
 
       setMessages(prev => [...prev, { role: "assistant", content: "" }]);
@@ -1683,6 +1711,7 @@ function SubjectPathChat({
           try {
             const data = JSON.parse(line.slice(6));
             if (data.done) {
+              gotDoneEvent = true;
               if (updateTimer) { clearTimeout(updateTimer); updateTimer = null; }
               // Empty-stream guard: if the model produced zero content (network
               // hiccup, safety refusal, etc.) drop the empty assistant bubble
@@ -1761,7 +1790,11 @@ function SubjectPathChat({
             }
             if (data.content) {
               assistantMsg += data.content;
-              scheduleUpdate(assistantMsg);
+              // Update the ref BEFORE scheduling so when the timer fires it
+              // paints the latest accumulated text — fixes the stale-closure
+              // bug where only the first chunk of each 50ms window survived.
+              latestContentRef.current = assistantMsg;
+              scheduleUpdate();
             }
           } catch {}
         }
@@ -1772,6 +1805,40 @@ function SubjectPathChat({
       // would either resurrect the empty bubble or corrupt the previous
       // assistant message.
       if (updateTimer) { clearTimeout(updateTimer); updateTimer = null; }
+
+      // ── End-of-stream UTF-8 flush ────────────────────────────────────────
+      // The decoder holds back any incomplete multi-byte sequence at the
+      // end of each chunk (a 3-byte Arabic glyph that arrives split across
+      // two TCP packets is the worst offender). Without this final flush
+      // those trailing bytes are silently dropped and the message ends
+      // either mid-character or with U+FFFD. Calling decode() with no
+      // arguments and no `{stream: true}` tells the decoder "this is the
+      // last chunk — give me whatever you've still got buffered".
+      buffer += decoder.decode();
+
+      // Drain any complete `data: …` events still sitting in the buffer.
+      // Normally this is empty (the server's `done` event terminates with a
+      // proper `\n\n` separator and we processed it inside the loop), but
+      // an abrupt mid-stream disconnect can leave a complete event without
+      // its trailing newline still in the buffer — we'd lose those last
+      // few characters of `assistantMsg` if we didn't drain it here.
+      if (buffer.length > 0) {
+        const tailLines = buffer.split('\n');
+        for (const line of tailLines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.done) gotDoneEvent = true;
+            if (data.content && !emptyStream) {
+              assistantMsg += data.content;
+              latestContentRef.current = assistantMsg;
+            }
+            if (data.planReady) gotPlanReady = true;
+          } catch {}
+        }
+        buffer = "";
+      }
+
       if (!emptyStream) {
         setMessages(prev => {
           const nm = [...prev];
@@ -1790,6 +1857,20 @@ function SubjectPathChat({
       if (diagMode && !gotPlanReady && !emptyStream && assistantMsg.trim().length > 200) {
         console.warn('[teach] diagnostic finished without [PLAN_READY] — likely truncation');
         setDiagnosticIncomplete(true);
+      }
+
+      // ── Generic mid-stream truncation check ────────────────────────────
+      // Every legitimate completion path on the server emits `data: {done:true}`
+      // before closing the socket. If the reader hit EOF without ever seeing
+      // that event AND we did write some content to the bubble, the network
+      // (or the proxy) cut us off mid-flight. Silently leaving a half-sentence
+      // in the chat is the bug the student photographed; surface a visible
+      // retry banner so they know what happened and can re-send. We skip this
+      // for diagnostic mode (the dedicated diagnosticIncomplete banner above
+      // covers it) and for the empty-stream path (its own guard handles it).
+      if (!gotDoneEvent && !emptyStream && !diagMode && assistantMsg.trim().length > 0 && text.trim().length > 0) {
+        console.warn('[teach] stream ended without done event — likely network truncation');
+        setStreamTruncated({ lastUserMessage: text });
       }
 
       // Persist lab report + teacher feedback so the student can revisit later.
@@ -2557,6 +2638,39 @@ function SubjectPathChat({
             >
               <FileText className="w-4 h-4" />
               إنهاء الجلسة وحفظ الملخص
+            </button>
+          </div>
+        )}
+        {streamTruncated && !isStreaming && !diagnosticIncomplete && (
+          <div className="max-w-2xl mx-auto mb-3 p-4 rounded-xl bg-amber-500/15 border border-amber-500/40 shadow-lg shadow-amber-500/10">
+            <div className="text-amber-200 text-sm font-bold mb-2">
+              ⚠️ يبدو أن ردّ المعلّم انقطع قبل أن يكتمل
+            </div>
+            <div className="text-amber-100/90 text-sm mb-3 leading-relaxed">
+              قد يكون السبب ضعفاً مؤقّتاً في الاتصال. اضغط الزر أدناه لإعادة إرسال آخر رسالة — لم يُحسب لك هذا الطلب من رصيد الرسائل.
+            </div>
+            <button
+              onClick={() => {
+                // Pop the truncated assistant bubble and the user message
+                // that produced it, then re-send so the model starts the
+                // reply over from a clean slate. We capture the message
+                // text first because clearing state is async.
+                const lastMsg = streamTruncated.lastUserMessage;
+                setStreamTruncated(null);
+                setMessages(prev => {
+                  const nm = [...prev];
+                  // Drop trailing assistant bubble if present.
+                  if (nm.length > 0 && nm[nm.length - 1].role === 'assistant') nm.pop();
+                  // Drop the matching user bubble so sendTeachMessage can
+                  // re-add it cleanly without producing a duplicate.
+                  if (nm.length > 0 && nm[nm.length - 1].role === 'user') nm.pop();
+                  return nm;
+                });
+                setTimeout(() => sendTeachMessage(lastMsg, stages, currentStage, false), 100);
+              }}
+              className="text-sm font-bold text-amber-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-amber-500/40 hover:bg-amber-500/60 border border-amber-400/50"
+            >
+              أعد إرسال آخر رسالة
             </button>
           </div>
         )}

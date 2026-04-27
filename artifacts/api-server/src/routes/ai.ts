@@ -34,6 +34,40 @@ const router: IRouter = Router();
 const FREE_LESSON_MESSAGE_LIMIT = 15;
 
 /**
+ * Set the full SSE header set and immediately flush them to the wire.
+ *
+ * Why each header matters for live streaming through Replit's reverse proxy:
+ *   • `Content-Type: text/event-stream` — required for the EventSource/fetch
+ *     reader to treat the body as SSE.
+ *   • `Cache-Control: no-cache, no-transform` — `no-transform` blocks
+ *     intermediaries (especially mobile carriers and the platform's edge)
+ *     from gzipping/recompressing the stream, which can buffer chunks
+ *     until a full block boundary and may DROP the trailing partial block
+ *     when the upstream connection closes.
+ *   • `Connection: keep-alive` — keep the TCP socket open between chunks.
+ *   • `X-Accel-Buffering: no` — explicit hint to nginx-style proxies (the
+ *     edge in front of Replit) NOT to buffer the response. Without this
+ *     the proxy may hold up to ~16 KiB of bytes before flushing, which on
+ *     mobile networks frequently shows up as the AI message arriving
+ *     truncated mid-word.
+ *   • `flushHeaders()` — sends the response head right now instead of
+ *     waiting for the first body byte. This makes the client's SSE parser
+ *     start reading immediately and prevents the proxy from buffering the
+ *     header-block together with the first chunk.
+ */
+function setSseHeaders(res: import("express").Response): void {
+  if (res.headersSent) return;
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  // Express types `flushHeaders` on the underlying ServerResponse.
+  if (typeof (res as any).flushHeaders === "function") {
+    (res as any).flushHeaders();
+  }
+}
+
+/**
  * Extract a compact, human-readable excerpt from an AI teaching response for
  * storage in ai_teacher_messages. We strip markdown formatting and take the
  * first ~maxChars characters, trimmed to the nearest sentence boundary. This
@@ -648,9 +682,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     }
     const stagesArr = stages ?? [];
     const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا التخصص 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك في هذه المادة من صفحة الاشتراكات.</p></div>`;
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
+    setSseHeaders(res);
     res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
     res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length, quotaExhausted: true, messagesRemaining: 0 })}\n\n`);
     res.end();
@@ -689,9 +721,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
           .set({ firstLessonComplete: true })
           .where(eq(usersTable.id, userId));
       } catch {}
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
+      setSseHeaders(res);
       const farewell = `<div><p>انتهت رسائلك المجانية الـ 15 على هذا التخصص ✨</p><p>راجع ما تعلّمته في صفحة الجلسات السابقة. للاستمرار، اختر باقة من صفحة الاشتراكات.</p></div>`;
       res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, quotaExhausted: true, messagesRemaining: 0, firstLessonDone: true })}\n\n`);
@@ -797,9 +827,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     }
   }
 
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
+  setSseHeaders(res);
 
   const stageCount = stages?.length || 3;
   const stageIdx = currentStage ?? 0;
@@ -1510,12 +1538,12 @@ ${retrievedBlock}
     }
   }
 
-  // Open SSE only once we are about to talk to the model.
-  if (!res.headersSent) {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-  }
+  // Open SSE only once we are about to talk to the model. Headers are
+  // normally sent earlier (right after we've assembled the prompt context),
+  // but this is a safety net for any future early-return path that bypasses
+  // that point — we must never reach the model call without the proxy-safe
+  // SSE headers + flushHeaders.
+  setSseHeaders(res);
 
   // ── Smart model routing ──────────────────────────────────────────────────
   // Rules (enforced together by pickTeachingModel):
@@ -1571,6 +1599,42 @@ ${retrievedBlock}
   let __lastErr: any = null;
   let __attempts = 0;
   let __fellBackToHaiku = false;
+
+  // ── Mid-stream disconnect tracking ────────────────────────────────────────
+  // If the student's TCP socket closes before we send `data: {done:true}` —
+  // browser closed, AbortController fired, network died, mobile flipped to
+  // a different cell tower — the response is effectively wasted from the
+  // student's POV. Mark `clientAborted` so the bookkeeping below skips the
+  // message-counter increment instead of charging them for a reply they
+  // never saw. We only flip the flag while the response is still in-flight
+  // (`!res.writableEnded`) so the close that fires *after* `res.end()` on
+  // the success path is correctly ignored.
+  let clientAborted = false;
+  const onClientClose = () => {
+    if (!res.writableEnded) {
+      clientAborted = true;
+      console.warn("[ai/teach] client disconnected mid-stream — will skip quota charge");
+    }
+  };
+  req.on("close", onClientClose);
+
+  // ── Periodic SSE heartbeats ───────────────────────────────────────────────
+  // Anthropic's stream pauses for several seconds while the model "thinks"
+  // before emitting the first text delta. Idle TCP/HTTP intermediaries (the
+  // platform's edge proxy, mobile-carrier NAT, corporate firewalls) may close
+  // a connection that goes silent for ~30s, causing the student to see a
+  // truncated reply or a hang. Sending a `: heartbeat` SSE comment every 15s
+  // keeps the socket warm. SSE comments are ignored by the EventSource/fetch
+  // parser on the client, so this is invisible to the UI.
+  const heartbeat = setInterval(() => {
+    if (res.writableEnded || clientAborted) return;
+    try {
+      res.write(": heartbeat\n\n");
+    } catch {
+      // Write to a half-closed socket throws — safe to swallow; the close
+      // handler above already set `clientAborted`.
+    }
+  }, 15_000);
 
   // Up to 3 attempts: original model → Haiku fallback → Haiku one more time.
   // Loop short-circuits as soon as fullResponse has any bytes (mid-stream
@@ -1709,6 +1773,8 @@ ${retrievedBlock}
       res.write(`data: ${JSON.stringify({ done: true, error: true })}\n\n`);
       res.end();
     }
+    clearInterval(heartbeat);
+    req.off("close", onClientClose);
     return;
   }
 
@@ -1912,18 +1978,32 @@ ${retrievedBlock}
 
   // ── Counter bookkeeping (post-AI) ──────────────────────────────────────
   // Free-tier counter was already incremented atomically BEFORE the AI call
-  // (see "Atomic free-tier claim" above) to close the bypass race. If the
-  // stream produced no content we roll that increment back here so the
-  // student isn't punished for a silent failure.
+  // (see "Atomic free-tier claim" above) to close the bypass race. We only
+  // refund (skip the charge) when the student genuinely didn't get value:
+  // either nothing was generated, or their connection died before any
+  // meaningful amount of content was delivered. Once the model has streamed
+  // a substantive reply, the turn is chargeable regardless of whether the
+  // client closes the socket at the very end — otherwise an attacker could
+  // intentionally abort just before the `done` event and abuse the refund
+  // path to read full answers for free.
   const responseHasContent = fullResponse.trim().length > 0;
-  if (!responseHasContent) {
+  // ~200 chars ≈ 1 short Arabic paragraph. Below this we treat the turn
+  // as "didn't really get an answer" and refund on disconnect; above it,
+  // the student got real teaching value and the turn counts. The number
+  // is a deliberate compromise: high enough that toy single-word replies
+  // ("نعم") refund on a flaky connection, low enough that a full answer
+  // can't be drained-then-aborted to dodge the message counter.
+  const CHARGEABLE_BYTES_THRESHOLD = 200;
+  const deliveredSubstantialContent = fullResponse.length >= CHARGEABLE_BYTES_THRESHOLD;
+  const chargeable = responseHasContent && (deliveredSubstantialContent || !clientAborted);
+  if (!chargeable) {
     await rollbackFreeClaim();
   }
   // Paid subscription counter still increments after the call — that path
   // doesn't have the same race window because the daily-claim block above
   // already serialises requests through an atomic conditional update on the
   // `lastSessionDate` column.
-  if (responseHasContent && !unlimited && !isFirstLesson && canAccessViaSubscription) {
+  if (chargeable && !unlimited && !isFirstLesson && canAccessViaSubscription) {
     if (access.canAccessViaSubjectSub && subjectSub) {
       // Atomic increment so parallel within-session requests can't both read
       // the same stale `subjectSub.messagesUsed` and skip past the daily cap.
@@ -1961,7 +2041,7 @@ ${retrievedBlock}
   // actually produced content — and if the stream was empty for a "new session"
   // request, we roll the daily claim back so the student isn't punished for a
   // model hiccup.
-  if (isNewSession && responseHasContent && (isFirstLesson || canAccessViaSubscription)) {
+  if (isNewSession && chargeable && (isFirstLesson || canAccessViaSubscription)) {
     try {
       const today = getYemenDateString();
       const yesterdayMs = Date.now() + 3 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000;
@@ -1985,14 +2065,28 @@ ${retrievedBlock}
     } catch (err: any) {
       console.error("[ai/teach] streak update error:", err?.message || err);
     }
-  } else if (isNewSession && !responseHasContent) {
-    // Empty AI response on the very first turn — release today's claim so the
-    // student can retry without waiting until midnight.
+  } else if (isNewSession && !chargeable) {
+    // First-turn stream produced no usable answer (empty / aborted before the
+    // student got real value) — release today's session claim so they aren't
+    // locked out of the daily limit for the rest of the day. We use the same
+    // `chargeable` flag as the message counter to keep the two pieces of
+    // bookkeeping consistent: if we didn't charge a message, we shouldn't
+    // burn their session either.
     await rollbackDailyClaim();
   }
 
-  res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate })}\n\n`);
-  res.end();
+  // Only emit the terminating `done` event if the student is still listening.
+  // If they disconnected mid-stream, writing here just buffers bytes onto a
+  // dead socket and risks throwing — the bookkeeping above has already done
+  // the right thing by skipping the message-counter increment.
+  if (!res.writableEnded) {
+    try {
+      res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate })}\n\n`);
+      res.end();
+    } catch {}
+  }
+  clearInterval(heartbeat);
+  req.off("close", onClientClose);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
