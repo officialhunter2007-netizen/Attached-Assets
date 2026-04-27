@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, memo, useCallback } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { writeUserJson, readUserJson, removeUserKey } from "@/lib/user-storage";
 import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
@@ -1096,6 +1098,55 @@ function stripInlineStyles(html: string): string {
     .replace(/\scolor\s*=\s*["'][^"']*["']/gi, '');
 }
 
+// Configure marked once: GitHub-flavored markdown + treat single line breaks
+// as <br/>, which matches how the model thinks about Arabic prose.
+marked.setOptions({ gfm: true, breaks: true });
+
+// The teaching model is *supposed* to emit HTML, but in practice it routinely
+// mixes raw markdown (`---`, `**bold**`, `1.` lists, blank-line paragraphs)
+// into its output — and the chat used to render that markdown as a single
+// unformatted wall of text. This helper converts any markdown the model
+// emits into HTML while leaving real HTML tags it already produced intact,
+// then sanitizes the result so we can safely drop it into the bubble via
+// dangerouslySetInnerHTML.
+//
+// Key behaviors:
+//   • `---` on its own line becomes `<hr/>` (the model uses these as visual
+//     separators between sections).
+//   • Blank lines become paragraph breaks.
+//   • Single newlines become `<br/>` (gfm `breaks: true`).
+//   • Existing inline HTML the model produced (e.g. `<div class="tip-box">…`)
+//     is preserved verbatim.
+//   • DOMPurify strips `<script>`, event handlers, etc. — but we keep the
+//     `data-build-env` attribute on buttons because that's how the lab-env
+//     trigger wires itself up in the click handler below.
+function renderAssistantHtml(raw: string): string {
+  if (!raw) return "";
+  // marked is synchronous when no async extensions are registered, but the
+  // type signature is `string | Promise<string>` — `as string` is safe here.
+  const html = marked.parse(stripInlineStyles(raw)) as string;
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ['data-build-env', 'target'],
+    ADD_TAGS: ['button'],
+  });
+}
+
+// Streaming variant: same conversion, but we must tolerate half-finished
+// HTML/markdown tokens arriving mid-flight. We render whatever we have so
+// far through marked (it's forgiving), and skip the lab-env tag expansion
+// since the user can't click those until the stream completes anyway.
+function renderStreamingHtml(raw: string): string {
+  if (!raw) return "";
+  const cleaned = raw
+    .replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '')
+    .replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, '');
+  const html = marked.parse(stripInlineStyles(cleaned)) as string;
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ['data-build-env', 'target'],
+    ADD_TAGS: ['button'],
+  });
+}
+
 
 // Transforms [[CREATE_LAB_ENV: description]] tags into clickable buttons
 function expandLabEnvTags(html: string): string {
@@ -1140,10 +1191,19 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
   const { stripped, ask } = !isStreaming ? extractAskOptions(content) : { stripped: content, ask: null };
 
   if (!isStreaming) {
-    safeRef.current = expandLabEnvTags(stripInlineStyles(stripped));
+    // Run the lab-env tag expansion *first* (it inserts a real <button> with
+    // a `data-build-env` attribute the click handler below relies on), then
+    // pass the result through marked + DOMPurify so any markdown the model
+    // emitted (`---`, `**bold**`, lists, blank-line paragraphs) renders as
+    // proper HTML instead of a wall of unformatted text.
+    safeRef.current = renderAssistantHtml(expandLabEnvTags(stripped));
   }
+  // While streaming we route the partial content through the same
+  // markdown→HTML pipeline so the formatting builds up live as the model
+  // types (instead of the previous behavior of stripping every tag and
+  // collapsing all whitespace into a single paragraph until completion).
   const displayHtml = isStreaming
-    ? `<p>${content.replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '').replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}</p>`
+    ? renderStreamingHtml(content)
     : safeRef.current;
 
   useEffect(() => {
@@ -1154,8 +1214,14 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
       const btn = target.closest('[data-build-env]') as HTMLElement | null;
       if (btn) {
         e.preventDefault();
-        const desc = btn.getAttribute('data-build-env') || '';
-        if (desc) onCreateLabEnv(desc);
+        const desc = (btn.getAttribute('data-build-env') || '').trim();
+        // Sanity-check the payload before triggering env creation: the
+        // assistant content path is sanitized but the model still authors
+        // the lab description, so cap the length and reject obviously
+        // malformed values to avoid accidental long-running env builds.
+        if (desc && desc.length >= 4 && desc.length <= 500) {
+          onCreateLabEnv(desc);
+        }
       }
     };
     root.addEventListener('click', handler);
