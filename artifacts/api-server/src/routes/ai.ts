@@ -2979,9 +2979,9 @@ text | number | date | textarea | select (مع options) | selectFromState (state
 
 **⚠ أخطاء شائعة تجنّبها:**
 - لا تكتفِ بنماذج "check" ثابتة فقط. اجعل أغلب النماذج من نوع "mutate" تغيّر العالم فعلاً.
-- كل `table` مع `bindTo` **يجب** أن يحتوي على `columnKeys` — مصفوفة مفاتيح البيانات الفعلية (بالإنجليزية) تقابل `columns` (الأسماء العربية). بدونها يظهر الجدول فارغاً. مثال: `"columns":["الكود","الاسم","الرصيد"],"columnKeys":["code","name","balance"]`.
-- في نصوص `text` و `richDocument.sections[].body`: استخدم markdown بحرية (عناوين، قوائم، عريض، خط فاصل `---`) — سيُعرض بشكل صحيح.
-- لا تستخدم `kind` بقيم خارج القائمة المسموح بها: food | accounting | yemensoft | cybersecurity | web-pentest | forensics | networking | os | programming | data-science | business | physics | language | generic.
+- كل جدول مع bindTo يجب أن يحتوي على columnKeys — مصفوفة مفاتيح البيانات الفعلية (بالإنجليزية) تقابل columns (الأسماء العربية). بدونها يظهر الجدول فارغاً. مثال: columns:["الكود","الاسم","الرصيد"] و columnKeys:["code","name","balance"].
+- في نصوص text و richDocument.sections body: استخدم markdown بحرية (عناوين، قوائم، عريض، خط فاصل) — سيُعرض بشكل صحيح.
+- لا تستخدم kind بقيم خارج القائمة المسموح بها: food | accounting | yemensoft | cybersecurity | web-pentest | forensics | networking | os | programming | data-science | business | physics | language | generic.
 
 **🎨 معايير الجودة الإلزامية للبيئات (الفرق بين بيئة عادية وبيئة احترافية):**
 A. **briefing** سرد مهني متماسك من ٣ أسطر فقط بهذا الترتيب الإلزامي:

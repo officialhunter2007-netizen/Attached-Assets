@@ -1,0 +1,158 @@
+root@vmi3256829:~/nukhba/Attached-Assets# cp .env.example .env
+nano .env
+root@vmi3256829:~/nukhba/Attached-Assets# bash docker/deploy.sh
+[NUKHBA] ════════════════════════════════════════
+[NUKHBA] بدء النشر الأوّلي لمنصّة نُخبة
+[NUKHBA] الدومين: learnukhba.com
+[NUKHBA] ════════════════════════════════════════
+[NUKHBA] جاري بناء صور Docker (قد يستغرق 5-10 دقائق)...
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] Building 62.7s (28/31)
+ => [internal] load local bake definitions                                                             0.0s
+ => => reading from stdin 969B                                                                         0.0s
+ => [nginx internal] load build definition from Dockerfile                                             0.1s
+ => => transferring dockerfile: 1.98kB                                                                 0.0s
+ => [api internal] load build definition from Dockerfile                                               0.2s
+ => => transferring dockerfile: 2.10kB                                                                 0.0s
+ => [nginx internal] load metadata for docker.io/library/node:22                                       2.6s
+ => [nginx internal] load metadata for docker.io/library/nginx:1.27-alpine                             2.8s
+ => [api internal] load metadata for docker.io/library/node:22-alpine                                  2.7s
+ => [nginx internal] load .dockerignore                                                                0.0s
+ => => transferring context: 465B                                                                      0.0s
+ => [nginx builder 1/9] FROM docker.io/library/node:22@sha256:9059d9d7db987b86299e052ff6630cd95e5a77  38.4s
+ => => resolve docker.io/library/node:22@sha256:9059d9d7db987b86299e052ff6630cd95e5a770336967c21110e5  0.1s
+ => => sha256:d140044f44333bdbd6b7c75c84e1695e0c7201140621ffd1ac1ee27e2bfeee83 1.25MB / 1.25MB         0.7s
+ => => sha256:16641aa11d02f1b02aeee6f9f3542daefa4b88e7cb9b38bc72e5a9a6e1d5c635 447B / 447B             0.4s
+ => => sha256:00b9b30c37fc5a34ba3c30be58372ea16c3967ae37babfe1905c37cec00245b0 58.46MB / 58.46MB       4.1s
+ => => sha256:4585ed584457922bb8e3dbc9f4b2c11bdf3d5701fce69d8d4af06863276d2afc 3.32kB / 3.32kB         0.3s
+ => => sha256:2933ecab0f11302fd71f29aa83ad2904683246f7a8320ad0dc3a60b23f05fee9 211.55MB / 211.55MB    19.4s
+ => => sha256:db53381ee51f9e43304e236099ba097ae1b33ae41a8007e0b6319992eb55fd00 48.49MB / 48.49MB      15.9s
+ => => sha256:8fcda2b4d7993820b00c5488d173051e76d01ba6b85620617ba77001b0f9e2fa 64.40MB / 64.40MB       4.3s
+ => => sha256:e5203b2bfeff92b72e816dc6cbb1f16856f0cd592e521e3c0cfa195a78fe180e 24.04MB / 24.04MB       2.6s
+ => => extracting sha256:db53381ee51f9e43304e236099ba097ae1b33ae41a8007e0b6319992eb55fd00              2.8s
+ => => extracting sha256:e5203b2bfeff92b72e816dc6cbb1f16856f0cd592e521e3c0cfa195a78fe180e              0.7s
+ => => extracting sha256:8fcda2b4d7993820b00c5488d173051e76d01ba6b85620617ba77001b0f9e2fa              2.9s
+ => => extracting sha256:2933ecab0f11302fd71f29aa83ad2904683246f7a8320ad0dc3a60b23f05fee9             10.0s
+ => => extracting sha256:4585ed584457922bb8e3dbc9f4b2c11bdf3d5701fce69d8d4af06863276d2afc              0.0s
+ => => extracting sha256:00b9b30c37fc5a34ba3c30be58372ea16c3967ae37babfe1905c37cec00245b0              3.4s
+ => => extracting sha256:d140044f44333bdbd6b7c75c84e1695e0c7201140621ffd1ac1ee27e2bfeee83              0.1s
+ => => extracting sha256:16641aa11d02f1b02aeee6f9f3542daefa4b88e7cb9b38bc72e5a9a6e1d5c635              0.0s
+ => [api internal] load build context                                                                  0.4s
+ => => transferring context: 1.21MB                                                                    0.2s
+ => [api production 1/3] FROM docker.io/library/node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aaf  16.5s
+ => => resolve docker.io/library/node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d  0.1s
+ => => sha256:8bfa0019f928dcee6004de6c4b85d75774f993212504ac816ede0f3c6ae097de 445B / 445B             0.3s
+ => => sha256:9e177ba73d9ff6d235c7d32bf216469630dcce0a52a6cbde08bd868b7a07e7d5 51.96MB / 51.96MB      10.6s
+ => => sha256:4cc15311d45b63612aec3e37d607941ddc636bd3ab45235d8391dc5b2b90faf4 1.26MB / 1.26MB         0.7s
+ => => sha256:6a0ac1617861a677b045b7ff88545213ec31c0ff08763195a70a4a5adda577bb 3.86MB / 3.86MB         1.3s
+ => => extracting sha256:6a0ac1617861a677b045b7ff88545213ec31c0ff08763195a70a4a5adda577bb              0.3s
+ => => extracting sha256:9e177ba73d9ff6d235c7d32bf216469630dcce0a52a6cbde08bd868b7a07e7d5              4.4s
+ => => extracting sha256:4cc15311d45b63612aec3e37d607941ddc636bd3ab45235d8391dc5b2b90faf4              0.4s
+ => => extracting sha256:8bfa0019f928dcee6004de6c4b85d75774f993212504ac816ede0f3c6ae097de              0.1s
+ => [nginx stage-1 1/3] FROM docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0  17.5s
+ => => resolve docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f  0.1s
+ => => sha256:39c2ddfd6010082a4a646e7ca44e95aca9bf3eaebc00f17f7ccc2954004f2a7d 15.52MB / 15.52MB       1.6s
+ => => sha256:34a64644b756511a2e217f0508e11d1a572085d66cd6dc9a555a082ad49a3102 1.40kB / 1.40kB         0.3s
+ => => sha256:197eb75867ef4fcecd4724f17b0972ab0489436860a594a9445f8eaff8155053 1.21kB / 1.21kB         0.4s
+ => => sha256:81bd8ed7ec6789b0cb7f1b47ee731c522f6dba83201ec73cd6bca1350f582948 402B / 402B             0.3s
+ => => sha256:d7e5070240863957ebb0b5a44a5729963c3462666baa2947d00628cb5f2d5773 955B / 955B             0.3s
+ => => sha256:b464cfdf2a6319875aeb27359ec549790ce14d8214fcb16ef915e4530e5ed235 629B / 629B             0.5s
+ => => sha256:61ca4f733c802afd9e05a32f0de0361b6d713b8b53292dc15fb093229f648674 1.79MB / 1.79MB         0.5s
+ => => sha256:f18232174bc91741fdf3da96d85011092101a032a93a388b79e99e69c2d5c870 3.64MB / 3.64MB         0.9s
+ => => extracting sha256:f18232174bc91741fdf3da96d85011092101a032a93a388b79e99e69c2d5c870              0.5s
+ => => extracting sha256:61ca4f733c802afd9e05a32f0de0361b6d713b8b53292dc15fb093229f648674              0.4s
+ => => extracting sha256:b464cfdf2a6319875aeb27359ec549790ce14d8214fcb16ef915e4530e5ed235              0.2s
+ => => extracting sha256:d7e5070240863957ebb0b5a44a5729963c3462666baa2947d00628cb5f2d5773              0.1s
+ => => extracting sha256:81bd8ed7ec6789b0cb7f1b47ee731c522f6dba83201ec73cd6bca1350f582948              0.1s
+ => => extracting sha256:197eb75867ef4fcecd4724f17b0972ab0489436860a594a9445f8eaff8155053              0.0s
+ => => extracting sha256:34a64644b756511a2e217f0508e11d1a572085d66cd6dc9a555a082ad49a3102              0.1s
+ => => extracting sha256:39c2ddfd6010082a4a646e7ca44e95aca9bf3eaebc00f17f7ccc2954004f2a7d              0.9s
+ => [nginx internal] load build context                                                                0.8s
+ => => transferring context: 18.20MB                                                                   0.7s
+ => [api production 2/3] WORKDIR /app                                                                  0.3s
+ => [nginx builder 2/9] RUN corepack enable && corepack prepare pnpm@10 --activate                     6.1s
+ => [api builder 3/9] WORKDIR /app                                                                     0.1s
+ => [nginx builder 4/9] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./                        0.1s
+ => [api builder 5/9] COPY lib/ ./lib/                                                                 0.1s
+ => [nginx builder 6/9] COPY scripts/ ./scripts/                                                       0.0s
+ => [api builder 7/9] COPY artifacts/api-server/ ./artifacts/api-server/                               0.1s
+ => CACHED [nginx builder  4/10] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./               0.0s
+ => CACHED [nginx builder  5/10] COPY lib/ ./lib/                                                      0.0s
+ => CACHED [nginx builder  6/10] COPY scripts/ ./scripts/                                              0.0s
+ => [nginx builder  7/10] COPY artifacts/nukhba/ ./artifacts/nukhba/                                   0.1s
+ => [api builder 8/9] RUN pnpm install --frozen-lockfile                                              11.2s
+ => [nginx builder  8/10] COPY attached_assets/ ./attached_assets/                                     0.1s
+ => [nginx builder  9/10] RUN pnpm install --frozen-lockfile                                          12.5s
+ => ERROR [api builder 9/9] RUN pnpm --filter @workspace/api-server run build                          2.8s
+ => CANCELED [nginx builder 10/10] RUN pnpm --filter @workspace/nukhba run build                       1.7s
+------
+ > [api builder 9/9] RUN pnpm --filter @workspace/api-server run build:
+1.628
+1.628 > @workspace/api-server@0.0.0 build /app/artifacts/api-server
+1.628 > node ./build.mjs
+1.628
+1.808 ▲ [WARNING] Cannot find base config file "../../tsconfig.base.json" [tsconfig.json]
+1.808
+1.808     tsconfig.json:2:13:
+1.808       2 │   "extends": "../../tsconfig.base.json",
+1.808         ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~
+1.808
+1.827 ▲ [WARNING] Cannot find base config file "../../tsconfig.base.json" [tsconfig.json]
+1.827
+1.827     ../../lib/db/tsconfig.json:2:13:
+1.827       2 │   "extends": "../../tsconfig.base.json",
+1.827         ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~
+1.827
+1.896 ✘ [ERROR] Expected ";" but found "table"
+1.896
+1.896     src/routes/ai.ts:2982:8:
+1.896       2982 │ - كل `table` مع `bindTo` **يجب** أن يحتوي على `...
+1.896            │       ~~~~~
+1.896            ╵       ;
+1.896
+1.934 ▲ [WARNING] Cannot find base config file "../../tsconfig.base.json" [tsconfig.json]
+1.934
+1.934     ../../lib/api-zod/tsconfig.json:2:13:
+1.934       2 │   "extends": "../../tsconfig.base.json",
+1.934         ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~
+1.934
+1.947 ▲ [WARNING] Cannot find base config file "../../tsconfig.base.json" [tsconfig.json]
+1.947
+1.947     ../../lib/integrations-anthropic-ai/tsconfig.json:2:13:
+1.947       2 │   "extends": "../../tsconfig.base.json",
+1.947         ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~
+1.947
+2.579 4 warnings and 1 error
+2.583 Error: Build failed with 1 error:
+2.583 src/routes/ai.ts:2982:8: ERROR: Expected ";" but found "table"
+2.583     at failureErrorWithLog (/app/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/lib/main.js:1467:15)
+2.583     at /app/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/lib/main.js:926:25
+2.583     at /app/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/lib/main.js:1345:9
+2.583     at process.processTicksAndRejections (node:internal/process/task_queues:103:5) {
+2.583   errors: [Getter/Setter],
+2.583   warnings: [Getter/Setter]
+2.583 }
+2.618 /app/artifacts/api-server:
+2.618  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/api-server@0.0.0 build: `node ./build.mjs`
+2.618 Exit status 1
+------
+[+] build 0/2
+ ⠙ Image attached-assets-api   Building                                                                62.8s
+ ⠙ Image attached-assets-nginx Building                                                                62.8s
+Dockerfile:28
+
+--------------------
+
+  26 |
+
+  27 |     # بناء الخادم (esbuild يُجمّع كل شيء في dist/index.mjs)
+
+  28 | >>> RUN pnpm --filter @workspace/api-server run build
+
+  29 |
+
+  30 |     # ═══════════════════════════════════════════════════════════════════
+
+--------------------
+
+target api: failed to solve: process "/bin/sh -c pnpm --filter @workspace/api-server run build" did not complete successfully: exit code: 1
