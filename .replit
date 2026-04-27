@@ -61,3 +61,23 @@ PRIVATE_OBJECT_DIR = "/replit-objstore-fc8ff6da-a06f-4933-b5c4-5372ec9b78ab/.pri
 
 [userenv.production]
 APP_DOMAIN = "learnukhba.replit.app"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 19388
+externalPort = 3001
+
+[[ports]]
+localPort = 23564
+externalPort = 3000

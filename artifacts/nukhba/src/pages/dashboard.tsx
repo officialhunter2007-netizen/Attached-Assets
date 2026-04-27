@@ -581,13 +581,14 @@ export default function Dashboard() {
   const points = user?.points || 0;
 
   const now = new Date();
-  const activeSubjectSubs = mySubjectSubs.filter(s => new Date(s.expiresAt) > now && s.messagesUsed < s.messagesLimit);
+  const activeSubjectSubs = mySubjectSubs.filter(s => new Date(s.expiresAt) > now);
+  const usableSubjectSubs = activeSubjectSubs.filter(s => s.messagesUsed < s.messagesLimit);
   const hasAnyActiveSubjectSub = activeSubjectSubs.length > 0;
   const isBlocked = user?.firstLessonComplete && !hasAnyActiveSubjectSub;
 
   const expiredSubs = mySubjectSubs.filter(s => new Date(s.expiresAt) <= now);
   const twoDaysFromNow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
-  const expiringSoonSubs = activeSubjectSubs.filter(s => new Date(s.expiresAt) <= twoDaysFromNow);
+  const expiringSoonSubs = usableSubjectSubs.filter(s => new Date(s.expiresAt) <= twoDaysFromNow);
 
   const handleDismissMobileCoding = () => {
     if (user?.id) {
@@ -822,14 +823,14 @@ export default function Dashboard() {
                 <Crown className="w-5 h-5 text-gold" />
                 حالة الاشتراك
               </h3>
-              {activeSubjectSubs.length > 0 ? (
+              {usableSubjectSubs.length > 0 ? (
                 <div>
-                  <div className="text-lg font-black text-gold mb-2">{activeSubjectSubs.length} {activeSubjectSubs.length === 1 ? "اشتراك نشط" : "اشتراكات نشطة"}</div>
+                  <div className="text-lg font-black text-gold mb-2">{usableSubjectSubs.length} {usableSubjectSubs.length === 1 ? "اشتراك نشط" : "اشتراكات نشطة"}</div>
                   <div className="space-y-2 mb-3">
-                    {activeSubjectSubs.slice(0, 3).map(s => (
+                    {usableSubjectSubs.slice(0, 3).map(s => (
                       <div key={s.id} className="text-xs text-muted-foreground flex items-center justify-between">
                         <span>{s.subjectName || s.subjectId}</span>
-                        <span className="text-emerald">{s.messagesLimit - s.messagesUsed} رسالة متبقية</span>
+                        <span className="text-emerald">{Math.max(0, s.messagesLimit - s.messagesUsed)} رسالة متبقية</span>
                       </div>
                     ))}
                   </div>
@@ -837,7 +838,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div>
-                  <p className="text-muted-foreground mb-4">لا توجد اشتراكات نشطة</p>
+                  <p className="text-muted-foreground mb-4">لا توجد اشتراكات نشطة أو لم يتبقَّ رصيد رسائل</p>
                   <Link href="/subscription">
                     <Button className="w-full gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20">اشترك الآن</Button>
                   </Link>
