@@ -72,13 +72,21 @@ if [ "$1" = "--ssl" ]; then
     fi
 
     log "طلب الشهادة من Let's Encrypt..."
-    docker compose run --rm certbot certonly \
+    # ملاحظة: --entrypoint certbot ضروري لأن خدمة certbot في docker-compose.yml
+    # تستخدم entrypoint مخصّص لـ renew. بدون هذا الـ flag الأمر certonly يُتجاهَل.
+    CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@${APP_DOMAIN}}"
+    docker compose run --rm --entrypoint certbot certbot certonly \
         --webroot \
         --webroot-path=/var/www/certbot \
-        --email "admin@${APP_DOMAIN}" \
+        --email "$CERTBOT_EMAIL" \
         --agree-tos \
         --no-eff-email \
         -d "$APP_DOMAIN"
+
+    # تأكد أن الشهادة فعلاً صدرت قبل التبديل لـ HTTPS
+    if ! docker compose run --rm --entrypoint sh certbot -c "[ -f /etc/letsencrypt/live/${APP_DOMAIN}/fullchain.pem ]"; then
+        fail "إصدار الشهادة فشل. تحقّق من اللوقات أعلاه. السبب الشائع: الدومين لا يصل لـ http://${APP_DOMAIN}/.well-known/acme-challenge/ — تأكد من DNS وإن Nginx شغّال على بورت 80."
+    fi
 
     log "تفعيل إعدادات HTTPS في Nginx..."
     cp docker/nginx/nginx-ssl.conf docker/nginx/nginx.conf
