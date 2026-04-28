@@ -1,16 +1,35 @@
 version: "3.9"
 
 services:
+  # ─── قاعدة البيانات PostgreSQL (على نفس الـ VPS) ─────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nukhba}
+      POSTGRES_USER: ${POSTGRES_USER:-nukhba_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nukhba_user} -d ${POSTGRES_DB:-nukhba}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ─── الخادم الخلفي (Express API) ──────────────────────────────────
   api:
     build:
       context: .
       dockerfile: docker/api/Dockerfile
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 8080
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nukhba_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nukhba}
       SESSION_SECRET: ${SESSION_SECRET}
       AI_INTEGRATIONS_OPENAI_BASE_URL: ${AI_INTEGRATIONS_OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
       AI_INTEGRATIONS_OPENAI_API_KEY: ${AI_INTEGRATIONS_OPENAI_API_KEY}
@@ -48,5 +67,6 @@ services:
     entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"
 
 volumes:
+  postgres_data:
   certbot_certs:
   certbot_webroot:

@@ -27,7 +27,7 @@ command -v curl   >/dev/null 2>&1 || fail "curl غير مثبّت: apt install c
 
 source .env
 
-[ -z "$DATABASE_URL" ]                      && fail "DATABASE_URL فارغ في .env"
+[ -z "$POSTGRES_PASSWORD" ]                 && fail "POSTGRES_PASSWORD فارغ في .env — ضع كلمة مرور قوية!"
 [ -z "$SESSION_SECRET" ]                    && fail "SESSION_SECRET فارغ في .env"
 [ -z "$AI_INTEGRATIONS_ANTHROPIC_API_KEY" ] && fail "AI_INTEGRATIONS_ANTHROPIC_API_KEY فارغ في .env"
 [ -z "$AI_INTEGRATIONS_OPENAI_API_KEY" ]    && fail "AI_INTEGRATIONS_OPENAI_API_KEY فارغ في .env"
@@ -109,15 +109,23 @@ docker compose build
 log "تشغيل الخدمات..."
 docker compose up -d
 
-info "انتظار بدء التشغيل..."
-sleep 10
+info "انتظار بدء تشغيل قاعدة البيانات..."
+sleep 15
 
-if curl -sf "http://localhost/api/healthz" >/dev/null 2>&1; then
+log "تطبيق migrations على قاعدة البيانات..."
+if docker compose exec -T api node -e "
+  import('./dist/index.mjs').catch(() => process.exit(0))
+" > /dev/null 2>&1; then
+    : # API already handles migrations on startup
+fi
+
+if curl -sf "http://localhost/api/healthz" > /dev/null 2>&1; then
     log "✔ الخادم يستجيب بنجاح!"
 else
     warn "الخادم لم يستجب بعد — انتظر قليلاً ثم جرّب:"
     info "  curl http://localhost/api/healthz"
     info "  docker compose logs api --tail=30"
+    info "  docker compose logs db --tail=30"
 fi
 
 log "════════════════════════════════════════"
@@ -131,6 +139,10 @@ log ""
 log "أوامر مفيدة:"
 log "  docker compose logs -f api                   ← سجلات الخادم"
 log "  docker compose logs -f nginx                 ← سجلات Nginx"
+log "  docker compose logs -f db                    ← سجلات قاعدة البيانات"
 log "  docker compose ps                            ← حالة الخدمات"
 log "  git pull && bash docker/deploy.sh --update   ← تحديث"
+log ""
+log "نسخ احتياطي لقاعدة البيانات:"
+log "  docker compose exec db pg_dump -U nukhba_user nukhba > backup.sql"
 log "════════════════════════════════════════"
