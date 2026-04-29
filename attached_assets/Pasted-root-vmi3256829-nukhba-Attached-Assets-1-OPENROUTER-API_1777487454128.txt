@@ -1,0 +1,63 @@
+root@vmi3256829:~/nukhba/Attached-Assets# # 1. هل OPENROUTER_API_KEY وصل للحاوية؟
+docker compose -f /root/nukhba/Attached-Assets/docker-compose.yml exec -T api sh -c 'env | grep -E "OPENROUTER|OPENAI_API|ANTHROPIC_API" | sed "s/=.*/=***/"'
+
+# 2. هل الحاوية تستخدم الكود الجديد فعلاً؟
+docker compose -f /root/nukhba/Attached-Assets/docker-compose.yml exec -T api sh -c 'grep -c "openrouter.ai/api/v1/chat/completions" /app/dist/index.mjs'
+
+# 3. آخر 50 سطر من logs الحاوية بعد فتح الموقع
+cd /root/nukhba/Attached-Assets
+docker compose logs --tail 50 api
+
+# 4. متى تم بناء الحاوية آخر مرة؟
+docker inspect attached-assets-api-1 --format 'Created: {{.Created}}
+Image created: {{.Image}}'
+docker images attached-assets-api --format "table {{.Repository}}\t{{.CreatedSince}}"
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+OPENROUTER_API_KEY=***
+AI_INTEGRATIONS_OPENAI_API_KEY=***
+AI_INTEGRATIONS_ANTHROPIC_API_KEY=***
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+1
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+api-1  | (node:1) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+api-1  | (Use `node --trace-deprecation ...` to show where the warning was created)
+api-1  | {"level":30,"time":1777487319705,"pid":1,"hostname":"127459ac00b0","ms":120,"msg":"auto-migrate: schema is up to date"}
+api-1  | {"level":30,"time":1777487319709,"pid":1,"hostname":"127459ac00b0","port":8080,"msg":"Server listening"}
+api-1  | {"level":30,"time":1777487346242,"pid":1,"hostname":"127459ac00b0","req":{"id":1,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":304},"responseTime":38,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487346251,"pid":1,"hostname":"127459ac00b0","req":{"id":2,"method":"GET","url":"/api/lessons/views"},"res":{"statusCode":304},"responseTime":6,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487346363,"pid":1,"hostname":"127459ac00b0","req":{"id":3,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":16,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487346405,"pid":1,"hostname":"127459ac00b0","req":{"id":4,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":12,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487350797,"pid":1,"hostname":"127459ac00b0","req":{"id":5,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":304},"responseTime":12,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487354077,"pid":1,"hostname":"127459ac00b0","req":{"id":6,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487354164,"pid":1,"hostname":"127459ac00b0","req":{"id":7,"method":"GET","url":"/api/user-plan"},"res":{"statusCode":304},"responseTime":12,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487354200,"pid":1,"hostname":"127459ac00b0","req":{"id":8,"method":"GET","url":"/api/teaching-mode"},"res":{"statusCode":304},"responseTime":6,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487354249,"pid":1,"hostname":"127459ac00b0","req":{"id":9,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487354311,"pid":1,"hostname":"127459ac00b0","req":{"id":10,"method":"GET","url":"/api/lessons/views"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487354353,"pid":1,"hostname":"127459ac00b0","req":{"id":11,"method":"GET","url":"/api/lesson-summaries"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487354407,"pid":1,"hostname":"127459ac00b0","req":{"id":12,"method":"GET","url":"/api/lab-reports"},"res":{"statusCode":304},"responseTime":14,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487360404,"pid":1,"hostname":"127459ac00b0","req":{"id":13,"method":"POST","url":"/api/track"},"res":{"statusCode":204},"responseTime":11,"msg":"request completed"}
+api-1  | [ai/teach] Gemini failed pre-stream (GeminiAuthError), engaging Haiku safety net: OpenRouter auth 401: {"error":{"message":"User not found.","code":401}}
+api-1  | [ai/teach] Anthropic non-retryable error: 401 401 {"error":{"message":"User not found.","code":401}}
+api-1  | [ai/teach] anthropic stream error after retries: 401 {"error":{"message":"User not found.","code":401}}
+api-1  | {"level":30,"time":1777487362524,"pid":1,"hostname":"127459ac00b0","req":{"id":14,"method":"POST","url":"/api/ai/teach"},"res":{"statusCode":200},"responseTime":656,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487366720,"pid":1,"hostname":"127459ac00b0","req":{"id":15,"method":"POST","url":"/api/track"},"res":{"statusCode":204},"responseTime":9,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487369471,"pid":1,"hostname":"127459ac00b0","req":{"id":16,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":7,"msg":"request completed"}
+api-1  | [ai/teach] Gemini failed pre-stream (GeminiAuthError), engaging Haiku safety net: OpenRouter auth 401: {"error":{"message":"User not found.","code":401}}
+api-1  | [ai/teach] Anthropic non-retryable error: 401 401 {"error":{"message":"User not found.","code":401}}
+api-1  | [ai/teach] anthropic stream error after retries: 401 {"error":{"message":"User not found.","code":401}}
+api-1  | {"level":30,"time":1777487371009,"pid":1,"hostname":"127459ac00b0","req":{"id":17,"method":"POST","url":"/api/ai/teach"},"res":{"statusCode":200},"responseTime":143,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487372121,"pid":1,"hostname":"127459ac00b0","req":{"id":18,"method":"POST","url":"/api/track"},"res":{"statusCode":204},"responseTime":6,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487379713,"pid":1,"hostname":"127459ac00b0","req":{"id":19,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487384670,"pid":1,"hostname":"127459ac00b0","req":{"id":20,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":39,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487385447,"pid":1,"hostname":"127459ac00b0","req":{"id":21,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":304},"responseTime":11,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487385458,"pid":1,"hostname":"127459ac00b0","req":{"id":22,"method":"GET","url":"/api/lessons/views"},"res":{"statusCode":304},"responseTime":6,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487399794,"pid":1,"hostname":"127459ac00b0","req":{"id":23,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":39,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487404689,"pid":1,"hostname":"127459ac00b0","req":{"id":24,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487414759,"pid":1,"hostname":"127459ac00b0","req":{"id":25,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":36,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487429865,"pid":1,"hostname":"127459ac00b0","req":{"id":26,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+api-1  | {"level":30,"time":1777487429930,"pid":1,"hostname":"127459ac00b0","req":{"id":27,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":23,"msg":"request completed"}
+Created: 2026-04-29T18:28:26.530271485Z
+Image created: sha256:aeb9832bc133abb84c9bec226ad548abbf5a2190b082b96cb6f0155f1968f6b3
+REPOSITORY            CREATED
+attached-assets-api   2 minutes ago
+root@vmi3256829:~/nukhba/Attached-Assets#
