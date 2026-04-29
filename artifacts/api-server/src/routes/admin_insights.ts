@@ -859,7 +859,7 @@ ${contextJson}
   try {
     const stream = await openai.chat.completions.create(
       {
-        model: "meta-llama/llama-3.3-70b-instruct:free",
+        model: "meta-llama/llama-3.3-70b-instruct",
         max_tokens: 2048,
         temperature: 0,
         messages: [
