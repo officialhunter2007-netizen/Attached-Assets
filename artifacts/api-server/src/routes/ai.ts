@@ -1474,10 +1474,17 @@ ${retrievedBlock}
     }
     return "";
   };
+  // Limit conversation history to the last 20 messages (10 exchanges) so that
+  // input-token cost stays roughly constant regardless of how long the session
+  // has been running. Without this limit each additional message carries the
+  // full history, causing costs to grow linearly (and cumulative spend to grow
+  // quadratically) over a single session.
+  const MAX_HISTORY_MESSAGES = 20;
   const claudeMessages = (Array.isArray(history) ? history : [])
     .filter((m: any) => m && (m.role === "user" || m.role === "assistant"))
     .map((m: any) => ({ role: m.role as "user" | "assistant", content: normaliseContent(m.content) }))
-    .filter((m) => m.content.trim().length > 0);
+    .filter((m) => m.content.trim().length > 0)
+    .slice(-MAX_HISTORY_MESSAGES);
   const trimmedUserMessage = typeof userMessage === "string" ? userMessage.trim() : "";
 
   // ── Deterministic intent detection: lab-environment orchestration ──
@@ -1576,7 +1583,7 @@ ${retrievedBlock}
   // a complete plan too.
   const maxTokens = isDiagnosticPhase
     ? 8192
-    : (chosenModel === "anthropic/claude-3-haiku" ? 2048 : 4096);
+    : (chosenModel === "claude-haiku-4-5" ? 2048 : 4096);
 
   const __teachStart = Date.now();
 
@@ -1585,7 +1592,7 @@ ${retrievedBlock}
   // with exponential backoff and a Haiku fallback. We ONLY retry when no
   // bytes have been streamed to the student yet — a mid-stream failure
   // cannot be retried without duplicating text on the wire.
-  const HAIKU_MODEL = "anthropic/claude-3-haiku";
+  const HAIKU_MODEL = "claude-haiku-4-5";
   const isTransientError = (e: any): boolean => {
     const code = (e as any)?.status ?? (e as any)?.statusCode;
     if (code === 408 || code === 425 || code === 429 || code === 500 || code === 502 || code === 503 || code === 504 || code === 529) return true;
@@ -1653,12 +1660,17 @@ ${retrievedBlock}
     __attempts++;
     __lastErr = null;
     try {
+      // Send system prompt as a cacheable block so Anthropic stores it on their
+      // infra after the first call. Subsequent calls in the same session (same
+      // content) are charged at 0.1× the normal read rate instead of full
+      // input-token price — a ~10× cost reduction on the system prompt portion.
       const stream = anthropic.messages.stream({
         model: __activeModel,
         max_tokens: __activeMaxTokens,
-        system: systemPrompt,
+        system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
         messages: claudeMessages,
-      });
+        betas: ["prompt-caching-2024-07-31"],
+      } as any);
 
       for await (const event of stream) {
         if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
