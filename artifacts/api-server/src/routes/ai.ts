@@ -3070,7 +3070,7 @@ router.post("/ai/lab/create-scenario", async (req, res): Promise<any> => {
   let __aiLogged = false;
   try {
     const stream = anthropic.messages.stream({
-      model: "anthropic/claude-3-5-sonnet",
+      model: "claude-sonnet-4-6",
       max_tokens: 3000,
       system: sysPrompt,
       messages: [{ role: "user", content: description }],
@@ -3092,7 +3092,7 @@ router.post("/ai/lab/create-scenario", async (req, res): Promise<any> => {
         subjectId: subjectId ?? null,
         route: "ai/lab/create-scenario",
         provider: "anthropic",
-        model: "anthropic/claude-3-5-sonnet",
+        model: "claude-sonnet-4-6",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -3133,7 +3133,7 @@ router.post("/ai/lab/create-scenario", async (req, res): Promise<any> => {
         subjectId: subjectId ?? null,
         route: "ai/lab/create-scenario",
         provider: "anthropic",
-        model: "anthropic/claude-3-5-sonnet",
+        model: "claude-sonnet-4-6",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __aiStart,
@@ -3530,11 +3530,12 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   try {
     console.log("[build-env] start kind=", kind, "desc=", description.slice(0, 120));
     const stream = anthropic.messages.stream({
-      model: "anthropic/claude-3-5-sonnet",
-      // Bumped from 12000 → 16384 because rich accounting envs (full chart of
-      // accounts + inventory + customers + multiple screens) regularly exceed
-      // 12k tokens and get truncated → unparseable JSON → no env appears.
-      max_tokens: 16384,
+      model: "claude-sonnet-4-6",
+      // Sonnet 4.6 is dramatically better at long structured JSON than 3.5,
+      // so we give rich envs (full chart of accounts + inventory + customers
+      // + multiple screens) plenty of headroom to finish in one pass instead
+      // of being truncated mid-output → unparseable JSON → no env appears.
+      max_tokens: 24000,
       // Append a per-specialization addendum so the same universal builder
       // produces the right component mix for cyber/networking/programming/etc.
       system: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind),
@@ -3557,7 +3558,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
         subjectId: subjectId ?? null,
         route: "ai/lab/build-env",
         provider: "anthropic",
-        model: "anthropic/claude-3-5-sonnet",
+        model: "claude-sonnet-4-6",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -3653,8 +3654,8 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
         console.log("[build-env] retrying with strict prompt...");
         const __retryStart = Date.now();
         const retry = anthropic.messages.stream({
-          model: "anthropic/claude-3-5-sonnet",
-          max_tokens: 12000,
+          model: "claude-sonnet-4-6",
+          max_tokens: 16000,
           system: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أعد المحاولة. المحاولة السابقة فشلت في إنتاج JSON صالح. التزم الآن بالقواعد التالية بصرامة:
 1. أرجع كائن JSON واحداً صالحاً، بلا أي markdown أو شرح أو نص قبل/بعد.
 2. اجعل البيئة **أبسط** من المحاولة الأولى: شاشة واحدة تكفي، 2-4 مكونات فقط (كرّس واحداً للتفاعل الحقيقي عبر form/editableTable).
@@ -3675,7 +3676,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
             subjectId: subjectId ?? null,
             route: "ai/lab/build-env",
             provider: "anthropic",
-            model: "anthropic/claude-3-5-sonnet",
+            model: "claude-sonnet-4-6",
             inputTokens: __ur.inputTokens,
             outputTokens: __ur.outputTokens,
             cachedInputTokens: __ur.cachedInputTokens,
@@ -3874,7 +3875,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       subjectId: subjectId ?? null,
       route: "ai/lab/build-env",
       provider: "anthropic",
-      model: "anthropic/claude-3-5-sonnet",
+      model: "claude-sonnet-4-6",
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __aiStart,
@@ -4000,8 +4001,8 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
   let __aiLogged = false;
   try {
     const completion = await anthropic.messages.create({
-      model: "anthropic/claude-3-5-sonnet",
-      max_tokens: 4000,
+      model: "claude-sonnet-4-6",
+      max_tokens: 6000,
       system: ATTACK_SIM_BUILD_SYSTEM,
       messages: [{ role: "user", content: userPrompt }],
     });
@@ -4013,7 +4014,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/build",
         provider: "anthropic",
-        model: "anthropic/claude-3-5-sonnet",
+        model: "claude-sonnet-4-6",
         inputTokens: __u.inputTokens,
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
@@ -4051,7 +4052,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/build",
         provider: "anthropic",
-        model: "anthropic/claude-3-5-sonnet",
+        model: "claude-sonnet-4-6",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __aiStart,
