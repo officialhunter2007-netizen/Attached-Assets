@@ -12,6 +12,14 @@ import {
 import { isUnlimitedEmail } from "../lib/admins";
 import { getCostCapStatus } from "../lib/cost-cap";
 import { pickTeachingModel, detectDeepReasoning, detectMasteryCheckFromHistory, detectLabReport } from "../lib/teaching-router";
+import {
+  streamGeminiTeaching,
+  GeminiAuthError,
+  GeminiTransientError,
+  GeminiBadOutputError,
+  GeminiClientError,
+  type GeminiMessage,
+} from "../lib/gemini-stream";
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
 import {
   getActiveMaterialContext,
@@ -550,6 +558,99 @@ router.post("/ai/build-plan", async (req, res): Promise<void> => {
     res.end();
   }
 });
+
+/**
+ * Strip every special teaching tag from a single SSE text chunk so the
+ * student never sees the protocol bytes. Shared by both the Anthropic and
+ * the Gemini streaming paths in /ai/teach.
+ *
+ * The full set of tags below is documented in the system prompt's "TAG
+ * CONTRACT" section. The canonical parsers for each tag run AFTER the
+ * stream finishes (against the un-cleaned `fullResponse`) — this regex
+ * pipeline only redacts the tags from the wire so they don't leak into
+ * the rendered chat bubble.
+ */
+function cleanTeachingChunk(text: string): string {
+  return text
+    .replace(/\[STAGE_COMPLETE\]/g, "")
+    .replace(/\[PLAN_READY\]/g, "")
+    .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
+    .replace(/\[MISTAKE:[^\]]*\]/gi, "")
+    .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
+    .replace(/\[STUDY_CARD_HINT\]/gi, "");
+}
+
+/**
+ * Gemini-tuned addendum appended to the teaching system prompt when the
+ * student turn routes through Google Gemini 2.0 Flash. Three goals:
+ *
+ *  1. Lock the TAG CONTRACT — Gemini Flash follows clear instructions
+ *     extremely well but is more literal than Sonnet/Haiku. Without an
+ *     explicit ✅/❌ tag examples block, it occasionally invents alternate
+ *     formats (e.g. "OPTIONS:" instead of "[[ASK_OPTIONS: ...]]"), which
+ *     would silently break the frontend's button rendering.
+ *
+ *  2. Reinforce single-concept Socratic teaching — the model's natural
+ *     instinct is to "be helpful" by dumping multiple ideas at once.
+ *     Repeating the one-concept rule + the question-at-end rule here
+ *     primes Gemini to honor the same teaching style users expect.
+ *
+ *  3. Reinforce Arabic-only output — Gemini occasionally code-switches to
+ *     English when explaining technical terms. We accept English for
+ *     proper-noun technical names only (e.g. "TCP", "RAM").
+ *
+ * The block is intentionally COMPACT (~600 tokens) to keep per-call cost
+ * low — Gemini 2.0 Flash is $0.10/M input so this addendum costs ~$0.00006
+ * per call. Comprehensive tag examples in the addendum drastically reduce
+ * malformed tags vs adding generic instructions.
+ */
+function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean }): string {
+  const planTag = opts.isDiagnostic
+    ? `- \`[PLAN_READY]\` — اكتبه **مرة واحدة فقط** في نهاية ردك الذي يحتوي الخطة الكاملة (5–8 مراحل). لا تكتبه قبل ذلك أبداً.\n`
+    : "";
+  return `
+
+────────────────────────────────────────
+## ⚠️ عقد الوسوم (TAG CONTRACT) — التزم به حرفياً 100%
+
+أنت تستخدم وسوماً خاصة. الواجهة الأمامية تعتمد على شكلها الحرفي بالضبط — أي انحراف يكسرها صامتاً ويحرم الطالب من ميزة كاملة.
+
+### قواعد عامة:
+1. **اكتب الوسم كما هو** — لا تترجمه، لا تعدّل أقواسه، لا تخترع وسوماً جديدة.
+2. **الفاصل داخل الوسم هو \`|||\`** بثلاث شُرَط رأسية بالضبط (ليس \`|\` ولا \`-\` ولا \`،\`).
+3. **لا تلفّ الوسم بـ Markdown** (لا \`**[STAGE_COMPLETE]**\` ولا \`\`\`\`[STAGE_COMPLETE]\`\`\`\`).
+4. **لا تكتب أي HTML للأزرار** (\`<button>\`, \`<a>\`, \`<div>\`) — الواجهة تبني الأزرار من الوسوم تلقائياً.
+
+### قائمة الوسوم المسموح بها فقط:
+- \`[STAGE_COMPLETE]\` — اكتبه في نهاية الرد عند اكتمال مرحلة من الخطة (مرة واحدة في الرد).
+${planTag}- \`[POINT_DONE: N]\` — اكتبه عند تغطية النقطة رقم N من قائمة الفصل (وضع البروفسور). أمثلة: \`[POINT_DONE: 1]\`, \`[POINT_DONE: 5]\`.
+- \`[MISTAKE: topic ||| description]\` — لتسجيل خطأ مفاهيمي جديد (مرة واحدة في الرد كحد أقصى). \`topic\` قصير (≤ 5 كلمات)، \`description\` جملة واضحة.
+- \`[MISTAKE_RESOLVED: id]\` — لتأكيد حل خطأ سابق (الـ id من قائمة الأخطاء النشطة في السياق).
+- \`[[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| opt3 ||| غير ذلك]]\` — لإنشاء أزرار خيارات للطالب. **يجب** أن ينتهي بخيار "غير ذلك" دائماً.
+- \`[[CREATE_LAB_ENV: وصف تفصيلي بالعربية]]\` — لإنشاء بيئة تطبيقية تفاعلية. الوصف يشمل: السياق، البيانات الأولية، الشاشات المطلوبة، المخرج النهائي.
+- \`[[MINI_PROJECT: title | description]]\` — لاقتراح مشروع مصغّر (الفاصل هنا \`|\` واحد فقط).
+
+### أمثلة ملموسة:
+
+✅ **صحيح:** \`[[ASK_OPTIONS: ما الذي تتقنه أكثر؟ ||| البرمجة ||| التحليل ||| التصميم ||| غير ذلك]]\`
+❌ **خطأ:** \`ASK_OPTIONS(...)\` أو \`[ask_options: ...]\` أو \`[OPTIONS: ...]\` أو استخدام \`،\` بدل \`|||\`
+
+✅ **صحيح:** \`[[CREATE_LAB_ENV: محاكاة شبكة شركة فيها 3 موظفين، تستطيع ضبط الجدار الناري ومراقبة الـ packets، الهدف اكتشاف محاولة اختراق]]\`
+❌ **خطأ:** \`<button>افتح المختبر</button>\` أو \`[CREATE_LAB: ...]\` (قوس مفرد بدل المزدوج)
+
+✅ **صحيح:** \`[MISTAKE: الجمع ||| الطالب يخلط بين رمزَي + و × عند ترتيب العمليات]\`
+❌ **خطأ:** \`[MISTAKE: الجمع - الطالب يخلط...]\` (الفاصل الصحيح هو \`|||\`)
+
+────────────────────────────────────────
+## 🎯 تذكير قبل كل ردّ
+
+1. **مفهوم واحد فقط في الرد** — لا تشرح فكرتين معاً، حتى لو كانتا مرتبطتين.
+2. **اشرح أولاً ثم اسأل** — السؤال في النهاية، ليس في البداية.
+3. **العربية الفصحى المبسّطة فقط** — مسموح بالأسماء التقنية بالإنجليزية (TCP, RAM, HTTP) بدون شرح ترجمتها.
+4. **استخدم بروتوكول التفكير الصامت + قائمة الفحص الذاتي قبل كل رد** (مذكوران في أعلى التعليمات).
+5. **الوسوم بدقة 100%** — راجع شكل الوسم قبل إرسال الرد. خطأ واحد في الوسم يكسر الواجهة.
+────────────────────────────────────────`;
+}
 
 router.post("/ai/teach", async (req, res): Promise<void> => {
   const userId = getUserId(req);
@@ -1581,15 +1682,27 @@ ${retrievedBlock}
 
   // ── Smart model routing ──────────────────────────────────────────────────
   // Rules (enforced together by pickTeachingModel):
-  //   • Admin / unlimited user → Sonnet (internal QA baseline only)
-  //   • Every other student turn → Haiku 4.5 (free, paid, diagnostic,
-  //                                 mastery, lab-report, deep-reasoning,
-  //                                 long messages — all on Haiku).
-  // The teaching system prompt is heavily structured so Haiku reaches
-  // very-high teaching quality. `reason` still carries the teaching
-  // context for analytics (haiku_diagnostic_phase / haiku_mastery_check
-  // / haiku_lab_report / haiku_deep_reasoning / haiku_long_message /
-  // default_haiku / free_tier_locked_haiku / *_cap_exhausted).
+  //   • Admin / unlimited user → Sonnet 4.6 via Anthropic (internal QA
+  //                              baseline only).
+  //   • Every other student turn → Gemini 2.0 Flash via Google (free, paid,
+  //                                diagnostic, mastery, lab-report, deep-
+  //                                reasoning, long messages — all on Gemini).
+  //
+  // Gemini 2.0 Flash is ~10× cheaper on input and ~12× cheaper on output
+  // than Haiku 4.5 (the prior primary). The teaching system prompt is
+  // heavily structured (think-protocol, self-check, explicit tag contract +
+  // ✅/❌ examples appended for the Gemini path) so teaching quality stays
+  // at the level students experienced under Haiku.
+  //
+  // SAFETY NET (defence in depth): when Gemini fails transient/auth/bad-
+  // output, the route automatically falls back to Haiku 4.5 via Anthropic.
+  // The student is therefore NEVER silenced by a Gemini outage — they always
+  // get a real teaching answer.
+  //
+  // `reason` still carries the teaching context for analytics
+  // (gemini_diagnostic_phase / gemini_mastery_check / gemini_lab_report /
+  // gemini_deep_reasoning / gemini_long_message / default_gemini /
+  // free_tier_locked_gemini / *_cap_exhausted / unlimited_user).
   const routerDecision = pickTeachingModel({
     isFreeFirstLesson: !!isFirstLesson,
     isDiagnostic: !!isDiagnosticPhase,
@@ -1601,34 +1714,50 @@ ${retrievedBlock}
     isUnlimited: unlimited,
   });
   const chosenModel = routerDecision.model;
+
+  // ── Inject Gemini-tuned addendum when routing to Gemini ─────────────────
+  // The addendum locks the literal tag format and reinforces single-concept
+  // Socratic teaching. We append it AFTER all other conditional system-prompt
+  // assembly is done so it always comes LAST in the prompt — most-recent
+  // instructions tend to dominate Gemini's behavior. The Anthropic safety-
+  // net path also sees this addendum (we do not strip it on fallback) —
+  // Haiku has no problem with the extra TAG CONTRACT block and the
+  // consistency simplifies prompt-cache reasoning.
+  if (routerDecision.provider === "gemini") {
+    systemPrompt = systemPrompt + buildGeminiTeachingAddendum({
+      isDiagnostic: !!isDiagnosticPhase,
+    });
+  }
+
   // ── Output ceiling ──────────────────────────────────────────────────────
   // Diagnostic turns: 8192 tokens — the diagnostic phase ends with a *full
   // personalized plan* (5–8 phases, each with an Arabic paragraph). Arabic
-  // averages ~1.5 chars/token in Anthropic's tokenizer, so a 7-phase plan
-  // can easily exceed 4096 tokens and get truncated mid-sentence — leaving
-  // the student stranded with no [PLAN_READY] tag.
+  // averages ~1.5 chars/token, so a 7-phase plan can easily exceed 4096
+  // tokens and get truncated mid-sentence — leaving the student stranded
+  // with no [PLAN_READY] tag.
   //
-  // Regular Haiku teaching turns: 4096 tokens — raised from 2048 so a full
-  // teaching response (concept + concrete example + Socratic question +
-  // optional ASK_OPTIONS block) never gets truncated. The 220-word
-  // soft-cap in the system prompt (≤350 for new-concept turns) still keeps
-  // average tokens-per-turn low, so this is a ceiling not a target.
-  //
-  // Sonnet (admin only): same 4096 ceiling for parity with Haiku in QA.
+  // Regular teaching turns: 4096 tokens — a full teaching response (concept
+  // + concrete example + Socratic question + optional ASK_OPTIONS block)
+  // never gets truncated. The 220-word soft-cap in the system prompt
+  // (≤350 for new-concept turns) keeps average tokens-per-turn low, so
+  // this is a ceiling not a target. Same value applies to both Gemini's
+  // `maxOutputTokens` and Anthropic's `max_tokens` for parity.
   const maxTokens = isDiagnosticPhase
     ? 8192
     : 4096;
 
   const __teachStart = Date.now();
 
-  // ── Resilience: classify which provider errors are safe to retry ─────────
-  // Transient errors (rate limits, overloaded, gateway/network) are retried
-  // with exponential backoff. Since Haiku is the primary model now, the
-  // last-resort fallback is Sonnet — Anthropic provisions Haiku and Sonnet
-  // capacity from separate pools, so they're rarely overloaded together.
-  // We ONLY retry when no bytes have been streamed to the student yet —
-  // a mid-stream failure cannot be retried without duplicating text on
-  // the wire.
+  // ── Resilience: classify which Anthropic errors are safe to retry ────────
+  // Anthropic transient errors (rate limits, overloaded, gateway/network)
+  // are retried with exponential backoff. We ONLY retry when no bytes have
+  // been streamed to the student yet — a mid-stream failure cannot be
+  // retried without duplicating text on the wire.
+  // Gemini has its OWN internal retry policy inside `streamGeminiTeaching`
+  // (1 same-model retry on transient HTTP). When Gemini exhausts that and
+  // still fails (and no bytes are on the wire), the Gemini-first block
+  // below escapes to Haiku via the same Anthropic retry loop documented
+  // here — defence-in-depth so a student is NEVER silenced.
   const HAIKU_MODEL = "claude-haiku-4-5";
   const SONNET_FALLBACK_MODEL = "claude-sonnet-4-6";
   const isTransientError = (e: any): boolean => {
@@ -1645,6 +1774,18 @@ ${retrievedBlock}
   let __attempts = 0;
   let __fellBackToHaiku = false;
 
+  // Gemini-specific telemetry state. `geminiAttempts` is 0 if Gemini was
+  // never tried (admin path), 1 on first-try success, 2 if the helper's
+  // internal retry fired. `__fellBackFromGemini` is true ONLY when Gemini
+  // failed pre-stream and we re-routed to Haiku via the Anthropic loop —
+  // this is the safety-net activation flag the cost dashboard slices on.
+  let __geminiAttempts = 0;
+  let __geminiUsage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = null;
+  let __fellBackFromGemini = false;
+  // Tracks which provider produced the final bytes on the wire (or attempted
+  // last on full-failure). Drives the telemetry row's `provider` field.
+  let __activeProvider: "anthropic" | "gemini" = routerDecision.provider;
+
   // ── Mid-stream disconnect tracking ────────────────────────────────────────
   // If the student's TCP socket closes before we send `data: {done:true}` —
   // browser closed, AbortController fired, network died, mobile flipped to
@@ -1654,10 +1795,16 @@ ${retrievedBlock}
   // never saw. We only flip the flag while the response is still in-flight
   // (`!res.writableEnded`) so the close that fires *after* `res.end()` on
   // the success path is correctly ignored.
+  // The AbortController is wired into the Gemini fetch stream so a client
+  // disconnect immediately tears down the upstream HTTP connection (no
+  // wasted Gemini compute or token billing). Anthropic's SDK manages its
+  // own abort surface internally and we leave it as-is.
   let clientAborted = false;
+  const abortController = new AbortController();
   const onClientClose = () => {
     if (!res.writableEnded) {
       clientAborted = true;
+      try { abortController.abort(); } catch {}
       console.warn("[ai/teach] client disconnected mid-stream — will skip quota charge");
     }
   };
@@ -1691,129 +1838,325 @@ ${retrievedBlock}
   // and node's MaxListeners warning under load.
   try {
 
-  // Up to 3 attempts following the Haiku-first fallback policy:
-  //   attempt 1 → Haiku  (primary)
-  //   attempt 2 → Haiku  (single same-model retry; Haiku 5xx/429 usually clears)
-  //   attempt 3 → Sonnet (last-resort defence-in-depth, separate capacity pool)
-  // For admin/unlimited users the path starts on Sonnet and falls to Haiku
-  // by the same logic. Loop short-circuits as soon as fullResponse has any
-  // bytes (mid-stream failure is non-retryable) or we get a successful
-  // finalMessage.
-  while (__attempts < 3) {
-    __attempts++;
-    __lastErr = null;
+  // ── Gemini-first streaming path ──────────────────────────────────────────
+  // For provider==='gemini' (every student turn), we attempt Gemini once via
+  // `streamGeminiTeaching` (which itself does 1 internal same-model retry on
+  // transient HTTP). On unrecoverable failure WITH NO BYTES on the wire yet,
+  // we fall through to the Anthropic loop with __activeModel = HAIKU_MODEL —
+  // the safety-net branch that guarantees the student always gets a real
+  // answer.
+  //
+  // Mid-stream Gemini failure (bytes already streamed): we cannot fall back
+  // without duplicating text on the wire; the partial is accepted and the
+  // failure path below emits the friendly "answer cut short" message.
+  if (routerDecision.provider === "gemini") {
     try {
-      // Send system prompt as a cacheable block so Anthropic stores it on their
-      // infra after the first call. Subsequent calls in the same session (same
-      // content) are charged at 0.1× the normal read rate instead of full
-      // input-token price — a ~10× cost reduction on the system prompt portion.
-      const stream = anthropic.messages.stream({
-        model: __activeModel,
-        max_tokens: __activeMaxTokens,
-        system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
-        messages: claudeMessages,
-        betas: ["prompt-caching-2024-07-31"],
-      } as any);
-
-      for await (const event of stream) {
-        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-          const text = event.delta.text;
+      // Map Anthropic-style messages to Gemini's user|assistant role names.
+      // claudeMessages is structurally [{role:'user'|'assistant', content:string}]
+      // already; gemini-stream.ts handles the user→user / assistant→model
+      // role translation internally.
+      const geminiMessages: GeminiMessage[] = (claudeMessages as any[]).map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: typeof m.content === "string" ? m.content : "",
+      }));
+      const geminiResult = await streamGeminiTeaching({
+        systemPrompt,
+        messages: geminiMessages,
+        maxOutputTokens: maxTokens,
+        model: chosenModel,
+        signal: abortController.signal,
+        logTag: "teach",
+        onChunk: (text) => {
+          if (clientAborted || res.writableEnded) return;
           fullResponse += text;
-          const clean = text
-            .replace("[STAGE_COMPLETE]", "")
-            .replace("[PLAN_READY]", "")
-            .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
-            .replace(/\[MISTAKE:[^\]]*\]/gi, "")
-            .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
-            .replace(/\[STUDY_CARD_HINT\]/gi, "");
-          if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
-        }
+          const clean = cleanTeachingChunk(text);
+          if (clean) {
+            try {
+              res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
+            } catch {
+              // half-closed socket — close handler already flipped clientAborted
+            }
+          }
+        },
+      });
+      __geminiAttempts = geminiResult.attempts;
+      __geminiUsage = {
+        inputTokens: geminiResult.inputTokens,
+        outputTokens: geminiResult.outputTokens,
+        cachedInputTokens: geminiResult.cachedInputTokens,
+      };
+      __activeModel = geminiResult.model;
+      __activeProvider = "gemini";
+      // Sentinel: non-null marks success so the post-stream paths fire and
+      // the Anthropic loop is skipped. We never read fields off this object —
+      // Gemini telemetry uses `__geminiUsage` instead of `extractAnthropicUsage`.
+      __finalMessage = { __geminiSuccess: true };
+    } catch (geminiErr: any) {
+      // Helper performs internal retries; treat a final transient error as 2 attempts.
+      __geminiAttempts = (geminiErr instanceof GeminiTransientError) ? 2 : 1;
+      // PARTIAL-USAGE PRESERVATION: gemini-stream stamps the error with
+      // any `usageMetadata` it received before failing. Capture it now so
+      // the failure-path (and the Haiku-fallback success-path) can include
+      // real Gemini token spend in `ai_usage_events` instead of writing
+      // 0/0. Without this the cost cap silently undercounts mid-stream
+      // billed Gemini calls. Pre-stream HTTP errors carry usage=null;
+      // mid-stream errors typically carry the prompt + emitted candidate
+      // tokens Google charged us for the cut-short response.
+      const __gp = (geminiErr?.partial ?? {}) as {
+        usageMetadata?: {
+          promptTokenCount?: number;
+          candidatesTokenCount?: number;
+          cachedContentTokenCount?: number;
+        } | null;
+        emittedAnyChunk?: boolean;
+      };
+      if (__gp.usageMetadata) {
+        __geminiUsage = {
+          inputTokens: Number(__gp.usageMetadata.promptTokenCount ?? 0),
+          outputTokens: Number(__gp.usageMetadata.candidatesTokenCount ?? 0),
+          cachedInputTokens: Number(__gp.usageMetadata.cachedContentTokenCount ?? 0),
+        };
       }
 
-      try {
-        __finalMessage = await stream.finalMessage();
-      } catch {}
-      break; // success
-    } catch (err: any) {
-      __lastErr = err;
-      // Mid-stream errors cannot be retried — partial text is already on the
-      // wire and a retry would produce duplicate/garbled output.
-      if (fullResponse !== "") {
-        console.warn("[ai/teach] mid-stream error (no retry):", err?.status, err?.message || err);
-        break;
-      }
-      if (!isTransientError(err)) {
-        console.error("[ai/teach] non-retryable model error:", err?.status, err?.message || err);
-        break;
-      }
-      if (__attempts >= 3) {
-        console.error("[ai/teach] exhausted retries on transient error:", err?.status, err?.message || err);
-        break;
-      }
-      // Backoff: 400ms, 1000ms before next attempt.
-      await new Promise((r) => setTimeout(r, 400 * __attempts + (__attempts > 1 ? 600 : 0)));
-      // Fallback policy (Haiku-first, defence in depth):
-      //   - Student path (primary on Haiku):
-      //       attempt 1 → Haiku   (initial)
-      //       attempt 2 → Haiku   (single same-model retry; clears most
-      //                            transient 5xx/429s)
-      //       attempt 3 → Sonnet  (escape to separate capacity pool)
-      //   - Admin path (primary on Sonnet):
-      //       attempt 1 → Sonnet
-      //       attempt 2 → Sonnet
-      //       attempt 3 → Haiku   (escape to separate capacity pool)
-      // The `fellBackToHaiku` analytics flag now means "an inter-model
-      // fallback happened" regardless of direction — we keep the legacy
-      // field name for backwards compatibility with existing dashboards.
-      // Inside the same model attempt 1 → 2 we don't flip the flag; only
-      // the cross-model escape on attempt 3 does.
-      if (__attempts >= 2 && __activeModel === HAIKU_MODEL) {
-        // Student path → escape to Sonnet for the final attempt.
-        __activeModel = SONNET_FALLBACK_MODEL;
-        __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
-        __fellBackToHaiku = true;
-        console.warn(`[ai/teach] retry ${__attempts}: Haiku failed transiently, escaping to Sonnet (last resort): ${err?.status} ${err?.message || err}`);
-      } else if (__attempts >= 2 && __activeModel === SONNET_FALLBACK_MODEL) {
-        // Admin path → escape to Haiku for the final attempt.
+      const isFallbackable =
+        geminiErr instanceof GeminiAuthError ||
+        geminiErr instanceof GeminiTransientError ||
+        geminiErr instanceof GeminiBadOutputError;
+      // `fullResponse !== ""` is the route-level proof that bytes hit the
+      // SSE wire. `__gp.emittedAnyChunk` is the helper-level proof. Either
+      // one is sufficient to forbid Haiku fallback (would duplicate text)
+      // or internal Gemini retry (would double-bill + duplicate text).
+      const midStream = fullResponse !== "" || !!__gp.emittedAnyChunk;
+
+      if (midStream) {
+        // Mid-stream Gemini failure → can't fall back cleanly without
+        // duplicating text. Treat as a partial-success with friendly retry.
+        // Telemetry below records `provider: 'gemini'` with the partial
+        // token usage we captured into `__geminiUsage` above.
+        __lastErr = geminiErr;
+        __activeProvider = "gemini";
+        console.warn(
+          "[ai/teach] Gemini mid-stream error (no fallback):",
+          geminiErr?.name,
+          geminiErr?.message || geminiErr,
+        );
+      } else if (isFallbackable) {
+        // No bytes on the wire yet — engage the Haiku safety net via the
+        // Anthropic loop below. Fresh retry budget on Anthropic. Note we
+        // KEEP `__geminiUsage` populated if the helper captured any
+        // pre-failure usage (rare on pre-stream HTTP errors but possible
+        // on BadOutput → SAFETY block where Gemini billed for the prompt);
+        // the success-path block records the merged Gemini + Anthropic
+        // spend via two separate `recordAiUsage` calls.
+        __fellBackFromGemini = true;
+        __activeProvider = "anthropic";
         __activeModel = HAIKU_MODEL;
-        __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
-        __fellBackToHaiku = true;
-        console.warn(`[ai/teach] retry ${__attempts}: Sonnet failed transiently, escaping to Haiku (last resort): ${err?.status} ${err?.message || err}`);
+        __activeMaxTokens = maxTokens;
+        console.warn(
+          `[ai/teach] Gemini failed pre-stream (${geminiErr?.name || "Error"}), engaging Haiku safety net: ${geminiErr?.message || geminiErr}`,
+        );
       } else {
-        // attempt 2 with same model — quick retry on transient error.
-        console.warn(`[ai/teach] retry ${__attempts}: ${__activeModel} failed transiently, retrying same model: ${err?.status} ${err?.message || err}`);
+        // Unknown error class (e.g. GeminiClientError = our bug; or
+        // bona-fide AbortError on client disconnect) — surface to logs and
+        // do NOT silently absorb the cost into a Haiku fallback. The
+        // failure-path block below will emit the friendly apology and
+        // record the partial Gemini usage if any.
+        __lastErr = geminiErr;
+        __activeProvider = "gemini";
+        console.error(
+          "[ai/teach] Gemini non-fallbackable error:",
+          geminiErr?.name,
+          geminiErr?.message || geminiErr,
+        );
+      }
+    }
+  }
+
+  // ── Anthropic streaming path ─────────────────────────────────────────────
+  // Runs when:
+  //   • routerDecision.provider === 'anthropic' (admin/unlimited primary —
+  //     starts on Sonnet, intra-Anthropic fallback to Haiku on transient
+  //     failure).
+  //   • __fellBackFromGemini === true (safety net — starts on Haiku,
+  //     intra-Anthropic fallback to Sonnet on transient failure; Anthropic
+  //     provisions Haiku and Sonnet capacity from separate pools so both
+  //     being down at once is rare).
+  // Loop short-circuits on success or on mid-stream failure.
+  if (!__finalMessage && !__lastErr) {
+    while (__attempts < 3) {
+      __attempts++;
+      __lastErr = null;
+      try {
+        // Send system prompt as a cacheable block so Anthropic stores it on
+        // their infra after the first call. Subsequent calls in the same
+        // session (same content) are charged at 0.1× the normal read rate
+        // instead of full input-token price.
+        const stream = anthropic.messages.stream({
+          model: __activeModel,
+          max_tokens: __activeMaxTokens,
+          system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
+          messages: claudeMessages,
+          betas: ["prompt-caching-2024-07-31"],
+        } as any);
+
+        for await (const event of stream) {
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            const text = event.delta.text;
+            fullResponse += text;
+            const clean = cleanTeachingChunk(text);
+            if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
+          }
+        }
+
+        try {
+          __finalMessage = await stream.finalMessage();
+        } catch {}
+        break; // success
+      } catch (err: any) {
+        __lastErr = err;
+        // Mid-stream errors cannot be retried — partial text is already on
+        // the wire and a retry would produce duplicate/garbled output.
+        if (fullResponse !== "") {
+          console.warn("[ai/teach] Anthropic mid-stream error (no retry):", err?.status, err?.message || err);
+          break;
+        }
+        if (!isTransientError(err)) {
+          console.error("[ai/teach] Anthropic non-retryable error:", err?.status, err?.message || err);
+          break;
+        }
+        if (__attempts >= 3) {
+          console.error("[ai/teach] exhausted Anthropic retries on transient error:", err?.status, err?.message || err);
+          break;
+        }
+        // Backoff: 400ms, 1000ms before next attempt.
+        await new Promise((r) => setTimeout(r, 400 * __attempts + (__attempts > 1 ? 600 : 0)));
+        // Intra-Anthropic fallback policy:
+        //   - Path starts on Haiku (Gemini safety-net OR student path was
+        //     historically on Haiku — both flow here):
+        //       attempt 1 → Haiku   (initial)
+        //       attempt 2 → Haiku   (single same-model retry)
+        //       attempt 3 → Sonnet  (escape to separate capacity pool)
+        //   - Admin path (primary on Sonnet):
+        //       attempt 1 → Sonnet
+        //       attempt 2 → Sonnet
+        //       attempt 3 → Haiku   (escape to separate capacity pool)
+        // `__fellBackToHaiku` flips ONLY on the cross-model escape (attempt
+        // 3); intra-model retries (1→2) keep it false.
+        if (__attempts >= 2 && __activeModel === HAIKU_MODEL) {
+          __activeModel = SONNET_FALLBACK_MODEL;
+          __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
+          __fellBackToHaiku = true;
+          console.warn(`[ai/teach] retry ${__attempts}: Haiku failed transiently, escaping to Sonnet (last resort): ${err?.status} ${err?.message || err}`);
+        } else if (__attempts >= 2 && __activeModel === SONNET_FALLBACK_MODEL) {
+          __activeModel = HAIKU_MODEL;
+          __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
+          __fellBackToHaiku = true;
+          console.warn(`[ai/teach] retry ${__attempts}: Sonnet failed transiently, escaping to Haiku (last resort): ${err?.status} ${err?.message || err}`);
+        } else {
+          console.warn(`[ai/teach] retry ${__attempts}: ${__activeModel} failed transiently, retrying same model: ${err?.status} ${err?.message || err}`);
+        }
       }
     }
   }
 
   // ── Success path: record usage telemetry ────────────────────────────────
+  // We record one row per turn. The `provider`/`model` fields reflect WHO
+  // actually answered the student. Metadata carries the full context
+  // (routerReason, geminiAttempts, anthropicAttempts, intra-provider
+  // fallback flags) so the cost dashboard can attribute spend correctly
+  // when Gemini fell back to Haiku.
   if (__finalMessage) {
+    // Cap-context: enforces the red-line invariant in the accounting layer.
+    // When set, recordAiUsage clamps `costUsd` so SUM never exceeds capUsd
+    // for this (userId, subjectId, since-subscription-start) window — the
+    // platform absorbs any provider charges past the cap, but the student-
+    // facing UX (Gemini → Haiku fallback) is preserved end-to-end.
+    const __capCtx = subjectSub && costStatus.capUsd > 0 ? {
+      userId,
+      subjectId: subjectSub.subjectId,
+      windowStart: subjectSub.createdAt,
+      capUsd: costStatus.capUsd,
+    } : null;
     try {
-      const __u = extractAnthropicUsage(__finalMessage);
-      // Cap-context: enforces the red-line invariant in the accounting layer.
-      // When set, recordAiUsage clamps `costUsd` so SUM never exceeds capUsd
-      // for this (userId, subjectId, since-subscription-start) window — the
-      // platform absorbs any provider charges past the cap, but the
-      // student-facing UX (Haiku fallback) is preserved end-to-end.
-      const __capCtx = subjectSub && costStatus.capUsd > 0 ? {
-        userId,
-        subjectId: subjectSub.subjectId,
-        windowStart: subjectSub.createdAt,
-        capUsd: costStatus.capUsd,
-      } : null;
-      void recordAiUsage({
-        userId,
-        subjectId: subjectId ?? null,
-        route: "ai/teach",
-        provider: "anthropic",
-        model: __activeModel,
-        inputTokens: __u.inputTokens,
-        outputTokens: __u.outputTokens,
-        cachedInputTokens: __u.cachedInputTokens,
-        latencyMs: Date.now() - __teachStart,
-        metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode, attempts: __attempts, fellBackToHaiku: __fellBackToHaiku },
-        capContext: __capCtx,
-      });
+      if (__geminiUsage && !__fellBackFromGemini) {
+        // Pure Gemini success. `geminiAttempts` is the helper's internal
+        // retry count (1 or 2). No intra-Anthropic fallback fired so we
+        // omit those flags.
+        void recordAiUsage({
+          userId,
+          subjectId: subjectId ?? null,
+          route: "ai/teach",
+          provider: "gemini",
+          model: __activeModel,
+          inputTokens: __geminiUsage.inputTokens,
+          outputTokens: __geminiUsage.outputTokens,
+          cachedInputTokens: __geminiUsage.cachedInputTokens,
+          latencyMs: Date.now() - __teachStart,
+          metadata: {
+            routerReason: routerDecision.reason,
+            costMode: costStatus.mode,
+            dailyMode: costStatus.dailyMode,
+            geminiAttempts: __geminiAttempts,
+            fellBackFromGemini: false,
+          },
+          capContext: __capCtx,
+        });
+      } else {
+        // Anthropic answered (admin path OR Gemini → Haiku safety net).
+        // If Gemini billed for a partial pre-fallback call (e.g.
+        // BadOutputError where Google still charged for the prompt + the
+        // SAFETY-blocked candidate), record that as a SEPARATE event so
+        // the cost cap counts both providers' real spend.
+        if (__fellBackFromGemini && __geminiUsage &&
+            (__geminiUsage.inputTokens > 0 || __geminiUsage.outputTokens > 0)) {
+          void recordAiUsage({
+            userId,
+            subjectId: subjectId ?? null,
+            route: "ai/teach",
+            provider: "gemini",
+            // The Gemini model that was originally tried, NOT the Haiku
+            // safety net that ultimately answered.
+            model: chosenModel,
+            inputTokens: __geminiUsage.inputTokens,
+            outputTokens: __geminiUsage.outputTokens,
+            cachedInputTokens: __geminiUsage.cachedInputTokens,
+            latencyMs: Date.now() - __teachStart,
+            status: "error",
+            errorMessage: "fell_back_to_anthropic_safety_net",
+            metadata: {
+              routerReason: routerDecision.reason,
+              costMode: costStatus.mode,
+              dailyMode: costStatus.dailyMode,
+              geminiAttempts: __geminiAttempts,
+              fellBackFromGemini: true,
+              partialBeforeFallback: true,
+            },
+            capContext: __capCtx,
+          });
+        }
+        const __u = extractAnthropicUsage(__finalMessage);
+        void recordAiUsage({
+          userId,
+          subjectId: subjectId ?? null,
+          route: "ai/teach",
+          provider: "anthropic",
+          model: __activeModel,
+          inputTokens: __u.inputTokens,
+          outputTokens: __u.outputTokens,
+          cachedInputTokens: __u.cachedInputTokens,
+          latencyMs: Date.now() - __teachStart,
+          metadata: {
+            routerReason: routerDecision.reason,
+            costMode: costStatus.mode,
+            dailyMode: costStatus.dailyMode,
+            attempts: __attempts,
+            fellBackToHaiku: __fellBackToHaiku,
+            fellBackFromGemini: __fellBackFromGemini,
+            geminiAttempts: __geminiAttempts,
+          },
+          capContext: __capCtx,
+        });
+      }
     } catch {}
   }
 
@@ -1825,21 +2168,82 @@ ${retrievedBlock}
       windowStart: subjectSub.createdAt,
       capUsd: costStatus.capUsd,
     } : null;
+    // Telemetry: record under the LAST provider that was attempted.
+    // `__activeProvider` was updated as control moved between Gemini and
+    // the Anthropic safety net so this is always accurate. For Gemini
+    // mid-stream failures we use the partial usageMetadata captured into
+    // `__geminiUsage` from the error — Google still bills the prompt +
+    // emitted candidate tokens, so writing 0/0 would silently bleed
+    // budget out of the cost cap. Pre-stream Gemini errors carry no
+    // usage and correctly land on 0/0.
+    //
+    // EDGE CASE: when Gemini failed pre-stream with billed tokens AND the
+    // Haiku safety net also failed, `__activeProvider` is now 'anthropic'
+    // and the row below would lose the Gemini partial spend. Write a
+    // SEPARATE Gemini error row first to preserve cap accounting — same
+    // shape as the success-fallback branch above, so the cost cap sees
+    // exactly one Gemini row per billed Gemini call regardless of what
+    // happened to the Haiku fallback.
+    if (
+      __fellBackFromGemini &&
+      __geminiUsage &&
+      (__geminiUsage.inputTokens > 0 || __geminiUsage.outputTokens > 0)
+    ) {
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/teach",
+        provider: "gemini",
+        // chosenModel is the Gemini model the router originally picked,
+        // before the Haiku safety net flipped __activeModel.
+        model: chosenModel,
+        inputTokens: __geminiUsage.inputTokens,
+        outputTokens: __geminiUsage.outputTokens,
+        cachedInputTokens: __geminiUsage.cachedInputTokens,
+        latencyMs: Date.now() - __teachStart,
+        status: "error",
+        errorMessage: "fell_back_to_anthropic_safety_net_then_failed",
+        metadata: {
+          routerReason: routerDecision.reason,
+          costMode: costStatus.mode,
+          dailyMode: costStatus.dailyMode,
+          geminiAttempts: __geminiAttempts,
+          fellBackFromGemini: true,
+          partialBeforeFallback: true,
+        },
+        capContext: __capCtxErr,
+      });
+    }
+    const __failTokens =
+      __activeProvider === "gemini" && __geminiUsage
+        ? __geminiUsage
+        : { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
     void recordAiUsage({
       userId,
       subjectId: subjectId ?? null,
       route: "ai/teach",
-      provider: "anthropic",
+      provider: __activeProvider,
       model: __activeModel,
-      inputTokens: 0,
-      outputTokens: 0,
+      inputTokens: __failTokens.inputTokens,
+      outputTokens: __failTokens.outputTokens,
+      cachedInputTokens: __failTokens.cachedInputTokens,
       latencyMs: Date.now() - __teachStart,
       status: "error",
       errorMessage: String(__lastErr?.message ?? __lastErr).slice(0, 500),
-      metadata: { routerReason: routerDecision.reason, costMode: costStatus.mode, dailyMode: costStatus.dailyMode, attempts: __attempts, fellBackToHaiku: __fellBackToHaiku },
+      metadata: {
+        routerReason: routerDecision.reason,
+        costMode: costStatus.mode,
+        dailyMode: costStatus.dailyMode,
+        attempts: __attempts,
+        fellBackToHaiku: __fellBackToHaiku,
+        fellBackFromGemini: __fellBackFromGemini,
+        geminiAttempts: __geminiAttempts,
+        partialBeforeError:
+          __activeProvider === "gemini" && __geminiUsage ? true : undefined,
+      },
       capContext: __capCtxErr,
     });
-    console.error("[ai/teach] anthropic stream error after retries:", __lastErr?.message || __lastErr);
+    console.error(`[ai/teach] ${__activeProvider} stream error after retries:`, __lastErr?.message || __lastErr);
     // Roll back the atomic daily-session claim so the student isn't stuck
     // on the countdown screen for the rest of the day after a model error.
     await rollbackDailyClaim();

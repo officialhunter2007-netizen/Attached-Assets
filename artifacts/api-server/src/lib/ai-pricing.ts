@@ -80,6 +80,16 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ── Google Gemini ──
+  "gemini-2.0-flash": {
+    input: 0.1,
+    output: 0.4,
+    label: "Gemini 2.0 Flash",
+  },
+  "gemini-2.0-flash-lite": {
+    input: 0.075,
+    output: 0.3,
+    label: "Gemini 2.0 Flash Lite",
+  },
   "gemini-2.5-flash": {
     input: 0.3,
     output: 2.5,

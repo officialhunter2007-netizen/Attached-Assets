@@ -11,14 +11,18 @@ import type { CostCapStatus } from "./cost-cap";
  *                       15-msg cap, daily 20/40/70-msg cap, expired sub)
  *                       are enforced upstream of this router.
  *
- *   I2 (FREE TIER):    isFreeFirstLesson === true  ⇒  model === HAIKU.
+ *   I2 (FREE TIER):    isFreeFirstLesson === true  ⇒  provider === GEMINI
+ *                       (free tier still benefits from the cheapest path; the
+ *                       Haiku safety net catches any Gemini failure so we
+ *                       never silence a free user).
  *
- *   I3 (UNLIMITED):    isUnlimited === true        ⇒  model === SONNET.
- *                       Reserved for admin/internal QA accounts so the team
- *                       can A/B-compare Haiku output against the strongest
- *                       Sonnet baseline at any time.
+ *   I3 (UNLIMITED):    isUnlimited === true        ⇒  provider === ANTHROPIC,
+ *                       model === SONNET. Reserved for admin/internal QA
+ *                       accounts so the team can A/B-compare Gemini output
+ *                       against the strongest Sonnet baseline at any time.
  *
- *   I4 (FORCE CHEAP):  costStatus.forceCheapModel === true  ⇒  model === HAIKU.
+ *   I4 (FORCE CHEAP):  costStatus.forceCheapModel === true  ⇒  provider ===
+ *                       GEMINI (already the cheapest sustainable path).
  *                       Reason is `total_cap_exhausted` when the lifetime cap
  *                       (with safety margin) is hit, otherwise
  *                       `daily_cap_exhausted`. Both downgrade quality only.
@@ -26,19 +30,27 @@ import type { CostCapStatus } from "./cost-cap";
  *   I5 (REASON SHAPE): every decision carries a non-empty `reason` string
  *                       suitable for analytics aggregation.
  *
- *   I6 (HAIKU-FIRST):  for every non-admin (non-unlimited) student turn the
- *                       chosen model is HAIKU. The router records *why* via
- *                       `reason` (free_tier_locked_haiku / total_cap_exhausted
- *                       / daily_cap_exhausted / haiku_diagnostic_phase /
- *                       haiku_mastery_check / haiku_lab_report /
- *                       haiku_deep_reasoning / haiku_long_message /
- *                       default_haiku) so analytics can still see the
- *                       teaching context the turn fell into.
+ *   I6 (GEMINI-FIRST): for every non-admin (non-unlimited) student turn the
+ *                       chosen model is GEMINI 2.0 FLASH. The router records
+ *                       *why* via `reason` (free_tier_locked_gemini /
+ *                       total_cap_exhausted / daily_cap_exhausted /
+ *                       gemini_diagnostic_phase / gemini_mastery_check /
+ *                       gemini_lab_report / gemini_deep_reasoning /
+ *                       gemini_long_message / default_gemini) so analytics
+ *                       can still see the teaching context the turn fell into.
+ *
+ *   I7 (SAFETY NET):   the choice returned here is the *primary* model only.
+ *                       /ai/teach has an automatic Haiku 4.5 safety net
+ *                       (defined in the route, not the router) that activates
+ *                       on Gemini transient failures, auth errors, or
+ *                       degraded output (too short / safety-blocked).
+ *                       The router never has to know about the fallback —
+ *                       it just picks the cheapest acceptable primary.
  */
 
 export type RouterDecision = {
-  model: "claude-sonnet-4-6" | "claude-haiku-4-5";
-  provider: "anthropic";
+  model: "claude-sonnet-4-6" | "claude-haiku-4-5" | "gemini-2.0-flash";
+  provider: "anthropic" | "gemini";
   /** Why this model was picked — surfaces in logs/metadata for analysis. */
   reason: string;
 };
@@ -75,31 +87,35 @@ export type RouterInput = {
 
 const SONNET = "claude-sonnet-4-6" as const;
 const HAIKU = "claude-haiku-4-5" as const;
+const GEMINI = "gemini-2.0-flash" as const;
 
 /**
  * Pick the AI model for a /ai/teach call.
  *
  * Policy (current):
- *  • Admin/unlimited users → Sonnet (so the internal team can A/B-compare
- *    Haiku output against the strongest baseline whenever they want).
- *  • Every other student turn → Haiku 4.5.
+ *  • Admin/unlimited users → Sonnet 4.6 via Anthropic (so the internal team
+ *    can A/B-compare Gemini output against the strongest baseline whenever
+ *    they want).
+ *  • Every other student turn → Gemini 2.0 Flash via Google.
  *
- *  We deliberately route 100% of paid + free student traffic to Haiku 4.5
- *  because:
- *    - Haiku 4.5 is ~3× cheaper on input AND output than Sonnet 4.6, which
- *      lets us hit our cost-per-subscription target with substantial margin.
- *    - Haiku follows clear, explicit instructions extremely well — the
- *      teaching system prompt is heavily structured (think-before-answer
- *      protocol, self-check checklist, explicit ASK_OPTIONS templates,
- *      scaffolded re-explain protocol) so Haiku reaches very-high teaching
- *      quality without paying the Sonnet premium.
- *    - We never block a paid student; cost-cap fall-throughs already land
- *      on Haiku, so the change unifies the routing rather than degrading
- *      anyone's experience.
+ *  We deliberately route 100% of paid + free student traffic to Gemini 2.0
+ *  Flash because:
+ *    - It is ~10× cheaper on input AND ~12× cheaper on output than Haiku 4.5
+ *      (the prior primary), which dramatically widens cost-per-subscription
+ *      margins and lets us serve students at break-even on much smaller
+ *      paid plans.
+ *    - The teaching system prompt is heavily structured for instruction-
+ *      following (think-before-answer protocol, explicit tag contract,
+ *      few-shot tag examples, self-check checklist, scaffolded re-explain
+ *      protocol). Gemini 2.0 Flash follows that scaffolding well enough that
+ *      teaching quality stays at the level students experienced under Haiku.
+ *    - The route has an automatic Haiku 4.5 safety net (see I7) — if Gemini
+ *      ever transient-fails or returns degraded output, the student still
+ *      gets a Haiku-quality answer and we never silence anyone.
  *
  *  We still record the *teaching context* of every turn in `reason`
- *  (haiku_diagnostic_phase, haiku_mastery_check, haiku_lab_report,
- *  haiku_deep_reasoning, haiku_long_message, default_haiku) so analytics
+ *  (gemini_diagnostic_phase, gemini_mastery_check, gemini_lab_report,
+ *  gemini_deep_reasoning, gemini_long_message, default_gemini) so analytics
  *  can slice usage and quality by the same buckets we used to route on.
  */
 export function pickTeachingModel(input: RouterInput): RouterDecision {
@@ -108,49 +124,47 @@ export function pickTeachingModel(input: RouterInput): RouterDecision {
     return { model: SONNET, provider: "anthropic", reason: "unlimited_user" };
   }
 
-  // Hard rule: free tier locked to Haiku no matter what.
+  // Hard rule: free tier still routes to Gemini (cheapest path). The Haiku
+  // safety net inside /ai/teach catches any Gemini failure and re-streams
+  // a Haiku answer, so a free user is never silenced by a Gemini outage.
   if (input.isFreeFirstLesson) {
-    return { model: HAIKU, provider: "anthropic", reason: "free_tier_locked_haiku" };
+    return { model: GEMINI, provider: "gemini", reason: "free_tier_locked_gemini" };
   }
 
-  // Daily-rolling budget exhausted → Haiku for the rest of the day.
-  // Two distinct reasons help admin analytics see whether students are hitting
-  // the *daily* slice (expected; resets at Yemen midnight) vs the *lifetime*
-  // 50%-of-paid cap (rare; should never happen before daily exhaustion fires
-  // first, but covered for defense-in-depth). Both downgrade quality only —
-  // the student is never blocked mid-subscription.
+  // Daily-rolling budget exhausted → still on Gemini (already the cheapest
+  // sustainable path). Two distinct reasons help admin analytics see whether
+  // students are hitting the *daily* slice (expected; resets at Yemen
+  // midnight) vs the *lifetime* 50%-of-paid cap (rare; should never happen
+  // before daily exhaustion fires first, but covered for defense-in-depth).
+  // Both downgrade quality only — the student is never blocked mid-subscription.
   if (input.costStatus.forceCheapModel) {
-    // Read the explicit predicates from cost-cap so analytics reasons exactly
-    // match the trigger predicate (both already account for the per-turn
-    // safety margin). When both fire at once the lifetime cap wins because
-    // it is the harder ceiling.
     const reason = input.costStatus.totalExhausted
       ? "total_cap_exhausted"
       : "daily_cap_exhausted";
-    return { model: HAIKU, provider: "anthropic", reason };
+    return { model: GEMINI, provider: "gemini", reason };
   }
 
-  // All other paid student traffic → Haiku. We still tag the teaching
+  // All other paid student traffic → Gemini. We still tag the teaching
   // context in `reason` so analytics can see which kinds of turns the
   // student is producing (diagnostic vs mastery vs lab report vs default).
   if (input.isDiagnostic) {
-    return { model: HAIKU, provider: "anthropic", reason: "haiku_diagnostic_phase" };
+    return { model: GEMINI, provider: "gemini", reason: "gemini_diagnostic_phase" };
   }
   if (input.isMasteryCheck) {
-    return { model: HAIKU, provider: "anthropic", reason: "haiku_mastery_check" };
+    return { model: GEMINI, provider: "gemini", reason: "gemini_mastery_check" };
   }
   if (input.isLabReport) {
-    return { model: HAIKU, provider: "anthropic", reason: "haiku_lab_report" };
+    return { model: GEMINI, provider: "gemini", reason: "gemini_lab_report" };
   }
   if (input.needsDeepReasoning) {
-    return { model: HAIKU, provider: "anthropic", reason: "haiku_deep_reasoning" };
+    return { model: GEMINI, provider: "gemini", reason: "gemini_deep_reasoning" };
   }
   if (input.userMessageLength >= 600) {
-    return { model: HAIKU, provider: "anthropic", reason: "haiku_long_message" };
+    return { model: GEMINI, provider: "gemini", reason: "gemini_long_message" };
   }
 
   // Default: regular Q&A turn.
-  return { model: HAIKU, provider: "anthropic", reason: "default_haiku" };
+  return { model: GEMINI, provider: "gemini", reason: "default_gemini" };
 }
 
 /** Detect whether the prior assistant turn asked the student to teach back —
