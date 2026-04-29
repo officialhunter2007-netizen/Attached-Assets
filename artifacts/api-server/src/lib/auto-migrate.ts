@@ -143,10 +143,12 @@ const REQUIRED_COLUMNS: TableSpec[] = [
 ];
 
 async function getExistingColumns(table: string): Promise<Set<string>> {
+  // استخدم 'public' بشكل صريح بدلاً من current_schema() لأن الأخيرة قد ترجع NULL
+  // في بعض إعدادات pg pool عندما يكون search_path فارغاً.
   const rows = await db.execute<{ column_name: string }>(sql`
     SELECT column_name
     FROM information_schema.columns
-    WHERE table_schema = current_schema()
+    WHERE table_schema = 'public'
       AND table_name = ${table}
   `);
   return new Set(rows.rows.map((r) => r.column_name));
@@ -160,19 +162,19 @@ export async function ensureRequiredColumns(): Promise<{
   const errors: Array<{ table: string; column: string; error: string }> = [];
 
   for (const spec of REQUIRED_COLUMNS) {
-    let existing: Set<string>;
+    let existing: Set<string> | null = null;
     try {
       existing = await getExistingColumns(spec.table);
     } catch (err: any) {
+      // لا توقف التنفيذ — `ADD COLUMN IF NOT EXISTS` آمن حتى لو ما عرفنا الأعمدة الحالية.
       logger.warn(
-        { table: spec.table, err: err?.message },
-        "auto-migrate: could not introspect table; skipping",
+        { table: spec.table, err: err?.message, code: err?.code, detail: err?.detail },
+        "auto-migrate: could not introspect; will attempt ADD COLUMN IF NOT EXISTS for all required columns",
       );
-      continue;
     }
 
     for (const col of spec.columns) {
-      if (existing.has(col.name)) continue;
+      if (existing && existing.has(col.name)) continue;
       try {
         await db.execute(
           sql.raw(
