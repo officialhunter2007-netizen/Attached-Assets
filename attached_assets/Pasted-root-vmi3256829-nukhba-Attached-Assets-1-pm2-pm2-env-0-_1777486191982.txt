@@ -1,0 +1,45 @@
+root@vmi3256829:~/nukhba/Attached-Assets# # 1. هل المفتاح مضبوط في pm2؟
+pm2 env 0 | grep OPENROUTER
+
+# 2. ما آخر الأخطاء في log الخادم؟
+pm2 logs api-server --lines 30 --nostream
+
+# 3. هل الـ dist محدّث؟
+grep -c "openrouter.ai" /root/nukhba/artifacts/api-server/dist/index.mjs
+OPENROUTER_API_KEY: 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
+[TAILING] Tailing last 30 lines for [api-server] process (change the value with --lines option)
+/root/.pm2/logs/api-server-out.log last 30 lines:
+/root/.pm2/logs/api-server-error.log last 30 lines:
+0|api-serv |
+0|api-serv | Node.js v20.20.2
+0|api-serv | node:internal/modules/cjs/loader:1210
+0|api-serv |   throw err;
+0|api-serv |   ^
+0|api-serv |
+0|api-serv | Error: Cannot find module '/root/nukhba/Attached-Assets/artifacts/api-server/artifacts/api-server/dist/index.mjs'
+0|api-serv |     at Module._resolveFilename (node:internal/modules/cjs/loader:1207:15)
+0|api-serv |     at Module._load (node:internal/modules/cjs/loader:1038:27)
+0|api-serv |     at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:164:12)
+0|api-serv |     at node:internal/main/run_main_module:28:49 {
+0|api-serv |   code: 'MODULE_NOT_FOUND',
+0|api-serv |   requireStack: []
+0|api-serv | }
+0|api-serv |
+0|api-serv | Node.js v20.20.2
+0|api-serv | node:internal/modules/cjs/loader:1210
+0|api-serv |   throw err;
+0|api-serv |   ^
+0|api-serv |
+0|api-serv | Error: Cannot find module '/root/nukhba/Attached-Assets/artifacts/api-server/artifacts/api-server/dist/index.mjs'
+0|api-serv |     at Module._resolveFilename (node:internal/modules/cjs/loader:1207:15)
+0|api-serv |     at Module._load (node:internal/modules/cjs/loader:1038:27)
+0|api-serv |     at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:164:12)
+0|api-serv |     at node:internal/main/run_main_module:28:49 {
+0|api-serv |   code: 'MODULE_NOT_FOUND',
+0|api-serv |   requireStack: []
+0|api-serv | }
+0|api-serv |
+0|api-serv | Node.js v20.20.2
+
+grep: /root/nukhba/artifacts/api-server/dist/index.mjs: No such file or directory
+root@vmi3256829:~/nukhba/Attached-Assets#
