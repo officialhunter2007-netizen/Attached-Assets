@@ -36,6 +36,8 @@ export type RecordAiUsageParams = {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens?: number;
+  /** Anthropic cache_creation_input_tokens — billed at 1.25× input rate. */
+  cacheCreationInputTokens?: number;
   latencyMs?: number;
   status?: "success" | "error";
   errorMessage?: string | null;
@@ -55,6 +57,7 @@ export async function recordAiUsage(params: RecordAiUsageParams): Promise<void> 
       inputTokens: params.inputTokens,
       outputTokens: params.outputTokens,
       cachedInputTokens: params.cachedInputTokens,
+      cacheCreationInputTokens: params.cacheCreationInputTokens,
     });
 
     let clampedFromUsd: number | null = null;
@@ -124,17 +127,22 @@ export function extractAnthropicUsage(msg: any): {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number;
+  cacheCreationInputTokens: number;
 } {
   const u = msg?.usage ?? {};
-  const inputTokens =
-    Number(u.input_tokens ?? 0) +
-    Number(u.cache_creation_input_tokens ?? 0); // cache creation IS billed at input rate
+  // cache_creation_input_tokens: tokens written to the prompt cache (billed at 1.25× input rate)
+  const cacheCreationInputTokens = Number(u.cache_creation_input_tokens ?? 0);
+  // cache_read_input_tokens: tokens read from cache (billed at cachedInput rate, ~0.1× input)
   const cachedInputTokens = Number(u.cache_read_input_tokens ?? 0);
+  // input_tokens: fresh uncached tokens (billed at full input rate)
+  const freshInputTokens = Number(u.input_tokens ?? 0);
   const outputTokens = Number(u.output_tokens ?? 0);
   return {
-    inputTokens: inputTokens + cachedInputTokens, // total prompt tokens
+    // total prompt tokens = fresh + cache_creation + cache_read
+    inputTokens: freshInputTokens + cacheCreationInputTokens + cachedInputTokens,
     outputTokens,
     cachedInputTokens,
+    cacheCreationInputTokens,
   };
 }
 

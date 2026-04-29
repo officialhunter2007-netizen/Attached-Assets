@@ -16,6 +16,7 @@ import {
 } from "@workspace/db";
 import { diagnoseObjectStorage } from "../lib/objectStorage";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { recordAiUsage, extractOpenAIUsage } from "../lib/ai-usage";
 
 const router: IRouter = Router();
 
@@ -856,6 +857,7 @@ ${contextJson}
   const ac = new AbortController();
   req.on("close", () => ac.abort());
 
+  const __aiStart = Date.now();
   try {
     const stream = await openai.chat.completions.create(
       {
@@ -867,14 +869,33 @@ ${contextJson}
           ...chatMessages,
         ],
         stream: true,
+        stream_options: { include_usage: true },
       },
       { signal: ac.signal },
     );
 
+    let lastUsage: any = null;
     for await (const chunk of stream) {
       if (ac.signal.aborted) break;
       const text = chunk.choices[0]?.delta?.content;
       if (text) res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
+      if (chunk.usage) lastUsage = chunk.usage;
+    }
+
+    // Record cost for admin AI usage (tracked separately from student AI spend)
+    if (lastUsage) {
+      const u = extractOpenAIUsage(lastUsage);
+      void recordAiUsage({
+        userId: adminId,
+        subjectId: null,
+        route: "admin/ai/insights",
+        provider: "openai",
+        model: "meta-llama/llama-3.3-70b-instruct",
+        inputTokens: u.inputTokens,
+        outputTokens: u.outputTokens,
+        cachedInputTokens: u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+      });
     }
 
     res.write(`data: ${JSON.stringify({
@@ -896,6 +917,18 @@ ${contextJson}
       return;
     }
     console.error("[admin-insights] error:", err?.message || err);
+    void recordAiUsage({
+      userId: adminId,
+      subjectId: null,
+      route: "admin/ai/insights",
+      provider: "openai",
+      model: "meta-llama/llama-3.3-70b-instruct",
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: Date.now() - __aiStart,
+      status: "error",
+      errorMessage: String(err?.message || err).slice(0, 500),
+    });
     try {
       res.write(`data: ${JSON.stringify({ error: "تعذّر الردّ الآن، حاول بعد قليل." })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

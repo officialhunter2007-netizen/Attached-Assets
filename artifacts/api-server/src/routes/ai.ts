@@ -1929,6 +1929,7 @@ ${retrievedBlock}
           inputTokens: cu.inputTokens,
           outputTokens: cu.outputTokens,
           cachedInputTokens: cu.cachedInputTokens,
+          cacheCreationInputTokens: cu.cacheCreationInputTokens,
           latencyMs: Date.now() - cardStart,
         });
       } catch (err: any) {
