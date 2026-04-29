@@ -1,0 +1,153 @@
+root@vmi3256829:~/nukhba/Attached-Assets# cat /root/nukhba/Attached-Assets/docker-compose.yml
+echo "---"
+ls -la /root/nukhba/Attached-Assets/.env* 2>/dev/null
+echo "---"
+cat /root/nukhba/Attached-Assets/.env 2>/dev/null | grep -v "PASSWORD\|SECRET" | head -30
+echo "---"
+cat /root/nukhba/Attached-Assets/docker/api/Dockerfile
+version: "3.9"
+
+services:
+  # ─── قاعدة البيانات PostgreSQL (على نفس الـ VPS) ─────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nukhba}
+      POSTGRES_USER: ${POSTGRES_USER:-nukhba_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nukhba_user} -d ${POSTGRES_DB:-nukhba}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── الخادم الخلفي (Express API) ──────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nukhba_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nukhba}
+      SESSION_SECRET: ${SESSION_SECRET}
+      AI_INTEGRATIONS_OPENAI_BASE_URL: ${AI_INTEGRATIONS_OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      AI_INTEGRATIONS_OPENAI_API_KEY: ${AI_INTEGRATIONS_OPENAI_API_KEY}
+      AI_INTEGRATIONS_ANTHROPIC_BASE_URL: ${AI_INTEGRATIONS_ANTHROPIC_BASE_URL:-https://openrouter.ai/api/v1}
+      AI_INTEGRATIONS_ANTHROPIC_API_KEY: ${AI_INTEGRATIONS_ANTHROPIC_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      UNLIMITED_ACCESS_EMAILS: ${UNLIMITED_ACCESS_EMAILS:-}
+      APP_DOMAIN: ${APP_DOMAIN}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  # ─── Nginx (الواجهة الأمامية + reverse proxy) ────────────────────
+  nginx:
+    build:
+      context: .
+      dockerfile: docker/nginx/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+
+  # ─── Certbot (تجديد شهادة SSL تلقائياً) ──────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"
+
+volumes:
+  postgres_data:
+  certbot_certs:
+  certbot_webroot:
+---
+-rw-r--r-- 1 root root  951 Apr 29 12:43 /root/nukhba/Attached-Assets/.env
+-rw-r--r-- 1 root root 1221 Apr 29 11:57 /root/nukhba/Attached-Assets/.env.example
+---
+GEMINI_API_KEY=AQ.Ab8RN6KJbLbFoSKMYmJPl6IElkJ2HRMzojjERyU9tEnoOre-iw
+
+APP_DOMAIN=learnukhba.com
+
+ADMIN_EMAILS=officialhunter2007@gmail.com
+
+GOOGLE_CLIENT_ID=873806717217-6858lsjej4gaio28m1tdi5ptq95dpppt.apps.googleusercontent.com
+
+
+UNLIMITED_ACCESS_EMAILS=socanalyst38@gmail.com
+
+LOG_LEVEL=info
+
+POSTGRES_DB=nukhba
+POSTGRES_USER=nukhba_user
+
+
+
+AI_INTEGRATIONS_OPENAI_BASE_URL=https://openrouter.ai/api/v1
+
+AI_INTEGRATIONS_OPENAI_API_KEY=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
+
+AI_INTEGRATIONS_ANTHROPIC_BASE_URL=https://openrouter.ai/api
+
+AI_INTEGRATIONS_ANTHROPIC_API_KEY=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
+
+---
+# ═══════════════════════════════════════════════════════════════════
+# المرحلة الأولى: البناء
+# نستخدم Debian (glibc) وليس Alpine لأن esbuild يحتاج linux-x64-gnu
+# ═══════════════════════════════════════════════════════════════════
+FROM node:22 AS builder
+
+# تفعيل pnpm عبر corepack
+RUN corepack enable && corepack prepare pnpm@10 --activate
+
+WORKDIR /app
+
+# نسخ ملفات الـworkspace الجذرية أوّلاً (layer caching)
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
+
+# نسخ حزم lib (تُستخدم كـworkspace dependencies في الـbuild)
+COPY lib/ ./lib/
+
+# نسخ ملفات scripts (workspace package)
+COPY scripts/ ./scripts/
+
+# نسخ الخادم الخلفي
+COPY artifacts/api-server/ ./artifacts/api-server/
+
+# تثبيت جميع الحزم (frozen لضمان تطابق lockfile)
+RUN pnpm install --frozen-lockfile
+
+# بناء الخادم (esbuild يُجمّع كل شيء في dist/index.mjs)
+RUN pnpm --filter @workspace/api-server run build
+
+# ═══════════════════════════════════════════════════════════════════
+# المرحلة الثانية: الإنتاج (صورة نظيفة خفيفة)
+# ═══════════════════════════════════════════════════════════════════
+FROM node:22-alpine AS production
+
+WORKDIR /app
+
+# نسخ الملفات المبنية فقط (بدون node_modules أو المصدر)
+COPY --from=builder /app/artifacts/api-server/dist/ ./dist/
+
+EXPOSE 8080
+
+CMD ["node", "--enable-source-maps", "./dist/index.mjs"]
+root@vmi3256829:~/nukhba/Attached-Assets#
