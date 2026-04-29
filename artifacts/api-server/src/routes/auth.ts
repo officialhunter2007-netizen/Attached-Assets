@@ -203,6 +203,18 @@ router.get("/auth/google", (req, res): void => {
 router.get("/auth/google/callback", async (req, res): Promise<void> => {
   try {
     const code = req.query.code as string;
+    const errorParam = req.query.error as string | undefined;
+    if (errorParam) {
+      console.error("[OAuth callback] Google returned error:", errorParam, req.query.error_description);
+      res.redirect(getFrontendUrl(`/?auth_error=${encodeURIComponent(errorParam)}`));
+      return;
+    }
+    if (!code) {
+      console.error("[OAuth callback] No code in query params:", req.query);
+      res.redirect(getFrontendUrl("/?auth_error=no_code"));
+      return;
+    }
+    console.log("[OAuth callback] Received code, exchanging for tokens. Domain:", getAppDomain());
 
     const client = getGoogleClient();
     const { tokens } = await client.getToken(code);
@@ -263,8 +275,10 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
     }
 
     setSessionCookie(res, user.id);
+    console.log("[OAuth callback] Login success for user", user.id, "→ redirecting to", user.onboardingDone ? "/learn" : "/welcome");
     res.redirect(getFrontendUrl(user.onboardingDone ? "/learn" : "/welcome"));
-  } catch (err) {
+  } catch (err: any) {
+    console.error("[OAuth callback] Unexpected error:", err?.message ?? err, err?.stack);
     res.redirect(getFrontendUrl("/?auth_error=1"));
   }
 });
