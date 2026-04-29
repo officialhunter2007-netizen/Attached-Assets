@@ -21,6 +21,7 @@ import {
   type GeminiMessage,
 } from "../lib/gemini-stream";
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
+import { validateAndHealEnv } from "../lib/lab-env-validator";
 import {
   getActiveMaterialContext,
   loadProgress,
@@ -3562,7 +3563,42 @@ K. **🎓 تبسيط وتحفيز إلزامي:**
 
 L. **🌍 اللغة الإنسانية:** اكتب كأنك أستاذ شغوف يحب أن يفهم طالبه — تجنّب المصطلحات الجافة، اربط كل مفهوم بمثال يمني محسوس (سوق صنعاء، محل في عدن، مزرعة في إب)، واحتفل بكل خطوة.
 
-M. **📱 موبايل-أولاً:** كل شاشة يجب أن تكون قابلة للاستخدام على شاشة ٣٧٥px عرض. استعمل \`height\` معتدلاً (٢٤٠-٤٢٠) للمكونات الكبيرة. تجنّب جداول ذات أكثر من ٤-٥ أعمدة.`;
+M. **📱 موبايل-أولاً:** كل شاشة يجب أن تكون قابلة للاستخدام على شاشة ٣٧٥px عرض. استعمل \`height\` معتدلاً (٢٤٠-٤٢٠) للمكونات الكبيرة. تجنّب جداول ذات أكثر من ٤-٥ أعمدة.
+
+**🔒 عقد الربط البنيوي (إلزامي — ينكسر التطبيق عند إخلاله):**
+هذا أهم قسم في كل التعليمات. كل بيئة تخرج منك سيتم فحصها آلياً قبل العرض على الطالب. أي ربط مكسور = نقطة وثوق ضائعة.
+
+N1. **كل \`bindTo\` يجب أن يشير لمسار موجود فعلاً في \`initialState\`:**
+   ❌ خطأ: \`{"type":"kpi","bindTo":"accounts.0.balance"}\` بينما \`initialState.accounts\` مصفوفة فارغة [].
+   ✅ صحيح: ضع داخل \`initialState.accounts\` على الأقل عنصراً واحداً يحتوي على \`balance\` قبل الإشارة لـ \`accounts.0.balance\`.
+   ❌ خطأ: \`bindTo:"inventory"\` بينما لا يوجد مفتاح \`inventory\` في initialState إطلاقاً.
+   ✅ صحيح: أضف \`"inventory":[{...}]\` في initialState قبل أي مكوّن يربط لها.
+
+N2. **كل \`mutate.ops[].path\` يجب أن يكون مساره معرّفاً في \`initialState\`:**
+   ❌ خطأ: \`{"op":"add","path":"stats.totalSold","value":1}\` بينما لا يوجد \`stats\` في initialState.
+   ✅ صحيح: ابدأ بـ \`"stats":{"totalSold":0}\` في initialState، ثم استخدم add عليه.
+   قاعدة بسيطة: قبل أن تكتب \`mutate\` على مسار، تأكد أنك أعلنته في initialState.
+
+N3. **كل \`go-to-screen.screenId\` يجب أن يطابق \`screen.id\` فعلياً موجود:**
+   ❌ خطأ: \`{"action":{"type":"go-to-screen","screenId":"reports"}}\` بينما لا توجد شاشة بهذا الـid.
+   ✅ صحيح: إن كانت شاشتك تسمّيها "📈 التقارير"، فاجعل \`id:"reports"\` ثم استخدم نفس الـid في الزر.
+
+N4. **كل \`{form.X}\` داخل mutate.ops يجب أن يكون اسم حقل موجود في نفس النموذج:**
+   ❌ خطأ: نموذج فيه field \`name:"qty"\` ثم op يستخدم \`{form.quantity}\` (اسم مختلف).
+   ✅ صحيح: استخدم \`{form.qty}\` تماماً كما في تعريف الحقل.
+   تحذير: أزرار \`type:"button"\` ليس لها سياق نموذج — لا تستخدم \`{form.*}\` داخل actions الأزرار، فقط داخل form.submit.ops.
+
+N5. **\`selectFromState\`:** \`statePath\` يجب أن يشير لمصفوفة في initialState، و \`labelKey\`/\`valueKey\` يجب أن يكونا حقلين فعليين في عناصر تلك المصفوفة.
+
+N6. **\`task.completeWhen\`:** \`path\` يجب أن يكون مسار يتحرك فعلاً عند تنفيذ المهام (وإلّا لن تكتمل المهمة أبداً). إن قلت \`{"path":"flags.found_xss","op":"equals","value":true}\` فيجب أن يكون \`flags.found_xss\` في initialState (افتراضياً false) **وأن يوجد** زر/نموذج/eventMap يضع هذا المسار على true.
+
+**✋ مراجعة ذاتية قبل الإرسال (لا تتجاوزها):**
+قبل أن تختم JSON، اقرأ ما كتبتَه واسأل نفسك ٤ أسئلة:
+1. هل كل \`bindTo\` و\`statePath\` في كل مكوّن **موجود فعلاً** في initialState؟ (إن لم تكن متأكداً، أضفه الآن).
+2. هل كل \`screenId\` في أزرار go-to-screen **مُعرَّف فعلاً** كـ \`screen.id\` في القائمة؟
+3. هل كل \`mutate.ops[].path\` يبدأ بمفتاح **موجود** في initialState؟
+4. هل كل \`{form.X}\` يطابق اسم حقل في نفس النموذج بحرفه ونقطته؟
+إن وجدت أي إجابة "لا" — أصلحها قبل أن ترسل.`;
 
 router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   const userId = getUserId(req);
@@ -3950,7 +3986,47 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       }
     }
 
-    return res.json({ kind, env });
+    // ─── Phase 1 Validator/Healer pass ──────────────────────────────────
+    // Walks the entire env tree and (a) auto-heals every reference the AI
+    // got wrong (missing initialState paths, dangling go-to-screen IDs,
+    // form refs to non-existent fields, malformed components, oversized
+    // HTML), and (b) collects anything genuinely structural-broken into
+    // `unfixable` for telemetry. The student NEVER sees a broken env: if
+    // the validator can't make it whole, we still ship the partially-healed
+    // version (no worse than before this pass existed) plus a server log.
+    const __vstart = Date.now();
+    const { env: healedEnv, report } = validateAndHealEnv(env, { kind });
+    const __vlat = Date.now() - __vstart;
+    if (report.healed.length > 0 || report.unfixable.length > 0) {
+      console.log("[build-env] validator:",
+        `healed=${report.healed.length}`,
+        `unfixable=${report.unfixable.length}`,
+        `latencyMs=${__vlat}`);
+      if (report.healed.length > 0) {
+        // Surface a compact summary so we can monitor which heal kinds
+        // dominate over time → indicates which prompt rules to strengthen.
+        const counts: Record<string, number> = {};
+        for (const h of report.healed) counts[h.kind] = (counts[h.kind] || 0) + 1;
+        console.log("[build-env] heal-counts:", counts);
+      }
+      if (report.unfixable.length > 0) {
+        console.warn("[build-env] unfixable issues:", report.unfixable.map(u => `${u.kind}@${u.location}`).join(" | "));
+      }
+    }
+
+    return res.json({
+      kind,
+      env: healedEnv,
+      validation: {
+        autoHealed: report.healed.length,
+        unfixableCount: report.unfixable.length,
+        // Only the kinds, not full details — keeps response light. Admin
+        // analytics can pull richer data from server logs by request id.
+        healCounts: report.healed.reduce<Record<string, number>>((acc, h) => {
+          acc[h.kind] = (acc[h.kind] || 0) + 1; return acc;
+        }, {}),
+      },
+    });
   } catch (e: any) {
     console.error("[build-env] error:", e?.message, e?.stack);
     void recordAiUsage({
