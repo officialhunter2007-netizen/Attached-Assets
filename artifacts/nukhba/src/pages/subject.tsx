@@ -1129,10 +1129,20 @@ marked.setOptions({ gfm: true, breaks: true });
 // Code fences with other languages (```js, ```python, ```bash, …) are left
 // alone because the model legitimately uses them to teach code.
 function unwrapHtmlCodeFences(raw: string): string {
-  return raw.replace(
+  // Step 1: unwrap explicit ```html / ```HTML / ```Html fences
+  let result = raw.replace(
     /```(?:html|HTML|Html)\s*\r?\n?([\s\S]*?)```/g,
     (_m, inner) => inner,
   );
+  // Step 2: unwrap bare ``` fences whose content clearly starts with an HTML
+  // tag (e.g. Gemini wraps <div>…</div> in ``` without the language hint).
+  // We only unwrap when the first non-whitespace character after the opening
+  // fence is '<', so we don't accidentally unwrap actual code blocks.
+  result = result.replace(
+    /```\s*\r?\n?(<[\s\S]*?)```/g,
+    (_m, inner) => inner,
+  );
+  return result;
 }
 
 // Strip code spans that contain raw HTML button markup (e.g. `<class='build-env-btn'...>`)
