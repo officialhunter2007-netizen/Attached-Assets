@@ -14,6 +14,9 @@ import type { CostCapStatus } from "./cost-cap";
  *   I2 (FREE TIER):    isFreeFirstLesson === true  ⇒  model === HAIKU.
  *
  *   I3 (UNLIMITED):    isUnlimited === true        ⇒  model === SONNET.
+ *                       Reserved for admin/internal QA accounts so the team
+ *                       can A/B-compare Haiku output against the strongest
+ *                       Sonnet baseline at any time.
  *
  *   I4 (FORCE CHEAP):  costStatus.forceCheapModel === true  ⇒  model === HAIKU.
  *                       Reason is `total_cap_exhausted` when the lifetime cap
@@ -22,6 +25,15 @@ import type { CostCapStatus } from "./cost-cap";
  *
  *   I5 (REASON SHAPE): every decision carries a non-empty `reason` string
  *                       suitable for analytics aggregation.
+ *
+ *   I6 (HAIKU-FIRST):  for every non-admin (non-unlimited) student turn the
+ *                       chosen model is HAIKU. The router records *why* via
+ *                       `reason` (free_tier_locked_haiku / total_cap_exhausted
+ *                       / daily_cap_exhausted / haiku_diagnostic_phase /
+ *                       haiku_mastery_check / haiku_lab_report /
+ *                       haiku_deep_reasoning / haiku_long_message /
+ *                       default_haiku) so analytics can still see the
+ *                       teaching context the turn fell into.
  */
 
 export type RouterDecision = {
@@ -35,13 +47,14 @@ export type RouterInput = {
   /** Free first-lesson tier — ALWAYS Haiku, no exceptions (cost protection). */
   isFreeFirstLesson: boolean;
   /** Any diagnostic-phase turn (the 4 questions + the plan-generation
-   *  synthesis turn). Diagnostic is a one-time-per-subject high-leverage
-   *  phase that sets the entire learning plan, so even on paid traffic
-   *  it stays on Sonnet. (Free-tier diagnostic is still locked to Haiku
-   *  by the `isFreeFirstLesson` rule above, which fires first.) */
+   *  synthesis turn). High-leverage but still on Haiku — the upgraded
+   *  diagnostic system prompt + 8192 max_tokens ceiling lets Haiku produce
+   *  a complete, well-structured personalized plan. The `reason` field
+   *  records the context for analytics. */
   isDiagnostic: boolean;
   /** Lab report feedback turn (student message starts with [LAB_REPORT] or
-   *  contains "نتائج من المختبر"/"نتائج من البيئة") — Sonnet for quality. */
+   *  contains "نتائج من المختبر"/"نتائج من البيئة"). Routed to Haiku with
+   *  the dedicated lab-report scaffold in the system prompt. */
   isLabReport: boolean;
   /** Mastery / teach-back check (the previous assistant message asked the
    *  student to explain the core idea in their own words). */
@@ -49,11 +62,14 @@ export type RouterInput = {
   /** Length of the student's message in characters. */
   userMessageLength: number;
   /** True when the student's message contains diagnostic-difficulty signals
-   *  (e.g. "لم أفهم", "اشرح بعمق", "خطأ", "صعب") — Sonnet handles depth better. */
+   *  (e.g. "لم أفهم", "اشرح بعمق", "خطأ", "صعب"). Routed to Haiku — the
+   *  re-explain protocol in the system prompt handles depth via structured
+   *  scaffolding rather than raw model capability. */
   needsDeepReasoning: boolean;
   /** Cost cap status — if `forceCheapModel` is true the router MUST pick Haiku. */
   costStatus: CostCapStatus;
-  /** Unlimited admin user — always Sonnet for them (no cost concerns). */
+  /** Unlimited admin user — always Sonnet for them (no cost concerns,
+   *  reserved as a quality-comparison baseline for the internal team). */
   isUnlimited: boolean;
 };
 
@@ -63,19 +79,31 @@ const HAIKU = "claude-haiku-4-5" as const;
 /**
  * Pick the AI model for a /ai/teach call.
  *
- * Goals:
- *  1. RED LINE: free tier and cost-capped students NEVER touch Sonnet.
- *  2. ~30% Sonnet usage on paid traffic — reserved for the moments where
- *     Sonnet's reasoning depth produces measurable teaching gains:
- *       • Entire diagnostic phase (4 questions + plan-generation synthesis)
- *         — one-time-per-subject and decides the whole learning plan
- *       • Mastery / teach-back check before stage completion
- *       • Lab report feedback turn
- *       • Confusion keywords (lock for any "I don't understand" signal)
- *       • Long student messages (≥600 chars)
- *     Everything else — incremental Q&A, session openers — routes to Haiku.
+ * Policy (current):
+ *  • Admin/unlimited users → Sonnet (so the internal team can A/B-compare
+ *    Haiku output against the strongest baseline whenever they want).
+ *  • Every other student turn → Haiku 4.5.
+ *
+ *  We deliberately route 100% of paid + free student traffic to Haiku 4.5
+ *  because:
+ *    - Haiku 4.5 is ~3× cheaper on input AND output than Sonnet 4.6, which
+ *      lets us hit our cost-per-subscription target with substantial margin.
+ *    - Haiku follows clear, explicit instructions extremely well — the
+ *      teaching system prompt is heavily structured (think-before-answer
+ *      protocol, self-check checklist, explicit ASK_OPTIONS templates,
+ *      scaffolded re-explain protocol) so Haiku reaches very-high teaching
+ *      quality without paying the Sonnet premium.
+ *    - We never block a paid student; cost-cap fall-throughs already land
+ *      on Haiku, so the change unifies the routing rather than degrading
+ *      anyone's experience.
+ *
+ *  We still record the *teaching context* of every turn in `reason`
+ *  (haiku_diagnostic_phase, haiku_mastery_check, haiku_lab_report,
+ *  haiku_deep_reasoning, haiku_long_message, default_haiku) so analytics
+ *  can slice usage and quality by the same buckets we used to route on.
  */
 export function pickTeachingModel(input: RouterInput): RouterDecision {
+  // Admin / internal QA: keep Sonnet so the team can compare quality.
   if (input.isUnlimited) {
     return { model: SONNET, provider: "anthropic", reason: "unlimited_user" };
   }
@@ -102,24 +130,26 @@ export function pickTeachingModel(input: RouterInput): RouterDecision {
     return { model: HAIKU, provider: "anthropic", reason };
   }
 
-  // Selective Sonnet usage — strict whitelist only.
+  // All other paid student traffic → Haiku. We still tag the teaching
+  // context in `reason` so analytics can see which kinds of turns the
+  // student is producing (diagnostic vs mastery vs lab report vs default).
   if (input.isDiagnostic) {
-    return { model: SONNET, provider: "anthropic", reason: "diagnostic_phase" };
+    return { model: HAIKU, provider: "anthropic", reason: "haiku_diagnostic_phase" };
   }
   if (input.isMasteryCheck) {
-    return { model: SONNET, provider: "anthropic", reason: "mastery_check" };
+    return { model: HAIKU, provider: "anthropic", reason: "haiku_mastery_check" };
   }
   if (input.isLabReport) {
-    return { model: SONNET, provider: "anthropic", reason: "lab_report_feedback" };
+    return { model: HAIKU, provider: "anthropic", reason: "haiku_lab_report" };
   }
   if (input.needsDeepReasoning) {
-    return { model: SONNET, provider: "anthropic", reason: "deep_reasoning_signal" };
+    return { model: HAIKU, provider: "anthropic", reason: "haiku_deep_reasoning" };
   }
   if (input.userMessageLength >= 600) {
-    return { model: SONNET, provider: "anthropic", reason: "long_user_message" };
+    return { model: HAIKU, provider: "anthropic", reason: "haiku_long_message" };
   }
 
-  // Default: Haiku covers ~70% of paid traffic.
+  // Default: regular Q&A turn.
   return { model: HAIKU, provider: "anthropic", reason: "default_haiku" };
 }
 

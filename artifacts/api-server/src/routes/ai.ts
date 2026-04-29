@@ -908,6 +908,13 @@ ${codingRules}
 
   const diagnosticSystemPrompt = `أنت معلم خاص متمكن في مادة: ${subjectName}. هذه أول جلسة للطالب في هذه المادة ومهمتك الآن معرفة مستواه وبناء خطة شخصية تحفّزه على الاستمرار.
 
+**🧠 بروتوكول التفكير قبل أي رد (إجباري — صامت في ذهنك، لا تكتبه للطالب):**
+قبل أن تكتب رسالتك، فكّر بصمت في:
+1. **رقم السؤال الحالي:** هل هو 1/4، 2/4، 3/4، 4/4، أم وقت تركيب الخطة؟
+2. **ما الذي قاله الطالب فعلاً في رسالته الأخيرة؟** اقتبس ذهنياً جملة محددة لتستخدمها في تمهيدك.
+3. **ما الذي يجب أن يحويه ردّي؟** جملة اعتراف قصيرة + جملة تمهيد + وسم \`ASK_OPTIONS\` أو خطة كاملة.
+4. **هل أتجاوز الأسئلة الأربعة؟ هل أبدأ التدريس قبل عرض الخطة؟** كلاهما ممنوع قطعياً.
+
 **🔴 قاعدة قاطعة فوق كل القواعد — أزرار قابلة للنقر إلزامية لكل الأسئلة الأربعة:**
 - **كل** سؤال تشخيصي **يجب** أن ينتهي بوسم \`[[ASK_OPTIONS: ...]]\` بهذا الشكل تماماً (الفاصل ثلاث شرطات عمودية \`|||\`):
   \`[[ASK_OPTIONS: نص السؤال ||| الخيار الأول ||| الخيار الثاني ||| الخيار الثالث ||| الخيار الرابع ||| غير ذلك]]\`
@@ -991,6 +998,25 @@ ${codingRules}
 ${formattingRules}`;
 
   const teachingSystemPrompt = `أنت معلم خاص متمكن في مادة: ${subjectName}. فلسفتك: الطالب لا يستطيع الإجابة على سؤال لم يفهم سياقه بعد — لذلك تشرح دائماً قبل أن تسأل.
+
+**🧠 بروتوكول التفكير قبل أي رد (إجباري — صامت في ذهنك، لا تكتبه للطالب):**
+قبل أن تكتب أول حرف من ردّك، فكّر في هذه الأسئلة الأربعة بصمت:
+1. **أين الطالب الآن؟** ما آخر ما أتقنه؟ ما المرحلة من خطته؟ ما الذي ذكره في رسالته؟
+2. **ما المفهوم الواحد الذي يحتاجه الآن؟** ليس اثنان ولا ثلاثة — مفهوم واحد فقط يبني على ما سبق.
+3. **ما الفجوة المحتملة؟** ما الالتباس الذي قد يقع فيه الطالب في هذا المفهوم تحديداً؟ كيف أقي منه؟
+4. **ما الخطوة التعليمية التالية الأنسب؟** شرح جديد؟ مثال آخر؟ سؤال سقراطي؟ مراجعة؟ مهمة تطبيقية؟
+
+ثم — وفقط بعد ذلك — اكتب الرد. النموذج الذي يتسرّع في الرد يُعطي إجابات سطحية؛ النموذج الذي يفكّر أولاً يُعطي إجابات نخبة. لا تكتب هذه الخطوات للطالب — استخدمها كموجه داخلي لردّك.
+
+**✅ قائمة فحص ذاتي قبل إرسال الرد (راجع ذهنياً — لا تكتبها):**
+- ☐ هل الرد ≤ 220 كلمة؟ (≤ 350 فقط لمفهوم جديد كثيف)
+- ☐ هل ركّزت على مفهوم واحد فقط؟
+- ☐ هل المثال يستخدم أرقاماً/أسماء حقيقية ملموسة (لا "س + ص")؟
+- ☐ هل ينتهي الرد بسؤال أو دعوة لتفاعل واحدة فقط (وليس عدة أسئلة)؟
+- ☐ هل تجنبت كشف الإجابة الكاملة قبل أن يحاول الطالب؟
+- ☐ هل التزمت بالمرحلة الحالية من خطة الطالب ولم أتجاوزها؟
+- ☐ إن استخدمت سؤالاً له ≤ 5 إجابات متوقعة، هل وضعتُه في وسم \`ASK_OPTIONS\`؟
+- إذا فشل أي بند، أعد صياغة الرد قبل الإرسال.
 
 **🔴 معايير الجودة العليا (التزم بها قبل أي شيء آخر — هذه هي الفارق بين معلم عادي ومعلم نخبة):**
 1. **إيجاز محسوب:** كل رد ≤ 220 كلمة افتراضياً (يُسمح بـ 350 فقط عند تقديم مفهوم جديد كثيف). لا فقرات حشو، لا تذكير بما قلتَه قبل سطرين، لا اعتذارات.
@@ -1555,10 +1581,15 @@ ${retrievedBlock}
 
   // ── Smart model routing ──────────────────────────────────────────────────
   // Rules (enforced together by pickTeachingModel):
-  //   • Free first lesson  → Haiku (always, no exceptions)
-  //   • Cost cap ≥ 60%    → Haiku (forced cheap)
-  //   • Otherwise          → Sonnet for high-leverage moments (~30% of paid
-  //                          traffic), Haiku for the rest (~70%).
+  //   • Admin / unlimited user → Sonnet (internal QA baseline only)
+  //   • Every other student turn → Haiku 4.5 (free, paid, diagnostic,
+  //                                 mastery, lab-report, deep-reasoning,
+  //                                 long messages — all on Haiku).
+  // The teaching system prompt is heavily structured so Haiku reaches
+  // very-high teaching quality. `reason` still carries the teaching
+  // context for analytics (haiku_diagnostic_phase / haiku_mastery_check
+  // / haiku_lab_report / haiku_deep_reasoning / haiku_long_message /
+  // default_haiku / free_tier_locked_haiku / *_cap_exhausted).
   const routerDecision = pickTeachingModel({
     isFreeFirstLesson: !!isFirstLesson,
     isDiagnostic: !!isDiagnosticPhase,
@@ -1570,30 +1601,36 @@ ${retrievedBlock}
     isUnlimited: unlimited,
   });
   const chosenModel = routerDecision.model;
-  // Haiku is cheaper but smaller — keep its ceiling tighter to avoid runaway
-  // outputs that would dent the student's cost budget.
-  // ── DIAGNOSTIC EXCEPTION ────────────────────────────────────────────────
-  // The diagnostic phase ends with a *full personalized plan* (5–8 phases,
-  // each with a paragraph in Arabic). Arabic averages ~1.5 chars/token in
-  // Anthropic's tokenizer, so a 7-phase plan can easily exceed 4096 tokens
-  // and get truncated mid-sentence — leaving the student stranded with no
-  // [PLAN_READY] tag and no automatic transition to teaching. We give
-  // diagnostic responses the maximum supported ceiling regardless of model
-  // (8192 for both Sonnet 4.6 and Haiku 4.5) so the plan always finishes
-  // — free-tier and cost-capped students route to Haiku, and they deserve
-  // a complete plan too.
+  // ── Output ceiling ──────────────────────────────────────────────────────
+  // Diagnostic turns: 8192 tokens — the diagnostic phase ends with a *full
+  // personalized plan* (5–8 phases, each with an Arabic paragraph). Arabic
+  // averages ~1.5 chars/token in Anthropic's tokenizer, so a 7-phase plan
+  // can easily exceed 4096 tokens and get truncated mid-sentence — leaving
+  // the student stranded with no [PLAN_READY] tag.
+  //
+  // Regular Haiku teaching turns: 4096 tokens — raised from 2048 so a full
+  // teaching response (concept + concrete example + Socratic question +
+  // optional ASK_OPTIONS block) never gets truncated. The 220-word
+  // soft-cap in the system prompt (≤350 for new-concept turns) still keeps
+  // average tokens-per-turn low, so this is a ceiling not a target.
+  //
+  // Sonnet (admin only): same 4096 ceiling for parity with Haiku in QA.
   const maxTokens = isDiagnosticPhase
     ? 8192
-    : (chosenModel === "claude-haiku-4-5" ? 2048 : 4096);
+    : 4096;
 
   const __teachStart = Date.now();
 
   // ── Resilience: classify which provider errors are safe to retry ─────────
   // Transient errors (rate limits, overloaded, gateway/network) are retried
-  // with exponential backoff and a Haiku fallback. We ONLY retry when no
-  // bytes have been streamed to the student yet — a mid-stream failure
-  // cannot be retried without duplicating text on the wire.
+  // with exponential backoff. Since Haiku is the primary model now, the
+  // last-resort fallback is Sonnet — Anthropic provisions Haiku and Sonnet
+  // capacity from separate pools, so they're rarely overloaded together.
+  // We ONLY retry when no bytes have been streamed to the student yet —
+  // a mid-stream failure cannot be retried without duplicating text on
+  // the wire.
   const HAIKU_MODEL = "claude-haiku-4-5";
+  const SONNET_FALLBACK_MODEL = "claude-sonnet-4-6";
   const isTransientError = (e: any): boolean => {
     const code = (e as any)?.status ?? (e as any)?.statusCode;
     if (code === 408 || code === 425 || code === 429 || code === 500 || code === 502 || code === 503 || code === 504 || code === 529) return true;
@@ -1654,9 +1691,14 @@ ${retrievedBlock}
   // and node's MaxListeners warning under load.
   try {
 
-  // Up to 3 attempts: original model → Haiku fallback → Haiku one more time.
-  // Loop short-circuits as soon as fullResponse has any bytes (mid-stream
-  // failure is non-retryable) or we get a successful finalMessage.
+  // Up to 3 attempts following the Haiku-first fallback policy:
+  //   attempt 1 → Haiku  (primary)
+  //   attempt 2 → Haiku  (single same-model retry; Haiku 5xx/429 usually clears)
+  //   attempt 3 → Sonnet (last-resort defence-in-depth, separate capacity pool)
+  // For admin/unlimited users the path starts on Sonnet and falls to Haiku
+  // by the same logic. Loop short-circuits as soon as fullResponse has any
+  // bytes (mid-stream failure is non-retryable) or we get a successful
+  // finalMessage.
   while (__attempts < 3) {
     __attempts++;
     __lastErr = null;
@@ -1710,16 +1752,32 @@ ${retrievedBlock}
       }
       // Backoff: 400ms, 1000ms before next attempt.
       await new Promise((r) => setTimeout(r, 400 * __attempts + (__attempts > 1 ? 600 : 0)));
-      // After the first transient failure, fall back to Haiku for remaining
-      // attempts. Haiku has separate provider capacity and is rarely
-      // overloaded simultaneously with Sonnet — gives us defence in depth.
-      if (__activeModel !== HAIKU_MODEL) {
+      // Fallback policy:
+      //   - Primary path: Haiku 4.5 for every student turn.
+      //   - First transient failure on Haiku → retry the SAME model once
+      //     (Anthropic Haiku capacity is healthy most of the time and a
+      //     single retry usually clears transient 5xx/429 errors).
+      //   - Second transient failure → flip to Sonnet 4.6 as a last-resort
+      //     defence-in-depth (separate capacity pool). The `fellBackToHaiku`
+      //     analytics flag now means "we left Haiku" — we keep the field
+      //     name for backwards compatibility with existing dashboards but
+      //     it now records a Haiku→Sonnet escape, which is rare.
+      //   - Sonnet path (admin only): falls back to Haiku on transient
+      //     failure, same defence-in-depth rationale.
+      if (__activeModel === HAIKU_MODEL && __attempts >= 2) {
+        __activeModel = SONNET_FALLBACK_MODEL;
+        __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
+        __fellBackToHaiku = true;
+        console.warn(`[ai/teach] retry ${__attempts}: Haiku failed transiently, escaping to Sonnet (last resort): ${err?.status} ${err?.message || err}`);
+      } else if (__activeModel !== HAIKU_MODEL && __activeModel !== SONNET_FALLBACK_MODEL) {
+        // Defensive: if something else is set as active model somehow, fall
+        // to Haiku as the canonical primary.
         __activeModel = HAIKU_MODEL;
-        __activeMaxTokens = 2048;
+        __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
         __fellBackToHaiku = true;
         console.warn(`[ai/teach] retry ${__attempts}: falling back to Haiku after transient error: ${err?.status} ${err?.message || err}`);
       } else {
-        console.warn(`[ai/teach] retry ${__attempts}: Haiku also failed transiently, retrying: ${err?.status} ${err?.message || err}`);
+        console.warn(`[ai/teach] retry ${__attempts}: ${__activeModel} also failed transiently, retrying: ${err?.status} ${err?.message || err}`);
       }
     }
   }
