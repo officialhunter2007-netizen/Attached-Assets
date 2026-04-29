@@ -2680,7 +2680,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
-  const geminiKey = process.env.GEMINI_API_KEY;
+  const geminiKey = process.env.OPENROUTER_API_KEY;
   if (!geminiKey) {
     res.write(`data: ${JSON.stringify({ error: "المساعد غير مُهيّأ بعد. يرجى التواصل مع الإدارة." })}\n\n`);
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
@@ -2772,7 +2772,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
       } else if (lastStatus === 503) {
         friendly = "خدمة الذكاء الاصطناعي مزدحمة الآن. حاول بعد ٣٠ ثانية.";
       } else if (lastStatus === 401 || lastStatus === 403) {
-        friendly = "إعداد مفتاح الذكاء الاصطناعي غير صحيح — راجع GEMINI_API_KEY.";
+        friendly = "إعداد مفتاح الذكاء الاصطناعي غير صحيح — راجع OPENROUTER_API_KEY.";
       } else if (lastStatus >= 500) {
         friendly = "خدمة الذكاء الاصطناعي تواجه عطلاً مؤقتاً. حاول بعد قليل.";
       }
