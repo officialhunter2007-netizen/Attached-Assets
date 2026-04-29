@@ -1135,15 +1135,26 @@ function unwrapHtmlCodeFences(raw: string): string {
   );
 }
 
+// Strip code spans that contain raw HTML button markup (e.g. `<class='build-env-btn'...>`)
+// which occur when the AI model incorrectly writes button HTML as inline code instead of
+// using the [[CREATE_LAB_ENV:...]] tag. These spans are not actionable and confuse users.
+function stripBrokenButtonCodeSpans(html: string): string {
+  return html.replace(
+    /<code[^>]*>[^<]*(?:build-env-btn|type=['"]button['"]|<class=|<button\s)[^<]*<\/code>/gi,
+    '',
+  );
+}
+
 function renderAssistantHtml(raw: string): string {
   if (!raw) return "";
   // marked is synchronous when no async extensions are registered, but the
   // type signature is `string | Promise<string>` — `as string` is safe here.
   const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(raw))) as string;
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target'],
     ADD_TAGS: ['button'],
   });
+  return stripBrokenButtonCodeSpans(sanitized);
 }
 
 // Streaming variant: same conversion, but we must tolerate half-finished
