@@ -12,9 +12,9 @@ import type { CostCapStatus } from "./cost-cap";
  *                       are enforced upstream of this router.
  *
  *   I2 (FREE TIER):    isFreeFirstLesson === true  ⇒  provider === GEMINI
- *                       (free tier still benefits from the cheapest path; the
- *                       Haiku safety net catches any Gemini failure so we
- *                       never silence a free user).
+ *                       (free tier uses the same Gemini path as paid students).
+ *                       On Gemini failure the route returns a friendly Arabic
+ *                       apology and rolls back the free-turn claim.
  *
  *   I3 (UNLIMITED):    isUnlimited === true        ⇒  provider === ANTHROPIC,
  *                       model === SONNET. Reserved for admin/internal QA
@@ -30,42 +30,39 @@ import type { CostCapStatus } from "./cost-cap";
  *   I5 (REASON SHAPE): every decision carries a non-empty `reason` string
  *                       suitable for analytics aggregation.
  *
- *   I6 (GEMINI-FIRST): for every non-admin (non-unlimited) student turn the
- *                       chosen model is GEMINI 2.0 FLASH. The router records
- *                       *why* via `reason` (free_tier_locked_gemini /
- *                       total_cap_exhausted / daily_cap_exhausted /
- *                       gemini_diagnostic_phase / gemini_mastery_check /
- *                       gemini_lab_report / gemini_deep_reasoning /
- *                       gemini_long_message / default_gemini) so analytics
- *                       can still see the teaching context the turn fell into.
+ *   I6 (GEMINI-ONLY):  for every non-admin (non-unlimited) student turn the
+ *                       chosen model is GEMINI 2.0 FLASH — no fallback to
+ *                       any other model. The router records *why* via `reason`
+ *                       (free_tier_locked_gemini / total_cap_exhausted /
+ *                       daily_cap_exhausted / gemini_diagnostic_phase /
+ *                       gemini_mastery_check / gemini_lab_report /
+ *                       gemini_deep_reasoning / gemini_long_message /
+ *                       default_gemini) so analytics can slice by context.
  *
- *   I7 (SAFETY NET):   the choice returned here is the *primary* model only.
- *                       /ai/teach has an automatic Haiku 4.5 safety net
- *                       (defined in the route, not the router) that activates
- *                       on Gemini transient failures, auth errors, or
- *                       degraded output (too short / safety-blocked).
- *                       The router never has to know about the fallback —
- *                       it just picks the cheapest acceptable primary.
+ *   I7 (NO FALLBACK):  /ai/teach does NOT fall back to any other model on
+ *                       Gemini failure. A friendly Arabic apology is streamed
+ *                       instead and the turn is not counted against the
+ *                       student's quota. Only admin/unlimited traffic ever
+ *                       touches the Anthropic SDK path.
  */
 
 export type RouterDecision = {
-  model: "claude-sonnet-4-6" | "claude-haiku-4-5" | "gemini-2.0-flash";
+  model: "claude-sonnet-4-6" | "gemini-2.0-flash";
   provider: "anthropic" | "gemini";
   /** Why this model was picked — surfaces in logs/metadata for analysis. */
   reason: string;
 };
 
 export type RouterInput = {
-  /** Free first-lesson tier — ALWAYS Haiku, no exceptions (cost protection). */
+  /** Free first-lesson tier — routes to Gemini 2.0 Flash (same as paid). */
   isFreeFirstLesson: boolean;
   /** Any diagnostic-phase turn (the 4 questions + the plan-generation
-   *  synthesis turn). High-leverage but still on Haiku — the upgraded
-   *  diagnostic system prompt + 8192 max_tokens ceiling lets Haiku produce
-   *  a complete, well-structured personalized plan. The `reason` field
-   *  records the context for analytics. */
+   *  synthesis turn). Still on Gemini — the upgraded diagnostic system prompt
+   *  + 8192 max_tokens ceiling produces a complete personalized plan. The
+   *  `reason` field records the context for analytics. */
   isDiagnostic: boolean;
   /** Lab report feedback turn (student message starts with [LAB_REPORT] or
-   *  contains "نتائج من المختبر"/"نتائج من البيئة"). Routed to Haiku with
+   *  contains "نتائج من المختبر"/"نتائج من البيئة"). Routed to Gemini with
    *  the dedicated lab-report scaffold in the system prompt. */
   isLabReport: boolean;
   /** Mastery / teach-back check (the previous assistant message asked the
@@ -74,11 +71,11 @@ export type RouterInput = {
   /** Length of the student's message in characters. */
   userMessageLength: number;
   /** True when the student's message contains diagnostic-difficulty signals
-   *  (e.g. "لم أفهم", "اشرح بعمق", "خطأ", "صعب"). Routed to Haiku — the
-   *  re-explain protocol in the system prompt handles depth via structured
-   *  scaffolding rather than raw model capability. */
+   *  (e.g. "لم أفهم", "اشرح بعمق", "خطأ", "صعب"). Routed to Gemini with
+   *  the re-explain protocol in the system prompt for structured depth. */
   needsDeepReasoning: boolean;
-  /** Cost cap status — if `forceCheapModel` is true the router MUST pick Haiku. */
+  /** Cost cap status — if `forceCheapModel` is true the router stays on
+   *  Gemini (already the cheapest path; no downgrade possible). */
   costStatus: CostCapStatus;
   /** Unlimited admin user — always Sonnet for them (no cost concerns,
    *  reserved as a quality-comparison baseline for the internal team). */
@@ -86,7 +83,6 @@ export type RouterInput = {
 };
 
 const SONNET = "claude-sonnet-4-6" as const;
-const HAIKU = "claude-haiku-4-5" as const;
 const GEMINI = "gemini-2.0-flash" as const;
 
 /**
@@ -100,18 +96,15 @@ const GEMINI = "gemini-2.0-flash" as const;
  *
  *  We deliberately route 100% of paid + free student traffic to Gemini 2.0
  *  Flash because:
- *    - It is ~10× cheaper on input AND ~12× cheaper on output than Haiku 4.5
- *      (the prior primary), which dramatically widens cost-per-subscription
- *      margins and lets us serve students at break-even on much smaller
- *      paid plans.
+ *    - It is the primary and ONLY model for student turns — no fallback to
+ *      any other model. If Gemini fails, the student gets a friendly Arabic
+ *      apology and their turn quota is not consumed.
  *    - The teaching system prompt is heavily structured for instruction-
  *      following (think-before-answer protocol, explicit tag contract,
  *      few-shot tag examples, self-check checklist, scaffolded re-explain
- *      protocol). Gemini 2.0 Flash follows that scaffolding well enough that
- *      teaching quality stays at the level students experienced under Haiku.
- *    - The route has an automatic Haiku 4.5 safety net (see I7) — if Gemini
- *      ever transient-fails or returns degraded output, the student still
- *      gets a Haiku-quality answer and we never silence anyone.
+ *      protocol). Gemini 2.0 Flash follows this scaffolding reliably.
+ *    - Cost is ~10× cheaper on input and ~12× cheaper on output than the
+ *      previous Haiku-based path, widening margin on every subscription.
  *
  *  We still record the *teaching context* of every turn in `reason`
  *  (gemini_diagnostic_phase, gemini_mastery_check, gemini_lab_report,

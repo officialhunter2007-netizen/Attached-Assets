@@ -16,7 +16,7 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (bundle)
 - **Frontend**: React + Vite + Tailwind CSS + Framer Motion
-- **AI (Teaching)**: Gemini 2.0 Flash via OpenRouter (primary), Claude Haiku 4.5 via OpenRouter (auto-fallback on error), Claude Sonnet 4.6 (isUnlimited admin only)
+- **AI (Teaching)**: Gemini 2.0 Flash via OpenRouter — ONLY model for students, no fallback. Claude Sonnet 4.6 via OpenRouter (isUnlimited admin only, with intra-Anthropic Haiku escape on transient failure). Student Gemini failures return a friendly Arabic apology and roll back the turn quota.
 - **AI (Lesson/Interview/Plan)**: GPT-4o via OpenRouter
 - **AI (Summaries)**: Claude Sonnet 4.6 via OpenRouter
 - **AI (PDF OCR)**: Gemini 2.5 Flash/Pro via direct Google API (requires valid GEMINI_API_KEY), fallback to Claude Sonnet 4.5

@@ -1,20 +1,23 @@
 /**
  * Gemini teaching stream helper — routed through OpenRouter.ai
  *
- * Uses OpenRouter's OpenAI-compatible endpoint so we can access
- * Google Gemini 2.0 Flash without a direct Google API key. The
- * interface is identical to the former Google-native version:
- * callers in `/ai/teach` see no difference.
+ * Uses OpenRouter's OpenAI-compatible endpoint to access Gemini 2.0 Flash
+ * for all student teaching turns. This is the ONLY model for students;
+ * there is no fallback to any other model on failure.
  *
  * OpenRouter endpoint:  https://openrouter.ai/api/v1/chat/completions
  * Model ID:             google/gemini-2.0-flash-001
  * Auth:                 Authorization: Bearer OPENROUTER_API_KEY
  *
- * Error model (same as before — callers don't need to change):
- *   GeminiAuthError      → 401/403. Fall back to Haiku silently.
- *   GeminiTransientError → 429/500/502/503/504. Retried once internally.
+ * Error model:
+ *   GeminiAuthError      → 401/403. Surfaced as error to the student.
+ *   GeminiTransientError → 429/500/502/503/504. Retried once internally;
+ *                          if retry also fails, error is surfaced.
  *   GeminiBadOutputError → content_filter block OR < MIN_USEFUL_RESPONSE chars.
  *   GeminiClientError    → 400/422 (our bug). Don't retry, surface in logs.
+ *
+ * All errors cause /ai/teach to emit a friendly Arabic apology and roll back
+ * the student's turn quota — no attempt is made to call any other model.
  */
 
 const TRANSIENT_HTTP = new Set([408, 425, 429, 500, 502, 503, 504]);

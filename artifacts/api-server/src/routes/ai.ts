@@ -1752,15 +1752,14 @@ ${retrievedBlock}
   const __teachStart = Date.now();
 
   // ── Resilience: classify which Anthropic errors are safe to retry ────────
-  // Anthropic transient errors (rate limits, overloaded, gateway/network)
-  // are retried with exponential backoff. We ONLY retry when no bytes have
-  // been streamed to the student yet — a mid-stream failure cannot be
-  // retried without duplicating text on the wire.
+  // Used only for the admin/unlimited Anthropic path. Anthropic transient
+  // errors (rate limits, overloaded, gateway/network) are retried with
+  // exponential backoff. We ONLY retry when no bytes have been streamed to
+  // the student yet — a mid-stream failure cannot be retried without
+  // duplicating text on the wire.
   // Gemini has its OWN internal retry policy inside `streamGeminiTeaching`
-  // (1 same-model retry on transient HTTP). When Gemini exhausts that and
-  // still fails (and no bytes are on the wire), the Gemini-first block
-  // below escapes to Haiku via the same Anthropic retry loop documented
-  // here — defence-in-depth so a student is NEVER silenced.
+  // (1 same-model retry on transient HTTP). Student Gemini failures never
+  // reach the Anthropic path — they surface directly as errors.
   const HAIKU_MODEL = "claude-haiku-4-5";
   const SONNET_FALLBACK_MODEL = "claude-sonnet-4-6";
   const isTransientError = (e: any): boolean => {
@@ -1779,12 +1778,9 @@ ${retrievedBlock}
 
   // Gemini-specific telemetry state. `geminiAttempts` is 0 if Gemini was
   // never tried (admin path), 1 on first-try success, 2 if the helper's
-  // internal retry fired. `__fellBackFromGemini` is true ONLY when Gemini
-  // failed pre-stream and we re-routed to Haiku via the Anthropic loop —
-  // this is the safety-net activation flag the cost dashboard slices on.
+  // internal retry fired. No Haiku fallback — student turns are Gemini-only.
   let __geminiAttempts = 0;
   let __geminiUsage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = null;
-  let __fellBackFromGemini = false;
   // Tracks which provider produced the final bytes on the wire (or attempted
   // last on full-failure). Drives the telemetry row's `provider` field.
   let __activeProvider: "anthropic" | "gemini" = routerDecision.provider;
@@ -1927,48 +1923,30 @@ ${retrievedBlock}
         geminiErr instanceof GeminiBadOutputError;
       // `fullResponse !== ""` is the route-level proof that bytes hit the
       // SSE wire. `__gp.emittedAnyChunk` is the helper-level proof. Either
-      // one is sufficient to forbid Haiku fallback (would duplicate text)
-      // or internal Gemini retry (would double-bill + duplicate text).
+      // one is sufficient to forbid internal Gemini retry (would double-bill
+      // + duplicate text) and signals partial output to the error path.
       const midStream = fullResponse !== "" || !!__gp.emittedAnyChunk;
 
       if (midStream) {
-        // Mid-stream Gemini failure → can't fall back cleanly without
-        // duplicating text. Treat as a partial-success with friendly retry.
-        // Telemetry below records `provider: 'gemini'` with the partial
-        // token usage we captured into `__geminiUsage` above.
+        // Mid-stream Gemini failure → partial text already on the wire.
+        // Record what we got and emit the mid-stream apology below.
         __lastErr = geminiErr;
         __activeProvider = "gemini";
         console.warn(
-          "[ai/teach] Gemini mid-stream error (no fallback):",
+          "[ai/teach] Gemini mid-stream error:",
           geminiErr?.name,
           geminiErr?.message || geminiErr,
         );
-      } else if (isFallbackable) {
-        // No bytes on the wire yet — engage the Haiku safety net via the
-        // Anthropic loop below. Fresh retry budget on Anthropic. Note we
-        // KEEP `__geminiUsage` populated if the helper captured any
-        // pre-failure usage (rare on pre-stream HTTP errors but possible
-        // on BadOutput → SAFETY block where Gemini billed for the prompt);
-        // the success-path block records the merged Gemini + Anthropic
-        // spend via two separate `recordAiUsage` calls.
-        __fellBackFromGemini = true;
-        __activeProvider = "anthropic";
-        __activeModel = HAIKU_MODEL;
-        __activeMaxTokens = maxTokens;
-        console.warn(
-          `[ai/teach] Gemini failed pre-stream (${geminiErr?.name || "Error"}), engaging Haiku safety net: ${geminiErr?.message || geminiErr}`,
-        );
       } else {
-        // Unknown error class (e.g. GeminiClientError = our bug; or
-        // bona-fide AbortError on client disconnect) — surface to logs and
-        // do NOT silently absorb the cost into a Haiku fallback. The
-        // failure-path block below will emit the friendly apology and
-        // record the partial Gemini usage if any.
+        // Pre-stream failure (isFallbackable or unknown error class).
+        // Policy: NO fallback to any other model — student turns are
+        // Gemini-only. Surface the error; the failure-path block below
+        // emits a friendly Arabic apology and rolls back the turn quota.
         __lastErr = geminiErr;
         __activeProvider = "gemini";
-        console.error(
-          "[ai/teach] Gemini non-fallbackable error:",
-          geminiErr?.name,
+        const level = isFallbackable ? "warn" : "error";
+        console[level](
+          `[ai/teach] Gemini pre-stream failure (${geminiErr?.name || "Error"}):`,
           geminiErr?.message || geminiErr,
         );
       }
@@ -1976,14 +1954,12 @@ ${retrievedBlock}
   }
 
   // ── Anthropic streaming path ─────────────────────────────────────────────
-  // Runs when:
+  // Runs ONLY when:
   //   • routerDecision.provider === 'anthropic' (admin/unlimited primary —
   //     starts on Sonnet, intra-Anthropic fallback to Haiku on transient
   //     failure).
-  //   • __fellBackFromGemini === true (safety net — starts on Haiku,
-  //     intra-Anthropic fallback to Sonnet on transient failure; Anthropic
-  //     provisions Haiku and Sonnet capacity from separate pools so both
-  //     being down at once is rare).
+  // Student Gemini failures do NOT reach this path — they surface as
+  // __lastErr, which skips the loop below and goes to the failure path.
   // Loop short-circuits on success or on mid-stream failure.
   if (!__finalMessage && !__lastErr) {
     while (__attempts < 3) {
@@ -2033,15 +2009,10 @@ ${retrievedBlock}
         }
         // Backoff: 400ms, 1000ms before next attempt.
         await new Promise((r) => setTimeout(r, 400 * __attempts + (__attempts > 1 ? 600 : 0)));
-        // Intra-Anthropic fallback policy:
-        //   - Path starts on Haiku (Gemini safety-net OR student path was
-        //     historically on Haiku — both flow here):
-        //       attempt 1 → Haiku   (initial)
-        //       attempt 2 → Haiku   (single same-model retry)
-        //       attempt 3 → Sonnet  (escape to separate capacity pool)
+        // Intra-Anthropic fallback policy (admin path only):
         //   - Admin path (primary on Sonnet):
         //       attempt 1 → Sonnet
-        //       attempt 2 → Sonnet
+        //       attempt 2 → Sonnet  (single same-model retry)
         //       attempt 3 → Haiku   (escape to separate capacity pool)
         // `__fellBackToHaiku` flips ONLY on the cross-model escape (attempt
         // 3); intra-model retries (1→2) keep it false.
@@ -2064,16 +2035,12 @@ ${retrievedBlock}
 
   // ── Success path: record usage telemetry ────────────────────────────────
   // We record one row per turn. The `provider`/`model` fields reflect WHO
-  // actually answered the student. Metadata carries the full context
-  // (routerReason, geminiAttempts, anthropicAttempts, intra-provider
-  // fallback flags) so the cost dashboard can attribute spend correctly
-  // when Gemini fell back to Haiku.
+  // actually answered the student. Student turns are always Gemini; admin
+  // turns are always Anthropic (Sonnet, with intra-Anthropic Haiku escape).
   if (__finalMessage) {
     // Cap-context: enforces the red-line invariant in the accounting layer.
     // When set, recordAiUsage clamps `costUsd` so SUM never exceeds capUsd
-    // for this (userId, subjectId, since-subscription-start) window — the
-    // platform absorbs any provider charges past the cap, but the student-
-    // facing UX (Gemini → Haiku fallback) is preserved end-to-end.
+    // for this (userId, subjectId, since-subscription-start) window.
     const __capCtx = subjectSub && costStatus.capUsd > 0 ? {
       userId,
       subjectId: subjectSub.subjectId,
@@ -2081,10 +2048,9 @@ ${retrievedBlock}
       capUsd: costStatus.capUsd,
     } : null;
     try {
-      if (__geminiUsage && !__fellBackFromGemini) {
-        // Pure Gemini success. `geminiAttempts` is the helper's internal
-        // retry count (1 or 2). No intra-Anthropic fallback fired so we
-        // omit those flags.
+      if (__geminiUsage) {
+        // Gemini success (student turn). `geminiAttempts` is the helper's
+        // internal retry count (1 on first-try success, 2 if retry fired).
         void recordAiUsage({
           userId,
           subjectId: subjectId ?? null,
@@ -2100,43 +2066,11 @@ ${retrievedBlock}
             costMode: costStatus.mode,
             dailyMode: costStatus.dailyMode,
             geminiAttempts: __geminiAttempts,
-            fellBackFromGemini: false,
           },
           capContext: __capCtx,
         });
       } else {
-        // Anthropic answered (admin path OR Gemini → Haiku safety net).
-        // If Gemini billed for a partial pre-fallback call (e.g.
-        // BadOutputError where Google still charged for the prompt + the
-        // SAFETY-blocked candidate), record that as a SEPARATE event so
-        // the cost cap counts both providers' real spend.
-        if (__fellBackFromGemini && __geminiUsage &&
-            (__geminiUsage.inputTokens > 0 || __geminiUsage.outputTokens > 0)) {
-          void recordAiUsage({
-            userId,
-            subjectId: subjectId ?? null,
-            route: "ai/teach",
-            provider: "gemini",
-            // The Gemini model that was originally tried, NOT the Haiku
-            // safety net that ultimately answered.
-            model: chosenModel,
-            inputTokens: __geminiUsage.inputTokens,
-            outputTokens: __geminiUsage.outputTokens,
-            cachedInputTokens: __geminiUsage.cachedInputTokens,
-            latencyMs: Date.now() - __teachStart,
-            status: "error",
-            errorMessage: "fell_back_to_anthropic_safety_net",
-            metadata: {
-              routerReason: routerDecision.reason,
-              costMode: costStatus.mode,
-              dailyMode: costStatus.dailyMode,
-              geminiAttempts: __geminiAttempts,
-              fellBackFromGemini: true,
-              partialBeforeFallback: true,
-            },
-            capContext: __capCtx,
-          });
-        }
+        // Anthropic answered — admin/unlimited path only.
         const __u = extractAnthropicUsage(__finalMessage);
         void recordAiUsage({
           userId,
@@ -2154,8 +2088,6 @@ ${retrievedBlock}
             dailyMode: costStatus.dailyMode,
             attempts: __attempts,
             fellBackToHaiku: __fellBackToHaiku,
-            fellBackFromGemini: __fellBackFromGemini,
-            geminiAttempts: __geminiAttempts,
           },
           capContext: __capCtx,
         });
@@ -2171,52 +2103,12 @@ ${retrievedBlock}
       windowStart: subjectSub.createdAt,
       capUsd: costStatus.capUsd,
     } : null;
-    // Telemetry: record under the LAST provider that was attempted.
-    // `__activeProvider` was updated as control moved between Gemini and
-    // the Anthropic safety net so this is always accurate. For Gemini
-    // mid-stream failures we use the partial usageMetadata captured into
-    // `__geminiUsage` from the error — Google still bills the prompt +
-    // emitted candidate tokens, so writing 0/0 would silently bleed
-    // budget out of the cost cap. Pre-stream Gemini errors carry no
-    // usage and correctly land on 0/0.
-    //
-    // EDGE CASE: when Gemini failed pre-stream with billed tokens AND the
-    // Haiku safety net also failed, `__activeProvider` is now 'anthropic'
-    // and the row below would lose the Gemini partial spend. Write a
-    // SEPARATE Gemini error row first to preserve cap accounting — same
-    // shape as the success-fallback branch above, so the cost cap sees
-    // exactly one Gemini row per billed Gemini call regardless of what
-    // happened to the Haiku fallback.
-    if (
-      __fellBackFromGemini &&
-      __geminiUsage &&
-      (__geminiUsage.inputTokens > 0 || __geminiUsage.outputTokens > 0)
-    ) {
-      void recordAiUsage({
-        userId,
-        subjectId: subjectId ?? null,
-        route: "ai/teach",
-        provider: "gemini",
-        // chosenModel is the Gemini model the router originally picked,
-        // before the Haiku safety net flipped __activeModel.
-        model: chosenModel,
-        inputTokens: __geminiUsage.inputTokens,
-        outputTokens: __geminiUsage.outputTokens,
-        cachedInputTokens: __geminiUsage.cachedInputTokens,
-        latencyMs: Date.now() - __teachStart,
-        status: "error",
-        errorMessage: "fell_back_to_anthropic_safety_net_then_failed",
-        metadata: {
-          routerReason: routerDecision.reason,
-          costMode: costStatus.mode,
-          dailyMode: costStatus.dailyMode,
-          geminiAttempts: __geminiAttempts,
-          fellBackFromGemini: true,
-          partialBeforeFallback: true,
-        },
-        capContext: __capCtxErr,
-      });
-    }
+    // Telemetry: record the failed attempt. `__activeProvider` reflects
+    // which provider was last attempted. For Gemini mid-stream failures we
+    // use the partial usageMetadata captured into `__geminiUsage` from the
+    // error — Google still bills the prompt + emitted candidate tokens, so
+    // writing 0/0 would silently bleed budget out of the cost cap.
+    // Pre-stream Gemini errors carry no usage and correctly land on 0/0.
     const __failTokens =
       __activeProvider === "gemini" && __geminiUsage
         ? __geminiUsage
@@ -2239,7 +2131,6 @@ ${retrievedBlock}
         dailyMode: costStatus.dailyMode,
         attempts: __attempts,
         fellBackToHaiku: __fellBackToHaiku,
-        fellBackFromGemini: __fellBackFromGemini,
         geminiAttempts: __geminiAttempts,
         partialBeforeError:
           __activeProvider === "gemini" && __geminiUsage ? true : undefined,
