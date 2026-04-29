@@ -1120,11 +1120,26 @@ marked.setOptions({ gfm: true, breaks: true });
 //   • DOMPurify strips `<script>`, event handlers, etc. — but we keep the
 //     `data-build-env` attribute on buttons because that's how the lab-env
 //     trigger wires itself up in the click handler below.
+// The teaching model is *supposed* to emit HTML directly, but it sometimes
+// wraps its entire response in a ```html … ``` markdown fence (treating its
+// own HTML as a code sample). When that happens, marked renders it as a
+// `<pre><code>` block and the user sees raw `<div class="praise">` etc.
+// instead of formatted output. This helper unwraps any html/HTML code
+// fences in-place so the inner HTML reaches the sanitizer as real markup.
+// Code fences with other languages (```js, ```python, ```bash, …) are left
+// alone because the model legitimately uses them to teach code.
+function unwrapHtmlCodeFences(raw: string): string {
+  return raw.replace(
+    /```(?:html|HTML|Html)\s*\r?\n?([\s\S]*?)```/g,
+    (_m, inner) => inner,
+  );
+}
+
 function renderAssistantHtml(raw: string): string {
   if (!raw) return "";
   // marked is synchronous when no async extensions are registered, but the
   // type signature is `string | Promise<string>` — `as string` is safe here.
-  const html = marked.parse(stripInlineStyles(raw)) as string;
+  const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(raw))) as string;
   return DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target'],
     ADD_TAGS: ['button'],
@@ -1137,9 +1152,11 @@ function renderAssistantHtml(raw: string): string {
 // since the user can't click those until the stream completes anyway.
 function renderStreamingHtml(raw: string): string {
   if (!raw) return "";
-  const cleaned = raw
-    .replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '')
-    .replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, '');
+  const cleaned = unwrapHtmlCodeFences(
+    raw
+      .replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '')
+      .replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, ''),
+  );
   const html = marked.parse(stripInlineStyles(cleaned)) as string;
   return DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target'],
