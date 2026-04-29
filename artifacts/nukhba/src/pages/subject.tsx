@@ -1155,8 +1155,84 @@ function stripBrokenButtonCodeSpans(html: string): string {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FINAL DEFENSE — Lab-env button normalizer.
+//
+// Gemini sometimes ignores the `[[CREATE_LAB_ENV: ...]]` tag instruction and
+// instead echoes the literal `<button data-build-env="...">` HTML it saw in
+// the prompt example. The user then sees raw HTML in a code block (or a
+// half-broken truncated button). This normalizer converts EVERY observed
+// failure mode back into the canonical `[[CREATE_LAB_ENV: ...]]` tag, so
+// the existing `expandLabEnvTags` pipeline renders a real, clickable button
+// regardless of what the model emitted.
+//
+// Failure modes handled:
+//   1. Well-formed:   `<button data-build-env="X" class="build-env-btn">L</button>`
+//   2. Truncated:     `<button data-build-env="X" class` (no `=`/`>`/`</button>`)
+//   3. HTML-escaped:  `&lt;button data-build-env=&quot;X&quot;...&gt;`
+//   4. Code-fenced:   surrounded by ``` or ` (single/triple backticks)
+//   5. Bare attr:     `data-build-env="X"` floating in text (last-resort)
+//
+// Description length is clamped (4..600) to avoid runaway captures, and we
+// de-duplicate so the same env isn't emitted twice in one message.
+function normalizeLabEnvButtons(raw: string): string {
+  if (!raw) return raw;
+
+  const seen = new Set<string>();
+  const toTag = (descRaw: string): string => {
+    const desc = String(descRaw || "")
+      .replace(/&quot;/g, '"')
+      .replace(/&#34;/g, '"')
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!desc || desc.length < 4 || desc.length > 600) return "";
+    const key = desc.slice(0, 80);
+    if (seen.has(key)) return "";
+    seen.add(key);
+    return `\n\n[[CREATE_LAB_ENV: ${desc}]]\n\n`;
+  };
+
+  let result = raw;
+
+  // (A) Fully HTML-entity-escaped form (model double-encoded its own output).
+  result = result.replace(
+    /`{0,3}\s*&lt;button[^&]*?data-build-env\s*=\s*&quot;([\s\S]*?)&quot;[\s\S]*?(?:&lt;\/button&gt;|(?=`{0,3}\s*(?:\n|$)))\s*`{0,3}/gi,
+    (_m, desc) => toTag(desc),
+  );
+
+  // (B) Real-character, fully closed: `<button ...>label</button>`.
+  result = result.replace(
+    /`{0,3}\s*<button[^>]*?data-build-env\s*=\s*["']([\s\S]*?)["'][^>]*>[\s\S]*?<\/button>\s*`{0,3}/gi,
+    (_m, desc) => toTag(desc),
+  );
+
+  // (C) Real-character, truncated / no closing `</button>` (cut by stream end
+  // or model running out of tokens). Capture stops at the first matching
+  // closing quote so the description is bounded.
+  result = result.replace(
+    /`{0,3}\s*<button[^>]*?data-build-env\s*=\s*["']([^"']{4,600})["'][^<>]*?(?:>[\s\S]*?(?:<\/button>)?|class\b[^<>\n`]*|(?=\n\n|$|`{3}))\s*`{0,3}/gi,
+    (_m, desc) => toTag(desc),
+  );
+
+  // (D) Bare floating attribute (last resort, only when not already inside a
+  // <button or &lt;button context — those were handled above).
+  result = result.replace(
+    /(?<!button[^>]{0,400})(?<!&lt;button[^&]{0,400})data-build-env\s*=\s*["']([^"']{4,600})["']/gi,
+    (_m, desc) => toTag(desc),
+  );
+
+  return result;
+}
+
 function renderAssistantHtml(raw: string): string {
   if (!raw) return "";
+  // NOTE: `normalizeLabEnvButtons` must be called by the CALLER, BEFORE
+  // `expandLabEnvTags` runs — otherwise it would also match the proper
+  // <button> markup that expandLabEnvTags just produced and undo it.
   // marked is synchronous when no async extensions are registered, but the
   // type signature is `string | Promise<string>` — `as string` is safe here.
   const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(raw))) as string;
@@ -1173,11 +1249,17 @@ function renderAssistantHtml(raw: string): string {
 // since the user can't click those until the stream completes anyway.
 function renderStreamingHtml(raw: string): string {
   if (!raw) return "";
-  const cleaned = unwrapHtmlCodeFences(
-    raw
-      .replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '')
-      .replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, ''),
-  );
+  // (1) Normalize any complete broken button HTML the model already emitted
+  // into the canonical tag, then (2) strip an in-progress button that hasn't
+  // finished streaming yet so the user never sees its raw HTML mid-flight,
+  // then (3) strip the canonical tags themselves (the button is rendered
+  // only on the final non-streaming render).
+  const normalized = normalizeLabEnvButtons(raw)
+    .replace(/<button[^>]*data-build-env[\s\S]*?(?:<\/button>|$)/gi, '')
+    .replace(/&lt;button[^&]*?data-build-env[\s\S]*?(?:&lt;\/button&gt;|$)/gi, '')
+    .replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '')
+    .replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, '');
+  const cleaned = unwrapHtmlCodeFences(normalized);
   const html = marked.parse(stripInlineStyles(cleaned)) as string;
   return DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target'],
@@ -1234,7 +1316,10 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
     // pass the result through marked + DOMPurify so any markdown the model
     // emitted (`---`, `**bold**`, lists, blank-line paragraphs) renders as
     // proper HTML instead of a wall of unformatted text.
-    safeRef.current = renderAssistantHtml(expandLabEnvTags(stripped));
+    // Order matters: normalize broken Gemini button-HTML emissions FIRST
+    // (converts them to canonical [[CREATE_LAB_ENV: ...]] tags), THEN expand
+    // ALL such tags into real <button> markup, THEN run marked + sanitize.
+    safeRef.current = renderAssistantHtml(expandLabEnvTags(normalizeLabEnvButtons(stripped)));
   }
   // While streaming we route the partial content through the same
   // markdown→HTML pipeline so the formatting builds up live as the model
