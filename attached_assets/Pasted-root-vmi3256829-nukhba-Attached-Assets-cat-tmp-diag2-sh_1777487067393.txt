@@ -1,0 +1,135 @@
+root@vmi3256829:~/nukhba/Attached-Assets# cat > /tmp/diag2.sh << 'SCRIPT'
+echo "=== 1. حاويات Docker ==="
+docker ps -a
+
+echo ""
+echo "=== 2. تفاصيل كل حاوية تعمل ==="
+for c in $(docker ps -q); do
+  echo "--- Container: $c ---"
+  docker inspect "$c" --format 'Name: {{.Name}}
+Image: {{.Config.Image}}
+WorkingDir: {{.Config.WorkingDir}}
+Cmd: {{.Config.Cmd}}
+Mounts: {{range .Mounts}}{{.Source}} -> {{.Destination}} | {{end}}
+Env: {{range .Config.Env}}{{println .}}{{end}}'
+done
+
+echo ""
+echo "=== 3. كل المنافذ المفتوحة ==="
+ss -tlnp
+
+echo ""
+echo "=== 4. تفاصيل pm2 api-server ==="
+pm2 describe 0 | grep -E "exec cwd|script|listen|memory|status"
+
+echo ""
+echo "=== 5. هل توجد docker-compose في أي مكان؟ ==="
+find /root -name "docker-compose*.yml" -o -name "Dockerfile" 2>/dev/null | head -10
+
+bash /tmp/diag2.sh learnukhba.com" https://localhost/api/health -o /dev/null -w "API health: %{http_code}\n"
+=== 1. حاويات Docker ===
+CONTAINER ID   IMAGE                    COMMAND                  CREATED        STATUS                 PORTS                                                                          NAMES
+1656f3c1c827   attached-assets-api      "docker-entrypoint.s…"   2 hours ago    Up 2 hours             8080/tcp                                                                       attached-assets-api-1
+37fbc0097038   attached-assets-nginx    "/docker-entrypoint.…"   4 hours ago    Up 4 hours             0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp   attached-assets-nginx-1
+e72a364b442b   postgres:16-alpine       "docker-entrypoint.s…"   8 hours ago    Up 8 hours (healthy)   5432/tcp                                                                       attached-assets-db-1
+d3fddfd14e08   certbot/certbot:latest   "/bin/sh -c 'trap ex…"   26 hours ago   Up 26 hours            80/tcp, 443/tcp                                                                attached-assets-certbot-1
+
+=== 2. تفاصيل كل حاوية تعمل ===
+--- Container: 1656f3c1c827 ---
+Name: /attached-assets-api-1
+Image: attached-assets-api
+WorkingDir: /app
+Cmd: [node --enable-source-maps ./dist/index.mjs]
+Mounts:
+Env: AI_INTEGRATIONS_OPENAI_API_KEY=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
+PORT=8080
+ADMIN_EMAILS=officialhunter2007@gmail.com
+AI_INTEGRATIONS_ANTHROPIC_API_KEY=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
+NODE_ENV=production
+AI_INTEGRATIONS_ANTHROPIC_BASE_URL=https://openrouter.ai/api
+GEMINI_API_KEY=AQ.Ab8RN6KJbLbFoSKMYmJPl6IElkJ2HRMzojjERyU9tEnoOre-iw
+GOOGLE_CLIENT_ID=873806717217-6858lsjej4gaio28m1tdi5ptq95dpppt.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=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
+AI_INTEGRATIONS_OPENAI_BASE_URL=https://openrouter.ai/api/v1
+UNLIMITED_ACCESS_EMAILS=socanalyst38@gmail.com
+APP_DOMAIN=learnukhba.com
+LOG_LEVEL=info
+SESSION_SECRET=68a31e63479c9e3d58a01690145aa089e8f9bca01ca25aef516d6b031b25498dff95f144f09c26a6678613206287717f14c4a03e3a944046fad6b35312245ed4
+DATABASE_URL=postgresql://nukhba_user:0195a310d5275b080d13bd791e99b3c4609cf3a777aeca10@db:5432/nukhba
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+NODE_VERSION=22.22.2
+YARN_VERSION=1.22.22
+
+--- Container: 37fbc0097038 ---
+Name: /attached-assets-nginx-1
+Image: attached-assets-nginx
+WorkingDir: /
+Cmd: [nginx -g daemon off;]
+Mounts: /var/lib/docker/volumes/attached-assets_certbot_certs/_data -> /etc/letsencrypt | /var/lib/docker/volumes/attached-assets_certbot_webroot/_data -> /var/www/certbot |
+Env: PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+NGINX_VERSION=1.27.5
+PKG_RELEASE=1
+DYNPKG_RELEASE=1
+NJS_VERSION=0.8.10
+NJS_RELEASE=1
+
+--- Container: e72a364b442b ---
+Name: /attached-assets-db-1
+Image: postgres:16-alpine
+WorkingDir: /
+Cmd: [postgres]
+Mounts: /var/lib/docker/volumes/attached-assets_postgres_data/_data -> /var/lib/postgresql/data |
+Env: POSTGRES_USER=nukhba_user
+POSTGRES_PASSWORD=0195a310d5275b080d13bd791e99b3c4609cf3a777aeca10
+POSTGRES_DB=nukhba
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+GOSU_VERSION=1.19
+LANG=en_US.utf8
+PG_MAJOR=16
+PG_VERSION=16.13
+PG_SHA256=dc2ddbbd245c0265a689408e3d2f2f3f9ba2da96bd19318214b313cdd9797287
+DOCKER_PG_LLVM_DEPS=llvm19-dev          clang19
+PGDATA=/var/lib/postgresql/data
+
+--- Container: d3fddfd14e08 ---
+Name: /attached-assets-certbot-1
+Image: certbot/certbot:latest
+WorkingDir: /opt/certbot
+Cmd: []
+Mounts: /var/lib/docker/volumes/attached-assets_certbot_certs/_data -> /etc/letsencrypt | /var/lib/docker/volumes/attached-assets_certbot_webroot/_data -> /var/www/certbot | /var/lib/docker/volumes/ea4eb85e2e7cedfcbc65861f58e7604ff9ae2136c379402243afc48b7ec45db6/_data -> /var/lib/letsencrypt |
+Env: PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LANG=C.UTF-8
+GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305
+PYTHON_VERSION=3.12.10
+PYTHON_SHA256=07ab697474595e06f06647417d3c7fa97ded07afc1a7e4454c5639919b46eaea
+
+
+=== 3. كل المنافذ المفتوحة ===
+State   Recv-Q  Send-Q   Local Address:Port   Peer Address:Port Process
+LISTEN  0       4096     127.0.0.53%lo:53          0.0.0.0:*     users:(("systemd-resolve",pid=684,fd=14))
+LISTEN  0       128            0.0.0.0:22          0.0.0.0:*     users:(("sshd",pid=765,fd=3))
+LISTEN  0       4096           0.0.0.0:80          0.0.0.0:*     users:(("docker-proxy",pid=246091,fd=8))
+LISTEN  0       4096           0.0.0.0:443         0.0.0.0:*     users:(("docker-proxy",pid=246115,fd=8))
+LISTEN  0       128               [::]:22             [::]:*     users:(("sshd",pid=765,fd=4))
+LISTEN  0       4096              [::]:80             [::]:*     users:(("docker-proxy",pid=246098,fd=8))
+LISTEN  0       4096              [::]:443            [::]:*     users:(("docker-proxy",pid=246122,fd=8))
+
+=== 4. تفاصيل pm2 api-server ===
+│ status            │ online                                                           │
+│ script path       │ /root/nukhba/Attached-Assets/artifacts/api-server/dist/index.mjs │
+│ script args       │ N/A                                                              │
+│ script id         │ 0                                                                │
+│ exec cwd          │ /root/nukhba/Attached-Assets                                     │
+
+=== 5. هل توجد docker-compose في أي مكان؟ ===
+/root/nukhba/Attached-Assets/docker/nginx/Dockerfile
+/root/nukhba/Attached-Assets/docker/api/Dockerfile
+/root/nukhba/Attached-Assets/docker-compose.yml
+
+=== 6. ماذا يخدم learnukhba.com فعلاً؟ ===
+curl: unknown --write-out variable: 'header.server'
+Status: 200 | Server:
+API health: 404
+
+DONE
+root@vmi3256829:~/nukhba/Attached-Assets#
