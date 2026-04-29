@@ -1752,32 +1752,36 @@ ${retrievedBlock}
       }
       // Backoff: 400ms, 1000ms before next attempt.
       await new Promise((r) => setTimeout(r, 400 * __attempts + (__attempts > 1 ? 600 : 0)));
-      // Fallback policy:
-      //   - Primary path: Haiku 4.5 for every student turn.
-      //   - First transient failure on Haiku → retry the SAME model once
-      //     (Anthropic Haiku capacity is healthy most of the time and a
-      //     single retry usually clears transient 5xx/429 errors).
-      //   - Second transient failure → flip to Sonnet 4.6 as a last-resort
-      //     defence-in-depth (separate capacity pool). The `fellBackToHaiku`
-      //     analytics flag now means "we left Haiku" — we keep the field
-      //     name for backwards compatibility with existing dashboards but
-      //     it now records a Haiku→Sonnet escape, which is rare.
-      //   - Sonnet path (admin only): falls back to Haiku on transient
-      //     failure, same defence-in-depth rationale.
-      if (__activeModel === HAIKU_MODEL && __attempts >= 2) {
+      // Fallback policy (Haiku-first, defence in depth):
+      //   - Student path (primary on Haiku):
+      //       attempt 1 → Haiku   (initial)
+      //       attempt 2 → Haiku   (single same-model retry; clears most
+      //                            transient 5xx/429s)
+      //       attempt 3 → Sonnet  (escape to separate capacity pool)
+      //   - Admin path (primary on Sonnet):
+      //       attempt 1 → Sonnet
+      //       attempt 2 → Sonnet
+      //       attempt 3 → Haiku   (escape to separate capacity pool)
+      // The `fellBackToHaiku` analytics flag now means "an inter-model
+      // fallback happened" regardless of direction — we keep the legacy
+      // field name for backwards compatibility with existing dashboards.
+      // Inside the same model attempt 1 → 2 we don't flip the flag; only
+      // the cross-model escape on attempt 3 does.
+      if (__attempts >= 2 && __activeModel === HAIKU_MODEL) {
+        // Student path → escape to Sonnet for the final attempt.
         __activeModel = SONNET_FALLBACK_MODEL;
         __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
         __fellBackToHaiku = true;
         console.warn(`[ai/teach] retry ${__attempts}: Haiku failed transiently, escaping to Sonnet (last resort): ${err?.status} ${err?.message || err}`);
-      } else if (__activeModel !== HAIKU_MODEL && __activeModel !== SONNET_FALLBACK_MODEL) {
-        // Defensive: if something else is set as active model somehow, fall
-        // to Haiku as the canonical primary.
+      } else if (__attempts >= 2 && __activeModel === SONNET_FALLBACK_MODEL) {
+        // Admin path → escape to Haiku for the final attempt.
         __activeModel = HAIKU_MODEL;
         __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
         __fellBackToHaiku = true;
-        console.warn(`[ai/teach] retry ${__attempts}: falling back to Haiku after transient error: ${err?.status} ${err?.message || err}`);
+        console.warn(`[ai/teach] retry ${__attempts}: Sonnet failed transiently, escaping to Haiku (last resort): ${err?.status} ${err?.message || err}`);
       } else {
-        console.warn(`[ai/teach] retry ${__attempts}: ${__activeModel} also failed transiently, retrying: ${err?.status} ${err?.message || err}`);
+        // attempt 2 with same model — quick retry on transient error.
+        console.warn(`[ai/teach] retry ${__attempts}: ${__activeModel} failed transiently, retrying same model: ${err?.status} ${err?.message || err}`);
       }
     }
   }
