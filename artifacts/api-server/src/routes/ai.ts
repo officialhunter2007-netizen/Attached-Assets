@@ -2859,18 +2859,89 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
   }
 });
 
-// ── /api/ai/run-code is permanently disabled ───────────────────────────────────
-// The previous implementation executed user-submitted code via child_process.exec
-// on the host with no sandboxing — a clear RCE vector. The route remains so the
-// frontend gets a structured error; re-enabling it requires routing through an
-// isolated sandbox (Piston, Judge0, gVisor, etc.), not a quick toggle.
+// ── /api/ai/run-code via Wandbox sandbox API ──────────────────────────────────
+// Code execution is proxied through Wandbox (https://wandbox.org) — a free,
+// no-key-required sandbox that supports Python, JS, TS, C, C++, Java, etc.
+// No user code ever runs on the host — all execution is fully sandboxed.
+const WANDBOX_URL = "https://wandbox.org/api/compile.json";
+const WANDBOX_TIMEOUT_MS = 20_000;
+
+// Maps our language IDs → Wandbox compiler identifiers.
+const WANDBOX_COMPILER_MAP: Record<string, string> = {
+  python:     "cpython-3.12.7",
+  javascript: "nodejs-20.17.0",
+  typescript: "typescript-5.6.2",
+  java:       "openjdk-jdk-22+36",
+  cpp:        "gcc-13.2.0",
+  c:          "gcc-13.2.0-c",
+  bash:       "bash",
+  sql:        "sqlite-3.46.1",
+  rust:       "rust-1.82.0",
+};
+
 router.post("/ai/run-code", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
-  return res.status(503).json({
-    error: "تشغيل الكود معطّل مؤقتاً لأسباب أمنية",
-    code: "RUN_CODE_DISABLED",
-  });
+
+  const { code, language } = req.body as { code?: string; language?: string };
+  if (!code || !language) {
+    return res.status(400).json({ error: "code and language are required" });
+  }
+
+  const compiler = WANDBOX_COMPILER_MAP[language];
+  if (!compiler) {
+    return res.status(400).json({
+      error: `اللغة "${language}" غير مدعومة في بيئة التنفيذ حالياً`,
+      output: "",
+      exitCode: 1,
+    });
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WANDBOX_TIMEOUT_MS);
+
+  try {
+    const wandboxRes = await fetch(WANDBOX_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({ compiler, code }),
+    });
+
+    clearTimeout(timer);
+
+    if (!wandboxRes.ok) {
+      const body = await wandboxRes.text().catch(() => "");
+      return res.status(502).json({
+        error: `خطأ في خادم التنفيذ (${wandboxRes.status})`,
+        output: "",
+        exitCode: 1,
+        detail: body,
+      });
+    }
+
+    const data = await wandboxRes.json() as {
+      status?: string;
+      program_output?: string;
+      program_error?: string;
+      compiler_error?: string;
+      compiler_output?: string;
+    };
+
+    const exitCode = parseInt(data.status ?? "0", 10);
+    const output = data.program_output || data.compiler_output || "";
+    const error  = data.program_error  || data.compiler_error  || "";
+
+    return res.json({ output, error, exitCode });
+
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("abort") || msg.includes("AbortError")) {
+      return res.status(504).json({ error: "انتهت مهلة تنفيذ الكود (20 ثانية)", output: "", exitCode: 1 });
+    }
+    return res.status(502).json({ error: "تعذّر الوصول إلى خادم التنفيذ — تحقق من اتصالك", output: "", exitCode: 1, detail: msg });
+  }
 });
 
 

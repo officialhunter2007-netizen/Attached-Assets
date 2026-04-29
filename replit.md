@@ -16,7 +16,11 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (bundle)
 - **Frontend**: React + Vite + Tailwind CSS + Framer Motion
-- **AI**: OpenAI gpt-5.2 via Replit AI integration (SSE streaming)
+- **AI (Teaching)**: Gemini 2.0 Flash via OpenRouter (primary), Claude Haiku 4.5 via OpenRouter (auto-fallback on error), Claude Sonnet 4.6 (isUnlimited admin only)
+- **AI (Lesson/Interview/Plan)**: GPT-4o via OpenRouter
+- **AI (Summaries)**: Claude Sonnet 4.6 via OpenRouter
+- **AI (PDF OCR)**: Gemini 2.5 Flash/Pro via direct Google API (requires valid GEMINI_API_KEY), fallback to Claude Sonnet 4.5
+- **Code Execution**: Wandbox public sandbox API (https://wandbox.org) — supports Python, JS, TS, Java, C, C++, Bash, SQL, Rust — no API key required, proxied through /api/ai/run-code
 - **PDF processing**: `unpdf` for native text extraction (Node-friendly pdfjs wrapper, no DOM polyfills). OCR fallback chain runs Gemini Flash → Gemini Pro → Anthropic Claude (via Replit AI integrations proxy) for scanned PDFs. Per-provider rate-limit cooldowns prevent hammering the same 429. Soft quality gate: partial OCR success still marks the file `ready` and surfaces a warning instead of failing.
 - **Auth**: Cookie-based sessions (HMAC-SHA256 signed tokens, scrypt-hashed passwords with lazy upgrade from legacy SHA-256)
 
