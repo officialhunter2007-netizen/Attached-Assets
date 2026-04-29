@@ -25,16 +25,32 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-  if (!user) {
-    res.status(401).json({ error: "User not found" });
-    return;
+  try {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+    if (!user) {
+      res.status(401).json({ error: "User not found" });
+      return;
+    }
+    const { passwordHash: _, ...profile } = user;
+    res.json({
+      ...profile,
+      badges: user.badges ?? [],
+    });
+  } catch (err: any) {
+    console.error("[/auth/me] Postgres error:", {
+      message: err?.message,
+      code: err?.code,
+      detail: err?.detail,
+      hint: err?.hint,
+      position: err?.position,
+      table: err?.table,
+      column: err?.column,
+      cause: err?.cause?.message,
+      causeCode: err?.cause?.code,
+      causeDetail: err?.cause?.detail,
+    });
+    res.status(500).json({ error: "internal", code: err?.code });
   }
-  const { passwordHash: _, ...profile } = user;
-  res.json({
-    ...profile,
-    badges: user.badges ?? [],
-  });
 });
 
 router.patch("/auth/me", async (req, res): Promise<void> => {
