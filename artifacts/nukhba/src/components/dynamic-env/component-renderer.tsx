@@ -33,6 +33,27 @@ type Ctx = {
   onAction?: (action: { type: string; [k: string]: any }) => void;
   onGoToScreen?: (screenId: string) => void;
   onAskAi?: (prompt: string) => void;
+  /**
+   * Phase 3 — current screen id, threaded down so per-component telemetry
+   * (failed form submits, mutations) can be attributed to a screen even
+   * when the component itself has no stable id.
+   */
+  screenId?: string;
+  /**
+   * Phase 3 — when true, the user is in self-test (exam) mode. Hide every
+   * "ask the teacher" / "explain this step" affordance the renderer renders
+   * itself so help cannot leak during a graded run.
+   */
+  examMode?: boolean;
+  /**
+   * Phase 3 hardening — opaque server-side attempt id. When present (i.e.
+   * the shell successfully called /ai/lab/exam/start), `check`-type form
+   * submissions POST to /ai/lab/exam/submit and use the SERVER's correctness
+   * verdict instead of computing it locally. This is what makes the final
+   * mastery token unforgeable — the only way for the count of "correct"
+   * submissions to go up is for the server itself to accept the answer.
+   */
+  examAttemptId?: string | null;
 };
 
 function arr<T>(v: any): T[] {
@@ -102,7 +123,7 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
 
   const setVal = (k: string, v: any) => setValues((p) => ({ ...p, [k]: v }));
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     // Required-field check before any submit handler.
     const missing: string[] = [];
@@ -134,6 +155,55 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
       return;
     }
     if (comp.submit.type === "check") {
+      // Phase 3 — record mastery telemetry. We use the form title (or screen
+      // id as fallback) as the "task" identifier; this is good enough for the
+      // teacher to see "stuck on the journal-entry form 3 times" in the
+      // [LAB_REPORT] block.
+      const taskKey = (comp.title || ctx.screenId || "form").trim().slice(0, 60);
+
+      // Phase 3 hardening — when an exam attempt is open the SERVER is the
+      // source of truth for correctness. Posting to /ai/lab/exam/submit lets
+      // the server (a) verify the answer against the env snapshot it holds,
+      // (b) update its own per-task counters, and (c) refuse forged
+      // "correct" submissions a tampered client could otherwise simulate.
+      // We still mirror the verdict into the local engine so the UI counters
+      // (used for in-session "X/Y completed" hints) stay consistent with
+      // what the server saw.
+      if (ctx.examMode && ctx.examAttemptId) {
+        try {
+          const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/exam/submit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              attemptId: ctx.examAttemptId,
+              screenId: ctx.screenId || "",
+              componentTitle: comp.title || "",
+              formValues: values,
+            }),
+          });
+          const j = await r.json();
+          if (!r.ok) {
+            // Surface the failure to the student but do NOT touch local
+            // telemetry — a network blip shouldn't be counted as a wrong
+            // answer, and a 404 means the attempt expired (server restart),
+            // which the student handles by re-entering exam mode.
+            setFeedback({ ok: false, msg: j?.error === "ATTEMPT_NOT_FOUND" || j?.error === "ATTEMPT_FINALIZED"
+              ? "انتهت صلاحية جلسة الامتحان. أعد تشغيل وضع الامتحان من الأعلى."
+              : "تعذّر التحقق من الإجابة. حاول مرة أخرى." });
+            return;
+          }
+          if (j.ok) env.recordCorrectSubmit(taskKey);
+          else env.recordFailedSubmit(taskKey);
+          setFeedback({ ok: !!j.ok, msg: String(j.message || (j.ok ? "إجابة صحيحة! ✓" : "إجابة غير صحيحة")) });
+          return;
+        } catch {
+          setFeedback({ ok: false, msg: "تعذّر التحقق من الإجابة. تأكد من الاتصال وحاول مرة أخرى." });
+          return;
+        }
+      }
+
+      // Non-exam (playground) path — local correctness check.
       const tol = comp.submit.tolerance ?? 0.01;
       let allOk = true;
       const wrong: string[] = [];
@@ -148,12 +218,19 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
           if (norm(got) !== norm(String(expected))) { allOk = false; wrong.push(k); }
         }
       }
+      if (allOk) env.recordCorrectSubmit(taskKey);
+      else env.recordFailedSubmit(taskKey);
       setFeedback({ ok: allOk, msg: allOk ? (comp.submit.correctMessage || "إجابة صحيحة! ✓") : (comp.submit.incorrectMessage || `راجع الحقول: ${wrong.join("، ")}`) });
     } else if (comp.submit.type === "ask-ai") {
       const filled = Object.entries(values).map(([k, v]) => `${k}: ${v}`).join("\n");
       ctx.onAskAi?.(`${comp.submit.prompt}\n\nإجابة الطالب:\n${filled}`);
       setFeedback({ ok: true, msg: "تم إرسال إجابتك للمعلم الذكي للمراجعة." });
     } else if (comp.submit.type === "mutate") {
+      // Phase 3 — mastery telemetry for mutate-type forms (the dominant lab
+      // submit shape: post-journal-entry, save-asset, configure-firewall, …).
+      // We attribute attempts to the same form-title key the "check" branch
+      // uses so the teacher prompt sees a single per-task scoreline.
+      const taskKey = (comp.title || ctx.screenId || "form").trim().slice(0, 60);
       // Run validations
       const validations = comp.submit.validate || [];
       for (const v of validations) {
@@ -161,6 +238,7 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
           const debit = envUtils.toNumber(values.debit ?? values["مدين"] ?? 0);
           const credit = envUtils.toNumber(values.credit ?? values["دائن"] ?? 0);
           if (Math.abs(debit - credit) > 0.001) {
+            env.recordFailedSubmit(taskKey);
             setFeedback({ ok: false, msg: v.message || "القيد غير متوازن (مدين ≠ دائن)" });
             return;
           }
@@ -168,17 +246,20 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
           const cur = envUtils.toNumber(envUtils.getByPath(env.state, v.field || ""));
           const sub = envUtils.toNumber(values.amount ?? 0);
           if (cur - sub < 0) {
+            env.recordFailedSubmit(taskKey);
             setFeedback({ ok: false, msg: v.message || "الرصيد غير كافٍ" });
             return;
           }
         } else if (v.rule === "non-empty") {
           if (!values[v.field || ""]) {
+            env.recordFailedSubmit(taskKey);
             setFeedback({ ok: false, msg: v.message || `الحقل ${v.field} مطلوب` });
             return;
           }
         }
       }
       env.mutate(comp.submit.ops || [], values);
+      env.recordCorrectSubmit(taskKey);
       setFeedback({ ok: true, msg: comp.submit.successMessage || "تم تنفيذ العملية بنجاح ✓" });
       if (comp.submit.resetOnSubmit) setValues(initialVals);
     }
@@ -1210,14 +1291,19 @@ function FreePlaygroundBlock({ comp, ctx }: { comp: Extract<DynComponent, { type
           <ul className="space-y-1.5">
             {comp.challenges.slice(0, 6).map((c, i) => (
               <li key={i} className="flex items-start gap-2 text-[12px] text-white/80">
-                <button
-                  onClick={() => ctx.onAskAi?.(`في مختبر ${labels[flavor]}: «${c}» — اشرح لي كيف أنفّذ هذا التحدي خطوة بخطوة دون أن تعطيني الحل كاملاً.`)}
-                  className="shrink-0 text-xs rounded-full px-2 py-0.5 border hover:opacity-80 transition-opacity"
-                  style={{ background: t.accentSoft, borderColor: t.accentBorder, color: t.accentText }}
-                  title="اطلب من المساعد إرشادك"
-                >
-                  ?
-                </button>
+                {/* Phase 3 — hide the "?" assist button in exam mode so the
+                    student can't open a hinting conversation about a
+                    challenge mid-graded-run. */}
+                {!ctx.examMode && (
+                  <button
+                    onClick={() => ctx.onAskAi?.(`في مختبر ${labels[flavor]}: «${c}» — اشرح لي كيف أنفّذ هذا التحدي خطوة بخطوة دون أن تعطيني الحل كاملاً.`)}
+                    className="shrink-0 text-xs rounded-full px-2 py-0.5 border hover:opacity-80 transition-opacity"
+                    style={{ background: t.accentSoft, borderColor: t.accentBorder, color: t.accentText }}
+                    title="اطلب من المساعد إرشادك"
+                  >
+                    ?
+                  </button>
+                )}
                 <span className="leading-relaxed">{c}</span>
               </li>
             ))}

@@ -896,6 +896,10 @@ export default function Subject() {
               pendingDynamicEnv={pendingDynamicEnv}
               // Permanently destroys the env (used by an explicit "delete" — currently unused)
               onClearPendingDynamicEnv={() => { setPendingDynamicEnv(null); setIsDynamicEnvOpen(false); }}
+              // Phase 3 — variant generator hot-swap. Re-uses the existing
+              // setter so the env stays open and the user lands on the new
+              // version immediately.
+              onLoadVariantEnv={(variantEnv) => { setPendingDynamicEnv(variantEnv); }}
               dynamicEnvOpen={isDynamicEnvOpen}
               // Closing only HIDES the env so the user can come back to it.
               onCloseDynamicEnv={() => setIsDynamicEnvOpen(false)}
@@ -1397,6 +1401,7 @@ function SubjectPathChat({
   onClearPendingYemenSoftScenario,
   pendingDynamicEnv,
   onClearPendingDynamicEnv,
+  onLoadVariantEnv,
   dynamicEnvOpen,
   onCloseDynamicEnv,
   onReopenDynamicEnv,
@@ -1433,6 +1438,8 @@ function SubjectPathChat({
   onClearPendingYemenSoftScenario?: () => void;
   pendingDynamicEnv?: any | null;
   onClearPendingDynamicEnv?: () => void;
+  /** Phase 3 — hot-swap the active env with a freshly-generated variant. */
+  onLoadVariantEnv?: (env: any) => void;
   dynamicEnvOpen?: boolean;
   onCloseDynamicEnv?: () => void;
   onReopenDynamicEnv?: () => void;
@@ -2488,6 +2495,10 @@ function SubjectPathChat({
                 reportText: report,
               });
             }}
+            // Phase 3 — when the student requests a fresh variant in exam
+            // mode, hot-swap the rendered env. The env-state engine resets
+            // itself on the swap so the student gets a clean slate.
+            onLoadVariantEnv={onLoadVariantEnv}
           />
         )}
       </div>

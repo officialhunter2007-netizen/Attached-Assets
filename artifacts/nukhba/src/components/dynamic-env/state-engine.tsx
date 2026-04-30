@@ -193,6 +193,38 @@ export type LastMutationInfo = {
   at: number;
 };
 export type ConsoleEntry = { level: "log" | "info" | "warn" | "error"; text: string; at: number };
+
+/**
+ * Phase 3 — Mastery telemetry. Every mutation, every failed form check, every
+ * screen change feeds into this struct. The lab shell reads it at submit-time
+ * to compute per-task mastery scores in the [LAB_REPORT] payload, and the
+ * teacher gates [STAGE_COMPLETE] on the resulting averages.
+ *
+ * Crucially: telemetry is ALWAYS recorded — even outside exam mode — because
+ * the teacher uses it for routine remediation suggestions. `examModeStartedAt`
+ * is the only field that distinguishes self-test runs from casual play.
+ */
+export type ExamTelemetry = {
+  /** Lab-shell load time. Drives totalElapsedMs in the report. */
+  startedAt: number;
+  /** When the student toggled exam mode ON. null = not in exam mode this session. */
+  examModeStartedAt: number | null;
+  /** Per-task: how many form-check submits returned `incorrect`. */
+  failedSubmitsByTask: Record<string, number>;
+  /** Per-task: total mutations attributed to this task (form submits, button clicks). */
+  mutationsByTask: Record<string, number>;
+  /** Per-screen: cumulative ms the student spent on this screen. */
+  screenTimeMs: Record<string, number>;
+  /** Per-task: did the student get the very first attempt right? */
+  firstAttemptCorrectByTask: Record<string, boolean>;
+  /** Per-task: total submit attempts (correct + incorrect). */
+  totalSubmitsByTask: Record<string, number>;
+  /** Total mutations across the whole session — proxy for "decisions made". */
+  totalMutations: number;
+  /** Total failed submits across the whole session. */
+  totalFailedSubmits: number;
+};
+
 type StateCtx = {
   state: DynState;
   initialState: DynState;
@@ -203,6 +235,25 @@ type StateCtx = {
   consoleLog: ConsoleEntry[];
   pushConsole: (entry: Omit<ConsoleEntry, "at">) => void;
   clearConsole: () => void;
+
+  // ─── Phase 3 telemetry surface ─────────────────────────────────────────
+  examTelemetry: ExamTelemetry;
+  /** Marks the start/stop of exam mode. The shell calls this from the toggle. */
+  setExamMode: (on: boolean) => void;
+  /** Called by FormBlock when a `submit.type === "check"` returns incorrect. */
+  recordFailedSubmit: (taskId: string | null) => void;
+  /** Called by FormBlock when a `submit.type === "check"` returns correct. */
+  recordCorrectSubmit: (taskId: string | null) => void;
+  /** Called by the shell when the active screen changes — accumulates time on prev. */
+  recordScreenChange: (newScreenId: string) => void;
+  /**
+   * Phase 3 — synchronous, ref-backed snapshot used by buildReport. Folds the
+   * in-flight current-screen dwell into screenTimeMs so a freshly-flushed
+   * screen tick is always present in the submitted [LAB_REPORT].
+   */
+  getExamTelemetrySnapshot: (activeScreenId?: string | null) => ExamTelemetry;
+  /** Reset all telemetry counters (used by the env-reset button). */
+  resetTelemetry: () => void;
 };
 
 const Ctx = createContext<StateCtx | null>(null);
@@ -255,17 +306,173 @@ export function EnvStateProvider({
   // Ring buffer for console output emitted by sandboxed iframes (webApp/browser).
   const [consoleLog, setConsoleLog] = useState<ConsoleEntry[]>([]);
 
+  // ─── Phase 3: telemetry state ──────────────────────────────────────────
+  // We keep telemetry in BOTH a ref (authoritative, synchronous reads — used
+  // by buildReport so a just-recorded submit/screen-flush is in the report
+  // before React state has had a chance to flush) AND React state (for the
+  // header timer + any UI that needs to re-render on telemetry changes).
+  // Every mutator updates the ref first, then schedules a state mirror.
+  const sessionStartRef = useRef<number>(Date.now());
+  const blankTelemetry = (now: number): ExamTelemetry => ({
+    startedAt: now,
+    examModeStartedAt: null,
+    failedSubmitsByTask: {},
+    mutationsByTask: {},
+    screenTimeMs: {},
+    firstAttemptCorrectByTask: {},
+    totalSubmitsByTask: {},
+    totalMutations: 0,
+    totalFailedSubmits: 0,
+  });
+  const examTelemetryRef = useRef<ExamTelemetry>(blankTelemetry(sessionStartRef.current));
+  const [examTelemetry, setExamTelemetry] = useState<ExamTelemetry>(examTelemetryRef.current);
+  const commitTelemetry = useCallback((next: ExamTelemetry) => {
+    examTelemetryRef.current = next;
+    setExamTelemetry(next);
+  }, []);
+  // Tracks the currently-active screen + when the student arrived on it, so
+  // we can attribute elapsed time to the right screen on the next change.
+  const screenTrackerRef = useRef<{ id: string | null; arrivedAt: number }>({
+    id: null,
+    arrivedAt: Date.now(),
+  });
+
   const mutate = useCallback((ops: DynMutation[], form?: Record<string, any>) => {
     dispatch({ type: "mutate", ops, form });
     setLastMutation({ ops, form, at: Date.now() });
+    // Bump the global mutation counter. Per-task attribution happens via
+    // recordCorrectSubmit / recordFailedSubmit when the renderer knows
+    // which task owns this submission.
+    commitTelemetry({
+      ...examTelemetryRef.current,
+      totalMutations: examTelemetryRef.current.totalMutations + 1,
+    });
+  }, [commitTelemetry]);
+
+  const setExamMode = useCallback((on: boolean) => {
+    const now = Date.now();
+    if (on) {
+      // EXAM-MODE INTEGRITY: when the student enters self-test, wipe ALL
+      // playground-era counters/screen times so the report only contains
+      // attempts made while the assistant + hints were hidden. This is the
+      // only way the teacher's `[STAGE_COMPLETE] gate on avgMastery >= 70`
+      // is meaningful — otherwise a student could rack up assisted
+      // first-attempt-correct rows in playground, then toggle exam-mode
+      // and submit a "perfect" run.
+      sessionStartRef.current = now;
+      screenTrackerRef.current = {
+        id: screenTrackerRef.current.id, // keep current screen, reset clock
+        arrivedAt: now,
+      };
+      commitTelemetry({
+        ...blankTelemetry(now),
+        examModeStartedAt: now,
+      });
+    } else {
+      commitTelemetry({
+        ...examTelemetryRef.current,
+        examModeStartedAt: null,
+      });
+    }
+  }, [commitTelemetry]);
+
+  const recordFailedSubmit = useCallback((taskId: string | null) => {
+    const prev = examTelemetryRef.current;
+    const tid = taskId || "__no_task__";
+    const prevTotal = prev.totalSubmitsByTask[tid] ?? 0;
+    const isFirstAttempt = prevTotal === 0;
+    commitTelemetry({
+      ...prev,
+      failedSubmitsByTask: {
+        ...prev.failedSubmitsByTask,
+        [tid]: (prev.failedSubmitsByTask[tid] ?? 0) + 1,
+      },
+      totalSubmitsByTask: {
+        ...prev.totalSubmitsByTask,
+        [tid]: prevTotal + 1,
+      },
+      firstAttemptCorrectByTask: isFirstAttempt && !(tid in prev.firstAttemptCorrectByTask)
+        ? { ...prev.firstAttemptCorrectByTask, [tid]: false }
+        : prev.firstAttemptCorrectByTask,
+      totalFailedSubmits: prev.totalFailedSubmits + 1,
+    });
+  }, [commitTelemetry]);
+
+  const recordCorrectSubmit = useCallback((taskId: string | null) => {
+    const prev = examTelemetryRef.current;
+    const tid = taskId || "__no_task__";
+    const prevTotal = prev.totalSubmitsByTask[tid] ?? 0;
+    const isFirstAttempt = prevTotal === 0;
+    commitTelemetry({
+      ...prev,
+      totalSubmitsByTask: {
+        ...prev.totalSubmitsByTask,
+        [tid]: prevTotal + 1,
+      },
+      firstAttemptCorrectByTask: isFirstAttempt && !(tid in prev.firstAttemptCorrectByTask)
+        ? { ...prev.firstAttemptCorrectByTask, [tid]: true }
+        : prev.firstAttemptCorrectByTask,
+      mutationsByTask: {
+        ...prev.mutationsByTask,
+        [tid]: (prev.mutationsByTask[tid] ?? 0) + 1,
+      },
+    });
+  }, [commitTelemetry]);
+
+  const recordScreenChange = useCallback((newScreenId: string) => {
+    const now = Date.now();
+    const tracker = screenTrackerRef.current;
+    if (tracker.id) {
+      const elapsed = Math.max(0, now - tracker.arrivedAt);
+      if (elapsed > 0) {
+        const prev = examTelemetryRef.current;
+        commitTelemetry({
+          ...prev,
+          screenTimeMs: {
+            ...prev.screenTimeMs,
+            [tracker.id]: (prev.screenTimeMs[tracker.id] ?? 0) + elapsed,
+          },
+        });
+      }
+    }
+    screenTrackerRef.current = { id: newScreenId, arrivedAt: now };
+  }, [commitTelemetry]);
+
+  /**
+   * Phase 3 — synchronous snapshot for buildReport. Returns a fresh copy of
+   * telemetry with the in-flight current-screen dwell already folded into
+   * `screenTimeMs[activeScreenId]`. Required because React state updates
+   * are async, so a `recordScreenChange(activeId)` call followed by an
+   * immediate `examTelemetry` read would miss the just-flushed dwell.
+   */
+  const getExamTelemetrySnapshot = useCallback((activeScreenId?: string | null): ExamTelemetry => {
+    const base = examTelemetryRef.current;
+    const tracker = screenTrackerRef.current;
+    const flushId = activeScreenId || tracker.id;
+    if (!flushId) return JSON.parse(JSON.stringify(base));
+    const now = Date.now();
+    const elapsed = Math.max(0, now - tracker.arrivedAt);
+    const screenTimeMs: Record<string, number> = { ...base.screenTimeMs };
+    if (elapsed > 0) {
+      screenTimeMs[flushId] = (screenTimeMs[flushId] ?? 0) + elapsed;
+    }
+    return { ...base, screenTimeMs };
   }, []);
+
+  const resetTelemetry = useCallback(() => {
+    const now = Date.now();
+    sessionStartRef.current = now;
+    screenTrackerRef.current = { id: null, arrivedAt: now };
+    commitTelemetry(blankTelemetry(now));
+  }, [commitTelemetry]);
 
   const reset = useCallback(() => {
     dispatch({ type: "reset", initial: initialRef.current });
     setLastMutation(null);
     setConsoleLog([]);
     if (storageKey) try { localStorage.removeItem(storageKey); } catch {}
-  }, [storageKey]);
+    resetTelemetry();
+  }, [storageKey, resetTelemetry]);
 
   const setState = useCallback((s: DynState) => {
     dispatch({ type: "replace", state: s });
@@ -292,8 +499,19 @@ export function EnvStateProvider({
       consoleLog,
       pushConsole,
       clearConsole,
+      examTelemetry,
+      setExamMode,
+      recordFailedSubmit,
+      recordCorrectSubmit,
+      recordScreenChange,
+      getExamTelemetrySnapshot,
+      resetTelemetry,
     }),
-    [state, mutate, reset, setState, lastMutation, consoleLog, pushConsole, clearConsole]
+    [
+      state, mutate, reset, setState, lastMutation, consoleLog, pushConsole, clearConsole,
+      examTelemetry, setExamMode, recordFailedSubmit, recordCorrectSubmit,
+      recordScreenChange, getExamTelemetrySnapshot, resetTelemetry,
+    ]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

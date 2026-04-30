@@ -12,21 +12,21 @@ export function DynamicEnvShell({
   subjectId,
   onClose,
   onSubmitToTeacher,
+  onLoadVariantEnv,
 }: {
   env: DynamicEnv;
   subjectId: string;
   onClose?: () => void;
   onSubmitToTeacher?: (report: string, meta: { envTitle: string; envBriefing: string }) => void;
+  /**
+   * Phase 3 — invoked when the student requests a fresh variant of the
+   * current env via the "🎲 جرّب نسخة جديدة" button. The parent should
+   * hot-swap the rendered env with the provided one. If unset, the variant
+   * button degrades gracefully and surfaces an error toast.
+   */
+  onLoadVariantEnv?: (env: DynamicEnv) => void;
 }) {
   const { user } = useAuth();
-  // SECURITY: stable storage key includes user.id so two different accounts on
-  // the same browser do NOT share env state. If user is not loaded, the
-  // provider gets no storageKey and runs in memory only.
-  const storageKey = useMemo(() => {
-    if (!user?.id) return undefined;
-    const slug = (env.title || "env").replace(/\s+/g, "-").slice(0, 60);
-    return `nukhba::u:${user.id}::env-state::${subjectId}::${slug}`;
-  }, [user?.id, subjectId, env.title]);
 
   // Pick a theme: explicit env.theme wins, else map by env.kind. Falls back
   // to the neutral cyan "generic" theme if neither matches.
@@ -35,10 +35,83 @@ export function DynamicEnvShell({
     return explicit || themeForKind(env.kind);
   }, [env.theme, env.kind]);
 
+  // Phase 3 fix — when the parent hot-swaps to a generated variant, the env
+  // object identity changes (new title/screens/initialState). EnvStateProvider
+  // captures `initialState` once via initialRef and DynamicEnvShellInner keeps
+  // local `activeId`/telemetry state, so without remounting the new env would
+  // render against the previous env's stale state and screen pointer (and the
+  // mastery telemetry would be polluted with the old run's counters). Keying
+  // both providers on a CONTENT-HASH of the entire render-relevant env (NOT
+  // just title/length, which would collide between structurally identical
+  // variants whose only diff is e.g. submit.expected or field labels) forces
+  // a clean remount on every distinct env. The same hash is also folded into
+  // storageKey so a variant with the same title doesn't rehydrate the
+  // previous env's localStorage snapshot — which would silently put the new
+  // env into the old env's last-saved state on mount.
+  const envHash = useMemo(() => {
+    let payload = "";
+    try {
+      payload = JSON.stringify({
+        k: env.kind || "generic",
+        t: env.title || "",
+        b: (env as any).briefing || "",
+        sc: (env as any).successCriteria || [],
+        h: env.hints || [],
+        i: env.initialState || {},
+        s: (env.screens || []).map((s: any) => ({
+          id: s?.id,
+          t: s?.title,
+          c: (s?.components || []).map((c: any) => c && {
+            type: c.type,
+            title: c.title,
+            label: c.label,
+            kind: c.kind,
+            bindTo: c.bindTo,
+            fields: c.fields,
+            submit: c.submit,
+            ops: c.ops,
+            actions: c.actions,
+            items: c.items,
+            columns: c.columns,
+          }),
+        })),
+        ts: (env.tasks || []).map((x: any) => ({ id: x?.id, d: x?.description, h: x?.hint, ts: x?.targetScreen })),
+      });
+    } catch {
+      payload = `${env.kind || "generic"}::${env.title || ""}`;
+    }
+    // djb2 hash — short, stable, collision-resistant enough for a React key
+    // and a localStorage namespace bucket.
+    let h = 5381;
+    for (let i = 0; i < payload.length; i++) {
+      h = (h * 33) ^ payload.charCodeAt(i);
+    }
+    return (h >>> 0).toString(36);
+  }, [env]);
+  const envKey = `env::${env.kind || "generic"}::${envHash}`;
+
+  // SECURITY + variant-correctness: storageKey includes user.id (so two
+  // accounts on the same browser don't share state) AND envHash (so a
+  // freshly-loaded variant with the same title doesn't rehydrate the
+  // previous env's persisted world state). If user is not loaded, the
+  // provider gets no storageKey and runs in memory only.
+  const storageKey = useMemo(() => {
+    if (!user?.id) return undefined;
+    return `nukhba::u:${user.id}::env-state::${subjectId}::${envHash}`;
+  }, [user?.id, subjectId, envHash]);
+
   return (
     <EnvThemeProvider theme={theme}>
-      <EnvStateProvider initialState={env.initialState || {}} storageKey={storageKey}>
-        <DynamicEnvShellInner env={env} subjectId={subjectId} onClose={onClose} onSubmitToTeacher={onSubmitToTeacher} />
+      <EnvStateProvider key={envKey} initialState={env.initialState || {}} storageKey={storageKey}>
+        <DynamicEnvShellInner
+          key={envKey}
+          env={env}
+          subjectId={subjectId}
+          envHash={envHash}
+          onClose={onClose}
+          onSubmitToTeacher={onSubmitToTeacher}
+          onLoadVariantEnv={onLoadVariantEnv}
+        />
       </EnvStateProvider>
     </EnvThemeProvider>
   );
@@ -64,13 +137,17 @@ function summarizeWorldState(state: any): string {
 function DynamicEnvShellInner({
   env,
   subjectId,
+  envHash,
   onClose,
   onSubmitToTeacher,
+  onLoadVariantEnv,
 }: {
   env: DynamicEnv;
   subjectId: string;
+  envHash: string;
   onClose?: () => void;
   onSubmitToTeacher?: (report: string, meta: { envTitle: string; envBriefing: string }) => void;
+  onLoadVariantEnv?: (env: DynamicEnv) => void;
 }) {
   const envState = useEnvState();
   const theme = useMemo(() => {
@@ -113,6 +190,10 @@ function DynamicEnvShellInner({
 
   const askAi = async (prompt: string) => {
     if (!prompt.trim() || assistBusy) return;
+    // Phase 3: refuse to call the assistant during a graded run. Defense in
+    // depth — the UI buttons that surface askAi are also hidden when
+    // isExamMode is true, so this only protects against programmatic calls.
+    if (isExamMode) return;
     setChatOpen(true);
     setAssistMsgs((p) => [...p, { role: "user", content: prompt }, { role: "assistant", content: "" }]);
     setAssistInput("");
@@ -304,6 +385,152 @@ function DynamicEnvShellInner({
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const startedAtRef = useRef<number>(Date.now());
 
+  // ─── Phase 3: exam mode + variant generation ─────────────────────────────
+  // `isExamMode` mirrors `envState.examTelemetry.examModeStartedAt !== null`,
+  // but is held locally so the header can re-render on the second-by-second
+  // timer tick without re-subscribing the whole context.
+  const [isExamMode, setIsExamMode] = useState(false);
+  const [showExamConfirm, setShowExamConfirm] = useState(false);
+  const [variantBusy, setVariantBusy] = useState(false);
+  const [variantError, setVariantError] = useState<string | null>(null);
+  // Phase 3 hardening — opaque server-issued exam-attempt id. Held in a ref
+  // so the renderer (passed via ctx.examAttemptId) and `buildReport` can
+  // read it synchronously. A null value means we either aren't in exam
+  // mode, the server-side start failed, or the attempt was invalidated by
+  // a server restart — in any of those cases the report submitted to
+  // /ai/teach will arrive WITHOUT a verified mastery token and the teacher
+  // prompt is forbidden from emitting STAGE_COMPLETE on it.
+  const examAttemptIdRef = useRef<string | null>(null);
+  const [examTokenError, setExamTokenError] = useState<string | null>(null);
+  // Mastery token returned by /ai/lab/exam/finalize. We embed this in the
+  // [MASTERY_TELEMETRY] block of the lab report; the server (in /ai/teach)
+  // verifies its HMAC and uses the avg mastery from its signed payload.
+  const masteryTokenRef = useRef<string | null>(null);
+  // Force a re-render every second while exam mode is on so the timer ticks.
+  const [, setExamTick] = useState(0);
+  useEffect(() => {
+    if (!isExamMode) return;
+    const id = setInterval(() => setExamTick((k) => k + 1), 1000);
+    return () => clearInterval(id);
+  }, [isExamMode]);
+
+  // Phase 3: every screen change accumulates time on the previous screen so
+  // [MASTERY_TELEMETRY] can report screen-time distribution. We rely on the
+  // engine's recordScreenChange to no-op when the id hasn't actually moved.
+  useEffect(() => {
+    if (activeId) envState.recordScreenChange(activeId);
+  }, [activeId, envState.recordScreenChange]);
+
+  const enableExamMode = async () => {
+    envState.setExamMode(true);
+    setIsExamMode(true);
+    setChatOpen(false);
+    setShowHints(false);
+    setShowExamConfirm(false);
+    // Open a fresh server-side exam attempt — the server snapshots the env
+    // and from now on validates each form submission itself (the renderer,
+    // when ctx.examAttemptId is set, posts every check-form to
+    // /ai/lab/exam/submit instead of comparing locally). A failure here is
+    // non-blocking for the UI but the report will arrive without a verified
+    // mastery token and the teacher prompt will refuse STAGE_COMPLETE — we
+    // surface a small inline warning so the student knows to retry.
+    examAttemptIdRef.current = null;
+    masteryTokenRef.current = null;
+    setExamTokenError(null);
+    // Phase 3 hardening — the server only opens an exam attempt against an
+    // env it itself generated, looked up by the opaque `__envId` it stamped
+    // on the env at /ai/lab/build-env / /ai/lab/generate-variant time. If
+    // we don't have one (e.g. the env was rehydrated from localStorage and
+    // its envId expired), surface a clear regenerate-the-env message rather
+    // than a silent failure — without an attempt the report goes out
+    // unverified and STAGE_COMPLETE is impossible.
+    const envId = (env as any)?.__envId;
+    if (typeof envId !== "string" || !envId) {
+      setExamTokenError("هذه البيئة قديمة. أعد توليدها من المعلم الذكي لتفعيل وضع الامتحان.");
+      return;
+    }
+    try {
+      const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/exam/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ subjectId, envId }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j?.attemptId) {
+        if (j?.error === "ENV_EXPIRED_OR_UNKNOWN") {
+          throw new Error("انتهت صلاحية البيئة. أعد توليدها من المعلم الذكي.");
+        }
+        if (j?.error === "EXAM_INELIGIBLE_NO_CHECK") {
+          throw new Error("هذه البيئة لا تحتوي أسئلة قابلة للتقييم في وضع الامتحان. اطلب من المعلم بيئة فيها أسئلة \"تحقّق\".");
+        }
+        throw new Error(j?.error || "تعذّر بدء الامتحان");
+      }
+      examAttemptIdRef.current = j.attemptId;
+    } catch (e: any) {
+      setExamTokenError(e?.message || "تعذّر بدء الامتحان");
+    }
+  };
+  const disableExamMode = () => {
+    envState.setExamMode(false);
+    setIsExamMode(false);
+    examAttemptIdRef.current = null;
+    masteryTokenRef.current = null;
+    setExamTokenError(null);
+  };
+
+  // Calls /ai/lab/generate-variant to fetch a structurally-similar env with
+  // different content (numbers/names/scenario specifics). On success we hot-
+  // swap the env via onLoadVariantEnv (provided by the parent if it supports
+  // hot-swapping). If the parent doesn't support it, we degrade gracefully
+  // by surfacing the variant in a tiny toast.
+  const tryVariant = async (difficultyHint: "same" | "harder" = "same") => {
+    if (variantBusy) return;
+    // Phase 3 hardening — the variant endpoint now requires a server-issued
+    // source envId (it refuses arbitrary client envs to close the
+    // "fabricate easy env → variant → trivial mastery" laundering attack).
+    // If the current env has no __envId (legacy/rehydrated env), surface a
+    // clear regenerate-the-env message rather than calling the endpoint to
+    // get a 400.
+    const srcEnvId = (env as any)?.__envId;
+    if (typeof srcEnvId !== "string" || !srcEnvId) {
+      setVariantError("هذه البيئة قديمة. أعد توليدها من المعلم الذكي لاستعمال النسخ الجديدة.");
+      return;
+    }
+    setVariantBusy(true);
+    setVariantError(null);
+    try {
+      const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/generate-variant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ subjectId, envId: srcEnvId, difficultyHint }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.env) {
+        if (j?.error === "ENV_EXPIRED_OR_UNKNOWN") {
+          throw new Error("انتهت صلاحية البيئة. أعد توليدها من المعلم الذكي.");
+        }
+        throw new Error(j?.error || "تعذّر توليد نسخة جديدة");
+      }
+      if (typeof onLoadVariantEnv === "function") {
+        // The outer DynamicEnvShell keys both EnvStateProvider and the inner
+        // shell on a content-hash of `env`, so handing the new env up triggers
+        // a full provider remount with fresh initialState, fresh activeId, and
+        // zeroed telemetry — calling envState.reset() on the about-to-unmount
+        // provider would only act on the OLD env's initial state, so we skip
+        // it. The remount is the source of truth for the swap.
+        onLoadVariantEnv(j.env);
+      } else {
+        setVariantError("النسخة جاهزة لكن لا يوجد معالج لتحميلها هنا.");
+      }
+    } catch (e: any) {
+      setVariantError(e?.message || "تعذّر توليد نسخة جديدة");
+    } finally {
+      setVariantBusy(false);
+    }
+  };
+
   const buildReport = (notes: string): string => {
     const elapsedMin = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 60000));
     const doneList = (env.tasks || [])
@@ -318,7 +545,93 @@ function DynamicEnvShellInner({
       ? `\n\nمعايير النجاح المعلنة:\n${(env as any).successCriteria.map((c: string) => `– ${c}`).join("\n")}`
       : "";
     const stateSnap = summarizeWorldState(envState.state);
-    const userNotes = notes.trim() ? `\n\nملاحظاتي:\n${notes.trim()}` : "";
+    // Phase 3 hardening — sanitize free-form student notes so a learner can't
+    // forge a `[LAB_REPORT]` or `[MASTERY_TELEMETRY]` block inside their own
+    // notes and confuse the teacher prompt's parser into accepting fake
+    // mastery scores or duplicate STAGE_COMPLETE triggers.
+    const sanitizedNotes = notes
+      .replace(/\[\s*LAB_REPORT\s*\]/gi, "[ملاحظة-طالب]")
+      .replace(/\[\s*MASTERY_TELEMETRY\s*\]/gi, "[ملاحظة-طالب]")
+      .replace(/\[\s*STAGE_COMPLETE\s*\]/gi, "[ملاحظة-طالب]")
+      .replace(/\[\s*\[\s*CREATE_LAB_ENV[^\]]*\]\s*\]/gi, "[ملاحظة-طالب]")
+      .trim();
+    const userNotes = sanitizedNotes ? `\n\nملاحظاتي:\n${sanitizedNotes}` : "";
+
+    // ─── Phase 3: mastery telemetry block ────────────────────────────────
+    // Computes per-task mastery using the formula:
+    //   100 * (firstAttemptCorrect ? 1 : max(0, 1 - failedAttempts/3))
+    //   * time-efficiency multiplier (1.0/0.8/0.6 for ≤avg / 2× / 3× avg)
+    // and emits a compact, human-readable block the teacher prompt parses.
+    //
+    // We use the SYNCHRONOUS snapshot (`getExamTelemetrySnapshot(activeId)`)
+    // — not the React-state `examTelemetry` — because the engine folds the
+    // in-flight current-screen dwell into the snapshot's `screenTimeMs`
+    // without going through async setState. This guarantees the report
+    // includes time on the screen the student is sitting on right now.
+    const t = envState.getExamTelemetrySnapshot(activeId);
+    const examMode = t.examModeStartedAt !== null;
+    const totalElapsedMs = Date.now() - t.startedAt;
+    const taskKeys = Array.from(new Set([
+      ...Object.keys(t.totalSubmitsByTask),
+      ...Object.keys(t.failedSubmitsByTask),
+    ])).filter((k) => k && k !== "__no_task__");
+
+    // Compute average submit-time per task (proxy for "avg time"). We don't
+    // track per-submit timestamps, so use total session time / submit count
+    // as a coarse baseline for the multiplier.
+    const totalSubmits = Object.values(t.totalSubmitsByTask).reduce((a, b) => a + b, 0) || 1;
+    const avgSubmitMs = totalElapsedMs / totalSubmits;
+
+    const masteryRows: string[] = [];
+    let masterySum = 0;
+    let masteryCount = 0;
+    for (const key of taskKeys) {
+      const failed = t.failedSubmitsByTask[key] ?? 0;
+      const total = t.totalSubmitsByTask[key] ?? 0;
+      if (total === 0) continue;
+      const firstOk = t.firstAttemptCorrectByTask[key] === true;
+      // Base score
+      const base = firstOk ? 1 : Math.max(0, 1 - failed / 3);
+      // Time-efficiency multiplier — uses session-wide avg as a coarse proxy.
+      const taskMs = total * avgSubmitMs;
+      const ratio = taskMs / Math.max(1, avgSubmitMs);
+      const mult = ratio <= 1.2 ? 1.0 : ratio <= 2.2 ? 0.8 : 0.6;
+      const score = Math.round(base * mult * 100);
+      masterySum += score;
+      masteryCount++;
+      masteryRows.push(`• "${key}": إتقان ${score}% (محاولات فاشلة: ${failed}، أول محاولة صحيحة: ${firstOk ? "نعم" : "لا"})`);
+    }
+    const avgMastery = masteryCount > 0 ? Math.round(masterySum / masteryCount) : 0;
+    // Snapshot already includes the in-flight current screen via the engine's
+    // synchronous folder, so the count matches reality without an off-by-one.
+    const screensVisited = Object.keys(t.screenTimeMs).length;
+    const screenTimeRows = Object.entries(t.screenTimeMs)
+      .map(([sid, ms]) => `• "${screens.find((s) => s.id === sid)?.title || sid}": ${Math.round((ms as number) / 60000)} دقيقة`)
+      .join("\n");
+
+    // Phase 3 hardening — server-signed mastery token. Only present when the
+    // student finished an exam attempt and /ai/lab/exam/finalize succeeded.
+    // The token's HMAC payload includes the SERVER-COMPUTED avgMastery, so
+    // even if the human-readable "متوسط الإتقان" line below were tampered
+    // with on the wire the server (in /ai/teach) overrides it with the
+    // signed value before the teacher prompt sees the report. Without a
+    // valid token the model is forbidden from emitting [STAGE_COMPLETE] on
+    // this report (and the server post-strips it as a belt-and-braces guard).
+    const tokenLines = examMode && masteryTokenRef.current
+      ? `\nmasteryToken=${masteryTokenRef.current}`
+      : "";
+
+    const masteryBlock = `
+
+[MASTERY_TELEMETRY]${tokenLines}
+الوضع: ${examMode ? "امتحان (self-test)" : "عادي (playground)"}
+متوسط الإتقان: ${avgMastery}%
+المهام المُقاسة: ${masteryCount}
+محاولات فاشلة (إجمالي): ${t.totalFailedSubmits}
+عمليات (إجمالي): ${t.totalMutations}
+شاشات زارها: ${screensVisited}/${screens.length}
+المدة الكلية: ${Math.max(1, Math.round(totalElapsedMs / 60000))} دقيقة${masteryRows.length ? `\n\nتفاصيل المهام (بناءً على نماذج الإدخال):\n${masteryRows.join("\n")}` : ""}${screenTimeRows ? `\n\nنقاط مكث على الشاشات:\n${screenTimeRows}` : ""}`;
+
     return `[LAB_REPORT]
 البيئة: ${env.title}
 الوصف: ${env.briefing || "—"}
@@ -332,11 +645,35 @@ ${doneList}
 ${pendingList}${successList}
 
 ملخّص حالة البيئة:
-${stateSnap}${userNotes}`;
+${stateSnap}${userNotes}${masteryBlock}`;
   };
 
-  const handleSubmitToTeacher = () => {
+  const handleSubmitToTeacher = async () => {
     if (!onSubmitToTeacher) return;
+    // Phase 3 hardening — if we're in exam mode and have a server-side
+    // attempt open, finalize it BEFORE building the report so the mastery
+    // token (signed over the server's canonical telemetry) is embedded in
+    // the [MASTERY_TELEMETRY] block. We don't block the user on a network
+    // error: a failed finalize just means the report goes out without a
+    // token, which the teacher prompt will treat as unverified (no
+    // STAGE_COMPLETE on this submission). The student can simply retry
+    // submitting to recover.
+    if (isExamMode && examAttemptIdRef.current && !masteryTokenRef.current) {
+      try {
+        const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/exam/finalize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ attemptId: examAttemptIdRef.current }),
+        });
+        const j = await r.json();
+        if (r.ok && typeof j?.token === "string") {
+          masteryTokenRef.current = j.token;
+        }
+      } catch {
+        // swallow — report just goes out unverified
+      }
+    }
     const report = buildReport(extraNotes);
     onSubmitToTeacher(report, { envTitle: env.title || "", envBriefing: env.briefing || "" });
     setShowSubmitDialog(false);
@@ -404,10 +741,55 @@ ${stateSnap}${userNotes}`;
             )}
           </div>
           <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+            {/* Phase 3 — exam-mode badge + live timer. Visible only while ON. */}
+            {isExamMode && (() => {
+              const startedAt = envState.examTelemetry.examModeStartedAt || Date.now();
+              const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+              const mm = Math.floor(elapsedSec / 60).toString().padStart(2, "0");
+              const ss = (elapsedSec % 60).toString().padStart(2, "0");
+              return (
+                <span className="inline-flex items-center gap-1.5 text-[11px] md:text-xs font-bold px-2.5 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  📝 امتحان • {mm}:{ss}
+                </span>
+              );
+            })()}
+            {/* Variant button — only meaningful in exam mode (the whole point
+                of exam mode is to test transfer on a fresh case). */}
+            {isExamMode && (
+              <button
+                onClick={() => tryVariant("same")}
+                disabled={variantBusy}
+                className="text-amber-100 hover:text-white text-[11px] md:text-xs px-2.5 md:px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 transition-colors disabled:opacity-50"
+                title="استبدل الأرقام/الأسماء بنسخة جديدة بنفس الشكل"
+              >
+                {variantBusy ? "…" : "🎲"}
+                <span className="hidden md:inline mr-1">{variantBusy ? "جارٍ التوليد" : "نسخة جديدة"}</span>
+              </button>
+            )}
+            {/* Toggle exam mode. Off → confirmation modal. On → instant off. */}
+            <button
+              onClick={() => {
+                if (isExamMode) disableExamMode();
+                else setShowExamConfirm(true);
+              }}
+              className={`text-[11px] md:text-xs px-2.5 md:px-3 py-1.5 rounded-lg border transition-colors ${
+                isExamMode
+                  ? "bg-amber-500/20 hover:bg-amber-500/30 border-amber-400/50 text-amber-100"
+                  : "bg-white/5 hover:bg-white/10 border-white/10 text-white/70 hover:text-white"
+              }`}
+              title={isExamMode ? "إنهاء وضع الامتحان" : "ادخل وضع الامتحان: إخفاء المساعد + تسجيل الأداء"}
+            >
+              {isExamMode ? "🛑" : "🎯"}
+              <span className="hidden md:inline mr-1">{isExamMode ? "إنهاء الامتحان" : "امتحنّي"}</span>
+            </button>
             <button
               onClick={() => {
                 if (window.confirm("هل تريد إعادة البيئة لحالتها الأولية؟ سيتم حذف جميع البيانات التي أدخلتها.")) {
                   envState.reset();
+                  // reset() in the engine also resets telemetry; mirror the
+                  // local exam-mode flag so the UI lines up.
+                  setIsExamMode(false);
                 }
               }}
               className="text-white/60 hover:text-white text-[11px] md:text-xs px-2.5 md:px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
@@ -666,7 +1048,7 @@ ${stateSnap}${userNotes}`;
                         </span>
                         <span className={`text-[12px] leading-snug ${done ? "line-through opacity-70" : ""}`}>{t.description}</span>
                       </div>
-                      {t.hint && !done && (
+                      {t.hint && !done && !isExamMode && (
                         <div className="mt-1.5 mr-7 text-[10px] text-white/40 italic">💡 {t.hint}</div>
                       )}
                     </button>
@@ -676,7 +1058,7 @@ ${stateSnap}${userNotes}`;
             </ol>
           </div>
 
-          {env.hints && env.hints.length > 0 && (
+          {env.hints && env.hints.length > 0 && !isExamMode && (
             <div className="mb-3">
               <button
                 onClick={() => setShowHints((v) => !v)}
@@ -692,12 +1074,21 @@ ${stateSnap}${userNotes}`;
             </div>
           )}
 
-          <button
-            onClick={() => { setChatOpen((v) => !v); setTasksDrawerOpen(false); }}
-            className="hidden md:block w-full mt-2 text-xs bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 rounded-lg p-2"
-          >
-            {chatOpen ? "إخفاء المساعد الذكي" : "💬 سؤال للمساعد الذكي"}
-          </button>
+          {/* Phase 3: in exam mode the AI assistant is hidden completely so
+              the student can't peek at hints during a graded run. */}
+          {!isExamMode && (
+            <button
+              onClick={() => { setChatOpen((v) => !v); setTasksDrawerOpen(false); }}
+              className="hidden md:block w-full mt-2 text-xs bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 rounded-lg p-2"
+            >
+              {chatOpen ? "إخفاء المساعد الذكي" : "💬 سؤال للمساعد الذكي"}
+            </button>
+          )}
+          {isExamMode && (
+            <div className="hidden md:block w-full mt-2 text-[11px] text-amber-200/70 bg-amber-500/5 border border-amber-400/20 rounded-lg p-2 text-center leading-relaxed">
+              المساعد الذكي مُعطّل أثناء الامتحان.<br />انهِ الامتحان لاستئناف المساعدة.
+            </div>
+          )}
         </aside>
 
         <main className="flex-1 min-w-0 flex flex-col">
@@ -824,7 +1215,7 @@ ${stateSnap}${userNotes}`;
                             <span className="shrink-0 mt-0.5 w-5 h-5 rounded border-2 border-white/30 group-hover:border-cyan-400 group-hover:bg-cyan-400/10 transition-colors" />
                             <div className="flex-1 min-w-0">
                               <div className="text-[13px] text-white/85 leading-snug">{t.description}</div>
-                              {t.hint && <div className="text-[11px] text-white/45 mt-1">💡 {t.hint}</div>}
+                              {t.hint && !isExamMode && <div className="text-[11px] text-white/45 mt-1">💡 {t.hint}</div>}
                             </div>
                           </button>
                         </li>
@@ -835,7 +1226,26 @@ ${stateSnap}${userNotes}`;
               })()}
 
               {(Array.isArray(active?.components) ? active!.components : []).map((c, i) => (
-                <ComponentRenderer key={i} comp={c} ctx={{ onGoToScreen: goToScreen, onAskAi: askAi }} />
+                <ComponentRenderer
+                  key={i}
+                  comp={c}
+                  ctx={{
+                    onGoToScreen: goToScreen,
+                    // In exam mode the AI assistant is hidden — disable any
+                    // "ask the teacher" form submits that would otherwise pop
+                    // it open and leak help during a graded run.
+                    onAskAi: isExamMode ? undefined : askAi,
+                    screenId: active?.id,
+                    // Phase 3 — let the renderer self-suppress in-card AI
+                    // affordances (e.g. challenge "?" buttons) so help
+                    // cannot leak even if a future surface forgets to gate.
+                    examMode: isExamMode,
+                    // Phase 3 hardening — when set, the FormBlock posts
+                    // `check`-type submits to /ai/lab/exam/submit so the
+                    // server is the source of truth for correctness.
+                    examAttemptId: examAttemptIdRef.current,
+                  }}
+                />
               ))}
               {(!active || !Array.isArray(active.components) || active.components.length === 0) && (
                 <div className="text-white/40 text-sm p-8 text-center border border-dashed border-white/10 rounded-2xl">
@@ -896,8 +1306,10 @@ ${stateSnap}${userNotes}`;
         </main>
 
         {/* Chat panel — always an overlay drawer (mobile + desktop) so it
-            never competes with the screen content for horizontal space. */}
-        {chatOpen && (
+            never competes with the screen content for horizontal space.
+            Phase 3: also gated on !isExamMode so the chat cannot leak help
+            during a graded run, even if chatOpen was true before toggling. */}
+        {chatOpen && !isExamMode && (
           <>
             <div className="fixed inset-0 z-[80] bg-black/60" onClick={() => setChatOpen(false)} />
             <aside className="fixed inset-y-0 left-0 z-[81] w-[92%] max-w-sm md:w-96 border-r border-white/10 bg-slate-950 flex flex-col shadow-2xl">
@@ -1017,6 +1429,61 @@ ${stateSnap}${userNotes}`;
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Phase 3 — exam-mode confirmation modal. Warns the student about the
+          consequences of going into self-test mode (no AI assist, performance
+          tracked) before flipping the flag. */}
+      {showExamConfirm && (
+        <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-sm w-full p-5 shadow-2xl">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-xl">🎯</div>
+              <div>
+                <h3 className="text-base font-bold text-white">تفعيل وضع الامتحان؟</h3>
+                <p className="text-xs text-white/70 mt-1 leading-relaxed">
+                  • سيُخفى المساعد الذكي والتلميحات.<br />
+                  • <strong className="text-amber-200">سيُعاد ضبط عدّاد المحاولات من الصفر</strong> — حتى يقيس المعلم أداءك الحقيقي بدون مساعدة.<br />
+                  • سيتم تسجيل عدد محاولاتك ووقتك على كل شاشة.<br />
+                  • سترسل النتيجة للمعلم مع التقرير لتقييم إتقانك.
+                </p>
+              </div>
+            </div>
+            {variantError && (
+              <div className="mb-3 text-[11px] text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-2">
+                {variantError}
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={enableExamMode}
+                className="bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-sm px-4 py-2.5 rounded-lg shadow-lg shadow-amber-500/20"
+              >
+                ابدأ الامتحان
+              </button>
+              <button
+                onClick={() => setShowExamConfirm(false)}
+                className="text-white/70 hover:text-white text-sm px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 3 — variant error toast (rendered briefly when generate-variant
+          fails or the parent didn't wire onLoadVariantEnv). */}
+      {variantError && !showExamConfirm && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[95] bg-red-900/90 border border-red-500/50 text-red-100 text-xs rounded-lg px-3 py-2 shadow-2xl max-w-sm text-center">
+          {variantError}
+          <button
+            onClick={() => setVariantError(null)}
+            className="mr-2 text-red-300 hover:text-white"
+          >
+            ✕
+          </button>
         </div>
       )}
 
