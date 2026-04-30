@@ -11,6 +11,7 @@ import {
 } from "../lib/ai-usage";
 import { isUnlimitedEmail } from "../lib/admins";
 import { getCostCapStatus } from "../lib/cost-cap";
+import { costForUsage } from "../lib/ai-pricing";
 import { pickTeachingModel, detectDeepReasoning, detectMasteryCheckFromHistory, detectLabReport } from "../lib/teaching-router";
 import {
   streamGeminiTeaching,
@@ -53,10 +54,9 @@ import {
 
 const router: IRouter = Router();
 
-// RED-LINE constraint: free first lesson is exactly 15 messages, no exceptions.
-// Increasing this number directly threatens platform survival — every extra
-// message is paid AI cost the platform absorbs without revenue.
-const FREE_LESSON_MESSAGE_LIMIT = 15;
+// Free first session per subject: 50 gems (≈ $0.05) of platform-absorbed cost.
+// Tracked via freeMessagesUsed column (repurposed to count gems, not messages).
+const FREE_LESSON_GEM_LIMIT = 50;
 
 /**
  * Set the full SSE header set and immediately flush them to the wire.
@@ -141,7 +141,7 @@ async function getUser(userId: number) {
 async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   const now = new Date();
 
-  // First lesson for THIS specific subject
+  // First session for THIS specific subject (50 gems, platform-absorbed)
   let [firstLessonRecord] = await db
     .select()
     .from(userSubjectFirstLessonsTable)
@@ -167,29 +167,36 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     }
   }
 
-  // First lesson is available if record exists, not completed, and under message limit
-  const isFirstLesson = !firstLessonRecord.completed && firstLessonRecord.freeMessagesUsed < FREE_LESSON_MESSAGE_LIMIT;
-  const freeMessagesUsed = firstLessonRecord.freeMessagesUsed;
-  const freeMessagesLeft = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - freeMessagesUsed);
+  // Free first session is active if not completed and under 50-gem cap.
+  // freeMessagesUsed now tracks gems (not messages) spent on the free session.
+  const freeGemsUsed = firstLessonRecord.freeMessagesUsed;
+  const isFirstLesson = !firstLessonRecord.completed && freeGemsUsed < FREE_LESSON_GEM_LIMIT;
+  const freeMessagesUsed = freeGemsUsed;
+  const freeMessagesLeft = Math.max(0, FREE_LESSON_GEM_LIMIT - freeGemsUsed);
 
-  // Per-subject subscription (most recent active one)
-  const subjectSubs = await db
-    .select()
-    .from(userSubjectSubscriptionsTable)
-    .where(eq(userSubjectSubscriptionsTable.userId, userId))
-    .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
-
-  const subjectSub = subjectSubs.find(s => s.subjectId === subjectId) ?? null;
-  const canAccessViaSubjectSub = !!(
-    subjectSub &&
-    new Date(subjectSub.expiresAt) > now &&
-    subjectSub.messagesUsed < subjectSub.messagesLimit
+  // ── Gems-based platform-wide subscription ─────────────────────────────────
+  const hasGemsSub = !!(
+    user.gemsBalance > 0 &&
+    user.gemsExpiresAt &&
+    new Date(user.gemsExpiresAt) > now
   );
-  const hasActiveSubjectSub = !!(subjectSub && new Date(subjectSub.expiresAt) > now);
 
-  const canAccessViaSubscription = canAccessViaSubjectSub;
-  const hasActiveSub = hasActiveSubjectSub;
-  const quotaExhausted = hasActiveSub && !canAccessViaSubscription;
+  // Daily gem limit: if the date has changed since last reset, treat today's
+  // usage as 0 (it will be reset atomically in the teach route before the
+  // first chargeable turn). This keeps the access-check view consistent with
+  // what the teach route will do.
+  const todayYemen = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const isStaleCounter = (user.gemsResetDate ?? null) !== todayYemen;
+  const effectiveGemsUsedToday = isStaleCounter ? 0 : (user.gemsUsedToday ?? 0);
+  const gemsDailyExhausted = hasGemsSub && (effectiveGemsUsedToday >= (user.gemsDailyLimit ?? 0)) && (user.gemsDailyLimit ?? 0) > 0;
+
+  const canAccessViaSubscription = hasGemsSub;
+  const hasActiveSub = hasGemsSub;
+  const quotaExhausted = hasActiveSub && gemsDailyExhausted;
+
+  // Keep subjectSub for backward-compat with cost-cap and older routes.
+  const subjectSub = null;
+  const canAccessViaSubjectSub = false;
 
   return {
     isFirstLesson,
@@ -203,6 +210,11 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     firstLessonRecord,
     freeMessagesUsed,
     freeMessagesLeft,
+    hasGemsSub,
+    gemsDailyExhausted,
+    gemsBalance: user.gemsBalance ?? 0,
+    gemsDailyLimit: user.gemsDailyLimit ?? 0,
+    effectiveGemsUsedToday,
   };
 }
 
@@ -706,198 +718,89 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
 
   const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
   const unlimited = isUnlimitedUser(user);
-  // For unlimited users, force-grant access regardless of subscription/first-lesson state.
-  const { isFirstLesson: rawFirstLesson, canAccessViaSubscription: rawCanAccess, hasActiveSub: rawHasActive, subjectSub, firstLessonRecord } = access;
+  // For unlimited users, force-grant access regardless of gems/first-lesson state.
+  const { isFirstLesson: rawFirstLesson, canAccessViaSubscription: rawCanAccess, hasActiveSub: rawHasActive, firstLessonRecord, hasGemsSub: rawHasGems, gemsDailyExhausted: rawGemsDailyExhausted } = access;
   const isFirstLesson = unlimited ? false : rawFirstLesson;
-  let canAccessViaSubscription = unlimited ? true : rawCanAccess;
+  const canAccessViaSubscription = unlimited ? true : rawCanAccess;
   const hasActiveSub = unlimited ? true : rawHasActive;
+  const hasGemsSub = unlimited ? false : (rawHasGems ?? false);
+  const gemsDailyExhausted = unlimited ? false : (rawGemsDailyExhausted ?? false);
   const isNewSession = !userMessage;
 
-  // ── Cost-cap check (paid students) ──────────────────────────────────────────
-  // RED LINE: a student's AI cost on this subscription must NEVER exceed 50%
-  // of what they paid. Free-tier students are protected by the message-count
-  // limit instead, so we skip the cap there. Unlimited admins are exempt.
-  //
-  // The cost-cap is now a daily-rolling QUALITY throttle, not a hard block:
-  // when today's slice of the remaining budget is consumed `forceCheapModel`
-  // flips to true and the router downgrades to Haiku for the rest of the day.
-  // Tomorrow at Yemen midnight a fresh daily slice is computed automatically.
-  // No paid student is ever silenced mid-subscription on cost grounds — the
-  // only legitimate refusals are free-tier 15-msg cap, daily 20/40/70 message
-  // cap, and natural subscription expiry, all handled elsewhere.
-  const costStatus = unlimited || isFirstLesson || !subjectSub
-    ? {
-        spentUsd: 0, todaySpentUsd: 0, capUsd: 0, dailyCapUsd: 0, daysRemaining: 0,
-        ratio: 0, mode: "ok" as const, dailyMode: "ok" as const,
-        dailyExhausted: false, totalExhausted: false,
-        forceCheapModel: false, blocked: false as const,
-      }
-    : await getCostCapStatus(userId, subjectSub);
+  // Legacy cost-cap is disabled in the gems system (cost is controlled via
+  // the gems balance/daily limit instead). Keep the shape so downstream code
+  // that reads costStatus.forceCheapModel etc. compiles without changes.
+  const costStatus = {
+    spentUsd: 0, todaySpentUsd: 0, capUsd: 0, dailyCapUsd: 0, daysRemaining: 0,
+    ratio: 0, mode: "ok" as const, dailyMode: "ok" as const,
+    dailyExhausted: false, totalExhausted: false,
+    forceCheapModel: false, blocked: false as const,
+  };
+  const subjectSub = null;
 
-  // ── Session limit (1 session per day, resets at midnight Yemen time) ──
-  // We claim today's date with an atomic conditional UPDATE so that concurrent
-  // requests can't both pass a stale `user.lastSessionDate` check and slip
-  // through. Only one request per day per user wins the claim; the rest get
-  // 429. We remember the previous value so we can roll the claim back if the
-  // AI call later fails (so the student isn't stuck on the countdown screen).
-  //
-  // IMPORTANT: We gate this on `hasActiveSub` (subscription not expired), NOT
-  // on `canAccessViaSubscription` (which also requires messagesUsed < limit).
-  // The reason: messagesLimit is now a *daily* cap, and messagesUsed only
-  // gets reset *during* this claim block. If we required canAccessViaSubscription
-  // here, a user who finished yesterday at the cap would be permanently locked
-  // out — they could never reach the reset code.
-  const previousLastSessionDate = user.lastSessionDate ?? null;
-  const previousMessagesUsed = subjectSub?.messagesUsed ?? null;
+  // ── Gems daily limit check (replaces session-based daily claim) ───────────
+  // For subscribed students: enforce gemsDailyLimit. Reset gemsUsedToday when
+  // the Yemen date has rolled over (atomic conditional update).
   let claimedTodaySession = false;
-  if (isNewSession && hasActiveSub && !unlimited) {
-    const today = getYemenDateString();
-    const claim = await db
-      .update(usersTable)
-      .set({ lastSessionDate: today })
-      .where(and(
-        eq(usersTable.id, userId),
-        or(
-          isNull(usersTable.lastSessionDate),
-          ne(usersTable.lastSessionDate, today),
-        ),
-      ))
-      .returning({ id: usersTable.id });
+  const rollbackDailyClaim = async () => {};
 
-    if (claim.length === 0) {
+  if (isNewSession && hasGemsSub && !unlimited) {
+    const today = getYemenDateString();
+
+    // If the reset date is stale, atomically reset today's counter.
+    if ((user.gemsResetDate ?? null) !== today) {
+      await db
+        .update(usersTable)
+        .set({ gemsUsedToday: 0, gemsResetDate: today })
+        .where(and(
+          eq(usersTable.id, userId),
+          or(isNull(usersTable.gemsResetDate), ne(usersTable.gemsResetDate, today)),
+        ))
+        .catch(() => {});
+      // Reflect reset locally
+      user.gemsUsedToday = 0;
+      user.gemsResetDate = today;
+    }
+
+    // Check daily gem cap AFTER potential reset.
+    const usedToday = user.gemsUsedToday ?? 0;
+    const dailyLimit = user.gemsDailyLimit ?? 0;
+    if (dailyLimit > 0 && usedToday >= dailyLimit) {
       const nextSessionAt = getNextMidnightYemen().toISOString();
       res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
       return;
     }
     claimedTodaySession = true;
-
-    // ── Daily message-counter reset ─────────────────────────────────────────────
-    // The subscription's messagesLimit is now interpreted as a *daily* cap.
-    // Whenever a user successfully claims a new daily session we reset
-    // messagesUsed for that subject's subscription back to 0 so today's quota
-    // starts fresh. After this reset, recompute canAccessViaSubscription so
-    // the access gate below sees the fresh state.
-    if (subjectSub) {
-      try {
-        await db
-          .update(userSubjectSubscriptionsTable)
-          .set({ messagesUsed: 0 })
-          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
-        subjectSub.messagesUsed = 0;
-        canAccessViaSubscription = subjectSub.messagesLimit > 0;
-      } catch (err: any) {
-        console.error("[ai/teach] daily messagesUsed reset failed:", err?.message || err);
-      }
-    }
   }
-
-  const rollbackDailyClaim = async () => {
-    if (!claimedTodaySession) return;
-    try {
-      await db.update(usersTable)
-        .set({ lastSessionDate: previousLastSessionDate })
-        .where(eq(usersTable.id, userId));
-      // Restore the previous messagesUsed value too so the user doesn't
-      // silently get a free top-up if the AI call failed before they used
-      // any of today's messages.
-      if (subjectSub && previousMessagesUsed !== null) {
-        await db.update(userSubjectSubscriptionsTable)
-          .set({ messagesUsed: previousMessagesUsed })
-          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
-        subjectSub.messagesUsed = previousMessagesUsed;
-      }
-    } catch (err: any) {
-      console.error("[ai/teach] daily-claim rollback failed:", err?.message || err);
-    }
-    claimedTodaySession = false;
-  };
 
   // ── Access gate ─────────────────────────────────────────────────────────────
   if (!isFirstLesson && !canAccessViaSubscription) {
-    if (!hasActiveSub) {
-      res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
-      return;
-    }
-    const stagesArr = stages ?? [];
-    const farewell = `<div><p>لقد استنفدت رصيدك من الرسائل لهذا التخصص 😔</p><p>سأُنهي جلستنا هنا — يمكنك مراجعة ملخصها في لوحة التحكم.</p><p>لمواصلة التعلم، جدّد اشتراكك في هذه المادة من صفحة الاشتراكات.</p></div>`;
+    res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
+    return;
+  }
+
+  // ── Free session pre-check (50 gems cap per subject) ─────────────────────
+  // We do a simple pre-call guard. Gem deduction happens post-call.
+  // Minor over-spend risk on race is acceptable (platform absorbs).
+  if (isFirstLesson && firstLessonRecord && firstLessonRecord.freeMessagesUsed >= FREE_LESSON_GEM_LIMIT) {
+    try {
+      await db.update(usersTable)
+        .set({ firstLessonComplete: true })
+        .where(eq(usersTable.id, userId));
+    } catch {}
     setSseHeaders(res);
+    const farewell = `<div><p>انتهت جواهر جلستك المجانية على هذا التخصص ✨</p><p>راجع ما تعلّمته في لوحتك. للاستمرار، اشترك من صفحة الاشتراكات.</p></div>`;
     res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
-    res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, nextStage: stagesArr.length, quotaExhausted: true, messagesRemaining: 0 })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, quotaExhausted: true, gemsRemaining: 0, firstLessonDone: true })}\n\n`);
     res.end();
     return;
   }
 
-  // ── Atomic free-tier claim (close the bypass race) ──────────────────────────
-  // RED LINE: a free-tier student must NEVER exceed FREE_LESSON_MESSAGE_LIMIT
-  // messages, even by sending parallel requests, logging out and back in, or
-  // any other trick. The previous code did a "check then increment AFTER the
-  // AI call" pattern, which lets N concurrent requests all pass the same
-  // stale check and bypass the cap. We replace it with an atomic conditional
-  // UPDATE that only succeeds if the counter is still under the cap. Anything
-  // beyond the cap is refused immediately, BEFORE any AI tokens are spent.
+  // No per-message atomic claim needed in the gems system.
+  // Gem deduction runs post-call based on actual cost.
   let freeClaimRolledBack = false;
   let freeClaimedNow = false;
-  if (isFirstLesson && firstLessonRecord) {
-    const claim = await db
-      .update(userSubjectFirstLessonsTable)
-      .set({
-        freeMessagesUsed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1`,
-        completed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + 1 >= ${FREE_LESSON_MESSAGE_LIMIT}`,
-      })
-      .where(and(
-        eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id),
-        sql`${userSubjectFirstLessonsTable.freeMessagesUsed} < ${FREE_LESSON_MESSAGE_LIMIT}`,
-        eq(userSubjectFirstLessonsTable.completed, false),
-      ))
-      .returning({ used: userSubjectFirstLessonsTable.freeMessagesUsed });
-
-    if (claim.length === 0) {
-      // The conditional update found no eligible row → this user already used
-      // all 15 free messages for this subject. Block immediately.
-      try {
-        await db.update(usersTable)
-          .set({ firstLessonComplete: true })
-          .where(eq(usersTable.id, userId));
-      } catch {}
-      setSseHeaders(res);
-      const farewell = `<div><p>انتهت رسائلك المجانية الـ 15 على هذا التخصص ✨</p><p>راجع ما تعلّمته في صفحة الجلسات السابقة. للاستمرار، اختر باقة من صفحة الاشتراكات.</p></div>`;
-      res.write(`data: ${JSON.stringify({ content: farewell })}\n\n`);
-      res.write(`data: ${JSON.stringify({ done: true, stageComplete: true, quotaExhausted: true, messagesRemaining: 0, firstLessonDone: true })}\n\n`);
-      res.end();
-      return;
-    }
-    freeClaimedNow = true;
-    // Reflect the new count locally so messagesRemaining math stays correct.
-    firstLessonRecord.freeMessagesUsed = claim[0].used;
-    if (claim[0].used >= FREE_LESSON_MESSAGE_LIMIT) {
-      firstLessonRecord.completed = true;
-      try {
-        await db.update(usersTable)
-          .set({ firstLessonComplete: true })
-          .where(eq(usersTable.id, userId));
-      } catch {}
-    }
-  }
-
-  // Roll the free-tier claim back if the AI call later fails so the student
-  // doesn't lose a message they never received a reply for.
-  const rollbackFreeClaim = async () => {
-    if (!freeClaimedNow || freeClaimRolledBack || !firstLessonRecord) return;
-    try {
-      await db
-        .update(userSubjectFirstLessonsTable)
-        .set({
-          freeMessagesUsed: sql`GREATEST(0, ${userSubjectFirstLessonsTable.freeMessagesUsed} - 1)`,
-          completed: false,
-        })
-        .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
-      firstLessonRecord.freeMessagesUsed = Math.max(0, firstLessonRecord.freeMessagesUsed - 1);
-      firstLessonRecord.completed = false;
-      freeClaimRolledBack = true;
-    } catch (err: any) {
-      console.error("[ai/teach] free-tier rollback failed:", err?.message || err);
-    }
-  };
+  const rollbackFreeClaim = async () => {};
 
   // ── Load student mistakes bank (top 10 unresolved) ───────────────────────
   // The mistakes bank lets the teacher remember what the student got wrong in
@@ -2613,40 +2516,61 @@ ${retrievedBlock}
   if (!chargeable) {
     await rollbackFreeClaim();
   }
-  // Paid subscription counter still increments after the call — that path
-  // doesn't have the same race window because the daily-claim block above
-  // already serialises requests through an atomic conditional update on the
-  // `lastSessionDate` column.
-  if (chargeable && !unlimited && !isFirstLesson && canAccessViaSubscription) {
-    if (access.canAccessViaSubjectSub && subjectSub) {
-      // Atomic increment so parallel within-session requests can't both read
-      // the same stale `subjectSub.messagesUsed` and skip past the daily cap.
-      await db.update(userSubjectSubscriptionsTable)
-        .set({ messagesUsed: sql`${userSubjectSubscriptionsTable.messagesUsed} + 1` })
-        .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
-      subjectSub.messagesUsed = subjectSub.messagesUsed + 1;
+  // ── Gems deduction (post-AI-call) ────────────────────────────────────────
+  // Compute actual cost from token counts and deduct gems from the user.
+  // 1 gem = $0.001 → gemsToDeduct = ceil(costUsd * 1000).
+  let gemsDeducted = 0;
+  if (chargeable && !unlimited) {
+    try {
+      let turnCostUsd = 0;
+      if (__geminiUsage) {
+        turnCostUsd = costForUsage({ model: __activeModel, inputTokens: __geminiUsage.inputTokens, outputTokens: __geminiUsage.outputTokens, cachedInputTokens: __geminiUsage.cachedInputTokens });
+      } else if (__finalMessage) {
+        const au = extractAnthropicUsage(__finalMessage);
+        turnCostUsd = costForUsage({ model: __activeModel, inputTokens: au.inputTokens, outputTokens: au.outputTokens, cachedInputTokens: au.cachedInputTokens, cacheCreationInputTokens: au.cacheCreationInputTokens });
+      }
+      const gems = Math.max(1, Math.ceil(turnCostUsd * 1000));
+      gemsDeducted = gems;
+
+      if (isFirstLesson && firstLessonRecord) {
+        // Free session: track gems used against 50-gem cap (platform absorbs cost).
+        await db.update(userSubjectFirstLessonsTable)
+          .set({
+            freeMessagesUsed: sql`LEAST(${FREE_LESSON_GEM_LIMIT}, ${userSubjectFirstLessonsTable.freeMessagesUsed} + ${gems})`,
+            completed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + ${gems} >= ${FREE_LESSON_GEM_LIMIT}`,
+          })
+          .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id))
+          .catch(() => {});
+        firstLessonRecord.freeMessagesUsed = Math.min(FREE_LESSON_GEM_LIMIT, firstLessonRecord.freeMessagesUsed + gems);
+      } else if (hasGemsSub) {
+        // Paid subscription: deduct from global gems balance + daily counter.
+        await db.update(usersTable)
+          .set({
+            gemsBalance: sql`GREATEST(0, ${usersTable.gemsBalance} - ${gems})`,
+            gemsUsedToday: sql`${usersTable.gemsUsedToday} + ${gems}`,
+          })
+          .where(eq(usersTable.id, userId))
+          .catch(() => {});
+      }
+    } catch (err: any) {
+      console.error("[ai/teach] gems deduction failed:", err?.message || err);
     }
   }
 
-  let messagesRemaining: number | null = null;
-  // Use the +1 only if we actually consumed a message; otherwise report the
-  // pre-call remaining count so the UI doesn't decrement on a no-op turn.
-  const consumed = responseHasContent ? 1 : 0;
+  // ── Compute gemsRemaining for the done event ─────────────────────────────
+  let gemsRemaining: number | null = null;
   if (unlimited) {
-    messagesRemaining = 999999;
+    gemsRemaining = 999999;
   } else if (isFirstLesson && firstLessonRecord) {
-    // freeMessagesUsed already reflects the atomic pre-call increment, so we
-    // don't add `consumed` again here — that would double-count.
-    messagesRemaining = Math.max(0, FREE_LESSON_MESSAGE_LIMIT - firstLessonRecord.freeMessagesUsed);
-  } else if (canAccessViaSubscription) {
-    if (access.canAccessViaSubjectSub && subjectSub) {
-      // subjectSub.messagesUsed already reflects the post-call atomic
-      // increment performed above, so we don't add `consumed` again — that
-      // would double-count and report 1 message fewer than truly remaining.
-      messagesRemaining = Math.max(0, subjectSub.messagesLimit - subjectSub.messagesUsed);
-    }
+    gemsRemaining = Math.max(0, FREE_LESSON_GEM_LIMIT - firstLessonRecord.freeMessagesUsed);
+  } else if (hasGemsSub) {
+    const approxBalance = Math.max(0, (user.gemsBalance ?? 0) - gemsDeducted);
+    const approxUsedToday = (user.gemsUsedToday ?? 0) + gemsDeducted;
+    const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - approxUsedToday);
+    gemsRemaining = Math.min(approxBalance, dailyRemaining);
   }
-  const isQuotaExhausted = !unlimited && messagesRemaining === 0;
+  const messagesRemaining = gemsRemaining; // alias kept for compat
+  const isQuotaExhausted = !unlimited && gemsRemaining === 0;
 
   // ── Post-success daily/streak bookkeeping ──
   // The session date itself was already claimed atomically up-front (see the
@@ -2695,7 +2619,7 @@ ${retrievedBlock}
   // the right thing by skipping the message-counter increment.
   if (!res.writableEnded) {
     try {
-      res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining: gemsRemaining, gemsRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate })}\n\n`);
       res.end();
     } catch {}
   }

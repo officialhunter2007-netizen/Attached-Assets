@@ -2,7 +2,17 @@
 
 ## Overview
 
-AI-powered Yemeni educational platform with personalized learning paths, gamification, paywall, and an admin panel. RTL Arabic UI.
+AI-powered Yemeni educational platform with personalized learning paths, gamification, gems-based monetisation, and an admin panel. RTL Arabic UI.
+
+## Monetisation — Gems System
+
+- **3 platform-wide plans** (Bronze/Silver/Gold) = 1000/2000/3000 gems, priced 1000/2000/3000 YER (north) or 2000/4000/6000 YER (south), valid 14 days.
+- **Daily cap** = total/14 gems (71/142/214), resets midnight Yemen time (UTC+3).
+- **Free first session** per subject = 50 gems; tracks via `userSubjectFirstLessonsTable.freeMessagesUsed`.
+- **Gem deduction** = `ceil(costUsd * 1000)` per AI turn, applied post-response.
+- **Gems badge** 💎 in header (red when balance < 200), fetched every 30s from `/api/subscriptions/gems-balance`.
+- **Payment flow**: manual Kuraimi transfer → admin approves in admin panel → gems credited to user.
+- **Schema fields**: `gemsBalance`, `gemsUsedToday`, `gemsDailyLimit`, `gemsResetDate`, `gemsExpiresAt` on `usersTable`.
 
 ## Stack
 

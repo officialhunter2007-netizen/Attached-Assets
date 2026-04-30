@@ -235,12 +235,12 @@ export default function Home() {
             {/* Silver */}
             <div className="glass p-6 md:p-8 rounded-3xl border-zinc-400/30 flex flex-col">
               <h3 className="text-lg md:text-xl font-bold mb-2 text-zinc-300">الفضية</h3>
-              <div className="text-2xl md:text-3xl font-bold mb-1 text-zinc-100">٤٠ <span className="text-base text-muted-foreground font-normal">رسالة يومياً</span></div>
-              <p className="text-xs text-muted-foreground mb-5">لمدة ١٤ يوم • عبر كريمي</p>
+              <div className="text-2xl md:text-3xl font-bold mb-1 text-zinc-100">٢٬٠٠٠ <span className="text-base text-muted-foreground font-normal">💎 جوهرة</span></div>
+              <p className="text-xs text-muted-foreground mb-5">١٤ يوماً • حتى ١٤٢ يومياً • عبر كريمي</p>
               <ul className="space-y-3 mb-6 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> ٤٠ رسالة يومياً مع المعلم الذكي</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> لجميع التخصصات بلا استثناء</li>
                 <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> ملخصات الدروس التلقائية</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> جميع المواد والمسارات</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> جواهر تتجدد كل منتصف ليل</li>
               </ul>
               <Link href="/subscription" className="w-full">
                 <Button className="w-full bg-zinc-700 hover:bg-zinc-600 text-white">اشترك الآن</Button>
@@ -251,12 +251,12 @@ export default function Home() {
             <div className="glass-gold p-6 md:p-8 rounded-3xl flex flex-col relative md:scale-105 z-10 shadow-2xl shadow-gold/10">
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gold text-primary-foreground font-bold text-xs px-4 py-1 rounded-full w-max">الأكثر طلباً</div>
               <h3 className="text-lg md:text-xl font-bold mb-2 text-gold">الذهبية</h3>
-              <div className="text-2xl md:text-3xl font-bold mb-1">٧٠ <span className="text-base text-gold/60 font-normal">رسالة يومياً</span></div>
-              <p className="text-xs text-gold/60 mb-5">لمدة ١٤ يوم • عبر كريمي</p>
+              <div className="text-2xl md:text-3xl font-bold mb-1">٣٬٠٠٠ <span className="text-base text-gold/60 font-normal">💎 جوهرة</span></div>
+              <p className="text-xs text-gold/60 mb-5">١٤ يوماً • حتى ٢١٤ يومياً • عبر كريمي</p>
               <ul className="space-y-3 mb-6 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> ٧٠ رسالة يومياً مع المعلم الذكي</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> لجميع التخصصات بلا استثناء</li>
                 <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> ملخصات الدروس التلقائية</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> جميع المواد والمسارات</li>
+                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> جواهر تتجدد كل منتصف ليل</li>
                 <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> أولوية الدعم الفني</li>
               </ul>
               <Link href="/subscription" className="w-full">
@@ -282,7 +282,7 @@ export default function Home() {
                 <div className="flex-1 text-center sm:text-right">
                   <p className="text-sm font-bold text-amber-400 mb-0.5">ابدأ بأقل تكلفة — الباقة البرونزية</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    ٢٠ رسالة يومياً مع المعلم الذكي لمدة ١٤ يوم، عبر محفظة كريمي مباشرةً. مثالية للبداية.
+                    ١٬٠٠٠ 💎 جوهرة (حتى ٧١ يومياً) لجميع التخصصات لمدة ١٤ يوماً عبر كريمي مباشرةً. مثالية للبداية.
                   </p>
                 </div>
                 <Link href="/subscription" className="shrink-0">

@@ -1485,6 +1485,7 @@ function SubjectPathChat({
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
+  const [gemsRemaining, setGemsRemaining] = useState<number | null>(null);
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
   const [countdownExpired, setCountdownExpired] = useState(false);
   // Bumped every time the student clicks "ابدأ الجلسة التالية الآن" so the
@@ -1930,6 +1931,9 @@ function SubjectPathChat({
               if (data.messagesRemaining !== null && data.messagesRemaining !== undefined) {
                 setMessagesRemaining(data.messagesRemaining);
               }
+              if (data.gemsRemaining !== null && data.gemsRemaining !== undefined) {
+                setGemsRemaining(data.gemsRemaining);
+              }
               if (data.planReady) {
                 gotPlanReady = true;
                 setCustomPlan(assistantMsg);
@@ -2232,9 +2236,9 @@ function SubjectPathChat({
         <div className="w-20 h-20 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
           <Lock className="w-10 h-10 text-gold" />
         </div>
-        <h3 className="text-2xl font-bold mb-3">انتهت رسائل هذا التخصص</h3>
+        <h3 className="text-2xl font-bold mb-3">انتهت جواهرك 💎</h3>
         <p className="text-muted-foreground mb-4 max-w-sm">
-          لقد استنفدت رصيدك من الرسائل لهذا التخصص. جدّد اشتراكك للاستمرار في التعلم.
+          لقد استنفدت رصيد جواهرك. اشترك في خطة جديدة للاستمرار في التعلم مع جميع التخصصات.
         </p>
         <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground">
           <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
@@ -2257,9 +2261,9 @@ function SubjectPathChat({
           <div className="w-24 h-24 rounded-full bg-amber-500/10 border-2 border-amber-500/30 flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(245,158,11,0.15)]">
             <span className="text-4xl">📭</span>
           </div>
-          <h3 className="text-2xl font-bold mb-3">رصيدك نفد</h3>
+          <h3 className="text-2xl font-bold mb-3">جواهرك نفدت 💎</h3>
           <p className="text-muted-foreground mb-2 max-w-sm text-sm leading-relaxed">
-            لقد استنفدت جميع رسائل اشتراكك في <strong className="text-foreground">{subject.name}</strong>.
+            لقد استنفدت رصيد جواهرك لهذا الاشتراك.
           </p>
           <p className="text-muted-foreground mb-6 max-w-sm text-sm leading-relaxed">
             {isSummarizing
@@ -2649,10 +2653,11 @@ function SubjectPathChat({
               );
             })}
           </div>
-          {messagesRemaining !== null && messagesRemaining > 0 && (
-            <div className={`shrink-0 flex items-center gap-1 rounded-lg px-2.5 py-1 ${messagesRemaining <= 5 ? 'bg-red-500/15 border border-red-500/30 animate-pulse' : messagesRemaining <= 10 ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5 border border-white/10'}`}>
-              <span className={`text-[11px] font-bold ${messagesRemaining <= 5 ? 'text-red-400' : messagesRemaining <= 10 ? 'text-amber-400' : 'text-muted-foreground'}`}>{messagesRemaining}</span>
-              <span className={`text-[10px] hidden sm:inline ${messagesRemaining <= 5 ? 'text-red-400/70' : messagesRemaining <= 10 ? 'text-amber-400/70' : 'text-muted-foreground/70'}`}>رسالة متبقية</span>
+          {gemsRemaining !== null && gemsRemaining > 0 && (
+            <div className={`shrink-0 flex items-center gap-1 rounded-lg px-2.5 py-1 ${gemsRemaining < 50 ? 'bg-red-500/15 border border-red-500/30 animate-pulse' : gemsRemaining < 150 ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5 border border-white/10'}`}>
+              <span className="text-[11px]">💎</span>
+              <span className={`text-[11px] font-bold ${gemsRemaining < 50 ? 'text-red-400' : gemsRemaining < 150 ? 'text-amber-400' : 'text-muted-foreground'}`}>{gemsRemaining}</span>
+              <span className={`text-[10px] hidden sm:inline ${gemsRemaining < 50 ? 'text-red-400/70' : gemsRemaining < 150 ? 'text-amber-400/70' : 'text-muted-foreground/70'}`}>جوهرة اليوم</span>
             </div>
           )}
         </div>

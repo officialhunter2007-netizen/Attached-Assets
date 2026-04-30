@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import claudeLogo from "@assets/image_1777231831214.png";
+import { useState, useEffect, useRef } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { markLeftSubPageWithoutSub, clearLeftSubPageWithoutSub } from "@/components/welcome-offer-modal";
 import {
@@ -13,17 +12,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, MessageCircle, BadgeCheck, BookOpen, Search, ArrowRight, ChevronDown, ShieldCheck, HelpCircle, PhoneCall, Send, Banknote, UserCheck, ClipboardCheck, Check, X, Sparkles } from "lucide-react";
+import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, ArrowRight, ChevronDown, ShieldCheck, HelpCircle, PhoneCall, Send, Banknote, UserCheck, ClipboardCheck, Check, X, Sparkles, MessageCircle } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
-import { university, skills } from "@/lib/curriculum";
+
 
 type PlanKey = "bronze" | "silver" | "gold";
 
 const plans: Record<PlanKey, {
   name: string;
   icon: React.ReactNode;
-  messages: number;
+  gems: number;
+  gemsPerDay: number;
   priceNorth: string;
   priceSouth: string;
   priceNorthNum: string;
@@ -36,37 +36,39 @@ const plans: Record<PlanKey, {
   bronze: {
     name: "البرونزية",
     icon: <Zap className="w-7 h-7 text-orange-400" />,
-    messages: 20,
-    priceNorth: "٢٬٠٠٠ ريال",
-    priceSouth: "٦٬٠٠٠ ريال",
-    priceNorthNum: "٢٬٠٠٠",
-    priceSouthNum: "٦٬٠٠٠",
+    gems: 1000,
+    gemsPerDay: 71,
+    priceNorth: "١٬٠٠٠ ريال",
+    priceSouth: "٢٬٠٠٠ ريال",
+    priceNorthNum: "١٬٠٠٠",
+    priceSouthNum: "٢٬٠٠٠",
     desc: "ابدأ تجربتك مع المعلم الذكي والمختبرات التطبيقية",
     color: "text-orange-400",
     features: [
-      "٢٠ رسالة يومياً مع المعلم الذكي المتخصص",
+      "١٬٠٠٠ 💎 جوهرة لجميع التخصصات — ١٤ يوماً",
+      "حتى ٧١ جوهرة يومياً تتجدّد منتصف الليل",
       "مختبرات تطبيقية تفاعلية تُبنى لك حسب الدرس",
       "تقييم ذكي لعملك في المختبر مع نقاط القوة والتطوير",
       "خطة تعلم شخصية مبنية على مستواك",
-      "حفظ تقدمك وتذكّر معلمك لكل ما درسته",
     ],
   },
   silver: {
     name: "الفضية",
     icon: <Star className="w-7 h-7 text-slate-300" />,
-    messages: 40,
-    priceNorth: "٤٬٠٠٠ ريال",
-    priceSouth: "١٢٬٠٠٠ ريال",
-    priceNorthNum: "٤٬٠٠٠",
-    priceSouthNum: "١٢٬٠٠٠",
-    desc: "للطالب الجاد — مختبرات أكثر وتدريب أعمق",
+    gems: 2000,
+    gemsPerDay: 142,
+    priceNorth: "٢٬٠٠٠ ريال",
+    priceSouth: "٤٬٠٠٠ ريال",
+    priceNorthNum: "٢٬٠٠٠",
+    priceSouthNum: "٤٬٠٠٠",
+    desc: "للطالب الجاد — تعلّم أعمق في جميع التخصصات",
     color: "text-slate-300",
     features: [
-      "٤٠ رسالة يومياً مع المعلم الذكي المتخصص",
+      "٢٬٠٠٠ 💎 جوهرة لجميع التخصصات — ١٤ يوماً",
+      "حتى ١٤٢ جوهرة يومياً تتجدّد منتصف الليل",
       "مختبرات تطبيقية تفاعلية بلا حدود",
-      "تقارير مفصّلة عن أدائك في كل مختبر (إبداعات / نقاط للصقل / خطوة تالية)",
+      "تقارير مفصّلة عن أدائك في كل مختبر",
       "خطة تعلم تتطوّر مع تقدمك ومراجعات دورية",
-      "توليد دروس وتمارين مخصصة عند الطلب",
       "أولوية في الدعم الفني",
     ],
     popular: true,
@@ -74,20 +76,20 @@ const plans: Record<PlanKey, {
   gold: {
     name: "الذهبية",
     icon: <Gem className="w-7 h-7 text-gold" />,
-    messages: 70,
-    priceNorth: "٦٬٠٠٠ ريال",
-    priceSouth: "١٨٬٠٠٠ ريال",
-    priceNorthNum: "٦٬٠٠٠",
-    priceSouthNum: "١٨٬٠٠٠",
-    desc: "الخيار الأشمل — تعلّم كثيف ومختبرات بلا توقف",
+    gems: 3000,
+    gemsPerDay: 214,
+    priceNorth: "٣٬٠٠٠ ريال",
+    priceSouth: "٦٬٠٠٠ ريال",
+    priceNorthNum: "٣٬٠٠٠",
+    priceSouthNum: "٦٬٠٠٠",
+    desc: "الخيار الأشمل — تعلّم كثيف بلا توقف",
     color: "text-gold",
     features: [
-      "٧٠ رسالة يومياً مع المعلم الذكي المتخصص",
-      "مختبرات تطبيقية تفاعلية متقدمة بلا حدود",
-      "تقييم احترافي مفصّل لكل مختبر مع تأمل وخطوة تالية",
-      "خطة تعلم متكاملة + مراجعات أسبوعية للأداء",
+      "٣٬٠٠٠ 💎 جوهرة لجميع التخصصات — ١٤ يوماً",
+      "حتى ٢١٤ جوهرة يومياً تتجدّد منتصف الليل",
+      "مختبرات تطبيقية متقدمة بلا حدود",
+      "تقييم احترافي مفصّل + مراجعات أسبوعية",
       "توليد دروس وتمارين ومشاريع حسب الطلب",
-      "وصول مبكر للميزات الجديدة قبل غيرك",
       "أولوية قصوى في الدعم الفني",
     ],
   },
@@ -97,39 +99,15 @@ const plans: Record<PlanKey, {
 // display only (e.g. computing the welcome offer's halved total). The
 // authoritative price is always re-computed on the server.
 const BASE_PRICES_DISPLAY: Record<"north" | "south", Record<PlanKey, number>> = {
-  north: { bronze: 2000, silver: 4000, gold: 6000 },
-  south: { bronze: 6000, silver: 12000, gold: 18000 },
+  north: { bronze: 1000, silver: 2000, gold: 3000 },
+  south: { bronze: 2000, silver: 4000, gold: 6000 },
 };
-
-const allSubjectsFlat = [
-  ...university.map(s => ({ id: s.id, name: s.name, emoji: s.emoji, category: "تخصصات الجامعة" })),
-  ...skills.flatMap(cat => cat.subjects.map(s => ({ id: s.id, name: s.name, emoji: s.emoji, category: cat.name }))),
-];
 
 export default function Subscription() {
   const { user, setUser } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [targetSubjectId, setTargetSubjectId] = useState<string | null>(null);
-  const [targetSubjectName, setTargetSubjectName] = useState<string | null>(null);
-  const [subjectLocked, setSubjectLocked] = useState(false);
-
-  const [showSubjectPicker, setShowSubjectPicker] = useState(false);
-  const [subjectSearch, setSubjectSearch] = useState("");
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sid = params.get("subject");
-    const sname = params.get("subjectName");
-    if (sid) {
-      setTargetSubjectId(sid);
-      setTargetSubjectName(sname ? decodeURIComponent(sname) : sid);
-      setSubjectLocked(true);
-    } else {
-      setShowSubjectPicker(true);
-    }
-  }, []);
 
   const [region, setRegion] = useState<"north" | "south">("north");
   const [selectedPlan, setSelectedPlan] = useState<PlanKey | null>(null);
@@ -328,13 +306,6 @@ export default function Subscription() {
     setDiscountError(null);
   };
 
-  const [mySubjectSubs, setMySubjectSubs] = useState<any[]>([]);
-  useEffect(() => {
-    fetch("/api/subscriptions/my-subjects", { credentials: "include" })
-      .then(r => r.json())
-      .then(d => Array.isArray(d) ? setMySubjectSubs(d) : null)
-      .catch(() => {});
-  }, [submitted]);
 
   const createReqMutation = useCreateSubscriptionRequest();
   const activateMutation = useActivateSubscription();
@@ -344,43 +315,11 @@ export default function Subscription() {
   const latestRequest = [...myRequests]
     .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0];
 
-  const subjectRequest = targetSubjectId
-    ? [...myRequests]
-        .filter((r: any) => r.subjectId === targetSubjectId)
-        .sort((a: any, b: any) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0]
-    : latestRequest;
-
-  const hasPendingRequest = subjectRequest?.status === "pending";
-  const hasIncompleteRequest = subjectRequest?.status === "incomplete";
-
-  const now = new Date();
-  const activeSubjectSub = targetSubjectId
-    ? mySubjectSubs.find(s => s.subjectId === targetSubjectId && new Date(s.expiresAt) > now && s.messagesUsed < s.messagesLimit)
-    : null;
-
-  const filteredSubjects = useMemo(() => {
-    const q = subjectSearch.trim().toLowerCase();
-    if (!q) return allSubjectsFlat;
-    return allSubjectsFlat.filter(s => s.name.toLowerCase().includes(q) || s.category.toLowerCase().includes(q));
-  }, [subjectSearch]);
-
-  const groupedFilteredSubjects = useMemo(() => {
-    const groups: Record<string, typeof allSubjectsFlat> = {};
-    for (const s of filteredSubjects) {
-      if (!groups[s.category]) groups[s.category] = [];
-      groups[s.category].push(s);
-    }
-    return groups;
-  }, [filteredSubjects]);
-
-  const handleSelectSubject = (id: string, name: string) => {
-    setTargetSubjectId(id);
-    setTargetSubjectName(name);
-    setShowSubjectPicker(false);
-  };
+  const hasPendingRequest = latestRequest?.status === "pending";
+  const hasIncompleteRequest = latestRequest?.status === "incomplete";
 
   const handlePaymentSubmit = async () => {
-    if (!selectedPlan || !accountName.trim() || !targetSubjectId) return;
+    if (!selectedPlan || !accountName.trim()) return;
     try {
       await createReqMutation.mutateAsync({
         data: {
@@ -389,14 +328,12 @@ export default function Subscription() {
           accountName: accountName.trim(),
           notes: notes.trim() || null,
           // @ts-ignore — extra fields accepted by backend
-          subjectId: targetSubjectId,
-          subjectName: targetSubjectName ?? undefined,
           discountCode: discountInfo?.code ?? undefined,
         }
       });
       toast({
         title: "تم إرسال الطلب",
-        description: `سيراجع المشرف طلبك لمادة "${targetSubjectName}" ويفعّل الاشتراك قريباً`,
+        description: "سيراجع المشرف طلبك ويُفعّل جواهرك قريباً",
         className: "bg-emerald-600 border-none text-white"
       });
       setSubmitted(true);
@@ -448,162 +385,19 @@ export default function Subscription() {
 
   const planLabelMap: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
 
-  if (showSubjectPicker) {
-    return (
-      <AppLayout>
-        <div className="container mx-auto px-4 py-12 max-w-4xl">
-          <div className="text-center mb-10">
-            <BookOpen className="w-14 h-14 text-gold mx-auto mb-4" />
-            <h1 className="text-3xl font-black mb-3">اختر المادة أو التخصص</h1>
-            <p className="text-muted-foreground text-lg">
-              كل اشتراك مخصص لمادة واحدة فقط — ستدفع اشتراكاً منفصلاً لكل مادة تريدها
-            </p>
-          </div>
-
-          <div className="relative mb-8 max-w-lg mx-auto">
-            <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              placeholder="ابحث عن مادة أو تخصص..."
-              className="bg-black/40 h-13 pr-12 text-right text-base"
-              dir="rtl"
-              value={subjectSearch}
-              onChange={e => setSubjectSearch(e.target.value)}
-              autoFocus
-            />
-          </div>
-
-          {Object.keys(groupedFilteredSubjects).length === 0 ? (
-            <div className="text-center py-16 text-muted-foreground">لا توجد نتائج للبحث</div>
-          ) : (
-            <div className="space-y-8">
-              {Object.entries(groupedFilteredSubjects).map(([category, subjects]) => (
-                <div key={category}>
-                  <h2 className="text-sm font-bold text-muted-foreground mb-3 flex items-center gap-2">
-                    <span className="w-6 h-px bg-white/20" />
-                    {category}
-                    <span className="w-6 h-px bg-white/20" />
-                  </h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {subjects.map(s => {
-                      const activeSub = mySubjectSubs.find(sub => sub.subjectId === s.id && new Date(sub.expiresAt) > now && sub.messagesUsed < sub.messagesLimit);
-                      return (
-                        <button
-                          key={s.id}
-                          onClick={() => handleSelectSubject(s.id, s.name)}
-                          className="glass border border-white/5 hover:border-gold/40 hover:bg-gold/5 rounded-2xl p-4 text-right transition-all duration-200 group relative"
-                        >
-                          {activeSub && (
-                            <span className="absolute top-2 left-2 w-2 h-2 rounded-full bg-emerald-400" title="اشتراك نشط" />
-                          )}
-                          <div className="text-2xl mb-2">{s.emoji}</div>
-                          <div className="font-bold text-sm group-hover:text-gold transition-colors">{s.name}</div>
-                          {activeSub && (
-                            <div className="text-xs text-emerald-400 mt-1">{activeSub.messagesLimit - activeSub.messagesUsed} رسالة متبقية</div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </AppLayout>
-    );
-  }
-
   return (
     <AppLayout>
       <div className="container mx-auto px-4 py-12 max-w-5xl">
         <div className="text-center mb-12">
           <Crown className="w-16 h-16 text-gold mx-auto mb-4" />
-          <h1 className="text-4xl font-black mb-4">
-            اشترك في: {targetSubjectName}
-          </h1>
+          <h1 className="text-4xl font-black mb-4">اشترك في نُخبة</h1>
           <p className="text-xl text-muted-foreground">
-            اشتراكك سيكون مخصصاً لمادة "{targetSubjectName}" فقط — كل مادة تتطلب اشتراكاً منفصلاً
+            اشتراك واحد يفتح لك جميع التخصصات — معلّم ذكي لكل مادة تريدها
           </p>
           <p className="text-sm text-gold/70 mt-3 max-w-2xl mx-auto leading-relaxed">
             أنت لا تشترك في "محادثة" — أنت تشترك في معلّم متخصّص يتذكّر تقدّمك، يبني خططاً ومختبرات تطبيقية، ويراجع عملك. ميزات لا تجدها في ChatGPT أو DeepSeek مهما دفعت.
           </p>
         </div>
-
-        <div className="mb-8 p-4 rounded-2xl border border-gold/30 bg-gold/5 flex items-center gap-3">
-          <BookOpen className="w-5 h-5 text-gold shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm">
-              <strong className="text-gold">المادة المختارة:</strong>{" "}
-              <span className="text-foreground">{targetSubjectName}</span>
-              <span className="text-muted-foreground"> — اشتراكك سيمنحك وصولاً كاملاً لهذه المادة فقط</span>
-            </p>
-          </div>
-          {!subjectLocked && (
-            <button
-              onClick={() => setShowSubjectPicker(true)}
-              className="text-xs text-muted-foreground hover:text-gold transition-colors flex items-center gap-1 shrink-0"
-            >
-              تغيير
-              <ChevronDown className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-
-        {activeSubjectSub && (
-          <div className="max-w-lg mx-auto mb-10">
-            <div className="glass rounded-3xl p-8 border-2 border-gold/30 shadow-[0_0_40px_rgba(245,158,11,0.15)] text-center">
-              <div className="w-20 h-20 rounded-full bg-gold/10 border-2 border-gold/30 flex items-center justify-center mx-auto mb-5">
-                <BadgeCheck className="w-10 h-10 text-gold" />
-              </div>
-              <div className="flex justify-center mb-3">{plans[activeSubjectSub.plan as PlanKey]?.icon}</div>
-              <h2 className={`text-3xl font-black mb-1 ${plans[activeSubjectSub.plan as PlanKey]?.color ?? "text-gold"}`}>
-                الباقة {planLabelMap[activeSubjectSub.plan] ?? activeSubjectSub.plan}
-              </h2>
-              <p className="text-sm text-muted-foreground mb-4">{activeSubjectSub.subjectName ?? activeSubjectSub.subjectId}</p>
-              <div className="bg-black/30 rounded-2xl p-4 mb-4 flex items-center justify-center gap-3">
-                <MessageCircle className="w-5 h-5 text-gold" />
-                <span className="text-lg font-bold">
-                  {activeSubjectSub.messagesLimit - activeSubjectSub.messagesUsed} رسالة متبقية
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                ينتهي في: {new Date(activeSubjectSub.expiresAt).toLocaleDateString("ar-SA")}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {mySubjectSubs.filter(s => new Date(s.expiresAt) > now).length > 0 && (
-          <div className="mb-10">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <BadgeCheck className="w-5 h-5 text-gold" />
-              اشتراكاتك النشطة
-            </h2>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {mySubjectSubs
-                .filter(s => new Date(s.expiresAt) > now)
-                .map(s => (
-                  <div key={s.id} className="glass rounded-2xl p-4 border border-gold/20">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold text-sm">{s.subjectName ?? s.subjectId}</span>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                        s.plan === "gold" ? "bg-gold/20 text-gold" :
-                        s.plan === "silver" ? "bg-slate-500/20 text-slate-300" :
-                        "bg-orange-500/20 text-orange-400"
-                      }`}>{planLabelMap[s.plan] ?? s.plan}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <MessageCircle className="w-3.5 h-3.5 text-gold" />
-                      <span>{s.messagesLimit - s.messagesUsed} / {s.messagesLimit} رسالة</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1.5">
-                      ينتهي: {new Date(s.expiresAt).toLocaleDateString("ar-SA")}
-                    </p>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
 
         {hasPendingRequest && !submitted && (
           <div className="mb-8 p-5 rounded-2xl border border-orange-500/30 bg-orange-500/5 flex items-start gap-4">
@@ -612,13 +406,10 @@ export default function Subscription() {
               <p className="font-bold text-orange-400 mb-1">طلبك قيد المراجعة</p>
               <p className="text-sm text-muted-foreground">
                 أرسلت طلب اشتراك باسم الحساب{" "}
-                <strong className="text-foreground">{subjectRequest?.accountName}</strong>{" "}
+                <strong className="text-foreground">{latestRequest?.accountName}</strong>{" "}
                 لباقة{" "}
-                <strong className="text-foreground">{plans[subjectRequest?.planType as PlanKey]?.name || subjectRequest?.planType}</strong>
-                {(subjectRequest as any)?.subjectName && (
-                  <> لمادة <strong className="text-foreground">{(subjectRequest as any).subjectName}</strong></>
-                )}.
-                {" "}سيتم تفعيل اشتراكك فور موافقة المشرف.
+                <strong className="text-foreground">{plans[latestRequest?.planType as PlanKey]?.name || latestRequest?.planType}</strong>.
+                {" "}سيتم تفعيل جواهرك فور موافقة المشرف.
               </p>
             </div>
           </div>
@@ -704,11 +495,14 @@ export default function Subscription() {
                 <p className="text-xs text-muted-foreground mb-4">{plan.desc}</p>
                 <div className="mb-2">
                   <span className={`text-3xl font-black ${isSelected ? 'text-gold' : ''}`}>{price}</span>
-                  <span className="text-sm text-muted-foreground mr-1">ريال / أسبوعين</span>
+                  <span className="text-sm text-muted-foreground mr-1">ريال / ١٤ يوماً</span>
                 </div>
-                <div className="text-xs text-emerald font-bold mb-6">{plan.messages} رسالة كل أسبوعين</div>
-                <div className="text-xs text-gold/70 mb-4 bg-gold/5 rounded-lg p-2 text-center">
-                  لمادة: {targetSubjectName}
+                <div className="text-xs text-gold font-bold mb-2 flex items-center gap-1">
+                  <span>💎</span>
+                  <span>{plan.gems.toLocaleString("ar-EG")} جوهرة إجمالي</span>
+                </div>
+                <div className="text-xs text-emerald-400 font-bold mb-6">
+                  حتى {plan.gemsPerDay} جوهرة / يوم — لجميع التخصصات
                 </div>
                 <ul className="space-y-2 text-sm">
                   {plan.features.map((f, fi) => (
@@ -816,39 +610,35 @@ export default function Subscription() {
           </div>
 
           <div className="grid md:grid-cols-2 gap-5">
-            {/* Card A — Claude branding */}
+            {/* Card A — AI tech branding */}
             <div className="glass rounded-3xl border-2 border-gold/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(245,158,11,0.06)] flex flex-col">
               <div className="flex items-center gap-4 mb-5">
-                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white flex items-center justify-center p-2 shadow-md">
-                  <img
-                    src={claudeLogo}
-                    alt="Claude by Anthropic"
-                    className="w-full h-full object-contain"
-                  />
+                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
+                  <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-gold" />
                 </div>
                 <div className="flex-1">
                   <div className="text-[11px] sm:text-xs font-bold text-gold/80 mb-1 tracking-wide">
-                    POWERED BY
+                    POWERED BY AI
                   </div>
                   <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
-                    مدعوم بأقوى تقنيات Claude من Anthropic
+                    مدعوم بأقوى نماذج الذكاء الاصطناعي
                   </h3>
                 </div>
               </div>
               <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
-                معلّمك في نُخبة لا يعمل على ChatGPT ولا DeepSeek — بل على عائلة <span className="text-gold font-bold">Claude</span> من Anthropic، إحدى أقوى نماذج الذكاء الاصطناعي في العالم اليوم.
+                معلّمك في نُخبة لا يعمل على ChatGPT ولا DeepSeek — بل على نماذج ذكاء اصطناعي متخصصة اخترناها بعناية لتناسب التعلم الشخصي العميق.
               </p>
               <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
                   <span>
-                    <span className="font-bold text-foreground">النموذج العميق</span> للحظات التي تستحق التفكير الدقيق: التشخيص، اختبار الفهم، تقارير المختبر، ولحظات "لم أفهم".
+                    <span className="font-bold text-foreground">نموذج التفكير العميق</span> للتشخيص، اختبار الفهم، تقارير المختبر، ولحظات "لم أفهم".
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
                   <span>
-                    <span className="font-bold text-foreground">النموذج السريع</span> للأسئلة اليومية والإجابات الفورية — استجابة خاطفة دون انتظار.
+                    <span className="font-bold text-foreground">نموذج الاستجابة السريعة</span> للأسئلة اليومية والإجابات الفورية دون انتظار.
                   </span>
                 </li>
               </ul>
@@ -962,11 +752,6 @@ export default function Subscription() {
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="bg-gold/5 border border-gold/20 rounded-xl p-3 text-sm text-center">
-                  <span className="text-muted-foreground">الاشتراك مخصص لمادة: </span>
-                  <strong className="text-gold">{targetSubjectName}</strong>
-                </div>
-
                 <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
                   <p className="text-xs text-emerald-400 font-bold text-center mb-1">الخطوة الأولى: حوّل المبلغ عبر الكريمي</p>
                   <p className="text-[11px] text-center text-muted-foreground">افتح تطبيق الكريمي على هاتفك وحوّل المبلغ إلى الرقم التالي</p>

@@ -8,6 +8,29 @@ import { NukhbaLogo } from "@/components/nukhba-logo";
 import { PlatformChatWidget } from "@/components/platform-chat-widget";
 import { startActivityTracker, trackPageView } from "@/lib/activity-tracker";
 
+type GemsState = {
+  gemsBalance: number;
+  dailyRemaining: number;
+  gemsDailyLimit: number;
+  hasActiveSub: boolean;
+} | null;
+
+function GemsBadge({ gems }: { gems: GemsState }) {
+  if (!gems || !gems.hasActiveSub) return null;
+  const low = gems.gemsBalance < 200;
+  return (
+    <Link href="/subscription">
+      <span
+        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors
+          ${low ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse" : "bg-gold/10 text-gold border border-gold/30 hover:bg-gold/20"}`}
+        title={`رصيد جواهرك: ${gems.gemsBalance} | متبقٍ اليوم: ${gems.dailyRemaining}`}
+      >
+        💎 {gems.gemsBalance.toLocaleString("ar-EG")}
+      </span>
+    </Link>
+  );
+}
+
 function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: string | null; size?: number }) {
   if (src) {
     return (
@@ -61,6 +84,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const prevUnreadRef = useRef(0);
   const [location] = useLocation();
+  const [gems, setGems] = useState<GemsState>(null);
 
   useEffect(() => {
     if (user) requestNotificationPermission();
@@ -91,6 +115,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
     const interval = setInterval(sendHeartbeat, 25000);
     return () => clearInterval(interval);
   }, [user, location]);
+
+  // Fetch gems balance periodically
+  useEffect(() => {
+    if (!user) { setGems(null); return; }
+    const fetchGems = () => {
+      fetch("/api/subscriptions/gems-balance", { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setGems(d); })
+        .catch(() => {});
+    };
+    fetchGems();
+    const interval = setInterval(fetchGems, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -150,6 +188,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-6">
             <NavLinks />
+            <GemsBadge gems={gems} />
             <div className="h-6 w-px bg-border/50 mx-2" />
             {user ? (
               <div className="flex items-center gap-3">
@@ -197,6 +236,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     </div>
                   )}
                   <NavLinks />
+                  <GemsBadge gems={gems} />
                   <div className="h-px w-full bg-border/50" />
                   {user ? (
                     <Button variant="destructive" onClick={logout} className="w-full justify-start">

@@ -22,16 +22,18 @@ import { generateActivationCode } from "../lib/auth";
 
 const router: IRouter = Router();
 
-const PLAN_MESSAGE_LIMITS: Record<string, number> = {
-  bronze: 20,
-  silver: 40,
-  gold: 70,
+// Gems granted per plan for the full 14-day period.
+// Daily cap = Math.floor(total / 14).
+const PLAN_GEM_LIMITS: Record<string, { total: number; daily: number }> = {
+  bronze: { total: 1000, daily: 71 },
+  silver: { total: 2000, daily: 142 },
+  gold:   { total: 3000, daily: 214 },
 };
 
-// Authoritative price table (server-side source of truth).
+// Authoritative price table (server-side source of truth) — YER.
 const BASE_PRICES: Record<"north" | "south", Record<string, number>> = {
-  north: { bronze: 2000, silver: 4000, gold: 6000 },
-  south: { bronze: 6000, silver: 12000, gold: 18000 },
+  north: { bronze: 1000, silver: 2000, gold: 3000 },
+  south: { bronze: 2000, silver: 4000, gold: 6000 },
 };
 
 // Welcome offer: 50% off for first-time subscription page visitors who
@@ -82,13 +84,9 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
     return;
   }
 
-  const subjectId: string = (req.body.subjectId ?? "").toString().trim();
-  const subjectName: string | undefined = req.body.subjectName;
-
-  if (!subjectId || subjectId === "all") {
-    res.status(400).json({ error: "يجب تحديد المادة أو التخصص. اختر مادةً محددة قبل إرسال طلب الاشتراك." });
-    return;
-  }
+  // Platform-wide subscription — no per-subject selection required.
+  const subjectId = "all";
+  const subjectName: string | undefined = undefined;
 
   const user = await getUser(userId);
 
@@ -675,20 +673,18 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
     return;
   }
 
-  if (!request.subjectId || request.subjectId === "all") {
-    res.status(400).json({ error: "طلب الاشتراك لا يحتوي على مادة محددة. يرجى رفضه وإنشاء طلب جديد بمادة محددة." });
-    return;
-  }
-
   const code = generateActivationCode();
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 14);
 
-  const messagesLimit = PLAN_MESSAGE_LIMITS[request.planType];
-  if (!messagesLimit) {
+  const planGems = PLAN_GEM_LIMITS[request.planType];
+  if (!planGems) {
     res.status(400).json({ error: `نوع الباقة غير معروف في الطلب: ${request.planType}` });
     return;
   }
+
+  // Yemen date for the reset anchor.
+  const yemenDate = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   // Race-safe approval: conditional update on status. Only the first concurrent
   // call wins; subsequent calls find updatedRows = 0 and bail out.
@@ -724,7 +720,7 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         activationCode: code,
         planType: request.planType,
         region: request.region,
-        subjectId: request.subjectId!,
+        subjectId: request.subjectId ?? "all",
         subjectName: request.subjectName ?? null,
         isUsed: true,
         usedByUserId: request.userId,
@@ -733,23 +729,18 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         subscriptionRequestId: id,
       }).returning();
 
-      // Persist the price the student actually paid (after any discount) on
-      // the subscription so the cost-cap enforcer treats real revenue, not
-      // the list price.
-      const paidYer = request.finalPrice ?? request.basePrice ?? getBasePrice(request.planType, request.region) ?? 0;
-      await tx.insert(userSubjectSubscriptionsTable).values({
-        userId: request.userId,
-        subjectId: request.subjectId!,
-        subjectName: request.subjectName ?? null,
-        plan: request.planType,
-        messagesUsed: 0,
-        messagesLimit,
-        expiresAt,
-        activationCode: code,
-        subscriptionRequestId: id,
-        paidPriceYer: paidYer,
-        region: request.region,
-      });
+      // Grant gems to the user — platform-wide subscription.
+      await tx
+        .update(usersTable)
+        .set({
+          gemsBalance: planGems.total,
+          gemsDailyLimit: planGems.daily,
+          gemsUsedToday: 0,
+          gemsResetDate: yemenDate,
+          gemsExpiresAt: expiresAt,
+          nukhbaPlan: request.planType,
+        })
+        .where(eq(usersTable.id, request.userId));
 
       return insertedCard;
     });
@@ -854,15 +845,9 @@ router.post("/admin/cards/create", async (req, res): Promise<void> => {
     return;
   }
 
-  const { planType, subjectId, subjectName } = req.body;
-  if (!planType || !PLAN_MESSAGE_LIMITS[planType]) {
+  const { planType } = req.body;
+  if (!planType || !PLAN_GEM_LIMITS[planType]) {
     res.status(400).json({ error: "Invalid plan type" });
-    return;
-  }
-
-  const cleanSubjectId = (subjectId ?? "").toString().trim();
-  if (!cleanSubjectId || cleanSubjectId === "all") {
-    res.status(400).json({ error: "يجب تحديد المادة أو التخصص لإنشاء بطاقة التفعيل." });
     return;
   }
 
@@ -873,8 +858,8 @@ router.post("/admin/cards/create", async (req, res): Promise<void> => {
   const [card] = await db.insert(activationCardsTable).values({
     activationCode: code,
     planType,
-    subjectId: cleanSubjectId,
-    subjectName: subjectName ?? null,
+    subjectId: "all",
+    subjectName: null,
     isUsed: false,
     expiresAt,
   }).returning();
@@ -1311,6 +1296,68 @@ router.get("/admin/discount-codes/:id/subscribers", async (req, res): Promise<vo
     .orderBy(desc(subscriptionRequestsTable.createdAt));
 
   res.json(requests);
+});
+
+// ── User: get current gems balance ────────────────────────────────────────────
+router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const user = await getUser(userId);
+  if (!user) {
+    res.status(401).json({ error: "User not found" });
+    return;
+  }
+
+  const now = new Date();
+  const hasActiveSub = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now && user.gemsBalance > 0);
+  const todayYemen = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const isStale = (user.gemsResetDate ?? null) !== todayYemen;
+  const usedToday = isStale ? 0 : (user.gemsUsedToday ?? 0);
+  const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - usedToday);
+
+  res.json({
+    gemsBalance: user.gemsBalance ?? 0,
+    gemsDailyLimit: user.gemsDailyLimit ?? 0,
+    gemsUsedToday: usedToday,
+    dailyRemaining,
+    gemsExpiresAt: user.gemsExpiresAt ?? null,
+    hasActiveSub,
+    plan: user.nukhbaPlan ?? null,
+  });
+});
+
+// ── Admin: manually grant gems to a user ──────────────────────────────────────
+router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const targetId = parseInt(req.params.id, 10);
+  if (isNaN(targetId)) { res.status(400).json({ error: "Invalid user id" }); return; }
+
+  const { planType } = req.body;
+  const planGems = PLAN_GEM_LIMITS[planType as string];
+  if (!planGems) { res.status(400).json({ error: "نوع الباقة غير صحيح" }); return; }
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 14);
+  const yemenDate = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  await db.update(usersTable).set({
+    gemsBalance: planGems.total,
+    gemsDailyLimit: planGems.daily,
+    gemsUsedToday: 0,
+    gemsResetDate: yemenDate,
+    gemsExpiresAt: expiresAt,
+    nukhbaPlan: planType,
+  }).where(eq(usersTable.id, targetId));
+
+  res.json({ ok: true, gemsGranted: planGems.total, expiresAt });
 });
 
 export default router;

@@ -20,6 +20,12 @@ export const usersTable = pgTable("users", {
   messagesUsed: integer("messages_used").notNull().default(0),
   messagesLimit: integer("messages_limit").notNull().default(0),
   subscriptionExpiresAt: timestamp("subscription_expires_at", { withTimezone: true }),
+  // ── Gems system (replaces per-subject message counters) ──────────────────────
+  gemsBalance: integer("gems_balance").notNull().default(0),
+  gemsUsedToday: integer("gems_used_today").notNull().default(0),
+  gemsDailyLimit: integer("gems_daily_limit").notNull().default(0),
+  gemsResetDate: text("gems_reset_date"),
+  gemsExpiresAt: timestamp("gems_expires_at", { withTimezone: true }),
   referralAccessUntil: timestamp("referral_access_until", { withTimezone: true }),
   firstLessonComplete: boolean("first_lesson_complete").notNull().default(false),
   referralCode: text("referral_code"),
