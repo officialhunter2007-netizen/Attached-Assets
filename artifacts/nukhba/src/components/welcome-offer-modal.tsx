@@ -32,7 +32,7 @@ export function WelcomeOfferModal() {
   const { user } = useAuth();
   const [location, navigate] = useLocation();
   const [open, setOpen] = useState(false);
-  const [percent, setPercent] = useState(50);
+  const [percent, setPercent] = useState(20);
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [submitting, setSubmitting] = useState(false);

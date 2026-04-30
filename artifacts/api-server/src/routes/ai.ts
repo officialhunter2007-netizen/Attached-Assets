@@ -22,7 +22,7 @@ import {
   type GeminiMessage,
 } from "../lib/gemini-stream";
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
-import { applyDailyGemsRollover } from "../lib/gems";
+import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
 import { signMasteryToken, verifyMasteryToken, newAttemptId } from "../lib/lab-exam-token";
 import {
@@ -181,32 +181,71 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   const freeMessagesUsed = freeGemsUsed;
   const freeMessagesLeft = Math.max(0, FREE_LESSON_GEM_LIMIT - freeGemsUsed);
 
-  // ── Gems-based platform-wide subscription ─────────────────────────────────
-  // Forfeit any unused daily allowance from prior days FIRST so all downstream
-  // access checks (and the gems we report to the client) reflect the truth.
-  await applyDailyGemsRollover(user);
+  // ── Per-subject gems wallet ────────────────────────────────────────────────
+  // Each subject is now its own independent subscription. We look up the
+  // wallet keyed by (userId, subjectId). If found and active, we forfeit any
+  // unused daily allowance from prior days first so the access check reflects
+  // the truth.
+  let [subjectGemsSub] = await db
+    .select()
+    .from(userSubjectSubscriptionsTable)
+    .where(and(
+      eq(userSubjectSubscriptionsTable.userId, userId),
+      eq(userSubjectSubscriptionsTable.subjectId, subjectId),
+    ))
+    .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
-  const hasGemsSub = !!(
+  if (subjectGemsSub) {
+    await applyDailyGemsRolloverForSubjectSub(subjectGemsSub);
+  }
+
+  const hasPerSubjectGemsSub = !!(
+    subjectGemsSub &&
+    (subjectGemsSub.gemsBalance ?? 0) > 0 &&
+    new Date(subjectGemsSub.expiresAt) > now
+  );
+
+  // ── Legacy global wallet (grandfathered users) ────────────────────────────
+  // Users who paid before the per-subject pivot still have a global wallet on
+  // usersTable. We honor it as a fallback so they don't lose access mid-period
+  // — but only when the user has NOT bought a per-subject plan for this
+  // subject. Once a per-subject wallet exists, it takes precedence.
+  await applyDailyGemsRollover(user);
+  const hasLegacyGemsSub = !hasPerSubjectGemsSub && !!(
     (user.gemsBalance ?? 0) > 0 &&
     user.gemsExpiresAt &&
     new Date(user.gemsExpiresAt) > now
   );
 
-  const effectiveGemsUsedToday = user.gemsUsedToday ?? 0;
-  const gemsDailyExhausted = hasGemsSub && (effectiveGemsUsedToday >= (user.gemsDailyLimit ?? 0)) && (user.gemsDailyLimit ?? 0) > 0;
+  const hasGemsSub = hasPerSubjectGemsSub || hasLegacyGemsSub;
+
+  // Daily-exhausted check uses whichever wallet is the source of truth.
+  let gemsBalance = 0;
+  let gemsDailyLimit = 0;
+  let effectiveGemsUsedToday = 0;
+  if (hasPerSubjectGemsSub && subjectGemsSub) {
+    gemsBalance = subjectGemsSub.gemsBalance ?? 0;
+    gemsDailyLimit = subjectGemsSub.gemsDailyLimit ?? 0;
+    effectiveGemsUsedToday = subjectGemsSub.gemsUsedToday ?? 0;
+  } else if (hasLegacyGemsSub) {
+    gemsBalance = user.gemsBalance ?? 0;
+    gemsDailyLimit = user.gemsDailyLimit ?? 0;
+    effectiveGemsUsedToday = user.gemsUsedToday ?? 0;
+  }
+  const gemsDailyExhausted = hasGemsSub && gemsDailyLimit > 0 && effectiveGemsUsedToday >= gemsDailyLimit;
 
   const canAccessViaSubscription = hasGemsSub;
   const hasActiveSub = hasGemsSub;
   const quotaExhausted = hasActiveSub && gemsDailyExhausted;
 
-  // Keep subjectSub for backward-compat with cost-cap and older routes.
-  const subjectSub = null;
-  const canAccessViaSubjectSub = false;
+  // Backward-compat fields kept for older route handlers.
+  const subjectSub = subjectGemsSub ?? null;
+  const canAccessViaSubjectSub = hasPerSubjectGemsSub;
 
   return {
     isFirstLesson,
     canAccessViaSubjectSub,
-    canAccessViaLegacyGlobal: false,
+    canAccessViaLegacyGlobal: hasLegacyGemsSub,
     canAccessViaSubscription,
     canAccessViaReferral: false,
     hasActiveSub,
@@ -216,9 +255,12 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     freeMessagesUsed,
     freeMessagesLeft,
     hasGemsSub,
+    hasPerSubjectGemsSub,
+    hasLegacyGemsSub,
+    perSubjectGemsSub: subjectGemsSub ?? null,
     gemsDailyExhausted,
-    gemsBalance: user.gemsBalance ?? 0,
-    gemsDailyLimit: user.gemsDailyLimit ?? 0,
+    gemsBalance,
+    gemsDailyLimit,
     effectiveGemsUsedToday,
   };
 }
@@ -784,11 +826,23 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
   const unlimited = isUnlimitedUser(user);
   // For unlimited users, force-grant access regardless of gems/first-lesson state.
-  const { isFirstLesson: rawFirstLesson, canAccessViaSubscription: rawCanAccess, hasActiveSub: rawHasActive, firstLessonRecord, hasGemsSub: rawHasGems, gemsDailyExhausted: rawGemsDailyExhausted } = access;
+  const {
+    isFirstLesson: rawFirstLesson,
+    canAccessViaSubscription: rawCanAccess,
+    hasActiveSub: rawHasActive,
+    firstLessonRecord,
+    hasGemsSub: rawHasGems,
+    gemsDailyExhausted: rawGemsDailyExhausted,
+    hasPerSubjectGemsSub: rawHasPerSubject,
+    hasLegacyGemsSub: rawHasLegacy,
+    perSubjectGemsSub,
+  } = access;
   const isFirstLesson = unlimited ? false : rawFirstLesson;
   const canAccessViaSubscription = unlimited ? true : rawCanAccess;
   const hasActiveSub = unlimited ? true : rawHasActive;
   const hasGemsSub = unlimited ? false : (rawHasGems ?? false);
+  const hasPerSubjectGemsSub = unlimited ? false : (rawHasPerSubject ?? false);
+  const hasLegacyGemsSub = unlimited ? false : (rawHasLegacy ?? false);
   const gemsDailyExhausted = unlimited ? false : (rawGemsDailyExhausted ?? false);
   const isNewSession = !userMessage;
 
@@ -801,29 +855,42 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     dailyExhausted: false, totalExhausted: false,
     forceCheapModel: false, blocked: false as const,
   };
-  const subjectSub = null;
+  const subjectSub = perSubjectGemsSub ?? null;
 
   // ── Gems daily limit check (replaces session-based daily claim) ───────────
   // For subscribed students: forfeit any unused gems from prior days, then
-  // enforce gemsDailyLimit. Forfeit logic lives in lib/gems.ts.
+  // enforce gemsDailyLimit. Per-subject wallet takes precedence; legacy wallet
+  // is used as a fallback for users grandfathered in from the global model.
   let claimedTodaySession = false;
   const rollbackDailyClaim = async () => {};
 
   if (isNewSession && hasGemsSub && !unlimited) {
-    await applyDailyGemsRollover(user);
-
-    // After forfeit, balance may have dropped to 0 → no active sub.
-    if ((user.gemsBalance ?? 0) <= 0) {
-      res.status(403).json({ code: "NO_GEMS" });
-      return;
-    }
-
-    const usedToday = user.gemsUsedToday ?? 0;
-    const dailyLimit = user.gemsDailyLimit ?? 0;
-    if (dailyLimit > 0 && usedToday >= dailyLimit) {
-      const nextSessionAt = getNextMidnightYemen().toISOString();
-      res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
-      return;
+    if (hasPerSubjectGemsSub && subjectSub) {
+      await applyDailyGemsRolloverForSubjectSub(subjectSub);
+      if ((subjectSub.gemsBalance ?? 0) <= 0) {
+        res.status(403).json({ code: "NO_GEMS" });
+        return;
+      }
+      const usedToday = subjectSub.gemsUsedToday ?? 0;
+      const dailyLimit = subjectSub.gemsDailyLimit ?? 0;
+      if (dailyLimit > 0 && usedToday >= dailyLimit) {
+        const nextSessionAt = getNextMidnightYemen().toISOString();
+        res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
+        return;
+      }
+    } else if (hasLegacyGemsSub) {
+      await applyDailyGemsRollover(user);
+      if ((user.gemsBalance ?? 0) <= 0) {
+        res.status(403).json({ code: "NO_GEMS" });
+        return;
+      }
+      const usedToday = user.gemsUsedToday ?? 0;
+      const dailyLimit = user.gemsDailyLimit ?? 0;
+      if (dailyLimit > 0 && usedToday >= dailyLimit) {
+        const nextSessionAt = getNextMidnightYemen().toISOString();
+        res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
+        return;
+      }
     }
     claimedTodaySession = true;
   }
@@ -2668,8 +2735,20 @@ ${retrievedBlock}
         console.log(
           `[ai/teach] lab-env showcase exemption: userId=${userId} subjectId=${subjectId} costGems=${gems} (not deducted from free cap)`,
         );
-      } else if (hasGemsSub) {
-        // Paid subscription: deduct from global gems balance + daily counter.
+      } else if (hasPerSubjectGemsSub && subjectSub) {
+        // Paid per-subject subscription: deduct from THIS subject's wallet
+        // only — never from any other subject's wallet, and never from the
+        // legacy global wallet. Race-safe: GREATEST(0, ...) clamps the
+        // balance so concurrent requests cannot underflow.
+        await db.update(userSubjectSubscriptionsTable)
+          .set({
+            gemsBalance: sql`GREATEST(0, ${userSubjectSubscriptionsTable.gemsBalance} - ${gems})`,
+            gemsUsedToday: sql`${userSubjectSubscriptionsTable.gemsUsedToday} + ${gems}`,
+          })
+          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id))
+          .catch(() => {});
+      } else if (hasLegacyGemsSub) {
+        // Legacy (grandfathered) wallet on usersTable.
         await db.update(usersTable)
           .set({
             gemsBalance: sql`GREATEST(0, ${usersTable.gemsBalance} - ${gems})`,
@@ -2689,7 +2768,12 @@ ${retrievedBlock}
     gemsRemaining = 999999;
   } else if (isFirstLesson && firstLessonRecord) {
     gemsRemaining = Math.max(0, FREE_LESSON_GEM_LIMIT - firstLessonRecord.freeMessagesUsed);
-  } else if (hasGemsSub) {
+  } else if (hasPerSubjectGemsSub && subjectSub) {
+    const approxBalance = Math.max(0, (subjectSub.gemsBalance ?? 0) - gemsDeducted);
+    const approxUsedToday = (subjectSub.gemsUsedToday ?? 0) + gemsDeducted;
+    const dailyRemaining = Math.max(0, (subjectSub.gemsDailyLimit ?? 0) - approxUsedToday);
+    gemsRemaining = Math.min(approxBalance, dailyRemaining);
+  } else if (hasLegacyGemsSub) {
     const approxBalance = Math.max(0, (user.gemsBalance ?? 0) - gemsDeducted);
     const approxUsedToday = (user.gemsUsedToday ?? 0) + gemsDeducted;
     const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - approxUsedToday);

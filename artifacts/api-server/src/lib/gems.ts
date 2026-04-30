@@ -23,7 +23,7 @@
  */
 
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, userSubjectSubscriptionsTable } from "@workspace/db";
 import { getYemenDateString } from "./yemen-time";
 
 const ONE_DAY_MS = 86_400_000;
@@ -149,4 +149,81 @@ export async function applyDailyGemsRollover<T extends UserGemsState>(user: T): 
   }
 
   return user;
+}
+
+/**
+ * Per-subject version of {@link applyDailyGemsRollover}. Operates on a single
+ * row in `user_subject_subscriptions` keyed by id. Same forfeit semantics as
+ * the global version: leftover daily gems are subtracted from `gemsBalance`
+ * for every Yemen midnight that passed inside the active subscription window.
+ *
+ * Mutates `sub` in place AND persists. Returns the same reference.
+ */
+export type SubjectSubGemsState = {
+  id: number;
+  gemsBalance: number | null;
+  gemsDailyLimit: number | null;
+  gemsUsedToday: number | null;
+  gemsResetDate: string | null;
+  expiresAt: Date | string | null;
+};
+
+export async function applyDailyGemsRolloverForSubjectSub<T extends SubjectSubGemsState>(sub: T): Promise<T> {
+  const today = getYemenDateString();
+  if ((sub.gemsResetDate ?? null) === today) return sub;
+
+  const dailyLimit = Math.max(0, sub.gemsDailyLimit ?? 0);
+  const usedToday = Math.max(0, sub.gemsUsedToday ?? 0);
+  const expiresAt = sub.expiresAt ? new Date(sub.expiresAt) : null;
+
+  let forfeit = 0;
+  if (dailyLimit > 0 && (sub.gemsBalance ?? 0) > 0) {
+    const lastResetUtc = sub.gemsResetDate ? parseYemenDateLabel(sub.gemsResetDate) : null;
+    const todayUtc = parseYemenDateLabel(today)!;
+    if (lastResetUtc) {
+      forfeit = computeForfeit(lastResetUtc, todayUtc, dailyLimit, usedToday, expiresAt);
+    }
+  }
+
+  const updated = await db
+    .update(userSubjectSubscriptionsTable)
+    .set({
+      gemsBalance: sql`GREATEST(0, ${userSubjectSubscriptionsTable.gemsBalance} - ${forfeit})`,
+      gemsUsedToday: 0,
+      gemsResetDate: today,
+    })
+    .where(and(
+      eq(userSubjectSubscriptionsTable.id, sub.id),
+      or(
+        isNull(userSubjectSubscriptionsTable.gemsResetDate),
+        ne(userSubjectSubscriptionsTable.gemsResetDate, today),
+      ),
+    ))
+    .returning({
+      gemsBalance: userSubjectSubscriptionsTable.gemsBalance,
+      gemsUsedToday: userSubjectSubscriptionsTable.gemsUsedToday,
+      gemsResetDate: userSubjectSubscriptionsTable.gemsResetDate,
+    });
+
+  if (updated.length > 0) {
+    sub.gemsBalance = updated[0].gemsBalance;
+    sub.gemsUsedToday = updated[0].gemsUsedToday;
+    sub.gemsResetDate = updated[0].gemsResetDate;
+  } else {
+    const [fresh] = await db
+      .select({
+        gemsBalance: userSubjectSubscriptionsTable.gemsBalance,
+        gemsUsedToday: userSubjectSubscriptionsTable.gemsUsedToday,
+        gemsResetDate: userSubjectSubscriptionsTable.gemsResetDate,
+      })
+      .from(userSubjectSubscriptionsTable)
+      .where(eq(userSubjectSubscriptionsTable.id, sub.id));
+    if (fresh) {
+      sub.gemsBalance = fresh.gemsBalance;
+      sub.gemsUsedToday = fresh.gemsUsedToday;
+      sub.gemsResetDate = fresh.gemsResetDate;
+    }
+  }
+
+  return sub;
 }

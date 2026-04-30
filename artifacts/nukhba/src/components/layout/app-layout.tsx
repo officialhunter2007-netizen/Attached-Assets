@@ -120,11 +120,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [user, location]);
 
-  // Fetch gems balance periodically + on demand after AI turns
+  // Fetch gems balance periodically + on demand after AI turns.
+  // Per-subject model: the badge is only meaningful inside a learning
+  // session for ONE specific subject. On other pages there is no single
+  // "current" wallet, so we hide the badge entirely.
+  // Route shape: /subject/:subjectId/...  → derive subjectId from location.
+  const currentSubjectId = (() => {
+    const m = location.match(/^\/subject\/([^/?#]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  })();
   useEffect(() => {
-    if (!user) { setGems(null); return; }
+    if (!user || !currentSubjectId) { setGems(null); return; }
     const fetchGems = () => {
-      fetch("/api/subscriptions/gems-balance", { credentials: "include" })
+      const url = `/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(currentSubjectId)}`;
+      fetch(url, { credentials: "include" })
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d) setGems(d); })
         .catch(() => {});
@@ -137,7 +146,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       clearInterval(interval);
       window.removeEventListener("nukhba:gems-changed", fetchGems);
     };
-  }, [user]);
+  }, [user, currentSubjectId]);
 
   useEffect(() => {
     if (!user) return;

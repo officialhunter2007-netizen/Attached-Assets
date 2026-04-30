@@ -19,12 +19,13 @@ import {
   MarkIncompleteSubscriptionRequestParams,
 } from "@workspace/api-zod";
 import { generateActivationCode } from "../lib/auth";
-import { applyDailyGemsRollover } from "../lib/gems";
+import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 
 const router: IRouter = Router();
 
 // Gems granted per plan for the full 14-day period.
-// Daily cap = Math.floor(total / 14).
+// Daily cap = Math.floor(total / 14). Each subject is its own subscription
+// — these gems are scoped to the subject the user paid for.
 const PLAN_GEM_LIMITS: Record<string, { total: number; daily: number }> = {
   bronze: { total: 1000, daily: 71 },
   silver: { total: 2000, daily: 142 },
@@ -37,10 +38,72 @@ const BASE_PRICES: Record<"north" | "south", Record<string, number>> = {
   south: { bronze: 2000, silver: 4000, gold: 6000 },
 };
 
-// Welcome offer: 50% off for first-time subscription page visitors who
+// Welcome offer: 20% off for first-time subscription page visitors who
 // leave without subscribing — auto-applied on next subscription within 24h.
-const WELCOME_OFFER_PERCENT = 50;
+// One-time per student. Cannot be stacked with any other discount code.
+const WELCOME_OFFER_PERCENT = 20;
 const WELCOME_OFFER_DURATION_MS = 24 * 60 * 60 * 1000;
+const WELCOME_OFFER_LABEL = "WELCOME20";
+
+// 14-day subscription window for plans approved here.
+const SUB_DURATION_DAYS = 14;
+
+function getYemenDateLabel(): string {
+  return new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Atomically grant a per-subject subscription. Replaces any existing row for
+ * the same (userId, subjectId): if the user already has gems left for that
+ * subject, we reset the wallet for the freshly-paid 14 days. The legacy global
+ * `usersTable.gems*` columns are NOT touched — those exist only for backward
+ * compatibility with grandfathered users.
+ */
+async function grantSubjectSubscription(opts: {
+  userId: number;
+  subjectId: string;
+  subjectName: string | null;
+  planType: string;
+  region: string | null;
+  paidPriceYer: number;
+  activationCode: string | null;
+  subscriptionRequestId: number | null;
+}): Promise<typeof userSubjectSubscriptionsTable.$inferSelect> {
+  const planGems = PLAN_GEM_LIMITS[opts.planType];
+  if (!planGems) throw new Error(`Unknown plan type: ${opts.planType}`);
+
+  const expiresAt = new Date(Date.now() + SUB_DURATION_DAYS * 24 * 60 * 60 * 1000);
+  const yemenDate = getYemenDateLabel();
+
+  return await db.transaction(async (tx) => {
+    // Drop any prior row for this (userId, subjectId) — the new payment buys
+    // a fresh 14-day window and gem wallet for that subject.
+    await tx.delete(userSubjectSubscriptionsTable).where(and(
+      eq(userSubjectSubscriptionsTable.userId, opts.userId),
+      eq(userSubjectSubscriptionsTable.subjectId, opts.subjectId),
+    ));
+
+    const [row] = await tx.insert(userSubjectSubscriptionsTable).values({
+      userId: opts.userId,
+      subjectId: opts.subjectId,
+      subjectName: opts.subjectName,
+      plan: opts.planType,
+      messagesUsed: 0,
+      messagesLimit: planGems.total, // legacy column kept = total gems
+      expiresAt,
+      activationCode: opts.activationCode,
+      subscriptionRequestId: opts.subscriptionRequestId,
+      paidPriceYer: opts.paidPriceYer,
+      region: opts.region,
+      gemsBalance: planGems.total,
+      gemsDailyLimit: planGems.daily,
+      gemsUsedToday: 0,
+      gemsResetDate: yemenDate,
+    }).returning();
+
+    return row;
+  });
+}
 
 function getBasePrice(planType: string, region: string): number | null {
   const r = BASE_PRICES[region as "north" | "south"];
@@ -85,9 +148,18 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
     return;
   }
 
-  // Platform-wide subscription — no per-subject selection required.
-  const subjectId = "all";
-  const subjectName: string | undefined = undefined;
+  // ── Per-subject subscription gate ──────────────────────────────────────────
+  // Each subject is a fully independent subscription (Gold for Cybersecurity
+  // does NOT grant access to AI). The page MUST send a real subjectId+name —
+  // we no longer accept "all" or fall back silently to a platform-wide grant.
+  const rawSubjectId = typeof req.body?.subjectId === "string" ? req.body.subjectId.trim() : "";
+  const rawSubjectName = typeof req.body?.subjectName === "string" ? req.body.subjectName.trim() : "";
+  if (!rawSubjectId || rawSubjectId === "all") {
+    res.status(400).json({ error: "اختر التخصص الذي تريد الاشتراك فيه — كل تخصص اشتراك مستقل." });
+    return;
+  }
+  const subjectId = rawSubjectId;
+  const subjectName = rawSubjectName || null;
 
   const user = await getUser(userId);
 
@@ -113,7 +185,7 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
   // Red line: cannot stack welcome offer with another discount code.
   if (welcomeActive && codeNorm) {
     res.status(400).json({
-      error: "لا يمكن استخدام كود خصم آخر مع العرض الترحيبي ٥٠٪. يكفيك خصم واحد فقط.",
+      error: `لا يمكن استخدام كود خصم آخر مع العرض الترحيبي ${WELCOME_OFFER_PERCENT}٪. يكفيك خصم واحد فقط.`,
     });
     return;
   }
@@ -169,7 +241,7 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
         notes: parsed.data.notes ?? null,
         status: "pending",
         discountCodeId: discountCodeRow?.id ?? null,
-        discountCode: welcomeApplied ? "WELCOME50" : (discountCodeRow?.code ?? null),
+        discountCode: welcomeApplied ? WELCOME_OFFER_LABEL : (discountCodeRow?.code ?? null),
         discountPercent: percent || null,
         basePrice,
         finalPrice,
@@ -564,38 +636,59 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     return;
   }
 
-  // Activation cards now grant a platform-wide gems subscription (no longer
-  // per-subject). The card's `subjectId`/`subjectName` is informational only.
+  // Activation cards are per-subject. Cards minted under the legacy
+  // "all" model are no longer accepted because they would grant access to a
+  // subject the student didn't explicitly choose — and that contradicts the
+  // current per-subject billing rule.
+  if (!card.subjectId || card.subjectId === "all") {
+    res.status(400).json({
+      success: false,
+      message: "هذا الكود غير مرتبط بتخصص محدد. يرجى التواصل مع الدعم لإصدار كود جديد.",
+    });
+    return;
+  }
+
   const planGems = PLAN_GEM_LIMITS[card.planType];
   if (!planGems) {
     res.status(400).json({ success: false, message: `نوع الباقة غير معروف: ${card.planType}` });
     return;
   }
 
-  const subscriptionExpiresAt = card.expiresAt ?? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-  const yemenDate = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // Atomically mark the card as used FIRST so concurrent activations cannot
+  // both pass the `isUsed` check above.
+  const claim = await db
+    .update(activationCardsTable)
+    .set({ isUsed: true, usedByUserId: userId, usedAt: new Date() })
+    .where(and(
+      eq(activationCardsTable.id, card.id),
+      eq(activationCardsTable.isUsed, false),
+    ))
+    .returning({ id: activationCardsTable.id });
 
-  await db.update(activationCardsTable).set({
-    isUsed: true,
-    usedByUserId: userId,
-    usedAt: new Date(),
-  }).where(eq(activationCardsTable.id, card.id));
+  if (claim.length === 0) {
+    res.status(400).json({ success: false, message: "تم استخدام هذا الكود مسبقاً" });
+    return;
+  }
 
-  await db.update(usersTable).set({
-    gemsBalance: planGems.total,
-    gemsDailyLimit: planGems.daily,
-    gemsUsedToday: 0,
-    gemsResetDate: yemenDate,
-    gemsExpiresAt: subscriptionExpiresAt,
-    nukhbaPlan: card.planType,
-  }).where(eq(usersTable.id, userId));
+  const sub = await grantSubjectSubscription({
+    userId,
+    subjectId: card.subjectId,
+    subjectName: card.subjectName ?? null,
+    planType: card.planType,
+    region: null,
+    paidPriceYer: 0,
+    activationCode: code,
+    subscriptionRequestId: card.subscriptionRequestId ?? null,
+  });
 
   res.json({
     success: true,
     planType: card.planType,
+    subjectId: sub.subjectId,
+    subjectName: sub.subjectName,
     gemsGranted: planGems.total,
-    expiresAt: subscriptionExpiresAt,
-    message: `تم تفعيل باقة ${card.planType} (${planGems.total}💎) بنجاح!`,
+    expiresAt: sub.expiresAt,
+    message: `تم تفعيل باقة ${card.planType} (${planGems.total}💎) لمادة "${sub.subjectName ?? sub.subjectId}" بنجاح!`,
   });
 });
 
@@ -666,8 +759,7 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
   }
 
   const code = generateActivationCode();
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 14);
+  const expiresAt = new Date(Date.now() + SUB_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
   const planGems = PLAN_GEM_LIMITS[request.planType];
   if (!planGems) {
@@ -675,8 +767,14 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
     return;
   }
 
-  // Yemen date for the reset anchor.
-  const yemenDate = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // Per-subject billing — request must reference a real subject. We reject
+  // any legacy "all" or empty subject here so an admin can never accidentally
+  // grant cross-subject access.
+  const requestSubjectId = (request.subjectId ?? "").trim();
+  if (!requestSubjectId || requestSubjectId === "all") {
+    res.status(400).json({ error: "هذا الطلب لا يحتوي على تخصص محدد. يجب على المستخدم إعادة الإرسال مع اختيار التخصص." });
+    return;
+  }
 
   // Race-safe approval: conditional update on status. Only the first concurrent
   // call wins; subsequent calls find updatedRows = 0 and bail out.
@@ -712,7 +810,7 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         activationCode: code,
         planType: request.planType,
         region: request.region,
-        subjectId: request.subjectId ?? "all",
+        subjectId: requestSubjectId,
         subjectName: request.subjectName ?? null,
         isUsed: true,
         usedByUserId: request.userId,
@@ -721,18 +819,31 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         subscriptionRequestId: id,
       }).returning();
 
-      // Grant gems to the user — platform-wide subscription.
-      await tx
-        .update(usersTable)
-        .set({
-          gemsBalance: planGems.total,
-          gemsDailyLimit: planGems.daily,
-          gemsUsedToday: 0,
-          gemsResetDate: yemenDate,
-          gemsExpiresAt: expiresAt,
-          nukhbaPlan: request.planType,
-        })
-        .where(eq(usersTable.id, request.userId));
+      // Per-subject grant — wipes any prior wallet for this (user, subject)
+      // so a re-approved subject starts fresh for the new 14-day window.
+      await tx.delete(userSubjectSubscriptionsTable).where(and(
+        eq(userSubjectSubscriptionsTable.userId, request.userId),
+        eq(userSubjectSubscriptionsTable.subjectId, requestSubjectId),
+      ));
+
+      const yemenDate = getYemenDateLabel();
+      await tx.insert(userSubjectSubscriptionsTable).values({
+        userId: request.userId,
+        subjectId: requestSubjectId,
+        subjectName: request.subjectName ?? null,
+        plan: request.planType,
+        messagesUsed: 0,
+        messagesLimit: planGems.total,
+        expiresAt,
+        activationCode: code,
+        subscriptionRequestId: id,
+        paidPriceYer: request.finalPrice ?? 0,
+        region: request.region,
+        gemsBalance: planGems.total,
+        gemsDailyLimit: planGems.daily,
+        gemsUsedToday: 0,
+        gemsResetDate: yemenDate,
+      });
 
       return insertedCard;
     });
@@ -1234,6 +1345,10 @@ router.get("/admin/discount-codes/:id/subscribers", async (req, res): Promise<vo
 });
 
 // ── User: get current gems balance ────────────────────────────────────────────
+// Takes ?subjectId=X — gem wallets are per-subject. If a subject has an active
+// per-subject subscription, we report that wallet. Otherwise we fall back to
+// the legacy global wallet on usersTable (for grandfathered users from before
+// the per-subject pivot) so they don't lose access mid-period.
 router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
   const userId = getUserId(req);
   if (!userId) {
@@ -1247,27 +1362,64 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
     return;
   }
 
-  // Apply daily forfeit before reporting balance — keeps the UI honest
-  // about gems lost to yesterday's unused allowance.
-  await applyDailyGemsRollover(user);
-
+  const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
   const now = new Date();
-  const hasActiveSub = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now && (user.gemsBalance ?? 0) > 0);
+
+  if (subjectId) {
+    const [sub] = await db
+      .select()
+      .from(userSubjectSubscriptionsTable)
+      .where(and(
+        eq(userSubjectSubscriptionsTable.userId, userId),
+        eq(userSubjectSubscriptionsTable.subjectId, subjectId),
+      ))
+      .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
+
+    if (sub && new Date(sub.expiresAt) > now) {
+      await applyDailyGemsRolloverForSubjectSub(sub);
+      const usedToday = sub.gemsUsedToday ?? 0;
+      const dailyRemaining = Math.max(0, (sub.gemsDailyLimit ?? 0) - usedToday);
+      res.json({
+        subjectId,
+        subjectName: sub.subjectName ?? null,
+        gemsBalance: sub.gemsBalance ?? 0,
+        gemsDailyLimit: sub.gemsDailyLimit ?? 0,
+        gemsUsedToday: usedToday,
+        dailyRemaining,
+        gemsExpiresAt: sub.expiresAt,
+        hasActiveSub: (sub.gemsBalance ?? 0) > 0,
+        plan: sub.plan,
+        source: "per-subject" as const,
+      });
+      return;
+    }
+  }
+
+  // Legacy fallback: pre-pivot users still have a global wallet.
+  await applyDailyGemsRollover(user);
+  const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now && (user.gemsBalance ?? 0) > 0);
   const usedToday = user.gemsUsedToday ?? 0;
   const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - usedToday);
 
   res.json({
-    gemsBalance: user.gemsBalance ?? 0,
-    gemsDailyLimit: user.gemsDailyLimit ?? 0,
-    gemsUsedToday: usedToday,
-    dailyRemaining,
-    gemsExpiresAt: user.gemsExpiresAt ?? null,
-    hasActiveSub,
-    plan: user.nukhbaPlan ?? null,
+    subjectId: subjectId || null,
+    subjectName: null,
+    gemsBalance: hasLegacyActive ? (user.gemsBalance ?? 0) : 0,
+    gemsDailyLimit: hasLegacyActive ? (user.gemsDailyLimit ?? 0) : 0,
+    gemsUsedToday: hasLegacyActive ? usedToday : 0,
+    dailyRemaining: hasLegacyActive ? dailyRemaining : 0,
+    gemsExpiresAt: hasLegacyActive ? user.gemsExpiresAt : null,
+    hasActiveSub: hasLegacyActive,
+    plan: hasLegacyActive ? (user.nukhbaPlan ?? null) : null,
+    source: hasLegacyActive ? ("legacy" as const) : ("none" as const),
   });
 });
 
-// ── Admin: manually grant gems to a user ──────────────────────────────────────
+// ── Admin: manually grant a per-subject subscription to a user ───────────────
+// Body: { planType, subjectId, subjectName? } — all required.
+// Replaces any existing wallet for this (user, subject) with a fresh 14-day
+// subscription. Per-subject only — there is no admin path to grant a global
+// "all subjects" wallet anymore.
 router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
   const adminId = getUserId(req);
   if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -1277,24 +1429,38 @@ router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
   const targetId = parseInt(req.params.id, 10);
   if (isNaN(targetId)) { res.status(400).json({ error: "Invalid user id" }); return; }
 
-  const { planType } = req.body;
-  const planGems = PLAN_GEM_LIMITS[planType as string];
-  if (!planGems) { res.status(400).json({ error: "نوع الباقة غير صحيح" }); return; }
+  const planType = typeof req.body?.planType === "string" ? req.body.planType : "";
+  const subjectId = typeof req.body?.subjectId === "string" ? req.body.subjectId.trim() : "";
+  const subjectName = typeof req.body?.subjectName === "string" ? req.body.subjectName.trim() : "";
 
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 14);
-  const yemenDate = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  if (!PLAN_GEM_LIMITS[planType]) {
+    res.status(400).json({ error: "نوع الباقة غير صحيح" });
+    return;
+  }
+  if (!subjectId || subjectId === "all") {
+    res.status(400).json({ error: "يجب تحديد subjectId — كل تخصص اشتراك مستقل." });
+    return;
+  }
 
-  await db.update(usersTable).set({
-    gemsBalance: planGems.total,
-    gemsDailyLimit: planGems.daily,
-    gemsUsedToday: 0,
-    gemsResetDate: yemenDate,
-    gemsExpiresAt: expiresAt,
-    nukhbaPlan: planType,
-  }).where(eq(usersTable.id, targetId));
+  const sub = await grantSubjectSubscription({
+    userId: targetId,
+    subjectId,
+    subjectName: subjectName || null,
+    planType,
+    region: null,
+    paidPriceYer: 0,
+    activationCode: null,
+    subscriptionRequestId: null,
+  });
 
-  res.json({ ok: true, gemsGranted: planGems.total, expiresAt });
+  res.json({
+    ok: true,
+    subjectId: sub.subjectId,
+    subjectName: sub.subjectName,
+    plan: sub.plan,
+    gemsGranted: sub.gemsBalance,
+    expiresAt: sub.expiresAt,
+  });
 });
 
 export default router;

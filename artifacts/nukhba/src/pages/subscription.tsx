@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { markLeftSubPageWithoutSub, clearLeftSubPageWithoutSub } from "@/components/welcome-offer-modal";
+import { university } from "@/lib/curriculum";
 import {
   useCreateSubscriptionRequest,
   useActivateSubscription,
@@ -45,8 +46,8 @@ const plans: Record<PlanKey, {
     desc: "ابدأ تجربتك مع المعلم الذكي والمختبرات التطبيقية",
     color: "text-orange-400",
     features: [
-      "١٬٠٠٠ 💎 جوهرة لجميع التخصصات — ١٤ يوماً",
-      "حتى ٧١ جوهرة يومياً تتجدّد منتصف الليل",
+      "١٬٠٠٠ 💎 جوهرة لهذا التخصص — ١٤ يوماً",
+      "حتى ٧١ جوهرة يومياً تتجدّد كل يوم طوال مدة الاشتراك",
       "مختبرات تطبيقية تفاعلية تُبنى لك حسب الدرس",
       "تقييم ذكي لعملك في المختبر مع نقاط القوة والتطوير",
       "خطة تعلم شخصية مبنية على مستواك",
@@ -64,8 +65,8 @@ const plans: Record<PlanKey, {
     desc: "للطالب الجاد — تعلّم أعمق في جميع التخصصات",
     color: "text-slate-300",
     features: [
-      "٢٬٠٠٠ 💎 جوهرة لجميع التخصصات — ١٤ يوماً",
-      "حتى ١٤٢ جوهرة يومياً تتجدّد منتصف الليل",
+      "٢٬٠٠٠ 💎 جوهرة لهذا التخصص — ١٤ يوماً",
+      "حتى ١٤٢ جوهرة يومياً تتجدّد كل يوم طوال مدة الاشتراك",
       "مختبرات تطبيقية تفاعلية بلا حدود",
       "تقارير مفصّلة عن أدائك في كل مختبر",
       "خطة تعلم تتطوّر مع تقدمك ومراجعات دورية",
@@ -85,8 +86,8 @@ const plans: Record<PlanKey, {
     desc: "الخيار الأشمل — تعلّم كثيف بلا توقف",
     color: "text-gold",
     features: [
-      "٣٬٠٠٠ 💎 جوهرة لجميع التخصصات — ١٤ يوماً",
-      "حتى ٢١٤ جوهرة يومياً تتجدّد منتصف الليل",
+      "٣٬٠٠٠ 💎 جوهرة لهذا التخصص — ١٤ يوماً",
+      "حتى ٢١٤ جوهرة يومياً تتجدّد كل يوم طوال مدة الاشتراك",
       "مختبرات تطبيقية متقدمة بلا حدود",
       "تقييم احترافي مفصّل + مراجعات أسبوعية",
       "توليد دروس وتمارين ومشاريع حسب الطلب",
@@ -110,19 +111,25 @@ export default function Subscription() {
 
 
   const [region, setRegion] = useState<"north" | "south">("north");
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>("");
   const [selectedPlan, setSelectedPlan] = useState<PlanKey | null>(null);
   const [accountName, setAccountName] = useState("");
   const [notes, setNotes] = useState("");
   const [activationCode, setActivationCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
-  // Welcome offer (50% off, auto-applied for first-time visitors who left
-  // and came back). Backend is source of truth.
+  const selectedSubject = useMemo(
+    () => university.find((s) => s.id === selectedSubjectId) ?? null,
+    [selectedSubjectId],
+  );
+
+  // Welcome offer (20% off, one-time, auto-applied for first-time visitors
+  // who left without subscribing and came back). Backend is source of truth.
   const [welcomeOffer, setWelcomeOffer] = useState<{
     active: boolean;
     expiresAt: string | null;
     percent: number;
-  }>({ active: false, expiresAt: null, percent: 50 });
+  }>({ active: false, expiresAt: null, percent: 20 });
   const submittedRef = useRef(false);
   useEffect(() => { submittedRef.current = submitted; }, [submitted]);
 
@@ -143,7 +150,7 @@ export default function Subscription() {
         setWelcomeOffer({
           active: !!data.active,
           expiresAt: data.expiresAt ?? null,
-          percent: data.percent ?? 50,
+          percent: data.percent ?? 20,
         });
         if (data.active) clearLeftSubPageWithoutSub();
       } catch {}
@@ -320,6 +327,10 @@ export default function Subscription() {
 
   const handlePaymentSubmit = async () => {
     if (!selectedPlan || !accountName.trim()) return;
+    if (!selectedSubject) {
+      toast({ variant: "destructive", title: "اختر التخصص أولاً", description: "كل اشتراك مرتبط بتخصص واحد — اختر المادة قبل إرسال الطلب." });
+      return;
+    }
     try {
       await createReqMutation.mutateAsync({
         data: {
@@ -328,19 +339,23 @@ export default function Subscription() {
           accountName: accountName.trim(),
           notes: notes.trim() || null,
           // @ts-ignore — extra fields accepted by backend
+          subjectId: selectedSubject.id,
+          // @ts-ignore — extra fields accepted by backend
+          subjectName: selectedSubject.name,
+          // @ts-ignore — extra fields accepted by backend
           discountCode: discountInfo?.code ?? undefined,
         }
       });
       toast({
         title: "تم إرسال الطلب",
-        description: "سيراجع المشرف طلبك ويُفعّل جواهرك قريباً",
+        description: `سيراجع المشرف طلب اشتراك "${selectedSubject.name}" ويُفعّل جواهرك قريباً`,
         className: "bg-emerald-600 border-none text-white"
       });
       setSubmitted(true);
       submittedRef.current = true;
       clearLeftSubPageWithoutSub();
       // Welcome offer is single-use — refresh state from backend.
-      setWelcomeOffer({ active: false, expiresAt: null, percent: 50 });
+      setWelcomeOffer({ active: false, expiresAt: null, percent: 20 });
       setSelectedPlan(null);
       setAccountName("");
       setNotes("");
@@ -373,10 +388,6 @@ export default function Subscription() {
           setUser({ ...user, nukhbaPlan: (res as any).planType });
         }
         setActivationCode("");
-        fetch("/api/subscriptions/my-subjects", { credentials: "include" })
-          .then(r => r.json())
-          .then(d => Array.isArray(d) ? setMySubjectSubs(d) : null)
-          .catch(() => {});
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "خطأ", description: e.message || "كود التفعيل غير صالح أو مستخدم مسبقاً" });
@@ -392,7 +403,7 @@ export default function Subscription() {
           <Crown className="w-16 h-16 text-gold mx-auto mb-4" />
           <h1 className="text-4xl font-black mb-4">اشترك في نُخبة</h1>
           <p className="text-xl text-muted-foreground">
-            اشتراك واحد يفتح لك جميع التخصصات — معلّم ذكي لكل مادة تريدها
+            اشتراك مستقل لكل تخصص — اختر مادتك أولاً، ثم الباقة المناسبة لك
           </p>
           <p className="text-sm text-gold/70 mt-3 max-w-2xl mx-auto leading-relaxed">
             أنت لا تشترك في "محادثة" — أنت تشترك في معلّم متخصّص يتذكّر تقدّمك، يبني خططاً ومختبرات تطبيقية، ويراجع عملك. ميزات لا تجدها في ChatGPT أو DeepSeek مهما دفعت.
@@ -433,7 +444,7 @@ export default function Subscription() {
             <div>
               <p className="font-bold text-red-400 mb-2">المبلغ المرسل غير مكتمل</p>
               <p className="text-sm text-muted-foreground mb-3">
-                رسالة من المشرف: <span className="text-foreground font-medium">{subjectRequest?.adminNote}</span>
+                رسالة من المشرف: <span className="text-foreground font-medium">{latestRequest?.adminNote}</span>
               </p>
               <p className="text-sm text-orange-400 font-medium">
                 يرجى إكمال المبلغ وإرسال طلب جديد بعد الدفع.
@@ -465,9 +476,52 @@ export default function Subscription() {
           </div>
         </div>
 
+        {/* Subject picker — REQUIRED before plan selection. Each subject is
+            its own subscription; gems do NOT cross subject boundaries. */}
+        <div className="mb-6">
+          <div className="text-center mb-3">
+            <p className="text-sm font-bold text-gold mb-1">ثانياً: اختر التخصص الذي ستشترك فيه</p>
+            <p className="text-xs text-muted-foreground">
+              كل تخصص اشتراك مستقل — جواهر باقة الأمن السيبراني تُستخدم في الأمن السيبراني فقط، وهكذا لكل مادة.
+            </p>
+          </div>
+          <div className="max-w-md mx-auto">
+            <select
+              value={selectedSubjectId}
+              onChange={(e) => {
+                setSelectedSubjectId(e.target.value);
+                // Clearing the plan forces the user to re-confirm after switching
+                // subjects, so they don't accidentally pay for the wrong one.
+                setSelectedPlan(null);
+              }}
+              className={`w-full h-14 rounded-xl bg-black/50 px-4 text-base font-bold text-center cursor-pointer
+                border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/50
+                ${selectedSubject ? "border-gold/50 text-gold" : "border-gold/20 text-muted-foreground"}`}
+              dir="rtl"
+              data-testid="subject-picker"
+            >
+              <option value="" disabled>— اختر التخصص —</option>
+              {university.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.emoji} {s.name}
+                </option>
+              ))}
+            </select>
+            {selectedSubject && (
+              <p className="text-xs text-center text-emerald-400 mt-2">
+                ✓ ستشترك في تخصص: <strong>{selectedSubject.name}</strong>
+              </p>
+            )}
+          </div>
+        </div>
+
         <div className="mb-4 text-center">
-          <p className="text-sm font-bold text-gold mb-1">ثانياً: اضغط على الباقة التي تناسبك</p>
-          <p className="text-xs text-muted-foreground">بعد الضغط على الباقة، سيظهر لك رقم حساب الكريمي والمبلغ المطلوب تحويله في الأسفل</p>
+          <p className="text-sm font-bold text-gold mb-1">ثالثاً: اضغط على الباقة التي تناسبك</p>
+          <p className="text-xs text-muted-foreground">
+            {selectedSubject
+              ? `الباقة المختارة ستفعّل جواهر تخصّص "${selectedSubject.name}" فقط — لن تعمل في أي تخصص آخر.`
+              : "اختر تخصصاً أولاً ثم ستظهر لك تفاصيل الدفع المطلوبة."}
+          </p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 mb-16">
@@ -478,11 +532,23 @@ export default function Subscription() {
             return (
               <div
                 key={key}
-                onClick={() => setSelectedPlan(key)}
-                className={`cursor-pointer rounded-3xl p-8 transition-all duration-300 border-2 relative ${
-                  isSelected
-                    ? 'border-gold bg-gold/5 shadow-[0_0_30px_rgba(245,158,11,0.2)] transform scale-105 z-10'
-                    : 'glass border-white/5 hover:border-gold/30'
+                onClick={() => {
+                  if (!selectedSubject) {
+                    toast({
+                      variant: "destructive",
+                      title: "اختر التخصص أولاً",
+                      description: "اختر التخصص من القائمة المنسدلة في الأعلى قبل اختيار الباقة.",
+                    });
+                    return;
+                  }
+                  setSelectedPlan(key);
+                }}
+                className={`rounded-3xl p-8 transition-all duration-300 border-2 relative ${
+                  !selectedSubject
+                    ? 'glass border-white/5 opacity-50 cursor-not-allowed'
+                    : isSelected
+                    ? 'cursor-pointer border-gold bg-gold/5 shadow-[0_0_30px_rgba(245,158,11,0.2)] transform scale-105 z-10'
+                    : 'cursor-pointer glass border-white/5 hover:border-gold/30'
                 }`}
               >
                 {plan.popular && (
@@ -502,7 +568,7 @@ export default function Subscription() {
                   <span>{plan.gems.toLocaleString("ar-EG")} جوهرة إجمالي</span>
                 </div>
                 <div className="text-xs text-emerald-400 font-bold mb-6">
-                  حتى {plan.gemsPerDay} جوهرة / يوم — لجميع التخصصات
+                  حتى {plan.gemsPerDay} جوهرة / يوم — لهذا التخصص فقط
                 </div>
                 <ul className="space-y-2 text-sm">
                   {plan.features.map((f, fi) => (

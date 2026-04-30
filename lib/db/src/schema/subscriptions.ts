@@ -77,7 +77,10 @@ export const insertReferralSchema = createInsertSchema(referralsTable).omit({ id
 export type InsertReferral = z.infer<typeof insertReferralSchema>;
 export type Referral = typeof referralsTable.$inferSelect;
 
-// Per-subject subscription table (new, replaces global plan on users table for new subscriptions)
+// Per-subject subscription table — each subject = an independent subscription
+// (Gold for Cybersecurity does NOT grant access to AI; user must subscribe
+// separately per subject). Gem fields (`gems*`) live HERE (per-subject) so a
+// user can hold multiple plans simultaneously, each with its own daily cap.
 export const userSubjectSubscriptionsTable = pgTable("user_subject_subscriptions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
@@ -93,6 +96,16 @@ export const userSubjectSubscriptionsTable = pgTable("user_subject_subscriptions
   // the cost-cap rule (AI cost ≤ 50% of what they paid).
   paidPriceYer: integer("paid_price_yer").notNull().default(0),
   region: text("region"),
+  // ── Per-subject gems wallet ───────────────────────────────────────────────
+  // Replaces the legacy global gems columns on usersTable for new subs.
+  // gemsBalance: total remaining for the 14-day window.
+  // gemsDailyLimit: max gems usable per Yemen-day. Unused = forfeit at midnight.
+  // gemsUsedToday: counter reset at each new Yemen-day (see gems.ts).
+  // gemsResetDate: the YYYY-MM-DD Yemen date when usedToday was last reset.
+  gemsBalance: integer("gems_balance").notNull().default(0),
+  gemsUsedToday: integer("gems_used_today").notNull().default(0),
+  gemsDailyLimit: integer("gems_daily_limit").notNull().default(0),
+  gemsResetDate: text("gems_reset_date"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
