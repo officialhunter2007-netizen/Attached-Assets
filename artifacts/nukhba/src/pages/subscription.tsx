@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { markLeftSubPageWithoutSub, clearLeftSubPageWithoutSub } from "@/components/welcome-offer-modal";
-import { university } from "@/lib/curriculum";
+import { university, skills } from "@/lib/curriculum";
 import {
   useCreateSubscriptionRequest,
   useActivateSubscription,
@@ -118,10 +118,34 @@ export default function Subscription() {
   const [activationCode, setActivationCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
-  const selectedSubject = useMemo(
-    () => university.find((s) => s.id === selectedSubjectId) ?? null,
-    [selectedSubjectId],
-  );
+  // Subject picker panel state
+  const [showSubjectPicker, setShowSubjectPicker] = useState(false);
+  const [pickerTab, setPickerTab] = useState<"university" | "skills">("university");
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Close picker when clicking outside
+  useEffect(() => {
+    if (!showSubjectPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowSubjectPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showSubjectPicker]);
+
+  // Search across BOTH university and all skills categories
+  const selectedSubject = useMemo(() => {
+    if (!selectedSubjectId) return null;
+    const fromUniversity = university.find((s) => s.id === selectedSubjectId);
+    if (fromUniversity) return fromUniversity;
+    for (const category of skills) {
+      const found = category.subjects.find((s) => s.id === selectedSubjectId);
+      if (found) return found;
+    }
+    return null;
+  }, [selectedSubjectId]);
 
   // Welcome offer (20% off, one-time, auto-applied for first-time visitors
   // who left without subscribing and came back). Backend is source of truth.
@@ -485,28 +509,106 @@ export default function Subscription() {
               كل تخصص اشتراك مستقل — جواهر باقة الأمن السيبراني تُستخدم في الأمن السيبراني فقط، وهكذا لكل مادة.
             </p>
           </div>
-          <div className="max-w-md mx-auto">
-            <select
-              value={selectedSubjectId}
-              onChange={(e) => {
-                setSelectedSubjectId(e.target.value);
-                // Clearing the plan forces the user to re-confirm after switching
-                // subjects, so they don't accidentally pay for the wrong one.
-                setSelectedPlan(null);
-              }}
-              className={`w-full h-14 rounded-xl bg-black/50 px-4 text-base font-bold text-center cursor-pointer
-                border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/50
-                ${selectedSubject ? "border-gold/50 text-gold" : "border-gold/20 text-muted-foreground"}`}
-              dir="rtl"
-              data-testid="subject-picker"
+
+          {/* Custom subject picker */}
+          <div className="max-w-2xl mx-auto" ref={pickerRef} data-testid="subject-picker">
+            {/* Trigger button */}
+            <button
+              type="button"
+              onClick={() => setShowSubjectPicker(p => !p)}
+              className={`w-full h-14 rounded-2xl px-5 flex items-center justify-between gap-3 font-bold text-base border-2 transition-all
+                ${selectedSubject
+                  ? "bg-gold/10 border-gold/60 text-gold hover:bg-gold/20"
+                  : "bg-black/40 border-white/10 text-muted-foreground hover:border-gold/30 hover:text-foreground"}`}
             >
-              <option value="" disabled>— اختر التخصص —</option>
-              {university.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.emoji} {s.name}
-                </option>
-              ))}
-            </select>
+              <span className="flex items-center gap-2">
+                {selectedSubject
+                  ? <><span className="text-xl">{selectedSubject.emoji}</span> {selectedSubject.name}</>
+                  : "— اختر تخصصك —"}
+              </span>
+              <ChevronDown className={`w-5 h-5 transition-transform shrink-0 ${showSubjectPicker ? "rotate-180" : ""}`} />
+            </button>
+
+            {/* Dropdown panel */}
+            {showSubjectPicker && (
+              <div className="mt-2 rounded-2xl border border-white/10 bg-[hsl(222,28%,8%)] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                {/* Tabs */}
+                <div className="flex border-b border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setPickerTab("university")}
+                    className={`flex-1 py-3 text-sm font-bold transition-colors
+                      ${pickerTab === "university"
+                        ? "bg-emerald-500/15 text-emerald-400 border-b-2 border-emerald-400"
+                        : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    🎓 الجامعي
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickerTab("skills")}
+                    className={`flex-1 py-3 text-sm font-bold transition-colors
+                      ${pickerTab === "skills"
+                        ? "bg-blue-500/15 text-blue-400 border-b-2 border-blue-400"
+                        : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    ⚡ المهارات
+                  </button>
+                </div>
+
+                {/* University subjects */}
+                {pickerTab === "university" && (
+                  <div className="p-3 max-h-64 overflow-y-auto">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {university.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => { setSelectedSubjectId(s.id); setSelectedPlan(null); setShowSubjectPicker(false); }}
+                          className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold text-right transition-all
+                            ${selectedSubjectId === s.id
+                              ? "bg-gold/20 border border-gold/60 text-gold"
+                              : "bg-white/5 border border-white/5 text-foreground hover:bg-white/10 hover:border-white/20"}`}
+                        >
+                          <span className="text-lg shrink-0">{s.emoji}</span>
+                          <span className="leading-tight">{s.name}</span>
+                          {selectedSubjectId === s.id && <Check className="w-3.5 h-3.5 text-gold mr-auto shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Skills subjects — grouped by category */}
+                {pickerTab === "skills" && (
+                  <div className="p-3 max-h-64 overflow-y-auto space-y-4">
+                    {skills.map((category) => (
+                      <div key={category.id}>
+                        <p className="text-xs font-bold text-muted-foreground mb-2 px-1">{category.name}</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {category.subjects.map((s) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => { setSelectedSubjectId(s.id); setSelectedPlan(null); setShowSubjectPicker(false); }}
+                              className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold text-right transition-all
+                                ${selectedSubjectId === s.id
+                                  ? "bg-blue-500/20 border border-blue-500/60 text-blue-300"
+                                  : "bg-white/5 border border-white/5 text-foreground hover:bg-white/10 hover:border-white/20"}`}
+                            >
+                              <span className="text-lg shrink-0">{s.emoji}</span>
+                              <span className="leading-tight">{s.name}</span>
+                              {selectedSubjectId === s.id && <Check className="w-3.5 h-3.5 text-blue-400 mr-auto shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {selectedSubject && (
               <p className="text-xs text-center text-emerald-400 mt-2">
                 ✓ ستشترك في تخصص: <strong>{selectedSubject.name}</strong>
