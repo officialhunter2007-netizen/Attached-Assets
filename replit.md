@@ -114,6 +114,16 @@ Other teaching-depth pieces in the same file:
 
 Subscription writes in `artifacts/api-server/src/routes/subscriptions.ts` (4 insert sites) all populate `paid_price_yer` + `region` from the requested plan, so the cost cap has accurate paid amounts to work from.
 
+## AI Route Reliability — Friendly Failure Handling
+
+Every student-facing AI route in `artifacts/api-server/src/routes/ai.ts` is hardened against the bare `(500)` failure mode the student saw in production:
+
+- **`emitFriendlyAiFailure(res, label, err)`** helper (top of `ai.ts`): logs server-side then writes either an SSE Arabic apology + `done: true` (if headers were sent) or a 503 JSON with the same Arabic message (if not). Idempotent — checks `res.writableEnded` and swallows write errors so a half-closed socket can never leak a bare 500.
+- **`/ai/teach`** (the AI Teacher): the entire ~2050-line handler is wrapped in a top-level `try/catch` that calls `emitFriendlyAiFailure`. The pre-existing inner `try/finally` (which clears the SSE heartbeat + close listener) still runs cleanup before the outer catch fires. The dangerous pre-stream DB enrichment reads (`userSubjectPlansTable` for `dbPlan`, `lessonSummariesTable` for `recentSummaries`, plus `getSubjectAccess`) each have their own local `try/catch`: the enrichment failures degrade gracefully (warn + continue), `getSubjectAccess` failures return a friendly Arabic 503.
+- **`/ai/lesson`, `/ai/lab/exam/start`, `/ai/lab/generate-variant`**: the pre-route DB calls (`getUser`, `getSubjectAccess`, `getCostCapStatus`) are individually wrapped — same Arabic 503 surface, no bare 500s reach the student.
+- **Cost-cap fails CLOSED on `/ai/lab/generate-variant`**: this endpoint invokes Sonnet 4.6 with 24k max-tokens, so a `getCostCapStatus` DB error returns 503 instead of allowing the call (the in-memory burst limit is only ~6/min/user, not a daily budget guard — fail-open would let prolonged DB instability translate into uncapped spend).
+- The student is **never charged** when these catches fire: the gem-deduction block is gated by `chargeable` (which requires the model produced content), so pre-stream throws never reach it. Mid-stream throws happen after the student already received their answer.
+
 ## Design System
 
 - Dark luxury theme: background hsl(222,28%,7%), cards hsl(222,24%,10%)

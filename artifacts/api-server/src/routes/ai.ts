@@ -100,6 +100,67 @@ function setSseHeaders(res: import("express").Response): void {
 }
 
 /**
+ * Last-line-of-defence error responder for AI routes.
+ *
+ * Why this exists: every `/ai/*` route does multi-step work (DB lookups,
+ * prompt assembly, model streaming, post-stream bookkeeping). A throw
+ * anywhere on that path used to fall through Express's default error
+ * handler — the student saw a bare `500` (see the `(500)` banner in the
+ * UI) with no friendly message, no idea whether they were charged, and no
+ * way to retry without losing trust in the platform.
+ *
+ * This helper standardises the failure surface across every AI route:
+ *   • If SSE was already opened (`res.headersSent`), write a friendly
+ *     Arabic apology + `done:true,error:true` event and end the stream so
+ *     the client's existing error UI can render naturally.
+ *   • Otherwise, return a 503 JSON envelope with a friendly Arabic message.
+ *     The frontend already maps non-2xx to a retry banner; the body's
+ *     `message` becomes the user-visible text.
+ *   • In BOTH cases, the call is idempotent (no-op when the response was
+ *     already finished) and never throws — so a route's outer `catch` can
+ *     safely call it without nesting more error handling.
+ *
+ * The handler only emits a generic message; the original error is logged
+ * server-side with `[ai/<route>] FATAL:` so on-call can find it without
+ * leaking internals to the student.
+ */
+function emitFriendlyAiFailure(
+  res: import("express").Response,
+  routeTag: string,
+  err: unknown,
+): void {
+  try {
+    console.error(
+      `[${routeTag}] FATAL:`,
+      (err as any)?.stack || (err as any)?.message || err,
+    );
+  } catch {}
+  if (res.writableEnded) return;
+  if (res.headersSent) {
+    // SSE was opened — write friendly apology + terminating done event so
+    // the client's stream parser exits cleanly. We never charge the user
+    // for a turn that failed at this layer (deduction code is gated by
+    // `chargeable` which goes false on the catch path).
+    try {
+      const friendly = `<p><em>⚠️ تعذّر الردّ بسبب خلل مؤقّت 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`;
+      res.write(`data: ${JSON.stringify({ content: friendly })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, error: true })}\n\n`);
+      res.end();
+    } catch {}
+    return;
+  }
+  // Headers not sent yet — emit a JSON 503 the frontend can map to its
+  // existing "retry, you weren't charged" banner.
+  try {
+    res.status(503).json({
+      error: "TEMPORARY_FAILURE",
+      message:
+        "تعذّر الردّ بسبب خلل مؤقّت. أعد المحاولة بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.",
+    });
+  } catch {}
+}
+
+/**
  * Extract a compact, human-readable excerpt from an AI teaching response for
  * storage in ai_teacher_messages. We strip markdown formatting and take the
  * first ~maxChars characters, trimmed to the nearest sentence boundary. This
@@ -297,15 +358,33 @@ router.post("/ai/lesson", async (req, res): Promise<void> => {
     return;
   }
 
-  const user = await getUser(userId);
+  // Pre-route DB calls (getUser + getSubjectAccess) used to throw bare 500s
+  // when the DB hiccupped. Wrap each in try/catch and translate failures into
+  // the same friendly Arabic message the streaming catch uses, so the student
+  // never sees "(500)" before the lesson even starts.
+  let user: Awaited<ReturnType<typeof getUser>>;
+  try {
+    user = await getUser(userId);
+  } catch (err: any) {
+    console.error("[ai/lesson] getUser failed:", err?.message || err);
+    res.status(503).json({ error: "TEMPORARY_FAILURE", message: "تعذّر تجهيز الدرس بسبب خلل مؤقّت. أعد المحاولة بعد لحظات." });
+    return;
+  }
   if (!user) {
     res.status(401).json({ error: "User not found" });
     return;
   }
 
-  const { subjectId, unitId, lessonId, lessonTitle, subjectName, section, grade, isSkill } = req.body;
+  const { subjectId, unitId, lessonId, lessonTitle, subjectName, section, grade, isSkill } = (req.body ?? {}) as Record<string, any>;
 
-  const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
+  let access: Awaited<ReturnType<typeof getSubjectAccess>>;
+  try {
+    access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
+  } catch (err: any) {
+    console.error("[ai/lesson] getSubjectAccess failed:", err?.message || err);
+    res.status(503).json({ error: "TEMPORARY_FAILURE", message: "تعذّر تجهيز الدرس بسبب خلل مؤقّت. أعد المحاولة بعد لحظات." });
+    return;
+  }
 
   if (!access.isFirstLesson && !access.canAccessViaSubscription) {
     res.status(403).json({ error: "ACCESS_DENIED", firstLessonDone: true });
@@ -809,6 +888,21 @@ ${planTag}- \`[POINT_DONE: N]\` — اكتبه عند تغطية النقطة ر
 }
 
 router.post("/ai/teach", async (req, res): Promise<void> => {
+  // ── Top-level safety net ─────────────────────────────────────────────────
+  // Wraps the ENTIRE handler. Any throw — DB blip, undefined reference,
+  // upstream provider crash before SSE opened, post-stream bookkeeping
+  // exception — lands here and emits a friendly Arabic message instead of
+  // a bare HTTP 500. The student is NEVER charged when this catch fires:
+  //   • Pre-stream throws happen before the gem-deduction block (which is
+  //     gated by `chargeable` and only runs after the model produced
+  //     content), so nothing was deducted in the first place.
+  //   • Post-stream throws happen after the deduction block but the
+  //     student already received their answer in the stream — the catch
+  //     just guarantees the connection closes cleanly.
+  // The inner try/finally that clears the heartbeat still runs first
+  // (JavaScript's finally semantics), so timer/listener cleanup happens
+  // before we get here.
+  try {
   const userId = getUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -821,9 +915,25 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = req.body;
+  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = (req.body ?? {}) as Record<string, any>;
 
-  const access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
+  // `getSubjectAccess` performs several DB lookups (gems wallet, first-lesson
+  // record, subscription state). A transient DB failure here used to bubble
+  // up as a bare HTTP 500 — the student saw the dreaded "(500)" banner with
+  // no idea what happened. We now translate any failure into the same
+  // friendly "try again" surface the rest of the route uses, so a hiccup at
+  // this layer never appears as a hard error in the chat.
+  let access: Awaited<ReturnType<typeof getSubjectAccess>>;
+  try {
+    access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
+  } catch (err: any) {
+    console.error("[ai/teach] getSubjectAccess failed:", err?.message || err);
+    res.status(503).json({
+      error: "TEMPORARY_FAILURE",
+      message: "تعذّر تجهيز جلستك بسبب خلل مؤقّت. أعد المحاولة بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.",
+    });
+    return;
+  }
   const unlimited = isUnlimitedUser(user);
   // For unlimited users, force-grant access regardless of gems/first-lesson state.
   const {
@@ -959,34 +1069,47 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   }
 
   // ── Load persisted plan + last 2 session summaries from DB ───────────────
+  // These are *enrichment* — the lesson can still proceed without them.
+  // Any DB blip here used to bubble up to the route's top and surface as a
+  // bare 500 to the student. Each query is wrapped so a transient failure
+  // degrades gracefully (the student still gets a teaching turn, just with
+  // a slightly less personalized opener).
   let dbPlanContext = planContext ?? null;
   let sessionContextNote = "";
   if (!isDiagnosticPhase && subjectId) {
-    const [dbPlan] = await db
-      .select()
-      .from(userSubjectPlansTable)
-      .where(and(
-        eq(userSubjectPlansTable.userId, userId),
-        eq(userSubjectPlansTable.subjectId, subjectId)
-      ));
-    if (dbPlan && !dbPlanContext) {
-      dbPlanContext = dbPlan.planHtml;
+    try {
+      const [dbPlan] = await db
+        .select()
+        .from(userSubjectPlansTable)
+        .where(and(
+          eq(userSubjectPlansTable.userId, userId),
+          eq(userSubjectPlansTable.subjectId, subjectId)
+        ));
+      if (dbPlan && !dbPlanContext) {
+        dbPlanContext = dbPlan.planHtml;
+      }
+    } catch (err: any) {
+      console.warn("[ai/teach] plan context load failed:", err?.message || err);
     }
 
-    const recentSummaries = await db
-      .select()
-      .from(lessonSummariesTable)
-      .where(and(
-        eq(lessonSummariesTable.userId, userId),
-        eq(lessonSummariesTable.subjectId, subjectId)
-      ))
-      .orderBy(desc(lessonSummariesTable.conversationDate))
-      .limit(2);
+    try {
+      const recentSummaries = await db
+        .select()
+        .from(lessonSummariesTable)
+        .where(and(
+          eq(lessonSummariesTable.userId, userId),
+          eq(lessonSummariesTable.subjectId, subjectId)
+        ))
+        .orderBy(desc(lessonSummariesTable.conversationDate))
+        .limit(2);
 
-    if (recentSummaries.length > 0) {
-      sessionContextNote = `\n--- ملخصات الجلسات السابقة (آخر ${recentSummaries.length} جلسات) ---\n` +
-        recentSummaries.map((s, i) => `الجلسة السابقة ${recentSummaries.length - i}:\n${s.title ? `العنوان: ${s.title}\n` : ""}${s.summaryHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 800)}`).join("\n\n") +
-        "\n---\nابدأ الجلسة بالإشارة باختصار إلى ما تعلمه الطالب في آخر جلسة، ثم انتقل مباشرةً للمرحلة الحالية.\n---";
+      if (recentSummaries.length > 0) {
+        sessionContextNote = `\n--- ملخصات الجلسات السابقة (آخر ${recentSummaries.length} جلسات) ---\n` +
+          recentSummaries.map((s, i) => `الجلسة السابقة ${recentSummaries.length - i}:\n${s.title ? `العنوان: ${s.title}\n` : ""}${s.summaryHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 800)}`).join("\n\n") +
+          "\n---\nابدأ الجلسة بالإشارة باختصار إلى ما تعلمه الطالب في آخر جلسة، ثم انتقل مباشرةً للمرحلة الحالية.\n---";
+      }
+    } catch (err: any) {
+      console.warn("[ai/teach] recent summaries load failed:", err?.message || err);
     }
   }
 
@@ -2718,6 +2841,15 @@ ${retrievedBlock}
       const turnIncludedLabEnv = /\[\[\s*CREATE_LAB_ENV\s*:/i.test(fullResponse);
       const exemptFromFreeCap = isShowcaseOpener && turnIncludedLabEnv;
 
+      // NOTE on failure semantics: the inner per-statement `.catch(() => {})`
+      // calls used to silently swallow DB write failures, which meant a
+      // transient write blip during partial DB degradation would let the
+      // student receive an answer without the wallet being decremented
+      // (silent budget bypass). We now let those errors propagate to the
+      // outer `} catch (err: any)` block, which logs them with a
+      // distinctive prefix so ops can alert on `gems deduction failed`.
+      // The student is not penalized — they already received their answer
+      // — but every miss is now observable instead of invisible.
       if (isFirstLesson && firstLessonRecord && !exemptFromFreeCap) {
         // Free session: track gems used against 80-gem cap (platform absorbs cost).
         await db.update(userSubjectFirstLessonsTable)
@@ -2725,8 +2857,7 @@ ${retrievedBlock}
             freeMessagesUsed: sql`LEAST(${FREE_LESSON_GEM_LIMIT}, ${userSubjectFirstLessonsTable.freeMessagesUsed} + ${gems})`,
             completed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + ${gems} >= ${FREE_LESSON_GEM_LIMIT}`,
           })
-          .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id))
-          .catch(() => {});
+          .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
         firstLessonRecord.freeMessagesUsed = Math.min(FREE_LESSON_GEM_LIMIT, firstLessonRecord.freeMessagesUsed + gems);
       } else if (exemptFromFreeCap) {
         // Lab-env turn during free session — exemption applied. Log for
@@ -2745,8 +2876,7 @@ ${retrievedBlock}
             gemsBalance: sql`GREATEST(0, ${userSubjectSubscriptionsTable.gemsBalance} - ${gems})`,
             gemsUsedToday: sql`${userSubjectSubscriptionsTable.gemsUsedToday} + ${gems}`,
           })
-          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id))
-          .catch(() => {});
+          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
       } else if (hasLegacyGemsSub) {
         // Legacy (grandfathered) wallet on usersTable.
         await db.update(usersTable)
@@ -2754,11 +2884,22 @@ ${retrievedBlock}
             gemsBalance: sql`GREATEST(0, ${usersTable.gemsBalance} - ${gems})`,
             gemsUsedToday: sql`${usersTable.gemsUsedToday} + ${gems}`,
           })
-          .where(eq(usersTable.id, userId))
-          .catch(() => {});
+          .where(eq(usersTable.id, userId));
       }
     } catch (err: any) {
-      console.error("[ai/teach] gems deduction failed:", err?.message || err);
+      // Distinctive prefix — alert on this in your monitoring stack. A
+      // sustained rate of these means students got AI turns without their
+      // wallets being decremented (silent revenue leak during DB
+      // degradation). Surfacing it here is the minimum-risk fix; a full
+      // transactional debit would require restructuring the streaming path
+      // and is tracked separately.
+      console.error("[ai/teach] BUDGET_LEAK gems deduction failed:", {
+        userId,
+        subjectId,
+        gems,
+        chargingPath: isFirstLesson ? "free-cap" : (hasPerSubjectGemsSub ? "per-subject" : (hasLegacyGemsSub ? "legacy" : "none")),
+        message: err?.message || String(err),
+      });
     }
   }
 
@@ -2840,6 +2981,15 @@ ${retrievedBlock}
     // listener per failed request, which compounds quickly under load.
     clearInterval(heartbeat);
     req.off("close", onClientClose);
+  }
+  } catch (err) {
+    // Top-level safety net: any throw not handled by the inner try/finally
+    // (e.g. a DB read crashing during pre-stream context assembly, an
+    // undefined upstream value, an unexpected proto exception) lands here.
+    // We never re-throw — `emitFriendlyAiFailure` writes the appropriate
+    // surface (SSE apology if headers were sent, JSON 503 otherwise) and
+    // logs the full error server-side for ops triage.
+    emitFriendlyAiFailure(res, "ai/teach", err);
   }
 });
 
@@ -3822,12 +3972,26 @@ function checkVariantRateLimit(userId: string | number): { ok: true } | { ok: fa
 router.post("/ai/lab/exam/start", async (req, res): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
-  const user = await getUser(userId);
+  // Pre-route DB calls — translate transient failures into a friendly Arabic
+  // 503 instead of bubbling up as a bare 500 to the lab UI.
+  let user: Awaited<ReturnType<typeof getUser>>;
+  try {
+    user = await getUser(userId);
+  } catch (err: any) {
+    console.error("[ai/lab/exam/start] getUser failed:", err?.message || err);
+    return res.status(503).json({ error: "TEMPORARY_FAILURE", message: "تعذّر بدء الامتحان بسبب خلل مؤقّت. أعد المحاولة." });
+  }
   if (!user) return res.status(401).json({ error: "User not found" });
-  const { subjectId, envId } = req.body as { subjectId?: string; envId?: string };
+  const { subjectId, envId } = (req.body ?? {}) as { subjectId?: string; envId?: string };
   if (!subjectId || typeof subjectId !== "string") return res.status(400).json({ error: "Missing subjectId" });
   if (!envId || typeof envId !== "string") return res.status(400).json({ error: "Missing envId" });
-  const access = await getSubjectAccess(userId, subjectId, user);
+  let access: Awaited<ReturnType<typeof getSubjectAccess>>;
+  try {
+    access = await getSubjectAccess(userId, subjectId, user);
+  } catch (err: any) {
+    console.error("[ai/lab/exam/start] getSubjectAccess failed:", err?.message || err);
+    return res.status(503).json({ error: "TEMPORARY_FAILURE", message: "تعذّر بدء الامتحان بسبب خلل مؤقّت. أعد المحاولة." });
+  }
   const unlimited = isUnlimitedUser(user);
   if (!unlimited && !access.isFirstLesson && !access.canAccessViaSubscription) {
     return res.status(403).json({ error: "ACCESS_DENIED" });
@@ -3960,10 +4124,24 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
   // entitlement+budget gates the teaching endpoints use; otherwise an
   // authenticated free-tier user could call this endpoint for any subject
   // and bypass the subscription wall + daily cost cap.
-  const user = await getUser(userId);
+  // All three pre-route DB calls below now translate transient failures into
+  // a friendly Arabic 503 instead of bubbling up as a bare 500 to the lab UI.
+  let user: Awaited<ReturnType<typeof getUser>>;
+  try {
+    user = await getUser(userId);
+  } catch (err: any) {
+    console.error("[ai/lab/generate-variant] getUser failed:", err?.message || err);
+    return res.status(503).json({ error: "TEMPORARY_FAILURE", message: "تعذّر توليد النسخة بسبب خلل مؤقّت. أعد المحاولة." });
+  }
   if (!user) return res.status(401).json({ error: "User not found" });
 
-  const access = await getSubjectAccess(userId, subjectId, user);
+  let access: Awaited<ReturnType<typeof getSubjectAccess>>;
+  try {
+    access = await getSubjectAccess(userId, subjectId, user);
+  } catch (err: any) {
+    console.error("[ai/lab/generate-variant] getSubjectAccess failed:", err?.message || err);
+    return res.status(503).json({ error: "TEMPORARY_FAILURE", message: "تعذّر توليد النسخة بسبب خلل مؤقّت. أعد المحاولة." });
+  }
   const unlimited = isUnlimitedUser(user);
   const isFirstLesson = unlimited ? false : access.isFirstLesson;
   const canAccessViaSubscription = unlimited ? true : access.canAccessViaSubscription;
@@ -3977,9 +4155,21 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
   // downgrading model — there's no equivalent cheap variant model to fall
   // back on. Free-tier (no subjectSub) and unlimited bypass the check.
   if (!unlimited && !isFirstLesson && access.subjectSub) {
-    const costStatus = await getCostCapStatus(userId, access.subjectSub);
-    if (costStatus.dailyExhausted || costStatus.totalExhausted) {
-      return res.status(429).json({ error: "تم استنفاد حصّتك اليومية للذكاء الاصطناعي. حاول غداً.", code: "DAILY_LIMIT" });
+    // Fail CLOSED on cost-cap DB failure: this endpoint invokes Sonnet 4.6
+    // with 24k max-tokens, which is one of the most expensive calls in the
+    // system. Allowing it through on a cap-check error would let prolonged
+    // DB instability translate directly into uncapped spend (the in-memory
+    // burst limit at the top of the route is only ~6/min/user, not a daily
+    // budget guard). Variant generation is a quality-of-life feature, so
+    // refusing temporarily is the correct trade-off vs. risking overspend.
+    try {
+      const costStatus = await getCostCapStatus(userId, access.subjectSub);
+      if (costStatus.dailyExhausted || costStatus.totalExhausted) {
+        return res.status(429).json({ error: "تم استنفاد حصّتك اليومية للذكاء الاصطناعي. حاول غداً.", code: "DAILY_LIMIT" });
+      }
+    } catch (err: any) {
+      console.error("[ai/lab/generate-variant] cost-cap check failed (refusing):", err?.message || err);
+      return res.status(503).json({ error: "TEMPORARY_FAILURE", message: "تعذّر التحقق من حصّتك اليومية بسبب خلل مؤقّت. أعد المحاولة بعد لحظات." });
     }
   }
   // Look up the source env from the server-issued registry. Refuses any
