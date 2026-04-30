@@ -13,6 +13,10 @@ type GemsState = {
   dailyRemaining: number;
   gemsDailyLimit: number;
   hasActiveSub: boolean;
+  // For multi-subject summary: number of active subs. 1 for per-subject or legacy.
+  activeSubjectCount?: number;
+  // Label shown beside the badge (e.g. subject name when inside a subject)
+  label?: string | null;
 } | null;
 
 function GemsBadge({ gems }: { gems: GemsState }) {
@@ -20,12 +24,16 @@ function GemsBadge({ gems }: { gems: GemsState }) {
   const lowDaily = gems.dailyRemaining < 20;
   const lowBalance = gems.gemsBalance < 200;
   const low = lowDaily || lowBalance;
+  const multiSub = (gems.activeSubjectCount ?? 1) > 1;
+  const tooltip = multiSub
+    ? `مجموع الرصيد: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎 — لديك ${gems.activeSubjectCount} مادة نشطة`
+    : `الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎${gems.label ? ` (${gems.label})` : ""}`;
   return (
     <Link href="/subscription">
       <span
         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors
           ${low ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse" : "bg-gold/10 text-gold border border-gold/30 hover:bg-gold/20"}`}
-        title={`الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎`}
+        title={tooltip}
       >
         💎
         <span>{gems.dailyRemaining.toLocaleString("ar-EG")}</span>
@@ -121,22 +129,53 @@ export function AppLayout({ children }: { children: ReactNode }) {
   }, [user, location]);
 
   // Fetch gems balance periodically + on demand after AI turns.
-  // Per-subject model: the badge is only meaningful inside a learning
-  // session for ONE specific subject. On other pages there is no single
-  // "current" wallet, so we hide the badge entirely.
-  // Route shape: /subject/:subjectId/...  → derive subjectId from location.
+  // ─ Inside /subject/:id/... → fetch per-subject endpoint for live accuracy.
+  // ─ Everywhere else (learn, dashboard, subscription …) → fetch the summary
+  //   endpoint which aggregates across all active subscriptions, so the badge
+  //   is visible on every page that has a header, not just the lesson screen.
   const currentSubjectId = (() => {
     const m = location.match(/^\/subject\/([^/?#]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   })();
   useEffect(() => {
-    if (!user || !currentSubjectId) { setGems(null); return; }
+    if (!user) { setGems(null); return; }
     const fetchGems = () => {
-      const url = `/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(currentSubjectId)}`;
-      fetch(url, { credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d) setGems(d); })
-        .catch(() => {});
+      if (currentSubjectId) {
+        // Inside a subject session — precise per-subject wallet
+        const url = `/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(currentSubjectId)}`;
+        fetch(url, { credentials: "include" })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (!d) return;
+            setGems({
+              gemsBalance: d.gemsBalance ?? 0,
+              dailyRemaining: d.dailyRemaining ?? 0,
+              gemsDailyLimit: d.gemsDailyLimit ?? 0,
+              hasActiveSub: d.hasActiveSub ?? false,
+              activeSubjectCount: 1,
+              label: d.subjectName ?? null,
+            });
+          })
+          .catch(() => {});
+      } else {
+        // Other pages — aggregate across all active subscriptions
+        fetch("/api/subscriptions/gems-balance-summary", { credentials: "include" })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (!d || !d.hasActiveSub) { setGems(null); return; }
+            setGems({
+              gemsBalance: d.totalBalance ?? 0,
+              dailyRemaining: d.totalDailyRemaining ?? 0,
+              gemsDailyLimit: d.totalDailyLimit ?? 0,
+              hasActiveSub: true,
+              activeSubjectCount: d.activeSubjectCount ?? 1,
+              label: d.activeSubjectCount === 1 && d.worstSubject
+                ? d.worstSubject.subjectName
+                : null,
+            });
+          })
+          .catch(() => {});
+      }
     };
     fetchGems();
     const interval = setInterval(fetchGems, 10000);

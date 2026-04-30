@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, gt } from "drizzle-orm";
 import {
   db,
   subscriptionRequestsTable,
@@ -1469,6 +1469,113 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
     hasActiveSub: hasLegacyActive,
     plan: hasLegacyActive ? (user.nukhbaPlan ?? null) : null,
     source: hasLegacyActive ? ("legacy" as const) : ("none" as const),
+  });
+});
+
+// ── Aggregate gems summary: all active subscriptions for the header badge ────
+// Called by the header on non-subject pages (dashboard, learn, etc.) to show
+// a "total daily remaining across all active subscriptions" badge. Returns
+// per-subject rows for the lowest-remaining subject so the badge reflects the
+// most constrained wallet, plus totals for the tooltip.
+router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const user = await getUser(userId);
+  if (!user) { res.status(401).json({ error: "User not found" }); return; }
+
+  const now = new Date();
+
+  // Fetch all active per-subject subscriptions (not expired, balance > 0)
+  const allSubs = await db
+    .select()
+    .from(userSubjectSubscriptionsTable)
+    .where(and(
+      eq(userSubjectSubscriptionsTable.userId, userId),
+      gt(userSubjectSubscriptionsTable.expiresAt, now),
+    ))
+    .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
+
+  // Apply daily rollover for each and compute per-sub figures
+  const activeSubs: Array<{
+    subjectId: string;
+    subjectName: string | null;
+    dailyRemaining: number;
+    gemsDailyLimit: number;
+    gemsBalance: number;
+    gemsExpiresAt: Date;
+  }> = [];
+
+  for (const sub of allSubs) {
+    if ((sub.gemsBalance ?? 0) <= 0) continue;
+    await applyDailyGemsRolloverForSubjectSub(sub).catch(() => {});
+    // Re-read the updated row to get post-rollover values
+    const [fresh] = await db
+      .select()
+      .from(userSubjectSubscriptionsTable)
+      .where(eq(userSubjectSubscriptionsTable.id, sub.id));
+    if (!fresh || (fresh.gemsBalance ?? 0) <= 0) continue;
+    const used = fresh.gemsUsedToday ?? 0;
+    const limit = fresh.gemsDailyLimit ?? 0;
+    activeSubs.push({
+      subjectId: fresh.subjectId,
+      subjectName: fresh.subjectName ?? null,
+      dailyRemaining: Math.max(0, limit - used),
+      gemsDailyLimit: limit,
+      gemsBalance: fresh.gemsBalance ?? 0,
+      gemsExpiresAt: fresh.expiresAt,
+    });
+  }
+
+  if (activeSubs.length > 0) {
+    // Totals across all subjects
+    const totalDailyRemaining = activeSubs.reduce((s, x) => s + x.dailyRemaining, 0);
+    const totalDailyLimit = activeSubs.reduce((s, x) => s + x.gemsDailyLimit, 0);
+    const totalBalance = activeSubs.reduce((s, x) => s + x.gemsBalance, 0);
+    // "Worst" subject = the one with the least daily remaining (most constrained)
+    const worst = activeSubs.reduce((a, b) => a.dailyRemaining <= b.dailyRemaining ? a : b);
+    res.json({
+      hasActiveSub: true,
+      totalDailyRemaining,
+      totalDailyLimit,
+      totalBalance,
+      activeSubjectCount: activeSubs.length,
+      worstSubject: worst,
+      subjects: activeSubs,
+      source: "per-subject" as const,
+    });
+    return;
+  }
+
+  // Fallback: legacy global wallet
+  await applyDailyGemsRollover(user).catch(() => {});
+  const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now && (user.gemsBalance ?? 0) > 0);
+  if (hasLegacyActive) {
+    const usedLeg = user.gemsUsedToday ?? 0;
+    const limitLeg = user.gemsDailyLimit ?? 0;
+    const remaining = Math.max(0, limitLeg - usedLeg);
+    res.json({
+      hasActiveSub: true,
+      totalDailyRemaining: remaining,
+      totalDailyLimit: limitLeg,
+      totalBalance: user.gemsBalance ?? 0,
+      activeSubjectCount: 1,
+      worstSubject: null,
+      subjects: [],
+      source: "legacy" as const,
+    });
+    return;
+  }
+
+  res.json({
+    hasActiveSub: false,
+    totalDailyRemaining: 0,
+    totalDailyLimit: 0,
+    totalBalance: 0,
+    activeSubjectCount: 0,
+    worstSubject: null,
+    subjects: [],
+    source: "none" as const,
   });
 });
 
