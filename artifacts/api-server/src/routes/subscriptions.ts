@@ -670,13 +670,70 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     return;
   }
 
+  // ── Recover region + paid price for the cost-cap system ────────────────────
+  // The cost-cap (50% of paid YER) needs the real `region` and `paidPriceYer`
+  // to enforce correctly. Pull them from the originating subscription_request
+  // when available; otherwise fall back to the card.region + the canonical
+  // BASE_PRICES table for that plan/region. We never silently persist
+  // null/0 — that would let cost-cap default to south pricing and weaken
+  // enforcement. If we cannot resolve to a valid (region, price>0) pair,
+  // we refuse the activation and tell support to remint the card.
+  let resolvedRegion: "north" | "south" | null = null;
+  let resolvedPaidYer = 0;
+  const isValidRegion = (r: unknown): r is "north" | "south" =>
+    r === "north" || r === "south";
+
+  if (isValidRegion(card.region)) resolvedRegion = card.region;
+
+  if (card.subscriptionRequestId) {
+    const [origReq] = await db
+      .select({
+        region: subscriptionRequestsTable.region,
+        finalPrice: subscriptionRequestsTable.finalPrice,
+        basePrice: subscriptionRequestsTable.basePrice,
+      })
+      .from(subscriptionRequestsTable)
+      .where(eq(subscriptionRequestsTable.id, card.subscriptionRequestId));
+    if (origReq) {
+      if (isValidRegion(origReq.region)) resolvedRegion = origReq.region;
+      const reqPrice = origReq.finalPrice ?? origReq.basePrice ?? 0;
+      if (reqPrice > 0) resolvedPaidYer = reqPrice;
+    }
+  }
+
+  if (resolvedPaidYer <= 0 && resolvedRegion) {
+    // Fallback: derive paid price from the canonical price table when the
+    // request row is missing (legacy cards minted directly by an admin).
+    const fallback = BASE_PRICES[resolvedRegion]?.[card.planType];
+    if (typeof fallback === "number" && fallback > 0) {
+      resolvedPaidYer = fallback;
+    }
+  }
+
+  if (!resolvedRegion || resolvedPaidYer <= 0) {
+    // Hard refuse: rolling back the claim row keeps the card reusable so
+    // support can fix the metadata and the user can retry. Leaving region
+    // null / price 0 in the live subscription would silently weaken the
+    // AI cost-cap for this user.
+    await db
+      .update(activationCardsTable)
+      .set({ isUsed: false, usedByUserId: null, usedAt: null })
+      .where(eq(activationCardsTable.id, card.id));
+    res.status(409).json({
+      success: false,
+      message:
+        "تعذّر تفعيل الكود لاختلال بيانات السعر/المنطقة. يرجى التواصل مع الدعم لإعادة إصدار الكود.",
+    });
+    return;
+  }
+
   const sub = await grantSubjectSubscription({
     userId,
     subjectId: card.subjectId,
     subjectName: card.subjectName ?? null,
     planType: card.planType,
-    region: null,
-    paidPriceYer: 0,
+    region: resolvedRegion,
+    paidPriceYer: resolvedPaidYer,
     activationCode: code,
     subscriptionRequestId: card.subscriptionRequestId ?? null,
   });
@@ -1432,6 +1489,9 @@ router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
   const planType = typeof req.body?.planType === "string" ? req.body.planType : "";
   const subjectId = typeof req.body?.subjectId === "string" ? req.body.subjectId.trim() : "";
   const subjectName = typeof req.body?.subjectName === "string" ? req.body.subjectName.trim() : "";
+  const rawRegion = typeof req.body?.region === "string" ? req.body.region.trim() : "";
+  const region: "north" | "south" | null =
+    rawRegion === "north" ? "north" : rawRegion === "south" ? "south" : null;
 
   if (!PLAN_GEM_LIMITS[planType]) {
     res.status(400).json({ error: "نوع الباقة غير صحيح" });
@@ -1441,14 +1501,22 @@ router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
     res.status(400).json({ error: "يجب تحديد subjectId — كل تخصص اشتراك مستقل." });
     return;
   }
+  if (!region) {
+    res.status(400).json({ error: "يجب تحديد المنطقة (north أو south) لضبط سقف تكلفة الذكاء الاصطناعي." });
+    return;
+  }
+
+  // Derive the canonical paid price for this plan/region so the cost-cap
+  // system has correct enforcement thresholds even on admin-granted subs.
+  const paidPriceYer = BASE_PRICES[region]?.[planType] ?? 0;
 
   const sub = await grantSubjectSubscription({
     userId: targetId,
     subjectId,
     subjectName: subjectName || null,
     planType,
-    region: null,
-    paidPriceYer: 0,
+    region,
+    paidPriceYer,
     activationCode: null,
     subscriptionRequestId: null,
   });

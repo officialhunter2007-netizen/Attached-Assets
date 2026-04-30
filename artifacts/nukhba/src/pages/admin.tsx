@@ -67,6 +67,7 @@ export default function Admin() {
   const [grantPlan, setGrantPlan] = useState<"bronze" | "silver" | "gold">("silver");
   const [grantSubjectId, setGrantSubjectId] = useState("");
   const [grantSubjectName, setGrantSubjectName] = useState("");
+  const [grantRegion, setGrantRegion] = useState<"north" | "south">("north");
   const [isGranting, setIsGranting] = useState(false);
   const [userSubjectSubs, setUserSubjectSubs] = useState<Record<number, any[]>>({});
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
@@ -319,15 +320,15 @@ export default function Admin() {
     if (!grantTarget || !grantSubjectId.trim()) return;
     setIsGranting(true);
     try {
-      const r = await fetch("/api/admin/grant-subject-subscription", {
+      const r = await fetch(`/api/admin/users/${grantTarget.userId}/grant-gems`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          userId: grantTarget.userId,
           subjectId: grantSubjectId.trim(),
           subjectName: grantSubjectName.trim() || grantSubjectId.trim(),
-          plan: grantPlan,
+          planType: grantPlan,
+          region: grantRegion,
         }),
       });
       const data = await r.json();
@@ -1421,6 +1422,27 @@ export default function Admin() {
                     }`}
                   >
                     {planLabels[p]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>المنطقة (لضبط سقف تكلفة الذكاء الاصطناعي)</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { v: 'north' as const, label: 'الشمال' },
+                  { v: 'south' as const, label: 'الجنوب' },
+                ]).map(r => (
+                  <button
+                    key={r.v}
+                    onClick={() => setGrantRegion(r.v)}
+                    className={`py-2 rounded-xl text-sm font-bold border transition-all ${
+                      grantRegion === r.v
+                        ? 'border-gold bg-gold/10 text-gold'
+                        : 'border-white/10 text-muted-foreground hover:border-white/20'
+                    }`}
+                  >
+                    {r.label}
                   </button>
                 ))}
               </div>
