@@ -17,15 +17,19 @@ type GemsState = {
 
 function GemsBadge({ gems }: { gems: GemsState }) {
   if (!gems || !gems.hasActiveSub) return null;
-  const low = gems.gemsBalance < 200;
+  const lowDaily = gems.dailyRemaining < 20;
+  const lowBalance = gems.gemsBalance < 200;
+  const low = lowDaily || lowBalance;
   return (
     <Link href="/subscription">
       <span
-        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors
           ${low ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse" : "bg-gold/10 text-gold border border-gold/30 hover:bg-gold/20"}`}
-        title={`رصيد جواهرك: ${gems.gemsBalance} | متبقٍ اليوم: ${gems.dailyRemaining}`}
+        title={`الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎`}
       >
-        💎 {gems.gemsBalance.toLocaleString("ar-EG")}
+        💎
+        <span>{gems.dailyRemaining.toLocaleString("ar-EG")}</span>
+        <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
       </span>
     </Link>
   );
@@ -116,7 +120,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [user, location]);
 
-  // Fetch gems balance periodically
+  // Fetch gems balance periodically + on demand after AI turns
   useEffect(() => {
     if (!user) { setGems(null); return; }
     const fetchGems = () => {
@@ -126,8 +130,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
         .catch(() => {});
     };
     fetchGems();
-    const interval = setInterval(fetchGems, 30000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchGems, 10000);
+    // Immediate refresh triggered by subject page after each AI turn
+    window.addEventListener("nukhba:gems-changed", fetchGems);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("nukhba:gems-changed", fetchGems);
+    };
   }, [user]);
 
   useEffect(() => {

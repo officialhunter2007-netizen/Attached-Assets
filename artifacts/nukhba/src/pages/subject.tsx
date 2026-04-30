@@ -1933,6 +1933,8 @@ function SubjectPathChat({
               }
               if (data.gemsRemaining !== null && data.gemsRemaining !== undefined) {
                 setGemsRemaining(data.gemsRemaining);
+                // Notify header badge to refresh immediately
+                window.dispatchEvent(new Event("nukhba:gems-changed"));
               }
               if (data.planReady) {
                 gotPlanReady = true;
