@@ -19,6 +19,7 @@ import {
   MarkIncompleteSubscriptionRequestParams,
 } from "@workspace/api-zod";
 import { generateActivationCode } from "../lib/auth";
+import { applyDailyGemsRollover } from "../lib/gems";
 
 const router: IRouter = Router();
 
@@ -563,17 +564,16 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     return;
   }
 
-  if (!card.subjectId) {
-    res.status(400).json({ success: false, message: "هذا الكود قديم ولا يحتوي على مادة محددة. يرجى استخدام كود جديد." });
-    return;
-  }
-
-  const messagesLimit = PLAN_MESSAGE_LIMITS[card.planType];
-  if (!messagesLimit) {
+  // Activation cards now grant a platform-wide gems subscription (no longer
+  // per-subject). The card's `subjectId`/`subjectName` is informational only.
+  const planGems = PLAN_GEM_LIMITS[card.planType];
+  if (!planGems) {
     res.status(400).json({ success: false, message: `نوع الباقة غير معروف: ${card.planType}` });
     return;
   }
+
   const subscriptionExpiresAt = card.expiresAt ?? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  const yemenDate = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   await db.update(activationCardsTable).set({
     isUsed: true,
@@ -581,29 +581,21 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     usedAt: new Date(),
   }).where(eq(activationCardsTable.id, card.id));
 
-  // Capture region + price-paid on the subscription so the cost-cap enforcer
-  // (50%-of-paid red line) can compute the per-subscription budget without a
-  // join to the activation card.
-  const cardRegion = card.region ?? "south";
-  const cardBasePrice = getBasePrice(card.planType, cardRegion) ?? 0;
-  await db.insert(userSubjectSubscriptionsTable).values({
-    userId,
-    subjectId: card.subjectId,
-    subjectName: card.subjectName ?? null,
-    plan: card.planType,
-    messagesUsed: 0,
-    messagesLimit,
-    expiresAt: subscriptionExpiresAt,
-    activationCode: code,
-    paidPriceYer: cardBasePrice,
-    region: cardRegion,
-  });
+  await db.update(usersTable).set({
+    gemsBalance: planGems.total,
+    gemsDailyLimit: planGems.daily,
+    gemsUsedToday: 0,
+    gemsResetDate: yemenDate,
+    gemsExpiresAt: subscriptionExpiresAt,
+    nukhbaPlan: card.planType,
+  }).where(eq(usersTable.id, userId));
 
   res.json({
     success: true,
     planType: card.planType,
-    subjectId: card.subjectId,
-    message: `تم تفعيل اشتراك ${card.planType} لمادة ${card.subjectName ?? card.subjectId} بنجاح!`,
+    gemsGranted: planGems.total,
+    expiresAt: subscriptionExpiresAt,
+    message: `تم تفعيل باقة ${card.planType} (${planGems.total}💎) بنجاح!`,
   });
 });
 
@@ -996,44 +988,14 @@ router.delete("/admin/users/:userId/subject-subscriptions/:subId", async (req, r
   res.json({ success: true });
 });
 
-// ── Admin: grant subject subscription directly ─────────────────────────────────
-router.post("/admin/users/:id/grant-subject-subscription", async (req, res): Promise<void> => {
-  const adminId = getUserId(req);
-  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const admin = await getUser(adminId);
-  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
-
-  const targetId = parseInt(req.params.id, 10);
-  if (isNaN(targetId)) { res.status(400).json({ error: "Invalid user id" }); return; }
-
-  const { subjectId, subjectName, planType, daysValid = 14, region: bodyRegion } = req.body;
-  if (!subjectId || !planType || !PLAN_MESSAGE_LIMITS[planType]) {
-    res.status(400).json({ error: "subjectId and valid planType required" });
-    return;
-  }
-
-  const messagesLimit = PLAN_MESSAGE_LIMITS[planType];
-  const expiresAt = new Date(Date.now() + daysValid * 24 * 60 * 60 * 1000);
-  // Admin-grant path: assume south region (more conservative cap) when the
-  // admin doesn't explicitly pass one. Price defaults to the list price for
-  // that region so the cost cap still applies — admins shouldn't be able to
-  // accidentally create a "free" sub that bypasses the 50%-of-paid rule.
-  const region = bodyRegion === "north" || bodyRegion === "south" ? bodyRegion : "south";
-  const paidYer = getBasePrice(planType, region) ?? 0;
-
-  const [sub] = await db.insert(userSubjectSubscriptionsTable).values({
-    userId: targetId,
-    subjectId,
-    subjectName: subjectName ?? null,
-    plan: planType,
-    messagesUsed: 0,
-    messagesLimit,
-    expiresAt,
-    paidPriceYer: paidYer,
-    region,
-  }).returning();
-
-  res.json({ success: true, subscription: sub });
+// ── Admin: grant subject subscription (deprecated under gems model) ──────────
+// Per-subject subscriptions are no longer supported — admins should use the
+// platform-wide /admin/users/:id/grant-gems endpoint instead.
+router.post("/admin/users/:id/grant-subject-subscription", async (_req, res): Promise<void> => {
+  res.status(410).json({
+    error: "DEPRECATED",
+    message: "تم استبدال الاشتراكات لكل مادة بنظام الجواهر. استخدم /admin/users/:id/grant-gems",
+  });
 });
 
 // ── Admin: reset subject first lesson (allow free retry) ──────────────────────
@@ -1071,39 +1033,12 @@ router.get("/admin/subject-subscriptions/:userId", async (req, res): Promise<voi
   res.json(subs);
 });
 
-// ── Admin: grant subject subscription (simplified path) ───────────────────────
-router.post("/admin/grant-subject-subscription", async (req, res): Promise<void> => {
-  const adminId = getUserId(req);
-  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const admin = await getUser(adminId);
-  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
-
-  const { userId, subjectId, subjectName, plan, daysValid = 14, region: bodyRegion } = req.body;
-  if (!userId || !subjectId || !plan || !PLAN_MESSAGE_LIMITS[plan]) {
-    res.status(400).json({ error: "userId, subjectId, and valid plan required" });
-    return;
-  }
-
-  const messagesLimit = PLAN_MESSAGE_LIMITS[plan];
-  const expiresAt = new Date(Date.now() + daysValid * 24 * 60 * 60 * 1000);
-  // Same logic as the per-user grant route — default to south region with the
-  // matching list price so the cost-cap rule remains enforceable.
-  const region = bodyRegion === "north" || bodyRegion === "south" ? bodyRegion : "south";
-  const paidYer = getBasePrice(plan, region) ?? 0;
-
-  const [sub] = await db.insert(userSubjectSubscriptionsTable).values({
-    userId,
-    subjectId,
-    subjectName: subjectName ?? null,
-    plan,
-    messagesUsed: 0,
-    messagesLimit,
-    expiresAt,
-    paidPriceYer: paidYer,
-    region,
-  }).returning();
-
-  res.json({ success: true, subscription: sub });
+// ── Admin: grant subject subscription (deprecated — gems are platform-wide) ──
+router.post("/admin/grant-subject-subscription", async (_req, res): Promise<void> => {
+  res.status(410).json({
+    error: "DEPRECATED",
+    message: "تم استبدال الاشتراكات لكل مادة بنظام الجواهر. استخدم /admin/users/:id/grant-gems",
+  });
 });
 
 // ── Admin: revoke subject subscription (simplified path) ─────────────────────
@@ -1312,11 +1247,13 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
     return;
   }
 
+  // Apply daily forfeit before reporting balance — keeps the UI honest
+  // about gems lost to yesterday's unused allowance.
+  await applyDailyGemsRollover(user);
+
   const now = new Date();
-  const hasActiveSub = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now && user.gemsBalance > 0);
-  const todayYemen = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const isStale = (user.gemsResetDate ?? null) !== todayYemen;
-  const usedToday = isStale ? 0 : (user.gemsUsedToday ?? 0);
+  const hasActiveSub = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now && (user.gemsBalance ?? 0) > 0);
+  const usedToday = user.gemsUsedToday ?? 0;
   const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - usedToday);
 
   res.json({

@@ -22,6 +22,7 @@ import {
   type GeminiMessage,
 } from "../lib/gemini-stream";
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
+import { applyDailyGemsRollover } from "../lib/gems";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
 import { signMasteryToken, verifyMasteryToken, newAttemptId } from "../lib/lab-exam-token";
 import {
@@ -175,19 +176,17 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   const freeMessagesLeft = Math.max(0, FREE_LESSON_GEM_LIMIT - freeGemsUsed);
 
   // ── Gems-based platform-wide subscription ─────────────────────────────────
+  // Forfeit any unused daily allowance from prior days FIRST so all downstream
+  // access checks (and the gems we report to the client) reflect the truth.
+  await applyDailyGemsRollover(user);
+
   const hasGemsSub = !!(
-    user.gemsBalance > 0 &&
+    (user.gemsBalance ?? 0) > 0 &&
     user.gemsExpiresAt &&
     new Date(user.gemsExpiresAt) > now
   );
 
-  // Daily gem limit: if the date has changed since last reset, treat today's
-  // usage as 0 (it will be reset atomically in the teach route before the
-  // first chargeable turn). This keeps the access-check view consistent with
-  // what the teach route will do.
-  const todayYemen = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const isStaleCounter = (user.gemsResetDate ?? null) !== todayYemen;
-  const effectiveGemsUsedToday = isStaleCounter ? 0 : (user.gemsUsedToday ?? 0);
+  const effectiveGemsUsedToday = user.gemsUsedToday ?? 0;
   const gemsDailyExhausted = hasGemsSub && (effectiveGemsUsedToday >= (user.gemsDailyLimit ?? 0)) && (user.gemsDailyLimit ?? 0) > 0;
 
   const canAccessViaSubscription = hasGemsSub;
@@ -739,30 +738,20 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const subjectSub = null;
 
   // ── Gems daily limit check (replaces session-based daily claim) ───────────
-  // For subscribed students: enforce gemsDailyLimit. Reset gemsUsedToday when
-  // the Yemen date has rolled over (atomic conditional update).
+  // For subscribed students: forfeit any unused gems from prior days, then
+  // enforce gemsDailyLimit. Forfeit logic lives in lib/gems.ts.
   let claimedTodaySession = false;
   const rollbackDailyClaim = async () => {};
 
   if (isNewSession && hasGemsSub && !unlimited) {
-    const today = getYemenDateString();
+    await applyDailyGemsRollover(user);
 
-    // If the reset date is stale, atomically reset today's counter.
-    if ((user.gemsResetDate ?? null) !== today) {
-      await db
-        .update(usersTable)
-        .set({ gemsUsedToday: 0, gemsResetDate: today })
-        .where(and(
-          eq(usersTable.id, userId),
-          or(isNull(usersTable.gemsResetDate), ne(usersTable.gemsResetDate, today)),
-        ))
-        .catch(() => {});
-      // Reflect reset locally
-      user.gemsUsedToday = 0;
-      user.gemsResetDate = today;
+    // After forfeit, balance may have dropped to 0 → no active sub.
+    if ((user.gemsBalance ?? 0) <= 0) {
+      res.status(403).json({ code: "NO_GEMS" });
+      return;
     }
 
-    // Check daily gem cap AFTER potential reset.
     const usedToday = user.gemsUsedToday ?? 0;
     const dailyLimit = user.gemsDailyLimit ?? 0;
     if (dailyLimit > 0 && usedToday >= dailyLimit) {
