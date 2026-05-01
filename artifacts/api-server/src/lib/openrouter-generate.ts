@@ -1,7 +1,15 @@
 /**
- * Non-streaming Gemini helper — DUAL-PROVIDER (OpenRouter primary).
+ * Non-streaming Gemini helper — OPENROUTER-ONLY (since May 2026).
  *
- * Mirrors gemini-stream.ts but for one-shot generateContent calls used by:
+ * Mirrors gemini-stream.ts: the user's Google AI Studio key is hard-
+ * capped on the free tier and cannot be billed, so the Google-direct
+ * fallback was a fiction (failed silently when the quota burned). We
+ * removed it. Every call now goes through the single billable channel:
+ *
+ *     openrouter.ai (OpenAI-compatible) → google/gemini-*
+ *     Auth: OPENROUTER_API_KEY (or AI_INTEGRATIONS_OPENAI_API_KEY)
+ *
+ * Used by:
  *   - materials.ts: PDF OCR (ocrChunkGemini)
  *   - materials.ts: structured chapters (generateStructuredChapters)
  *   - materials.ts: file metadata (generateMaterialMetadata)
@@ -10,15 +18,15 @@
  *   - ai.ts:        lab variant generation Gemini fallback
  *   - ai.ts:        lab build-env Gemini third pass
  *   - ai.ts:        attack-sim build Gemini fallback
- *   - ai.ts:        platform-help streaming (uses streamGeminiTeaching directly)
  *
- * Channel order matches gemini-stream.ts:
- *   1) OpenRouter (PRIMARY) — single billable account, no quota cap
- *   2) Google direct (OPTIONAL fallback) — only if GEMINI_API_KEY set
- *
- * Returns a normalized result regardless of which channel served the
- * request, so call sites do not need to know which provider answered.
+ * NEW error semantics: `creditsExhausted: true` flag on
+ * GenerateGeminiError signals OpenRouter 402 / "insufficient_credits".
+ * Call sites should check this flag and surface a clearer "service
+ * paused for maintenance" message instead of the generic transient
+ * apology — and an admin alert is recorded automatically.
  */
+
+import { recordAdminAlert } from "./admin-alerts";
 
 const TRANSIENT_HTTP = new Set([408, 425, 429, 500, 502, 503, 504]);
 
@@ -34,12 +42,6 @@ function toOpenRouterModel(model: string): string {
     "gemini-1.5-pro":        "google/gemini-pro-1.5",
   };
   return map[model] ?? (model.includes("/") ? model : `google/${model}`);
-}
-
-/** Maps internal short model names → Google REST model IDs. */
-function toGoogleModel(model: string): string {
-  if (model.startsWith("google/")) return model.slice("google/".length).replace(/-001$/, "");
-  return model;
 }
 
 /** A single content part: text or an inline file (e.g. PDF base64). */
@@ -80,9 +82,9 @@ export type GenerateGeminiResult = {
    *  extractGeminiUsage() helper keeps working unchanged. */
   usageMetadata: GeminiUsageRaw | null;
   finishReason?: string;
-  /** Which channel ultimately served the request. */
-  channel: "openrouter" | "google";
-  /** The exact model ID passed to the channel. */
+  /** Always "openrouter" now — kept for backward compatibility. */
+  channel: "openrouter";
+  /** The exact model ID passed to OpenRouter. */
   model: string;
   /** HTTP status of the SUCCESSFUL response (always 2xx). */
   status: number;
@@ -91,20 +93,22 @@ export type GenerateGeminiResult = {
 /** Public, shape-stable error so call sites can map .status into 429/503/etc. */
 export class GenerateGeminiError extends Error {
   status: number;
-  channel: "openrouter" | "google" | "none";
+  channel: "openrouter" | "none";
   body: string;
   /** True when no provider key was configured at all. */
   unconfigured: boolean;
   /** True when the channel returned 2xx but the output was blocked/empty
-   *  (SAFETY filter, content_filter, recitation, or empty body). The
-   *  orchestrator skips in-channel retry and tries the next channel. */
+   *  (SAFETY filter, content_filter, recitation, or empty body). */
   badOutput: boolean;
+  /** True when OpenRouter signalled 402 / insufficient_credits / quota. */
+  creditsExhausted: boolean;
   constructor(message: string, opts: {
     status: number;
-    channel: "openrouter" | "google" | "none";
+    channel: "openrouter" | "none";
     body?: string;
     unconfigured?: boolean;
     badOutput?: boolean;
+    creditsExhausted?: boolean;
   }) {
     super(message);
     this.name = "GenerateGeminiError";
@@ -113,12 +117,12 @@ export class GenerateGeminiError extends Error {
     this.body = opts.body ?? "";
     this.unconfigured = !!opts.unconfigured;
     this.badOutput = !!opts.badOutput;
+    this.creditsExhausted = !!opts.creditsExhausted;
   }
 }
 
-/** Reasons that mean "this channel cannot fulfill the request" — should
- *  trigger immediate fallback to the next channel rather than in-channel
- *  retry. Both providers occasionally use different casings/spellings. */
+/** Reasons that mean "this channel cannot fulfill the request" — surface
+ *  to the caller as a typed bad-output failure. */
 const BLOCKED_FINISH_REASONS = new Set([
   "SAFETY",
   "RECITATION",
@@ -135,20 +139,67 @@ function isBlockedFinishReason(reason: unknown): boolean {
   return BLOCKED_FINISH_REASONS.has(reason) || BLOCKED_FINISH_REASONS.has(reason.toUpperCase());
 }
 
+/** Detects "you're out of money" across the multiple shapes OpenRouter
+ *  returns depending on the upstream model. See gemini-stream.ts for the
+ *  twin implementation — keep them in sync. */
+function isCreditExhausted(status: number, body: string): boolean {
+  if (status === 402) return true;
+  const lower = body.toLowerCase();
+  if (lower.includes("insufficient_credits")) return true;
+  if (lower.includes("insufficient credits")) return true;
+  if (lower.includes("insufficient_quota")) return true;
+  if (lower.includes("payment required")) return true;
+  if (lower.includes("out of credit")) return true;
+  if (lower.includes("upgrade your plan")) return true;
+  return false;
+}
+
+function notifyCreditsExhausted(status: number, body: string, model: string, logTag?: string): void {
+  void recordAdminAlert({
+    type: "openrouter_insufficient_credits",
+    severity: "critical",
+    title: "نفد رصيد OpenRouter — خدمات الذكاء الاصطناعي متوقفة",
+    message:
+      "حساب OpenRouter وصل إلى صفر رصيد. توقّفت إجابات المعلم الذكي وتحليل الملفات وتوليد الاختبارات. " +
+      "ادخل إلى openrouter.ai/credits وقم بالشحن لاستعادة الخدمة فوراً.",
+    metadata: {
+      provider: "openrouter",
+      status,
+      model,
+      logTag,
+      bodyExcerpt: body.slice(0, 400),
+      detectedAt: new Date().toISOString(),
+    },
+  });
+}
+
+function notifyAuthFailure(status: number, body: string, model: string, logTag?: string): void {
+  void recordAdminAlert({
+    type: "openrouter_auth_failed",
+    severity: "critical",
+    title: "فشل المصادقة على OpenRouter",
+    message:
+      "OpenRouter رفض مفتاح API الحالي. تأكّد من أن OPENROUTER_API_KEY في ملف البيئة صحيح ولم ينتهِ.",
+    metadata: {
+      provider: "openrouter",
+      status,
+      model,
+      logTag,
+      bodyExcerpt: body.slice(0, 400),
+      detectedAt: new Date().toISOString(),
+    },
+  });
+}
+
 // ────────────────────────────────────────────────────────────────────────────
-// Channel 1: OpenRouter (PRIMARY)
+// Channel: OpenRouter (the only channel)
 // ────────────────────────────────────────────────────────────────────────────
 
 function partsToOpenRouterContent(parts: ContentPart[]): any {
   // OpenRouter follows the OpenAI multimodal content schema.
-  // For pure-text we collapse to a string so providers that don't accept
-  // the array form still work. For inline files (PDF) we use the
-  // image_url-style data URL which OpenRouter accepts for Gemini.
   if (parts.length === 1 && parts[0].type === "text") return parts[0].text;
   return parts.map((p) => {
     if (p.type === "text") return { type: "text", text: p.text };
-    // Use OpenRouter's `file` content type — supported for Google models
-    // and required for native PDF input rather than text extraction.
     return {
       type: "file",
       file: {
@@ -164,12 +215,13 @@ async function attemptOpenRouter(
   apiKey: string,
 ): Promise<GenerateGeminiResult> {
   const url = "https://openrouter.ai/api/v1/chat/completions";
+  const orModel = toOpenRouterModel(args.model);
   const messages: { role: string; content: any }[] = [];
   if (args.systemPrompt) messages.push({ role: "system", content: args.systemPrompt });
   messages.push({ role: "user", content: partsToOpenRouterContent(args.userParts) });
 
   const body: any = {
-    model: toOpenRouterModel(args.model),
+    model: orModel,
     messages,
     temperature: args.temperature ?? 0.4,
     top_p: args.topP ?? 0.95,
@@ -195,8 +247,19 @@ async function attemptOpenRouter(
   if (!r.ok) {
     const errBody = await r.text().catch(() => "");
     console.warn(
-      `[openrouter-generate${args.logTag ? `:${args.logTag}` : ""}] HTTP ${r.status} for model=${toOpenRouterModel(args.model)}: ${errBody.slice(0, 300)}`,
+      `[openrouter-generate${args.logTag ? `:${args.logTag}` : ""}] HTTP ${r.status} for model=${orModel}: ${errBody.slice(0, 300)}`,
     );
+
+    if (isCreditExhausted(r.status, errBody)) {
+      notifyCreditsExhausted(r.status, errBody, orModel, args.logTag);
+      throw new GenerateGeminiError(
+        `OpenRouter credit exhausted (HTTP ${r.status})`,
+        { status: r.status, channel: "openrouter", body: errBody.slice(0, 500), creditsExhausted: true },
+      );
+    }
+    if (r.status === 401 || r.status === 403) {
+      notifyAuthFailure(r.status, errBody, orModel, args.logTag);
+    }
     throw new GenerateGeminiError(
       `OpenRouter HTTP ${r.status}`,
       { status: r.status, channel: "openrouter", body: errBody.slice(0, 500) },
@@ -204,10 +267,28 @@ async function attemptOpenRouter(
   }
 
   const data: any = await r.json();
+  // OpenRouter sometimes returns 200 with an `error` envelope when the
+  // upstream provider rejected the request. Catch that pattern too.
+  if (data?.error) {
+    const errCode = String(data.error?.code ?? "");
+    const errMsg = String(data.error?.message ?? "");
+    const combined = `${errCode} ${errMsg}`;
+    if (isCreditExhausted(0, combined)) {
+      notifyCreditsExhausted(0, combined, orModel, args.logTag);
+      throw new GenerateGeminiError(
+        `OpenRouter credit exhausted (200 envelope)`,
+        { status: 402, channel: "openrouter", body: combined.slice(0, 500), creditsExhausted: true },
+      );
+    }
+    throw new GenerateGeminiError(
+      `OpenRouter envelope error: ${combined.slice(0, 200)}`,
+      { status: 500, channel: "openrouter", body: combined.slice(0, 500) },
+    );
+  }
+
   const choice = data?.choices?.[0];
   const finishReason = choice?.finish_reason;
   const content = choice?.message?.content;
-  // Content may be string or array-of-parts depending on provider.
   let text = "";
   if (typeof content === "string") text = content;
   else if (Array.isArray(content)) {
@@ -225,12 +306,9 @@ async function attemptOpenRouter(
       }
     : null;
 
-  // Bad-output guard: SAFETY/content_filter blocks return 2xx but empty
-  // text. Treat as channel failure so the orchestrator falls over to
-  // Google direct (whose prompt safety calibration differs).
   if (isBlockedFinishReason(finishReason)) {
     console.warn(
-      `[openrouter-generate${args.logTag ? `:${args.logTag}` : ""}] openrouter blocked output (finish_reason=${finishReason}); will try next channel`,
+      `[openrouter-generate${args.logTag ? `:${args.logTag}` : ""}] openrouter blocked output (finish_reason=${finishReason})`,
     );
     throw new GenerateGeminiError(
       `OpenRouter blocked output (${finishReason})`,
@@ -239,7 +317,7 @@ async function attemptOpenRouter(
   }
   if (text.trim().length === 0) {
     console.warn(
-      `[openrouter-generate${args.logTag ? `:${args.logTag}` : ""}] openrouter returned empty text (finish_reason=${finishReason}); will try next channel`,
+      `[openrouter-generate${args.logTag ? `:${args.logTag}` : ""}] openrouter returned empty text (finish_reason=${finishReason})`,
     );
     throw new GenerateGeminiError(
       `OpenRouter returned empty text (finish_reason=${finishReason ?? "?"})`,
@@ -252,238 +330,122 @@ async function attemptOpenRouter(
     usageMetadata,
     finishReason,
     channel: "openrouter",
-    model: toOpenRouterModel(args.model),
+    model: orModel,
     status: r.status,
   };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Channel 2: Google Gemini direct (OPTIONAL fallback)
-// ────────────────────────────────────────────────────────────────────────────
-
-function partsToGoogleParts(parts: ContentPart[]): any[] {
-  return parts.map((p) => {
-    if (p.type === "text") return { text: p.text };
-    return { inlineData: { mimeType: p.mimeType, data: p.dataBase64 } };
-  });
-}
-
-async function attemptGoogle(
-  args: GenerateGeminiArgs,
-  apiKey: string,
-): Promise<GenerateGeminiResult> {
-  const model = toGoogleModel(args.model);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const body: any = {
-    contents: [{ role: "user", parts: partsToGoogleParts(args.userParts) }],
-    generationConfig: {
-      temperature: args.temperature ?? 0.4,
-      topP: args.topP ?? 0.95,
-      maxOutputTokens: args.maxOutputTokens,
-    },
-    safetySettings: [
-      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-    ],
-  };
-  if (args.systemPrompt) body.systemInstruction = { parts: [{ text: args.systemPrompt }] };
-  if (args.jsonMode) body.generationConfig.responseMimeType = "application/json";
-
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: args.timeoutMs ? AbortSignal.any([
-      args.signal ?? new AbortController().signal,
-      AbortSignal.timeout(args.timeoutMs),
-    ]) : args.signal,
-  });
-
-  if (!r.ok) {
-    const errBody = await r.text().catch(() => "");
-    console.warn(
-      `[openrouter-generate:google${args.logTag ? `:${args.logTag}` : ""}] HTTP ${r.status} for model=${model}: ${errBody.slice(0, 300)}`,
-    );
-    throw new GenerateGeminiError(
-      `Google HTTP ${r.status}`,
-      { status: r.status, channel: "google", body: errBody.slice(0, 500) },
-    );
-  }
-
-  const data: any = await r.json();
-  const candidate = data?.candidates?.[0];
-  const finishReason = candidate?.finishReason;
-  const parts = candidate?.content?.parts;
-  let text = "";
-  if (Array.isArray(parts)) {
-    for (const p of parts) {
-      if (typeof p?.text === "string") text += p.text;
-    }
-  }
-
-  const um = data?.usageMetadata;
-  const usageMetadata: GeminiUsageRaw | null = um
-    ? {
-        promptTokenCount: Number(um.promptTokenCount ?? 0),
-        candidatesTokenCount: Number(um.candidatesTokenCount ?? 0),
-        cachedContentTokenCount: Number(um.cachedContentTokenCount ?? 0),
-      }
-    : null;
-
-  // Same bad-output guard as the OpenRouter path: SAFETY/RECITATION/etc.
-  // Surface as a typed error so the orchestrator can decide what to do.
-  // (When Google is the LAST channel in the chain, the error propagates
-  // to the caller, which is the correct behavior.)
-  if (isBlockedFinishReason(finishReason)) {
-    console.warn(
-      `[openrouter-generate:google${args.logTag ? `:${args.logTag}` : ""}] google blocked output (finishReason=${finishReason}); will try next channel`,
-    );
-    throw new GenerateGeminiError(
-      `Google blocked output (${finishReason})`,
-      { status: 200, channel: "google", body: String(finishReason ?? ""), badOutput: true },
-    );
-  }
-  if (text.trim().length === 0) {
-    console.warn(
-      `[openrouter-generate:google${args.logTag ? `:${args.logTag}` : ""}] google returned empty text (finishReason=${finishReason}); will try next channel`,
-    );
-    throw new GenerateGeminiError(
-      `Google returned empty text (finishReason=${finishReason ?? "?"})`,
-      { status: 200, channel: "google", body: String(finishReason ?? ""), badOutput: true },
-    );
-  }
-
-  return {
-    text,
-    usageMetadata,
-    finishReason,
-    channel: "google",
-    model,
-    status: r.status,
-  };
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Public entrypoint — orchestrates both channels with OpenRouter primary
+// Public entrypoint
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Returns true when at least one provider key is configured. Call sites
- * use this to skip work entirely (e.g. generateMaterialMetadata) when no
+ * Returns true when an OpenRouter key is configured. Call sites use this
+ * to skip optional work entirely (e.g. file metadata extraction) when no
  * Gemini channel is available.
  */
 export function hasGeminiProvider(): boolean {
   return (
     !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-    !!process.env.OPENROUTER_API_KEY ||
-    !!process.env.GEMINI_API_KEY
+    !!process.env.OPENROUTER_API_KEY
   );
 }
 
-type Channel = {
-  name: "openrouter" | "google";
-  key: string;
-  run: (args: GenerateGeminiArgs, key: string) => Promise<GenerateGeminiResult>;
-};
-
-function buildChain(): Channel[] {
-  const chain: Channel[] = [];
-  const orKey =
-    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-    process.env.OPENROUTER_API_KEY;
-  const gKey = process.env.GEMINI_API_KEY;
-  // OpenRouter FIRST (production primary), Google direct SECOND if available.
-  if (orKey) chain.push({ name: "openrouter", key: orKey, run: attemptOpenRouter });
-  if (gKey)  chain.push({ name: "google", key: gKey, run: attemptGoogle });
-  return chain;
+function getOpenRouterKey(): string | undefined {
+  return process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENROUTER_API_KEY;
 }
 
 /**
- * Generate text/JSON via Gemini (OpenRouter primary, Google direct fallback).
+ * Generate text/JSON via Gemini through OpenRouter.
  *
  * Errors:
- *  - GenerateGeminiError with `unconfigured: true` → no provider keys set.
- *  - GenerateGeminiError with status 401/403 → all channels rejected the key.
- *  - GenerateGeminiError with status in TRANSIENT_HTTP → all channels were
- *    rate-limited or 5xx after a single retry on each.
- *  - GenerateGeminiError with status 4xx → request shape was wrong (our bug);
- *    retrying on the next channel would fail the same way, so we abort.
- *  - GenerateGeminiError with `badOutput: true` (status 200) → every channel
- *    returned a SAFETY/content_filter block or empty text (only the LAST
- *    channel's error is surfaced). Caller should treat this like an
- *    AI-output failure (Arabic apology + roll back any quota).
+ *  - GenerateGeminiError with `unconfigured: true` → no OPENROUTER_API_KEY.
+ *  - GenerateGeminiError with `creditsExhausted: true` → 402 / insufficient_credits.
+ *    Caller should surface "service paused" message and skip retries.
+ *    An admin alert was already recorded.
+ *  - GenerateGeminiError with status 401/403 → auth failed (admin alerted).
+ *  - GenerateGeminiError with status in TRANSIENT_HTTP → 429/5xx after one retry.
+ *  - GenerateGeminiError with status 4xx (other) → request shape problem (our bug).
+ *  - GenerateGeminiError with `badOutput: true` (status 200) → SAFETY/empty.
  */
 export async function generateGemini(args: GenerateGeminiArgs): Promise<GenerateGeminiResult> {
-  const chain = buildChain();
-  if (chain.length === 0) {
+  const apiKey = getOpenRouterKey();
+  if (!apiKey) {
+    void recordAdminAlert({
+      type: "openrouter_key_missing",
+      severity: "critical",
+      title: "مفتاح OpenRouter غير مضبوط",
+      message:
+        "متغيّر OPENROUTER_API_KEY مفقود من ملف البيئة. خدمات الذكاء الاصطناعي معطّلة بالكامل. " +
+        "أضفه إلى ملف .env ثم أعد تشغيل الخدمة.",
+      metadata: { detectedAt: new Date().toISOString() },
+    });
     throw new GenerateGeminiError(
-      "No Gemini provider configured. Set OPENROUTER_API_KEY (preferred) or GEMINI_API_KEY.",
+      "No Gemini provider configured. Set OPENROUTER_API_KEY.",
       { status: 503, channel: "none", unconfigured: true },
     );
   }
 
   let lastErr: GenerateGeminiError | null = null;
+  let chTries = 0;
 
-  for (const ch of chain) {
-    let chTries = 0;
-    while (chTries < 2) {
-      chTries++;
-      try {
-        return await ch.run(args, ch.key);
-      } catch (err: any) {
-        if (args.signal?.aborted) throw err;
+  // Single channel, ONE in-channel retry with 600ms backoff for transients.
+  while (chTries < 2) {
+    chTries++;
+    try {
+      return await attemptOpenRouter(args, apiKey);
+    } catch (err: any) {
+      if (args.signal?.aborted) throw err;
 
-        // Normalize unknown errors so callers always see a GenerateGeminiError.
-        const e: GenerateGeminiError =
-          err instanceof GenerateGeminiError
-            ? err
-            : new GenerateGeminiError(
-                String(err?.message ?? err).slice(0, 200),
-                { status: 0, channel: ch.name, body: "" },
-              );
-        lastErr = e;
+      const e: GenerateGeminiError =
+        err instanceof GenerateGeminiError
+          ? err
+          : new GenerateGeminiError(
+              String(err?.message ?? err).slice(0, 200),
+              { status: 0, channel: "openrouter", body: "" },
+            );
+      lastErr = e;
 
-        // Auth failure on this channel — try next channel right away.
-        if (e.status === 401 || e.status === 403) {
-          console.warn(
-            `[openrouter-generate${args.logTag ? `:${args.logTag}` : ""}] ${ch.name} auth failed; trying next channel if any`,
-          );
-          break;
+      // Credits / auth / bad-output → never retry the same channel (we don't
+      // have another), and we already alerted the admin if needed.
+      if (e.creditsExhausted) throw e;
+      if (e.status === 401 || e.status === 403) throw e;
+      if (e.badOutput) throw e;
+
+      // Transient — one retry then surface.
+      if (TRANSIENT_HTTP.has(e.status) || e.status === 0) {
+        if (chTries < 2) {
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
         }
-        // Bad output (SAFETY/content_filter/empty) — same channel will
-        // produce the same block, so move on to the next channel right
-        // away without consuming the in-channel retry budget.
-        if (e.badOutput) {
-          break;
-        }
-        // Transient — one in-channel retry with 600ms backoff.
-        if (TRANSIENT_HTTP.has(e.status) || e.status === 0) {
-          if (chTries < 2) {
-            await new Promise((r) => setTimeout(r, 600));
-            continue;
-          }
-          // Exhausted in-channel retries — fall through to next channel.
-          console.warn(
-            `[openrouter-generate${args.logTag ? `:${args.logTag}` : ""}] ${ch.name} exhausted (${e.status}); trying next channel if any`,
-          );
-          break;
-        }
-        // 4xx other than auth — request shape problem. Skip the rest of
-        // the chain because the next provider would fail the same way.
+        // Exhausted — log a warning admin alert (de-duped over 30min).
+        void recordAdminAlert({
+          type: "openrouter_transient_repeated",
+          severity: "warning",
+          title: "OpenRouter يفشل بشكل متكرر (one-shot)",
+          message:
+            "نداءات Gemini غير-المتدفّقة (PDF/تصحيح/توليد اختبارات) تفشل مع 429/5xx متكرّر. " +
+            "تحقّق من openrouter.ai/health.",
+          metadata: {
+            status: e.status,
+            message: e.message.slice(0, 400),
+            model: toOpenRouterModel(args.model),
+            logTag: args.logTag,
+          },
+        });
         throw e;
       }
+
+      // 4xx other than auth/credits — request shape problem; abort.
+      throw e;
     }
   }
 
-  // All channels exhausted — surface the most recent failure.
   throw (
     lastErr ??
-    new GenerateGeminiError("All Gemini channels failed without a recorded error.", {
+    new GenerateGeminiError("OpenRouter failed without a recorded error.", {
       status: 0,
-      channel: "none",
+      channel: "openrouter",
     })
   );
 }

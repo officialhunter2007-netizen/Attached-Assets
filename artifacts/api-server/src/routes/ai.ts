@@ -16,6 +16,7 @@ import { pickTeachingModel, detectDeepReasoning, detectMasteryCheckFromHistory, 
 import {
   streamGeminiTeaching,
   GeminiAuthError,
+  GeminiCreditExhaustedError,
   GeminiTransientError,
   GeminiBadOutputError,
   GeminiClientError,
@@ -2650,12 +2651,21 @@ ${retrievedBlock}
     // Roll back the free-tier claim too — student shouldn't lose a free
     // message for a server-side failure they couldn't see.
     await rollbackFreeClaim();
-    // Stream a friendly Arabic apology. Two cases:
-    //   • Total failure (fullResponse empty) → only the apology is shown.
+    // Stream a friendly Arabic apology. Three cases:
+    //   • Total failure due to OpenRouter credit exhaustion or auth failure
+    //     → "service paused for maintenance" message (no "try again later"
+    //     because retrying won't help until the operator tops up / fixes the
+    //     key). Admin alert was already recorded by the gemini-stream layer.
+    //   • Total failure for any other reason → generic transient apology.
     //   • Mid-stream failure → apology is appended to the partial response,
     //     so the student knows the answer was cut short and can retry.
+    const isCreditOrAuth =
+      __lastErr instanceof GeminiCreditExhaustedError ||
+      (__lastErr instanceof GeminiAuthError && fullResponse === "");
     const friendly = fullResponse === ""
-      ? `<p>تعذّر الردّ الآن بسبب خطأ مؤقّت في خدمة المعلّم 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.</p>`
+      ? (isCreditOrAuth
+          ? `<p>خدمة المعلّم الذكي متوقفة مؤقتاً للصيانة 🛠️ — تم إبلاغ فريق الإدارة وسيتم إصلاح الأمر في أقرب وقت. لم يُحسب لك هذا الطلب من رصيد الرسائل.</p>`
+          : `<p>تعذّر الردّ الآن بسبب خطأ مؤقّت في خدمة المعلّم 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.</p>`)
       : `<p><em>⚠️ انقطع الاتصال أثناء الردّ. أعد إرسال رسالتك لإكمال الفكرة. لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`;
     if (!res.writableEnded) {
       res.write(`data: ${JSON.stringify({ content: friendly })}\n\n`);
@@ -3184,11 +3194,9 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
-  // Routed via streamGeminiTeaching → OpenRouter primary, Google direct
-  // fallback. This shares the same dual-channel chain used by /ai/teach,
-  // so Platform-Help works whenever a Gemini channel is configured (the
-  // user's Google AI Studio key is hard-capped — OpenRouter is the
-  // production path).
+  // Routed via streamGeminiTeaching → OpenRouter (single billable
+  // channel; the Google-direct fallback was removed because the user's
+  // Google AI Studio key is hard-capped on the free tier).
   if (!hasGeminiProvider()) {
     res.write(`data: ${JSON.stringify({ error: "المساعد غير مُهيّأ بعد. يرجى التواصل مع الإدارة." })}\n\n`);
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
@@ -3238,8 +3246,10 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
     }
     console.error("[platform-help] error:", err?.message || err);
     let friendly = "تعذّر الردّ الآن، حاول بعد قليل.";
-    if (err instanceof GeminiAuthError) {
-      friendly = "إعداد مفتاح الذكاء الاصطناعي غير صحيح — راجع OPENROUTER_API_KEY.";
+    if (err instanceof GeminiCreditExhaustedError) {
+      friendly = "خدمة المساعد متوقفة مؤقتاً للصيانة 🛠️ — تم إبلاغ الإدارة وسنعيد الخدمة قريباً.";
+    } else if (err instanceof GeminiAuthError) {
+      friendly = "خدمة المساعد متوقفة مؤقتاً للصيانة 🛠️ — تم إبلاغ الإدارة.";
     } else if (err instanceof GeminiTransientError) {
       friendly = "خدمة الذكاء الاصطناعي مزدحمة الآن. حاول بعد قليل.";
     } else if (err instanceof GeminiBadOutputError) {

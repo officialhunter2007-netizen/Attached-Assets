@@ -12,3 +12,4 @@ export * from "./course_materials";
 export * from "./quiz_attempts";
 export * from "./ai_usage";
 export * from "./student_mistakes";
+export * from "./admin_alerts";

@@ -1,42 +1,41 @@
 /**
- * Gemini teaching stream helper — DUAL-PROVIDER for Gemini Flash.
+ * Gemini teaching stream helper — OPENROUTER-ONLY (since May 2026).
  *
- * Per product policy student turns are Gemini Flash ONLY (no Anthropic /
- * Sonnet / Haiku fallback). To survive transient outages from any single
- * provider while keeping that policy, this helper tries TWO independent
- * channels for the SAME model:
+ * Per product policy student turns are Gemini Flash ONLY. The user's
+ * direct Google AI Studio key is hard-capped (free tier) and cannot be
+ * billed, so we removed the Google-direct fallback channel entirely.
+ * Every student turn now goes through the same single channel:
  *
- *   1) OpenRouter (same model)   — openrouter.ai (OpenAI-compatible)
- *                                  Auth: OPENROUTER_API_KEY
- *                                  PRIMARY channel — single billable
- *                                  account, no Google AI Studio quota cap.
+ *     openrouter.ai (OpenAI-compatible) → google/gemini-2.0-flash-001
+ *     Auth: OPENROUTER_API_KEY (or AI_INTEGRATIONS_OPENAI_API_KEY)
  *
- *   2) Google Gemini API direct  — generativelanguage.googleapis.com
- *                                  Auth: GEMINI_API_KEY
- *                                  Optional fallback, only used if
- *                                  OpenRouter fails pre-stream AND a
- *                                  Google key happens to be configured.
- *                                  May be absent in production.
+ * Why no fallback channel at all?
+ *   • Google direct failed silently when the free quota was burned,
+ *     leaving us thinking we had a fallback when we did not.
+ *   • A single billable channel is easier to monitor (admin sees one
+ *     credit balance, one error stream).
+ *   • When OpenRouter actually fails we WANT the operator to know and
+ *     top up — see `recordAdminAlert(...)` below.
  *
- * Both channels return the same Gemini Flash answer, so the policy
- * "student turns are Gemini Flash only" still holds — we are just
- * routing around an unreliable middleman, not switching models.
- *
- * If at least one provider key is configured, the helper will work. When
- * a key is missing the corresponding channel is silently skipped. If
- * BOTH are missing → GeminiAuthError up front so the caller can emit the
- * friendly Arabic apology and roll back the quota.
- *
- * Error model (unchanged for backward compatibility with /ai/teach):
- *   GeminiAuthError      → 401/403 from BOTH channels (or no keys at all)
- *   GeminiTransientError → 429/5xx/network from BOTH channels after retries
+ * Error model (unchanged shape for backward compatibility with /ai/teach):
+ *   GeminiAuthError      → 401/403 (key wrong or missing)
+ *   GeminiTransientError → 429/5xx/network after one in-channel retry
  *   GeminiBadOutputError → content_filter OR < MIN_USEFUL_RESPONSE chars
- *   GeminiClientError    → 400/422 (our bug). Surfaced from whichever
- *                          channel hit it last.
+ *   GeminiClientError    → 400/422 (our request shape is wrong)
  *
- * Mid-stream errors (any byte already on the wire) are NEVER retried and
- * NEVER cross-channel — that would duplicate text for the student.
+ *   NEW: GeminiCreditExhaustedError → 402 / "insufficient_credits" /
+ *        OpenRouter quota messages. Subclass of GeminiAuthError so the
+ *        existing /ai/teach catch-all keeps working, but the route can
+ *        check `instanceof GeminiCreditExhaustedError` to surface the
+ *        clearer Arabic "service paused" message instead of the generic
+ *        "transient error" apology — and an admin alert is automatically
+ *        recorded so the operator sees it on the dashboard.
+ *
+ * Mid-stream errors (any byte already on the wire) are NEVER retried:
+ * a retry would duplicate text on the SSE stream.
  */
+
+import { recordAdminAlert } from "./admin-alerts";
 
 const TRANSIENT_HTTP = new Set([408, 425, 429, 500, 502, 503, 504]);
 const MIN_USEFUL_RESPONSE = 20;
@@ -53,15 +52,6 @@ function toOpenRouterModel(model: string): string {
     "gemini-1.5-pro":        "google/gemini-pro-1.5",
   };
   return map[model] ?? (model.includes("/") ? model : `google/${model}`);
-}
-
-/** Maps internal short model names → Google REST model IDs. */
-function toGoogleModel(model: string): string {
-  // Google REST accepts the bare short name (e.g. "gemini-2.0-flash"); when
-  // the caller passed an OpenRouter-style "google/<id>" we strip the prefix
-  // so the same `chosenModel` value works on both channels.
-  if (model.startsWith("google/")) return model.slice("google/".length).replace(/-001$/, "");
-  return model;
 }
 
 export type GeminiPartial = {
@@ -83,6 +73,23 @@ export class GeminiAuthError extends Error {
     this.partial = partial;
   }
 }
+
+/**
+ * Subclass of GeminiAuthError fired when OpenRouter returns 402, an
+ * `insufficient_credits` error code, or any other "your account is
+ * out of money" signal. The /ai/teach route checks for this class
+ * specifically to show a clearer Arabic message + the admin panel
+ * shows a critical alert with a "top up OpenRouter" call to action.
+ */
+export class GeminiCreditExhaustedError extends GeminiAuthError {
+  detail: string;
+  constructor(detail: string, partial: GeminiPartial = {}) {
+    super(`OpenRouter credit exhausted: ${detail}`, partial);
+    this.name = "GeminiCreditExhaustedError";
+    this.detail = detail;
+  }
+}
+
 export class GeminiTransientError extends Error {
   status: number;
   partial: GeminiPartial;
@@ -145,9 +152,9 @@ export type StreamGeminiResult = {
   finishReason: string | undefined;
   attempts: number;
   model: string;
-  // Records which channel actually produced the answer so /ai/teach
-  // telemetry can break down "google" vs "openrouter" success rates.
-  channel: "google" | "openrouter";
+  /** Always "openrouter" now — kept for backward compatibility with
+   *  existing telemetry consumers that read this field. */
+  channel: "openrouter";
 };
 
 type AttemptResult = {
@@ -162,180 +169,80 @@ type AttemptResult = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Channel 1: Google Gemini API direct
+// Credit-exhaustion sniffer
 // ────────────────────────────────────────────────────────────────────────────
 
-function buildGoogleRequestBody(args: StreamGeminiArgs): string {
-  // Google REST format: contents array with role/parts; systemInstruction
-  // is a separate top-level field. Assistant→"model" role; user→"user".
-  const contents = args.messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-  return JSON.stringify({
-    systemInstruction: { parts: [{ text: args.systemPrompt }] },
-    contents,
-    generationConfig: {
-      temperature: args.temperature ?? 0.6,
-      topP: args.topP ?? 0.95,
-      maxOutputTokens: args.maxOutputTokens,
+/**
+ * OpenRouter signals "you're out of money" in several inconsistent ways
+ * depending on which upstream model rejected the request:
+ *   - HTTP 402 Payment Required (the canonical case)
+ *   - HTTP 429 with body containing "insufficient_credits" / "credit"
+ *   - HTTP 403 with body containing "insufficient credits"
+ *   - error.code === "insufficient_quota" (OpenAI-shape leak)
+ * This helper checks all of them so we never misclassify a credit
+ * outage as a transient error.
+ */
+function isCreditExhausted(status: number, body: string): boolean {
+  if (status === 402) return true;
+  const lower = body.toLowerCase();
+  if (lower.includes("insufficient_credits")) return true;
+  if (lower.includes("insufficient credits")) return true;
+  if (lower.includes("insufficient_quota")) return true;
+  if (lower.includes("payment required")) return true;
+  if (lower.includes("out of credit")) return true;
+  if (lower.includes("upgrade your plan")) return true;
+  return false;
+}
+
+/**
+ * Fire-and-forget admin-panel alert when OpenRouter says we are out of
+ * credit. recordAdminAlert is itself fire-and-forget and de-duplicates
+ * over 30 minutes so calling this on every failed request is safe.
+ */
+function notifyCreditsExhausted(status: number, body: string, model: string, logTag?: string): void {
+  void recordAdminAlert({
+    type: "openrouter_insufficient_credits",
+    severity: "critical",
+    title: "نفد رصيد OpenRouter — المعلم الذكي متوقف",
+    message:
+      "خدمة المعلم الذكي توقفت لأن رصيد حساب OpenRouter وصل إلى الصفر. " +
+      "ادخل إلى openrouter.ai/credits وقم بالشحن لاستعادة الخدمة فوراً.",
+    metadata: {
+      provider: "openrouter",
+      status,
+      model,
+      logTag,
+      bodyExcerpt: body.slice(0, 400),
+      detectedAt: new Date().toISOString(),
     },
-    // CRITICAL: Google's defaults BLOCK_MEDIUM_AND_ABOVE will block
-    // legitimate Arabic educational content (biology lessons mentioning
-    // reproduction, history lessons mentioning war, etc.) and surface as
-    // finishReason=SAFETY → GeminiBadOutputError → friendly apology to
-    // the student. Match the rest of the codebase (materials.ts, the
-    // /ai/platform-help fallback path) by relaxing to BLOCK_ONLY_HIGH so
-    // only genuinely harmful content is filtered.
-    safetySettings: [
-      { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_ONLY_HIGH" },
-      { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_ONLY_HIGH" },
-      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-    ],
   });
 }
 
-async function attemptGoogle(args: StreamGeminiArgs, apiKey: string): Promise<AttemptResult> {
-  const model = toGoogleModel(args.model);
-  // `alt=sse` switches the streaming endpoint from JSON-array framing to
-  // proper Server-Sent Events (one `data: {…}` line per chunk) — much
-  // easier to incrementally parse than the default array stream.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
-
-  let emittedAnyChunk = false;
-  let fullResponse = "";
-  let finishReason: string | undefined;
-  let usageRaw: any = null;
-
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: buildGoogleRequestBody(args),
-    signal: args.signal,
+/**
+ * Admin alert for repeated auth failures (wrong/expired key). Different
+ * fix from credits — operator needs to rotate the key.
+ */
+function notifyAuthFailure(status: number, body: string, model: string, logTag?: string): void {
+  void recordAdminAlert({
+    type: "openrouter_auth_failed",
+    severity: "critical",
+    title: "فشل المصادقة على OpenRouter — المعلم الذكي متوقف",
+    message:
+      "OpenRouter رفض مفتاح API الحالي (auth error). تأكّد من أن OPENROUTER_API_KEY في ملف البيئة صحيح ولم ينتهِ. " +
+      "أعد تشغيل خدمة API بعد التحديث.",
+    metadata: {
+      provider: "openrouter",
+      status,
+      model,
+      logTag,
+      bodyExcerpt: body.slice(0, 400),
+      detectedAt: new Date().toISOString(),
+    },
   });
-
-  if (!r.ok) {
-    const errBody = await r.text().catch(() => "");
-    const partial: GeminiPartial = { emittedAnyChunk: false, usageMetadata: null, partialResponseChars: 0 };
-    // Always log the upstream body excerpt so production diagnosis is
-    // possible from `docker compose logs api` alone (no need to reproduce).
-    console.warn(
-      `[gemini-stream:google] HTTP ${r.status} for model=${model}: ${errBody.slice(0, 300)}`,
-    );
-    if (r.status === 401 || r.status === 403) {
-      throw new GeminiAuthError(`Google auth ${r.status}: ${errBody.slice(0, 200)}`, partial);
-    }
-    if (TRANSIENT_HTTP.has(r.status)) {
-      throw new GeminiTransientError(
-        `Google transient ${r.status}: ${errBody.slice(0, 200)}`,
-        r.status,
-        partial,
-      );
-    }
-    // Treat 404 (model not found / not accessible to this key) as a
-    // transient-equivalent so the chain falls through to OpenRouter
-    // instead of hard-aborting the whole turn. Real client bugs (400/422
-    // bad request shape) still abort the chain — they would fail the
-    // same way on OpenRouter.
-    if (r.status === 404) {
-      throw new GeminiTransientError(
-        `Google model ${model} not available to this key (404): ${errBody.slice(0, 200)}`,
-        r.status,
-        partial,
-      );
-    }
-    throw new GeminiClientError(`Google client error ${r.status}`, r.status, errBody.slice(0, 500), partial);
-  }
-  if (!r.body) {
-    throw new GeminiTransientError("Google returned no response body", 0, {
-      emittedAnyChunk: false, usageMetadata: null, partialResponseChars: 0,
-    });
-  }
-
-  const reader = r.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const payload = trimmed.slice(5).trim();
-        if (!payload) continue;
-        try {
-          const parsed = JSON.parse(payload);
-          if (parsed?.usageMetadata) usageRaw = parsed.usageMetadata;
-          const candidate = parsed?.candidates?.[0];
-          if (candidate?.finishReason) finishReason = String(candidate.finishReason);
-          const parts = candidate?.content?.parts;
-          if (Array.isArray(parts)) {
-            for (const p of parts) {
-              const text = typeof p?.text === "string" ? p.text : "";
-              if (text.length > 0) {
-                fullResponse += text;
-                emittedAnyChunk = true;
-                args.onChunk(text);
-              }
-            }
-          }
-        } catch {
-          // ignore non-JSON keep-alives
-        }
-      }
-    }
-  } catch (err: any) {
-    const partial: GeminiPartial = {
-      emittedAnyChunk,
-      usageMetadata: usageRaw
-        ? {
-            promptTokenCount: usageRaw.promptTokenCount ?? 0,
-            candidatesTokenCount: usageRaw.candidatesTokenCount ?? 0,
-            cachedContentTokenCount: usageRaw.cachedContentTokenCount ?? 0,
-          }
-        : null,
-      partialResponseChars: fullResponse.length,
-    };
-    if (
-      err instanceof GeminiAuthError ||
-      err instanceof GeminiTransientError ||
-      err instanceof GeminiBadOutputError ||
-      err instanceof GeminiClientError
-    ) {
-      err.partial = partial;
-      throw err;
-    }
-    throw new GeminiTransientError(
-      `Google stream interrupted: ${String(err?.message ?? err).slice(0, 200)}`,
-      0,
-      partial,
-    );
-  } finally {
-    try { reader.releaseLock(); } catch {}
-  }
-
-  return {
-    fullResponse,
-    usageMetadata: usageRaw
-      ? {
-          promptTokenCount: Number(usageRaw.promptTokenCount ?? 0),
-          candidatesTokenCount: Number(usageRaw.candidatesTokenCount ?? 0),
-          cachedContentTokenCount: Number(usageRaw.cachedContentTokenCount ?? 0),
-        }
-      : null,
-    finishReason,
-    emittedAnyChunk,
-  };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Channel 2: OpenRouter (same model — still Gemini Flash)
+// Channel: OpenRouter (the only channel)
 // ────────────────────────────────────────────────────────────────────────────
 
 function buildOpenRouterRequestBody(args: StreamGeminiArgs): string {
@@ -359,6 +266,7 @@ function buildOpenRouterRequestBody(args: StreamGeminiArgs): string {
 
 async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promise<AttemptResult> {
   const url = "https://openrouter.ai/api/v1/chat/completions";
+  const orModel = toOpenRouterModel(args.model);
 
   let emittedAnyChunk = false;
   let fullResponse = "";
@@ -381,9 +289,21 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
     const errBody = await r.text().catch(() => "");
     const partial: GeminiPartial = { emittedAnyChunk: false, usageMetadata: null, partialResponseChars: 0 };
     console.warn(
-      `[gemini-stream:openrouter] HTTP ${r.status} for model=${toOpenRouterModel(args.model)}: ${errBody.slice(0, 300)}`,
+      `[gemini-stream:openrouter] HTTP ${r.status} for model=${orModel}: ${errBody.slice(0, 300)}`,
     );
+
+    // Credit-exhaustion gets first priority over both auth and transient
+    // classification — same 402/429 might otherwise be misread as merely
+    // rate-limited and trigger unnecessary retries that all fail.
+    if (isCreditExhausted(r.status, errBody)) {
+      notifyCreditsExhausted(r.status, errBody, orModel, args.logTag);
+      throw new GeminiCreditExhaustedError(
+        `HTTP ${r.status} ${errBody.slice(0, 200)}`,
+        partial,
+      );
+    }
     if (r.status === 401 || r.status === 403) {
+      notifyAuthFailure(r.status, errBody, orModel, args.logTag);
       throw new GeminiAuthError(`OpenRouter auth ${r.status}: ${errBody.slice(0, 200)}`, partial);
     }
     if (TRANSIENT_HTTP.has(r.status)) {
@@ -426,6 +346,27 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
         if (!payload || payload === "[DONE]") continue;
         try {
           const parsed = JSON.parse(payload);
+          // OpenRouter occasionally streams a final error frame instead
+          // of an HTTP-level error — catch credit-exhaustion there too.
+          if (parsed?.error) {
+            const errCode = String(parsed.error?.code ?? "");
+            const errMsg = String(parsed.error?.message ?? "");
+            const combined = `${errCode} ${errMsg}`;
+            if (isCreditExhausted(parsed.error?.status ?? 0, combined)) {
+              notifyCreditsExhausted(parsed.error?.status ?? 0, combined, orModel, args.logTag);
+              throw new GeminiCreditExhaustedError(combined, {
+                emittedAnyChunk,
+                usageMetadata: usageRaw
+                  ? {
+                      promptTokenCount: usageRaw.prompt_tokens ?? 0,
+                      candidatesTokenCount: usageRaw.completion_tokens ?? 0,
+                      cachedContentTokenCount: usageRaw.prompt_tokens_details?.cached_tokens ?? 0,
+                    }
+                  : null,
+                partialResponseChars: fullResponse.length,
+              });
+            }
+          }
           if (parsed?.usage) usageRaw = parsed.usage;
           const choice = parsed?.choices?.[0];
           if (choice?.finish_reason) finishReason = String(choice.finish_reason);
@@ -435,7 +376,8 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
             emittedAnyChunk = true;
             args.onChunk(text);
           }
-        } catch {
+        } catch (innerErr: any) {
+          if (innerErr instanceof GeminiCreditExhaustedError) throw innerErr;
           // ignore non-JSON keep-alives
         }
       }
@@ -485,155 +427,119 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Public entrypoint — orchestrates the two channels
+// Public entrypoint
 // ────────────────────────────────────────────────────────────────────────────
 
-type Channel = { name: "google" | "openrouter"; key: string; run: (args: StreamGeminiArgs, key: string) => Promise<AttemptResult> };
-
-function buildChannelChain(): Channel[] {
-  const chain: Channel[] = [];
-  const gKey = process.env.GEMINI_API_KEY;
-  // The OpenRouter key is stored under the OpenAI-integration env var in
-  // both docker-compose.yml and the project .env. Accept the canonical
-  // name plus a legacy bare alias so both Docker and manual-run setups work.
-  const orKey =
-    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-    process.env.OPENROUTER_API_KEY;
-  // OpenRouter FIRST — single billable account, no Google AI Studio
-  // quota cap. This is the production-primary channel after we moved
-  // off the limited free Google AI Studio key.
-  if (orKey) chain.push({ name: "openrouter", key: orKey, run: attemptOpenRouter });
-  // Google direct second — only used if OpenRouter fails pre-stream
-  // AND a GEMINI_API_KEY happens to be configured. Optional in prod.
-  if (gKey) chain.push({ name: "google", key: gKey, run: attemptGoogle });
-  return chain;
+function getOpenRouterKey(): string | undefined {
+  return process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENROUTER_API_KEY;
 }
 
-// Print the configured channels exactly once at module load time so the
-// operator can see in `docker compose logs api` (right after boot) which
-// providers will actually be tried for /ai/teach turns. This is critical
-// because GEMINI_API_KEY / OPENROUTER_API_KEY missing from .env is the
-// most common silent-failure mode and otherwise only surfaces once a
-// student already hit the teach button.
+// Print the channel status exactly once at module load time.
 {
-  const hasGoogle = !!process.env.GEMINI_API_KEY;
-  const hasOpenRouter =
-    !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-    !!process.env.OPENROUTER_API_KEY;
-  if (!hasGoogle && !hasOpenRouter) {
+  const hasOpenRouter = !!getOpenRouterKey();
+  if (!hasOpenRouter) {
     console.error(
-      "[gemini-stream] STARTUP: no Gemini channel configured! " +
-        "Set OPENROUTER_API_KEY (preferred) and/or GEMINI_API_KEY in .env. " +
-        "Every /ai/teach call will fail with the friendly Arabic apology until fixed.",
+      "[gemini-stream] STARTUP: OpenRouter key not configured! " +
+        "Set OPENROUTER_API_KEY (or AI_INTEGRATIONS_OPENAI_API_KEY) in .env. " +
+        "Every /ai/teach call will fail and the admin will be notified.",
     );
   } else {
-    console.log(
-      `[gemini-stream] STARTUP: Gemini channels active → ${[
-        hasOpenRouter ? "openrouter(primary)" : null,
-        hasGoogle ? "google(fallback)" : null,
-      ]
-        .filter(Boolean)
-        .join(", ")}`,
-    );
+    console.log("[gemini-stream] STARTUP: OpenRouter channel active (gemini-flash via openrouter.ai)");
   }
 }
 
 export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<StreamGeminiResult> {
-  const chain = buildChannelChain();
-  if (chain.length === 0) {
-    // Neither key is configured — surface as auth error so /ai/teach can
-    // emit the friendly apology and roll back the quota. Operator MUST
-    // set at least one of GEMINI_API_KEY or OPENROUTER_API_KEY.
+  const apiKey = getOpenRouterKey();
+  if (!apiKey) {
+    // Surface as auth error so /ai/teach can emit the friendly apology
+    // and roll back the quota. Operator MUST set OPENROUTER_API_KEY.
+    void recordAdminAlert({
+      type: "openrouter_key_missing",
+      severity: "critical",
+      title: "مفتاح OpenRouter غير مضبوط",
+      message:
+        "متغيّر OPENROUTER_API_KEY مفقود من ملف البيئة. كل طلبات المعلم الذكي ستفشل حتى يتم إضافته. " +
+        "أضفه إلى ملف .env ثم أعد تشغيل الخدمة.",
+      metadata: { detectedAt: new Date().toISOString() },
+    });
     throw new GeminiAuthError(
-      "Neither GEMINI_API_KEY nor OPENROUTER_API_KEY is set — Gemini teaching disabled",
+      "OPENROUTER_API_KEY is not set — Gemini teaching disabled",
     );
   }
 
   let attempts = 0;
   let lastErr: any = null;
   let result: AttemptResult | null = null;
-  let winningChannel: "google" | "openrouter" | null = null;
 
-  // Per channel: try once, then ONE in-channel retry with 600ms backoff if
-  // the failure was pre-stream and transient. After the channel exhausts,
-  // move to the next channel in the chain (still Gemini Flash). Total
-  // upper bound: chain.length × 2 attempts. Mid-stream errors abort the
-  // whole loop because partial bytes already reached the student.
-  for (let chIdx = 0; chIdx < chain.length; chIdx++) {
-    const ch = chain[chIdx];
-    let chTries = 0;
-    while (chTries < 2) {
-      chTries++;
-      attempts++;
-      try {
-        result = await ch.run(args, ch.key);
-        winningChannel = ch.name;
-        break; // channel succeeded
-      } catch (err: any) {
-        lastErr = err;
-        // GeminiBadOutputError = SAFETY / content_filter / RECITATION /
-        // too-short output. Two sub-cases:
-        //   • Already emitted chunks → cannot retry (would duplicate text).
-        //     Abort the whole chain.
-        //   • Pre-stream block (no bytes on wire) → the OTHER channel may
-        //     have different content moderation behaviour for the same
-        //     prompt (Google's SAFETY filter is notably stricter than
-        //     OpenRouter's pass-through). Allow falling through to the
-        //     next channel for one more attempt at the same Gemini Flash
-        //     answer. Still Gemini Flash; still policy-compliant.
-        if (err instanceof GeminiBadOutputError) {
-          if (err.partial?.emittedAnyChunk) throw err;
-          console.warn(
-            `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] ${ch.name} bad-output (${err.reason}); trying next channel if any`,
-          );
-          break;
-        }
-        // Mid-stream errors: bytes already on the wire, retrying ANY
-        // channel would duplicate text. Abort everything.
-        if (err?.partial?.emittedAnyChunk) {
-          console.warn(
-            `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] mid-stream error on ${ch.name} (no retry): ${err?.name || "Error"} ${err?.message || err}`,
-          );
-          throw err;
-        }
-        if (args.signal?.aborted) throw err;
-        // GeminiClientError = our request shape is wrong (400/422). The
-        // request would fail identically on the next channel for the
-        // same reason → abort, surface to ops.
-        if (err instanceof GeminiClientError) throw err;
-        // Auth error on this channel → don't retry the same channel
-        // (will fail again with the same key); skip straight to the
-        // next channel if any.
-        if (err instanceof GeminiAuthError) {
-          console.warn(
-            `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] ${ch.name} auth failed, trying next channel: ${err?.message || err}`,
-          );
-          break;
-        }
-        // Transient error → retry once on this same channel after a
-        // short backoff, then move to the next channel.
-        if (chTries < 2) {
-          await new Promise((r) => setTimeout(r, 600));
-          console.warn(
-            `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] retry on ${ch.name} (pre-stream ${err?.status ?? "?"}): ${err?.name || "Error"} ${err?.message || err}`,
-          );
-          continue;
-        }
-        // Channel exhausted, advance to next.
-        console.warn(
-          `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] ${ch.name} exhausted (${err?.name}); trying next channel if any`,
-        );
-        break;
+  // Single channel, but allow ONE in-channel retry with 600ms backoff
+  // for pre-stream transient failures (network blip, brief 5xx). Mid-
+  // stream errors abort the loop because partial bytes already reached
+  // the student.
+  let chTries = 0;
+  while (chTries < 2) {
+    chTries++;
+    attempts++;
+    try {
+      result = await attemptOpenRouter(args, apiKey);
+      break;
+    } catch (err: any) {
+      lastErr = err;
+
+      if (err instanceof GeminiBadOutputError) {
+        // SAFETY/content_filter from OpenRouter — no other channel to
+        // try, so surface to caller. If bytes already flowed, we abort
+        // anyway (cannot retry without duplicating text).
+        if (err.partial?.emittedAnyChunk) throw err;
+        throw err;
       }
+      if (err?.partial?.emittedAnyChunk) {
+        console.warn(
+          `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] mid-stream error (no retry): ${err?.name || "Error"} ${err?.message || err}`,
+        );
+        throw err;
+      }
+      if (args.signal?.aborted) throw err;
+      if (err instanceof GeminiClientError) throw err;
+      // Auth (including credits) — retrying with same key cannot help.
+      if (err instanceof GeminiAuthError) {
+        console.warn(
+          `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] auth/credit failure (no retry): ${err?.name || "Error"} ${err?.message || err}`,
+        );
+        throw err;
+      }
+      // Transient → one retry with backoff.
+      if (chTries < 2) {
+        await new Promise((r) => setTimeout(r, 600));
+        console.warn(
+          `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] retry pre-stream (${err?.status ?? "?"}): ${err?.name || "Error"} ${err?.message || err}`,
+        );
+        continue;
+      }
+      // Retry budget exhausted.
+      console.warn(
+        `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] exhausted retries (${err?.name})`,
+      );
+      // Repeated transient failures look like an outage to operators —
+      // raise a less-severe alert so they can investigate.
+      void recordAdminAlert({
+        type: "openrouter_transient_repeated",
+        severity: "warning",
+        title: "OpenRouter يفشل بشكل متكرر",
+        message:
+          "OpenRouter رجّع خطأ مؤقت (429/5xx/شبكة) مع إعادة محاولة لم تنجح. " +
+          "إذا تكرّر هذا الإنذار خلال 30 دقيقة، تحقّق من حالة openrouter.ai/health.",
+        metadata: {
+          status: err?.status ?? 0,
+          message: String(err?.message ?? err).slice(0, 400),
+          model: toOpenRouterModel(args.model),
+          logTag: args.logTag,
+        },
+      });
+      throw err;
     }
-    if (result) break;
   }
 
   if (!result) {
-    // All channels failed pre-stream. Surface the most informative error
-    // class we got. If lastErr is already one of our typed errors, re-throw
-    // as-is; otherwise wrap as transient so the caller's friendly path
-    // fires and the quota is rolled back.
     if (
       lastErr instanceof GeminiAuthError ||
       lastErr instanceof GeminiTransientError ||
@@ -643,13 +549,13 @@ export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<Stre
       throw lastErr;
     }
     throw new GeminiTransientError(
-      `All Gemini channels failed: ${String(lastErr?.message ?? lastErr).slice(0, 200)}`,
+      `OpenRouter failed: ${String(lastErr?.message ?? lastErr).slice(0, 200)}`,
       0,
       lastErr?.partial ?? {},
     );
   }
 
-  // Bad-output detection (post-stream) — applies regardless of channel.
+  // Bad-output detection (post-stream).
   const finishReason = result.finishReason;
   const trimmedLen = result.fullResponse.trim().length;
   const partialOnBadOutput: GeminiPartial = {
@@ -657,8 +563,6 @@ export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<Stre
     usageMetadata: result.usageMetadata,
     partialResponseChars: result.fullResponse.length,
   };
-  // Google uses "SAFETY"/"OTHER"; OpenRouter uses "content_filter". Both
-  // are content-filter blocks → unrecoverable, surface as bad output.
   if (
     finishReason === "content_filter" ||
     finishReason === "SAFETY" ||
@@ -688,6 +592,6 @@ export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<Stre
     finishReason: result.finishReason,
     attempts,
     model: args.model,
-    channel: winningChannel ?? "google",
+    channel: "openrouter",
   };
 }

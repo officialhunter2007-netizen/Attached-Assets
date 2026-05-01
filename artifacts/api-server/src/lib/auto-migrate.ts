@@ -102,6 +102,38 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE UNIQUE INDEX IF NOT EXISTS "uq_plan_prices_region_plan" ON "plan_prices" ("region", "plan_type")`,
     ],
   },
+  {
+    // Operational alerts surfaced to the admin panel (OpenRouter credit
+    // exhausted, auth failures, repeated transient errors, etc.). The
+    // helper recordAdminAlert() de-dupes by `type` over a 30-min window.
+    table: "admin_alerts",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "admin_alerts" (
+        "id" serial PRIMARY KEY,
+        "type" text NOT NULL,
+        "severity" text NOT NULL DEFAULT 'warning',
+        "title" text NOT NULL,
+        "message" text NOT NULL,
+        "metadata" jsonb,
+        "resolved" boolean NOT NULL DEFAULT false,
+        "resolved_at" timestamp with time zone,
+        "resolved_by_user_id" integer,
+        "occurrence_count" integer NOT NULL DEFAULT 1,
+        "last_occurred_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "admin_alerts_resolved_created_idx" ON "admin_alerts" ("resolved", "created_at")`,
+      `CREATE INDEX IF NOT EXISTS "admin_alerts_type_idx" ON "admin_alerts" ("type", "resolved")`,
+      // Partial unique index — at most ONE unresolved alert per type at
+      // any given time. recordAdminAlert() relies on this for race-safe
+      // upsert (INSERT ... ON CONFLICT (type) WHERE resolved = false
+      // DO UPDATE). Without it, two concurrent error paths could each
+      // insert a row before either one's SELECT saw the other.
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_admin_alerts_type_unresolved" ON "admin_alerts" ("type") WHERE resolved = false`,
+    ],
+  },
 ];
 
 // Default prices used to seed `plan_prices` on first boot only. Subsequent

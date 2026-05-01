@@ -37,6 +37,7 @@ import { AdminAiUsage } from "@/components/admin-ai-usage";
 import { AdminDbMonitor } from "@/components/admin-db-monitor";
 import { AdminPlanPrices } from "@/components/admin-plan-prices";
 import { AdminConversations } from "@/components/admin-conversations";
+import { AdminAlerts } from "@/components/admin-alerts";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -95,6 +96,7 @@ export default function Admin() {
   // Support messages
   const [supportThreads, setSupportThreads] = useState<any[]>([]);
   const [supportUnread, setSupportUnread] = useState(0);
+  const [unresolvedAlertsCount, setUnresolvedAlertsCount] = useState(0);
   const [selectedThread, setSelectedThread] = useState<any | null>(null);
   const [replyMessage, setReplyMessage] = useState("");
   const [isSendingReply, setIsSendingReply] = useState(false);
@@ -112,6 +114,12 @@ export default function Admin() {
       fetch("/api/admin/support/unread-count", { credentials: "include" })
         .then(r => r.ok ? r.json() : null)
         .then(d => d && setSupportUnread(d.count ?? 0))
+        .catch(() => {});
+      // Operational alerts (OpenRouter outage etc.) — same poll cadence
+      // as support so admins notice an outage within ~15s.
+      fetch("/api/admin/alerts?resolved=false&limit=1", { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d && setUnresolvedAlertsCount(Number(d.unresolvedCount ?? 0)))
         .catch(() => {});
     };
     const fetchLiveUsers = () => {
@@ -642,6 +650,15 @@ export default function Admin() {
             <TabsTrigger value="conversations" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-sky-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-sky-500/20">
               <MessageCircle className="w-3.5 h-3.5 text-amber-400" />
               محادثات المعلم
+            </TabsTrigger>
+            <TabsTrigger value="alerts" className="relative flex items-center gap-1.5 bg-gradient-to-l from-red-500/10 to-amber-500/10 data-[state=active]:from-red-500/25 data-[state=active]:to-amber-500/20 data-[state=active]:border-red-500/40">
+              <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+              تنبيهات النظام
+              {unresolvedAlertsCount > 0 && (
+                <span className="absolute -top-1 -left-1 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1 leading-none">
+                  {unresolvedAlertsCount > 99 ? "99+" : unresolvedAlertsCount}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -1319,6 +1336,11 @@ export default function Admin() {
           {/* Conversations Tab */}
           <TabsContent value="conversations">
             <AdminConversations />
+          </TabsContent>
+
+          {/* System Alerts Tab */}
+          <TabsContent value="alerts">
+            <AdminAlerts />
           </TabsContent>
         </Tabs>
       </div>

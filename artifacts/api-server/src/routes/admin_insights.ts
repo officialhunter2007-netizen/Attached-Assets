@@ -13,7 +13,9 @@ import {
   materialChapterProgressTable,
   quizAttemptsTable,
   lessonSummariesTable,
+  adminAlertsTable,
 } from "@workspace/db";
+import { resolveAdminAlert } from "../lib/admin-alerts";
 import { diagnoseObjectStorage } from "../lib/objectStorage";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { recordAiUsage, extractOpenAIUsage } from "../lib/ai-usage";
@@ -1261,6 +1263,62 @@ router.get("/admin/db-size", async (req, res): Promise<any> => {
   } catch (err: any) {
     console.error("[admin/db-size] error:", err?.message || err);
     res.status(500).json({ error: "DB_SIZE_FAILED" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/alerts — list operational alerts (OpenRouter outage, etc.)
+// Query params:
+//   resolved=true   include resolved alerts (default: only unresolved)
+//   limit=N         cap on rows (default 100, max 500)
+// Returns: { alerts: AdminAlert[], unresolvedCount: number }
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/alerts", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const includeResolved = String(req.query.resolved ?? "") === "true";
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit ?? 100) | 0 || 100));
+
+  try {
+    const where = includeResolved ? undefined : eq(adminAlertsTable.resolved, false);
+    const rows = await db
+      .select()
+      .from(adminAlertsTable)
+      .where(where as any)
+      .orderBy(desc(adminAlertsTable.lastOccurredAt))
+      .limit(limit);
+
+    const [{ c }] = await db
+      .select({ c: count() })
+      .from(adminAlertsTable)
+      .where(eq(adminAlertsTable.resolved, false));
+
+    res.json({ alerts: rows, unresolvedCount: Number(c ?? 0) });
+  } catch (err: any) {
+    console.error("[admin/alerts] error:", err?.message || err);
+    res.status(500).json({ error: "ALERTS_LIST_FAILED" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/admin/alerts/:id/resolve — mark a specific alert as resolved
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/admin/alerts/:id/resolve", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const alertId = Number(req.params.id);
+  if (!Number.isFinite(alertId) || alertId <= 0) {
+    return res.status(400).json({ error: "BAD_ID" });
+  }
+
+  try {
+    await resolveAdminAlert(alertId, adminId);
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[admin/alerts/:id/resolve] error:", err?.message || err);
+    res.status(500).json({ error: "ALERT_RESOLVE_FAILED" });
   }
 });
 
