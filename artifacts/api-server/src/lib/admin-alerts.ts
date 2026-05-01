@@ -53,7 +53,7 @@ export async function recordAdminAlert(
         severity,
         title: args.title,
         message: args.message,
-        metadata: metadata as any,
+        metadata,
         resolved: false,
       })
       .onConflictDoUpdate({
@@ -61,7 +61,7 @@ export async function recordAdminAlert(
         targetWhere: eq(adminAlertsTable.resolved, false),
         set: {
           message: args.message,
-          metadata: metadata as any,
+          metadata,
           severity,
           lastOccurredAt: new Date(),
           occurrenceCount: sql`${adminAlertsTable.occurrenceCount} + 1`,

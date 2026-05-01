@@ -19,7 +19,7 @@ export const adminAlertsTable = pgTable("admin_alerts", {
   title: text("title").notNull(),
   message: text("message").notNull(),
   /** Free-form context: status code, body excerpt, route, model, etc. */
-  metadata: jsonb("metadata"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   resolved: boolean("resolved").notNull().default(false),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   resolvedByUserId: integer("resolved_by_user_id"),

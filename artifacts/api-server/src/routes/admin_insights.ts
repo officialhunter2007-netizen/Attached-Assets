@@ -1281,11 +1281,15 @@ router.get("/admin/alerts", async (req, res): Promise<any> => {
   const limit = Math.min(500, Math.max(1, Number(req.query.limit ?? 100) | 0 || 100));
 
   try {
-    const where = includeResolved ? undefined : eq(adminAlertsTable.resolved, false);
-    const rows = await db
+    // Drizzle accepts `undefined` as "no WHERE clause" — keep types clean
+    // by branching the query builder instead of casting.
+    const baseQuery = db
       .select()
-      .from(adminAlertsTable)
-      .where(where as any)
+      .from(adminAlertsTable);
+    const filteredQuery = includeResolved
+      ? baseQuery
+      : baseQuery.where(eq(adminAlertsTable.resolved, false));
+    const rows = await filteredQuery
       .orderBy(desc(adminAlertsTable.lastOccurredAt))
       .limit(limit);
 
