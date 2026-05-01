@@ -24,6 +24,7 @@ import {
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
+import { robustJsonParse } from "../lib/json-repair";
 import { signMasteryToken, verifyMasteryToken, newAttemptId } from "../lib/lab-exam-token";
 import {
   createAttempt,
@@ -4838,81 +4839,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
 
     console.log("[build-env] raw length:", raw.length, "preview:", raw.slice(0, 300));
 
-    const tryParse = (s: string): any | null => {
-      try { return JSON.parse(s); } catch { return null; }
-    };
-
-    // Extract the largest balanced JSON object substring. If the response was
-    // truncated (depth never returns to 0) we return what we have so the
-    // repair pass below can try to close it.
-    const extractJsonObject = (s: string): { text: string; balanced: boolean } | null => {
-      const start = s.indexOf("{");
-      if (start < 0) return null;
-      let depth = 0;
-      let inString = false;
-      let escape = false;
-      for (let i = start; i < s.length; i++) {
-        const ch = s[i];
-        if (escape) { escape = false; continue; }
-        if (ch === "\\") { escape = true; continue; }
-        if (ch === '"') { inString = !inString; continue; }
-        if (inString) continue;
-        if (ch === "{") depth++;
-        else if (ch === "}") {
-          depth--;
-          if (depth === 0) return { text: s.slice(start, i + 1), balanced: true };
-        }
-      }
-      return { text: s.slice(start), balanced: false };
-    };
-
-    // Repair a truncated JSON snippet: drop trailing partial token, close any
-    // open string, then auto-close all open arrays/objects in correct order.
-    const repairJson = (s: string): string => {
-      let txt = s;
-      // Drop trailing comma / partial key=value after last good comma
-      const lastGood = Math.max(txt.lastIndexOf(","), txt.lastIndexOf("{"), txt.lastIndexOf("["));
-      if (lastGood > 0) {
-        // Cut off any partial token after the last clean separator
-        const after = txt.slice(lastGood + 1);
-        if (after.includes(":") && !after.trim().endsWith("}") && !after.trim().endsWith("]")) {
-          // We're mid-key-value — chop back to the separator
-          txt = txt.slice(0, lastGood);
-        }
-      }
-      // Walk and track open brackets / string state to know what to append
-      const stack: string[] = [];
-      let inStr = false; let esc = false;
-      for (let i = 0; i < txt.length; i++) {
-        const ch = txt[i];
-        if (esc) { esc = false; continue; }
-        if (ch === "\\") { esc = true; continue; }
-        if (ch === '"') { inStr = !inStr; continue; }
-        if (inStr) continue;
-        if (ch === "{") stack.push("}");
-        else if (ch === "[") stack.push("]");
-        else if (ch === "}" || ch === "]") stack.pop();
-      }
-      if (inStr) txt += '"';
-      // Remove trailing comma before closing
-      txt = txt.replace(/,\s*$/, "");
-      while (stack.length) txt += stack.pop();
-      return txt;
-    };
-
-    let env: any = tryParse(raw);
-    if (!env) {
-      const extracted = extractJsonObject(raw);
-      if (extracted) {
-        env = tryParse(extracted.text);
-        if (!env) {
-          // Try to repair (handles truncation from max_tokens)
-          const repaired = repairJson(extracted.text);
-          env = tryParse(repaired);
-          if (env) console.log("[build-env] recovered via JSON repair");
-        }
-      }
-    }
+    let env: any = robustJsonParse(raw, "[build-env]");
     if (!env) {
       console.error("[build-env] first pass parse failed. Raw (first 1500):", raw.slice(0, 1500));
       // ─── Auto-retry pass ──────────────────────────────────────────────
@@ -4953,14 +4880,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
             metadata: { kind, attempt: "retry" },
           });
         } catch {}
-        env = tryParse(raw2);
-        if (!env) {
-          const ex2 = extractJsonObject(raw2);
-          if (ex2) {
-            env = tryParse(ex2.text);
-            if (!env) env = tryParse(repairJson(ex2.text));
-          }
-        }
+        env = robustJsonParse(raw2, "[build-env]");
         if (env) console.log("[build-env] retry pass succeeded.");
       } catch (retryErr) {
         console.error("[build-env] retry pass also failed:", retryErr);
@@ -5021,14 +4941,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
                 metadata: { kind, attempt: "gemini_fallback" },
               });
             } catch {}
-            env = tryParse(txt);
-            if (!env) {
-              const exG = extractJsonObject(txt);
-              if (exG) {
-                env = tryParse(exG.text);
-                if (!env) env = tryParse(repairJson(exG.text));
-              }
-            }
+            env = robustJsonParse(txt, "[build-env]");
             if (env) console.log("[build-env] gemini third pass succeeded.");
             else console.error("[build-env] gemini third pass returned unparseable text. Preview:", txt.slice(0, 600));
           } else {
@@ -5447,10 +5360,10 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
     }
 
     const raw = (completion.content[0] as any)?.text || "";
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("لم يُرجع المعلم سيناريو صالح");
+    const scenarioRaw = robustJsonParse(raw, "[attack-sim/build]");
+    if (!scenarioRaw) throw new Error("لم يُرجع المعلم سيناريو صالح");
 
-    const scenario = finalizeScenario(JSON.parse(jsonMatch[0]));
+    const scenario = finalizeScenario(scenarioRaw);
     return res.json({ scenario });
   } catch (e: any) {
     anthropicErr = e;
@@ -5526,9 +5439,9 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
         });
       } catch {}
 
-      const jsonMatch = txt.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("لم يُرجع Gemini سيناريو صالح");
-      const scenario = finalizeScenario(JSON.parse(jsonMatch[0]));
+      const geminiRaw = robustJsonParse(txt, "[attack-sim/build][gemini]");
+      if (!geminiRaw) throw new Error("لم يُرجع Gemini سيناريو صالح");
+      const scenario = finalizeScenario(geminiRaw);
       console.log("[attack-sim/build] gemini fallback succeeded.");
       return res.json({ scenario });
     } catch (gErr: any) {
