@@ -2208,6 +2208,16 @@ ${retrievedBlock}
   });
   const chosenModel = routerDecision.model;
 
+  // ── Diagnostic log: the live model picked for THIS turn ─────────────────
+  // Printed on every /ai/teach call so that production logs (`docker
+  // compose logs api`) show, in real time, exactly which model the student
+  // is talking to. If you ever doubt the teacher is on Gemini 2.0 Flash,
+  // open the logs and grep for `[ai/teach] DECISION` — the printed
+  // `model=` field is the ground truth.
+  console.log(
+    `[ai/teach] DECISION user=${userId} subject=${subjectId ?? "?"} provider=${routerDecision.provider} model=${chosenModel} reason=${routerDecision.reason} unlimited=${unlimited}`,
+  );
+
   // ── Inject Gemini-tuned addendum when routing to Gemini ─────────────────
   // The addendum locks the literal tag format and reinforces single-concept
   // Socratic teaching. We append it AFTER all other conditional system-prompt

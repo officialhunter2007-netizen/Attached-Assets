@@ -278,6 +278,14 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
   const url = "https://openrouter.ai/api/v1/chat/completions";
   const orModel = toOpenRouterModel(args.model);
 
+  // Always log the exact OpenRouter model we are about to call so that
+  // anyone reading `docker compose logs api` can verify in seconds that
+  // the live traffic is on `google/gemini-2.0-flash-001` and not on a
+  // stale version of the build.
+  console.log(
+    `[gemini-stream:openrouter] → ${orModel}${args.logTag ? ` (tag=${args.logTag})` : ""}`,
+  );
+
   let emittedAnyChunk = false;
   let fullResponse = "";
   let finishReason: string | undefined;
@@ -480,7 +488,36 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
   }
 }
 
+/**
+ * RADICAL MODEL LOCK (May 2026)
+ *
+ * `streamGeminiTeaching` is used **exclusively** by student-facing teaching
+ * routes (`/ai/teach`, `/ai/platform-help`). Product policy says: every
+ * student turn that goes through this helper MUST bill at the cheapest
+ * Gemini Flash rate (2.0-Flash on OpenRouter). Anything else — a stale
+ * call site, a future regression, an admin who forgets to update a
+ * constant — would silently 6× our spend on every reply.
+ *
+ * The lock below ENFORCES that invariant at runtime: regardless of what
+ * the caller passes in `args.model`, the request that hits OpenRouter is
+ * always `gemini-2.0-flash`. Mismatches are logged loudly so a regression
+ * is visible in the very first request.
+ *
+ * Admin OCR (`routes/materials.ts`) deliberately uses `generateGeminiJson`
+ * from `lib/openrouter-generate.ts`, NOT this helper, so the lock here
+ * does not affect 2.5-Flash/2.5-Pro accuracy work for the admin side.
+ */
+const TEACHING_MODEL_LOCK = "gemini-2.0-flash" as const;
+
 export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<StreamGeminiResult> {
+  // Hard lock: refuse to honor any non-2.0-Flash caller value. We log a
+  // warning so the regression is visible in `docker compose logs api`.
+  if (args.model !== TEACHING_MODEL_LOCK) {
+    console.warn(
+      `[gemini-stream] MODEL LOCK ENFORCED${args.logTag ? `:${args.logTag}` : ""}: caller requested "${args.model}" — forcing "${TEACHING_MODEL_LOCK}" (student teaching is permanently locked to 2.0-Flash by product policy).`,
+    );
+    args = { ...args, model: TEACHING_MODEL_LOCK };
+  }
   const apiKey = getOpenRouterKey();
   if (!apiKey) {
     // Surface as auth error so /ai/teach can emit the friendly apology
