@@ -2349,28 +2349,52 @@ ${retrievedBlock}
           geminiErr?.message || geminiErr,
         );
       } else {
-        // Pre-stream failure (isFallbackable or unknown error class).
-        // Policy: NO fallback to any other model — student turns are
-        // Gemini-only. Surface the error; the failure-path block below
-        // emits a friendly Arabic apology and rolls back the turn quota.
-        __lastErr = geminiErr;
-        __activeProvider = "gemini";
+        // Pre-stream failure (no bytes on the SSE wire yet). ROOT-CAUSE
+        // FIX: instead of bailing out with the friendly apology and
+        // leaving the student staring at a "تعذّر الردّ" toast every time
+        // OpenRouter / Google has a hiccup (auth, 429, 5xx, no body…),
+        // we activate the documented safety-net branch and hand the
+        // turn to Anthropic Haiku — the cheapest, fastest Claude — so
+        // the student ALWAYS gets a real teaching response. This
+        // matches the comment block above the Gemini-first block which
+        // explicitly promises "fall through to the Anthropic loop with
+        // __activeModel = HAIKU_MODEL — the safety-net branch that
+        // guarantees the student always gets a real answer."
+        //
+        // Critically we leave __lastErr = null so the Anthropic loop
+        // below (`if (!__finalMessage && !__lastErr)`) actually runs;
+        // a stale __lastErr would short-circuit it back to the failure
+        // path and re-create the original bug.
         const level = isFallbackable ? "warn" : "error";
         console[level](
-          `[ai/teach] Gemini pre-stream failure (${geminiErr?.name || "Error"}):`,
+          `[ai/teach] Gemini pre-stream failure (${geminiErr?.name || "Error"}) — falling back to Haiku safety-net:`,
           geminiErr?.message || geminiErr,
         );
+        __activeProvider = "anthropic";
+        __activeModel = HAIKU_MODEL;
+        __fellBackToHaiku = true;
+        // Anthropic Haiku context window is generous; reuse the same
+        // maxTokens the Gemini call asked for so the answer length
+        // stays consistent across providers.
+        __activeMaxTokens = maxTokens;
+        // Stash the original Gemini error on a side variable so the
+        // success-telemetry path can record it under metadata without
+        // confusing the failure-path guard `if (__lastErr ...)`.
+        (geminiErr as any).__safetyNetReason = geminiErr?.name || "Error";
       }
     }
   }
 
   // ── Anthropic streaming path ─────────────────────────────────────────────
-  // Runs ONLY when:
-  //   • routerDecision.provider === 'anthropic' (admin/unlimited primary —
-  //     starts on Sonnet, intra-Anthropic fallback to Haiku on transient
-  //     failure).
-  // Student Gemini failures do NOT reach this path — they surface as
-  // __lastErr, which skips the loop below and goes to the failure path.
+  // Runs in TWO cases:
+  //   1. routerDecision.provider === 'anthropic' (admin/unlimited primary —
+  //      starts on Sonnet, intra-Anthropic fallback to Haiku on transient
+  //      failure).
+  //   2. Student turn whose Gemini call failed PRE-STREAM. The else-branch
+  //      above sets __activeProvider='anthropic', __activeModel=HAIKU_MODEL
+  //      and leaves __lastErr null specifically so this loop fires as the
+  //      documented safety-net — student NEVER sees the friendly apology
+  //      for a transient OpenRouter / Google hiccup.
   // Loop short-circuits on success or on mid-stream failure.
   if (!__finalMessage && !__lastErr) {
     while (__attempts < 3) {
