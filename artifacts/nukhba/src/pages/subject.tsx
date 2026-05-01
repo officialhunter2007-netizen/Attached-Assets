@@ -1280,6 +1280,37 @@ function expandLabEnvTags(html: string): string {
   });
 }
 
+// Decode HTML entities (&lt; &gt; &amp; &quot; &#39; &nbsp; ...) so that
+// teacher-emitted examples like `&lt;p&gt;` render as `<p>` in plain text
+// nodes (e.g. ASK_OPTIONS button labels). The teacher is REQUIRED to escape
+// HTML tag examples in its raw output (otherwise dangerouslySetInnerHTML in
+// the message body would render them as real elements instead of text); we
+// must therefore decode them back when surfacing those same strings as
+// React text nodes that don't go through the browser's HTML parser.
+// Runs decoding twice to handle the rare double-escaped case (e.g. when
+// the model writes `&amp;lt;p&amp;gt;`).
+function decodeHtmlEntities(s: string): string {
+  if (!s) return s;
+  if (typeof document === "undefined") {
+    // SSR fallback — handle the common entities only.
+    return s
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&");
+  }
+  const ta = document.createElement("textarea");
+  ta.innerHTML = s;
+  let out = ta.value;
+  if (out.includes("&") && /&(?:lt|gt|amp|quot|#\d+|#x[0-9a-f]+);/i.test(out)) {
+    ta.innerHTML = out;
+    out = ta.value;
+  }
+  return out;
+}
+
 // Extracts [[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| غير ذلك]] from content
 // Uses ||| as delimiter so question/options can safely contain a single |
 // Uses [\s\S]+? (non-greedy any-char) so single `]` inside the question or
@@ -1302,9 +1333,15 @@ function extractAskOptions(content: string): { stripped: string; ask: { question
       .replace(/(\s*<br\s*\/?>\s*){2,}/gi, "<br/>")
       .trim();
   if (parts.length < 2) return { stripped: cleanStripped(content), ask: null };
-  const [question, ...rawOpts] = parts;
+  const [questionRaw, ...rawOpts] = parts;
   const allowOther = rawOpts.some((o) => /غير\s*ذلك/i.test(o) || /^other$/i.test(o));
-  const options = rawOpts.filter((o) => !(/غير\s*ذلك/i.test(o) || /^other$/i.test(o)));
+  // Decode HTML entities in question + each option so labels containing
+  // tag examples (e.g. `وسم <p> (فقرة عادية)`) render readable text instead
+  // of raw `&lt;p&gt;` escape sequences in the buttons.
+  const question = decodeHtmlEntities(questionRaw);
+  const options = rawOpts
+    .filter((o) => !(/غير\s*ذلك/i.test(o) || /^other$/i.test(o)))
+    .map(decodeHtmlEntities);
   return { stripped: cleanStripped(content), ask: { question, options, allowOther } };
 }
 
