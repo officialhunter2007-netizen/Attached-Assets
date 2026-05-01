@@ -58,6 +58,10 @@ GOOGLE_CLIENT_SECRET = "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"
 DEFAULT_OBJECT_STORAGE_BUCKET_ID = "replit-objstore-fc8ff6da-a06f-4933-b5c4-5372ec9b78ab"
 PUBLIC_OBJECT_SEARCH_PATHS = "/replit-objstore-fc8ff6da-a06f-4933-b5c4-5372ec9b78ab/public"
 PRIVATE_OBJECT_DIR = "/replit-objstore-fc8ff6da-a06f-4933-b5c4-5372ec9b78ab/.private"
+ADMIN_EMAILS = "officialhunter2007@gmail.com"
+UNLIMITED_ACCESS_EMAILS = "socanalyst38@gmail.com"
+LOG_LEVEL = "info"
+NODE_ENV = "development"
 
 [userenv.production]
 APP_DOMAIN = "learnukhba.replit.app"
