@@ -205,15 +205,25 @@ export default function Admin() {
     refetchStats();
   };
 
-  // Pulls the server's Arabic error message out of an axios/fetch failure so
-  // the admin sees WHY the action failed (instead of a generic toast that
-  // hides the real cause and makes diagnosis impossible from the UI).
+  // Pulls the server's Arabic error message out of an ApiError / axios / fetch
+  // failure so the admin sees WHY the action failed (instead of a generic
+  // toast that hides the real cause and makes diagnosis impossible).
+  // Checks BOTH common shapes:
+  //   - orval/customFetch:  err.data.{error|message}
+  //   - axios:              err.response.data.{error|message}
+  // Falls back to err.message only as a last resort because ApiError prefixes
+  // it with "HTTP <status> <statusText>:" which buries the Arabic reason.
   const extractServerError = (err: any): string | null => {
-    const data = err?.response?.data;
-    if (typeof data?.error === "string" && data.error.trim()) return data.error.trim();
-    if (typeof data?.message === "string" && data.message.trim()) return data.message.trim();
+    const candidates: any[] = [err?.data, err?.response?.data];
+    for (const data of candidates) {
+      if (typeof data?.error === "string" && data.error.trim()) return data.error.trim();
+      if (typeof data?.message === "string" && data.message.trim()) return data.message.trim();
+    }
     if (typeof err?.message === "string" && err.message.trim() && err.message !== "Network Error") {
-      return err.message;
+      // Strip the "HTTP <status> <text>:" prefix that customFetch adds, so
+      // the admin sees the clean Arabic reason without the boilerplate.
+      const cleaned = err.message.replace(/^HTTP\s+\d+\s+[^:]+:\s*/i, "").trim();
+      return cleaned || err.message;
     }
     return null;
   };

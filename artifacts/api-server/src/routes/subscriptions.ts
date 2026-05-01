@@ -1010,12 +1010,22 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         detail: e?.detail,
         constraint: e?.constraint,
         column: e?.column,
+        table: e?.table,
         requestId: id,
       },
       "admin: approve subscription request failed",
     );
+    // Compose a SHORT, admin-friendly Arabic reason. Long pg messages
+    // (which include the full SQL and params) get truncated; the pg
+    // error code + column are appended so the admin can pinpoint the
+    // exact missing column / constraint without reading server logs.
+    const rawMsg = typeof e?.message === "string" ? e.message : "";
+    const shortMsg = rawMsg.split("\n")[0].slice(0, 240);
+    const codeBit = e?.code ? ` [code=${e.code}]` : "";
+    const colBit = e?.column ? ` [column=${e.column}]` : "";
+    const tableBit = e?.table ? ` [table=${e.table}]` : "";
     res.status(500).json({
-      error: `تعذّر تفعيل الاشتراك: ${e?.message ?? "خطأ غير معروف في قاعدة البيانات"}`,
+      error: `تعذّر تفعيل الاشتراك: ${shortMsg || "خطأ غير معروف في قاعدة البيانات"}${codeBit}${colBit}${tableBit}`,
     });
   }
 });

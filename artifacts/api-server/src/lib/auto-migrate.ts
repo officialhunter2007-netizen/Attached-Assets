@@ -185,10 +185,52 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     ],
   },
   {
+    // The admin "approve subscription request" flow inserts ALL of these
+    // columns. If production was last migrated before any of them existed,
+    // the INSERT throws "column ... does not exist" and approval fails with
+    // a 500. Listing every column here as ADD IF NOT EXISTS is safe (no-op
+    // when the column already exists) and self-heals legacy databases.
     table: "user_subject_subscriptions",
     columns: [
-      { name: "paid_price_yer", ddl: "integer" },
+      { name: "subject_name", ddl: "text" },
+      { name: "activation_code", ddl: "text" },
+      { name: "subscription_request_id", ddl: "integer" },
+      { name: "paid_price_yer", ddl: "integer NOT NULL DEFAULT 0" },
       { name: "region", ddl: "text" },
+      { name: "gems_balance", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "gems_used_today", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "gems_daily_limit", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "gems_reset_date", ddl: "text" },
+    ],
+  },
+  {
+    // Approve flow also inserts activation cards with these columns.
+    table: "activation_cards",
+    columns: [
+      { name: "region", ddl: "text" },
+      { name: "subject_id", ddl: "text" },
+      { name: "subject_name", ddl: "text" },
+      { name: "subscription_request_id", ddl: "integer" },
+      { name: "used_by_user_id", ddl: "integer" },
+      { name: "used_at", ddl: "timestamp with time zone" },
+      { name: "expires_at", ddl: "timestamp with time zone" },
+    ],
+  },
+  {
+    // Newer fields on subscription_requests (discount + per-subject fields)
+    // that may be missing on legacy databases. Without them, request
+    // creation works but approve later cannot read e.g. finalPrice/region.
+    table: "subscription_requests",
+    columns: [
+      { name: "account_name", ddl: "text NOT NULL DEFAULT ''" },
+      { name: "subject_id", ddl: "text NOT NULL DEFAULT 'all'" },
+      { name: "subject_name", ddl: "text" },
+      { name: "admin_note", ddl: "text" },
+      { name: "discount_code_id", ddl: "integer" },
+      { name: "discount_code", ddl: "text" },
+      { name: "discount_percent", ddl: "integer" },
+      { name: "base_price", ddl: "integer" },
+      { name: "final_price", ddl: "integer" },
     ],
   },
 ];
