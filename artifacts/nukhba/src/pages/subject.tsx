@@ -1193,7 +1193,7 @@ function normalizeLabEnvButtons(raw: string): string {
       .replace(/&#39;/g, "'")
       .replace(/\s+/g, " ")
       .trim();
-    if (!desc || desc.length < 4 || desc.length > 600) return "";
+    if (!desc || desc.length < 4 || desc.length > 4000) return "";
     const key = desc.slice(0, 80);
     if (seen.has(key)) return "";
     seen.add(key);
@@ -1218,14 +1218,14 @@ function normalizeLabEnvButtons(raw: string): string {
   // or model running out of tokens). Capture stops at the first matching
   // closing quote so the description is bounded.
   result = result.replace(
-    /`{0,3}\s*<button[^>]*?data-build-env\s*=\s*["']([^"']{4,600})["'][^<>]*?(?:>[\s\S]*?(?:<\/button>)?|class\b[^<>\n`]*|(?=\n\n|$|`{3}))\s*`{0,3}/gi,
+    /`{0,3}\s*<button[^>]*?data-build-env\s*=\s*["']([^"']{4,4000})["'][^<>]*?(?:>[\s\S]*?(?:<\/button>)?|class\b[^<>\n`]*|(?=\n\n|$|`{3}))\s*`{0,3}/gi,
     (_m, desc) => toTag(desc),
   );
 
   // (D) Bare floating attribute (last resort, only when not already inside a
   // <button or &lt;button context — those were handled above).
   result = result.replace(
-    /(?<!button[^>]{0,400})(?<!&lt;button[^&]{0,400})data-build-env\s*=\s*["']([^"']{4,600})["']/gi,
+    /(?<!button[^>]{0,400})(?<!&lt;button[^&]{0,400})data-build-env\s*=\s*["']([^"']{4,4000})["']/gi,
     (_m, desc) => toTag(desc),
   );
 
@@ -1342,13 +1342,27 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
       if (btn) {
         e.preventDefault();
         const desc = (btn.getAttribute('data-build-env') || '').trim();
-        // Sanity-check the payload before triggering env creation: the
-        // assistant content path is sanitized but the model still authors
-        // the lab description, so cap the length and reject obviously
-        // malformed values to avoid accidental long-running env builds.
-        if (desc && desc.length >= 4 && desc.length <= 500) {
-          onCreateLabEnv(desc);
+        // Sanity-check the payload before triggering env creation. The
+        // teacher prompt requires a ≥200-char description with 5 structured
+        // sections (context, initial data, screens, success criteria,
+        // common misconceptions), which routinely produces 300-1500 char
+        // descriptions. The previous 500-char cap silently swallowed the
+        // majority of clicks → "nothing happens" UX disaster. We now allow
+        // up to 4000 chars (matches the server's tolerance) and on the
+        // (very rare) malformed cases give the user an explicit, visible
+        // signal instead of failing in silence.
+        console.log("[lab-env-btn] click; desc length=", desc.length, "preview=", desc.slice(0, 80));
+        if (!desc || desc.length < 4) {
+          console.warn("[lab-env-btn] rejected: empty or too short");
+          alert("تعذّر فتح هذه البيئة — وصفها مفقود. اطلب من المعلم بناء بيئة جديدة.");
+          return;
         }
+        if (desc.length > 4000) {
+          console.warn("[lab-env-btn] rejected: too long (", desc.length, ")");
+          alert("وصف البيئة طويل جداً. اطلب من المعلم اختصاره.");
+          return;
+        }
+        onCreateLabEnv(desc);
       }
     };
     root.addEventListener('click', handler);

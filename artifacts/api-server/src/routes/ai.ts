@@ -4321,7 +4321,7 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
 
     return res.json({ env: healedEnv, envId: variantEnvIdForExam, validation: report });
   } catch (e: any) {
-    console.error("[generate-variant] failed:", e?.message || e);
+    console.error("[generate-variant] anthropic failed:", e?.message || e);
     void recordAiUsage({
       userId,
       subjectId: subjectId ?? null,
@@ -4334,6 +4334,98 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
       status: "error",
       errorMessage: String(e?.message || e).slice(0, 500),
     });
+    // ─── Gemini Flash fallback for variant generation ──────────────────
+    // Same resilience pattern as /ai/lab/build-env: when Anthropic fails
+    // (rate-limited, expired key, OpenRouter outage), try Gemini 2.5 Flash
+    // direct with `responseMimeType: application/json` so the variant
+    // generator keeps working. Variants must preserve the source env's
+    // structural shape, so we feed Gemini the same trimmed shape + the
+    // same constraint-heavy system prompt the Anthropic call used.
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      const __gStart = Date.now();
+      try {
+        console.log("[generate-variant] anthropic exhausted — trying Gemini 2.5 Flash fallback");
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`;
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: variantSystem + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح.` }] },
+            contents: [{ role: "user", parts: [{ text: `هذه البيئة الأصلية (JSON). أنشئ نسخة جديدة بنفس الشكل بالضبط لكن بمحتوى مختلف بحسب التعليمات:\n\n${JSON.stringify(shape, null, 2).slice(0, 18000)}\n\nأرجع JSON فقط.` }] }],
+            generationConfig: {
+              temperature: 0.5,
+              maxOutputTokens: 16000,
+              responseMimeType: "application/json",
+            },
+            safetySettings: [
+              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+            ],
+          }),
+          signal: AbortSignal.timeout(90_000),
+        });
+        if (r.ok) {
+          const data: any = await r.json();
+          const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
+          try {
+            const __u = extractGeminiUsage(data?.usageMetadata);
+            void recordAiUsage({
+              userId,
+              subjectId: subjectId ?? null,
+              route: "ai/lab/generate-variant",
+              provider: "gemini",
+              model: "gemini-2.5-flash",
+              inputTokens: __u.inputTokens,
+              outputTokens: __u.outputTokens,
+              cachedInputTokens: __u.cachedInputTokens,
+              latencyMs: Date.now() - __gStart,
+              metadata: { kind: env.kind, hint, attempt: "gemini_fallback" },
+            });
+          } catch {}
+          // Same balanced-JSON extraction as the primary path.
+          const startIdx = txt.indexOf("{");
+          if (startIdx >= 0) {
+            let depth = 0, inStr = false, esc = false, end = -1;
+            for (let i = startIdx; i < txt.length; i++) {
+              const ch = txt[i];
+              if (esc) { esc = false; continue; }
+              if (ch === "\\") { esc = true; continue; }
+              if (ch === '"') { inStr = !inStr; continue; }
+              if (inStr) continue;
+              if (ch === "{") depth++;
+              else if (ch === "}") {
+                depth--;
+                if (depth === 0) { end = i + 1; break; }
+              }
+            }
+            if (end > 0) {
+              try {
+                const variantEnv = JSON.parse(txt.slice(startIdx, end));
+                const { env: healedEnv, report } = validateAndHealEnv(variantEnv, { kind: env.kind });
+                const variantEnvIdForExam = newEnvId();
+                (healedEnv as any).__envId = variantEnvIdForExam;
+                rememberIssuedEnv({ envId: variantEnvIdForExam, userId, subjectId, env: healedEnv });
+                console.log("[generate-variant] gemini fallback succeeded.");
+                return res.json({ env: healedEnv, envId: variantEnvIdForExam, validation: report });
+              } catch (parseErr: any) {
+                console.error("[generate-variant] gemini fallback JSON parse failed:", parseErr?.message || parseErr);
+              }
+            }
+          }
+          console.error("[generate-variant] gemini fallback returned unparseable text. Preview:", txt.slice(0, 600));
+        } else {
+          const body = await r.text().catch(() => "");
+          console.error(`[generate-variant] gemini fallback HTTP ${r.status}: ${body.slice(0, 300)}`);
+        }
+      } catch (gErr: any) {
+        console.error("[generate-variant] gemini fallback threw:", gErr?.message || gErr);
+      }
+    } else {
+      console.warn("[generate-variant] no GEMINI_API_KEY — skipping fallback");
+    }
     return res.status(500).json({ error: e?.message || "فشل توليد النسخة" });
   }
 });
@@ -4584,6 +4676,14 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
 
   const { subjectId, description } = req.body as { subjectId: string; description: string };
   if (!subjectId || !description) return res.status(400).json({ error: "Missing subjectId or description" });
+  // Hard server-side bound on description length. The client caps at 4000
+  // and the teacher prompt produces 200-1500 char descriptions, so a 4000
+  // limit comfortably covers legitimate traffic. Direct API callers that
+  // bypass the client are blocked here BEFORE any expensive LLM call to
+  // prevent prompt-injection cost amplification.
+  if (typeof description !== "string" || description.length > 4000) {
+    return res.status(400).json({ error: "description too long (max 4000 chars)" });
+  }
 
   const kind = detectLabKind(subjectId, description);
   const kindLabel = SPECIALIZATION_LABELS[kind];
@@ -4867,9 +4967,85 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       }
     }
     if (!env) {
-      console.error("[build-env] both passes failed — returning actionable fallback env.");
+      // ─── Gemini Flash third-pass fallback ─────────────────────────────
+      // Both Anthropic passes failed (parse OR upstream error). Before we
+      // give the student the dry "needs more detail" fallback env, try
+      // Gemini 2.5 Flash directly — it is independent of the
+      // Anthropic/OpenRouter availability and uses Google's strict
+      // `responseMimeType: application/json` to guarantee parseable
+      // output. This is the same provider the smart-teacher chat already
+      // uses, so when Anthropic/OpenRouter is rate-limited or the
+      // operator's Anthropic key has expired, env-builder keeps working
+      // transparently.
+      const geminiKey = process.env.GEMINI_API_KEY;
+      if (geminiKey) {
+        const __gStart = Date.now();
+        try {
+          console.log("[build-env] anthropic exhausted — trying Gemini 2.5 Flash third pass");
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`;
+          const r = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح. ابقَ بسيطاً وآمناً: شاشة 1-2 و2-5 مكونات.` }] },
+              contents: [{ role: "user", parts: [{ text: `التخصص: ${kindLabel} (${kind})\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة لهذا الطلب. أرجع JSON صالحاً فقط.` }] }],
+              generationConfig: {
+                temperature: 0.4,
+                maxOutputTokens: 16000,
+                responseMimeType: "application/json",
+              },
+              safetySettings: [
+                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+              ],
+            }),
+            signal: AbortSignal.timeout(90_000),
+          });
+          if (r.ok) {
+            const data: any = await r.json();
+            const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
+            try {
+              const __u = extractGeminiUsage(data?.usageMetadata);
+              void recordAiUsage({
+                userId,
+                subjectId: subjectId ?? null,
+                route: "ai/lab/build-env",
+                provider: "gemini",
+                model: "gemini-2.5-flash",
+                inputTokens: __u.inputTokens,
+                outputTokens: __u.outputTokens,
+                cachedInputTokens: __u.cachedInputTokens,
+                latencyMs: Date.now() - __gStart,
+                metadata: { kind, attempt: "gemini_fallback" },
+              });
+            } catch {}
+            env = tryParse(txt);
+            if (!env) {
+              const exG = extractJsonObject(txt);
+              if (exG) {
+                env = tryParse(exG.text);
+                if (!env) env = tryParse(repairJson(exG.text));
+              }
+            }
+            if (env) console.log("[build-env] gemini third pass succeeded.");
+            else console.error("[build-env] gemini third pass returned unparseable text. Preview:", txt.slice(0, 600));
+          } else {
+            const body = await r.text().catch(() => "");
+            console.error(`[build-env] gemini third pass HTTP ${r.status}: ${body.slice(0, 300)}`);
+          }
+        } catch (gErr: any) {
+          console.error("[build-env] gemini third pass threw:", gErr?.message || gErr);
+        }
+      } else {
+        console.warn("[build-env] no GEMINI_API_KEY — skipping third-pass fallback");
+      }
+    }
+    if (!env) {
+      console.error("[build-env] all passes failed — returning actionable fallback env.");
       // Don't throw — return a friendly fallback env so the user never sees a red error.
-      return res.json({ kind, env: buildFallbackEnv("لم نتمكن من توليد البيئة الكاملة هذه المرّة (حتى بعد محاولة ثانية). يرجى وصف ما تريد بدقة في النموذج أدناه — سيستلمه المعلم ويبني لك بيئة جديدة.") });
+      return res.json({ kind, env: buildFallbackEnv("لم نتمكن من توليد البيئة الكاملة هذه المرّة (حتى بعد عدّة محاولات). يرجى وصف ما تريد بدقة في النموذج أدناه — سيستلمه المعلم ويبني لك بيئة جديدة.") });
     }
 
     env.kind = kind;
