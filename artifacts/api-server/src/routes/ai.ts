@@ -21,6 +21,11 @@ import {
   GeminiClientError,
   type GeminiMessage,
 } from "../lib/gemini-stream";
+import {
+  generateGeminiJson,
+  hasGeminiProvider,
+  GenerateGeminiError,
+} from "../lib/openrouter-generate";
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
@@ -3179,168 +3184,67 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
-  // CRITICAL FIX: this route calls Google's generativelanguage.googleapis.com
-  // endpoint directly, which requires a Google AI Studio key (GEMINI_API_KEY),
-  // NOT an OpenRouter key. The previous code used OPENROUTER_API_KEY which
-  // would always 401 against Google's API. Match the rest of the codebase
-  // (materials.ts) by reading GEMINI_API_KEY first.
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
+  // Routed via streamGeminiTeaching → OpenRouter primary, Google direct
+  // fallback. This shares the same dual-channel chain used by /ai/teach,
+  // so Platform-Help works whenever a Gemini channel is configured (the
+  // user's Google AI Studio key is hard-capped — OpenRouter is the
+  // production path).
+  if (!hasGeminiProvider()) {
     res.write(`data: ${JSON.stringify({ error: "المساعد غير مُهيّأ بعد. يرجى التواصل مع الإدارة." })}\n\n`);
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     return res.end();
   }
 
-  // Gemini message format: roles are "user" and "model"; system prompt goes in systemInstruction
-  const geminiContents = cleanMessages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-
   const ac = new AbortController();
   req.on("close", () => ac.abort());
 
+  const __aiStart = Date.now();
   try {
-    // Same retry strategy as admin-insights: Gemini's free tier returns 503
-    // (overloaded) under load. Retry with exponential backoff and fall back
-    // to gemini-2.5-flash-lite (higher capacity) on the final attempt.
-    const requestBody = JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: geminiContents,
-      generationConfig: {
-        temperature: 0.6,
-        topP: 0.95,
-        maxOutputTokens: 1024,
+    const result = await streamGeminiTeaching({
+      systemPrompt,
+      messages: cleanMessages.map((m) => ({ role: m.role, content: m.content })),
+      model: "gemini-2.5-flash",
+      maxOutputTokens: 1024,
+      temperature: 0.6,
+      topP: 0.95,
+      signal: ac.signal,
+      logTag: "platform-help",
+      onChunk: (text) => {
+        if (text && text.length > 0) {
+          res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
+        }
       },
-      safetySettings: [
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-      ],
     });
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-    const buildUrl = (model: string) =>
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${geminiKey}`;
-    const attemptModels = ["gemini-2.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
-    const transientStatuses = new Set([429, 500, 502, 503, 504]);
 
-    let upstream: Response | null = null;
-    let lastStatus = 0;
-    let lastErrBody = "";
-    const __helpStart = Date.now();
-    for (let attempt = 0; attempt < attemptModels.length; attempt++) {
-      if (ac.signal.aborted) return;
-      try {
-        const r = await fetch(buildUrl(attemptModels[attempt]), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: requestBody,
-          signal: ac.signal,
-        });
-        if (r.ok && r.body) {
-          upstream = r;
-          break;
-        }
-        lastStatus = r.status;
-        lastErrBody = await r.text().catch(() => "");
-        if (!transientStatuses.has(r.status)) break;
-      } catch (fetchErr: any) {
-        if (fetchErr?.name === "AbortError") return;
-        lastStatus = 0;
-        lastErrBody = String(fetchErr?.message || fetchErr);
-      }
-      if (attempt < attemptModels.length - 1) {
-        await sleep(attempt === 0 ? 600 : 1500);
-      }
-    }
-
-    if (!upstream || !upstream.body) {
-      console.error("[platform-help] gemini http error after retries:",
-        lastStatus, lastErrBody.slice(0, 300));
-      void recordAiUsage({
-        userId,
-        subjectId: null,
-        route: "ai/platform-help",
-        provider: "gemini",
-        model: attemptModels[attemptModels.length - 1],
-        inputTokens: 0,
-        outputTokens: 0,
-        latencyMs: Date.now() - __helpStart,
-        status: "error",
-        errorMessage: `http_${lastStatus}: ${lastErrBody.slice(0, 300)}`,
-      });
-      let friendly = "تعذّر الردّ الآن، حاول بعد قليل.";
-      if (lastStatus === 429) {
-        friendly = "وصل المساعد لحدّ الاستخدام المؤقّت. حاول بعد دقيقة.";
-      } else if (lastStatus === 503) {
-        friendly = "خدمة الذكاء الاصطناعي مزدحمة الآن. حاول بعد ٣٠ ثانية.";
-      } else if (lastStatus === 401 || lastStatus === 403) {
-        friendly = "إعداد مفتاح الذكاء الاصطناعي غير صحيح — راجع OPENROUTER_API_KEY.";
-      } else if (lastStatus >= 500) {
-        friendly = "خدمة الذكاء الاصطناعي تواجه عطلاً مؤقتاً. حاول بعد قليل.";
-      }
-      res.write(`data: ${JSON.stringify({ error: friendly })}\n\n`);
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      return res.end();
-    }
-
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let __geminiUsage: any = null;
-    const __aiStart = Date.now();
-    const __chosenModel = upstream.url
-      ? (upstream.url.match(/models\/([^:]+):/) || [])[1] || "gemini-2.5-flash"
-      : "gemini-2.5-flash";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const payload = trimmed.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
-        try {
-          const parsed = JSON.parse(payload);
-          if (parsed?.usageMetadata) __geminiUsage = parsed.usageMetadata;
-          const parts = parsed?.candidates?.[0]?.content?.parts;
-          if (Array.isArray(parts)) {
-            for (const p of parts) {
-              if (typeof p?.text === "string" && p.text.length > 0) {
-                res.write(`data: ${JSON.stringify({ content: p.text })}\n\n`);
-              }
-            }
-          }
-        } catch {
-          // ignore non-JSON keep-alives
-        }
-      }
-    }
-
-    {
-      const __u = extractGeminiUsage(__geminiUsage);
-      void recordAiUsage({
-        userId,
-        subjectId: null,
-        route: "ai/platform-help",
-        provider: "gemini",
-        model: __chosenModel,
-        inputTokens: __u.inputTokens,
-        outputTokens: __u.outputTokens,
-        cachedInputTokens: __u.cachedInputTokens,
-        latencyMs: Date.now() - __aiStart,
-      });
-    }
+    void recordAiUsage({
+      userId,
+      subjectId: null,
+      route: "ai/platform-help",
+      provider: "gemini",
+      model: result.model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      cachedInputTokens: result.cachedInputTokens,
+      latencyMs: Date.now() - __aiStart,
+      metadata: { channel: result.channel },
+    });
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   } catch (err: any) {
+    if (ac.signal.aborted || err?.name === "AbortError") {
+      try { res.end(); } catch {}
+      return;
+    }
     console.error("[platform-help] error:", err?.message || err);
+    let friendly = "تعذّر الردّ الآن، حاول بعد قليل.";
+    if (err instanceof GeminiAuthError) {
+      friendly = "إعداد مفتاح الذكاء الاصطناعي غير صحيح — راجع OPENROUTER_API_KEY.";
+    } else if (err instanceof GeminiTransientError) {
+      friendly = "خدمة الذكاء الاصطناعي مزدحمة الآن. حاول بعد قليل.";
+    } else if (err instanceof GeminiBadOutputError) {
+      friendly = "تعذّر إكمال الردّ. أعد صياغة سؤالك بشكل مختلف.";
+    }
     void recordAiUsage({
       userId,
       subjectId: null,
@@ -3349,11 +3253,12 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
       model: "gemini-2.5-flash",
       inputTokens: 0,
       outputTokens: 0,
+      latencyMs: Date.now() - __aiStart,
       status: "error",
       errorMessage: String(err?.message || err).slice(0, 500),
     });
     try {
-      res.write(`data: ${JSON.stringify({ error: "تعذّر الردّ الآن، حاول بعد قليل." })}\n\n`);
+      res.write(`data: ${JSON.stringify({ error: friendly })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     } catch {}
     res.end();
@@ -4427,90 +4332,75 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
     // generator keeps working. Variants must preserve the source env's
     // structural shape, so we feed Gemini the same trimmed shape + the
     // same constraint-heavy system prompt the Anthropic call used.
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (geminiKey) {
+    if (hasGeminiProvider()) {
       const __gStart = Date.now();
       try {
-        console.log("[generate-variant] anthropic exhausted — trying Gemini 2.5 Flash fallback");
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`;
-        const r = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: variantSystem + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح.` }] },
-            contents: [{ role: "user", parts: [{ text: `هذه البيئة الأصلية (JSON). أنشئ نسخة جديدة بنفس الشكل بالضبط لكن بمحتوى مختلف بحسب التعليمات:\n\n${JSON.stringify(shape, null, 2).slice(0, 18000)}\n\nأرجع JSON فقط.` }] }],
-            generationConfig: {
-              temperature: 0.5,
-              maxOutputTokens: 16000,
-              responseMimeType: "application/json",
-            },
-            safetySettings: [
-              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-            ],
-          }),
-          signal: AbortSignal.timeout(90_000),
+        console.log("[generate-variant] anthropic exhausted — trying Gemini 2.5 Flash fallback (OpenRouter primary)");
+        const result = await generateGeminiJson({
+          systemPrompt: variantSystem + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح.`,
+          userPrompt: `هذه البيئة الأصلية (JSON). أنشئ نسخة جديدة بنفس الشكل بالضبط لكن بمحتوى مختلف بحسب التعليمات:\n\n${JSON.stringify(shape, null, 2).slice(0, 18000)}\n\nأرجع JSON فقط.`,
+          model: "gemini-2.5-flash",
+          temperature: 0.5,
+          maxOutputTokens: 16000,
+          timeoutMs: 90_000,
+          logTag: "generate-variant",
         });
-        if (r.ok) {
-          const data: any = await r.json();
-          const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
-          try {
-            const __u = extractGeminiUsage(data?.usageMetadata);
-            void recordAiUsage({
-              userId,
-              subjectId: subjectId ?? null,
-              route: "ai/lab/generate-variant",
-              provider: "gemini",
-              model: "gemini-2.5-flash",
-              inputTokens: __u.inputTokens,
-              outputTokens: __u.outputTokens,
-              cachedInputTokens: __u.cachedInputTokens,
-              latencyMs: Date.now() - __gStart,
-              metadata: { kind: env.kind, hint, attempt: "gemini_fallback" },
-            });
-          } catch {}
-          // Same balanced-JSON extraction as the primary path.
-          const startIdx = txt.indexOf("{");
-          if (startIdx >= 0) {
-            let depth = 0, inStr = false, esc = false, end = -1;
-            for (let i = startIdx; i < txt.length; i++) {
-              const ch = txt[i];
-              if (esc) { esc = false; continue; }
-              if (ch === "\\") { esc = true; continue; }
-              if (ch === '"') { inStr = !inStr; continue; }
-              if (inStr) continue;
-              if (ch === "{") depth++;
-              else if (ch === "}") {
-                depth--;
-                if (depth === 0) { end = i + 1; break; }
-              }
-            }
-            if (end > 0) {
-              try {
-                const variantEnv = JSON.parse(txt.slice(startIdx, end));
-                const { env: healedEnv, report } = validateAndHealEnv(variantEnv, { kind: env.kind });
-                const variantEnvIdForExam = newEnvId();
-                (healedEnv as any).__envId = variantEnvIdForExam;
-                rememberIssuedEnv({ envId: variantEnvIdForExam, userId, subjectId, env: healedEnv });
-                console.log("[generate-variant] gemini fallback succeeded.");
-                return res.json({ env: healedEnv, envId: variantEnvIdForExam, validation: report });
-              } catch (parseErr: any) {
-                console.error("[generate-variant] gemini fallback JSON parse failed:", parseErr?.message || parseErr);
-              }
+        try {
+          const __u = extractGeminiUsage(result.usageMetadata);
+          void recordAiUsage({
+            userId,
+            subjectId: subjectId ?? null,
+            route: "ai/lab/generate-variant",
+            provider: "gemini",
+            model: "gemini-2.5-flash",
+            inputTokens: __u.inputTokens,
+            outputTokens: __u.outputTokens,
+            cachedInputTokens: __u.cachedInputTokens,
+            latencyMs: Date.now() - __gStart,
+            metadata: { kind: env.kind, hint, attempt: "gemini_fallback", channel: result.channel },
+          });
+        } catch {}
+        const txt = result.text;
+        // Same balanced-JSON extraction as the primary path.
+        const startIdx = txt.indexOf("{");
+        if (startIdx >= 0) {
+          let depth = 0, inStr = false, esc = false, end = -1;
+          for (let i = startIdx; i < txt.length; i++) {
+            const ch = txt[i];
+            if (esc) { esc = false; continue; }
+            if (ch === "\\") { esc = true; continue; }
+            if (ch === '"') { inStr = !inStr; continue; }
+            if (inStr) continue;
+            if (ch === "{") depth++;
+            else if (ch === "}") {
+              depth--;
+              if (depth === 0) { end = i + 1; break; }
             }
           }
-          console.error("[generate-variant] gemini fallback returned unparseable text. Preview:", txt.slice(0, 600));
-        } else {
-          const body = await r.text().catch(() => "");
-          console.error(`[generate-variant] gemini fallback HTTP ${r.status}: ${body.slice(0, 300)}`);
+          if (end > 0) {
+            try {
+              const variantEnv = JSON.parse(txt.slice(startIdx, end));
+              const { env: healedEnv, report } = validateAndHealEnv(variantEnv, { kind: env.kind });
+              const variantEnvIdForExam = newEnvId();
+              (healedEnv as any).__envId = variantEnvIdForExam;
+              rememberIssuedEnv({ envId: variantEnvIdForExam, userId, subjectId, env: healedEnv });
+              console.log(`[generate-variant] gemini fallback succeeded via ${result.channel}.`);
+              return res.json({ env: healedEnv, envId: variantEnvIdForExam, validation: report });
+            } catch (parseErr: any) {
+              console.error("[generate-variant] gemini fallback JSON parse failed:", parseErr?.message || parseErr);
+            }
+          }
         }
+        console.error("[generate-variant] gemini fallback returned unparseable text. Preview:", txt.slice(0, 600));
       } catch (gErr: any) {
-        console.error("[generate-variant] gemini fallback threw:", gErr?.message || gErr);
+        if (gErr instanceof GenerateGeminiError) {
+          console.error(`[generate-variant] gemini fallback failed (channel=${gErr.channel}, status=${gErr.status}): ${gErr.message}`);
+        } else {
+          console.error("[generate-variant] gemini fallback threw:", gErr?.message || gErr);
+        }
       }
     } else {
-      console.warn("[generate-variant] no GEMINI_API_KEY — skipping fallback");
+      console.warn("[generate-variant] no Gemini provider configured — skipping fallback");
     }
     return res.status(500).json({ error: e?.message || "فشل توليد النسخة" });
   }
@@ -4982,62 +4872,46 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       // uses, so when Anthropic/OpenRouter is rate-limited or the
       // operator's Anthropic key has expired, env-builder keeps working
       // transparently.
-      const geminiKey = process.env.GEMINI_API_KEY;
-      if (geminiKey) {
+      if (hasGeminiProvider()) {
         const __gStart = Date.now();
         try {
-          console.log("[build-env] anthropic exhausted — trying Gemini 2.5 Flash third pass");
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`;
-          const r = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح. ابقَ بسيطاً وآمناً: شاشة 1-2 و2-5 مكونات.` }] },
-              contents: [{ role: "user", parts: [{ text: `التخصص: ${kindLabel} (${kind})\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة لهذا الطلب. أرجع JSON صالحاً فقط.` }] }],
-              generationConfig: {
-                temperature: 0.4,
-                maxOutputTokens: 16000,
-                responseMimeType: "application/json",
-              },
-              safetySettings: [
-                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-              ],
-            }),
-            signal: AbortSignal.timeout(90_000),
+          console.log("[build-env] anthropic exhausted — trying Gemini 2.5 Flash third pass (OpenRouter primary)");
+          const result = await generateGeminiJson({
+            systemPrompt: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح. ابقَ بسيطاً وآمناً: شاشة 1-2 و2-5 مكونات.`,
+            userPrompt: `التخصص: ${kindLabel} (${kind})\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة لهذا الطلب. أرجع JSON صالحاً فقط.`,
+            model: "gemini-2.5-flash",
+            temperature: 0.4,
+            maxOutputTokens: 16000,
+            timeoutMs: 90_000,
+            logTag: "build-env",
           });
-          if (r.ok) {
-            const data: any = await r.json();
-            const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
-            try {
-              const __u = extractGeminiUsage(data?.usageMetadata);
-              void recordAiUsage({
-                userId,
-                subjectId: subjectId ?? null,
-                route: "ai/lab/build-env",
-                provider: "gemini",
-                model: "gemini-2.5-flash",
-                inputTokens: __u.inputTokens,
-                outputTokens: __u.outputTokens,
-                cachedInputTokens: __u.cachedInputTokens,
-                latencyMs: Date.now() - __gStart,
-                metadata: { kind, attempt: "gemini_fallback" },
-              });
-            } catch {}
-            env = robustJsonParse(txt, "[build-env]");
-            if (env) console.log("[build-env] gemini third pass succeeded.");
-            else console.error("[build-env] gemini third pass returned unparseable text. Preview:", txt.slice(0, 600));
-          } else {
-            const body = await r.text().catch(() => "");
-            console.error(`[build-env] gemini third pass HTTP ${r.status}: ${body.slice(0, 300)}`);
-          }
+          try {
+            const __u = extractGeminiUsage(result.usageMetadata);
+            void recordAiUsage({
+              userId,
+              subjectId: subjectId ?? null,
+              route: "ai/lab/build-env",
+              provider: "gemini",
+              model: "gemini-2.5-flash",
+              inputTokens: __u.inputTokens,
+              outputTokens: __u.outputTokens,
+              cachedInputTokens: __u.cachedInputTokens,
+              latencyMs: Date.now() - __gStart,
+              metadata: { kind, attempt: "gemini_fallback", channel: result.channel },
+            });
+          } catch {}
+          env = robustJsonParse(result.text, "[build-env]");
+          if (env) console.log(`[build-env] gemini third pass succeeded via ${result.channel}.`);
+          else console.error("[build-env] gemini third pass returned unparseable text. Preview:", result.text.slice(0, 600));
         } catch (gErr: any) {
-          console.error("[build-env] gemini third pass threw:", gErr?.message || gErr);
+          if (gErr instanceof GenerateGeminiError) {
+            console.error(`[build-env] gemini third pass failed (channel=${gErr.channel}, status=${gErr.status}): ${gErr.message}`);
+          } else {
+            console.error("[build-env] gemini third pass threw:", gErr?.message || gErr);
+          }
         }
       } else {
-        console.warn("[build-env] no GEMINI_API_KEY — skipping third-pass fallback");
+        console.warn("[build-env] no Gemini provider configured — skipping third-pass fallback");
       }
     }
     if (!env) {
@@ -5474,42 +5348,23 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
   // When Anthropic fails (network, rate-limit, expired key, OpenRouter outage,
   // or even an unparseable response), try Gemini directly using the same
   // strict-JSON pattern already proven on /ai/lab/build-env. This keeps the
-  // attack-sim builder online whenever GEMINI_API_KEY is configured.
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (geminiKey) {
+  // attack-sim builder online whenever a Gemini channel (OpenRouter or Google) is configured.
+  if (hasGeminiProvider()) {
     const __gStart = Date.now();
     try {
-      console.log("[attack-sim/build] anthropic exhausted — trying Gemini 2.5 Flash fallback");
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`;
-      const r = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: ATTACK_SIM_BUILD_SYSTEM }] },
-          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-          generationConfig: {
-            temperature: 0.6,
-            maxOutputTokens: 6000,
-            responseMimeType: "application/json",
-          },
-          safetySettings: [
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-          ],
-        }),
-        signal: AbortSignal.timeout(90_000),
+      console.log("[attack-sim/build] anthropic exhausted — trying Gemini 2.5 Flash fallback (OpenRouter primary)");
+      const result = await generateGeminiJson({
+        systemPrompt: ATTACK_SIM_BUILD_SYSTEM,
+        userPrompt,
+        model: "gemini-2.5-flash",
+        temperature: 0.6,
+        maxOutputTokens: 6000,
+        timeoutMs: 90_000,
+        logTag: "attack-sim/build",
       });
-      if (!r.ok) {
-        const body = await r.text().catch(() => "");
-        throw new Error(`Gemini HTTP ${r.status}: ${body.slice(0, 200)}`);
-      }
-      const data: any = await r.json();
-      const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
 
       try {
-        const __u = extractGeminiUsage(data?.usageMetadata);
+        const __u = extractGeminiUsage(result.usageMetadata);
         void recordAiUsage({
           userId,
           subjectId: subjectId ?? null,
@@ -5520,18 +5375,19 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
           outputTokens: __u.outputTokens,
           cachedInputTokens: __u.cachedInputTokens,
           latencyMs: Date.now() - __gStart,
-          metadata: { attempt: "gemini_fallback" },
+          metadata: { attempt: "gemini_fallback", channel: result.channel },
         });
       } catch {}
 
-      const geminiRaw = robustJsonParse(txt, "[attack-sim/build][gemini]");
+      const geminiRaw = robustJsonParse(result.text, "[attack-sim/build][gemini]");
       if (!geminiRaw) throw new Error("لم يُرجع Gemini سيناريو صالح");
       const scenario = finalizeScenario(geminiRaw);
-      console.log("[attack-sim/build] gemini fallback succeeded.");
+      console.log(`[attack-sim/build] gemini fallback succeeded via ${result.channel}.`);
       return res.json({ scenario });
     } catch (gErr: any) {
       geminiErr = gErr;
-      console.error("[attack-sim/build] gemini fallback failed:", gErr?.message || gErr);
+      const errKind = gErr instanceof GenerateGeminiError ? `(channel=${gErr.channel}, status=${gErr.status}) ` : "";
+      console.error(`[attack-sim/build] gemini fallback failed: ${errKind}${gErr?.message || gErr}`);
       void recordAiUsage({
         userId,
         subjectId: subjectId ?? null,
@@ -5547,7 +5403,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
       });
     }
   } else {
-    console.warn("[attack-sim/build] no GEMINI_API_KEY — skipping fallback");
+    console.warn("[attack-sim/build] no Gemini provider configured — skipping fallback");
   }
 
   // Surface the most actionable error: prefer Gemini's failure message

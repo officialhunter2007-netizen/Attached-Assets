@@ -6,13 +6,17 @@
  * provider while keeping that policy, this helper tries TWO independent
  * channels for the SAME model:
  *
- *   1) Google Gemini API direct  — generativelanguage.googleapis.com
- *                                  Auth: GEMINI_API_KEY
- *                                  Cheaper, lower latency, official.
- *
- *   2) OpenRouter (same model)   — openrouter.ai (OpenAI-compatible)
+ *   1) OpenRouter (same model)   — openrouter.ai (OpenAI-compatible)
  *                                  Auth: OPENROUTER_API_KEY
- *                                  Used ONLY if (1) failed pre-stream.
+ *                                  PRIMARY channel — single billable
+ *                                  account, no Google AI Studio quota cap.
+ *
+ *   2) Google Gemini API direct  — generativelanguage.googleapis.com
+ *                                  Auth: GEMINI_API_KEY
+ *                                  Optional fallback, only used if
+ *                                  OpenRouter fails pre-stream AND a
+ *                                  Google key happens to be configured.
+ *                                  May be absent in production.
  *
  * Both channels return the same Gemini Flash answer, so the policy
  * "student turns are Gemini Flash only" still holds — we are just
@@ -495,10 +499,13 @@ function buildChannelChain(): Channel[] {
   const orKey =
     process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
     process.env.OPENROUTER_API_KEY;
-  // Google direct first (cheaper, lower latency, official).
-  if (gKey) chain.push({ name: "google", key: gKey, run: attemptGoogle });
-  // OpenRouter second — same model, used only if Google failed pre-stream.
+  // OpenRouter FIRST — single billable account, no Google AI Studio
+  // quota cap. This is the production-primary channel after we moved
+  // off the limited free Google AI Studio key.
   if (orKey) chain.push({ name: "openrouter", key: orKey, run: attemptOpenRouter });
+  // Google direct second — only used if OpenRouter fails pre-stream
+  // AND a GEMINI_API_KEY happens to be configured. Optional in prod.
+  if (gKey) chain.push({ name: "google", key: gKey, run: attemptGoogle });
   return chain;
 }
 
@@ -516,14 +523,14 @@ function buildChannelChain(): Channel[] {
   if (!hasGoogle && !hasOpenRouter) {
     console.error(
       "[gemini-stream] STARTUP: no Gemini channel configured! " +
-        "Set GEMINI_API_KEY and/or AI_INTEGRATIONS_OPENAI_API_KEY in .env. " +
+        "Set OPENROUTER_API_KEY (preferred) and/or GEMINI_API_KEY in .env. " +
         "Every /ai/teach call will fail with the friendly Arabic apology until fixed.",
     );
   } else {
     console.log(
       `[gemini-stream] STARTUP: Gemini channels active → ${[
-        hasGoogle ? "google(direct)" : null,
-        hasOpenRouter ? "openrouter(fallback)" : null,
+        hasOpenRouter ? "openrouter(primary)" : null,
+        hasGoogle ? "google(fallback)" : null,
       ]
         .filter(Boolean)
         .join(", ")}`,

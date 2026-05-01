@@ -25,6 +25,12 @@ import {
   extractAnthropicUsage,
   extractGeminiUsage,
 } from "../lib/ai-usage";
+import {
+  generateGemini,
+  generateGeminiJson,
+  hasGeminiProvider,
+  GenerateGeminiError,
+} from "../lib/openrouter-generate";
 
 type AiUsageCtx = { userId: number | null; subjectId?: string | null; materialId?: number | null };
 
@@ -720,7 +726,7 @@ router.post("/materials/:id/reprocess", async (req, res): Promise<any> => {
     .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
   if (!row) return res.status(404).json({ error: "Not found" });
   if (row.status !== "ready") return res.status(409).json({ error: "MATERIAL_NOT_READY" });
-  if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: "GEMINI_UNAVAILABLE" });
+  if (!hasGeminiProvider()) return res.status(503).json({ error: "GEMINI_UNAVAILABLE" });
 
   // Pull all chunks back as a Map<page, joined_text> so the structured
   // generator gets the same per-page text it would during initial processing.
@@ -1020,7 +1026,7 @@ async function processMaterial(materialId: number) {
   let summary = "";
   let starters = "";
 
-  if (extractedText && process.env.GEMINI_API_KEY) {
+  if (extractedText && hasGeminiProvider()) {
     try {
       const meta = await generateMaterialMetadata(extractedText, row.fileName, language, __ctx);
       outline = meta.outline;
@@ -1081,7 +1087,7 @@ async function processMaterial(materialId: number) {
   //    persisted because it relies on the same per-page text. We only do this
   //    when extraction succeeded and we have meaningful page text — otherwise
   //    the model would fabricate chapters from nothing.
-  if (!detectedError && pageTexts.size > 0 && process.env.GEMINI_API_KEY) {
+  if (!detectedError && pageTexts.size > 0 && hasGeminiProvider()) {
     try {
       const structured = await generateStructuredChapters(pageTexts, row.fileName, language, pageCount, __ctx);
       if (structured.length > 0) {
@@ -1412,50 +1418,26 @@ function parseRetryAfterMs(value: string | null): number | null {
 const OCR_PROMPT = `استخرج النص الكامل من هذا المستند صفحة بصفحة. ابدأ كل صفحة بسطر "--- صفحة X ---".
 لا تُلخّص ولا تُعدّل، انسخ النص العربي والإنجليزي حرفياً.`;
 
-// Gemini provider — single REST call, returns provider result with rate-limit
-// metadata so the chain can switch providers cleanly instead of blind retries.
+// Gemini provider — routed via OpenRouter (primary) with Google direct as
+// optional fallback. Returns provider result with rate-limit metadata so
+// the chain can switch providers cleanly instead of blind retries.
 async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chunkBuf: Buffer, label: string, ctx?: AiUsageCtx): Promise<OcrProviderResult> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return { ok: false, status: "fatal", reason: "no_api_key" };
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-  const body = {
-    contents: [{
-      role: "user",
-      parts: [
-        { inlineData: { mimeType: "application/pdf", data: chunkBuf.toString("base64") } },
-        { text: OCR_PROMPT },
-      ],
-    }],
-    generationConfig: { temperature: 0.0, maxOutputTokens: 8192 },
-  };
+  if (!hasGeminiProvider()) return { ok: false, status: "fatal", reason: "no_api_key" };
   const __aiStart = Date.now();
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
+    const result = await generateGemini({
+      userParts: [
+        { type: "file", mimeType: "application/pdf", dataBase64: chunkBuf.toString("base64") },
+        { type: "text", text: OCR_PROMPT },
+      ],
+      model,
+      temperature: 0.0,
+      maxOutputTokens: 8192,
+      timeoutMs: 120_000,
+      logTag: `ocr:${label}`,
     });
-    if (r.status === 429 || r.status === 503) {
-      const cooldownMs = parseRetryAfterMs(r.headers.get("retry-after")) ?? PROVIDER_COOLDOWN_DEFAULT_MS;
-      console.warn(`[ocr] ${label} ${model} ${r.status} → cooldown ${cooldownMs}ms`);
-      return { ok: false, status: "rate_limited", cooldownMs, reason: `http_${r.status}` };
-    }
-    if (!r.ok) {
-      const body = (await r.text()).slice(0, 200);
-      console.warn(`[ocr] ${label} ${model} http`, r.status, body);
-      // 4xx (other than 429) means we sent something the provider can't or
-      // won't accept — invalid key (401/403), bad request (400), oversized
-      // payload (413). Retrying won't help, so mark fatal to fall through
-      // to the next provider quickly instead of waiting 65s for backoff.
-      if (r.status >= 400 && r.status < 500) {
-        return { ok: false, status: "fatal", reason: `http_${r.status}` };
-      }
-      return { ok: false, status: "transient", reason: `http_${r.status}` };
-    }
-    const data: any = await r.json();
     {
-      const __u = extractGeminiUsage(data?.usageMetadata);
+      const __u = extractGeminiUsage(result.usageMetadata);
       void recordAiUsage({
         userId: ctx?.userId ?? null,
         subjectId: ctx?.subjectId ?? null,
@@ -1466,14 +1448,30 @@ async function ocrChunkGemini(model: "gemini-2.5-flash" | "gemini-2.5-pro", chun
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
         latencyMs: Date.now() - __aiStart,
-        metadata: ctx?.materialId ? { materialId: ctx.materialId, label } : { label },
+        metadata: ctx?.materialId
+          ? { materialId: ctx.materialId, label, channel: result.channel }
+          : { label, channel: result.channel },
       });
     }
-    const parts = data?.candidates?.[0]?.content?.parts || [];
-    const text = parts.map((p: { text?: string }) => p?.text || "").join("\n").trim();
+    const text = result.text.trim();
     if (text.length === 0) return { ok: false, status: "transient", reason: "empty_response" };
     return { ok: true, text };
   } catch (e: any) {
+    if (e instanceof GenerateGeminiError) {
+      // 429/503 → real rate-limit signal; honor with provider cooldown.
+      if (e.status === 429 || e.status === 503) {
+        // No retry-after header is propagated through the helper, so use
+        // the project's default cooldown for both channels uniformly.
+        console.warn(`[ocr] ${label} ${model} ${e.status} → cooldown ${PROVIDER_COOLDOWN_DEFAULT_MS}ms`);
+        return { ok: false, status: "rate_limited", cooldownMs: PROVIDER_COOLDOWN_DEFAULT_MS, reason: `http_${e.status}` };
+      }
+      console.warn(`[ocr] ${label} ${model} http`, e.status, e.body.slice(0, 200));
+      // 4xx (other than 429) means request shape problem or auth — fatal.
+      if (e.status >= 400 && e.status < 500) {
+        return { ok: false, status: "fatal", reason: `http_${e.status}` };
+      }
+      return { ok: false, status: "transient", reason: `http_${e.status}` };
+    }
     console.warn(`[ocr] ${label} ${model} threw:`, e?.message || e);
     return { ok: false, status: "transient", reason: String(e?.message || e).slice(0, 100) };
   }
@@ -1620,9 +1618,9 @@ async function ocrPdfWithGemini(buf: Buffer, pageCount: number, ctx?: AiUsageCtx
   // Note: name kept for backwards compat — this now drives the full multi-
   // provider chain (Gemini Flash → Gemini Pro → Claude). It only short-
   // circuits if NO provider is configured at all; otherwise the chain is
-  // entered so Claude can serve scans even without GEMINI_API_KEY.
+  // entered so Claude can serve scans even without an OpenRouter / Gemini key.
   const hasAnyProvider = Boolean(
-    process.env.GEMINI_API_KEY ||
+    hasGeminiProvider() ||
     (process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY && process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL)
   );
   if (!hasAnyProvider) {
@@ -1747,9 +1745,7 @@ async function generateStructuredChapters(
   pageCount: number,
   ctx?: AiUsageCtx,
 ): Promise<StructuredChapter[]> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key || pageTexts.size === 0) return [];
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  if (!hasGeminiProvider() || pageTexts.size === 0) return [];
   const __aiStart = Date.now();
 
   // Build a page-marked sample. We use a generous budget but truncate to keep
@@ -1802,25 +1798,17 @@ async function generateStructuredChapters(
 ${sample}
 """`;
 
-  const body = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 8192, responseMimeType: "application/json" },
-  };
-
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
+    const result = await generateGeminiJson({
+      userPrompt: prompt,
+      model: "gemini-2.5-flash",
+      temperature: 0.2,
+      maxOutputTokens: 8192,
+      timeoutMs: 120_000,
+      logTag: "structured-outline",
     });
-    if (!r.ok) {
-      console.warn("[structured-outline] gemini http", r.status, (await r.text()).slice(0, 200));
-      return [];
-    }
-    const data: any = await r.json();
     {
-      const __u = extractGeminiUsage(data?.usageMetadata);
+      const __u = extractGeminiUsage(result.usageMetadata);
       void recordAiUsage({
         userId: ctx?.userId ?? null,
         subjectId: ctx?.subjectId ?? null,
@@ -1831,11 +1819,12 @@ ${sample}
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
         latencyMs: Date.now() - __aiStart,
-        metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
+        metadata: ctx?.materialId
+          ? { materialId: ctx.materialId, channel: result.channel }
+          : { channel: result.channel },
       });
     }
-    const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
-    const parsed = JSON.parse(txt);
+    const parsed = JSON.parse(result.text);
     const chapters = Array.isArray(parsed?.chapters) ? parsed.chapters : [];
     // Normalize idx to be 0-based and contiguous; clamp page ranges to the
     // real document so a hallucinated endPage can't pull empty chunks.
@@ -1965,8 +1954,7 @@ export async function markPointsCovered(
 }
 
 async function generateMaterialMetadata(text: string, fileName: string, language: string, ctx?: AiUsageCtx): Promise<{ outline: string; summary: string; starters: string }> {
-  const key = process.env.GEMINI_API_KEY!;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  if (!hasGeminiProvider()) return { outline: "", summary: "", starters: "" };
   const __aiStart = Date.now();
   const sample = text.slice(0, 60000);
   const langWord = language === "ar" ? "العربية" : "الإنجليزية";
@@ -1983,24 +1971,22 @@ async function generateMaterialMetadata(text: string, fileName: string, language
 ${sample}
 """`;
 
-  const body = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 2048, responseMimeType: "application/json" },
-  };
-
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!r.ok) {
-    console.warn("[meta] gemini http", r.status, (await r.text()).slice(0, 200));
+  let result;
+  try {
+    result = await generateGeminiJson({
+      userPrompt: prompt,
+      model: "gemini-2.5-flash",
+      temperature: 0.3,
+      maxOutputTokens: 2048,
+      timeoutMs: 60_000,
+      logTag: "meta",
+    });
+  } catch (e: any) {
+    console.warn("[meta] gemini failed:", e?.message || e);
     return { outline: "", summary: "", starters: "" };
   }
-  const data: any = await r.json();
   {
-    const __u = extractGeminiUsage(data?.usageMetadata);
+    const __u = extractGeminiUsage(result.usageMetadata);
     void recordAiUsage({
       userId: ctx?.userId ?? null,
       subjectId: ctx?.subjectId ?? null,
@@ -2011,12 +1997,13 @@ ${sample}
       outputTokens: __u.outputTokens,
       cachedInputTokens: __u.cachedInputTokens,
       latencyMs: Date.now() - __aiStart,
-      metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
+      metadata: ctx?.materialId
+        ? { materialId: ctx.materialId, channel: result.channel }
+        : { channel: result.channel },
     });
   }
-  const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
   try {
-    const parsed = JSON.parse(txt);
+    const parsed = JSON.parse(result.text);
     return {
       outline: String(parsed.outline ?? "").slice(0, 6000),
       summary: String(parsed.summary ?? "").slice(0, 1200),
@@ -2515,28 +2502,29 @@ function isQuizProviderRateLimited(e: unknown): boolean {
 }
 
 async function generateQuestionsViaGemini(opts: QuestionGenOpts, ctx?: AiUsageCtx & { kind?: string }): Promise<QuizQuestion[]> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("gemini_not_configured");
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  if (!hasGeminiProvider()) throw new Error("gemini_not_configured");
   const __aiStart = Date.now();
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: buildQuizPrompt(opts) }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 8192, responseMimeType: "application/json" },
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  if (!r.ok) {
-    const body = await r.text();
-    const err: any = new Error(`gemini http ${r.status}: ${body.slice(0, 200)}`);
-    err.status = r.status;
+  let result;
+  try {
+    result = await generateGeminiJson({
+      userPrompt: buildQuizPrompt(opts),
+      model: "gemini-2.5-flash",
+      temperature: 0.4,
+      maxOutputTokens: 8192,
+      timeoutMs: 90_000,
+      logTag: `${ctx?.kind || "quiz"}-gen`,
+    });
+  } catch (e: any) {
+    // Re-shape error so the existing rate-limit detector
+    // (isQuizProviderRateLimited) keeps working unchanged.
+    const status = e instanceof GenerateGeminiError ? e.status : 0;
+    const body = e instanceof GenerateGeminiError ? e.body : String(e?.message || e);
+    const err: any = new Error(`gemini http ${status}: ${body.slice(0, 200)}`);
+    err.status = status;
     throw err;
   }
-  const data: any = await r.json();
   {
-    const __u = extractGeminiUsage(data?.usageMetadata);
+    const __u = extractGeminiUsage(result.usageMetadata);
     void recordAiUsage({
       userId: ctx?.userId ?? null,
       subjectId: ctx?.subjectId ?? null,
@@ -2547,11 +2535,12 @@ async function generateQuestionsViaGemini(opts: QuestionGenOpts, ctx?: AiUsageCt
       outputTokens: __u.outputTokens,
       cachedInputTokens: __u.cachedInputTokens,
       latencyMs: Date.now() - __aiStart,
-      metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
+      metadata: ctx?.materialId
+        ? { materialId: ctx.materialId, channel: result.channel }
+        : { channel: result.channel },
     });
   }
-  const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
-  return parseQuizQuestionsJson(txt);
+  return parseQuizQuestionsJson(result.text);
 }
 
 async function generateQuestionsViaClaude(opts: QuestionGenOpts, ctx?: AiUsageCtx & { kind?: string }): Promise<QuizQuestion[]> {
@@ -2585,13 +2574,13 @@ async function generateQuestionsViaClaude(opts: QuestionGenOpts, ctx?: AiUsageCt
 }
 
 // Multi-provider question generation. Tries Gemini Flash first (fast +
-// cheap), and falls back to Claude on quota/rate-limit errors so the quiz
-// & exam features keep working when the user's GEMINI_API_KEY runs out.
-// Configuration / parsing errors are NOT retried on the next provider —
-// only rate-limit-class errors trigger fallback. We keep the name
-// `generateQuestionsWithGemini` so call sites don't need to change.
+// cheap, routed via OpenRouter primary or Google direct fallback), then
+// Claude on quota/rate-limit errors so the quiz & exam features keep
+// working when the user's OpenRouter quota runs out. Configuration /
+// parsing errors are NOT retried on the next provider — only rate-limit
+// errors trigger fallback. Name kept for call-site stability.
 async function generateQuestionsWithGemini(opts: QuestionGenOpts, ctx?: AiUsageCtx & { kind?: string }): Promise<QuizQuestion[]> {
-  const hasGemini = !!process.env.GEMINI_API_KEY;
+  const hasGemini = hasGeminiProvider();
   const hasClaude = !!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY && !!process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
   if (!hasGemini && !hasClaude) throw new Error("no_quiz_provider_configured");
 
@@ -2611,7 +2600,7 @@ async function generateQuestionsWithGemini(opts: QuestionGenOpts, ctx?: AiUsageC
 
 function hasAnyQuizProvider(): boolean {
   return (
-    !!process.env.GEMINI_API_KEY ||
+    hasGeminiProvider() ||
     (!!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY && !!process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL)
   );
 }
@@ -2724,14 +2713,12 @@ function sanitizeQuestionPages(qs: QuizQuestion[], pageStart: number, pageEnd: n
 async function gradeShortAnswers(items: { id: string; prompt: string; expected: string; given: string }[], ctx?: AiUsageCtx): Promise<Record<string, { correct: boolean; feedback: string }>> {
   const out: Record<string, { correct: boolean; feedback: string }> = {};
   if (items.length === 0) return out;
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
+  if (!hasGeminiProvider()) {
     // No model — be lenient: any non-empty answer is half-credit (counted wrong here).
     for (const it of items) out[it.id] = { correct: false, feedback: "تعذّر التقييم التلقائي." };
     return out;
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
   const __aiStart = Date.now();
   const payload = items.map((it) => ({ id: it.id, prompt: it.prompt, expected: it.expected, given: it.given }));
   const prompt = `أنت مصحّح امتحانات. لكل عنصر في القائمة، قارن إجابة الطالب (given) بالإجابة النموذجية (expected) واحكم هل هي صحيحة جوهرياً (تغطّي المعنى الأساسي حتى مع اختلاف الصياغة).
@@ -2743,19 +2730,16 @@ async function gradeShortAnswers(items: { id: string; prompt: string; expected: 
 ${JSON.stringify(payload, null, 0)}`;
 
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 2048, responseMimeType: "application/json" },
-      }),
-      signal: AbortSignal.timeout(45_000),
+    const result = await generateGeminiJson({
+      userPrompt: prompt,
+      model: "gemini-2.5-flash",
+      temperature: 0.1,
+      maxOutputTokens: 2048,
+      timeoutMs: 45_000,
+      logTag: "grade-short",
     });
-    if (!r.ok) throw new Error(`gemini http ${r.status}`);
-    const data: any = await r.json();
     {
-      const __u = extractGeminiUsage(data?.usageMetadata);
+      const __u = extractGeminiUsage(result.usageMetadata);
       void recordAiUsage({
         userId: ctx?.userId ?? null,
         subjectId: ctx?.subjectId ?? null,
@@ -2766,11 +2750,12 @@ ${JSON.stringify(payload, null, 0)}`;
         outputTokens: __u.outputTokens,
         cachedInputTokens: __u.cachedInputTokens,
         latencyMs: Date.now() - __aiStart,
-        metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
+        metadata: ctx?.materialId
+          ? { materialId: ctx.materialId, channel: result.channel }
+          : { channel: result.channel },
       });
     }
-    const txt = stripJsonFence((data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join(""));
-    const parsed = JSON.parse(txt);
+    const parsed = JSON.parse(stripJsonFence(result.text));
     const arr = Array.isArray(parsed?.results) ? parsed.results : [];
     for (const r2 of arr) {
       if (!r2 || typeof r2.id !== "string") continue;
