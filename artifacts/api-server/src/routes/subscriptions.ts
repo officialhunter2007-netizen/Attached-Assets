@@ -67,7 +67,7 @@ async function loadAllPlanPrices(): Promise<PriceMap> {
     const rows = await db.select().from(planPricesTable);
     for (const row of rows) {
       if (!map[row.region]) map[row.region] = {};
-      if (Number.isFinite(row.priceYer) && row.priceYer >= 0) {
+      if (Number.isFinite(row.priceYer) && row.priceYer > 0) {
         map[row.region][row.planType] = row.priceYer;
       }
     }
