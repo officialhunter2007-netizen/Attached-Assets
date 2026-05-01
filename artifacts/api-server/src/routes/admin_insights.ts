@@ -16,6 +16,7 @@ import {
   adminAlertsTable,
 } from "@workspace/db";
 import { resolveAdminAlert } from "../lib/admin-alerts";
+import { diagnoseOpenRouterKey, pingOpenRouter } from "../lib/openrouter-key";
 import { diagnoseObjectStorage } from "../lib/objectStorage";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { recordAiUsage, extractOpenAIUsage } from "../lib/ai-usage";
@@ -1323,6 +1324,46 @@ router.post("/admin/alerts/:id/resolve", async (req, res): Promise<any> => {
   } catch (err: any) {
     console.error("[admin/alerts/:id/resolve] error:", err?.message || err);
     res.status(500).json({ error: "ALERT_RESOLVE_FAILED" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/openrouter-health — diagnose the OpenRouter key and ping
+//   the service. Used by the admin "تنبيهات النظام" panel to give the operator
+//   an immediate, actionable answer instead of waiting for a student to fail.
+//
+// Response shape (always 200 unless the caller is unauthorized):
+//   {
+//     keyDiagnosis: { format, length, tail, reason },
+//     ping:         { status, httpStatus, message, bodyExcerpt?, credits? },
+//     healthy:      boolean        // true ⇔ ping.status === "ok"
+//   }
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/openrouter-health", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!(await isAdmin(userId))) return res.status(403).json({ error: "Forbidden" });
+
+  try {
+    const keyDiagnosis = diagnoseOpenRouterKey();
+    // Skip the network ping when the key shape is obviously wrong — saves
+    // the round-trip and surfaces the real problem clearly.
+    const ping =
+      keyDiagnosis.format === "missing"
+        ? {
+            status: "missing" as const,
+            httpStatus: null,
+            message: "لا يوجد مفتاح مضبوط — تم تخطّي الاختبار.",
+          }
+        : await pingOpenRouter();
+
+    res.json({
+      keyDiagnosis,
+      ping,
+      healthy: ping.status === "ok" && keyDiagnosis.format !== "invalid_openai" && keyDiagnosis.format !== "invalid_anthropic",
+    });
+  } catch (err: any) {
+    console.error("[admin/openrouter-health] error:", err?.message || err);
+    res.status(500).json({ error: "HEALTH_CHECK_FAILED", message: err?.message || "internal error" });
   }
 });
 

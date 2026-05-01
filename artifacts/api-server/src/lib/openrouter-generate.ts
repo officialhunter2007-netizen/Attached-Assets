@@ -7,7 +7,12 @@
  * removed it. Every call now goes through the single billable channel:
  *
  *     openrouter.ai (OpenAI-compatible) → google/gemini-*
- *     Auth: OPENROUTER_API_KEY (or AI_INTEGRATIONS_OPENAI_API_KEY)
+ *     Auth: OPENROUTER_API_KEY  (only; see lib/openrouter-key.ts)
+ *
+ * The key is read EXCLUSIVELY from OPENROUTER_API_KEY. We deliberately
+ * do NOT fall back to AI_INTEGRATIONS_OPENAI_API_KEY (which is the
+ * OpenAI integration key Replit auto-injects) — it points at
+ * api.openai.com and OpenRouter rejects it with 401.
  *
  * Used by:
  *   - materials.ts: PDF OCR (ocrChunkGemini)
@@ -27,6 +32,7 @@
  */
 
 import { recordAdminAlert } from "./admin-alerts";
+import { getOpenRouterKey as readOpenRouterKey } from "./openrouter-key";
 
 const TRANSIENT_HTTP = new Set([408, 425, 429, 500, 502, 503, 504]);
 
@@ -345,14 +351,11 @@ async function attemptOpenRouter(
  * Gemini channel is available.
  */
 export function hasGeminiProvider(): boolean {
-  return (
-    !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-    !!process.env.OPENROUTER_API_KEY
-  );
+  return !!readOpenRouterKey();
 }
 
 function getOpenRouterKey(): string | undefined {
-  return process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENROUTER_API_KEY;
+  return readOpenRouterKey();
 }
 
 /**

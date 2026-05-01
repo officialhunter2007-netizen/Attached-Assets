@@ -8,6 +8,7 @@ import {
   AlertOctagon,
   CheckCircle2,
   Info,
+  Activity,
 } from "lucide-react";
 
 type AdminAlert = {
@@ -74,12 +75,43 @@ function fmtTime(iso: string): string {
   }
 }
 
+type OpenRouterHealth = {
+  keyDiagnosis: {
+    format: "missing" | "valid" | "invalid_openai" | "invalid_anthropic" | "unknown";
+    length: number;
+    tail: string;
+    reason: string;
+  };
+  ping: {
+    status:
+      | "ok"
+      | "unauthorized"
+      | "forbidden"
+      | "rate_limited"
+      | "server_error"
+      | "network_error"
+      | "missing";
+    httpStatus: number | null;
+    message: string;
+    bodyExcerpt?: string;
+    credits?: {
+      label?: string;
+      usageUsd?: number;
+      limitUsd?: number | null;
+      isFreeTier?: boolean;
+    };
+  };
+  healthy: boolean;
+};
+
 export function AdminAlerts() {
   const { toast } = useToast();
   const [alerts, setAlerts] = useState<AdminAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [includeResolved, setIncludeResolved] = useState(false);
   const [resolvingId, setResolvingId] = useState<number | null>(null);
+  const [health, setHealth] = useState<OpenRouterHealth | null>(null);
+  const [checkingHealth, setCheckingHealth] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,6 +143,31 @@ export function AdminAlerts() {
     }, 30_000);
     return () => clearInterval(id);
   }, [load]);
+
+  const runHealthCheck = useCallback(async () => {
+    setCheckingHealth(true);
+    try {
+      const r = await fetch(`/api/admin/openrouter-health`, {
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data: OpenRouterHealth = await r.json();
+      setHealth(data);
+      toast({
+        title: data.healthy ? "OpenRouter جاهز" : "OpenRouter غير جاهز",
+        description: data.ping.message,
+        variant: data.healthy ? "default" : "destructive",
+      });
+    } catch (err: any) {
+      toast({
+        title: "تعذّر إجراء اختبار OpenRouter",
+        description: String(err?.message ?? err),
+        variant: "destructive",
+      });
+    } finally {
+      setCheckingHealth(false);
+    }
+  }, [toast]);
 
   const handleResolve = async (alertId: number) => {
     setResolvingId(alertId);
@@ -145,7 +202,17 @@ export function AdminAlerts() {
             إخطارات تلقائية عند نفاد رصيد OpenRouter أو فشل خدمات الذكاء الاصطناعي.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={runHealthCheck}
+            disabled={checkingHealth}
+            className="gap-1.5"
+          >
+            <Activity className={`w-3.5 h-3.5 ${checkingHealth ? "animate-pulse" : ""}`} />
+            {checkingHealth ? "جاري الاختبار..." : "اختبار OpenRouter"}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -165,6 +232,82 @@ export function AdminAlerts() {
           </Button>
         </div>
       </div>
+
+      {health && (
+        <div
+          className={`border rounded-xl p-4 ${
+            health.healthy
+              ? "border-emerald-500/30 bg-emerald-500/5"
+              : "border-red-500/30 bg-red-500/5"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            {health.healthy ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 mt-0.5 shrink-0" />
+            ) : (
+              <AlertOctagon className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
+            )}
+            <div className="flex-1 min-w-0">
+              <h4 className={`font-bold ${health.healthy ? "text-emerald-300" : "text-red-300"}`}>
+                {health.healthy
+                  ? "OpenRouter جاهز ويستقبل الطلبات"
+                  : "OpenRouter غير جاهز — يحتاج تدخّلك"}
+              </h4>
+              <p className="text-sm text-foreground/80 mt-1.5 leading-relaxed">
+                {health.ping.message}
+              </p>
+              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                {health.keyDiagnosis.reason}
+              </p>
+              <div className="text-[11px] text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                <span>
+                  تنسيق المفتاح: <code className="text-amber-300">{health.keyDiagnosis.format}</code>
+                </span>
+                {health.keyDiagnosis.length > 0 && (
+                  <span>الطول: {health.keyDiagnosis.length}</span>
+                )}
+                {health.keyDiagnosis.tail && (
+                  <span>
+                    آخر 4 خانات: <code dir="ltr">…{health.keyDiagnosis.tail}</code>
+                  </span>
+                )}
+                {health.ping.httpStatus !== null && (
+                  <span>HTTP: {health.ping.httpStatus}</span>
+                )}
+              </div>
+              {health.ping.credits && (
+                <div className="text-[11px] text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  {health.ping.credits.label && (
+                    <span>اسم المفتاح: {health.ping.credits.label}</span>
+                  )}
+                  {typeof health.ping.credits.usageUsd === "number" && (
+                    <span>المستهلك: ${health.ping.credits.usageUsd.toFixed(4)}</span>
+                  )}
+                  {typeof health.ping.credits.limitUsd === "number" && (
+                    <span>الحد الأقصى: ${health.ping.credits.limitUsd}</span>
+                  )}
+                  {health.ping.credits.limitUsd === null && (
+                    <span>الحد الأقصى: غير محدود</span>
+                  )}
+                  {typeof health.ping.credits.isFreeTier === "boolean" && (
+                    <span>مجاني: {health.ping.credits.isFreeTier ? "نعم" : "لا"}</span>
+                  )}
+                </div>
+              )}
+              {health.ping.bodyExcerpt && (
+                <details className="mt-2">
+                  <summary className="text-[11px] text-muted-foreground cursor-pointer hover:text-foreground">
+                    استجابة OpenRouter الخام
+                  </summary>
+                  <pre className="text-[10px] bg-black/30 rounded p-2 mt-1 overflow-x-auto whitespace-pre-wrap break-all" dir="ltr">
+                    {health.ping.bodyExcerpt}
+                  </pre>
+                </details>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading && alerts.length === 0 ? (
         <div className="text-center text-sm text-muted-foreground py-8">

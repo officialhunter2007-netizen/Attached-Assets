@@ -7,7 +7,16 @@
  * Every student turn now goes through the same single channel:
  *
  *     openrouter.ai (OpenAI-compatible) → google/gemini-2.0-flash-001
- *     Auth: OPENROUTER_API_KEY (or AI_INTEGRATIONS_OPENAI_API_KEY)
+ *     Auth: OPENROUTER_API_KEY  (only; see lib/openrouter-key.ts)
+ *
+ * Why ONLY OPENROUTER_API_KEY (no fallback to other env vars)?
+ *   We previously also accepted AI_INTEGRATIONS_OPENAI_API_KEY as a
+ *   fallback. That was a footgun: AI_INTEGRATIONS_OPENAI_API_KEY is the
+ *   OpenAI integration key Replit injects automatically, and it points
+ *   at api.openai.com — sending it to openrouter.ai produces a 401
+ *   "auth_error" that silently kills the teacher. We now read the key
+ *   from a single source and validate its prefix at startup so the
+ *   operator gets a clear admin alert instead of a mysterious outage.
  *
  * Why no fallback channel at all?
  *   • Google direct failed silently when the free quota was burned,
@@ -36,6 +45,7 @@
  */
 
 import { recordAdminAlert } from "./admin-alerts";
+import { getOpenRouterKey, diagnoseOpenRouterKey } from "./openrouter-key";
 
 const TRANSIENT_HTTP = new Set([408, 425, 429, 500, 502, 503, 504]);
 const MIN_USEFUL_RESPONSE = 20;
@@ -430,21 +440,43 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
 // Public entrypoint
 // ────────────────────────────────────────────────────────────────────────────
 
-function getOpenRouterKey(): string | undefined {
-  return process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENROUTER_API_KEY;
-}
-
-// Print the channel status exactly once at module load time.
+// Validate the OpenRouter key shape ONCE at module load. If the
+// operator pasted an OpenAI key (sk-... / sk-proj-...) or an Anthropic
+// key (sk-ant-...) into OPENROUTER_API_KEY by mistake, OpenRouter will
+// reject every request with 401 — exactly the regression that kept
+// surfacing as "openrouter_auth_failed" alerts. We surface this at
+// startup with a critical admin alert so the operator can fix it
+// without waiting for a student to be silenced.
 {
-  const hasOpenRouter = !!getOpenRouterKey();
-  if (!hasOpenRouter) {
+  const dx = diagnoseOpenRouterKey();
+  if (dx.format === "missing") {
     console.error(
-      "[gemini-stream] STARTUP: OpenRouter key not configured! " +
-        "Set OPENROUTER_API_KEY (or AI_INTEGRATIONS_OPENAI_API_KEY) in .env. " +
+      "[gemini-stream] STARTUP: OPENROUTER_API_KEY not set. " +
         "Every /ai/teach call will fail and the admin will be notified.",
     );
+  } else if (dx.format === "invalid_openai" || dx.format === "invalid_anthropic") {
+    console.error(
+      `[gemini-stream] STARTUP: OPENROUTER_API_KEY appears to be a ${
+        dx.format === "invalid_openai" ? "raw OpenAI" : "raw Anthropic"
+      } key (length=${dx.length}, tail=...${dx.tail}). ` +
+        "OpenRouter will return 401. Get an OpenRouter key from openrouter.ai/keys (starts with sk-or-).",
+    );
+    void recordAdminAlert({
+      type: "openrouter_key_wrong_provider",
+      severity: "critical",
+      title: "مفتاح OPENROUTER_API_KEY يبدو من خدمة أخرى",
+      message: dx.reason,
+      metadata: {
+        detectedAt: new Date().toISOString(),
+        format: dx.format,
+        keyLength: dx.length,
+        keyTail: dx.tail,
+      },
+    });
   } else {
-    console.log("[gemini-stream] STARTUP: OpenRouter channel active (gemini-flash via openrouter.ai)");
+    console.log(
+      `[gemini-stream] STARTUP: OpenRouter channel active (gemini-flash, key tail=...${dx.tail}, format=${dx.format})`,
+    );
   }
 }
 
