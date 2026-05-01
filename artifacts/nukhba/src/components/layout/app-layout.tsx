@@ -44,13 +44,21 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
     ? `${baseTooltip} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
     : baseTooltip;
 
+  // Inline scope label so the student knows which subscription this gems
+  // count belongs to (single subject → its name, multiple → count).
+  // Without this, a student with two active subjects sees one number and
+  // can't tell whether it's their "محاسبة" or "إدارة" wallet.
+  const scopeLabel = multiSub
+    ? `${gems.activeSubjectCount} مواد`
+    : (gems.label ?? null);
+
   // We always show "remaining / dailyLimit اليوم" so the format is
   // consistent across states; the alert styling alone communicates the
   // empty-balance situation.
   return (
     <Link href="/subscription">
       <span
-        className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-colors whitespace-nowrap
+        className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-colors whitespace-nowrap max-w-[260px]
           ${compact ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"}
           ${alert
             ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse"
@@ -61,6 +69,13 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
         <span>{gems.dailyRemaining.toLocaleString("ar-EG")}</span>
         {!compact && (
           <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
+        )}
+        {scopeLabel && (
+          <span
+            className={`opacity-80 font-normal truncate max-w-[120px] border-r pr-1 mr-0.5 ${alert ? "border-red-500/40" : "border-gold/30"}`}
+          >
+            {scopeLabel}
+          </span>
         )}
       </span>
     </Link>
@@ -171,13 +186,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
           .then(r => r.ok ? r.json() : null)
           .then(d => {
             if (!d) return;
+            // Same fallback chain as the summary endpoint so the badge
+            // never displays a bare gem count without a scope label.
+            const label =
+              (typeof d.subjectName === "string" && d.subjectName.trim()) ||
+              (typeof d.subjectId === "string" && d.subjectId.trim() && d.subjectId !== "all" ? d.subjectId : null) ||
+              currentSubjectId ||
+              "اشتراكي";
             setGems({
               gemsBalance: d.gemsBalance ?? 0,
               dailyRemaining: d.dailyRemaining ?? 0,
               gemsDailyLimit: d.gemsDailyLimit ?? 0,
               hasActiveSub: d.hasActiveSub ?? false,
               activeSubjectCount: 1,
-              label: d.subjectName ?? null,
+              label,
             });
           })
           .catch(() => {});
@@ -187,15 +209,31 @@ export function AppLayout({ children }: { children: ReactNode }) {
           .then(r => r.ok ? r.json() : null)
           .then(d => {
             if (!d || !d.hasActiveSub) { setGems(null); return; }
+            // Resolve a single-subject label so the badge shows "محاسبة"
+            // (or a code fallback) instead of just a number — students
+            // need to know WHICH wallet the gems belong to.
+            // Falls back through: subjectName → subjectId → "اشتراكي"
+            // for legacy rows where subject_name was never written.
+            let label: string | null = null;
+            if (d.activeSubjectCount === 1) {
+              const w = d.worstSubject;
+              if (w) {
+                label =
+                  (typeof w.subjectName === "string" && w.subjectName.trim()) ||
+                  (typeof w.subjectId === "string" && w.subjectId.trim() && w.subjectId !== "all" ? w.subjectId : null) ||
+                  "اشتراكي";
+              } else {
+                // legacy global gold wallet (source: "legacy")
+                label = "كل المواد";
+              }
+            }
             setGems({
               gemsBalance: d.totalBalance ?? 0,
               dailyRemaining: d.totalDailyRemaining ?? 0,
               gemsDailyLimit: d.totalDailyLimit ?? 0,
               hasActiveSub: true,
               activeSubjectCount: d.activeSubjectCount ?? 1,
-              label: d.activeSubjectCount === 1 && d.worstSubject
-                ? d.worstSubject.subjectName
-                : null,
+              label,
             });
           })
           .catch(() => {});
