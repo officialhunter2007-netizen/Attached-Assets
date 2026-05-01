@@ -31,10 +31,14 @@ services:
       PORT: 8080
       DATABASE_URL: postgresql://${POSTGRES_USER:-nukhba_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nukhba}
       SESSION_SECRET: ${SESSION_SECRET}
+      # ─── OpenRouter (المعلّم الذكي - مفتاح مستقل، يبدأ بـ sk-or-) ───
+      # هذا المفتاح ضروري لتشغيل المعلّم الذكي. احصل عليه من openrouter.ai/keys
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      # ─── OpenAI / Anthropic (اختياري - لو احتجت مزوّدات أخرى) ──────
       AI_INTEGRATIONS_OPENAI_BASE_URL: ${AI_INTEGRATIONS_OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
-      AI_INTEGRATIONS_OPENAI_API_KEY: ${AI_INTEGRATIONS_OPENAI_API_KEY}
+      AI_INTEGRATIONS_OPENAI_API_KEY: ${AI_INTEGRATIONS_OPENAI_API_KEY:-}
       AI_INTEGRATIONS_ANTHROPIC_BASE_URL: ${AI_INTEGRATIONS_ANTHROPIC_BASE_URL:-https://openrouter.ai/api/v1}
-      AI_INTEGRATIONS_ANTHROPIC_API_KEY: ${AI_INTEGRATIONS_ANTHROPIC_API_KEY}
+      AI_INTEGRATIONS_ANTHROPIC_API_KEY: ${AI_INTEGRATIONS_ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
