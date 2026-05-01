@@ -446,7 +446,12 @@ type Channel = { name: "google" | "openrouter"; key: string; run: (args: StreamG
 function buildChannelChain(): Channel[] {
   const chain: Channel[] = [];
   const gKey = process.env.GEMINI_API_KEY;
-  const orKey = process.env.OPENROUTER_API_KEY;
+  // The OpenRouter key is stored under the OpenAI-integration env var in
+  // both docker-compose.yml and the project .env. Accept the canonical
+  // name plus a legacy bare alias so both Docker and manual-run setups work.
+  const orKey =
+    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+    process.env.OPENROUTER_API_KEY;
   // Google direct first (cheaper, lower latency, official).
   if (gKey) chain.push({ name: "google", key: gKey, run: attemptGoogle });
   // OpenRouter second — same model, used only if Google failed pre-stream.
