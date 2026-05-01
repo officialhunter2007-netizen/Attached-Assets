@@ -47,7 +47,7 @@ import type { CostCapStatus } from "./cost-cap";
  */
 
 export type RouterDecision = {
-  model: "claude-sonnet-4-6" | "gemini-2.5-flash";
+  model: "claude-sonnet-4-6" | "gemini-2.0-flash";
   provider: "anthropic" | "gemini";
   /** Why this model was picked — surfaces in logs/metadata for analysis. */
   reason: string;
@@ -83,12 +83,14 @@ export type RouterInput = {
 };
 
 const SONNET = "claude-sonnet-4-6" as const;
-// Switched from gemini-2.0-flash → gemini-2.5-flash (current GA, the same
-// model the rest of the codebase uses successfully in materials.ts and the
-// /ai/platform-help fallback). 2.0-flash still works on Google API but the
-// 2.5 family has noticeably better Arabic instruction-following and lower
-// 503 ("overloaded") rates under sustained load.
-const GEMINI = "gemini-2.5-flash" as const;
+// Locked to gemini-2.0-flash by product decision (May 2026). Reason: 2.0-flash
+// is materially cheaper than 2.5-flash on OpenRouter (input $0.10 vs $0.30 /
+// 1M tok, output $0.40 vs $2.50 / 1M tok) and the teaching system prompt is
+// already heavily scaffolded for instruction-following, so the 2.0 generation
+// produces high-quality Arabic teaching turns at a fraction of the cost.
+// Mapping to OpenRouter's `google/gemini-2.0-flash-001` is handled in
+// lib/gemini-stream.ts → toOpenRouterModel().
+const GEMINI = "gemini-2.0-flash" as const;
 
 /**
  * Pick the AI model for a /ai/teach call.
