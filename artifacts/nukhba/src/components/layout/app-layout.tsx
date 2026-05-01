@@ -22,7 +22,7 @@ type GemsState = {
 function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boolean }) {
   // Show whenever the user has a time-active subscription, even if their gems
   // balance has hit zero — in that case the badge flips to an alert state so
-  // the student understands they need to renew (rather than the badge silently
+  // the student understands they need to renew (rather than silently
   // disappearing).
   if (!gems || !gems.hasActiveSub) return null;
 
@@ -33,16 +33,20 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
   const alert = balanceEmpty || dailyExhausted || lowDaily || lowBalance;
 
   const multiSub = (gems.activeSubjectCount ?? 1) > 1;
+  // Tooltip always carries the same aggregate context (active subject count
+  // + total balance) regardless of state, with an extra renewal hint when
+  // the balance has been fully consumed.
+  const subjectsPart = multiSub
+    ? ` — لديك ${gems.activeSubjectCount} مادة نشطة`
+    : (gems.label ? ` (${gems.label})` : "");
+  const baseTooltip = `المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${subjectsPart} — الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")}`;
   const tooltip = balanceEmpty
-    ? `نفد رصيد الجواهر — اشتراكك ما زال سارياً لكنك بحاجة لتجديد الجواهر. الحد اليومي: ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${gems.label ? ` (${gems.label})` : ""}`
-    : multiSub
-      ? `مجموع الرصيد: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎 — لديك ${gems.activeSubjectCount} مادة نشطة — المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")}`
-      : `المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${gems.label ? ` (${gems.label})` : ""} — الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")}`;
+    ? `${baseTooltip} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
+    : baseTooltip;
 
-  // When balance is empty we surface the balance (0) directly so the message
-  // is unambiguous. Otherwise we show the daily-remaining counter as before.
-  const primaryNumber = balanceEmpty ? 0 : gems.dailyRemaining;
-
+  // We always show "remaining / dailyLimit اليوم" so the format is
+  // consistent across states; the alert styling alone communicates the
+  // empty-balance situation.
   return (
     <Link href="/subscription">
       <span
@@ -54,12 +58,9 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
         title={tooltip}
       >
         💎
-        <span>{primaryNumber.toLocaleString("ar-EG")}</span>
-        {!compact && !balanceEmpty && (
+        <span>{gems.dailyRemaining.toLocaleString("ar-EG")}</span>
+        {!compact && (
           <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
-        )}
-        {!compact && balanceEmpty && (
-          <span className="opacity-80 font-normal">نفد!</span>
         )}
       </span>
     </Link>
