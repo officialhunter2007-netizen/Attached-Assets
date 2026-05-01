@@ -47,7 +47,7 @@ import type { CostCapStatus } from "./cost-cap";
  */
 
 export type RouterDecision = {
-  model: "claude-sonnet-4-6" | "gemini-2.0-flash";
+  model: "claude-sonnet-4-6" | "gemini-2.5-flash";
   provider: "anthropic" | "gemini";
   /** Why this model was picked — surfaces in logs/metadata for analysis. */
   reason: string;
@@ -83,7 +83,12 @@ export type RouterInput = {
 };
 
 const SONNET = "claude-sonnet-4-6" as const;
-const GEMINI = "gemini-2.0-flash" as const;
+// Switched from gemini-2.0-flash → gemini-2.5-flash (current GA, the same
+// model the rest of the codebase uses successfully in materials.ts and the
+// /ai/platform-help fallback). 2.0-flash still works on Google API but the
+// 2.5 family has noticeably better Arabic instruction-following and lower
+// 503 ("overloaded") rates under sustained load.
+const GEMINI = "gemini-2.5-flash" as const;
 
 /**
  * Pick the AI model for a /ai/teach call.

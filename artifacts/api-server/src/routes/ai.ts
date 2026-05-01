@@ -3093,7 +3093,12 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
-  const geminiKey = process.env.OPENROUTER_API_KEY;
+  // CRITICAL FIX: this route calls Google's generativelanguage.googleapis.com
+  // endpoint directly, which requires a Google AI Studio key (GEMINI_API_KEY),
+  // NOT an OpenRouter key. The previous code used OPENROUTER_API_KEY which
+  // would always 401 against Google's API. Match the rest of the codebase
+  // (materials.ts) by reading GEMINI_API_KEY first.
+  const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     res.write(`data: ${JSON.stringify({ error: "المساعد غير مُهيّأ بعد. يرجى التواصل مع الإدارة." })}\n\n`);
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

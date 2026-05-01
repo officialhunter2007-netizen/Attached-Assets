@@ -40,6 +40,9 @@ const MIN_USEFUL_RESPONSE = 20;
 /** Maps internal short model names → OpenRouter full IDs. */
 function toOpenRouterModel(model: string): string {
   const map: Record<string, string> = {
+    "gemini-2.5-flash":      "google/gemini-2.5-flash",
+    "gemini-2.5-flash-lite": "google/gemini-2.5-flash-lite",
+    "gemini-2.5-pro":        "google/gemini-2.5-pro",
     "gemini-2.0-flash":      "google/gemini-2.0-flash-001",
     "gemini-2.0-flash-lite": "google/gemini-2.0-flash-lite-001",
     "gemini-1.5-flash":      "google/gemini-flash-1.5",
@@ -173,6 +176,19 @@ function buildGoogleRequestBody(args: StreamGeminiArgs): string {
       topP: args.topP ?? 0.95,
       maxOutputTokens: args.maxOutputTokens,
     },
+    // CRITICAL: Google's defaults BLOCK_MEDIUM_AND_ABOVE will block
+    // legitimate Arabic educational content (biology lessons mentioning
+    // reproduction, history lessons mentioning war, etc.) and surface as
+    // finishReason=SAFETY → GeminiBadOutputError → friendly apology to
+    // the student. Match the rest of the codebase (materials.ts, the
+    // /ai/platform-help fallback path) by relaxing to BLOCK_ONLY_HIGH so
+    // only genuinely harmful content is filtered.
+    safetySettings: [
+      { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_ONLY_HIGH" },
+      { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_ONLY_HIGH" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+    ],
   });
 }
 
@@ -198,12 +214,29 @@ async function attemptGoogle(args: StreamGeminiArgs, apiKey: string): Promise<At
   if (!r.ok) {
     const errBody = await r.text().catch(() => "");
     const partial: GeminiPartial = { emittedAnyChunk: false, usageMetadata: null, partialResponseChars: 0 };
+    // Always log the upstream body excerpt so production diagnosis is
+    // possible from `docker compose logs api` alone (no need to reproduce).
+    console.warn(
+      `[gemini-stream:google] HTTP ${r.status} for model=${model}: ${errBody.slice(0, 300)}`,
+    );
     if (r.status === 401 || r.status === 403) {
       throw new GeminiAuthError(`Google auth ${r.status}: ${errBody.slice(0, 200)}`, partial);
     }
     if (TRANSIENT_HTTP.has(r.status)) {
       throw new GeminiTransientError(
         `Google transient ${r.status}: ${errBody.slice(0, 200)}`,
+        r.status,
+        partial,
+      );
+    }
+    // Treat 404 (model not found / not accessible to this key) as a
+    // transient-equivalent so the chain falls through to OpenRouter
+    // instead of hard-aborting the whole turn. Real client bugs (400/422
+    // bad request shape) still abort the chain — they would fail the
+    // same way on OpenRouter.
+    if (r.status === 404) {
+      throw new GeminiTransientError(
+        `Google model ${model} not available to this key (404): ${errBody.slice(0, 200)}`,
         r.status,
         partial,
       );
@@ -343,12 +376,22 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
   if (!r.ok) {
     const errBody = await r.text().catch(() => "");
     const partial: GeminiPartial = { emittedAnyChunk: false, usageMetadata: null, partialResponseChars: 0 };
+    console.warn(
+      `[gemini-stream:openrouter] HTTP ${r.status} for model=${toOpenRouterModel(args.model)}: ${errBody.slice(0, 300)}`,
+    );
     if (r.status === 401 || r.status === 403) {
       throw new GeminiAuthError(`OpenRouter auth ${r.status}: ${errBody.slice(0, 200)}`, partial);
     }
     if (TRANSIENT_HTTP.has(r.status)) {
       throw new GeminiTransientError(
         `OpenRouter transient ${r.status}: ${errBody.slice(0, 200)}`,
+        r.status,
+        partial,
+      );
+    }
+    if (r.status === 404) {
+      throw new GeminiTransientError(
+        `OpenRouter model not available (404): ${errBody.slice(0, 200)}`,
         r.status,
         partial,
       );
@@ -459,6 +502,35 @@ function buildChannelChain(): Channel[] {
   return chain;
 }
 
+// Print the configured channels exactly once at module load time so the
+// operator can see in `docker compose logs api` (right after boot) which
+// providers will actually be tried for /ai/teach turns. This is critical
+// because GEMINI_API_KEY / OPENROUTER_API_KEY missing from .env is the
+// most common silent-failure mode and otherwise only surfaces once a
+// student already hit the teach button.
+{
+  const hasGoogle = !!process.env.GEMINI_API_KEY;
+  const hasOpenRouter =
+    !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+    !!process.env.OPENROUTER_API_KEY;
+  if (!hasGoogle && !hasOpenRouter) {
+    console.error(
+      "[gemini-stream] STARTUP: no Gemini channel configured! " +
+        "Set GEMINI_API_KEY and/or AI_INTEGRATIONS_OPENAI_API_KEY in .env. " +
+        "Every /ai/teach call will fail with the friendly Arabic apology until fixed.",
+    );
+  } else {
+    console.log(
+      `[gemini-stream] STARTUP: Gemini channels active → ${[
+        hasGoogle ? "google(direct)" : null,
+        hasOpenRouter ? "openrouter(fallback)" : null,
+      ]
+        .filter(Boolean)
+        .join(", ")}`,
+    );
+  }
+}
+
 export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<StreamGeminiResult> {
   const chain = buildChannelChain();
   if (chain.length === 0) {
@@ -492,10 +564,23 @@ export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<Stre
         break; // channel succeeded
       } catch (err: any) {
         lastErr = err;
-        // GeminiBadOutputError is a content/length problem with the model
-        // output itself — switching channels won't change the model's
-        // behaviour, so abort the whole chain.
-        if (err instanceof GeminiBadOutputError) throw err;
+        // GeminiBadOutputError = SAFETY / content_filter / RECITATION /
+        // too-short output. Two sub-cases:
+        //   • Already emitted chunks → cannot retry (would duplicate text).
+        //     Abort the whole chain.
+        //   • Pre-stream block (no bytes on wire) → the OTHER channel may
+        //     have different content moderation behaviour for the same
+        //     prompt (Google's SAFETY filter is notably stricter than
+        //     OpenRouter's pass-through). Allow falling through to the
+        //     next channel for one more attempt at the same Gemini Flash
+        //     answer. Still Gemini Flash; still policy-compliant.
+        if (err instanceof GeminiBadOutputError) {
+          if (err.partial?.emittedAnyChunk) throw err;
+          console.warn(
+            `[gemini-stream${args.logTag ? `:${args.logTag}` : ""}] ${ch.name} bad-output (${err.reason}); trying next channel if any`,
+          );
+          break;
+        }
         // Mid-stream errors: bytes already on the wire, retrying ANY
         // channel would duplicate text. Abort everything.
         if (err?.partial?.emittedAnyChunk) {
