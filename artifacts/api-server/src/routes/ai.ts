@@ -5394,39 +5394,9 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
 
 أرجِع JSON كامل لسيناريو محاكاة هجمة قابل للعب فوراً.`;
 
-  const __aiStart = Date.now();
-  let __aiLogged = false;
-  try {
-    const completion = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 6000,
-      system: ATTACK_SIM_BUILD_SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
-    });
-
-    {
-      const __u = extractAnthropicUsage(completion);
-      void recordAiUsage({
-        userId,
-        subjectId: subjectId ?? null,
-        route: "ai/attack-sim/build",
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        inputTokens: __u.inputTokens,
-        outputTokens: __u.outputTokens,
-        cachedInputTokens: __u.cachedInputTokens,
-        latencyMs: Date.now() - __aiStart,
-      });
-      __aiLogged = true;
-    }
-
-    const raw = (completion.content[0] as any)?.text || "";
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("لم يُرجع المعلم سيناريو صالح");
-
-    const scenario = JSON.parse(jsonMatch[0]);
-
-    // Defensive normalization so the UI never crashes on malformed shape.
+  // Shared finalizer: validates + normalizes a parsed scenario and returns it.
+  // Throws if the scenario is unusable (no hosts) so the caller can fall back.
+  const finalizeScenario = (scenario: any) => {
     if (!Array.isArray(scenario.hosts) || scenario.hosts.length === 0) {
       throw new Error("السيناريو لا يحتوي على مضيفين");
     }
@@ -5439,10 +5409,52 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
     scenario.hints = Array.isArray(scenario.hints) ? scenario.hints : [];
     scenario.edges = Array.isArray(scenario.edges) ? scenario.edges : [];
     scenario.suggestedCommands = Array.isArray(scenario.suggestedCommands) ? scenario.suggestedCommands : [];
+    return scenario;
+  };
 
+  // ─── Pass 1: Anthropic (primary) ─────────────────────────────────────
+  const __aiStart = Date.now();
+  let __aiLogged = false;
+  let anthropicErr: any = null;
+  let geminiErr: any = null;
+  try {
+    const completion = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 6000,
+      system: ATTACK_SIM_BUILD_SYSTEM,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+
+    // Telemetry only — must never break the success path or trigger the
+    // Gemini fallback if usage extraction throws on an unexpected shape.
+    try {
+      const __u = extractAnthropicUsage(completion);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/attack-sim/build",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - __aiStart,
+        metadata: { attempt: "primary" },
+      });
+      __aiLogged = true;
+    } catch (logErr: any) {
+      console.warn("[attack-sim/build] anthropic usage logging failed:", logErr?.message);
+    }
+
+    const raw = (completion.content[0] as any)?.text || "";
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("لم يُرجع المعلم سيناريو صالح");
+
+    const scenario = finalizeScenario(JSON.parse(jsonMatch[0]));
     return res.json({ scenario });
   } catch (e: any) {
-    console.error("[attack-sim/build] error:", e?.message);
+    anthropicErr = e;
+    console.error("[attack-sim/build] anthropic failed:", e?.message);
     if (!__aiLogged) {
       void recordAiUsage({
         userId,
@@ -5455,10 +5467,96 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
         latencyMs: Date.now() - __aiStart,
         status: "error",
         errorMessage: String(e?.message || e).slice(0, 500),
+        metadata: { attempt: "primary" },
       });
     }
-    return res.status(500).json({ error: e?.message || "فشل بناء السيناريو" });
   }
+
+  // ─── Pass 2: Gemini 2.5 Flash fallback ───────────────────────────────
+  // When Anthropic fails (network, rate-limit, expired key, OpenRouter outage,
+  // or even an unparseable response), try Gemini directly using the same
+  // strict-JSON pattern already proven on /ai/lab/build-env. This keeps the
+  // attack-sim builder online whenever GEMINI_API_KEY is configured.
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    const __gStart = Date.now();
+    try {
+      console.log("[attack-sim/build] anthropic exhausted — trying Gemini 2.5 Flash fallback");
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`;
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: ATTACK_SIM_BUILD_SYSTEM }] },
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+          generationConfig: {
+            temperature: 0.6,
+            maxOutputTokens: 6000,
+            responseMimeType: "application/json",
+          },
+          safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+          ],
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+      if (!r.ok) {
+        const body = await r.text().catch(() => "");
+        throw new Error(`Gemini HTTP ${r.status}: ${body.slice(0, 200)}`);
+      }
+      const data: any = await r.json();
+      const txt = (data?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || "").join("");
+
+      try {
+        const __u = extractGeminiUsage(data?.usageMetadata);
+        void recordAiUsage({
+          userId,
+          subjectId: subjectId ?? null,
+          route: "ai/attack-sim/build",
+          provider: "gemini",
+          model: "gemini-2.5-flash",
+          inputTokens: __u.inputTokens,
+          outputTokens: __u.outputTokens,
+          cachedInputTokens: __u.cachedInputTokens,
+          latencyMs: Date.now() - __gStart,
+          metadata: { attempt: "gemini_fallback" },
+        });
+      } catch {}
+
+      const jsonMatch = txt.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("لم يُرجع Gemini سيناريو صالح");
+      const scenario = finalizeScenario(JSON.parse(jsonMatch[0]));
+      console.log("[attack-sim/build] gemini fallback succeeded.");
+      return res.json({ scenario });
+    } catch (gErr: any) {
+      geminiErr = gErr;
+      console.error("[attack-sim/build] gemini fallback failed:", gErr?.message || gErr);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/attack-sim/build",
+        provider: "gemini",
+        model: "gemini-2.5-flash",
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - __gStart,
+        status: "error",
+        errorMessage: String(gErr?.message || gErr).slice(0, 500),
+        metadata: { attempt: "gemini_fallback" },
+      });
+    }
+  } else {
+    console.warn("[attack-sim/build] no GEMINI_API_KEY — skipping fallback");
+  }
+
+  // Surface the most actionable error: prefer Gemini's failure message
+  // (since it's the most recent/last-tried provider) when the fallback
+  // was attempted, otherwise fall back to the Anthropic message.
+  const finalErr = geminiErr || anthropicErr;
+  return res.status(500).json({ error: finalErr?.message || "فشل بناء السيناريو" });
 });
 
 const ATTACK_SIM_EXEC_SYSTEM = `أنت محرّك محاكاة "shell" يحاكي تنفيذ أوامر قرصنة أخلاقية تعليمية داخل سيناريو وهمي معزول. أرجع JSON فقط.
