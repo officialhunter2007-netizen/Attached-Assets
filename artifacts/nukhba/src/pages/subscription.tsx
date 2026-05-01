@@ -15,20 +15,53 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, ArrowRight, ChevronDown, ShieldCheck, HelpCircle, PhoneCall, Send, Banknote, UserCheck, ClipboardCheck, Check, X, Sparkles, MessageCircle } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 
 
 type PlanKey = "bronze" | "silver" | "gold";
+
+// Static fallback prices — used only on the very first render before the
+// API responds. The authoritative price comes from `/api/subscriptions/plan-prices`
+// and from the server when computing finalPrice in /subscriptions/request.
+const FALLBACK_PRICES: Record<"north" | "south", Record<PlanKey, number>> = {
+  north: { bronze: 1000, silver: 2000, gold: 3000 },
+  south: { bronze: 2000, silver: 4000, gold: 6000 },
+};
+
+type PlanPricesResponse = Record<"north" | "south", Record<PlanKey, number>>;
+
+function usePlanPrices(): PlanPricesResponse {
+  const { data } = useQuery<PlanPricesResponse>({
+    queryKey: ["subscription-plan-prices"],
+    queryFn: async () => {
+      const r = await fetch("/api/subscriptions/plan-prices", { credentials: "include" });
+      if (!r.ok) throw new Error("plan-prices fetch failed");
+      const j = await r.json();
+      // Defensive: ensure shape — fall back per-cell on any missing values.
+      return {
+        north: {
+          bronze: Number(j?.north?.bronze) || FALLBACK_PRICES.north.bronze,
+          silver: Number(j?.north?.silver) || FALLBACK_PRICES.north.silver,
+          gold: Number(j?.north?.gold) || FALLBACK_PRICES.north.gold,
+        },
+        south: {
+          bronze: Number(j?.south?.bronze) || FALLBACK_PRICES.south.bronze,
+          silver: Number(j?.south?.silver) || FALLBACK_PRICES.south.silver,
+          gold: Number(j?.south?.gold) || FALLBACK_PRICES.south.gold,
+        },
+      };
+    },
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  return data ?? FALLBACK_PRICES;
+}
 
 const plans: Record<PlanKey, {
   name: string;
   icon: React.ReactNode;
   gems: number;
   gemsPerDay: number;
-  priceNorth: string;
-  priceSouth: string;
-  priceNorthNum: string;
-  priceSouthNum: string;
   desc: string;
   features: string[];
   popular?: boolean;
@@ -39,10 +72,6 @@ const plans: Record<PlanKey, {
     icon: <Zap className="w-7 h-7 text-orange-400" />,
     gems: 1000,
     gemsPerDay: 71,
-    priceNorth: "١٬٠٠٠ ريال",
-    priceSouth: "٢٬٠٠٠ ريال",
-    priceNorthNum: "١٬٠٠٠",
-    priceSouthNum: "٢٬٠٠٠",
     desc: "ابدأ تجربتك مع المعلم الذكي والمختبرات التطبيقية",
     color: "text-orange-400",
     features: [
@@ -58,10 +87,6 @@ const plans: Record<PlanKey, {
     icon: <Star className="w-7 h-7 text-slate-300" />,
     gems: 2000,
     gemsPerDay: 142,
-    priceNorth: "٢٬٠٠٠ ريال",
-    priceSouth: "٤٬٠٠٠ ريال",
-    priceNorthNum: "٢٬٠٠٠",
-    priceSouthNum: "٤٬٠٠٠",
     desc: "للطالب الجاد — تعلّم أعمق في جميع التخصصات",
     color: "text-slate-300",
     features: [
@@ -79,10 +104,6 @@ const plans: Record<PlanKey, {
     icon: <Gem className="w-7 h-7 text-gold" />,
     gems: 3000,
     gemsPerDay: 214,
-    priceNorth: "٣٬٠٠٠ ريال",
-    priceSouth: "٦٬٠٠٠ ريال",
-    priceNorthNum: "٣٬٠٠٠",
-    priceSouthNum: "٦٬٠٠٠",
     desc: "الخيار الأشمل — تعلّم كثيف بلا توقف",
     color: "text-gold",
     features: [
@@ -96,18 +117,11 @@ const plans: Record<PlanKey, {
   },
 };
 
-// Numeric price table mirrors backend `BASE_PRICES` — used for client-side
-// display only (e.g. computing the welcome offer's halved total). The
-// authoritative price is always re-computed on the server.
-const BASE_PRICES_DISPLAY: Record<"north" | "south", Record<PlanKey, number>> = {
-  north: { bronze: 1000, silver: 2000, gold: 3000 },
-  south: { bronze: 2000, silver: 4000, gold: 6000 },
-};
-
 export default function Subscription() {
   const { user, setUser } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const planPrices = usePlanPrices();
 
 
   const [region, setRegion] = useState<"north" | "south">("north");
@@ -630,7 +644,8 @@ export default function Subscription() {
           {(Object.keys(plans) as PlanKey[]).map(key => {
             const plan = plans[key];
             const isSelected = selectedPlan === key;
-            const price = region === 'north' ? plan.priceNorthNum : plan.priceSouthNum;
+            const priceNum = planPrices[region][key];
+            const price = priceNum.toLocaleString("ar-EG");
             return (
               <div
                 key={key}
@@ -928,7 +943,7 @@ export default function Subscription() {
                 <div className="bg-black/30 p-5 rounded-2xl border border-white/5">
                   <p className="text-sm text-muted-foreground mb-1">المبلغ المطلوب:</p>
                   {welcomeOffer.active ? (() => {
-                    const basePriceNum = (BASE_PRICES_DISPLAY[region] as any)[selectedPlan] as number;
+                    const basePriceNum = planPrices[region][selectedPlan];
                     const finalPriceNum = Math.round(basePriceNum * (1 - welcomeOffer.percent / 100));
                     return (
                       <div className="mb-4">
@@ -961,7 +976,7 @@ export default function Subscription() {
                     </div>
                   ) : (
                     <p className="text-gold font-bold text-xl mb-4">
-                      {region === 'north' ? plans[selectedPlan].priceNorth : plans[selectedPlan].priceSouth} ريال
+                      {planPrices[region][selectedPlan].toLocaleString("ar-EG")} ريال
                     </p>
                   )}
 

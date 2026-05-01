@@ -8,7 +8,9 @@ import {
   userSubjectSubscriptionsTable,
   userSubjectFirstLessonsTable,
   discountCodesTable,
+  planPricesTable,
 } from "@workspace/db";
+import { logger } from "../lib/logger";
 import {
   CreateSubscriptionRequestBody,
   ActivateSubscriptionBody,
@@ -32,11 +34,76 @@ const PLAN_GEM_LIMITS: Record<string, { total: number; daily: number }> = {
   gold:   { total: 3000, daily: 214 },
 };
 
-// Authoritative price table (server-side source of truth) — YER.
-const BASE_PRICES: Record<"north" | "south", Record<string, number>> = {
+// Static fallback ONLY — actual prices live in the `plan_prices` DB table and
+// are admin-editable from the dashboard. Used only if the DB read fails (network
+// blip / table missing pre-migration). Mirrors the seed in auto-migrate.ts.
+const BASE_PRICES_FALLBACK: Record<"north" | "south", Record<string, number>> = {
   north: { bronze: 1000, silver: 2000, gold: 3000 },
   south: { bronze: 2000, silver: 4000, gold: 6000 },
 };
+
+const VALID_REGIONS = ["north", "south"] as const;
+const VALID_PLAN_TYPES = ["bronze", "silver", "gold"] as const;
+type PlanRegion = typeof VALID_REGIONS[number];
+type PlanType = typeof VALID_PLAN_TYPES[number];
+
+// In-memory cache of all plan prices, refreshed at most every PRICE_CACHE_TTL_MS.
+// Admin edits invalidate the cache immediately via `invalidatePlanPriceCache()`
+// so the UI sees changes on the next request without waiting for TTL.
+const PRICE_CACHE_TTL_MS = 60 * 1000;
+type PriceMap = Record<string, Record<string, number>>;
+let priceCache: { map: PriceMap; loadedAt: number } | null = null;
+
+function freshFallbackMap(): PriceMap {
+  return {
+    north: { ...BASE_PRICES_FALLBACK.north },
+    south: { ...BASE_PRICES_FALLBACK.south },
+  };
+}
+
+async function loadAllPlanPrices(): Promise<PriceMap> {
+  const map = freshFallbackMap();
+  try {
+    const rows = await db.select().from(planPricesTable);
+    for (const row of rows) {
+      if (!map[row.region]) map[row.region] = {};
+      if (Number.isFinite(row.priceYer) && row.priceYer >= 0) {
+        map[row.region][row.planType] = row.priceYer;
+      }
+    }
+  } catch (err: any) {
+    logger.warn(
+      { err: err?.message },
+      "plan-prices: DB read failed; using fallback constants",
+    );
+  }
+  return map;
+}
+
+async function getPriceMap(): Promise<PriceMap> {
+  const now = Date.now();
+  if (priceCache && now - priceCache.loadedAt < PRICE_CACHE_TTL_MS) {
+    return priceCache.map;
+  }
+  const map = await loadAllPlanPrices();
+  priceCache = { map, loadedAt: now };
+  return map;
+}
+
+export function invalidatePlanPriceCache(): void {
+  priceCache = null;
+}
+
+async function getPlanPriceFromDb(
+  planType: string,
+  region: string,
+): Promise<number | null> {
+  const map = await getPriceMap();
+  const r = map[region];
+  if (!r) return null;
+  const p = r[planType];
+  return typeof p === "number" ? p : null;
+}
 
 // Welcome offer: 20% off for first-time subscription page visitors who
 // leave without subscribing — auto-applied on next subscription within 24h.
@@ -105,12 +172,6 @@ async function grantSubjectSubscription(opts: {
   });
 }
 
-function getBasePrice(planType: string, region: string): number | null {
-  const r = BASE_PRICES[region as "north" | "south"];
-  if (!r) return null;
-  return r[planType] ?? null;
-}
-
 function computeFinalPrice(basePrice: number, percent: number): number {
   // Round to nearest integer (YER are whole units).
   const discounted = basePrice * (1 - percent / 100);
@@ -163,7 +224,7 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
 
   const user = await getUser(userId);
 
-  const basePrice = getBasePrice(parsed.data.planType, parsed.data.region);
+  const basePrice = await getPlanPriceFromDb(parsed.data.planType, parsed.data.region);
   if (basePrice == null) {
     res.status(400).json({ error: "خطة أو منطقة غير صالحة" });
     return;
@@ -278,7 +339,7 @@ router.post("/subscriptions/discount-codes/validate", async (req, res): Promise<
     return;
   }
 
-  const basePrice = getBasePrice(planType, region);
+  const basePrice = await getPlanPriceFromDb(planType, region);
   if (basePrice == null) {
     res.status(400).json({ valid: false, message: "خطة أو منطقة غير صالحة" });
     return;
@@ -303,6 +364,33 @@ router.post("/subscriptions/discount-codes/validate", async (req, res): Promise<
     finalPrice,
     discountAmount: basePrice - finalPrice,
   });
+});
+
+// ── Public: current plan prices (no auth required) ───────────────────────────
+// Returns the live admin-configured price grid so the subscription page can
+// render the correct numbers without hardcoding a mirror constant.
+// Shape: { north: { bronze, silver, gold }, south: { bronze, silver, gold } }
+router.get("/subscriptions/plan-prices", async (_req, res): Promise<void> => {
+  try {
+    const map = await getPriceMap();
+    res.json({
+      north: {
+        bronze: map.north?.bronze ?? BASE_PRICES_FALLBACK.north.bronze,
+        silver: map.north?.silver ?? BASE_PRICES_FALLBACK.north.silver,
+        gold: map.north?.gold ?? BASE_PRICES_FALLBACK.north.gold,
+      },
+      south: {
+        bronze: map.south?.bronze ?? BASE_PRICES_FALLBACK.south.bronze,
+        silver: map.south?.silver ?? BASE_PRICES_FALLBACK.south.silver,
+        gold: map.south?.gold ?? BASE_PRICES_FALLBACK.south.gold,
+      },
+    });
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "plan-prices: public read failed");
+    // Always return *something* — the subscription UI must render even on
+    // transient DB failure. Falls back to the static defaults.
+    res.json(BASE_PRICES_FALLBACK);
+  }
 });
 
 // ── Welcome offer (50% off, first-time visitor, 24h, single-use) ──────────────
@@ -673,11 +761,11 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
   // ── Recover region + paid price for the cost-cap system ────────────────────
   // The cost-cap (50% of paid YER) needs the real `region` and `paidPriceYer`
   // to enforce correctly. Pull them from the originating subscription_request
-  // when available; otherwise fall back to the card.region + the canonical
-  // BASE_PRICES table for that plan/region. We never silently persist
-  // null/0 — that would let cost-cap default to south pricing and weaken
-  // enforcement. If we cannot resolve to a valid (region, price>0) pair,
-  // we refuse the activation and tell support to remint the card.
+  // when available; otherwise fall back to the card.region + the current
+  // admin-configured plan price. We never silently persist null/0 — that
+  // would let cost-cap default to south pricing and weaken enforcement. If
+  // we cannot resolve to a valid (region, price>0) pair, we refuse the
+  // activation and tell support to remint the card.
   let resolvedRegion: "north" | "south" | null = null;
   let resolvedPaidYer = 0;
   const isValidRegion = (r: unknown): r is "north" | "south" =>
@@ -702,9 +790,10 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
   }
 
   if (resolvedPaidYer <= 0 && resolvedRegion) {
-    // Fallback: derive paid price from the canonical price table when the
-    // request row is missing (legacy cards minted directly by an admin).
-    const fallback = BASE_PRICES[resolvedRegion]?.[card.planType];
+    // Fallback: derive paid price from the current admin-configured price
+    // when the request row is missing (legacy cards minted directly by an
+    // admin). Async DB read with in-process cache + static fallback.
+    const fallback = await getPlanPriceFromDb(card.planType, resolvedRegion);
     if (typeof fallback === "number" && fallback > 0) {
       resolvedPaidYer = fallback;
     }
@@ -1025,6 +1114,107 @@ router.post("/admin/cards/create", async (req, res): Promise<void> => {
   }).returning();
 
   res.json(card);
+});
+
+// ── Admin: plan prices (read + update) ───────────────────────────────────────
+// GET returns the full 6-cell grid (north + south × bronze/silver/gold) with
+// the current YER value, the last update timestamp, and the user who edited
+// it. PATCH overwrites a single cell with strict server-side validation
+// (positive integer, capped at 1,000,000 YER). Cache is invalidated
+// immediately so subsequent reads (subscription page, request creation,
+// discount preview) see the new value without waiting for TTL.
+router.get("/admin/plan-prices", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const user = await getUser(userId);
+  if (user?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  try {
+    const rows = await db.select().from(planPricesTable);
+    // Always return the full 6-cell grid even if some rows are missing,
+    // falling back to the static defaults so the admin UI never sees holes.
+    const byKey = new Map<string, typeof rows[number]>();
+    for (const r of rows) byKey.set(`${r.region}:${r.planType}`, r);
+
+    const grid = VALID_REGIONS.flatMap((region) =>
+      VALID_PLAN_TYPES.map((planType) => {
+        const r = byKey.get(`${region}:${planType}`);
+        return {
+          region,
+          planType,
+          priceYer: r?.priceYer ?? BASE_PRICES_FALLBACK[region][planType],
+          updatedAt: r?.updatedAt ?? null,
+          updatedByUserId: r?.updatedByUserId ?? null,
+          seeded: !r,
+        };
+      }),
+    );
+
+    res.json({ prices: grid, defaults: BASE_PRICES_FALLBACK });
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "admin/plan-prices: read failed");
+    res.status(500).json({ error: "تعذّر قراءة الأسعار من قاعدة البيانات." });
+  }
+});
+
+router.patch("/admin/plan-prices", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const user = await getUser(userId);
+  if (user?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const rawRegion = req.body?.region;
+  const rawPlanType = req.body?.planType;
+  const rawPrice = req.body?.priceYer;
+
+  const region: PlanRegion | null =
+    rawRegion === "north" || rawRegion === "south" ? rawRegion : null;
+  if (!region) {
+    res.status(400).json({ error: "المنطقة غير صحيحة. اختر north أو south." });
+    return;
+  }
+  const planType: PlanType | null =
+    rawPlanType === "bronze" || rawPlanType === "silver" || rawPlanType === "gold"
+      ? rawPlanType
+      : null;
+  if (!planType) {
+    res.status(400).json({ error: "نوع الباقة غير صحيح. اختر bronze أو silver أو gold." });
+    return;
+  }
+  const priceYer = typeof rawPrice === "number" ? rawPrice : Number(rawPrice);
+  if (!Number.isFinite(priceYer) || !Number.isInteger(priceYer) || priceYer < 1 || priceYer > 1_000_000) {
+    res.status(400).json({ error: "السعر يجب أن يكون عدداً صحيحاً بين 1 و 1,000,000 ريال." });
+    return;
+  }
+
+  try {
+    const [row] = await db
+      .insert(planPricesTable)
+      .values({
+        region,
+        planType,
+        priceYer,
+        updatedByUserId: userId,
+      })
+      .onConflictDoUpdate({
+        target: [planPricesTable.region, planPricesTable.planType],
+        set: {
+          priceYer,
+          updatedAt: new Date(),
+          updatedByUserId: userId,
+        },
+      })
+      .returning();
+
+    invalidatePlanPriceCache();
+    res.json({ ok: true, price: row });
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message, region, planType, priceYer },
+      "admin/plan-prices: update failed",
+    );
+    res.status(500).json({ error: "تعذّر حفظ السعر. حاول مرة أخرى." });
+  }
 });
 
 // ── Admin: stats ───────────────────────────────────────────────────────────────
@@ -1671,9 +1861,10 @@ router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
     return;
   }
 
-  // Derive the canonical paid price for this plan/region so the cost-cap
-  // system has correct enforcement thresholds even on admin-granted subs.
-  const paidPriceYer = BASE_PRICES[region]?.[planType] ?? 0;
+  // Derive the current admin-configured paid price for this plan/region so
+  // the cost-cap system has correct enforcement thresholds even on
+  // admin-granted subs. Falls back to the static constant on DB failure.
+  const paidPriceYer = (await getPlanPriceFromDb(planType, region)) ?? 0;
 
   const sub = await grantSubjectSubscription({
     userId: targetId,

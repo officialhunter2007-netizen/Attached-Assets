@@ -86,7 +86,53 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE INDEX IF NOT EXISTS "study_cards_user_subject_idx" ON "study_cards" ("user_id", "subject_id", "created_at")`,
     ],
   },
+  {
+    table: "plan_prices",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "plan_prices" (
+        "id" serial PRIMARY KEY,
+        "region" text NOT NULL,
+        "plan_type" text NOT NULL,
+        "price_yer" integer NOT NULL,
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_by_user_id" integer
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_plan_prices_region_plan" ON "plan_prices" ("region", "plan_type")`,
+    ],
+  },
 ];
+
+// Default prices used to seed `plan_prices` on first boot only. Subsequent
+// boots NEVER overwrite admin edits — we use ON CONFLICT DO NOTHING so the
+// stored values are the source of truth. Mirrors the legacy `BASE_PRICES`
+// constant in routes/subscriptions.ts.
+const DEFAULT_PLAN_PRICES: Array<{ region: "north" | "south"; planType: string; priceYer: number }> = [
+  { region: "north", planType: "bronze", priceYer: 1000 },
+  { region: "north", planType: "silver", priceYer: 2000 },
+  { region: "north", planType: "gold", priceYer: 3000 },
+  { region: "south", planType: "bronze", priceYer: 2000 },
+  { region: "south", planType: "silver", priceYer: 4000 },
+  { region: "south", planType: "gold", priceYer: 6000 },
+];
+
+async function seedPlanPrices(): Promise<void> {
+  try {
+    for (const p of DEFAULT_PLAN_PRICES) {
+      await db.execute(sql`
+        INSERT INTO "plan_prices" ("region", "plan_type", "price_yer")
+        VALUES (${p.region}, ${p.planType}, ${p.priceYer})
+        ON CONFLICT ("region", "plan_type") DO NOTHING
+      `);
+    }
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message },
+      "auto-migrate: failed to seed plan_prices defaults",
+    );
+  }
+}
 
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
@@ -237,6 +283,7 @@ export async function runStartupMigrations(): Promise<void> {
   const start = Date.now();
   try {
     await ensureRequiredTables();
+    await seedPlanPrices();
     const { added, errors } = await ensureRequiredColumns();
     const ms = Date.now() - start;
     if (added.length === 0 && errors.length === 0) {

@@ -161,3 +161,23 @@ export const supportMessagesTable = pgTable("support_messages", {
 export const insertSupportMessageSchema = createInsertSchema(supportMessagesTable).omit({ id: true, createdAt: true });
 export type InsertSupportMessage = z.infer<typeof insertSupportMessageSchema>;
 export type SupportMessage = typeof supportMessagesTable.$inferSelect;
+
+// Admin-controlled price table — one row per (region, planType).
+// The active prices used by the subscription page, request creation, discount
+// preview and admin grant. Defaults are seeded by the auto-migrate at boot
+// (north: 1k/2k/3k, south: 2k/4k/6k) and never overwritten on subsequent
+// boots so admin edits persist. The numeric `BASE_PRICES` in
+// subscriptions.ts route file is kept ONLY as an in-process fallback for the
+// rare case where the DB read fails — never as the source of truth.
+export const planPricesTable = pgTable("plan_prices", {
+  id: serial("id").primaryKey(),
+  region: text("region").notNull(),
+  planType: text("plan_type").notNull(),
+  priceYer: integer("price_yer").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedByUserId: integer("updated_by_user_id"),
+}, (t) => [
+  uniqueIndex("uq_plan_prices_region_plan").on(t.region, t.planType),
+]);
+
+export type PlanPrice = typeof planPricesTable.$inferSelect;

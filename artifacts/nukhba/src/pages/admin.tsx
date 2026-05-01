@@ -35,6 +35,7 @@ import { AdminInsightsChat } from "@/components/admin-insights-chat";
 import { AdminDiscountCodes } from "@/components/admin-discount-codes";
 import { AdminAiUsage } from "@/components/admin-ai-usage";
 import { AdminDbMonitor } from "@/components/admin-db-monitor";
+import { AdminPlanPrices } from "@/components/admin-plan-prices";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -586,6 +587,10 @@ export default function Admin() {
             <TabsTrigger value="discount-codes" className="flex items-center gap-1.5">
               <Percent className="w-3.5 h-3.5" />
               أكواد الخصم
+            </TabsTrigger>
+            <TabsTrigger value="plan-prices" className="flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5 text-gold" />
+              أسعار الباقات
             </TabsTrigger>
             <TabsTrigger value="ai-insights" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/15 to-purple-500/10 data-[state=active]:from-amber-500/30 data-[state=active]:to-purple-500/20 data-[state=active]:border-amber-400/40">
               <Brain className="w-3.5 h-3.5" />
@@ -1251,6 +1256,11 @@ export default function Admin() {
           {/* Discount Codes Tab */}
           <TabsContent value="discount-codes">
             <AdminDiscountCodes />
+          </TabsContent>
+
+          {/* Plan Prices Tab */}
+          <TabsContent value="plan-prices">
+            <AdminPlanPrices />
           </TabsContent>
 
           {/* AI Insights Tab */}
