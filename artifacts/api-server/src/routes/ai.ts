@@ -3211,7 +3211,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
     const result = await streamGeminiTeaching({
       systemPrompt,
       messages: cleanMessages.map((m) => ({ role: m.role, content: m.content })),
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       maxOutputTokens: 1024,
       temperature: 0.6,
       topP: 0.95,
@@ -3260,7 +3260,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
       subjectId: null,
       route: "ai/platform-help",
       provider: "gemini",
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __aiStart,
@@ -4337,7 +4337,7 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
     });
     // ─── Gemini Flash fallback for variant generation ──────────────────
     // Same resilience pattern as /ai/lab/build-env: when Anthropic fails
-    // (rate-limited, expired key, OpenRouter outage), try Gemini 2.5 Flash
+    // (rate-limited, expired key, OpenRouter outage), try Gemini 2.0 Flash
     // direct with `responseMimeType: application/json` so the variant
     // generator keeps working. Variants must preserve the source env's
     // structural shape, so we feed Gemini the same trimmed shape + the
@@ -4345,11 +4345,11 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
     if (hasGeminiProvider()) {
       const __gStart = Date.now();
       try {
-        console.log("[generate-variant] anthropic exhausted — trying Gemini 2.5 Flash fallback (OpenRouter primary)");
+        console.log("[generate-variant] anthropic exhausted — trying Gemini 2.0 Flash fallback (OpenRouter primary)");
         const result = await generateGeminiJson({
           systemPrompt: variantSystem + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح.`,
           userPrompt: `هذه البيئة الأصلية (JSON). أنشئ نسخة جديدة بنفس الشكل بالضبط لكن بمحتوى مختلف بحسب التعليمات:\n\n${JSON.stringify(shape, null, 2).slice(0, 18000)}\n\nأرجع JSON فقط.`,
-          model: "gemini-2.5-flash",
+          model: "gemini-2.0-flash",
           temperature: 0.5,
           maxOutputTokens: 16000,
           timeoutMs: 90_000,
@@ -4362,7 +4362,7 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
             subjectId: subjectId ?? null,
             route: "ai/lab/generate-variant",
             provider: "gemini",
-            model: "gemini-2.5-flash",
+            model: "gemini-2.0-flash",
             inputTokens: __u.inputTokens,
             outputTokens: __u.outputTokens,
             cachedInputTokens: __u.cachedInputTokens,
@@ -4875,7 +4875,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       // ─── Gemini Flash third-pass fallback ─────────────────────────────
       // Both Anthropic passes failed (parse OR upstream error). Before we
       // give the student the dry "needs more detail" fallback env, try
-      // Gemini 2.5 Flash directly — it is independent of the
+      // Gemini 2.0 Flash directly — it is independent of the
       // Anthropic/OpenRouter availability and uses Google's strict
       // `responseMimeType: application/json` to guarantee parseable
       // output. This is the same provider the smart-teacher chat already
@@ -4885,11 +4885,11 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       if (hasGeminiProvider()) {
         const __gStart = Date.now();
         try {
-          console.log("[build-env] anthropic exhausted — trying Gemini 2.5 Flash third pass (OpenRouter primary)");
+          console.log("[build-env] anthropic exhausted — trying Gemini 2.0 Flash third pass (OpenRouter primary)");
           const result = await generateGeminiJson({
             systemPrompt: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح. ابقَ بسيطاً وآمناً: شاشة 1-2 و2-5 مكونات.`,
             userPrompt: `التخصص: ${kindLabel} (${kind})\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة لهذا الطلب. أرجع JSON صالحاً فقط.`,
-            model: "gemini-2.5-flash",
+            model: "gemini-2.0-flash",
             temperature: 0.4,
             maxOutputTokens: 16000,
             timeoutMs: 90_000,
@@ -4902,7 +4902,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
               subjectId: subjectId ?? null,
               route: "ai/lab/build-env",
               provider: "gemini",
-              model: "gemini-2.5-flash",
+              model: "gemini-2.0-flash",
               inputTokens: __u.inputTokens,
               outputTokens: __u.outputTokens,
               cachedInputTokens: __u.cachedInputTokens,
@@ -5354,7 +5354,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
     }
   }
 
-  // ─── Pass 2: Gemini 2.5 Flash fallback ───────────────────────────────
+  // ─── Pass 2: Gemini 2.0 Flash fallback ───────────────────────────────
   // When Anthropic fails (network, rate-limit, expired key, OpenRouter outage,
   // or even an unparseable response), try Gemini directly using the same
   // strict-JSON pattern already proven on /ai/lab/build-env. This keeps the
@@ -5362,11 +5362,11 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
   if (hasGeminiProvider()) {
     const __gStart = Date.now();
     try {
-      console.log("[attack-sim/build] anthropic exhausted — trying Gemini 2.5 Flash fallback (OpenRouter primary)");
+      console.log("[attack-sim/build] anthropic exhausted — trying Gemini 2.0 Flash fallback (OpenRouter primary)");
       const result = await generateGeminiJson({
         systemPrompt: ATTACK_SIM_BUILD_SYSTEM,
         userPrompt,
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         temperature: 0.6,
         maxOutputTokens: 6000,
         timeoutMs: 90_000,
@@ -5380,7 +5380,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
           subjectId: subjectId ?? null,
           route: "ai/attack-sim/build",
           provider: "gemini",
-          model: "gemini-2.5-flash",
+          model: "gemini-2.0-flash",
           inputTokens: __u.inputTokens,
           outputTokens: __u.outputTokens,
           cachedInputTokens: __u.cachedInputTokens,
@@ -5403,7 +5403,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/build",
         provider: "gemini",
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __gStart,
