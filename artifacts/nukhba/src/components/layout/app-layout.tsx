@@ -19,25 +19,30 @@ type GemsState = {
   label?: string | null;
 } | null;
 
-function GemsBadge({ gems }: { gems: GemsState }) {
+function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boolean }) {
   if (!gems || !gems.hasActiveSub) return null;
   const lowDaily = gems.dailyRemaining < 20;
   const lowBalance = gems.gemsBalance < 200;
   const low = lowDaily || lowBalance;
   const multiSub = (gems.activeSubjectCount ?? 1) > 1;
   const tooltip = multiSub
-    ? `مجموع الرصيد: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎 — لديك ${gems.activeSubjectCount} مادة نشطة`
-    : `الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎${gems.label ? ` (${gems.label})` : ""}`;
+    ? `مجموع الرصيد: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎 — لديك ${gems.activeSubjectCount} مادة نشطة — المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")}`
+    : `المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${gems.label ? ` (${gems.label})` : ""} — الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")}`;
   return (
     <Link href="/subscription">
       <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors
-          ${low ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse" : "bg-gold/10 text-gold border border-gold/30 hover:bg-gold/20"}`}
+        className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-colors whitespace-nowrap
+          ${compact ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"}
+          ${low
+            ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse"
+            : "bg-gold/10 text-gold border border-gold/30 hover:bg-gold/20"}`}
         title={tooltip}
       >
         💎
         <span>{gems.dailyRemaining.toLocaleString("ar-EG")}</span>
-        <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
+        {!compact && (
+          <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
+        )}
       </span>
     </Link>
   );
@@ -245,10 +250,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-6">
             <NavLinks />
-            <GemsBadge gems={gems} />
             <div className="h-6 w-px bg-border/50 mx-2" />
             {user ? (
               <div className="flex items-center gap-3">
+                <GemsBadge gems={gems} />
                 <UserAvatar src={user.profileImage} name={user.displayName} size={34} />
                 <span className="text-sm text-muted-foreground max-w-[140px] truncate">{user.displayName || user.email}</span>
                 <button
@@ -271,9 +276,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </nav>
 
           {/* Mobile Nav */}
-          <div className="md:hidden flex items-center gap-3">
+          <div className="md:hidden flex items-center gap-2">
             {user && (
-              <UserAvatar src={user.profileImage} name={user.displayName} size={30} />
+              <>
+                <GemsBadge gems={gems} compact />
+                <UserAvatar src={user.profileImage} name={user.displayName} size={30} />
+              </>
             )}
             <Sheet>
               <SheetTrigger asChild>
