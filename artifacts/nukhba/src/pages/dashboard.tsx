@@ -680,11 +680,28 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
-        <div className="mb-8">
-          <h1 className="text-3xl font-black mb-1">لوحة القيادة</h1>
-          <p className="text-xs text-gold/70">معلّمك يتذكّر كل جلسة، كل خطأ صحّحته، وكل مهارة أتقنتها — هذا ما لا يفعله ChatGPT.</p>
-        </div>
+      <div className="relative min-h-screen">
+        {/* Background */}
+        <div className="absolute inset-0 bg-grid-fine opacity-25 pointer-events-none" />
+        <div className="absolute top-0 right-0 w-[500px] h-[400px] pointer-events-none"
+          style={{ background: "radial-gradient(ellipse, rgba(245,158,11,0.06) 0%, transparent 70%)", filter: "blur(60px)" }}
+        />
+        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] pointer-events-none"
+          style={{ background: "radial-gradient(ellipse, rgba(16,185,129,0.04) 0%, transparent 70%)", filter: "blur(60px)" }}
+        />
+
+      <div className="relative container mx-auto px-4 py-10 max-w-6xl">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-10"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-8 w-1 rounded-full" style={{ background: "linear-gradient(180deg, #F59E0B, #D97706)", boxShadow: "0 0 12px rgba(245,158,11,0.5)" }} />
+            <h1 className="text-3xl md:text-4xl font-black">لوحة القيادة</h1>
+          </div>
+          <p className="text-xs text-gold/70 pr-4">معلّمك يتذكّر كل جلسة، كل خطأ صحّحته، وكل مهارة أتقنتها — هذا ما لا يفعله ChatGPT.</p>
+        </motion.div>
 
         <AnimatePresence>
           {showMobileCodingWarning && (
@@ -900,6 +917,7 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </AppLayout>
   );

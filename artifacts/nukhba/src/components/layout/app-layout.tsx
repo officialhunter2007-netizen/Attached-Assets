@@ -1,29 +1,24 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth-context";
-import { LogOut, LogIn, Menu, User, MessageCircle } from "lucide-react";
+import { LogOut, LogIn, Menu, User, MessageCircle, Home, BookOpen, CreditCard, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
 import { PlatformChatWidget } from "@/components/platform-chat-widget";
 import { startActivityTracker, trackPageView } from "@/lib/activity-tracker";
+import { motion, AnimatePresence } from "framer-motion";
 
 type GemsState = {
   gemsBalance: number;
   dailyRemaining: number;
   gemsDailyLimit: number;
   hasActiveSub: boolean;
-  // For multi-subject summary: number of active subs. 1 for per-subject or legacy.
   activeSubjectCount?: number;
-  // Label shown beside the badge (e.g. subject name when inside a subject)
   label?: string | null;
 } | null;
 
 function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boolean }) {
-  // Show whenever the user has a time-active subscription, even if their gems
-  // balance has hit zero — in that case the badge flips to an alert state so
-  // the student understands they need to renew (rather than silently
-  // disappearing).
   if (!gems || !gems.hasActiveSub) return null;
 
   const balanceEmpty = gems.gemsBalance <= 0;
@@ -33,9 +28,6 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
   const alert = balanceEmpty || dailyExhausted || lowDaily || lowBalance;
 
   const multiSub = (gems.activeSubjectCount ?? 1) > 1;
-  // Tooltip always carries the same aggregate context (active subject count
-  // + total balance) regardless of state, with an extra renewal hint when
-  // the balance has been fully consumed.
   const subjectsPart = multiSub
     ? ` — لديك ${gems.activeSubjectCount} مادة نشطة`
     : (gems.label ? ` (${gems.label})` : "");
@@ -44,25 +36,27 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
     ? `${baseTooltip} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
     : baseTooltip;
 
-  // Inline scope label so the student knows which subscription this gems
-  // count belongs to (single subject → its name, multiple → count).
-  // Without this, a student with two active subjects sees one number and
-  // can't tell whether it's their "محاسبة" or "إدارة" wallet.
   const scopeLabel = multiSub
     ? `${gems.activeSubjectCount} مواد`
     : (gems.label ?? null);
 
-  // We always show "remaining / dailyLimit اليوم" so the format is
-  // consistent across states; the alert styling alone communicates the
-  // empty-balance situation.
   return (
     <Link href="/subscription">
-      <span
-        className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-colors whitespace-nowrap max-w-[260px]
-          ${compact ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"}
-          ${alert
-            ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse"
-            : "bg-gold/10 text-gold border border-gold/30 hover:bg-gold/20"}`}
+      <motion.span
+        whileHover={{ scale: 1.05 }}
+        className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-all whitespace-nowrap max-w-[260px] ${compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1.5 text-xs"}`}
+        style={alert ? {
+          background: "rgba(239,68,68,0.15)",
+          border: "1px solid rgba(239,68,68,0.4)",
+          color: "#F87171",
+          boxShadow: "0 0 12px rgba(239,68,68,0.2)",
+          animation: "neon-border-pulse 2s ease-in-out infinite",
+        } : {
+          background: "rgba(245,158,11,0.1)",
+          border: "1px solid rgba(245,158,11,0.3)",
+          color: "#F59E0B",
+          boxShadow: "0 0 10px rgba(245,158,11,0.15)",
+        }}
         title={tooltip}
       >
         💎
@@ -71,13 +65,13 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
           <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
         )}
         {scopeLabel && (
-          <span
-            className={`opacity-80 font-normal truncate max-w-[120px] border-r pr-1 mr-0.5 ${alert ? "border-red-500/40" : "border-gold/30"}`}
+          <span className="opacity-80 font-normal truncate max-w-[120px] border-r pr-1 mr-0.5"
+            style={{ borderColor: alert ? "rgba(239,68,68,0.4)" : "rgba(245,158,11,0.3)" }}
           >
             {scopeLabel}
           </span>
         )}
-      </span>
+      </motion.span>
     </Link>
   );
 }
@@ -85,20 +79,32 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
 function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: string | null; size?: number }) {
   if (src) {
     return (
-      <img
-        src={src}
-        alt={name || ""}
-        width={size}
-        height={size}
-        className="rounded-full border-2 border-gold/30 object-cover shrink-0"
-        referrerPolicy="no-referrer"
-      />
+      <div className="relative">
+        <img
+          src={src}
+          alt={name || ""}
+          width={size}
+          height={size}
+          className="rounded-full object-cover"
+          style={{
+            border: "2px solid rgba(245,158,11,0.4)",
+            boxShadow: "0 0 10px rgba(245,158,11,0.2)",
+          }}
+          referrerPolicy="no-referrer"
+        />
+        <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald border-2 border-background" />
+      </div>
     );
   }
   return (
     <div
-      className="rounded-full border-2 border-gold/30 bg-gold/10 flex items-center justify-center shrink-0"
-      style={{ width: size, height: size }}
+      className="rounded-full flex items-center justify-center"
+      style={{
+        width: size, height: size,
+        background: "rgba(245,158,11,0.1)",
+        border: "2px solid rgba(245,158,11,0.35)",
+        boxShadow: "0 0 10px rgba(245,158,11,0.15)",
+      }}
     >
       <User className="w-4 h-4 text-gold" />
     </div>
@@ -130,18 +136,48 @@ function sendBrowserNotification(title: string, body: string, url?: string) {
   }
 }
 
+function NavLink({ href, children, active }: { href: string; children: React.ReactNode; active: boolean }) {
+  return (
+    <Link href={href}>
+      <span
+        className="relative text-sm font-semibold transition-all duration-200 px-1 py-0.5"
+        style={{ color: active ? "#F59E0B" : "rgba(255,255,255,0.7)" }}
+      >
+        {children}
+        {active && (
+          <motion.div
+            layoutId="nav-indicator"
+            className="absolute -bottom-1 right-0 left-0 h-0.5 rounded-full"
+            style={{
+              background: "linear-gradient(90deg, transparent, #F59E0B, transparent)",
+              boxShadow: "0 0 6px rgba(245,158,11,0.6)",
+            }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          />
+        )}
+      </span>
+    </Link>
+  );
+}
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const prevUnreadRef = useRef(0);
   const [location] = useLocation();
   const [gems, setGems] = useState<GemsState>(null);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 10);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     if (user) requestNotificationPermission();
   }, [user]);
 
-  // Activity tracker — start once user is logged in, track route changes
   useEffect(() => {
     if (!user) return;
     startActivityTracker();
@@ -167,27 +203,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [user, location]);
 
-  // Fetch gems balance periodically + on demand after AI turns.
-  // ─ Inside /subject/:id/... → fetch per-subject endpoint for live accuracy.
-  // ─ Everywhere else (learn, dashboard, subscription …) → fetch the summary
-  //   endpoint which aggregates across all active subscriptions, so the badge
-  //   is visible on every page that has a header, not just the lesson screen.
   const currentSubjectId = (() => {
     const m = location.match(/^\/subject\/([^/?#]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   })();
+
   useEffect(() => {
     if (!user) { setGems(null); return; }
     const fetchGems = () => {
       if (currentSubjectId) {
-        // Inside a subject session — precise per-subject wallet
         const url = `/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(currentSubjectId)}`;
         fetch(url, { credentials: "include" })
           .then(r => r.ok ? r.json() : null)
           .then(d => {
             if (!d) return;
-            // Same fallback chain as the summary endpoint so the badge
-            // never displays a bare gem count without a scope label.
             const label =
               (typeof d.subjectName === "string" && d.subjectName.trim()) ||
               (typeof d.subjectId === "string" && d.subjectId.trim() && d.subjectId !== "all" ? d.subjectId : null) ||
@@ -204,16 +233,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
           })
           .catch(() => {});
       } else {
-        // Other pages — aggregate across all active subscriptions
         fetch("/api/subscriptions/gems-balance-summary", { credentials: "include" })
           .then(r => r.ok ? r.json() : null)
           .then(d => {
             if (!d || !d.hasActiveSub) { setGems(null); return; }
-            // Resolve a single-subject label so the badge shows "محاسبة"
-            // (or a code fallback) instead of just a number — students
-            // need to know WHICH wallet the gems belong to.
-            // Falls back through: subjectName → subjectId → "اشتراكي"
-            // for legacy rows where subject_name was never written.
             let label: string | null = null;
             if (d.activeSubjectCount === 1) {
               const w = d.worstSubject;
@@ -223,7 +246,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   (typeof w.subjectId === "string" && w.subjectId.trim() && w.subjectId !== "all" ? w.subjectId : null) ||
                   "اشتراكي";
               } else {
-                // legacy global gold wallet (source: "legacy")
                 label = "كل المواد";
               }
             }
@@ -241,7 +263,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
     };
     fetchGems();
     const interval = setInterval(fetchGems, 10000);
-    // Immediate refresh triggered by subject page after each AI turn
     window.addEventListener("nukhba:gems-changed", fetchGems);
     return () => {
       clearInterval(interval);
@@ -278,121 +299,211 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   const loginUrl = "/api/auth/google";
 
-  const NavLinks = () => (
-    <>
-      <Link href="/learn" className="text-foreground hover:text-gold transition-colors font-medium">تعلّم</Link>
-      <Link href="/dashboard" className="text-foreground hover:text-gold transition-colors font-medium">لوحتي</Link>
-      <Link href="/subscription" className="text-foreground hover:text-gold transition-colors font-medium">الاشتراك</Link>
-      <Link href="/support" className="text-foreground hover:text-gold transition-colors font-medium relative inline-flex items-center gap-1">
-        <MessageCircle className="w-4 h-4" />
-        <span>الدعم</span>
-        {unreadCount > 0 && (
-          <span className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center animate-pulse">{unreadCount}</span>
-        )}
-      </Link>
-      {user?.role === 'admin' && (
-        <Link href="/admin" className="text-foreground hover:text-gold transition-colors font-medium">إدارة</Link>
-      )}
-    </>
-  );
+  const navItems = [
+    { href: "/learn", label: "تعلّم" },
+    { href: "/dashboard", label: "لوحتي" },
+    { href: "/subscription", label: "الاشتراك" },
+    ...(user?.role === 'admin' ? [{ href: "/admin", label: "إدارة" }] : []),
+  ];
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground font-sans">
-      <header className="sticky top-0 z-50 w-full border-b border-border/40 glass">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href={user ? "/learn" : "/"}>
-            <NukhbaLogo size="md" />
-          </Link>
 
-          {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center gap-6">
-            <NavLinks />
-            <div className="h-6 w-px bg-border/50 mx-2" />
-            {user ? (
-              <div className="flex items-center gap-3">
-                <GemsBadge gems={gems} />
-                <UserAvatar src={user.profileImage} name={user.displayName} size={34} />
-                <span className="text-sm text-muted-foreground max-w-[140px] truncate">{user.displayName || user.email}</span>
-                <button
-                  onClick={logout}
-                  className="flex items-center gap-1.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 px-2.5 py-1.5 rounded-lg transition-colors"
-                  title="تسجيل الخروج"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>خروج</span>
-                </button>
-              </div>
-            ) : (
-              <Button asChild size="sm" className="gradient-gold text-primary-foreground font-bold">
-                <a href={loginUrl}>
-                  <LogIn className="w-4 h-4 ml-2" />
-                  تسجيل الدخول
-                </a>
-              </Button>
-            )}
-          </nav>
+      {/* ── HEADER ── */}
+      <motion.header
+        className="sticky top-0 z-50 w-full"
+        initial={{ y: -10, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.4 }}
+      >
+        <div
+          className="w-full border-b transition-all duration-300"
+          style={{
+            background: scrolled
+              ? "rgba(6,9,16,0.92)"
+              : "rgba(8,12,20,0.8)",
+            backdropFilter: "blur(20px) saturate(180%)",
+            borderColor: scrolled ? "rgba(245,158,11,0.12)" : "rgba(255,255,255,0.06)",
+            boxShadow: scrolled ? "0 4px 30px rgba(0,0,0,0.4), 0 1px 0 rgba(245,158,11,0.08)" : "none",
+          }}
+        >
+          <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+            <Link href={user ? "/learn" : "/"}>
+              <motion.div whileHover={{ scale: 1.03 }} transition={{ type: "spring", stiffness: 400 }}>
+                <NukhbaLogo size="md" />
+              </motion.div>
+            </Link>
 
-          {/* Mobile Nav */}
-          <div className="md:hidden flex items-center gap-2">
-            {user && (
-              <>
-                <GemsBadge gems={gems} compact />
-                <UserAvatar src={user.profileImage} name={user.displayName} size={30} />
-              </>
-            )}
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <Menu className="w-6 h-6" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="glass-gold border-l-border">
-                <div className="flex flex-col gap-6 mt-8">
-                  {user && (
-                    <div className="flex items-center gap-3 pb-2">
-                      <UserAvatar src={user.profileImage} name={user.displayName} size={44} />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-foreground truncate">{user.displayName || "مستخدم"}</p>
-                        <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-                      </div>
-                    </div>
-                  )}
-                  <NavLinks />
+            {/* Desktop nav */}
+            <nav className="hidden md:flex items-center gap-7">
+              {navItems.map(item => (
+                <NavLink key={item.href} href={item.href} active={location.startsWith(item.href)}>
+                  {item.label}
+                </NavLink>
+              ))}
+              {user && (
+                <NavLink href="/support" active={location.startsWith("/support")}>
+                  <span className="relative inline-flex items-center gap-1">
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    الدعم
+                    <AnimatePresence>
+                      {unreadCount > 0 && (
+                        <motion.span
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          exit={{ scale: 0 }}
+                          className="absolute -top-2.5 -left-3 w-5 h-5 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center"
+                          style={{ boxShadow: "0 0 10px rgba(239,68,68,0.5)" }}
+                        >
+                          {unreadCount}
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </span>
+                </NavLink>
+              )}
+            </nav>
+
+            {/* Desktop right section */}
+            <div className="hidden md:flex items-center gap-3">
+              {user ? (
+                <>
                   <GemsBadge gems={gems} />
-                  <div className="h-px w-full bg-border/50" />
-                  {user ? (
-                    <Button variant="destructive" onClick={logout} className="w-full justify-start">
-                      <LogOut className="w-4 h-4 ml-2" />
-                      تسجيل الخروج
+                  <div className="h-6 w-px bg-white/10 mx-1" />
+                  <UserAvatar src={user.profileImage} name={user.displayName} size={34} />
+                  <span className="text-sm text-muted-foreground max-w-[130px] truncate hidden lg:block">
+                    {user.displayName || user.email}
+                  </span>
+                  <motion.button
+                    onClick={logout}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 px-2.5 py-1.5 rounded-lg transition-colors"
+                    style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)" }}
+                    title="تسجيل الخروج"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>خروج</span>
+                  </motion.button>
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Link href="/login">
+                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-gold font-medium">
+                      دخول
                     </Button>
-                  ) : (
-                    <Button asChild className="w-full gradient-gold text-primary-foreground font-bold justify-start">
+                  </Link>
+                  <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
+                    <Button asChild size="sm" className="gradient-gold text-primary-foreground font-bold rounded-full px-5"
+                      style={{ boxShadow: "0 0 20px rgba(245,158,11,0.25)" }}
+                    >
                       <a href={loginUrl}>
                         <LogIn className="w-4 h-4 ml-2" />
                         تسجيل الدخول
                       </a>
                     </Button>
-                  )}
+                  </motion.div>
                 </div>
-              </SheetContent>
-            </Sheet>
+              )}
+            </div>
+
+            {/* Mobile nav */}
+            <div className="md:hidden flex items-center gap-2">
+              {user && (
+                <>
+                  <GemsBadge gems={gems} compact />
+                  <UserAvatar src={user.profileImage} name={user.displayName} size={30} />
+                </>
+              )}
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon" className="rounded-xl" style={{ background: "rgba(255,255,255,0.05)" }}>
+                    <Menu className="w-5 h-5" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent
+                  side="right"
+                  className="border-l"
+                  style={{
+                    background: "rgba(6,9,16,0.97)",
+                    backdropFilter: "blur(24px)",
+                    borderColor: "rgba(245,158,11,0.15)",
+                  }}
+                >
+                  <div className="flex flex-col gap-5 mt-8">
+                    {user && (
+                      <div className="flex items-center gap-3 pb-4 border-b border-white/8">
+                        <UserAvatar src={user.profileImage} name={user.displayName} size={44} />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-foreground truncate">{user.displayName || "مستخدم"}</p>
+                          <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-1">
+                      {navItems.map(item => (
+                        <Link key={item.href} href={item.href}>
+                          <div className={`px-4 py-3 rounded-xl text-sm font-semibold transition-all ${location.startsWith(item.href) ? "bg-gold/10 text-gold border border-gold/20" : "text-foreground/80 hover:bg-white/5"}`}>
+                            {item.label}
+                          </div>
+                        </Link>
+                      ))}
+                      {user && (
+                        <Link href="/support">
+                          <div className={`px-4 py-3 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 ${location.startsWith("/support") ? "bg-gold/10 text-gold border border-gold/20" : "text-foreground/80 hover:bg-white/5"}`}>
+                            <MessageCircle className="w-4 h-4" />
+                            الدعم
+                            {unreadCount > 0 && (
+                              <span className="w-5 h-5 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center mr-auto">{unreadCount}</span>
+                            )}
+                          </div>
+                        </Link>
+                      )}
+                    </div>
+
+                    <GemsBadge gems={gems} />
+
+                    <div className="h-px w-full bg-white/8" />
+
+                    {user ? (
+                      <Button variant="destructive" onClick={logout} className="w-full justify-start rounded-xl">
+                        <LogOut className="w-4 h-4 ml-2" />
+                        تسجيل الخروج
+                      </Button>
+                    ) : (
+                      <Button asChild className="w-full gradient-gold text-primary-foreground font-bold justify-start rounded-xl"
+                        style={{ boxShadow: "0 0 20px rgba(245,158,11,0.2)" }}
+                      >
+                        <a href={loginUrl}>
+                          <LogIn className="w-4 h-4 ml-2" />
+                          تسجيل الدخول
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </div>
           </div>
         </div>
-      </header>
+      </motion.header>
 
       <main className="flex-1 w-full relative">
         {children}
       </main>
 
-      {/* Floating platform help chat — hidden inside learning sessions */}
       {user && !location.startsWith("/subject") && <PlatformChatWidget />}
 
-      <footer className="border-t border-border/40 py-8 mt-auto">
+      {/* ── FOOTER ── */}
+      <footer className="border-t border-white/6 py-8 mt-auto"
+        style={{ background: "rgba(5,8,14,0.8)" }}
+      >
         <div className="container mx-auto px-4 text-center text-muted-foreground">
-          <div className="flex justify-center items-center mb-4">
+          <div className="flex justify-center items-center mb-3">
             <NukhbaLogo size="sm" />
           </div>
-          <p>جميع الحقوق محفوظة {new Date().getFullYear()} © نُخبة</p>
+          <p className="text-sm">جميع الحقوق محفوظة {new Date().getFullYear()} © نُخبة</p>
         </div>
       </footer>
     </div>

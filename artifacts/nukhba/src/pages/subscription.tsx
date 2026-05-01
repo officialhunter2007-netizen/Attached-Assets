@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Crown, CreditCard, Key, CheckCircle2, Zap, Star, Gem, Clock, AlertTriangle, CheckCircle, ArrowRight, ChevronDown, ShieldCheck, HelpCircle, PhoneCall, Send, Banknote, UserCheck, ClipboardCheck, Check, X, Sparkles, MessageCircle } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 
 
 type PlanKey = "bronze" | "silver" | "gold";
@@ -436,16 +437,70 @@ export default function Subscription() {
 
   return (
     <AppLayout>
-      <div className="container mx-auto px-4 py-12 max-w-5xl">
-        <div className="text-center mb-12">
-          <Crown className="w-16 h-16 text-gold mx-auto mb-4" />
-          <h1 className="text-4xl font-black mb-4">اشترك في نُخبة</h1>
-          <p className="text-xl text-muted-foreground">
+      <div className="relative">
+        {/* Background */}
+        <div className="absolute inset-0 bg-grid-fine opacity-25 pointer-events-none" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[400px] pointer-events-none"
+          style={{ background: "radial-gradient(ellipse, rgba(245,158,11,0.08) 0%, transparent 70%)", filter: "blur(60px)" }}
+        />
+        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] pointer-events-none"
+          style={{ background: "radial-gradient(ellipse, rgba(16,185,129,0.05) 0%, transparent 70%)", filter: "blur(60px)" }}
+        />
+
+      <div className="relative container mx-auto px-4 py-14 max-w-5xl">
+        <div className="text-center mb-14">
+          <motion.div
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: "spring", stiffness: 200, damping: 15 }}
+            className="relative inline-flex mb-5"
+          >
+            <div className="absolute inset-0 blur-xl rounded-full" style={{ background: "rgba(245,158,11,0.4)", transform: "scale(1.5)" }} />
+            <div className="relative w-20 h-20 rounded-2xl flex items-center justify-center"
+              style={{
+                background: "linear-gradient(135deg, rgba(245,158,11,0.2), rgba(217,119,6,0.1))",
+                border: "1px solid rgba(245,158,11,0.4)",
+                boxShadow: "0 0 30px rgba(245,158,11,0.3), inset 0 1px 0 rgba(255,255,255,0.1)",
+              }}
+            >
+              <Crown className="w-9 h-9 text-gold" />
+            </div>
+          </motion.div>
+
+          <motion.h1
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="text-4xl md:text-5xl font-black mb-4"
+          >
+            اشترك في{" "}
+            <span className="text-transparent bg-clip-text"
+              style={{ backgroundImage: "linear-gradient(135deg, #FDE68A, #F59E0B, #D97706)" }}
+            >
+              نُخبة
+            </span>
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed"
+          >
             اشتراك مستقل لكل تخصص — اختر مادتك أولاً، ثم الباقة المناسبة لك
-          </p>
-          <p className="text-sm text-gold/70 mt-3 max-w-2xl mx-auto leading-relaxed">
-            أنت لا تشترك في "محادثة" — أنت تشترك في معلّم متخصّص يتذكّر تقدّمك، يبني خططاً ومختبرات تطبيقية، ويراجع عملك. ميزات لا تجدها في ChatGPT أو DeepSeek مهما دفعت.
-          </p>
+          </motion.p>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+            className="text-sm mt-3 max-w-2xl mx-auto leading-relaxed px-4 py-3 rounded-2xl"
+            style={{
+              background: "rgba(245,158,11,0.06)",
+              border: "1px solid rgba(245,158,11,0.15)",
+              color: "rgba(253,230,138,0.85)",
+            }}
+          >
+            ✨ أنت لا تشترك في "محادثة" — أنت تشترك في معلّم متخصّص يتذكّر تقدّمك، يبني خططاً ومختبرات تطبيقية، ويراجع عملك.
+          </motion.p>
         </div>
 
         {hasPendingRequest && !submitted && (
@@ -1242,6 +1297,7 @@ export default function Subscription() {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </AppLayout>
   );

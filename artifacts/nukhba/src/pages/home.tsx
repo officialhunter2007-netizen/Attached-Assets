@@ -1,165 +1,647 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { motion } from "framer-motion";
-import { BookOpen, GraduationCap, Terminal, Sparkles, Zap, Shield, Crown, Check, X } from "lucide-react";
+import { motion, useInView } from "framer-motion";
+import { BookOpen, GraduationCap, Terminal, Sparkles, Zap, Shield, Crown, Check, X, Brain, Cpu, Star, ArrowLeft, ChevronDown } from "lucide-react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
+import { useRef, useEffect, useState } from "react";
+
+/* ─── Animated counter ─── */
+function AnimatedNumber({ target, suffix = "" }: { target: number; suffix?: string }) {
+  const [count, setCount] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true });
+  useEffect(() => {
+    if (!inView) return;
+    let start = 0;
+    const duration = 1800;
+    const step = 16;
+    const increment = target / (duration / step);
+    const timer = setInterval(() => {
+      start += increment;
+      if (start >= target) { setCount(target); clearInterval(timer); }
+      else setCount(Math.floor(start));
+    }, step);
+    return () => clearInterval(timer);
+  }, [inView, target]);
+  return <div ref={ref}>{count.toLocaleString("ar-EG")}{suffix}</div>;
+}
+
+/* ─── Floating orb ─── */
+function FloatingOrb({ className, delay = 0, size = 300 }: { className?: string; delay?: number; size?: number }) {
+  return (
+    <div
+      className={`absolute rounded-full pointer-events-none ${className}`}
+      style={{
+        width: size,
+        height: size,
+        filter: "blur(80px)",
+        animationDelay: `${delay}s`,
+      }}
+    />
+  );
+}
+
+/* ─── 3D Floating Icon ─── */
+function FloatingIcon({ icon: Icon, color, size = 40, delay = 0, x = 0, y = 0 }: {
+  icon: React.ElementType; color: string; size?: number; delay?: number; x?: number; y?: number;
+}) {
+  return (
+    <motion.div
+      className="absolute pointer-events-none"
+      style={{ left: x, top: y }}
+      animate={{
+        y: [0, -14, 0],
+        rotate: [0, 5, -5, 0],
+        scale: [1, 1.06, 1],
+      }}
+      transition={{ duration: 5 + delay, repeat: Infinity, ease: "easeInOut", delay }}
+    >
+      <div
+        className="rounded-2xl flex items-center justify-center"
+        style={{
+          width: size,
+          height: size,
+          background: `${color}15`,
+          border: `1px solid ${color}40`,
+          boxShadow: `0 0 20px ${color}30, 0 0 40px ${color}15, inset 0 1px 0 ${color}20`,
+        }}
+      >
+        <Icon style={{ width: size * 0.45, height: size * 0.45, color }} />
+      </div>
+    </motion.div>
+  );
+}
+
+/* ─── Particle dots ─── */
+function ParticleDots() {
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      {Array.from({ length: 24 }).map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute rounded-full"
+          style={{
+            width: Math.random() * 3 + 1,
+            height: Math.random() * 3 + 1,
+            left: `${Math.random() * 100}%`,
+            top: `${Math.random() * 100}%`,
+            background: i % 3 === 0 ? "#F59E0B" : i % 3 === 1 ? "#10B981" : "#8B5CF6",
+            opacity: 0.4 + Math.random() * 0.4,
+          }}
+          animate={{
+            y: [0, -30, 0],
+            opacity: [0.3, 0.8, 0.3],
+            scale: [1, 1.5, 1],
+          }}
+          transition={{
+            duration: 3 + Math.random() * 4,
+            repeat: Infinity,
+            delay: Math.random() * 4,
+            ease: "easeInOut",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ─── Feature card ─── */
+function FeatureCard({ icon: Icon, title, desc, color, delay }: {
+  icon: React.ElementType; title: string; desc: string; color: string; delay: number;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.6, delay }}
+      whileHover={{ y: -6, scale: 1.02 }}
+      className="relative p-7 rounded-3xl group overflow-hidden"
+      style={{
+        background: "rgba(10,13,20,0.7)",
+        border: `1px solid ${color}20`,
+        boxShadow: `0 4px 30px rgba(0,0,0,0.3), inset 0 1px 0 ${color}10`,
+      }}
+    >
+      {/* Corner glow */}
+      <div
+        className="absolute top-0 right-0 w-24 h-24 rounded-bl-full opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+        style={{ background: `radial-gradient(circle at top right, ${color}20, transparent 70%)` }}
+      />
+      {/* Scanline effect */}
+      <div
+        className="absolute inset-0 opacity-0 group-hover:opacity-30 transition-opacity duration-500 rounded-3xl"
+        style={{ background: `linear-gradient(0deg, transparent 50%, ${color}05 50%)`, backgroundSize: "100% 4px" }}
+      />
+
+      <div
+        className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5 relative"
+        style={{
+          background: `${color}12`,
+          border: `1px solid ${color}30`,
+          boxShadow: `0 0 20px ${color}20, inset 0 1px 0 ${color}20`,
+        }}
+      >
+        <Icon style={{ width: 28, height: 28, color }} />
+        <div
+          className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+          style={{ boxShadow: `0 0 20px ${color}50` }}
+        />
+      </div>
+
+      <h4 className="text-lg font-bold mb-3" style={{ color: `${color}` }}>
+        {title}
+      </h4>
+      <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+    </motion.div>
+  );
+}
+
+/* ─── Stat card ─── */
+function StatCard({ value, label, color, suffix = "", delay }: {
+  value: number; label: string; color: string; suffix?: string; delay: number;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.8 }}
+      whileInView={{ opacity: 1, scale: 1 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.5, delay, type: "spring" }}
+      className="text-center relative"
+    >
+      <div
+        className="text-3xl md:text-5xl font-black mb-2 tabular-nums"
+        style={{
+          color,
+          textShadow: `0 0 20px ${color}70, 0 0 40px ${color}40`,
+        }}
+      >
+        <AnimatedNumber target={value} suffix={suffix} />
+      </div>
+      <div className="text-xs md:text-sm text-muted-foreground font-medium">{label}</div>
+    </motion.div>
+  );
+}
 
 export default function Home() {
+  const heroRef = useRef<HTMLElement>(null);
+
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-background text-foreground font-sans selection:bg-gold/30">
-      <header className="fixed top-0 w-full z-50 glass">
-        <div className="container mx-auto px-4 h-16 md:h-20 flex items-center justify-between">
-          <NukhbaLogo size="md" />
+    <div className="min-h-[100dvh] flex flex-col bg-background text-foreground font-sans selection:bg-gold/30 overflow-x-hidden">
+
+      {/* ── HEADER ── */}
+      <header className="fixed top-0 w-full z-50">
+        <div className="relative">
+          <div className="absolute inset-0 glass-dark border-b border-white/5" />
+          <div className="relative container mx-auto px-4 h-16 md:h-20 flex items-center justify-between">
+            <NukhbaLogo size="md" />
+            <div className="flex items-center gap-3">
+              <Link href="/login">
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-gold transition-colors font-medium">
+                  دخول
+                </Button>
+              </Link>
+              <Link href="/register">
+                <Button size="sm" className="gradient-gold text-primary-foreground font-bold rounded-full px-5 shadow-lg shadow-gold/20 hover:shadow-gold/40 transition-shadow">
+                  ابدأ مجاناً
+                </Button>
+              </Link>
+            </div>
+          </div>
         </div>
       </header>
-      <main className="flex-1 pt-24 md:pt-32 pb-12 md:pb-20">
-        {/* Hero */}
-        <section className="container mx-auto px-4 text-center mb-16 md:mb-32 relative">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] md:w-[600px] h-[300px] md:h-[600px] bg-gold/10 rounded-full blur-[80px] md:blur-[120px] -z-10 pointer-events-none" />
-          
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            className="max-w-4xl mx-auto"
-          >
-            <h1 className="text-4xl sm:text-5xl md:text-7xl font-black mb-4 md:mb-6 leading-tight">
-              تعلّم بطريقة{" "}
-              <span className="relative inline-block">
-                <span className="text-transparent bg-clip-text bg-gradient-to-l from-amber-300 via-yellow-400 to-orange-400 animate-pulse drop-shadow-[0_0_30px_rgba(245,158,11,0.8)]">
-                  مختلفة تماماً
-                </span>
-                <span className="absolute inset-0 text-transparent bg-clip-text bg-gradient-to-l from-amber-300 via-yellow-400 to-orange-400 blur-sm opacity-60 select-none" aria-hidden="true">
-                  مختلفة تماماً
-                </span>
-              </span>
-            </h1>
-            <p className="text-base md:text-xl lg:text-2xl text-muted-foreground mb-8 md:mb-10 leading-relaxed max-w-2xl mx-auto">
-              منصة نُخبة توفر لك مسارات تعليمية مخصصة بالذكاء الاصطناعي لتناسب مستواك وطموحك.
-            </p>
-            
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 md:gap-4 mb-12 md:mb-16">
-              <Link href="/register" className="w-full sm:w-auto">
-                <Button size="lg" className="w-full sm:w-auto gradient-gold text-primary-foreground font-bold text-base md:text-lg h-12 md:h-14 px-8 md:px-10 rounded-full shadow-[0_0_40px_rgba(245,158,11,0.4)] hover:shadow-[0_0_60px_rgba(245,158,11,0.6)] transition-all">
-                  انضم للنخبة الآن
-                </Button>
-              </Link>
-              <Link href="#pricing" className="w-full sm:w-auto">
-                <Button size="lg" variant="outline" className="w-full sm:w-auto h-12 md:h-14 px-8 md:px-10 rounded-full border-gold/50 text-gold hover:bg-gold/10 font-bold text-base md:text-lg transition-all">
-                  عرض الباقات
-                </Button>
-              </Link>
-            </div>
 
+      <main className="flex-1">
+
+        {/* ══════════════════════════════════════
+            HERO SECTION
+        ══════════════════════════════════════ */}
+        <section ref={heroRef} className="relative min-h-[100dvh] flex flex-col items-center justify-center pt-20 pb-12 overflow-hidden aurora-bg">
+          
+          {/* Background grid */}
+          <div className="absolute inset-0 bg-grid opacity-60" />
+          
+          {/* Gradient background blobs */}
+          <FloatingOrb className="bg-amber-400/8 nk-float-slow top-[15%] left-[10%]" delay={0} size={400} />
+          <FloatingOrb className="bg-emerald-400/6 nk-float-slow top-[50%] right-[5%]" delay={2} size={350} />
+          <FloatingOrb className="bg-purple-500/5 bottom-[10%] left-[30%]" delay={4} size={300} />
+
+          {/* Floating 3D icons — hidden on small screens */}
+          <div className="absolute inset-0 hidden lg:block pointer-events-none">
+            <FloatingIcon icon={Brain}   color="#F59E0B" size={52} delay={0}   x="8%"  y="25%" />
+            <FloatingIcon icon={Cpu}     color="#10B981" size={44} delay={1.5} x="88%" y="30%" />
+            <FloatingIcon icon={Star}    color="#8B5CF6" size={38} delay={2.5} x="12%" y="65%" />
+            <FloatingIcon icon={Zap}     color="#06B6D4" size={46} delay={0.8} x="85%" y="62%" />
+            <FloatingIcon icon={BookOpen} color="#F59E0B" size={40} delay={3}  x="5%"  y="45%" />
+            <FloatingIcon icon={Shield}  color="#10B981" size={36} delay={1.2} x="92%" y="48%" />
+          </div>
+
+          {/* Particles */}
+          <ParticleDots />
+
+          {/* Hero content */}
+          <div className="relative z-10 container mx-auto px-4 text-center max-w-5xl">
+
+            {/* Badge */}
             <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 0.6 }}
-              className="mb-8 md:mb-10 text-center text-sm text-muted-foreground"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.6 }}
+              className="inline-flex items-center gap-2 mb-8 px-4 py-2 rounded-full text-sm font-bold"
+              style={{
+                background: "rgba(245,158,11,0.1)",
+                border: "1px solid rgba(245,158,11,0.3)",
+                boxShadow: "0 0 20px rgba(245,158,11,0.15), 0 0 40px rgba(245,158,11,0.07)",
+                color: "#F59E0B",
+              }}
             >
-              يمكنك تصفح المنصة من الهاتف أو الكمبيوتر
+              <motion.span
+                animate={{ rotate: [0, 15, -15, 0] }}
+                transition={{ duration: 2, repeat: Infinity, repeatDelay: 2 }}
+              >
+                ✨
+              </motion.span>
+              منصة تعليمية ذكية مصممة لليمن
+              <motion.span
+                animate={{ rotate: [0, -15, 15, 0] }}
+                transition={{ duration: 2, repeat: Infinity, repeatDelay: 2, delay: 0.3 }}
+              >
+                🇾🇪
+              </motion.span>
             </motion.div>
 
-            <div className="grid grid-cols-3 gap-3 md:gap-8 max-w-3xl mx-auto border-t border-white/10 pt-8 md:pt-10">
-              <div>
-                <div className="text-2xl md:text-4xl font-bold text-emerald mb-1 md:mb-2">١٠٠٠+</div>
-                <div className="text-xs md:text-sm text-muted-foreground">طالب مستفيد</div>
-              </div>
-              <div>
-                <div className="text-2xl md:text-4xl font-bold text-gold mb-1 md:mb-2">٥٠٠+</div>
-                <div className="text-xs md:text-sm text-muted-foreground">درس تفاعلي</div>
-              </div>
-              <div>
-                <div className="text-2xl md:text-4xl font-bold text-white mb-1 md:mb-2">2
-</div>
-                <div className="text-xs md:text-sm text-muted-foreground">أقسام رئيسية</div>
-              </div>
-            </div>
+            {/* Title */}
+            <motion.h1
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.2 }}
+              className="text-5xl sm:text-6xl md:text-8xl font-black mb-6 leading-[1.1] tracking-tight"
+            >
+              تعلّم بطريقة
+              <br />
+              <span className="relative inline-block">
+                <span
+                  className="text-transparent bg-clip-text"
+                  style={{
+                    backgroundImage: "linear-gradient(135deg, #FDE68A 0%, #F59E0B 45%, #D97706 80%, #92400E 100%)",
+                    filter: "drop-shadow(0 0 30px rgba(245,158,11,0.6))",
+                  }}
+                >
+                  مختلفة تماماً
+                </span>
+                {/* Neon underline */}
+                <motion.div
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ duration: 0.8, delay: 1 }}
+                  className="absolute -bottom-2 right-0 left-0 h-1 rounded-full"
+                  style={{
+                    background: "linear-gradient(90deg, transparent, #F59E0B, #FDE68A, #F59E0B, transparent)",
+                    boxShadow: "0 0 12px #F59E0B, 0 0 24px rgba(245,158,11,0.6)",
+                    transformOrigin: "right",
+                  }}
+                />
+              </span>
+            </motion.h1>
+
+            {/* Description */}
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.4 }}
+              className="text-lg md:text-2xl text-muted-foreground mb-10 leading-relaxed max-w-3xl mx-auto"
+            >
+              معلّم ذكاء اصطناعي يعرفك شخصياً —{" "}
+              <span className="text-white font-semibold">يبني خطتك</span>،
+              {" "}<span className="text-white font-semibold">يتذكر تقدمك</span>،
+              {" "}ويرافقك خطوة بخطوة حتى الإتقان.
+            </motion.p>
+
+            {/* CTA buttons */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.6 }}
+              className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14"
+            >
+              <Link href="/register" className="w-full sm:w-auto">
+                <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
+                  <Button
+                    size="lg"
+                    className="w-full sm:w-auto gradient-gold text-primary-foreground font-black text-lg h-14 px-10 rounded-2xl relative overflow-hidden group"
+                    style={{
+                      boxShadow: "0 0 30px rgba(245,158,11,0.4), 0 4px 20px rgba(245,158,11,0.3)",
+                    }}
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      انضم للنخبة الآن
+                      <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+                    </span>
+                    <div className="absolute inset-0 bg-gradient-to-l from-yellow-300/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </Button>
+                </motion.div>
+              </Link>
+              <Link href="#pricing" className="w-full sm:w-auto">
+                <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="w-full sm:w-auto h-14 px-10 rounded-2xl font-bold text-lg transition-all"
+                    style={{
+                      borderColor: "rgba(245,158,11,0.4)",
+                      color: "#F59E0B",
+                      background: "rgba(245,158,11,0.06)",
+                    }}
+                  >
+                    استعرض الباقات
+                  </Button>
+                </motion.div>
+              </Link>
+            </motion.div>
+
+            {/* Stats row */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.8 }}
+              className="grid grid-cols-3 gap-4 md:gap-10 max-w-2xl mx-auto pt-10 border-t border-white/8"
+            >
+              <StatCard value={1000} suffix="+" label="طالب مستفيد" color="#F59E0B" delay={0.9} />
+              <StatCard value={500} suffix="+" label="درس تفاعلي" color="#10B981" delay={1.0} />
+              <StatCard value={15} suffix="+" label="تخصص دراسي" color="#8B5CF6" delay={1.1} />
+            </motion.div>
+          </div>
+
+          {/* Scroll indicator */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.5 }}
+            className="absolute bottom-8 left-1/2 -translate-x-1/2"
+          >
+            <motion.div
+              animate={{ y: [0, 8, 0] }}
+              transition={{ duration: 1.8, repeat: Infinity }}
+              className="text-muted-foreground/40"
+            >
+              <ChevronDown className="w-6 h-6" />
+            </motion.div>
           </motion.div>
         </section>
 
-        {/* Sections */}
-        <section className="container mx-auto px-4 mb-16 md:mb-32">
-          <div className="grid grid-cols-2 gap-4 md:gap-6 max-w-3xl mx-auto">
-            <motion.div whileHover={{ y: -5 }} className="glass-emerald p-6 md:p-8 rounded-3xl relative overflow-hidden group nk-fade-up nk-stagger-1">
-              <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-emerald/20 rounded-bl-full -z-10 group-hover:scale-150 transition-transform duration-500" />
-              <GraduationCap className="w-10 h-10 md:w-12 md:h-12 text-emerald mb-4 md:mb-6" />
-              <h3 className="text-xl md:text-2xl font-bold mb-2 md:mb-4">الجامعي</h3>
-              <p className="text-sm md:text-base text-muted-foreground">مسارات مخصصة لتخصصات تقنية المعلومات، الهندسة، وإدارة الأعمال وغيره.</p>
-            </motion.div>
-            
-            <motion.div whileHover={{ y: -5 }} className="glass p-6 md:p-8 rounded-3xl border-blue-500/20 relative overflow-hidden group nk-fade-up nk-stagger-2">
-              <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-blue-500/20 rounded-bl-full -z-10 group-hover:scale-150 transition-transform duration-500" />
-              <Terminal className="w-10 h-10 md:w-12 md:h-12 text-blue-400 mb-4 md:mb-6" />
-              <h3 className="text-xl md:text-2xl font-bold mb-2 md:mb-4">المهارات</h3>
-              <p className="text-sm md:text-base text-muted-foreground">تعلم البرمجة، تطوير الويب، والأمن السيبراني وغيره مع بيئة تطبيق عملية مدمجة.</p>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* Why Nukhba */}
-        <section className="bg-card/50 py-16 md:py-32 border-y border-white/5">
-          <div className="container mx-auto px-4">
-            <div className="text-center mb-10 md:mb-16">
-              <h2 className="text-3xl md:text-4xl font-bold mb-3 md:mb-4">لماذا <span className="text-gold">نُخبة</span>؟</h2>
-              <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto">نستخدم أحدث تقنيات الذكاء الاصطناعي لتقديم تجربة تعليمية لا مثيل لها</p>
-            </div>
-            
-            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-8 md:gap-12">
-              <div className="text-center">
-                <div className="w-16 h-16 md:w-20 md:h-20 mx-auto rounded-2xl glass-gold flex items-center justify-center mb-4 md:mb-6">
-                  <Sparkles className="w-8 h-8 md:w-10 md:h-10 text-gold" />
-                </div>
-                <h4 className="text-lg md:text-xl font-bold mb-2 md:mb-3">خطة مخصصة لك</h4>
-                <p className="text-sm text-muted-foreground">يبني الذكاء الاصطناعي خطة دراسية تناسب مستواك وسرعة تعلمك بدقة متناهية.</p>
-              </div>
-              <div className="text-center">
-                <div className="w-16 h-16 md:w-20 md:h-20 mx-auto rounded-2xl glass flex border-white/10 items-center justify-center mb-4 md:mb-6">
-                  <Zap className="w-8 h-8 md:w-10 md:h-10 text-white" />
-                </div>
-                <h4 className="text-lg md:text-xl font-bold mb-2 md:mb-3">تعلم تفاعلي</h4>
-                <p className="text-sm text-muted-foreground">لست مستمعاً فقط. ناقش، اسأل، وحل التحديات مع معلمك الذكي في أي وقت.</p>
-              </div>
-              <div className="text-center sm:col-span-2 md:col-span-1">
-                <div className="w-16 h-16 md:w-20 md:h-20 mx-auto rounded-2xl glass flex border-blue-500/20 items-center justify-center mb-4 md:mb-6">
-                  <Terminal className="w-8 h-8 md:w-10 md:h-10 text-blue-400" />
-                </div>
-                <h4 className="text-lg md:text-xl font-bold mb-2 md:mb-3">بيئة تطبيق مدمجة</h4>
-                <p className="text-sm text-muted-foreground">طبق ما تعلمته في البرمجة مباشرة داخل المنصة دون الحاجة لإعداد أي برامج.</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Comparison vs ChatGPT/DeepSeek */}
-        <section className="container mx-auto px-4 py-16 md:py-24">
-          <div className="text-center mb-8 md:mb-12">
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black flex items-center justify-center gap-3 mb-3">
-              <Sparkles className="w-7 h-7 text-gold" />
-              لماذا نُخبة وليس <span className="text-gold">ChatGPT</span> أو <span className="text-gold">DeepSeek</span>؟
+        {/* ══════════════════════════════════════
+            SECTIONS
+        ══════════════════════════════════════ */}
+        <section className="container mx-auto px-4 py-20 md:py-32">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="text-center mb-16"
+          >
+            <h2 className="text-3xl md:text-5xl font-black mb-4">
+              اختر <span className="text-transparent bg-clip-text" style={{ backgroundImage: "linear-gradient(135deg, #F59E0B, #10B981)" }}>مسارك</span>
             </h2>
-            <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              المساعدات العامة ممتازة للأسئلة العابرة، لكنها لا تعرفك ولا تتذكر تقدّمك. نُخبة بُنيت لتكون <span className="text-gold font-bold">معلّمك المتخصّص</span>.
-            </p>
-          </div>
+            <p className="text-muted-foreground text-lg">مسارات مبنية على الاحتياجات الحقيقية للطالب اليمني</p>
+          </motion.div>
 
-          <div className="max-w-3xl mx-auto glass rounded-3xl border-2 border-gold/20 overflow-hidden shadow-[0_0_40px_rgba(245,158,11,0.08)]">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            {/* University card */}
+            <motion.div
+              initial={{ opacity: 0, x: 40 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+              whileHover={{ y: -8 }}
+              className="relative p-8 md:p-10 rounded-3xl overflow-hidden group cursor-pointer neon-card-border"
+            >
+              <div
+                className="absolute inset-0 rounded-3xl"
+                style={{ background: "rgba(16,185,129,0.05)", backdropFilter: "blur(10px)" }}
+              />
+              <div className="absolute top-0 right-0 w-40 h-40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700"
+                style={{ background: "radial-gradient(circle at top right, rgba(16,185,129,0.2), transparent 70%)" }}
+              />
+              {/* 3D sphere decoration */}
+              <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full opacity-20"
+                style={{ background: "radial-gradient(circle, #10B981, transparent)", filter: "blur(20px)" }}
+              />
+
+              <div className="relative z-10">
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6"
+                  style={{
+                    background: "rgba(16,185,129,0.12)",
+                    border: "1px solid rgba(16,185,129,0.35)",
+                    boxShadow: "0 0 20px rgba(16,185,129,0.2), inset 0 1px 0 rgba(16,185,129,0.2)",
+                  }}
+                >
+                  <GraduationCap className="w-8 h-8 text-emerald" />
+                </div>
+                <h3 className="text-2xl md:text-3xl font-black mb-3 text-emerald"
+                  style={{ textShadow: "0 0 20px rgba(16,185,129,0.5)" }}
+                >
+                  الجامعي
+                </h3>
+                <p className="text-muted-foreground leading-relaxed mb-6">
+                  مسارات مخصصة لتخصصات تقنية المعلومات، الهندسة، المحاسبة، وإدارة الأعمال — مع كتب جامعية تفاعلية.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {["هندسة الغذاء", "محاسبة", "تقنية معلومات", "و أكثر..."].map(tag => (
+                    <span key={tag} className="text-xs px-3 py-1 rounded-full font-medium"
+                      style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)", color: "#10B981" }}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Skills card */}
+            <motion.div
+              initial={{ opacity: 0, x: -40 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+              whileHover={{ y: -8 }}
+              className="relative p-8 md:p-10 rounded-3xl overflow-hidden group cursor-pointer"
+              style={{
+                background: "rgba(10,13,20,0.7)",
+                border: "1px solid rgba(59,130,246,0.2)",
+                boxShadow: "0 4px 30px rgba(0,0,0,0.3)",
+              }}
+            >
+              <div className="absolute top-0 right-0 w-40 h-40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700"
+                style={{ background: "radial-gradient(circle at top right, rgba(59,130,246,0.2), transparent 70%)" }}
+              />
+              <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full opacity-20"
+                style={{ background: "radial-gradient(circle, #3B82F6, transparent)", filter: "blur(20px)" }}
+              />
+              <div className="relative z-10">
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6"
+                  style={{
+                    background: "rgba(59,130,246,0.12)",
+                    border: "1px solid rgba(59,130,246,0.35)",
+                    boxShadow: "0 0 20px rgba(59,130,246,0.2), inset 0 1px 0 rgba(59,130,246,0.2)",
+                  }}
+                >
+                  <Terminal className="w-8 h-8 text-blue-400" />
+                </div>
+                <h3 className="text-2xl md:text-3xl font-black mb-3 text-blue-400"
+                  style={{ textShadow: "0 0 20px rgba(59,130,246,0.5)" }}
+                >
+                  المهارات
+                </h3>
+                <p className="text-muted-foreground leading-relaxed mb-6">
+                  تعلّم البرمجة، تطوير الويب، والأمن السيبراني — مع بيئة كود تفاعلية مدمجة ومحرر أكواد احترافي.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {["برمجة", "أمن سيبراني", "تطوير ويب", "و أكثر..."].map(tag => (
+                    <span key={tag} className="text-xs px-3 py-1 rounded-full font-medium"
+                      style={{ background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.25)", color: "#60A5FA" }}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ══════════════════════════════════════
+            WHY NUKHBA — FEATURES
+        ══════════════════════════════════════ */}
+        <section className="relative py-20 md:py-32 overflow-hidden">
+          <div className="absolute inset-0 bg-grid-fine opacity-40" />
+          <div className="absolute inset-0"
+            style={{ background: "radial-gradient(ellipse 80% 50% at 50% 50%, rgba(245,158,11,0.04), transparent)" }}
+          />
+          <div className="relative container mx-auto px-4">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="text-center mb-16"
+            >
+              <div className="inline-flex items-center gap-2 mb-4 text-gold text-sm font-bold">
+                <Sparkles className="w-4 h-4" /> لماذا نُخبة
+              </div>
+              <h2 className="text-3xl md:text-5xl font-black mb-4">
+                تجربة لا تقارن بـ{" "}
+                <span className="text-transparent bg-clip-text"
+                  style={{ backgroundImage: "linear-gradient(135deg, #F59E0B, #D97706)" }}
+                >
+                  أي منصة أخرى
+                </span>
+              </h2>
+              <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+                نستخدم أحدث تقنيات الذكاء الاصطناعي لتقديم تجربة تعليمية لم تكن ممكنة من قبل
+              </p>
+            </motion.div>
+
+            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6">
+              <FeatureCard
+                icon={Brain}
+                title="خطة مخصصة لك وحدك"
+                desc="الذكاء الاصطناعي يجري معك مقابلة تشخيصية ويبني خطة دراسية تناسب مستواك بدقة متناهية."
+                color="#F59E0B"
+                delay={0}
+              />
+              <FeatureCard
+                icon={Zap}
+                title="تعلم تفاعلي حقيقي"
+                desc="لست مستمعاً فقط. ناقش، اسأل، وحل التحديات مع معلمك الذكي في أي وقت."
+                color="#10B981"
+                delay={0.1}
+              />
+              <FeatureCard
+                icon={Terminal}
+                title="بيئة تطبيق مدمجة"
+                desc="محرر أكواد احترافي + بيئات تطبيقية تبنى لك تلقائياً داخل المنصة — بدون إعداد أي برامج."
+                color="#3B82F6"
+                delay={0.2}
+              />
+              <FeatureCard
+                icon={Shield}
+                title="يتذكر أخطاءك ويصحّحها"
+                desc="بنك خاص بأخطائك يُحقن في كل جلسة حتى تتغلب عليها نهائياً."
+                color="#8B5CF6"
+                delay={0.3}
+              />
+              <FeatureCard
+                icon={BookOpen}
+                title="كتبك الجامعية بالذكاء الاصطناعي"
+                desc="ارفع كتابك واستعرضه فصلاً بفصل مع معلم يشرح لك كل مفهوم بأسلوبك."
+                color="#F59E0B"
+                delay={0.4}
+              />
+              <FeatureCard
+                icon={Crown}
+                title="مختبرات تطبيقية فريدة"
+                desc="مختبرات تفاعلية متخصصة للمحاسبة، الهندسة الغذائية، والأمن السيبراني."
+                color="#06B6D4"
+                delay={0.5}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* ══════════════════════════════════════
+            COMPARISON TABLE
+        ══════════════════════════════════════ */}
+        <section className="container mx-auto px-4 py-16 md:py-24">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="text-center mb-12"
+          >
+            <h2 className="text-2xl sm:text-3xl md:text-5xl font-black mb-4">
+              نُخبة vs{" "}
+              <span className="text-transparent bg-clip-text"
+                style={{ backgroundImage: "linear-gradient(135deg, #F59E0B, #D97706)" }}
+              >
+                ChatGPT / DeepSeek
+              </span>
+            </h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto text-lg leading-relaxed">
+              المساعدات العامة ممتازة للأسئلة العابرة، لكنها لا تعرفك. نُخبة بُنيت لتكون{" "}
+              <span className="text-gold font-bold">معلّمك المتخصّص</span>.
+            </p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.7 }}
+            className="max-w-3xl mx-auto rounded-3xl overflow-hidden relative"
+            style={{
+              background: "rgba(10,13,20,0.8)",
+              border: "1px solid rgba(245,158,11,0.2)",
+              boxShadow: "0 0 60px rgba(245,158,11,0.06), 0 20px 60px rgba(0,0,0,0.5)",
+            }}
+          >
+            {/* Glow top edge */}
+            <div className="h-px w-full" style={{ background: "linear-gradient(90deg, transparent, rgba(245,158,11,0.6), transparent)" }} />
+
             <div className="overflow-x-auto">
               <table className="w-full text-right" dir="rtl">
                 <thead>
-                  <tr className="border-b border-white/10 bg-gradient-to-l from-gold/10 via-gold/5 to-transparent">
-                    <th className="p-3 sm:p-4 text-sm sm:text-base font-bold text-foreground/80 w-[46%]">الميزة</th>
-                    <th className="p-3 sm:p-4 text-center">
+                  <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(245,158,11,0.06)" }}>
+                    <th className="p-4 text-sm font-bold text-foreground/70 w-[45%]">الميزة</th>
+                    <th className="p-4 text-center">
                       <div className="flex flex-col items-center gap-1">
                         <Crown className="w-5 h-5 text-gold" />
-                        <span className="text-sm sm:text-base font-black text-gold">نُخبة</span>
+                        <span className="text-base font-black text-gold">نُخبة</span>
                       </div>
                     </th>
-                    <th className="p-3 sm:p-4 text-center">
-                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">ChatGPT</span>
+                    <th className="p-4 text-center">
+                      <span className="text-sm font-bold text-muted-foreground">ChatGPT</span>
                     </th>
-                    <th className="p-3 sm:p-4 text-center">
-                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">DeepSeek</span>
+                    <th className="p-4 text-center">
+                      <span className="text-sm font-bold text-muted-foreground">DeepSeek</span>
                     </th>
                   </tr>
                 </thead>
@@ -169,138 +651,226 @@ export default function Home() {
                     { feature: "خطة تعلّم شخصية لمادتك", n: true, c: false, d: false },
                     { feature: "مختبرات تطبيقية تفاعلية داخل المنصة", n: true, c: false, d: false },
                     { feature: "محتوى مبني على المنهج اليمني والجامعي المحلي", n: true, c: false, d: false },
+                    { feature: "معلم يصحح أخطاءك المتكررة تلقائياً", n: true, c: false, d: false },
                   ].map((row, i) => (
-                    <tr key={i} className={`border-b border-white/5 last:border-0 ${i % 2 === 0 ? "bg-white/[0.015]" : ""} hover:bg-gold/[0.03] transition-colors`}>
-                      <td className="p-3 sm:p-4 font-medium text-foreground/90 text-xs sm:text-sm leading-relaxed">{row.feature}</td>
-                      <td className="p-3 sm:p-4 text-center">
-                        {row.n ? (
-                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gold/15 border border-gold/30">
-                            <Check className="w-4 h-4 sm:w-5 sm:h-5 text-gold" strokeWidth={3} />
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500/10 border border-red-500/20">
-                            <X className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" strokeWidth={3} />
-                          </div>
-                        )}
+                    <motion.tr
+                      key={i}
+                      initial={{ opacity: 0, x: 20 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      viewport={{ once: true }}
+                      transition={{ delay: i * 0.08 }}
+                      style={{
+                        borderBottom: "1px solid rgba(255,255,255,0.04)",
+                        background: i % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent",
+                      }}
+                      className="hover:bg-gold/[0.03] transition-colors"
+                    >
+                      <td className="p-4 font-medium text-foreground/85 text-sm leading-relaxed">{row.feature}</td>
+                      <td className="p-4 text-center">
+                        <div className="inline-flex items-center justify-center w-8 h-8 rounded-full"
+                          style={{
+                            background: "rgba(245,158,11,0.15)",
+                            border: "1px solid rgba(245,158,11,0.35)",
+                            boxShadow: "0 0 12px rgba(245,158,11,0.2)",
+                          }}
+                        >
+                          <Check className="w-4 h-4 text-gold" strokeWidth={3} />
+                        </div>
                       </td>
-                      <td className="p-3 sm:p-4 text-center">
-                        {row.c ? (
-                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
-                        ) : (
-                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
-                        )}
+                      <td className="p-4 text-center">
+                        <X className="w-5 h-5 text-red-400/50 mx-auto" strokeWidth={2.5} />
                       </td>
-                      <td className="p-3 sm:p-4 text-center">
-                        {row.d ? (
-                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
-                        ) : (
-                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
-                        )}
+                      <td className="p-4 text-center">
+                        <X className="w-5 h-5 text-red-400/50 mx-auto" strokeWidth={2.5} />
                       </td>
-                    </tr>
+                    </motion.tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="p-4 sm:p-5 bg-gradient-to-l from-gold/10 to-transparent border-t border-gold/15">
-              <p className="text-xs sm:text-sm text-center text-foreground/80 leading-relaxed">
-                <span className="text-gold font-bold">الخلاصة:</span> أنت لا تشترك في "محادثة" — أنت تشترك في معلّم متخصّص يرافقك خطوة بخطوة.
+            <div className="p-5" style={{ background: "rgba(245,158,11,0.05)", borderTop: "1px solid rgba(245,158,11,0.1)" }}>
+              <p className="text-sm text-center text-foreground/75 leading-relaxed">
+                <span className="text-gold font-bold">الخلاصة:</span> أنت لا تشترك في "محادثة" — أنت تشترك في{" "}
+                <span className="text-white font-semibold">معلّم متخصّص يرافقك خطوة بخطوة</span>.
               </p>
             </div>
-          </div>
+          </motion.div>
         </section>
 
-        {/* Pricing */}
-        <section id="pricing" className="container mx-auto px-4 py-16 md:py-32">
-          <div className="text-center mb-10 md:mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-3 md:mb-4">باقات الاشتراك</h2>
-            <p className="text-sm md:text-base text-muted-foreground">الدفع عبر محفظة كريمي — اختر ما يناسبك</p>
-          </div>
-          
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 max-w-5xl mx-auto">
-            {/* Free */}
-            <div className="glass p-6 md:p-8 rounded-3xl border-white/10 flex flex-col">
-              <h3 className="text-lg md:text-xl font-bold mb-2">مجاني</h3>
-              <div className="text-2xl md:text-3xl font-bold mb-1">٠ <span className="text-base text-muted-foreground font-normal">ريال</span></div>
-              <p className="text-xs text-muted-foreground mb-5">للبداية</p>
-              <ul className="space-y-3 mb-6 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-emerald flex-shrink-0" /> درس واحد مجاني للتجربة</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-emerald flex-shrink-0" /> تصفح المنهج الدراسي</li>
-              </ul>
-              <Link href="/learn" className="w-full">
-                <Button className="w-full" variant="outline">جرب الآن</Button>
-              </Link>
-            </div>
-            
-            {/* Silver */}
-            <div className="glass p-6 md:p-8 rounded-3xl border-zinc-400/30 flex flex-col">
-              <h3 className="text-lg md:text-xl font-bold mb-2 text-zinc-300">الفضية</h3>
-              <div className="text-2xl md:text-3xl font-bold mb-1 text-zinc-100">٢٬٠٠٠ <span className="text-base text-muted-foreground font-normal">💎 جوهرة</span></div>
-              <p className="text-xs text-muted-foreground mb-5">١٤ يوماً • حتى ١٤٢ يومياً • عبر كريمي</p>
-              <ul className="space-y-3 mb-6 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> لجميع التخصصات بلا استثناء</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> ملخصات الدروس التلقائية</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-zinc-400 flex-shrink-0" /> جواهر تتجدد كل منتصف ليل</li>
-              </ul>
-              <Link href="/subscription" className="w-full">
-                <Button className="w-full bg-zinc-700 hover:bg-zinc-600 text-white">اشترك الآن</Button>
-              </Link>
-            </div>
-            
-            {/* Gold */}
-            <div className="glass-gold p-6 md:p-8 rounded-3xl flex flex-col relative md:scale-105 z-10 shadow-2xl shadow-gold/10">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gold text-primary-foreground font-bold text-xs px-4 py-1 rounded-full w-max">الأكثر طلباً</div>
-              <h3 className="text-lg md:text-xl font-bold mb-2 text-gold">الذهبية</h3>
-              <div className="text-2xl md:text-3xl font-bold mb-1">٣٬٠٠٠ <span className="text-base text-gold/60 font-normal">💎 جوهرة</span></div>
-              <p className="text-xs text-gold/60 mb-5">١٤ يوماً • حتى ٢١٤ يومياً • عبر كريمي</p>
-              <ul className="space-y-3 mb-6 flex-1 text-sm">
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> لجميع التخصصات بلا استثناء</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> ملخصات الدروس التلقائية</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> جواهر تتجدد كل منتصف ليل</li>
-                <li className="flex items-center gap-2"><Shield className="w-4 h-4 text-gold flex-shrink-0" /> أولوية الدعم الفني</li>
-              </ul>
-              <Link href="/subscription" className="w-full">
-                <Button className="w-full gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20">اشترك الذهبية</Button>
-              </Link>
-            </div>
-          </div>
+        {/* ══════════════════════════════════════
+            PRICING
+        ══════════════════════════════════════ */}
+        <section id="pricing" className="relative py-20 md:py-32 overflow-hidden">
+          <div className="absolute inset-0 bg-dots opacity-30" />
+          <div className="absolute inset-0"
+            style={{ background: "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(139,92,246,0.04), transparent)" }}
+          />
 
-          {/* Bronze note */}
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-            className="mt-10 max-w-2xl mx-auto"
-          >
-            <div className="relative rounded-2xl overflow-hidden border border-amber-700/40 bg-amber-950/20 backdrop-blur-sm">
-              <div className="absolute inset-0 bg-gradient-to-l from-amber-900/10 to-transparent pointer-events-none" />
-              <div className="flex flex-col sm:flex-row items-center gap-5 px-6 py-5">
-                <div className="w-12 h-12 rounded-xl bg-amber-700/20 border border-amber-700/40 flex items-center justify-center shrink-0">
+          <div className="relative container mx-auto px-4">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="text-center mb-16"
+            >
+              <h2 className="text-3xl md:text-5xl font-black mb-4">باقات الاشتراك</h2>
+              <p className="text-muted-foreground text-lg">الدفع عبر محفظة كريمي — اختر الباقة المناسبة لك</p>
+            </motion.div>
+
+            <div className="grid sm:grid-cols-3 gap-5 max-w-5xl mx-auto">
+              {/* Free */}
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0 }}
+                whileHover={{ y: -6 }}
+                className="rounded-3xl p-7 flex flex-col"
+                style={{
+                  background: "rgba(10,13,20,0.6)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <div className="text-sm font-bold text-muted-foreground mb-2">مجاني</div>
+                <div className="text-3xl font-black mb-1">٠ <span className="text-base text-muted-foreground font-normal">ريال</span></div>
+                <p className="text-xs text-muted-foreground mb-6">ابدأ بالتجربة</p>
+                <ul className="space-y-3 mb-8 flex-1 text-sm">
+                  {["درس واحد مجاني لكل تخصص", "تصفح المنهج الدراسي"].map(f => (
+                    <li key={f} className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-emerald flex-shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/learn" className="w-full">
+                  <Button className="w-full rounded-2xl" variant="outline">جرّب الآن</Button>
+                </Link>
+              </motion.div>
+
+              {/* Silver */}
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.1 }}
+                whileHover={{ y: -6 }}
+                className="rounded-3xl p-7 flex flex-col"
+                style={{
+                  background: "rgba(10,13,20,0.6)",
+                  border: "1px solid rgba(161,161,170,0.3)",
+                  boxShadow: "0 4px 30px rgba(161,161,170,0.05)",
+                }}
+              >
+                <div className="text-sm font-bold text-zinc-300 mb-2">الفضية</div>
+                <div className="text-3xl font-black mb-1 text-zinc-100">٢٬٠٠٠ <span className="text-base text-muted-foreground font-normal">💎</span></div>
+                <p className="text-xs text-muted-foreground mb-6">١٤ يوماً • ١٤٢ جوهرة/يوم</p>
+                <ul className="space-y-3 mb-8 flex-1 text-sm">
+                  {["لجميع التخصصات بلا استثناء", "ملخصات الدروس التلقائية", "جواهر تتجدد منتصف الليل"].map(f => (
+                    <li key={f} className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/subscription" className="w-full">
+                  <Button className="w-full rounded-2xl bg-zinc-700 hover:bg-zinc-600 text-white">اشترك الآن</Button>
+                </Link>
+              </motion.div>
+
+              {/* Gold */}
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.2 }}
+                whileHover={{ y: -6 }}
+                className="rounded-3xl p-7 flex flex-col relative"
+                style={{
+                  background: "rgba(20,14,5,0.85)",
+                  border: "1px solid rgba(245,158,11,0.35)",
+                  boxShadow: "0 0 40px rgba(245,158,11,0.12), 0 8px 40px rgba(0,0,0,0.5)",
+                }}
+              >
+                {/* Popular badge */}
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 gradient-gold text-primary-foreground font-black text-xs px-4 py-1.5 rounded-full shadow-lg shadow-gold/30">
+                  ⭐ الأكثر طلباً
+                </div>
+                {/* Inner glow */}
+                <div className="absolute inset-0 rounded-3xl pointer-events-none"
+                  style={{ background: "radial-gradient(ellipse 80% 40% at 50% 0%, rgba(245,158,11,0.08), transparent)" }}
+                />
+                <div className="relative z-10 flex flex-col h-full">
+                  <div className="text-sm font-bold text-gold mb-2">الذهبية</div>
+                  <div className="text-3xl font-black mb-1" style={{ color: "#FDE68A" }}>
+                    ٣٬٠٠٠ <span className="text-base text-gold/60 font-normal">💎</span>
+                  </div>
+                  <p className="text-xs text-gold/60 mb-6">١٤ يوماً • ٢١٤ جوهرة/يوم</p>
+                  <ul className="space-y-3 mb-8 flex-1 text-sm">
+                    {["لجميع التخصصات بلا استثناء", "ملخصات الدروس التلقائية", "جواهر تتجدد منتصف الليل", "أولوية الدعم الفني"].map(f => (
+                      <li key={f} className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-gold flex-shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                  <Link href="/subscription" className="w-full">
+                    <Button
+                      className="w-full rounded-2xl gradient-gold text-primary-foreground font-bold"
+                      style={{ boxShadow: "0 0 20px rgba(245,158,11,0.3)" }}
+                    >
+                      اشترك الذهبية
+                    </Button>
+                  </Link>
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Bronze note */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.3 }}
+              className="mt-8 max-w-2xl mx-auto"
+            >
+              <div className="relative rounded-2xl overflow-hidden p-5 flex flex-col sm:flex-row items-center gap-4"
+                style={{
+                  background: "rgba(180,83,9,0.08)",
+                  border: "1px solid rgba(180,83,9,0.35)",
+                }}
+              >
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: "rgba(180,83,9,0.2)", border: "1px solid rgba(180,83,9,0.4)" }}
+                >
                   <Shield className="w-6 h-6 text-amber-600" />
                 </div>
                 <div className="flex-1 text-center sm:text-right">
-                  <p className="text-sm font-bold text-amber-400 mb-0.5">ابدأ بأقل تكلفة — الباقة البرونزية</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    ١٬٠٠٠ 💎 جوهرة (حتى ٧١ يومياً) لجميع التخصصات لمدة ١٤ يوماً عبر كريمي مباشرةً. مثالية للبداية.
-                  </p>
+                  <p className="text-sm font-bold text-amber-400 mb-0.5">الباقة البرونزية — ابدأ بأقل تكلفة</p>
+                  <p className="text-xs text-muted-foreground">١٬٠٠٠ 💎 جوهرة (٧١ يومياً) لجميع التخصصات لمدة ١٤ يوماً. مثالية للبداية.</p>
                 </div>
                 <Link href="/subscription" className="shrink-0">
-                  <Button size="sm" className="bg-amber-700/80 hover:bg-amber-700 text-white font-bold px-5 h-9 rounded-xl border border-amber-600/40 shadow-lg shadow-amber-900/20 whitespace-nowrap">
+                  <Button size="sm" className="rounded-xl text-white font-bold px-5"
+                    style={{ background: "rgba(180,83,9,0.8)", border: "1px solid rgba(180,83,9,0.5)" }}
+                  >
                     اشترك الآن
                   </Button>
                 </Link>
               </div>
-            </div>
-          </motion.div>
+            </motion.div>
+          </div>
         </section>
       </main>
-      <footer className="border-t border-white/10 py-8 md:py-12 bg-black/40">
-        <div className="container mx-auto px-4 flex flex-col items-center justify-center">
-          <div className="mb-4 md:mb-6 opacity-60">
-            <NukhbaLogo size="sm" />
-          </div>
-          <p className="text-muted-foreground text-xs md:text-sm text-center">صُنع بشغف لطلاب اليمن. جميع الحقوق محفوظة {new Date().getFullYear()} ©</p>
+
+      {/* ── FOOTER ── */}
+      <footer className="relative border-t border-white/6 py-10 overflow-hidden"
+        style={{ background: "rgba(5,8,15,0.8)" }}
+      >
+        <div className="absolute inset-0 bg-dots opacity-20" />
+        <div className="relative container mx-auto px-4 flex flex-col items-center justify-center gap-4">
+          <div className="opacity-70"><NukhbaLogo size="sm" /></div>
+          <p className="text-muted-foreground text-sm text-center">
+            صُنع بشغف لطلاب اليمن · جميع الحقوق محفوظة {new Date().getFullYear()} ©
+          </p>
         </div>
       </footer>
     </div>
