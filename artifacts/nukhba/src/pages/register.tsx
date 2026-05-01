@@ -134,8 +134,7 @@ export default function Register() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.45 }}
-            className="space-y-2.5 mb-7 p-4 rounded-2xl"
-            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+            className="space-y-2 mb-7"
           >
             {benefits.map(({ icon: Icon, text, color }, i) => (
               <motion.div
@@ -143,15 +142,27 @@ export default function Register() {
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.5 + i * 0.1 }}
-                className="flex items-center gap-3"
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+                style={{
+                  background: `${color}08`,
+                  border: `1px solid ${color}25`,
+                }}
               >
-                <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: `${color}15`, border: `1px solid ${color}30` }}
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{
+                    background: `${color}18`,
+                    border: `1px solid ${color}40`,
+                    boxShadow: `0 0 12px ${color}20`,
+                  }}
                 >
-                  <Icon style={{ width: 14, height: 14, color }} />
+                  <Icon style={{ width: 16, height: 16, color }} />
                 </div>
-                <span className="text-sm text-foreground/80">{text}</span>
-                <Check className="w-3.5 h-3.5 text-emerald ml-auto flex-shrink-0" />
+                <span className="text-sm font-medium flex-1" style={{ color: "rgba(255,255,255,0.85)" }}>{text}</span>
+                <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)" }}
+                >
+                  <Check className="w-3 h-3 text-emerald" strokeWidth={3} />
+                </div>
               </motion.div>
             ))}
           </motion.div>

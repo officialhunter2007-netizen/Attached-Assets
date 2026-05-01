@@ -111,48 +111,44 @@ function FeatureCard({ icon: Icon, title, desc, color, delay }: {
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 30 }}
+      initial={{ opacity: 0, y: 24 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      transition={{ duration: 0.6, delay }}
-      whileHover={{ y: -6, scale: 1.02 }}
-      className="relative p-7 rounded-3xl group overflow-hidden"
+      transition={{ duration: 0.5, delay }}
+      whileTap={{ scale: 0.98 }}
+      className="relative p-5 md:p-7 rounded-2xl overflow-hidden"
       style={{
-        background: "rgba(10,13,20,0.7)",
-        border: `1px solid ${color}20`,
-        boxShadow: `0 4px 30px rgba(0,0,0,0.3), inset 0 1px 0 ${color}10`,
+        background: "rgba(10,13,22,0.85)",
+        border: `1px solid ${color}35`,
+        boxShadow: `0 0 18px ${color}18, 0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 ${color}10`,
       }}
     >
-      {/* Corner glow */}
+      {/* Permanent top corner glow */}
       <div
-        className="absolute top-0 right-0 w-24 h-24 rounded-bl-full opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-        style={{ background: `radial-gradient(circle at top right, ${color}20, transparent 70%)` }}
+        className="absolute top-0 right-0 w-20 h-20 rounded-bl-full pointer-events-none"
+        style={{ background: `radial-gradient(circle at top right, ${color}15, transparent 70%)` }}
       />
-      {/* Scanline effect */}
+      {/* Subtle bottom line */}
       <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-30 transition-opacity duration-500 rounded-3xl"
-        style={{ background: `linear-gradient(0deg, transparent 50%, ${color}05 50%)`, backgroundSize: "100% 4px" }}
+        className="absolute bottom-0 left-4 right-4 h-px pointer-events-none"
+        style={{ background: `linear-gradient(90deg, transparent, ${color}40, transparent)` }}
       />
 
       <div
-        className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5 relative"
+        className="w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center mb-4 md:mb-5"
         style={{
-          background: `${color}12`,
-          border: `1px solid ${color}30`,
-          boxShadow: `0 0 20px ${color}20, inset 0 1px 0 ${color}20`,
+          background: `${color}15`,
+          border: `1px solid ${color}40`,
+          boxShadow: `0 0 16px ${color}25, inset 0 1px 0 ${color}20`,
         }}
       >
-        <Icon style={{ width: 28, height: 28, color }} />
-        <div
-          className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-          style={{ boxShadow: `0 0 20px ${color}50` }}
-        />
+        <Icon style={{ width: 24, height: 24, color }} />
       </div>
 
-      <h4 className="text-lg font-bold mb-3" style={{ color: `${color}` }}>
+      <h4 className="text-base md:text-lg font-bold mb-2 md:mb-3" style={{ color }}>
         {title}
       </h4>
-      <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+      <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.55)" }}>{desc}</p>
     </motion.div>
   );
 }
@@ -226,14 +222,18 @@ export default function Home() {
           <FloatingOrb className="bg-emerald-400/6 nk-float-slow top-[50%] right-[5%]" delay={2} size={350} />
           <FloatingOrb className="bg-purple-500/5 bottom-[10%] left-[30%]" delay={4} size={300} />
 
-          {/* Floating 3D icons — hidden on small screens */}
-          <div className="absolute inset-0 hidden lg:block pointer-events-none">
-            <FloatingIcon icon={Brain}   color="#F59E0B" size={52} delay={0}   x="8%"  y="25%" />
-            <FloatingIcon icon={Cpu}     color="#10B981" size={44} delay={1.5} x="88%" y="30%" />
-            <FloatingIcon icon={Star}    color="#8B5CF6" size={38} delay={2.5} x="12%" y="65%" />
-            <FloatingIcon icon={Zap}     color="#06B6D4" size={46} delay={0.8} x="85%" y="62%" />
-            <FloatingIcon icon={BookOpen} color="#F59E0B" size={40} delay={3}  x="5%"  y="45%" />
-            <FloatingIcon icon={Shield}  color="#10B981" size={36} delay={1.2} x="92%" y="48%" />
+          {/* Floating 3D icons */}
+          <div className="absolute inset-0 pointer-events-none">
+            {/* Always show some icons */}
+            <FloatingIcon icon={Brain}   color="#F59E0B" size={42} delay={0}   x="5%"  y="22%" />
+            <FloatingIcon icon={Zap}     color="#06B6D4" size={36} delay={0.8} x="88%" y="58%" />
+            {/* More icons on large screens */}
+            <div className="hidden sm:block">
+              <FloatingIcon icon={Cpu}     color="#10B981" size={44} delay={1.5} x="88%" y="28%" />
+              <FloatingIcon icon={Star}    color="#8B5CF6" size={36} delay={2.5} x="10%" y="62%" />
+              <FloatingIcon icon={BookOpen} color="#F59E0B" size={38} delay={3}  x="4%"  y="43%" />
+              <FloatingIcon icon={Shield}  color="#10B981" size={34} delay={1.2} x="92%" y="44%" />
+            </div>
           </div>
 
           {/* Particles */}
@@ -408,47 +408,52 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
             {/* University card */}
             <motion.div
-              initial={{ opacity: 0, x: 40 }}
-              whileInView={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              whileHover={{ y: -8 }}
-              className="relative p-8 md:p-10 rounded-3xl overflow-hidden group cursor-pointer neon-card-border"
+              transition={{ duration: 0.5 }}
+              whileTap={{ scale: 0.98 }}
+              className="relative p-6 md:p-10 rounded-3xl overflow-hidden cursor-pointer"
+              style={{
+                background: "rgba(10,18,14,0.88)",
+                border: "1px solid rgba(16,185,129,0.4)",
+                boxShadow: "0 0 32px rgba(16,185,129,0.12), 0 8px 30px rgba(0,0,0,0.4), inset 0 1px 0 rgba(16,185,129,0.12)",
+              }}
             >
-              <div
-                className="absolute inset-0 rounded-3xl"
-                style={{ background: "rgba(16,185,129,0.05)", backdropFilter: "blur(10px)" }}
+              {/* Permanent corner glow */}
+              <div className="absolute top-0 right-0 w-48 h-48 rounded-bl-full pointer-events-none"
+                style={{ background: "radial-gradient(circle at top right, rgba(16,185,129,0.14), transparent 65%)" }}
               />
-              <div className="absolute top-0 right-0 w-40 h-40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700"
-                style={{ background: "radial-gradient(circle at top right, rgba(16,185,129,0.2), transparent 70%)" }}
+              <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full pointer-events-none"
+                style={{ background: "radial-gradient(circle, rgba(16,185,129,0.2), transparent)", filter: "blur(20px)" }}
               />
-              {/* 3D sphere decoration */}
-              <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full opacity-20"
-                style={{ background: "radial-gradient(circle, #10B981, transparent)", filter: "blur(20px)" }}
+              {/* Top accent line */}
+              <div className="absolute top-0 left-6 right-6 h-[2px] rounded-b-full pointer-events-none"
+                style={{ background: "linear-gradient(90deg, transparent, rgba(16,185,129,0.7), transparent)" }}
               />
 
               <div className="relative z-10">
-                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6"
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
                   style={{
-                    background: "rgba(16,185,129,0.12)",
-                    border: "1px solid rgba(16,185,129,0.35)",
-                    boxShadow: "0 0 20px rgba(16,185,129,0.2), inset 0 1px 0 rgba(16,185,129,0.2)",
+                    background: "rgba(16,185,129,0.14)",
+                    border: "1px solid rgba(16,185,129,0.45)",
+                    boxShadow: "0 0 22px rgba(16,185,129,0.25)",
                   }}
                 >
-                  <GraduationCap className="w-8 h-8 text-emerald" />
+                  <GraduationCap className="w-7 h-7" style={{ color: "#10B981" }} />
                 </div>
-                <h3 className="text-2xl md:text-3xl font-black mb-3 text-emerald"
-                  style={{ textShadow: "0 0 20px rgba(16,185,129,0.5)" }}
+                <h3 className="text-2xl md:text-3xl font-black mb-3"
+                  style={{ color: "#10B981", textShadow: "0 0 20px rgba(16,185,129,0.5)" }}
                 >
                   الجامعي
                 </h3>
-                <p className="text-muted-foreground leading-relaxed mb-6">
+                <p className="leading-relaxed mb-5 text-sm md:text-base" style={{ color: "rgba(255,255,255,0.6)" }}>
                   مسارات مخصصة لتخصصات تقنية المعلومات، الهندسة، المحاسبة، وإدارة الأعمال — مع كتب جامعية تفاعلية.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {["هندسة الغذاء", "محاسبة", "تقنية معلومات", "و أكثر..."].map(tag => (
                     <span key={tag} className="text-xs px-3 py-1 rounded-full font-medium"
-                      style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)", color: "#10B981" }}
+                      style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#10B981" }}
                     >
                       {tag}
                     </span>
@@ -459,46 +464,50 @@ export default function Home() {
 
             {/* Skills card */}
             <motion.div
-              initial={{ opacity: 0, x: -40 }}
-              whileInView={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-              whileHover={{ y: -8 }}
-              className="relative p-8 md:p-10 rounded-3xl overflow-hidden group cursor-pointer"
+              transition={{ duration: 0.5, delay: 0.1 }}
+              whileTap={{ scale: 0.98 }}
+              className="relative p-6 md:p-10 rounded-3xl overflow-hidden cursor-pointer"
               style={{
-                background: "rgba(10,13,20,0.7)",
-                border: "1px solid rgba(59,130,246,0.2)",
-                boxShadow: "0 4px 30px rgba(0,0,0,0.3)",
+                background: "rgba(8,13,22,0.88)",
+                border: "1px solid rgba(59,130,246,0.4)",
+                boxShadow: "0 0 32px rgba(59,130,246,0.12), 0 8px 30px rgba(0,0,0,0.4), inset 0 1px 0 rgba(59,130,246,0.1)",
               }}
             >
-              <div className="absolute top-0 right-0 w-40 h-40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700"
-                style={{ background: "radial-gradient(circle at top right, rgba(59,130,246,0.2), transparent 70%)" }}
+              <div className="absolute top-0 right-0 w-48 h-48 rounded-bl-full pointer-events-none"
+                style={{ background: "radial-gradient(circle at top right, rgba(59,130,246,0.14), transparent 65%)" }}
               />
-              <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full opacity-20"
-                style={{ background: "radial-gradient(circle, #3B82F6, transparent)", filter: "blur(20px)" }}
+              <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full pointer-events-none"
+                style={{ background: "radial-gradient(circle, rgba(59,130,246,0.2), transparent)", filter: "blur(20px)" }}
               />
+              <div className="absolute top-0 left-6 right-6 h-[2px] rounded-b-full pointer-events-none"
+                style={{ background: "linear-gradient(90deg, transparent, rgba(59,130,246,0.7), transparent)" }}
+              />
+
               <div className="relative z-10">
-                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6"
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
                   style={{
-                    background: "rgba(59,130,246,0.12)",
-                    border: "1px solid rgba(59,130,246,0.35)",
-                    boxShadow: "0 0 20px rgba(59,130,246,0.2), inset 0 1px 0 rgba(59,130,246,0.2)",
+                    background: "rgba(59,130,246,0.14)",
+                    border: "1px solid rgba(59,130,246,0.45)",
+                    boxShadow: "0 0 22px rgba(59,130,246,0.25)",
                   }}
                 >
-                  <Terminal className="w-8 h-8 text-blue-400" />
+                  <Terminal className="w-7 h-7 text-blue-400" />
                 </div>
                 <h3 className="text-2xl md:text-3xl font-black mb-3 text-blue-400"
                   style={{ textShadow: "0 0 20px rgba(59,130,246,0.5)" }}
                 >
                   المهارات
                 </h3>
-                <p className="text-muted-foreground leading-relaxed mb-6">
+                <p className="leading-relaxed mb-5 text-sm md:text-base" style={{ color: "rgba(255,255,255,0.6)" }}>
                   تعلّم البرمجة، تطوير الويب، والأمن السيبراني — مع بيئة كود تفاعلية مدمجة ومحرر أكواد احترافي.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {["برمجة", "أمن سيبراني", "تطوير ويب", "و أكثر..."].map(tag => (
                     <span key={tag} className="text-xs px-3 py-1 rounded-full font-medium"
-                      style={{ background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.25)", color: "#60A5FA" }}
+                      style={{ background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: "#60A5FA" }}
                     >
                       {tag}
                     </span>

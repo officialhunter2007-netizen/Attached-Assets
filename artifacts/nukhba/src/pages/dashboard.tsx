@@ -757,23 +757,35 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="grid lg:grid-cols-3 gap-6 mb-8">
-          <div className="lg:col-span-2 glass p-8 rounded-3xl border-white/5 relative overflow-hidden">
-            <div className={`absolute top-0 right-0 w-32 h-32 opacity-10 rounded-bl-full blur-2xl bg-current ${levelColor}`} />
-            <div className="flex items-start justify-between mb-8">
+        <div className="grid lg:grid-cols-3 gap-4 md:gap-6 mb-8">
+          {/* Level + Progress card */}
+          <div className="lg:col-span-2 relative rounded-3xl p-6 md:p-8 overflow-hidden"
+            style={{
+              background: "rgba(10,13,22,0.85)",
+              border: "1px solid rgba(245,158,11,0.25)",
+              boxShadow: "0 0 30px rgba(245,158,11,0.08), 0 4px 20px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div className="absolute top-0 right-0 w-40 h-40 rounded-bl-full pointer-events-none"
+              style={{ background: "radial-gradient(circle at top right, rgba(245,158,11,0.12), transparent 65%)" }}
+            />
+            <div className="absolute top-0 left-6 right-6 h-px pointer-events-none"
+              style={{ background: "linear-gradient(90deg, transparent, rgba(245,158,11,0.5), transparent)" }}
+            />
+            <div className="flex items-start justify-between mb-6 md:mb-8 relative z-10">
               <div>
-                <p className="text-muted-foreground mb-1">المستوى الحالي</p>
-                <h2 className={`text-4xl font-black ${levelColor}`}>{level}</h2>
+                <p className="text-xs text-muted-foreground mb-1">المستوى الحالي</p>
+                <h2 className={`text-3xl md:text-4xl font-black ${levelColor}`}>{level}</h2>
               </div>
               <div className="text-left">
-                <p className="text-muted-foreground mb-1">مجموع النقاط</p>
-                <div className="text-3xl font-bold flex items-center gap-2">
-                  {points} <Trophy className="w-6 h-6 text-gold" />
+                <p className="text-xs text-muted-foreground mb-1">مجموع النقاط</p>
+                <div className="text-2xl md:text-3xl font-bold flex items-center gap-2">
+                  {points} <Trophy className="w-5 h-5 md:w-6 md:h-6 text-gold" />
                 </div>
               </div>
             </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-muted-foreground">
+            <div className="space-y-2 relative z-10">
+              <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{points} نقطة</span>
                 <span>{isMaxLevel ? "🏆 وصلت للقمة!" : `${maxPoints} نقطة للمستوى التالي`}</span>
               </div>
@@ -781,21 +793,49 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="glass p-6 rounded-3xl border-white/5 flex flex-col justify-center items-center text-center">
-              <Flame className="w-8 h-8 text-orange-500 mb-3" />
-              <div className="text-3xl font-bold mb-1">{user?.streakDays || 0}</div>
-              <div className="text-sm text-muted-foreground">أيام متتالية</div>
+          {/* Stats mini cards */}
+          <div className="grid grid-cols-2 gap-3 md:gap-4">
+            <div className="relative rounded-2xl p-4 md:p-6 flex flex-col justify-center items-center text-center overflow-hidden"
+              style={{
+                background: "rgba(10,10,18,0.85)",
+                border: "1px solid rgba(249,115,22,0.35)",
+                boxShadow: "0 0 18px rgba(249,115,22,0.12)",
+              }}
+            >
+              <div className="absolute top-0 right-0 w-16 h-16 pointer-events-none"
+                style={{ background: "radial-gradient(circle at top right, rgba(249,115,22,0.15), transparent)" }}
+              />
+              <Flame className="w-7 h-7 md:w-8 md:h-8 mb-2" style={{ color: "#f97316" }} />
+              <div className="text-2xl md:text-3xl font-bold mb-0.5">{user?.streakDays || 0}</div>
+              <div className="text-xs text-muted-foreground">أيام متتالية</div>
             </div>
-            <div className="glass p-6 rounded-3xl border-white/5 flex flex-col justify-center items-center text-center">
-              <BookOpen className="w-8 h-8 text-blue-400 mb-3" />
-              <div className="text-3xl font-bold mb-1">{totalLessons}</div>
-              <div className="text-sm text-muted-foreground">دروس مكتملة</div>
+            <div className="relative rounded-2xl p-4 md:p-6 flex flex-col justify-center items-center text-center overflow-hidden"
+              style={{
+                background: "rgba(8,12,22,0.85)",
+                border: "1px solid rgba(59,130,246,0.35)",
+                boxShadow: "0 0 18px rgba(59,130,246,0.12)",
+              }}
+            >
+              <div className="absolute top-0 right-0 w-16 h-16 pointer-events-none"
+                style={{ background: "radial-gradient(circle at top right, rgba(59,130,246,0.15), transparent)" }}
+              />
+              <BookOpen className="w-7 h-7 md:w-8 md:h-8 mb-2 text-blue-400" />
+              <div className="text-2xl md:text-3xl font-bold mb-0.5">{totalLessons}</div>
+              <div className="text-xs text-muted-foreground">دروس مكتملة</div>
             </div>
-            <div className="glass p-6 rounded-3xl border-white/5 flex flex-col justify-center items-center text-center col-span-2">
-              <Target className="w-8 h-8 text-emerald mb-3" />
-              <div className="text-3xl font-bold mb-1">{challengesAnswered}</div>
-              <div className="text-sm text-muted-foreground">تحديات مجابة</div>
+            <div className="relative rounded-2xl p-4 md:p-5 flex flex-col justify-center items-center text-center col-span-2 overflow-hidden"
+              style={{
+                background: "rgba(5,15,12,0.85)",
+                border: "1px solid rgba(16,185,129,0.35)",
+                boxShadow: "0 0 18px rgba(16,185,129,0.12)",
+              }}
+            >
+              <div className="absolute inset-0 pointer-events-none"
+                style={{ background: "radial-gradient(ellipse at center top, rgba(16,185,129,0.08), transparent 60%)" }}
+              />
+              <Target className="w-7 h-7 mb-2 relative z-10" style={{ color: "#10b981" }} />
+              <div className="text-2xl font-bold mb-0.5 relative z-10">{challengesAnswered}</div>
+              <div className="text-xs text-muted-foreground relative z-10">تحديات مجابة</div>
             </div>
           </div>
         </div>
