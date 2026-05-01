@@ -205,6 +205,19 @@ export default function Admin() {
     refetchStats();
   };
 
+  // Pulls the server's Arabic error message out of an axios/fetch failure so
+  // the admin sees WHY the action failed (instead of a generic toast that
+  // hides the real cause and makes diagnosis impossible from the UI).
+  const extractServerError = (err: any): string | null => {
+    const data = err?.response?.data;
+    if (typeof data?.error === "string" && data.error.trim()) return data.error.trim();
+    if (typeof data?.message === "string" && data.message.trim()) return data.message.trim();
+    if (typeof err?.message === "string" && err.message.trim() && err.message !== "Network Error") {
+      return err.message;
+    }
+    return null;
+  };
+
   const handleApprove = async (req: any) => {
     try {
       await approveMutation.mutateAsync({ id: req.id });
@@ -212,8 +225,13 @@ export default function Admin() {
       setApprovedUser({ planType: req.planType, userName: req.userName || req.userEmail });
       invalidateAll();
       refetchCards();
-    } catch {
-      toast({ variant: "destructive", title: "حدث خطأ أثناء القبول" });
+    } catch (err: any) {
+      const serverMsg = extractServerError(err);
+      toast({
+        variant: "destructive",
+        title: "حدث خطأ أثناء القبول",
+        description: serverMsg ?? "تعذّر إكمال العملية. تحقق من الاتصال أو حاول مرة أخرى.",
+      });
     }
   };
 
@@ -222,8 +240,13 @@ export default function Admin() {
       await rejectMutation.mutateAsync({ id });
       toast({ title: "تم رفض الطلب" });
       invalidateAll();
-    } catch {
-      toast({ variant: "destructive", title: "حدث خطأ" });
+    } catch (err: any) {
+      const serverMsg = extractServerError(err);
+      toast({
+        variant: "destructive",
+        title: "حدث خطأ",
+        description: serverMsg ?? "تعذّر إكمال العملية.",
+      });
     }
   };
 

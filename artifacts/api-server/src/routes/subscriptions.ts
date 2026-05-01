@@ -1000,7 +1000,23 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
       res.status(409).json({ error: "تمت معالجة هذا الطلب بالفعل" });
       return;
     }
-    throw e;
+    // Surface the real cause to the admin UI instead of letting Express
+    // default to an HTML 500 (which hides the Arabic message and makes
+    // approve failures undebuggable from the dashboard).
+    logger.error(
+      {
+        err: e?.message,
+        code: e?.code,
+        detail: e?.detail,
+        constraint: e?.constraint,
+        column: e?.column,
+        requestId: id,
+      },
+      "admin: approve subscription request failed",
+    );
+    res.status(500).json({
+      error: `تعذّر تفعيل الاشتراك: ${e?.message ?? "خطأ غير معروف في قاعدة البيانات"}`,
+    });
   }
 });
 
