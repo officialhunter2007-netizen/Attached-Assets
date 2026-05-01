@@ -20,28 +20,46 @@ type GemsState = {
 } | null;
 
 function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boolean }) {
+  // Show whenever the user has a time-active subscription, even if their gems
+  // balance has hit zero — in that case the badge flips to an alert state so
+  // the student understands they need to renew (rather than the badge silently
+  // disappearing).
   if (!gems || !gems.hasActiveSub) return null;
+
+  const balanceEmpty = gems.gemsBalance <= 0;
+  const dailyExhausted = gems.dailyRemaining <= 0 && gems.gemsDailyLimit > 0;
   const lowDaily = gems.dailyRemaining < 20;
   const lowBalance = gems.gemsBalance < 200;
-  const low = lowDaily || lowBalance;
+  const alert = balanceEmpty || dailyExhausted || lowDaily || lowBalance;
+
   const multiSub = (gems.activeSubjectCount ?? 1) > 1;
-  const tooltip = multiSub
-    ? `مجموع الرصيد: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎 — لديك ${gems.activeSubjectCount} مادة نشطة — المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")}`
-    : `المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${gems.label ? ` (${gems.label})` : ""} — الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")}`;
+  const tooltip = balanceEmpty
+    ? `نفد رصيد الجواهر — اشتراكك ما زال سارياً لكنك بحاجة لتجديد الجواهر. الحد اليومي: ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${gems.label ? ` (${gems.label})` : ""}`
+    : multiSub
+      ? `مجموع الرصيد: ${gems.gemsBalance.toLocaleString("ar-EG")} 💎 — لديك ${gems.activeSubjectCount} مادة نشطة — المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")}`
+      : `المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${gems.label ? ` (${gems.label})` : ""} — الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")}`;
+
+  // When balance is empty we surface the balance (0) directly so the message
+  // is unambiguous. Otherwise we show the daily-remaining counter as before.
+  const primaryNumber = balanceEmpty ? 0 : gems.dailyRemaining;
+
   return (
     <Link href="/subscription">
       <span
         className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-colors whitespace-nowrap
           ${compact ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"}
-          ${low
+          ${alert
             ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse"
             : "bg-gold/10 text-gold border border-gold/30 hover:bg-gold/20"}`}
         title={tooltip}
       >
         💎
-        <span>{gems.dailyRemaining.toLocaleString("ar-EG")}</span>
-        {!compact && (
+        <span>{primaryNumber.toLocaleString("ar-EG")}</span>
+        {!compact && !balanceEmpty && (
           <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
+        )}
+        {!compact && balanceEmpty && (
+          <span className="opacity-80 font-normal">نفد!</span>
         )}
       </span>
     </Link>

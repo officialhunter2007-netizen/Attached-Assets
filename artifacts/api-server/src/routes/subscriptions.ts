@@ -1407,69 +1407,104 @@ router.get("/admin/discount-codes/:id/subscribers", async (req, res): Promise<vo
 // the legacy global wallet on usersTable (for grandfathered users from before
 // the per-subject pivot) so they don't lose access mid-period.
 router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
-  const userId = getUserId(req);
-  if (!userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  const user = await getUser(userId);
-  if (!user) {
-    res.status(401).json({ error: "User not found" });
-    return;
-  }
-
-  const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
-  const now = new Date();
-
-  if (subjectId) {
-    const [sub] = await db
-      .select()
-      .from(userSubjectSubscriptionsTable)
-      .where(and(
-        eq(userSubjectSubscriptionsTable.userId, userId),
-        eq(userSubjectSubscriptionsTable.subjectId, subjectId),
-      ))
-      .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
-
-    if (sub && new Date(sub.expiresAt) > now) {
-      await applyDailyGemsRolloverForSubjectSub(sub);
-      const usedToday = sub.gemsUsedToday ?? 0;
-      const dailyRemaining = Math.max(0, (sub.gemsDailyLimit ?? 0) - usedToday);
-      res.json({
-        subjectId,
-        subjectName: sub.subjectName ?? null,
-        gemsBalance: sub.gemsBalance ?? 0,
-        gemsDailyLimit: sub.gemsDailyLimit ?? 0,
-        gemsUsedToday: usedToday,
-        dailyRemaining,
-        gemsExpiresAt: sub.expiresAt,
-        hasActiveSub: (sub.gemsBalance ?? 0) > 0,
-        plan: sub.plan,
-        source: "per-subject" as const,
-      });
+  try {
+    const userId = getUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
+
+    const user = await getUser(userId);
+    if (!user) {
+      res.status(401).json({ error: "User not found" });
+      return;
+    }
+
+    const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
+    const now = new Date();
+
+    if (subjectId) {
+      const [sub] = await db
+        .select()
+        .from(userSubjectSubscriptionsTable)
+        .where(and(
+          eq(userSubjectSubscriptionsTable.userId, userId),
+          eq(userSubjectSubscriptionsTable.subjectId, subjectId),
+        ))
+        .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
+
+      if (sub && new Date(sub.expiresAt) > now) {
+        await applyDailyGemsRolloverForSubjectSub(sub).catch(() => {});
+        const usedToday = sub.gemsUsedToday ?? 0;
+        const dailyRemaining = Math.max(0, (sub.gemsDailyLimit ?? 0) - usedToday);
+        // ── API contract ────────────────────────────────────────────────
+        // hasActiveSub  = subscription window is open (time-active). The
+        //                 header badge uses this so it can stay visible
+        //                 (in alert mode) when the student has burned
+        //                 through their gems and needs to renew.
+        // canUseGems    = the user can actually spend gems right now
+        //                 (time-active AND balance > 0). Use this for any
+        //                 access/permission gating.
+        // AI gating itself does NOT depend on either flag — it re-checks
+        // expiry+balance at the call site (see ai.ts).
+        const canUseGems = (sub.gemsBalance ?? 0) > 0;
+        res.json({
+          subjectId,
+          subjectName: sub.subjectName ?? null,
+          gemsBalance: sub.gemsBalance ?? 0,
+          gemsDailyLimit: sub.gemsDailyLimit ?? 0,
+          gemsUsedToday: usedToday,
+          dailyRemaining,
+          gemsExpiresAt: sub.expiresAt,
+          hasActiveSub: true,
+          canUseGems,
+          plan: sub.plan,
+          source: "per-subject" as const,
+        });
+        return;
+      }
+    }
+
+    // Legacy fallback: pre-pivot users still have a global wallet.
+    await applyDailyGemsRollover(user).catch(() => {});
+    // Legacy wallet is considered active whenever it has a future expiry,
+    // regardless of remaining balance (mirrors the per-subject behaviour).
+    const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now);
+    const usedToday = user.gemsUsedToday ?? 0;
+    const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - usedToday);
+    const legacyCanUseGems = hasLegacyActive && (user.gemsBalance ?? 0) > 0;
+
+    res.json({
+      subjectId: subjectId || null,
+      subjectName: null,
+      gemsBalance: hasLegacyActive ? (user.gemsBalance ?? 0) : 0,
+      gemsDailyLimit: hasLegacyActive ? (user.gemsDailyLimit ?? 0) : 0,
+      gemsUsedToday: hasLegacyActive ? usedToday : 0,
+      dailyRemaining: hasLegacyActive ? dailyRemaining : 0,
+      gemsExpiresAt: hasLegacyActive ? user.gemsExpiresAt : null,
+      hasActiveSub: hasLegacyActive,
+      canUseGems: legacyCanUseGems,
+      plan: hasLegacyActive ? (user.nukhbaPlan ?? null) : null,
+      source: hasLegacyActive ? ("legacy" as const) : ("none" as const),
+    });
+  } catch (err) {
+    console.error("[gems-balance] failed:", err);
+    // Defensive fallback so the polling header endpoint never spams the
+    // client with 500s. Server-side error is still logged above.
+    res.json({
+      subjectId: null,
+      subjectName: null,
+      gemsBalance: 0,
+      gemsDailyLimit: 0,
+      gemsUsedToday: 0,
+      dailyRemaining: 0,
+      gemsExpiresAt: null,
+      hasActiveSub: false,
+      canUseGems: false,
+      plan: null,
+      source: "none" as const,
+    });
   }
-
-  // Legacy fallback: pre-pivot users still have a global wallet.
-  await applyDailyGemsRollover(user);
-  const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now && (user.gemsBalance ?? 0) > 0);
-  const usedToday = user.gemsUsedToday ?? 0;
-  const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - usedToday);
-
-  res.json({
-    subjectId: subjectId || null,
-    subjectName: null,
-    gemsBalance: hasLegacyActive ? (user.gemsBalance ?? 0) : 0,
-    gemsDailyLimit: hasLegacyActive ? (user.gemsDailyLimit ?? 0) : 0,
-    gemsUsedToday: hasLegacyActive ? usedToday : 0,
-    dailyRemaining: hasLegacyActive ? dailyRemaining : 0,
-    gemsExpiresAt: hasLegacyActive ? user.gemsExpiresAt : null,
-    hasActiveSub: hasLegacyActive,
-    plan: hasLegacyActive ? (user.nukhbaPlan ?? null) : null,
-    source: hasLegacyActive ? ("legacy" as const) : ("none" as const),
-  });
 });
 
 // ── Aggregate gems summary: all active subscriptions for the header badge ────
@@ -1478,105 +1513,128 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
 // per-subject rows for the lowest-remaining subject so the badge reflects the
 // most constrained wallet, plus totals for the tooltip.
 router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void> => {
-  const userId = getUserId(req);
-  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  try {
+    const userId = getUserId(req);
+    if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const user = await getUser(userId);
-  if (!user) { res.status(401).json({ error: "User not found" }); return; }
+    const user = await getUser(userId);
+    if (!user) { res.status(401).json({ error: "User not found" }); return; }
 
-  const now = new Date();
+    const now = new Date();
 
-  // Fetch all active per-subject subscriptions (not expired, balance > 0)
-  const allSubs = await db
-    .select()
-    .from(userSubjectSubscriptionsTable)
-    .where(and(
-      eq(userSubjectSubscriptionsTable.userId, userId),
-      gt(userSubjectSubscriptionsTable.expiresAt, now),
-    ))
-    .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
-
-  // Apply daily rollover for each and compute per-sub figures
-  const activeSubs: Array<{
-    subjectId: string;
-    subjectName: string | null;
-    dailyRemaining: number;
-    gemsDailyLimit: number;
-    gemsBalance: number;
-    gemsExpiresAt: Date;
-  }> = [];
-
-  for (const sub of allSubs) {
-    if ((sub.gemsBalance ?? 0) <= 0) continue;
-    await applyDailyGemsRolloverForSubjectSub(sub).catch(() => {});
-    // Re-read the updated row to get post-rollover values
-    const [fresh] = await db
+    // Fetch all time-active per-subject subscriptions (not expired). We do
+    // NOT filter by balance here — the header badge must remain visible
+    // (in alert state) when a student has burned through their gems but the
+    // subscription window is still open, so they can see they need to renew.
+    const allSubs = await db
       .select()
       .from(userSubjectSubscriptionsTable)
-      .where(eq(userSubjectSubscriptionsTable.id, sub.id));
-    if (!fresh || (fresh.gemsBalance ?? 0) <= 0) continue;
-    const used = fresh.gemsUsedToday ?? 0;
-    const limit = fresh.gemsDailyLimit ?? 0;
-    activeSubs.push({
-      subjectId: fresh.subjectId,
-      subjectName: fresh.subjectName ?? null,
-      dailyRemaining: Math.max(0, limit - used),
-      gemsDailyLimit: limit,
-      gemsBalance: fresh.gemsBalance ?? 0,
-      gemsExpiresAt: fresh.expiresAt,
-    });
-  }
+      .where(and(
+        eq(userSubjectSubscriptionsTable.userId, userId),
+        gt(userSubjectSubscriptionsTable.expiresAt, now),
+      ))
+      .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
-  if (activeSubs.length > 0) {
-    // Totals across all subjects
-    const totalDailyRemaining = activeSubs.reduce((s, x) => s + x.dailyRemaining, 0);
-    const totalDailyLimit = activeSubs.reduce((s, x) => s + x.gemsDailyLimit, 0);
-    const totalBalance = activeSubs.reduce((s, x) => s + x.gemsBalance, 0);
-    // "Worst" subject = the one with the least daily remaining (most constrained)
-    const worst = activeSubs.reduce((a, b) => a.dailyRemaining <= b.dailyRemaining ? a : b);
-    res.json({
-      hasActiveSub: true,
-      totalDailyRemaining,
-      totalDailyLimit,
-      totalBalance,
-      activeSubjectCount: activeSubs.length,
-      worstSubject: worst,
-      subjects: activeSubs,
-      source: "per-subject" as const,
-    });
-    return;
-  }
+    // Apply daily rollover for each and compute per-sub figures.
+    const activeSubs: Array<{
+      subjectId: string;
+      subjectName: string | null;
+      dailyRemaining: number;
+      gemsDailyLimit: number;
+      gemsBalance: number;
+      gemsExpiresAt: Date;
+    }> = [];
 
-  // Fallback: legacy global wallet
-  await applyDailyGemsRollover(user).catch(() => {});
-  const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now && (user.gemsBalance ?? 0) > 0);
-  if (hasLegacyActive) {
-    const usedLeg = user.gemsUsedToday ?? 0;
-    const limitLeg = user.gemsDailyLimit ?? 0;
-    const remaining = Math.max(0, limitLeg - usedLeg);
+    for (const sub of allSubs) {
+      await applyDailyGemsRolloverForSubjectSub(sub).catch(() => {});
+      // Re-read the updated row to get post-rollover values.
+      const [fresh] = await db
+        .select()
+        .from(userSubjectSubscriptionsTable)
+        .where(eq(userSubjectSubscriptionsTable.id, sub.id));
+      if (!fresh) continue;
+      const used = fresh.gemsUsedToday ?? 0;
+      const limit = fresh.gemsDailyLimit ?? 0;
+      activeSubs.push({
+        subjectId: fresh.subjectId,
+        subjectName: fresh.subjectName ?? null,
+        dailyRemaining: Math.max(0, limit - used),
+        gemsDailyLimit: limit,
+        gemsBalance: fresh.gemsBalance ?? 0,
+        gemsExpiresAt: fresh.expiresAt,
+      });
+    }
+
+    if (activeSubs.length > 0) {
+      const totalDailyRemaining = activeSubs.reduce((s, x) => s + x.dailyRemaining, 0);
+      const totalDailyLimit = activeSubs.reduce((s, x) => s + x.gemsDailyLimit, 0);
+      const totalBalance = activeSubs.reduce((s, x) => s + x.gemsBalance, 0);
+      // "Worst" subject = the one with the least daily remaining (most constrained).
+      const worst = activeSubs.reduce((a, b) => a.dailyRemaining <= b.dailyRemaining ? a : b);
+      res.json({
+        // hasActiveSub: time-active window exists (badge stays visible).
+        // canUseGems: at least one wallet still has spendable gems.
+        hasActiveSub: true,
+        canUseGems: totalBalance > 0,
+        totalDailyRemaining,
+        totalDailyLimit,
+        totalBalance,
+        activeSubjectCount: activeSubs.length,
+        worstSubject: worst,
+        subjects: activeSubs,
+        source: "per-subject" as const,
+      });
+      return;
+    }
+
+    // Fallback: legacy global wallet — also keep visible while time-active,
+    // even if the balance is zero, so the user knows they've run out.
+    await applyDailyGemsRollover(user).catch(() => {});
+    const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now);
+    if (hasLegacyActive) {
+      const usedLeg = user.gemsUsedToday ?? 0;
+      const limitLeg = user.gemsDailyLimit ?? 0;
+      const remaining = Math.max(0, limitLeg - usedLeg);
+      const legacyBalance = user.gemsBalance ?? 0;
+      res.json({
+        hasActiveSub: true,
+        canUseGems: legacyBalance > 0,
+        totalDailyRemaining: remaining,
+        totalDailyLimit: limitLeg,
+        totalBalance: legacyBalance,
+        activeSubjectCount: 1,
+        worstSubject: null,
+        subjects: [],
+        source: "legacy" as const,
+      });
+      return;
+    }
+
     res.json({
-      hasActiveSub: true,
-      totalDailyRemaining: remaining,
-      totalDailyLimit: limitLeg,
-      totalBalance: user.gemsBalance ?? 0,
-      activeSubjectCount: 1,
+      hasActiveSub: false,
+      canUseGems: false,
+      totalDailyRemaining: 0,
+      totalDailyLimit: 0,
+      totalBalance: 0,
+      activeSubjectCount: 0,
       worstSubject: null,
       subjects: [],
-      source: "legacy" as const,
+      source: "none" as const,
     });
-    return;
+  } catch (err) {
+    console.error("[gems-balance-summary] failed:", err);
+    res.json({
+      hasActiveSub: false,
+      canUseGems: false,
+      totalDailyRemaining: 0,
+      totalDailyLimit: 0,
+      totalBalance: 0,
+      activeSubjectCount: 0,
+      worstSubject: null,
+      subjects: [],
+      source: "none" as const,
+    });
   }
-
-  res.json({
-    hasActiveSub: false,
-    totalDailyRemaining: 0,
-    totalDailyLimit: 0,
-    totalBalance: 0,
-    activeSubjectCount: 0,
-    worstSubject: null,
-    subjects: [],
-    source: "none" as const,
-  });
 });
 
 // ── Admin: manually grant a per-subject subscription to a user ───────────────
