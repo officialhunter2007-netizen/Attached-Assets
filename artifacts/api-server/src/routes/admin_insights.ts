@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and, gte, or, ilike } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lte, or, ilike, asc, count } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -966,11 +966,47 @@ router.get("/admin/insights/courses", async (req, res): Promise<any> => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/insights/conversation-students
+//   ?subjectId=...
+// Lists every student who has at least one message in ai_teacher_messages for
+// the given subject, with their message count. Used to populate the student
+// filter dropdown in the admin conversation viewer.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/insights/conversation-students", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const subjectId = String(req.query.subjectId ?? "").trim();
+  if (!subjectId) return res.status(400).json({ error: "subjectId required" });
+
+  const rows = await db
+    .select({
+      userId: aiTeacherMessagesTable.userId,
+      displayName: usersTable.displayName,
+      email: usersTable.email,
+      messageCount: count(aiTeacherMessagesTable.id),
+    })
+    .from(aiTeacherMessagesTable)
+    .leftJoin(usersTable, eq(aiTeacherMessagesTable.userId, usersTable.id))
+    .where(eq(aiTeacherMessagesTable.subjectId, subjectId))
+    .groupBy(aiTeacherMessagesTable.userId, usersTable.displayName, usersTable.email)
+    .orderBy(desc(count(aiTeacherMessagesTable.id)));
+
+  res.json({ students: rows });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/insights/course-conversations-export
-//   ?subjectId=...&days=7
-// One-click bulk export of every student's AI-teacher conversation in a course
-// for the given time window (default last 7 days). Returns a single combined
-// Markdown transcript as a download.
+//   ?subjectId=...   (required)
+//   &userId=...      (optional — filter to one student)
+//   &startDate=...   (optional ISO date, e.g. 2026-01-01 — overrides days)
+//   &endDate=...     (optional ISO date, inclusive)
+//   &days=7          (fallback window when startDate/endDate not provided)
+//   &format=text     (optional — "text" returns plain .txt, default .md)
+//
+// Returns a formatted transcript of AI-teacher conversations — either for the
+// whole course or for a specific student — that admins can use for prompt
+// engineering and teaching-quality analysis.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get("/admin/insights/course-conversations-export", async (req, res): Promise<any> => {
   const adminId = getUserId(req);
@@ -979,8 +1015,36 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
   const subjectId = String(req.query.subjectId ?? "").trim();
   if (!subjectId) return res.status(400).json({ error: "subjectId required" });
 
-  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  // Resolve date window — prefer explicit dates, fall back to days.
+  let since: Date;
+  let until: Date = new Date();
+  const startDateStr = String(req.query.startDate ?? "").trim();
+  const endDateStr   = String(req.query.endDate   ?? "").trim();
+  if (startDateStr) {
+    since = new Date(startDateStr);
+    if (isNaN(since.getTime())) return res.status(400).json({ error: "startDate غير صالح" });
+    since.setHours(0, 0, 0, 0);
+    if (endDateStr) {
+      until = new Date(endDateStr);
+      if (isNaN(until.getTime())) return res.status(400).json({ error: "endDate غير صالح" });
+      until.setHours(23, 59, 59, 999);
+    }
+  } else {
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 365);
+    since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  }
+
+  // Optional student filter.
+  const userIdParam = Number(req.query.userId) || null;
+
+  const whereConditions: any[] = [
+    eq(aiTeacherMessagesTable.subjectId, subjectId),
+    gte(aiTeacherMessagesTable.createdAt, since),
+    lte(aiTeacherMessagesTable.createdAt, until),
+  ];
+  if (userIdParam) {
+    whereConditions.push(eq(aiTeacherMessagesTable.userId, userIdParam));
+  }
 
   const rows = await db
     .select({
@@ -996,11 +1060,8 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
     })
     .from(aiTeacherMessagesTable)
     .leftJoin(usersTable, eq(aiTeacherMessagesTable.userId, usersTable.id))
-    .where(and(
-      eq(aiTeacherMessagesTable.subjectId, subjectId),
-      gte(aiTeacherMessagesTable.createdAt, since),
-    ))
-    .orderBy(aiTeacherMessagesTable.userId, aiTeacherMessagesTable.createdAt);
+    .where(and(...whereConditions))
+    .orderBy(asc(aiTeacherMessagesTable.userId), asc(aiTeacherMessagesTable.createdAt));
 
   const subjectName = rows.find((r) => r.subjectName)?.subjectName ?? subjectId;
 
@@ -1012,54 +1073,71 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
     byUser.set(r.userId, arr);
   }
 
-  const fmtDate = (d: Date) => new Date(d).toISOString().replace("T", " ").slice(0, 19) + " UTC";
+  const fmtDate = (d: Date | string) => new Date(d as any).toLocaleString("ar-YE", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", timeZone: "Asia/Aden",
+  });
   const today = new Date().toISOString().slice(0, 10);
+  const fmt = String(req.query.format ?? "md").toLowerCase() === "text" ? "text" : "md";
 
   const lines: string[] = [];
-  lines.push(`# ${subjectName} — تصدير محادثات المعلم الذكي`);
+  const h1 = (t: string) => fmt === "md" ? `# ${t}` : `${"═".repeat(60)}\n${t}\n${"═".repeat(60)}`;
+  const h2 = (t: string) => fmt === "md" ? `## ${t}` : `\n${"─".repeat(50)}\n${t}\n${"─".repeat(50)}`;
+  const h3 = (t: string) => fmt === "md" ? `### ${t}` : `\n[${t}]`;
+  const italic = (t: string) => fmt === "md" ? `_${t}_` : t;
+  const bold = (k: string, v: string) => fmt === "md" ? `- **${k}:** ${v}` : `${k}: ${v}`;
+
+  lines.push(h1(`${subjectName} — محادثات المعلم الذكي`));
   lines.push("");
-  lines.push(`- **المادة:** ${subjectName} (\`${subjectId}\`)`);
-  lines.push(`- **النافذة الزمنية:** آخر ${days} يومًا (منذ ${fmtDate(since)})`);
-  lines.push(`- **عدد الطلاب:** ${byUser.size}`);
-  lines.push(`- **إجمالي الرسائل:** ${rows.length}`);
-  lines.push(`- **تاريخ التصدير:** ${fmtDate(new Date())}`);
+  lines.push(bold("المادة", `${subjectName} (${subjectId})`));
+  if (userIdParam) {
+    const sRow = rows[0];
+    lines.push(bold("الطالب", `${sRow?.userName ?? ""} — ${sRow?.userEmail ?? ""} — ID ${userIdParam}`));
+  }
+  lines.push(bold("من", fmtDate(since)));
+  lines.push(bold("إلى", fmtDate(until)));
+  lines.push(bold("عدد الطلاب", String(byUser.size)));
+  lines.push(bold("إجمالي الرسائل", String(rows.length)));
+  lines.push(bold("تاريخ التصدير", fmtDate(new Date())));
   lines.push("");
-  lines.push("---");
+  lines.push(fmt === "md" ? "---" : "═".repeat(60));
   lines.push("");
 
   if (byUser.size === 0) {
-    lines.push("_لا توجد أي محادثات في هذه النافذة._");
+    lines.push(italic("لا توجد أي محادثات في هذه النافذة."));
   } else {
     let idx = 0;
-    for (const [userId, msgs] of byUser) {
+    for (const [uid, msgs] of byUser) {
       idx++;
       const head = msgs[0];
       const userName = head.userName ?? "(بدون اسم)";
       const userEmail = head.userEmail ?? "(بدون إيميل)";
-      lines.push(`## ${idx}. ${userName} — ${userEmail} — ID ${userId}`);
+      lines.push(h2(`${idx}. ${userName} — ${userEmail} — ID ${uid}`));
       lines.push("");
-      lines.push(`_عدد الرسائل: ${msgs.length}_`);
+      lines.push(italic(`عدد الرسائل: ${msgs.length}`));
       lines.push("");
       for (const m of msgs) {
-        const who = m.role === "user" ? "🧑 الطالب" : m.role === "assistant" ? "🤖 المعلم" : m.role;
+        const who = m.role === "user" ? "🧑 الطالب" : m.role === "assistant" ? "🤖 المعلم الذكي" : m.role;
         const tags: string[] = [];
         if (m.isDiagnostic) tags.push("تشخيصي");
         if (m.stageIndex !== null && m.stageIndex !== undefined) tags.push(`مرحلة ${m.stageIndex}`);
-        const tagStr = tags.length ? ` _(${tags.join(" · ")})_` : "";
-        lines.push(`### ${who} — ${fmtDate(m.createdAt as any)}${tagStr}`);
+        const tagPart = tags.length ? ` (${tags.join(" · ")})` : "";
+        lines.push(h3(`${who} — ${fmtDate(m.createdAt as any)}${tagPart}`));
         lines.push("");
         lines.push(m.content);
         lines.push("");
       }
-      lines.push("---");
+      lines.push(fmt === "md" ? "---" : "─".repeat(50));
       lines.push("");
     }
   }
 
   const safeName = subjectName.replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "course";
-  const filename = `${safeName}-conversations-${today}.md`;
+  const ext = fmt === "text" ? "txt" : "md";
+  const filename = `${safeName}-conversations-${today}.${ext}`;
+  const mimeType = fmt === "text" ? "text/plain" : "text/markdown";
 
-  res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+  res.setHeader("Content-Type", `${mimeType}; charset=utf-8`);
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
   res.setHeader("Cache-Control", "no-store");
   res.send(lines.join("\n"));

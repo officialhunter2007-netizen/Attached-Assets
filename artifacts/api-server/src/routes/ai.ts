@@ -162,13 +162,14 @@ function emitFriendlyAiFailure(
 }
 
 /**
- * Extract a compact, human-readable excerpt from an AI teaching response for
- * storage in ai_teacher_messages. We strip markdown formatting and take the
- * first ~maxChars characters, trimmed to the nearest sentence boundary. This
- * keeps the table small while giving admins enough context to understand what
- * was taught. Full AI responses are never stored.
+ * Store an AI teaching response for admin review and prompt-engineering analysis.
+ * Strips markdown code-fences and normalises whitespace, then stores up to
+ * maxChars characters (default 16 000 — effectively the full response for any
+ * realistic teaching turn). Trimmed at the nearest sentence boundary when the
+ * response exceeds the cap. The stored text is used by the admin conversation
+ * export feature so admins can review and improve the teacher prompt.
  */
-function extractTeachingExcerpt(text: string, maxChars = 300): string {
+function extractTeachingExcerpt(text: string, maxChars = 16000): string {
   const plain = text
     .replace(/```[\s\S]*?```/g, "")
     .replace(/^#{1,6}\s+/gm, "")
@@ -2769,10 +2770,10 @@ ${retrievedBlock}
         .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
         .trim();
       if (cleanAssistant.length > 0) {
-        // Store a compact excerpt (~300 chars) of the AI response instead of
-        // the full text to keep ai_teacher_messages row sizes small. The excerpt
-        // is enough for the admin to understand the teaching content.
-        const excerpt = extractTeachingExcerpt(cleanAssistant, 300);
+        // Store the full AI response (up to 16 000 chars) in ai_teacher_messages
+        // so admins can export and review complete conversations for prompt
+        // engineering and teaching-quality analysis.
+        const excerpt = extractTeachingExcerpt(cleanAssistant);
         await db.insert(aiTeacherMessagesTable).values({
           userId,
           subjectId,

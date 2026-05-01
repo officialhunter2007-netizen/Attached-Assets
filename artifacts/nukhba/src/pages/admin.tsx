@@ -36,6 +36,7 @@ import { AdminDiscountCodes } from "@/components/admin-discount-codes";
 import { AdminAiUsage } from "@/components/admin-ai-usage";
 import { AdminDbMonitor } from "@/components/admin-db-monitor";
 import { AdminPlanPrices } from "@/components/admin-plan-prices";
+import { AdminConversations } from "@/components/admin-conversations";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -637,6 +638,10 @@ export default function Admin() {
             <TabsTrigger value="db-monitor" className="flex items-center gap-1.5">
               <Activity className="w-3.5 h-3.5 text-sky-400" />
               قاعدة البيانات
+            </TabsTrigger>
+            <TabsTrigger value="conversations" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-sky-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-sky-500/20">
+              <MessageCircle className="w-3.5 h-3.5 text-amber-400" />
+              محادثات المعلم
             </TabsTrigger>
           </TabsList>
 
@@ -1309,6 +1314,11 @@ export default function Admin() {
           {/* DB Monitor Tab */}
           <TabsContent value="db-monitor">
             <AdminDbMonitor />
+          </TabsContent>
+
+          {/* Conversations Tab */}
+          <TabsContent value="conversations">
+            <AdminConversations />
           </TabsContent>
         </Tabs>
       </div>
