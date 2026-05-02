@@ -1703,6 +1703,14 @@ function SubjectPathChat({
   // the student didn't manually send a message during the 700ms delay window.
   const isStreamingRef = useRef(false);
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
+  // Mirror of `messages` for closures that fire BEFORE React commits a
+  // setMessages update. Used by sendTeachMessage's empty-text branch
+  // (auto-start / restart) so the bootstrap orphan-clear path can sync
+  // the ref to [] *immediately* after queueing setMessages([]) — without
+  // this, the immediate sendTeachMessage("") call below would still see
+  // the stale orphan messages from the previous render's closure.
+  const messagesRef = useRef<ChatMessage[]>(initial.messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   // Set to `true` if the diagnostic stream ended without [PLAN_READY] (e.g.
   // truncation past max_tokens, network blip, model refusal). We surface a
   // visible retry button so the student never gets silently stranded.
@@ -1903,6 +1911,13 @@ function SubjectPathChat({
       // If the cache only has orphan user messages, clear them so the teacher can start cleanly.
       if (messages.length > 0) {
         setMessages([]);
+        // Sync the ref RIGHT NOW so sendTeachMessage("")'s history snapshot
+        // — taken from messagesRef.current — sees the cleared array and
+        // doesn't leak the orphan turn into the first server request.
+        // Without this, React's async setMessages would only commit on the
+        // next render, and the immediate call below would close over the
+        // stale orphans.
+        messagesRef.current = [];
         try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
       }
       sendTeachMessage("", stages, currentStage, chatPhase === 'diagnostic');
@@ -2006,8 +2021,12 @@ function SubjectPathChat({
           // here would miss the just-appended user turn. Build the
           // history snapshot synchronously so the server sees the full
           // exchange (otherwise the assistant occasionally "forgets" the
-          // very question the student just asked).
-          history: text ? [...messages, { role: "user", content: text }] : messages,
+          // very question the student just asked). For the empty-text
+          // (auto-start/restart) path we read from messagesRef instead
+          // of the closed-over `messages` so the bootstrap orphan-clear
+          // can update the ref *before* this body runs and prevent
+          // stale-orphan leaks into the very first request.
+          history: text ? [...messages, { role: "user", content: text }] : messagesRef.current,
           planContext: customPlan,
           stages: usedStages,
           currentStage: usedStage,
