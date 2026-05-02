@@ -480,7 +480,7 @@ export default function Dashboard() {
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (cancelled) return;
-        setHasLegacyGlobalAccess(!!(d && d.source === "legacy" && d.canUseGems));
+        setHasLegacyGlobalAccess(!!(d && d.source === "legacy" && d.hasActiveSub));
       })
       .catch(() => { if (!cancelled) setHasLegacyGlobalAccess(false); });
     return () => { cancelled = true; };

@@ -768,7 +768,7 @@ router.get("/subscriptions/my-subjects", async (req, res): Promise<void> => {
   const enriched = await Promise.all(
     subs.map(async (s) => {
       if (new Date(s.expiresAt) > now) {
-        await applyDailyGemsRolloverForSubjectSub(s).catch(() => {});
+        await applyDailyGemsRolloverForSubjectSub(s);
       }
       const dailyLimit = s.gemsDailyLimit ?? 0;
       const usedToday = s.gemsUsedToday ?? 0;
@@ -811,12 +811,13 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
     ))
     .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
-  const now = new Date();
   const hasSubjectSub = access.hasActiveSub && access.source === "per-subject";
-  // Renew wall fires when the user has no current access AND something
-  // expired recently — covers per-subject expiry AND legacy expiry.
-  const subjectSubExpired =
-    !access.hasActiveSub && !access.isFirstLesson && access.expiredRecently;
+  // Renew wall fires whenever the user has no usable path to access
+  // this subject — expired/exhausted per-subject row, expired legacy
+  // wallet, or no subscription at all. Daily-cap-only is NOT included
+  // (hasActiveSub stays true in that case) and is handled separately
+  // by the chat overlay.
+  const subjectSubExpired = !access.hasActiveSub && !access.isFirstLesson;
 
   // hasAccess covers lesson viewing and the renew wall. Daily-cap state
   // is surfaced separately via blockReason and handled by the chat overlay.
@@ -2233,7 +2234,7 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
     }> = [];
 
     for (const sub of allSubs) {
-      await applyDailyGemsRolloverForSubjectSub(sub).catch(() => {});
+      await applyDailyGemsRolloverForSubjectSub(sub);
       // Re-read the updated row to get post-rollover values.
       const [fresh] = await db
         .select()
@@ -2287,7 +2288,7 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
 
     // Fallback: legacy global wallet — also keep visible while time-active,
     // even if the balance is zero, so the user knows they've run out.
-    await applyDailyGemsRollover(user).catch(() => {});
+    await applyDailyGemsRollover(user);
     const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now);
     if (hasLegacyActive) {
       const usedLeg = user.gemsUsedToday ?? 0;
