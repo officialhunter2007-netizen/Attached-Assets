@@ -79,6 +79,19 @@
   --gold: 43 90% 54%;
   --emerald: 158 62% 38%;
 
+  /* Session-page button tokens (May 2026 redesign).
+     Single source of truth so the header dropdown trigger, the
+     "اقتراحات ✨" toggle, the input send button and the FABs all
+     share consistent height / radius / horizontal padding instead
+     of each declaring their own px values inline. */
+  --btn-h-sm: 28px;
+  --btn-h-md: 36px;
+  --btn-h-lg: 44px;
+  --btn-r: 12px;
+  --btn-px-sm: 10px;
+  --btn-px-md: 14px;
+  --btn-px-lg: 18px;
+
   --neon-gold: #F59E0B;
   --neon-emerald: #10B981;
   --neon-blue: #3B82F6;
@@ -583,7 +596,16 @@
 .teach-image img {
   display: block;
   width: 100%;
+  /* Reserve a 4:3 box BEFORE the image loads so layout doesn't jump
+     when the network swaps the placeholder for the real <img>. The
+     image keeps its real intrinsic ratio once loaded (object-fit
+     contain) — the box just guarantees stable scroll position
+     during streaming. */
+  aspect-ratio: 4 / 3;
   height: auto;
+  max-height: 60vh;
+  object-fit: contain;
+  background: rgba(15, 18, 32, 0.4);
   border-radius: 10px;
   box-shadow: 0 4px 18px rgba(0,0,0,0.35);
 }

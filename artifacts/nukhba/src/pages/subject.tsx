@@ -9,7 +9,15 @@ import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical, MoreHorizontal, BookMarked, GraduationCap, Lightbulb } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { FoodLabPanel } from "@/components/food-lab-panel";
@@ -1711,6 +1719,33 @@ function SubjectPathChat({
   // the stale orphan messages from the previous render's closure.
   const messagesRef = useRef<ChatMessage[]>(initial.messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // Additional state mirrors so the bootstrap / starter / pendingTeachStart
+  // effects can read CURRENT values without listing them as deps (which
+  // would cause a re-fire on every keystroke / message). The intent of those
+  // effects is "fire on the trigger — read everything else fresh", which is
+  // exactly what refs encode. Replaces the previous eslint-disable comments.
+  const stagesRef = useRef<string[]>(initial.stages);
+  useEffect(() => { stagesRef.current = stages; }, [stages]);
+  const currentStageRef = useRef<number>(initial.currentStage);
+  useEffect(() => { currentStageRef.current = currentStage; }, [currentStage]);
+  const chatPhaseRef = useRef<'diagnostic' | 'teaching'>(chatPhase);
+  useEffect(() => { chatPhaseRef.current = chatPhase; }, [chatPhase]);
+  // sendTeachMessage is re-created each render. Effects that fire it from a
+  // stale closure (auto-start / chatStarter / pendingTeachStart) must call
+  // through this ref so they always invoke the latest version, even though
+  // we never list the function itself as an effect dep.
+  const sendTeachMessageRef = useRef<(text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }) => Promise<void>>(async () => {});
+  // The "اقتراحات ✨" chip rail used to occupy ~50px above the input on
+  // every render — visual clutter the user explicitly asked us to remove.
+  // Now collapsed by default; the student taps a small toggle to open it.
+  // Persisted so the choice survives a page refresh per browser.
+  const SUGGESTIONS_KEY = `nukhba.suggestionsOpen.${subject.id}`;
+  const [suggestionsOpen, setSuggestionsOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem(SUGGESTIONS_KEY) === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(SUGGESTIONS_KEY, suggestionsOpen ? '1' : '0'); } catch {}
+  }, [SUGGESTIONS_KEY, suggestionsOpen]);
   // Set to `true` if the diagnostic stream ended without [PLAN_READY] (e.g.
   // truncation past max_tokens, network blip, model refusal). We surface a
   // visible retry button so the student never gets silently stranded.
@@ -1920,9 +1955,11 @@ function SubjectPathChat({
         messagesRef.current = [];
         try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
       }
-      sendTeachMessage("", stages, currentStage, chatPhase === 'diagnostic');
+      // Read everything else through refs so this effect doesn't re-fire
+      // on every keystroke / phase flip / stage change. Triggers stay
+      // intentional: planLoaded, chatGated, sessionRestartKey.
+      sendTeachMessageRef.current("", stagesRef.current, currentStageRef.current, chatPhaseRef.current === 'diagnostic');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planLoaded, chatGated, sessionRestartKey]);
 
   const triggerSummary = async (allMessages: ChatMessage[]) => {
@@ -1954,10 +1991,11 @@ function SubjectPathChat({
   useEffect(() => {
     if (!chatStarter) return;
     if (!planLoaded || isStreaming) return;
-    sendTeachMessage(chatStarter);
+    // Use the ref so we always invoke the *latest* sendTeachMessage closure
+    // without listing the function as a dep (it's recreated every render).
+    sendTeachMessageRef.current(chatStarter);
     onConsumeChatStarter?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatStarter, planLoaded, isStreaming]);
+  }, [chatStarter, planLoaded, isStreaming, onConsumeChatStarter]);
 
   // After the diagnostic finishes with [PLAN_READY], chatPhase flips to
   // 'teaching' and pendingTeachStart is set. We then fire the *first* teaching
@@ -1977,10 +2015,11 @@ function SubjectPathChat({
       // the student's message takes precedence over our auto-trigger.
       if (isStreamingRef.current) return;
       // Empty text + explicit isDiagnostic=false starts Phase 1 cleanly.
-      sendTeachMessage("", stages, 0, false);
+      // Latest stages from ref so a plan generated mid-effect uses the
+      // up-to-date list, not the closure's empty initial.
+      sendTeachMessageRef.current("", stagesRef.current, 0, false);
     }, 700);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingTeachStart, isStreaming, chatPhase]);
 
   const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }) => {
@@ -2395,6 +2434,15 @@ function SubjectPathChat({
     }
   };
 
+  // Sync sendTeachMessageRef every render so the bootstrap / starter /
+  // pendingTeachStart effects always invoke the freshest closure.
+  // Runs after commit but BEFORE those effects' callbacks execute on this
+  // commit (effects fire in source order — this hook is declared before
+  // any effect that calls sendTeachMessageRef.current).
+  useEffect(() => {
+    sendTeachMessageRef.current = sendTeachMessage;
+  });
+
   const handleSend = () => {
     if (!input.trim() || isStreaming) return;
     sendTeachMessage(input);
@@ -2639,7 +2687,7 @@ function SubjectPathChat({
     {showReopenEnv && (
       <button
         onClick={() => onReopenDynamicEnv?.()}
-        className="fixed bottom-20 md:bottom-6 right-4 z-[70] bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-cyan-300/50"
+        className="fixed bottom-24 md:bottom-6 right-4 z-[70] bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-cyan-300/50"
         style={{ direction: "rtl" }}
         title={pendingDynamicEnv?.title || "العودة لبيئتك"}
       >
@@ -2656,7 +2704,7 @@ function SubjectPathChat({
     {!pendingDynamicEnv && !anyPanelOpen && !isCreatingEnv && onStartLabEnvIntent && chatVisible && (
       <button
         onClick={() => onStartLabEnvIntent()}
-        className="fixed bottom-20 md:bottom-6 right-4 z-[70] bg-gradient-to-l from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-amber-300/50"
+        className="fixed bottom-24 md:bottom-6 right-4 z-[70] bg-gradient-to-l from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-amber-300/50"
         style={{ direction: "rtl" }}
         title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
       >
@@ -2668,7 +2716,7 @@ function SubjectPathChat({
     {attackSimEnabled && !pendingAttackScenario && !anyPanelOpen && chatVisible && onOpenAttackIntake && (
       <button
         onClick={() => onOpenAttackIntake()}
-        className="fixed bottom-36 md:bottom-20 right-4 z-[70] bg-gradient-to-l from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
+        className="fixed bottom-40 md:bottom-20 right-4 z-[70] bg-gradient-to-l from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
         style={{ direction: "rtl" }}
         title="ابدأ محاكاة هجمة تعليمية"
       >
@@ -2680,7 +2728,7 @@ function SubjectPathChat({
     {showReopenAttack && (
       <button
         onClick={() => onReopenAttackSim?.()}
-        className="fixed bottom-36 md:bottom-20 right-4 z-[70] bg-red-600 hover:bg-red-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
+        className="fixed bottom-40 md:bottom-20 right-4 z-[70] bg-red-600 hover:bg-red-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
         style={{ direction: "rtl" }}
         title={pendingAttackScenario?.title || "العودة لمحاكاة الهجمة"}
       >
@@ -2842,9 +2890,12 @@ function SubjectPathChat({
       {!needsModeChoice && !needsMaterial && (<>
 
       {/* Mode/sources mini-bar (visible whenever mode is set).
-          Compact layout: a single mode chip on the right, action icons on
-          the left. On phones the quiz buttons collapse to icons-only to
-          stop the whole bar from wrapping into two rows. */}
+          REDESIGN (May 2026): the previous row had 3 separate visible
+          buttons (مصادري + اختبرني + الامتحان) that crowded the bar on
+          phones and forced text↔icon collapse logic. We replaced them with
+          a single dropdown trigger that holds all secondary actions —
+          including the new "إنهاء الجلسة" item moved up from the bottom
+          of the input area. The mode label stays on the right for context. */}
       {teachingMode && teachingMode !== 'unset' && (
         <div className="shrink-0 px-2.5 sm:px-3 py-1.5 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "rgba(245,158,11,0.04)" }}>
           <div className="flex items-center gap-1.5 min-w-0" style={{ direction: "rtl" }}>
@@ -2858,37 +2909,60 @@ function SubjectPathChat({
             )}
           </div>
           <div className="shrink-0 flex items-center gap-1">
-            {teachingMode === 'professor' && activeMaterialId && (
-              <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <button
-                  onClick={() => setQuizPanel({ open: true, kind: 'chapter' })}
-                  className="text-[11px] font-bold px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 text-amber-200 transition-all flex items-center gap-1"
-                  title="اختبر نفسك على الفصل الحالي"
-                  aria-label="اختبرني على هذا الفصل"
+                  className="session-action-btn flex items-center gap-1 text-[11px] font-bold text-white/80 hover:text-amber-200 bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 transition-all"
+                  title="إجراءات الجلسة"
+                  aria-label="إجراءات الجلسة"
                 >
-                  <span>📘</span>
-                  <span className="hidden sm:inline">اختبرني</span>
+                  <MoreHorizontal className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">الإجراءات</span>
                 </button>
-                <button
-                  onClick={() => setQuizPanel({ open: true, kind: 'exam' })}
-                  className="text-[11px] font-bold px-2 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-purple-200 transition-all flex items-center gap-1"
-                  title="امتحان شامل من 30 سؤالاً يغطّي كامل الملف"
-                  aria-label="الامتحان النهائي"
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6} className="w-56" style={{ direction: "rtl" }}>
+                <DropdownMenuLabel className="text-[11px] text-white/50 font-normal">إجراءات الجلسة</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => setShowSourcesPanel(true)}
+                  className="cursor-pointer gap-2 text-sm"
                 >
-                  <span>🏆</span>
-                  <span className="hidden sm:inline">الامتحان</span>
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => setShowSourcesPanel(true)}
-              className="text-[11px] font-bold px-2 py-1 rounded-lg bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-amber-200 transition-all flex items-center gap-1"
-              title="مصادري"
-              aria-label="مصادري"
-            >
-              <BookOpen className="w-3 h-3" />
-              <span className="hidden sm:inline">مصادري</span>
-            </button>
+                  <BookMarked className="w-4 h-4 text-white/60" />
+                  <span>مصادري</span>
+                </DropdownMenuItem>
+                {teachingMode === 'professor' && activeMaterialId && (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={() => setQuizPanel({ open: true, kind: 'chapter' })}
+                      className="cursor-pointer gap-2 text-sm"
+                    >
+                      <GraduationCap className="w-4 h-4 text-amber-400" />
+                      <span>اختبرني على هذا الفصل</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => setQuizPanel({ open: true, kind: 'exam' })}
+                      className="cursor-pointer gap-2 text-sm"
+                    >
+                      <Trophy className="w-4 h-4 text-purple-400" />
+                      <span>الامتحان النهائي</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {messages.length >= 2 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={handleEndSession}
+                      disabled={isStreaming}
+                      className="cursor-pointer gap-2 text-sm text-amber-200 focus:text-amber-100 focus:bg-amber-500/15"
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span>إنهاء الجلسة وحفظ الملخص</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       )}
@@ -3071,9 +3145,28 @@ function SubjectPathChat({
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
         {/* Universal subject-specific suggested-prompt chips. Detected from
             the subject name/id so each domain gets relevant kick-off prompts.
-            Always available (also when chat has progressed) so the student
-            can pivot quickly. Generic fallback covers anything unknown. */}
-        {!isStreaming && !chatGated && !quotaExhausted && (() => {
+            REDESIGN (May 2026): chips used to ALWAYS render above the input
+            (~50px of permanent visual clutter on every screen). They now
+            collapse behind a small "اقتراحات ✨" toggle so the student opens
+            them only when stuck. Choice persisted per subject in localStorage.
+            Generic fallback covers anything unknown. */}
+        {!isStreaming && !chatGated && !quotaExhausted && (
+          <div className="max-w-2xl mx-auto mb-2 flex justify-center" style={{ direction: "rtl" }}>
+            <button
+              type="button"
+              onClick={() => setSuggestionsOpen((v) => !v)}
+              className="session-toggle-btn inline-flex items-center gap-1.5 text-[11px] text-white/60 hover:text-amber-200 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all"
+              aria-expanded={suggestionsOpen}
+              aria-controls="suggestion-chips"
+              title={suggestionsOpen ? "إخفاء الاقتراحات" : "إظهار اقتراحات للأسئلة"}
+            >
+              <Lightbulb className="w-3 h-3" />
+              <span>{suggestionsOpen ? "إخفاء الاقتراحات" : "اقتراحات ✨"}</span>
+              {suggestionsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          </div>
+        )}
+        {!isStreaming && !chatGated && !quotaExhausted && suggestionsOpen && (() => {
           const text = `${String(subject?.id || "")} ${String(subject?.name || "")}`.toLowerCase();
           const has = (re: RegExp) => re.test(text);
           let kind: string = "generic";
@@ -3108,12 +3201,12 @@ function SubjectPathChat({
           };
           const items = SUGGESTIONS[kind] || SUGGESTIONS.generic;
           return (
-            <div className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
+            <div id="suggestion-chips" className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl", animation: 'msg-in 0.18s ease-out' }}>
               {items.map((q, i) => (
                 <button
                   key={i}
                   type="button"
-                  onClick={() => sendTeachMessage(q)}
+                  onClick={() => { sendTeachMessage(q); setSuggestionsOpen(false); }}
                   className="text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/25 border border-cyan-400/30 hover:border-cyan-400/60 text-cyan-200 hover:text-cyan-100 transition-all"
                 >
                   {q}
@@ -3150,17 +3243,10 @@ function SubjectPathChat({
               ))}
           </div>
         )}
-        {messages.length >= 2 && !isStreaming && (
-          <div className="max-w-2xl mx-auto mb-2.5 flex justify-center">
-            <button
-              onClick={handleEndSession}
-              className="text-sm font-bold text-amber-300 hover:text-amber-200 transition-all flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20"
-            >
-              <FileText className="w-4 h-4" />
-              إنهاء الجلسة وحفظ الملخص
-            </button>
-          </div>
-        )}
+        {/* "إنهاء الجلسة وحفظ الملخص" was a 56-px-tall block above every
+            input render (with messages.length >= 2). Moved to the header
+            "الإجراءات" dropdown menu in May 2026 to reclaim vertical space
+            and keep all secondary actions in one place. */}
         {streamTruncated && !isStreaming && !diagnosticIncomplete && (
           <div className="max-w-2xl mx-auto mb-3 p-4 rounded-xl bg-amber-500/15 border border-amber-500/40 shadow-lg shadow-amber-500/10">
             <div className="text-amber-200 text-sm font-bold mb-2">
