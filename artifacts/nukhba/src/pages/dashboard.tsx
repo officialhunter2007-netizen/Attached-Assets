@@ -365,6 +365,13 @@ interface SubjectSub {
   messagesUsed: number;
   messagesLimit: number;
   expiresAt: string;
+  // ── New gems-wallet fields. Optional during the migration window so
+  // older cached responses don't hard-fail at parse time, but every fresh
+  // /my-subjects response now includes them.
+  gemsBalance?: number;
+  gemsDailyLimit?: number;
+  gemsUsedToday?: number;
+  dailyRemaining?: number;
 }
 
 interface MaterialProgressInfo {
@@ -485,7 +492,14 @@ export default function Dashboard() {
         setMySubjectSubs(data);
 
         const now = new Date();
-        const activeSubs = data.filter(s => new Date(s.expiresAt) > now && s.messagesUsed < s.messagesLimit);
+        // "Usable" = time-active AND has gems left (prefer the gems wallet,
+        // fall back to the legacy messages counter for grandfathered rows
+        // that pre-date the gems migration).
+        const activeSubs = data.filter(s => {
+          if (new Date(s.expiresAt) <= now) return false;
+          if (typeof s.gemsBalance === "number") return s.gemsBalance > 0;
+          return s.messagesUsed < s.messagesLimit;
+        });
         const hasCodingSub = activeSubs.some(s => {
           const subject = getSubjectById(s.subjectId);
           return subject?.hasCoding === true;
@@ -582,11 +596,31 @@ export default function Dashboard() {
 
   const now = new Date();
   const activeSubjectSubs = mySubjectSubs.filter(s => new Date(s.expiresAt) > now);
-  const usableSubjectSubs = activeSubjectSubs.filter(s => s.messagesUsed < s.messagesLimit);
+  // Usable = time-active AND has gems left for today (or, when the gems
+  // wallet hasn't been migrated, has messages left). A sub whose gems
+  // balance hit zero before its expiry should still surface in the
+  // dashboard's "renew" banner, not silently disappear from the list.
+  const usableSubjectSubs = activeSubjectSubs.filter(s => {
+    if (typeof s.gemsBalance === "number") {
+      return s.gemsBalance > 0 || (s.dailyRemaining ?? 0) > 0;
+    }
+    return s.messagesUsed < s.messagesLimit;
+  });
   const hasAnyActiveSubjectSub = activeSubjectSubs.length > 0;
   const isBlocked = user?.firstLessonComplete && !hasAnyActiveSubjectSub;
 
-  const expiredSubs = mySubjectSubs.filter(s => new Date(s.expiresAt) <= now);
+  // Only show the red "your subscriptions expired" banner for recently-
+  // expired subs (within the last 30 days) — older expired rows are
+  // historical noise; the user has already moved on. We also suppress the
+  // banner when the user still has a usable sub elsewhere; the renew CTA
+  // only makes sense when the user actually has nothing to learn with.
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const allExpiredSubs = mySubjectSubs.filter(s => new Date(s.expiresAt) <= now);
+  const recentlyExpiredSubs = allExpiredSubs.filter(s => {
+    const t = new Date(s.expiresAt).getTime();
+    return Number.isFinite(t) && (now.getTime() - t) < THIRTY_DAYS_MS;
+  });
+  const expiredSubs = usableSubjectSubs.length === 0 ? recentlyExpiredSubs : [];
   const twoDaysFromNow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
   const expiringSoonSubs = usableSubjectSubs.filter(s => new Date(s.expiresAt) <= twoDaysFromNow);
 
@@ -884,12 +918,22 @@ export default function Dashboard() {
                 <div>
                   <div className="text-lg font-black text-gold mb-2">{usableSubjectSubs.length} {usableSubjectSubs.length === 1 ? "اشتراك نشط" : "اشتراكات نشطة"}</div>
                   <div className="space-y-2 mb-3">
-                    {usableSubjectSubs.slice(0, 3).map(s => (
-                      <div key={s.id} className="text-xs text-muted-foreground flex items-center justify-between">
-                        <span>{s.subjectName || s.subjectId}</span>
-                        <span className="text-emerald">{Math.max(0, s.messagesLimit - s.messagesUsed)} رسالة متبقية</span>
-                      </div>
-                    ))}
+                    {usableSubjectSubs.slice(0, 3).map(s => {
+                      // Gem-based wallets are the source of truth — show
+                      // the live balance. Old grandfathered rows that
+                      // pre-date the migration still get the legacy copy.
+                      const isGemWallet = typeof s.gemsBalance === "number";
+                      const remaining = isGemWallet
+                        ? Math.max(0, s.gemsBalance ?? 0)
+                        : Math.max(0, s.messagesLimit - s.messagesUsed);
+                      const label = isGemWallet ? "جوهرة متبقية" : "رسالة متبقية";
+                      return (
+                        <div key={s.id} className="text-xs text-muted-foreground flex items-center justify-between">
+                          <span>{s.subjectName || s.subjectId}</span>
+                          <span className="text-emerald">{remaining} 💎 {label}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                   <p className="text-sm text-emerald flex items-center gap-1"><Target className="w-4 h-4"/> مفعل وفعال</p>
                 </div>

@@ -26,6 +26,7 @@ import {
 import { generateActivationCode } from "../lib/auth";
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { writeGemLedger } from "../lib/gem-ledger";
+import { getAccessForUser } from "../lib/access";
 
 const router: IRouter = Router();
 
@@ -760,7 +761,23 @@ router.get("/subscriptions/my-subjects", async (req, res): Promise<void> => {
     .where(eq(userSubjectSubscriptionsTable.userId, userId))
     .orderBy(desc(userSubjectSubscriptionsTable.createdAt));
 
-  res.json(subs);
+  // Apply daily rollover for every active row so `gemsUsedToday` and
+  // `gemsResetDate` reflect today's truth — the dashboard's "active sub"
+  // filter and the per-row gems-remaining display both depend on this.
+  const now = new Date();
+  const enriched = await Promise.all(
+    subs.map(async (s) => {
+      if (new Date(s.expiresAt) > now) {
+        await applyDailyGemsRolloverForSubjectSub(s).catch(() => {});
+      }
+      const dailyLimit = s.gemsDailyLimit ?? 0;
+      const usedToday = s.gemsUsedToday ?? 0;
+      const dailyRemaining = Math.max(0, dailyLimit - usedToday);
+      return { ...s, dailyRemaining };
+    }),
+  );
+
+  res.json(enriched);
 });
 
 // ── User: get access info for a specific subject ───────────────────────────────
@@ -783,60 +800,51 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
     return;
   }
 
-  // Per-subject first lesson
-  const [firstLesson] = await db
-    .select()
-    .from(userSubjectFirstLessonsTable)
-    .where(and(
-      eq(userSubjectFirstLessonsTable.userId, userId),
-      eq(userSubjectFirstLessonsTable.subjectId, subjectId)
-    ));
+  // Centralised per-subject access verdict (per-subject row first, legacy
+  // global wallet only as fallback when no per-subject row exists).
+  const access = await getAccessForUser({ userId, subjectId });
 
-  const isFirstLesson = !firstLesson || (!firstLesson.completed && firstLesson.freeMessagesUsed < 15);
-
-  // Per-subject subscription
+  // Re-read the per-subject row so we can return rich subscription detail
+  // for the client (the helper applies daily rollover internally before
+  // returning, so this read is post-rollover).
   const [subjectSub] = await db
     .select()
     .from(userSubjectSubscriptionsTable)
     .where(and(
       eq(userSubjectSubscriptionsTable.userId, userId),
-      eq(userSubjectSubscriptionsTable.subjectId, subjectId)
+      eq(userSubjectSubscriptionsTable.subjectId, subjectId),
     ))
     .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
   const now = new Date();
-  // messagesLimit is now a *daily* cap that resets when the user claims a new
-  // daily session. If the user hasn't claimed a session today (lastSessionDate
-  // != today in Yemen TZ), then the persisted messagesUsed is from a previous
-  // day and will be reset on the next /ai/teach call, so we should treat their
-  // effective remaining-for-today as the full limit.
-  const todayYemen = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const isStaleCounter = (user.lastSessionDate ?? null) !== todayYemen;
-  const effectiveMessagesUsed = subjectSub
-    ? (isStaleCounter ? 0 : subjectSub.messagesUsed)
-    : 0;
-  const hasSubjectSub = !!(subjectSub && new Date(subjectSub.expiresAt) > now && effectiveMessagesUsed < subjectSub.messagesLimit);
-
-  const hasAccess = isFirstLesson || hasSubjectSub;
-
-  let messagesRemaining: number | null = null;
-  let expiresAt: string | null = null;
-  let planType: string | null = null;
-
-  if (hasSubjectSub && subjectSub) {
-    messagesRemaining = subjectSub.messagesLimit - effectiveMessagesUsed;
-    expiresAt = subjectSub.expiresAt.toISOString();
-    planType = subjectSub.plan;
-  }
+  const hasSubjectSub = access.hasActiveSub && access.source === "per-subject";
+  // Per-subject sub exists but is no longer usable (expired window or
+  // gemsBalance hit zero). Drives the per-subject "renew" wall on the
+  // subject page.
+  const subjectSubExpired = !!(subjectSub && (
+    new Date(subjectSub.expiresAt) <= now ||
+    (subjectSub.gemsBalance ?? 0) <= 0
+  )) && access.source !== "per-subject";
 
   res.json({
-    hasAccess,
-    isFirstLesson,
+    hasAccess: access.canAccess,
+    isFirstLesson: access.isFirstLesson,
     hasSubjectSubscription: hasSubjectSub,
-    hasLegacyGlobalSubscription: false,
-    messagesRemaining,
-    expiresAt,
-    planType,
+    hasLegacyGlobalSubscription: access.source === "legacy",
+    // ── New per-subject gem fields the frontend needs to drive the
+    // per-subject wall, the renew banner, and the gems badge.
+    subjectSubExpired,
+    expiredRecently: access.expiredRecently,
+    gemsBalance: access.gemsRemaining,
+    dailyRemaining: access.dailyRemaining,
+    gemsExpiresAt: access.expiresAt ? access.expiresAt.toISOString() : null,
+    blockReason: access.blockReason,
+    // ── Legacy fields kept for back-compat with existing client code.
+    messagesRemaining: hasSubjectSub && subjectSub
+      ? Math.max(0, subjectSub.messagesLimit - subjectSub.messagesUsed)
+      : null,
+    expiresAt: access.expiresAt ? access.expiresAt.toISOString() : null,
+    planType: subjectSub?.plan ?? null,
     subjectSubscription: subjectSub ?? null,
   });
 });

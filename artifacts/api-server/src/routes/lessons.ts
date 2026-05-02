@@ -7,6 +7,7 @@ import {
   RecordLessonViewBody,
   MarkChallengeAnsweredParams,
 } from "@workspace/api-zod";
+import { getAccessForUser } from "../lib/access";
 
 function getYemenDateString(): string {
   const yemenOffsetMs = 3 * 60 * 60 * 1000;
@@ -26,21 +27,26 @@ function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
 }
 
-async function getUserWithAccess(userId: number) {
+/**
+ * Returns the per-subject (or legacy) access verdict for `userId`, scoped
+ * to the lesson's subject so per-subject subscribers are recognised even
+ * when `nukhbaPlan` is null (the post-pivot case the legacy check missed).
+ */
+async function getUserWithAccess(userId: number, subjectId: string | null) {
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
   if (!user) return null;
 
-  const hasSubscriptionAccess = !!user.nukhbaPlan &&
-    !!user.subscriptionExpiresAt &&
-    new Date(user.subscriptionExpiresAt) > new Date() &&
-    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0);
-
+  const access = await getAccessForUser({ userId, subjectId });
   const hasReferralAccess = (user.referralSessionsLeft ?? 0) > 0;
+  const canAccess = access.canAccess || hasReferralAccess;
 
-  const isFirstLesson = !user.firstLessonComplete;
-  const canAccess = isFirstLesson || hasSubscriptionAccess || hasReferralAccess;
-
-  return { user, canAccess, isFirstLesson, hasSubscriptionAccess, hasReferralAccess };
+  return {
+    user,
+    canAccess,
+    isFirstLesson: access.isFirstLesson,
+    hasSubscriptionAccess: access.hasActiveSub,
+    hasReferralAccess,
+  };
 }
 
 router.get("/lessons/cached", async (req, res): Promise<void> => {
@@ -135,7 +141,7 @@ router.post("/lessons/views", async (req, res): Promise<void> => {
     return;
   }
 
-  const access = await getUserWithAccess(userId);
+  const access = await getUserWithAccess(userId, parsed.data.subjectId);
   if (!access || !access.canAccess) {
     res.status(403).json({ error: "ACCESS_DENIED" });
     return;

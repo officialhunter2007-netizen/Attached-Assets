@@ -1078,14 +1078,22 @@ export default function Admin() {
                           ) : (
                             <div className="flex flex-wrap gap-2">
                               {userSubjectSubs[u.id].map((s: any) => {
-                                const isActive = new Date(s.expiresAt) > new Date() && s.messagesUsed < s.messagesLimit;
+                                const isActive = new Date(s.expiresAt) > new Date() && (
+                                  typeof s.gemsBalance === "number"
+                                    ? s.gemsBalance > 0
+                                    : s.messagesUsed < s.messagesLimit
+                                );
                                 return (
                                   <div key={s.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs ${isActive ? "border-gold/30 bg-gold/5" : "border-white/10 bg-white/3 opacity-60"}`}>
                                     <span className="font-medium">{s.subjectName ?? s.subjectId}</span>
                                     <span className={`font-bold ${s.plan === "gold" ? "text-gold" : s.plan === "silver" ? "text-slate-300" : "text-orange-400"}`}>
                                       {planLabels[s.plan] ?? s.plan}
                                     </span>
-                                    <span className="text-muted-foreground">{s.messagesLimit - s.messagesUsed}/{s.messagesLimit}</span>
+                                    <span className="text-muted-foreground">{
+                                      typeof s.gemsBalance === "number"
+                                        ? `${Math.max(0, s.gemsBalance)} 💎`
+                                        : `${s.messagesLimit - s.messagesUsed}/${s.messagesLimit}`
+                                    }</span>
                                     {!isActive && <span className="text-red-400">منتهي</span>}
                                     <button
                                       className="text-red-400 hover:text-red-300 ml-1"
@@ -1158,7 +1166,13 @@ export default function Admin() {
                     ) : filteredAllSubs.map(s => {
                       const now = new Date();
                       const isExpired = new Date(s.expiresAt) < now;
-                      const isExhausted = s.messagesUsed >= s.messagesLimit;
+                      // The gems-based wallet is the source of truth: a sub
+                      // is "exhausted" when its gemsBalance hits zero, not
+                      // when the legacy messagesUsed counter was bumped
+                      // (which the gems system doesn't update).
+                      const isExhausted = typeof s.gemsBalance === "number"
+                        ? s.gemsBalance <= 0
+                        : s.messagesUsed >= s.messagesLimit;
                       const statusLabel = s.status === "active" ? "نشط" : s.status === "expired" ? "منتهي" : "مُستنفد";
                       const statusColor = s.status === "active" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-muted-foreground bg-white/5 border-white/10";
                       return (
@@ -1181,8 +1195,22 @@ export default function Admin() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            <span className="text-sm font-bold">{s.messagesLimit - s.messagesUsed}</span>
-                            <span className="text-xs text-muted-foreground"> / {s.messagesLimit}</span>
+                            {/* Display the gem wallet balance — what AI usage
+                                actually decrements. The legacy
+                                messagesLimit-messagesUsed pair is left
+                                untouched by the gems flow so showing it would
+                                falsely report "full". */}
+                            {typeof s.gemsBalance === "number" ? (
+                              <>
+                                <span className="text-sm font-bold">{Math.max(0, s.gemsBalance)}</span>
+                                <span className="text-xs text-muted-foreground"> 💎 (يومياً {s.gemsDailyLimit ?? 0})</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-sm font-bold">{s.messagesLimit - s.messagesUsed}</span>
+                                <span className="text-xs text-muted-foreground"> / {s.messagesLimit}</span>
+                              </>
+                            )}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
                             {new Date(s.expiresAt).toLocaleDateString("ar-YE")}

@@ -591,11 +591,54 @@ export default function Subject() {
   const [labReports, setLabReports] = useState<LabReport[]>([]);
   const [labReportsLoading, setLabReportsLoading] = useState(true);
 
-  const isSubscriptionExpired = !!(
-    user?.nukhbaPlan &&
-    user?.subscriptionExpiresAt &&
-    new Date(user.subscriptionExpiresAt) < new Date()
-  );
+  // Per-subject access verdict from the server. Replaces the legacy inline
+  // check on `user.nukhbaPlan + user.subscriptionExpiresAt`, which always
+  // returned `false` for users on the new per-subject gem wallet (their
+  // global wallet has no `nukhbaPlan`), so the renew CTA never fired even
+  // when the per-subject sub had clearly expired.
+  type SubjectAccessInfo = {
+    hasAccess: boolean;
+    isFirstLesson: boolean;
+    hasSubjectSubscription: boolean;
+    subjectSubExpired: boolean;
+    expiredRecently: boolean;
+    gemsBalance: number;
+    dailyRemaining: number;
+    gemsExpiresAt: string | null;
+  };
+  const [subjectAccessInfo, setSubjectAccessInfo] = useState<SubjectAccessInfo | null>(null);
+
+  const refetchSubjectAccess = async () => {
+    if (!subject?.id) return;
+    try {
+      const r = await fetch(`/api/subscriptions/subject-access?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" });
+      if (!r.ok) { setSubjectAccessInfo(null); return; }
+      const d = await r.json();
+      setSubjectAccessInfo(d);
+    } catch {
+      setSubjectAccessInfo(null);
+    }
+  };
+
+  useEffect(() => {
+    refetchSubjectAccess();
+    // Refetch when the gems badge fires (on AI usage, daily rollover, etc.)
+    const onGems = () => refetchSubjectAccess();
+    window.addEventListener("nukhba:gems-changed", onGems);
+    return () => window.removeEventListener("nukhba:gems-changed", onGems);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject?.id]);
+
+  // Drive the in-page renew banner from the per-subject verdict. Falls back
+  // to the legacy global check only as a last resort for grandfathered
+  // users whose row hasn't been migrated to the gems wallet yet.
+  const isSubscriptionExpired = subjectAccessInfo
+    ? (subjectAccessInfo.subjectSubExpired && !subjectAccessInfo.hasAccess)
+    : !!(
+        user?.nukhbaPlan &&
+        user?.subscriptionExpiresAt &&
+        new Date(user.subscriptionExpiresAt) < new Date()
+      );
 
   const loadSummaries = () => {
     if (!subject) return;
@@ -1169,31 +1212,52 @@ export default function Subject() {
 
 function Countdown({ until, onExpired }: { until: string; onExpired?: () => void }) {
   const [timeLeft, setTimeLeft] = useState(() => Math.max(0, new Date(until).getTime() - Date.now()));
+  const firedRef = useRef(false);
 
   useEffect(() => {
-    const id = setInterval(() => {
+    // Reset the "already fired" latch when the deadline changes (e.g. a
+    // new per-subject session sets a different `until`), so onExpired can
+    // fire again for the new countdown.
+    firedRef.current = false;
+    const tick = () => {
       const remaining = Math.max(0, new Date(until).getTime() - Date.now());
       setTimeLeft(remaining);
-      if (remaining === 0) onExpired?.();
-    }, 1000);
+      if (remaining === 0 && !firedRef.current) {
+        firedRef.current = true;
+        // Nudge the rest of the app to re-fetch the gems wallet — the
+        // overlay should only clear once the server has actually rolled
+        // over the daily allowance for the new Yemen day.
+        try { window.dispatchEvent(new Event("nukhba:gems-changed")); } catch {}
+        onExpired?.();
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [until]);
 
-  const hours = Math.floor(timeLeft / 3600000);
+  // Cap hours at 23 — `dailyLimitUntil` is always the next Yemen midnight,
+  // so we should never display "47:00:00" even if a clock skew or stale
+  // `until` value temporarily produces a larger raw delta.
+  const hoursRaw = Math.floor(timeLeft / 3600000);
+  const hours = Math.min(23, hoursRaw);
   const minutes = Math.floor((timeLeft % 3600000) / 60000);
   const seconds = Math.floor((timeLeft % 60000) / 1000);
 
   return (
-    <div className="flex items-center justify-center gap-2 md:gap-3" dir="ltr">
-      {[{ v: hours, l: "ساعة" }, { v: minutes, l: "دقيقة" }, { v: seconds, l: "ثانية" }].map((item, i, arr) => (
-        <div key={item.l} className="flex items-center gap-2 md:gap-3">
-          <div className="bg-black/40 border border-gold/20 rounded-xl md:rounded-2xl px-3 py-2 md:px-5 md:py-3 text-center min-w-[52px] md:min-w-[72px]">
-            <div className="text-2xl md:text-4xl font-black text-gold font-mono">{String(item.v).padStart(2, '0')}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">{item.l}</div>
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center justify-center gap-2 md:gap-3" dir="ltr">
+        {[{ v: hours, l: "ساعة" }, { v: minutes, l: "دقيقة" }, { v: seconds, l: "ثانية" }].map((item, i, arr) => (
+          <div key={item.l} className="flex items-center gap-2 md:gap-3">
+            <div className="bg-black/40 border border-gold/20 rounded-xl md:rounded-2xl px-3 py-2 md:px-5 md:py-3 text-center min-w-[52px] md:min-w-[72px]">
+              <div className="text-2xl md:text-4xl font-black text-gold font-mono">{String(item.v).padStart(2, '0')}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{item.l}</div>
+            </div>
+            {i < arr.length - 1 && <span className="text-xl md:text-2xl font-bold text-gold/50">:</span>}
           </div>
-          {i < arr.length - 1 && <span className="text-xl md:text-2xl font-bold text-gold/50">:</span>}
-        </div>
-      ))}
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground/70">بتوقيت اليمن (UTC+3)</p>
     </div>
   );
 }
@@ -3607,17 +3671,111 @@ function SubjectPathChat({
 
   // Auto-restart: if the page renders with `dailyLimitUntil` already in the
   // past (e.g. student returned the morning after hitting the cap), kick off
-  // the next session immediately instead of forcing them to click the
-  // countdown CTA. This is intentionally separate from the Countdown's
-  // `onExpired` callback, which only fires for sessions that were live when
-  // the timer reached zero.
+  // the next session — but ONLY after we've confirmed the server has
+  // actually rolled over today's gem allowance. Without this confirmation,
+  // a clock-skewed client (or a stale `until`) would auto-restart, fire a
+  // /ai/teach call, and immediately get 429'd back into the same overlay.
   useEffect(() => {
     if (!dailyLimitUntil) return;
-    if (new Date(dailyLimitUntil).getTime() <= Date.now()) {
-      startNextSession();
-    }
+    if (new Date(dailyLimitUntil).getTime() > Date.now()) return;
+    let cancelled = false;
+    let attempt = 0;
+    const verifyAndStart = async () => {
+      if (cancelled) return;
+      attempt += 1;
+      try {
+        const sid = subject?.id;
+        if (sid) {
+          const r = await fetch(`/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(sid)}`, { credentials: "include" });
+          if (r.ok) {
+            const d = await r.json();
+            const dailyRemaining = typeof d.dailyRemaining === "number" ? d.dailyRemaining : 0;
+            const dailyLimit = typeof d.gemsDailyLimit === "number" ? d.gemsDailyLimit : 0;
+            // Server has rolled over when there's daily allowance again,
+            // OR when the row simply has no daily limit (so no rollover
+            // gates access). Either way, safe to restart.
+            if (dailyRemaining > 0 || dailyLimit === 0) {
+              if (!cancelled) startNextSession();
+              return;
+            }
+          }
+        } else {
+          // No subject scope — fall back to the original behavior.
+          if (!cancelled) startNextSession();
+          return;
+        }
+      } catch {/* network — retry */}
+      // Server hasn't rolled over yet (clock skew or job lag). Retry with
+      // exponential-ish backoff capped at 30s, but give up after ~3 minutes
+      // and let the user click the explicit CTA.
+      if (attempt < 12 && !cancelled) {
+        const delayMs = Math.min(30_000, 2_000 * Math.pow(1.5, attempt));
+        setTimeout(verifyAndStart, delayMs);
+      }
+    };
+    verifyAndStart();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dailyLimitUntil]);
+
+  // ── Overlay cascade-clearing ─────────────────────────────────────────────
+  // The four overlays (accessDenied, dailyLimitUntil, quotaExhausted,
+  // sessionComplete) used to be able to coexist in state, with the render
+  // order arbitrarily picking which one to show. Worse, hitting the daily
+  // cap and then losing access (e.g. the per-subject sub also expiring)
+  // would leave the daily-cap countdown visible behind a now-broken
+  // "renew" call to action.
+  //
+  // Precedence is fixed at: accessDenied > dailyLimitUntil > quotaExhausted
+  // > sessionComplete. Whenever a higher-priority flag fires, we clear all
+  // lower-priority ones so the cascade has a single, deterministic owner.
+  useEffect(() => {
+    if (accessDenied) {
+      setDailyLimitUntil(null);
+      setQuotaExhausted(false);
+      setSessionComplete(false);
+    }
+  }, [accessDenied]);
+  useEffect(() => {
+    if (dailyLimitUntil) {
+      setQuotaExhausted(false);
+      setSessionComplete(false);
+    }
+  }, [dailyLimitUntil]);
+  useEffect(() => {
+    if (quotaExhausted) {
+      setSessionComplete(false);
+    }
+  }, [quotaExhausted]);
+
+  // ── Overlay render cascade ───────────────────────────────────────────────
+  // Order MUST stay accessDenied → dailyLimitUntil → quotaExhausted →
+  // sessionComplete to match the cascade-clearing effects above. Reordering
+  // these blocks WILL re-introduce the multi-overlay bugs described in
+  // task-31.
+  if (accessDenied) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <div className="w-20 h-20 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
+          <Lock className="w-10 h-10 text-gold" />
+        </div>
+        <h3 className="text-2xl font-bold mb-3">انتهت جواهرك 💎</h3>
+        <p className="text-muted-foreground mb-4 max-w-sm">
+          لقد استنفدت رصيد جواهرك. اشترك في خطة جديدة للاستمرار في التعلم مع جميع التخصصات.
+        </p>
+        <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground">
+          <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+          الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية
+        </div>
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
+            <Sparkles className="w-5 h-5 ml-2" />
+            اشترك الآن
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (dailyLimitUntil) {
     const expired = countdownExpired || new Date(dailyLimitUntil).getTime() <= Date.now();
@@ -3666,30 +3824,6 @@ function SubjectPathChat({
             </Button>
           </div>
         </motion.div>
-      </div>
-    );
-  }
-
-  if (accessDenied) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-        <div className="w-20 h-20 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
-          <Lock className="w-10 h-10 text-gold" />
-        </div>
-        <h3 className="text-2xl font-bold mb-3">انتهت جواهرك 💎</h3>
-        <p className="text-muted-foreground mb-4 max-w-sm">
-          لقد استنفدت رصيد جواهرك. اشترك في خطة جديدة للاستمرار في التعلم مع جميع التخصصات.
-        </p>
-        <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground">
-          <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
-          الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية
-        </div>
-        <div className="flex flex-col gap-3 w-full max-w-xs">
-          <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
-            <Sparkles className="w-5 h-5 ml-2" />
-            اشترك الآن
-          </Button>
-        </div>
       </div>
     );
   }

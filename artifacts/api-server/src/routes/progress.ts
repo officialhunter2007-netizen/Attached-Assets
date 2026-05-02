@@ -1,28 +1,13 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, userProgressTable, learningPathsTable, usersTable } from "@workspace/db";
+import { db, userProgressTable, learningPathsTable } from "@workspace/db";
 import { UpsertUserProgressBody, SaveLearningPathBody } from "@workspace/api-zod";
+import { getAccessForUser } from "../lib/access";
 
 const router: IRouter = Router();
 
 function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
-}
-
-async function checkAccess(userId: number): Promise<boolean> {
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-  if (!user) return false;
-
-  if (!user.firstLessonComplete) return true;
-
-  const hasSubscriptionAccess = !!user.nukhbaPlan &&
-    !!user.subscriptionExpiresAt &&
-    new Date(user.subscriptionExpiresAt) > new Date() &&
-    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0);
-
-  const hasReferralAccess = (user.referralSessionsLeft ?? 0) > 0;
-
-  return hasSubscriptionAccess || hasReferralAccess;
 }
 
 router.get("/progress", async (req, res): Promise<void> => {
@@ -47,15 +32,19 @@ router.post("/progress", async (req, res): Promise<void> => {
     return;
   }
 
-  const canAccess = await checkAccess(userId);
-  if (!canAccess) {
-    res.status(403).json({ error: "ACCESS_DENIED" });
-    return;
-  }
-
   const parsed = UpsertUserProgressBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  // Use the per-subject access helper when we know the subject; this lets a
+  // user who has an active per-subject sub for THIS subject save progress
+  // even when their legacy global wallet is empty.
+  const subjectId = parsed.data.subjectOrSpecialization || null;
+  const access = await getAccessForUser({ userId, subjectId });
+  if (!access.canAccess) {
+    res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }
 
@@ -112,6 +101,16 @@ router.post("/learning-paths", async (req, res): Promise<void> => {
   const parsed = SaveLearningPathBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  // Per-subject access check using the path's subject. We deliberately do
+  // NOT fall back to userHasAnyAccess here: a learning path is bound to
+  // ONE subject, so a user with active access to subject A must not be
+  // able to create/update a learning path scoped to subject B.
+  const access = await getAccessForUser({ userId, subjectId: parsed.data.subjectId });
+  if (!access.canAccess) {
+    res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }
 

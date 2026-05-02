@@ -248,11 +248,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
               currentSubjectId ||
               "اشتراكي";
             // Compute days-until-expiry from the per-subject endpoint's
-            // expiresAt so the badge can show the warning state even when
-            // the user is inside a single subject view.
+            // gemsExpiresAt so the badge can show the warning state even
+            // when the user is inside a single subject view. The endpoint
+            // historically returned the field as `expiresAt` in some
+            // responses; keep the fallback to avoid breaking when the
+            // server is rolled forward but the page is cached.
             let expiresInDays: number | null = null;
-            if (d.expiresAt) {
-              const ms = new Date(d.expiresAt).getTime() - Date.now();
+            const expiryRaw = d.gemsExpiresAt ?? d.expiresAt;
+            if (expiryRaw) {
+              const ms = new Date(expiryRaw).getTime() - Date.now();
               if (Number.isFinite(ms)) expiresInDays = Math.max(0, Math.ceil(ms / 86_400_000));
             }
             setGems({

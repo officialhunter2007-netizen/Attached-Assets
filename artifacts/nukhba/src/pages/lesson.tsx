@@ -35,23 +35,53 @@ export default function Lesson() {
   // Access Control
   const { data: views } = useGetLessonViews();
 
-  const hasSubscriptionAccess = !!user?.nukhbaPlan &&
-    !!user?.subscriptionExpiresAt &&
-    new Date(user.subscriptionExpiresAt) > new Date() &&
-    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 1);
+  // Pull the per-subject access verdict from the server (per-subject row
+  // first, legacy global wallet only as fallback). The legacy inline check
+  // we used to do here required `nukhbaPlan` + `subscriptionExpiresAt` —
+  // both null for users on the new per-subject gem wallet, which silently
+  // locked them out of every lesson page they hadn't already viewed.
+  type SubjectAccess = {
+    hasAccess: boolean;
+    isFirstLesson: boolean;
+    hasSubjectSubscription: boolean;
+  } | null;
+  const [subjectAccess, setSubjectAccess] = useState<SubjectAccess>(null);
+  const [accessLoaded, setAccessLoaded] = useState(false);
 
-  const isFirstLesson = !user?.firstLessonComplete;
+  useEffect(() => {
+    if (!subjectId) return;
+    let cancelled = false;
+    setAccessLoaded(false);
+    fetch(`/api/subscriptions/subject-access?subjectId=${encodeURIComponent(subjectId)}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: SubjectAccess) => {
+        if (cancelled) return;
+        setSubjectAccess(d ?? null);
+      })
+      .catch(() => { if (!cancelled) setSubjectAccess(null); })
+      .finally(() => { if (!cancelled) setAccessLoaded(true); });
+    return () => { cancelled = true; };
+  }, [subjectId]);
+
+  const isFirstLesson = subjectAccess?.isFirstLesson ?? !user?.firstLessonComplete;
+  const hasSubscriptionAccess = subjectAccess?.hasAccess ?? false;
   const alreadyViewed = views?.some(v => v.lessonId === lessonId) ?? false;
 
   const hasAccess = isFirstLesson || hasSubscriptionAccess || alreadyViewed;
-  
-  const [showPaywall, setShowPaywall] = useState(!hasAccess);
+
+  const [showPaywall, setShowPaywall] = useState(false);
 
   useEffect(() => {
+    // Only flip to the paywall once the subject-access fetch has completed,
+    // otherwise we briefly flash the locked screen before the verdict
+    // arrives.
+    if (!accessLoaded) return;
     if (!hasAccess && views) {
       setShowPaywall(true);
+    } else {
+      setShowPaywall(false);
     }
-  }, [hasAccess, views]);
+  }, [hasAccess, views, accessLoaded]);
 
   // Cached Lesson
   const { data: cachedLesson, isLoading: isCacheLoading } = useGetCachedLesson({ lesson_key: lessonKey }, {
