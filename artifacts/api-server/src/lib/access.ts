@@ -84,7 +84,9 @@ export async function getAccessForUser(opts: {
         (!firstLesson.completed &&
           (firstLesson.freeMessagesUsed ?? 0) < FREE_LESSON_GEM_LIMIT));
 
-    const [sub] = await db
+    // Prefer an active row that still has gems; fall back to the most
+    // recent row so we can report expired/exhausted state correctly.
+    const allSubs = await db
       .select()
       .from(userSubjectSubscriptionsTable)
       .where(
@@ -94,6 +96,9 @@ export async function getAccessForUser(opts: {
         ),
       )
       .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
+    const sub =
+      allSubs.find(s => new Date(s.expiresAt) > now && (s.gemsBalance ?? 0) > 0)
+      ?? allSubs[0];
 
     if (sub) {
       await applyDailyGemsRolloverForSubjectSub(sub);
