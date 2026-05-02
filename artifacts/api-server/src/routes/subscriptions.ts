@@ -130,7 +130,7 @@ function getYemenDateLabel(): string {
  * `usersTable.gems*` columns are NOT touched — those exist only for backward
  * compatibility with grandfathered users.
  */
-async function grantSubjectSubscription(opts: {
+type GrantSubjectSubscriptionOpts = {
   userId: number;
   subjectId: string;
   subjectName: string | null;
@@ -143,43 +143,76 @@ async function grantSubjectSubscription(opts: {
   source?: "approve_request" | "activate_card" | "admin_grant";
   adminUserId?: number | null;
   note?: string | null;
-}): Promise<typeof userSubjectSubscriptionsTable.$inferSelect> {
+};
+
+/**
+ * Tx-bound core of `grantSubjectSubscription` — does the wallet replace
+ * (delete prior row + insert fresh row) inside the supplied transaction
+ * handle. Callers that already hold a transaction (notably the approve
+ * endpoint, which must commit the request status, the activation card,
+ * the discount bookkeeping AND the wallet grant atomically) use this
+ * directly. Callers without a transaction use `grantSubjectSubscription`
+ * which wraps this in `db.transaction(...)` and writes the audit row.
+ */
+async function grantSubjectSubscriptionInTx(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  opts: GrantSubjectSubscriptionOpts,
+): Promise<typeof userSubjectSubscriptionsTable.$inferSelect> {
   const planGems = PLAN_GEM_LIMITS[opts.planType];
   if (!planGems) throw new Error(`Unknown plan type: ${opts.planType}`);
 
   const expiresAt = new Date(Date.now() + SUB_DURATION_DAYS * 24 * 60 * 60 * 1000);
   const yemenDate = getYemenDateLabel();
+
+  // Drop any prior row for this (userId, subjectId) — the new payment buys
+  // a fresh 14-day window and gem wallet for that subject.
+  await tx.delete(userSubjectSubscriptionsTable).where(and(
+    eq(userSubjectSubscriptionsTable.userId, opts.userId),
+    eq(userSubjectSubscriptionsTable.subjectId, opts.subjectId),
+  ));
+
+  const [inserted] = await tx.insert(userSubjectSubscriptionsTable).values({
+    userId: opts.userId,
+    subjectId: opts.subjectId,
+    subjectName: opts.subjectName,
+    plan: opts.planType,
+    messagesUsed: 0,
+    messagesLimit: planGems.total, // legacy column kept = total gems
+    expiresAt,
+    activationCode: opts.activationCode,
+    subscriptionRequestId: opts.subscriptionRequestId,
+    paidPriceYer: opts.paidPriceYer,
+    region: opts.region,
+    gemsBalance: planGems.total,
+    gemsDailyLimit: planGems.daily,
+    gemsUsedToday: 0,
+    gemsResetDate: yemenDate,
+  }).returning();
+
+  return inserted;
+}
+
+/**
+ * Atomically grant a per-subject subscription. Replaces any existing row for
+ * the same (userId, subjectId): if the user already has gems left for that
+ * subject, we reset the wallet for the freshly-paid 14 days. The legacy global
+ * `usersTable.gems*` columns are NOT touched — those exist only for backward
+ * compatibility with grandfathered users.
+ *
+ * Use this overload when there is no outer transaction in play. Callers
+ * already inside a transaction should call `grantSubjectSubscriptionInTx`
+ * directly with their `tx` handle and write the ledger row themselves
+ * after the transaction commits, so that "request approved" and
+ * "wallet granted" happen in a single atomic unit.
+ */
+async function grantSubjectSubscription(
+  opts: GrantSubjectSubscriptionOpts,
+): Promise<typeof userSubjectSubscriptionsTable.$inferSelect> {
+  const planGems = PLAN_GEM_LIMITS[opts.planType];
+  if (!planGems) throw new Error(`Unknown plan type: ${opts.planType}`);
   const source = opts.source ?? "admin_grant";
 
-  const row = await db.transaction(async (tx) => {
-    // Drop any prior row for this (userId, subjectId) — the new payment buys
-    // a fresh 14-day window and gem wallet for that subject. Capture the
-    // pre-grant balance so the ledger shows the wallet "reset" delta.
-    await tx.delete(userSubjectSubscriptionsTable).where(and(
-      eq(userSubjectSubscriptionsTable.userId, opts.userId),
-      eq(userSubjectSubscriptionsTable.subjectId, opts.subjectId),
-    ));
-
-    const [inserted] = await tx.insert(userSubjectSubscriptionsTable).values({
-      userId: opts.userId,
-      subjectId: opts.subjectId,
-      subjectName: opts.subjectName,
-      plan: opts.planType,
-      messagesUsed: 0,
-      messagesLimit: planGems.total, // legacy column kept = total gems
-      expiresAt,
-      activationCode: opts.activationCode,
-      subscriptionRequestId: opts.subscriptionRequestId,
-      paidPriceYer: opts.paidPriceYer,
-      region: opts.region,
-      gemsBalance: planGems.total,
-      gemsDailyLimit: planGems.daily,
-      gemsUsedToday: 0,
-      gemsResetDate: yemenDate,
-    }).returning();
-
-    return inserted;
-  });
+  const row = await db.transaction((tx) => grantSubjectSubscriptionInTx(tx, opts));
 
   // Audit row — best-effort, errors are swallowed inside writeGemLedger so
   // a transient ledger failure cannot undo a paid subscription.
@@ -1047,14 +1080,15 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
   // Race-safe approval: conditional update on status. Only the first concurrent
   // call wins; subsequent calls find updatedRows = 0 and bail out.
   //
-  // The status flip + activation card insert + discount bookkeeping all run
-  // inside ONE transaction. The actual gem wallet grant (and its ledger row)
-  // are intentionally deferred to AFTER the transaction commits so we don't
-  // hold the row locks while the helper does its own internal transaction.
-  // Idempotency is preserved because the conditional UPDATE on `status`
-  // guarantees only one approver path executes.
+  // EVERYTHING that mutates persistent state for this approval — request
+  // status, activation card, discount bump + redemption row, AND the
+  // per-subject wallet grant — runs inside ONE transaction. This closes
+  // the "approved-without-wallet" integrity hole: if the wallet insert
+  // fails for any reason (transient DB error, schema drift, FK violation),
+  // the whole approval rolls back, the discount usage is restored, and
+  // the admin can safely retry the same request.
   try {
-    const { card } = await db.transaction(async (tx) => {
+    const { card, subscription } = await db.transaction(async (tx) => {
       const updatedRows = await tx
         .update(subscriptionRequestsTable)
         .set({
@@ -1130,25 +1164,43 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         subscriptionRequestId: id,
       }).returning();
 
-      return { card: insertedCard };
+      // Wallet grant happens INSIDE the same tx via the shared helper —
+      // any failure rolls back the request status flip, the activation
+      // card, and the discount bookkeeping in one go.
+      const insertedSub = await grantSubjectSubscriptionInTx(tx, {
+        userId: request.userId,
+        subjectId: requestSubjectId,
+        subjectName: request.subjectName ?? null,
+        planType: request.planType,
+        region: request.region,
+        paidPriceYer: request.finalPrice ?? 0,
+        activationCode: code,
+        subscriptionRequestId: id,
+      });
+
+      return { card: insertedCard, subscription: insertedSub };
     });
 
-    // Outside the transaction: grant the wallet via the canonical helper so
-    // the gem-ledger row is written and any future logic centralised in
-    // `grantSubjectSubscription` runs uniformly across approve / activate /
-    // admin-grant paths.
-    await grantSubjectSubscription({
+    // Audit row — best-effort, AFTER the transaction commits so a
+    // transient ledger failure cannot undo a paid subscription.
+    const grantedPlan = PLAN_GEM_LIMITS[request.planType];
+    await writeGemLedger({
       userId: request.userId,
-      subjectId: requestSubjectId,
-      subjectName: request.subjectName ?? null,
-      planType: request.planType,
-      region: request.region,
-      paidPriceYer: request.finalPrice ?? 0,
-      activationCode: code,
-      subscriptionRequestId: id,
+      subjectSubId: subscription.id,
+      subjectId: subscription.subjectId,
+      delta: grantedPlan.total,
+      balanceAfter: grantedPlan.total,
+      reason: "grant",
       source: "approve_request",
       adminUserId: userId,
       note: request.discountCode ? `Approved with code ${request.discountCode}` : null,
+      metadata: {
+        planType: request.planType,
+        region: request.region,
+        paidPriceYer: request.finalPrice ?? 0,
+        activationCode: code,
+        subscriptionRequestId: id,
+      },
     });
 
     res.json(card);

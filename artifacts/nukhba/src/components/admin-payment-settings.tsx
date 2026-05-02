@@ -67,12 +67,14 @@ export function AdminPaymentSettings() {
     setSaving(key);
     try {
       const known = KNOWN.find(k => k.key === key);
-      const r = await fetch("/api/admin/payment-settings", {
+      // Backend handler is `PUT /admin/payment-settings/:key` (key in URL).
+      // Send the rest of the payload in the body. encodeURIComponent so that
+      // dot-separated keys (kuraimi.north.number) survive the URL intact.
+      const r = await fetch(`/api/admin/payment-settings/${encodeURIComponent(key)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          key,
           value,
           label: known?.label ?? rows[key]?.label ?? null,
           category: "payment",
