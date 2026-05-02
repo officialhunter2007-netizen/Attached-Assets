@@ -591,7 +591,6 @@ export default function Subject() {
   const [labReports, setLabReports] = useState<LabReport[]>([]);
   const [labReportsLoading, setLabReportsLoading] = useState(true);
 
-  // Per-subject access verdict from the server.
   type SubjectAccessInfo = {
     hasAccess: boolean;
     isFirstLesson: boolean;
@@ -609,8 +608,7 @@ export default function Subject() {
     try {
       const r = await fetch(`/api/subscriptions/subject-access?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" });
       if (!r.ok) { setSubjectAccessInfo(null); return; }
-      const d = await r.json();
-      setSubjectAccessInfo(d);
+      setSubjectAccessInfo(await r.json());
     } catch {
       setSubjectAccessInfo(null);
     }
@@ -618,15 +616,14 @@ export default function Subject() {
 
   useEffect(() => {
     refetchSubjectAccess();
-    // Refetch when the gems badge fires (on AI usage, daily rollover, etc.)
     const onGems = () => refetchSubjectAccess();
     window.addEventListener("nukhba:gems-changed", onGems);
     return () => window.removeEventListener("nukhba:gems-changed", onGems);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject?.id]);
 
-  // Per-subject verdict drives the renew banner; the legacy global check
-  // is the fallback when the access fetch hasn't returned yet.
+  // Server verdict drives the renew wall; legacy inline check is the
+  // fallback while the access fetch is still in flight.
   const isSubscriptionExpired = subjectAccessInfo
     ? (subjectAccessInfo.subjectSubExpired && !subjectAccessInfo.hasAccess)
     : !!(

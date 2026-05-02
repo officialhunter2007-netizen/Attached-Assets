@@ -471,7 +471,6 @@ export default function Dashboard() {
   const [showMobileCodingWarning, setShowMobileCodingWarning] = useState(false);
   const [materials, setMaterials] = useState<MaterialWithProgress[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState(true);
-  // Legacy global gems wallet, resolved through /gems-balance (no subjectId).
   const [hasLegacyGlobalAccess, setHasLegacyGlobalAccess] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -618,32 +617,34 @@ export default function Dashboard() {
     return s.messagesUsed < s.messagesLimit;
   });
   const hasAnyUsableSub = usableSubjectSubs.length > 0;
-  // Pre-gems wallet: nukhbaPlan + future expiry + messages left.
   const hasLegacyPreGemsAccess = !!(
     user?.nukhbaPlan &&
     user?.subscriptionExpiresAt &&
     new Date(user.subscriptionExpiresAt) > now &&
     (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0)
   );
-  // Wait for the /gems-balance probe (null) before blocking the user.
-  const isBlocked =
-    user?.firstLessonComplete &&
-    !hasAnyUsableSub &&
-    !hasLegacyPreGemsAccess &&
-    hasLegacyGlobalAccess === false;
+  const hasAnyLegacyAccess = hasLegacyPreGemsAccess || hasLegacyGlobalAccess === true;
 
-  // Only show the red "your subscriptions expired" banner for recently-
-  // expired subs (within the last 30 days) — older expired rows are
-  // historical noise; the user has already moved on. We also suppress the
-  // banner when the user still has a usable sub elsewhere; the renew CTA
-  // only makes sense when the user actually has nothing to learn with.
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
   const allExpiredSubs = mySubjectSubs.filter(s => new Date(s.expiresAt) <= now);
   const recentlyExpiredSubs = allExpiredSubs.filter(s => {
     const t = new Date(s.expiresAt).getTime();
     return Number.isFinite(t) && (now.getTime() - t) < THIRTY_DAYS_MS;
   });
-  const expiredSubs = usableSubjectSubs.length === 0 ? recentlyExpiredSubs : [];
+  // Show the red renewal banner whenever the user has a recent expired sub
+  // and no other usable access (per-subject OR legacy).
+  const expiredSubs =
+    !hasAnyUsableSub && !hasAnyLegacyAccess ? recentlyExpiredSubs : [];
+
+  // Block (free-lesson-ended page) only when there is no access AND nothing
+  // recently expired to renew — otherwise render the dashboard so the
+  // renewal banner is visible. Wait for the /gems-balance probe (null).
+  const isBlocked =
+    user?.firstLessonComplete &&
+    !hasAnyUsableSub &&
+    !hasAnyLegacyAccess &&
+    hasLegacyGlobalAccess === false &&
+    recentlyExpiredSubs.length === 0;
   const twoDaysFromNow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
   const expiringSoonSubs = usableSubjectSubs.filter(s => new Date(s.expiresAt) <= twoDaysFromNow);
 
