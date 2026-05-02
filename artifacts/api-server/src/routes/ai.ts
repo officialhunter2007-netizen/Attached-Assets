@@ -1087,11 +1087,13 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     }
   }
 
-  // Step 2: daily-limit "session claim" stays scoped to the first turn — it
-  // is about counting daily *sessions*, not per-turn gems. A student can run
-  // a single 200-turn session per day without tripping it; they can't open
-  // multiple distinct sessions past the daily limit.
-  if (isNewSession && hasGemsSub && !unlimited) {
+  // Step 2: daily-limit gate. Runs on EVERY turn (not just `isNewSession`)
+  // so a student inside a long-running session cannot keep racking up turns
+  // after their daily gem cap is reached — previously the gate was scoped
+  // to session start, which let a single open chat exceed the daily cap by
+  // arbitrary amounts. The session-claim flag is still recorded only for
+  // the first turn of the day so per-day session counting stays accurate.
+  if (hasGemsSub && !unlimited) {
     if (hasPerSubjectGemsSub && subjectSub) {
       const usedToday = subjectSub.gemsUsedToday ?? 0;
       const dailyLimit = subjectSub.gemsDailyLimit ?? 0;
@@ -1109,7 +1111,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
         return;
       }
     }
-    claimedTodaySession = true;
+    if (isNewSession) claimedTodaySession = true;
   }
 
   // ── Access gate ─────────────────────────────────────────────────────────────
@@ -3234,8 +3236,8 @@ ${retrievedBlock}
           balanceAfter: updatedSub?.gemsBalance ?? 0,
           reason: "debit",
           source: "ai_teach",
-          note: `AI turn (${(modelUsed as string) || "model?"})`,
-          metadata: { model: modelUsed, costUsd: costUsdEstimate ?? null },
+          note: `AI turn (${__activeModel || "model?"})`,
+          metadata: { model: __activeModel, costUsd: turnCostUsd },
         });
       } else if (hasLegacyGemsSub) {
         // Legacy (grandfathered) wallet on usersTable.
@@ -3254,8 +3256,8 @@ ${retrievedBlock}
           balanceAfter: updatedUser?.gemsBalance ?? 0,
           reason: "debit",
           source: "ai_teach",
-          note: `AI turn (${(modelUsed as string) || "model?"}) [legacy wallet]`,
-          metadata: { model: modelUsed, costUsd: costUsdEstimate ?? null },
+          note: `AI turn (${__activeModel || "model?"}) [legacy wallet]`,
+          metadata: { model: __activeModel, costUsd: turnCostUsd },
         });
       }
     } catch (err: any) {
