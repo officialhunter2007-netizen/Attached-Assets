@@ -40,10 +40,17 @@ function ensureFalConfigured(): boolean {
 // In-memory sliding window. Caps each user at 8 image generations per minute
 // to prevent runaway cost if the model hallucinates the IMAGE tag in every
 // reply during a hot loop. This is a soft safety net on top of the per-reply
-// MAX_IMAGES_PER_REPLY cap (3) and the system-prompt usage policy. The cap
-// was raised from 5 → 8 in task #15 so the new pedagogical patterns
-// (Compare/Contrast = 2 images, Hook + Reveal across two consecutive turns)
-// don't get rate-throttled mid-lesson.
+// MAX_IMAGES_PER_REPLY cap (3) and the system-prompt usage policy.
+//
+// COST POLICY DECISION (task #15, May 2026): cap raised from 5 → 8/min.
+// Rationale: with the new 8-pattern library (Compare/Contrast = 2 images
+// in one turn, Curiosity Hook + Reveal across consecutive turns) a normal
+// active student can hit the 5/min ceiling within two consecutive replies
+// and silently lose images mid-lesson. 8/min preserves headroom for the
+// new patterns while still hard-capping worst-case spend at
+// 8 × $0.003 × 60 = $1.44/hour/user — well under any single user's
+// monthly subscription value. Per-reply cap stays at 3 (showcase = 1).
+// If observed cost in production exceeds projection, lower this back to 5.
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_PER_WINDOW = 8;
 const userImageTimestamps = new Map<number, number[]>();

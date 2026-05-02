@@ -865,7 +865,7 @@ function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled
 
   **١. صورة-تحفيز (Curiosity Hook)** — تعرض الصورة *قبل* الشرح وتسأل الطالب «ماذا ترى؟ ماذا تتوقّع؟».
   مثال: «خلّيني أوريك شيئاً وقلّي وش تتوقّع يصير...»
-  \`[[IMAGE: a glass of water with an ice cube floating, side view, cross-section showing the ice partly submerged, NO TEXT NO LABELS, white background, flat educational style]]\`
+  \`[[IMAGE: a glass of water with an ice cube floating, side view, cross-section showing the ice partly submerged, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 marking the ice and the water line, white background, flat educational style]]\`
   \`<figcaption class="image-caption"><strong>سؤال:</strong> برأيك، إذا ذاب الجليد كاملاً، هل سيفيض الماء من الكأس؟ لماذا؟</figcaption>\`
 
   **٢. صورة-لغز بصري (Visual Riddle)** — مشهد فيه خطأ مقصود أو تحدٍّ، تسأل «أين الخلل؟» / «أيّهما أصحّ؟».
@@ -875,19 +875,19 @@ function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled
 
   **٣. صورة-مقارنة (Compare/Contrast)** — صورتان متتاليتان «قبل/بعد»، «صحيح/خاطئ»، أو حالتان. **مسموح هنا أن تُصدر وسمَين \`[[IMAGE:...]]\` متتاليَين** بفاصل caption بسيط بينهما.
   مثال: «خلّيني أعرض لك الفرق بين الحالتين بصرياً...»
-  \`[[IMAGE: a healthy plant cell cross-section with intact organelles, NO TEXT NO LABELS, only numbered circles 1 2 3, white background, flat scientific illustration]]\`
+  \`[[IMAGE: a healthy plant cell cross-section with intact organelles, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 3 marking the nucleus, vacuole, and membrane, white background, flat scientific illustration]]\`
   \`<figcaption class="image-caption"><strong>الحالة الطبيعية:</strong> الخلية كاملة الأجزاء.</figcaption>\`
-  \`[[IMAGE: a damaged plant cell cross-section with shrunken vacuole and ruptured membrane, NO TEXT NO LABELS, only numbered circles 1 2 3, white background, flat scientific illustration]]\`
+  \`[[IMAGE: a damaged plant cell cross-section with shrunken vacuole and ruptured membrane, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 3 marking the same nucleus, vacuole, and membrane, white background, flat scientific illustration]]\`
   \`<figcaption class="image-caption"><strong>بعد الجفاف:</strong> لاحظ كيف انكمشت الفجوة العصارية <span class="num">1</span>.</figcaption>\`
 
   **٤. صورة-استعارة بصرية (Visual Metaphor)** — تشبيه بصري لمفهوم مجرّد. **هذا النمط يصلح حتى للمفاهيم النصية تماماً** كالذاكرة والخوارزميات والمنطق.
   مثال: «الذاكرة العشوائية تشبه طاولة عمل... شوف:»
-  \`[[IMAGE: a wooden desk with a few books open and pens scattered on top, contrasted next to a tall library shelf in the background, NO TEXT NO LABELS NO WORDS, white background, flat illustrated style]]\`
+  \`[[IMAGE: a wooden desk with a few books open and pens scattered on top, contrasted next to a tall library shelf in the background, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 marking the desk and the shelf, white background, flat illustrated style]]\`
   \`<figcaption class="image-caption"><strong>التشبيه:</strong> الطاولة = الذاكرة العشوائية (RAM)، الرف الكبير = القرص الصلب.</figcaption>\`
 
   **٥. صورة-مشهد تطبيقي (Scenario)** — تضع الطالب في موقف واقعي.
   مثال: «تخيّل نفسك تقف في هذه المحطة...»
-  \`[[IMAGE: a small train station platform from a passenger's view, with two trains arriving from opposite directions, NO TEXT NO LABELS, white background, flat vector scene]]\`
+  \`[[IMAGE: a small train station platform from a passenger's view, with two trains arriving from opposite directions, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 marking each train, white background, flat vector scene]]\`
   \`<figcaption class="image-caption"><strong>الموقف:</strong> القطاران يقتربان معاً. كيف تحسب اللحظة التي يلتقيان فيها؟</figcaption>\`
 
   **٦. صورة-خطوة من عملية (Process Step)** — تصوير مرحلة محدَّدة من سلسلة خطوات.
@@ -898,7 +898,7 @@ function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled
   **٧. صورة-جواب لاحق (Reveal)** — في الرد الحالي تطرح سؤالاً بدون صورة، **وفي الرد التالي** بعد جواب الطالب تكشف الإجابة بصورة.
   مثال (الرد الحالي): «قبل ما أوريك الجواب، خمّن كيف يبدو شكل الأمواج لو تضاعف التردد...»
   مثال (الرد التالي بعد جواب الطالب):
-  \`[[IMAGE: two sine waves drawn one above the other, the bottom wave with double the frequency of the top, NO TEXT NO LABELS, white background, clean mathematical illustration]]\`
+  \`[[IMAGE: two sine waves drawn one above the other, the bottom wave with double the frequency of the top, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 marking each wave, white background, clean mathematical illustration]]\`
   \`<figcaption class="image-caption"><strong>الكشف:</strong> هذا هو الفرق — الموجة السفلى ترددها ضعف العليا.</figcaption>\`
 
   **٨. صورة-مرساة ذاكرة (Memory Anchor)** — رسم مرئي بسيط جداً يربطه الطالب بالمفهوم لاحقاً، يظهر مرّة واحدة في الجلسة لمفهوم مهم.
