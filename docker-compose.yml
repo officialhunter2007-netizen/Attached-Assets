@@ -34,6 +34,11 @@ services:
       # ─── OpenRouter (المعلّم الذكي - مفتاح مستقل، يبدأ بـ sk-or-) ───
       # هذا المفتاح ضروري لتشغيل المعلّم الذكي. احصل عليه من openrouter.ai/keys
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      # ─── fal.ai (الصور التوضيحية للمعلّم - FLUX schnell) ───────────
+      # اختياري: لو لم تضعه ستعمل المنصة بدون صور توضيحية. القيمة:
+      # المفتاح الكامل من https://fal.ai/dashboard/keys (شكله KEY_ID:KEY_SECRET).
+      # التكلفة: ≈ $0.003 لكل صورة (3 جواهر).
+      FAL_KEY: ${FAL_KEY:-}
       # ─── OpenAI / Anthropic (اختياري - لو احتجت مزوّدات أخرى) ──────
       AI_INTEGRATIONS_OPENAI_BASE_URL: ${AI_INTEGRATIONS_OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
       AI_INTEGRATIONS_OPENAI_API_KEY: ${AI_INTEGRATIONS_OPENAI_API_KEY:-}
