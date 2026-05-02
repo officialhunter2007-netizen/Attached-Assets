@@ -1173,8 +1173,23 @@ export default function Admin() {
                       const isExhausted = typeof s.gemsBalance === "number"
                         ? s.gemsBalance <= 0
                         : s.messagesUsed >= s.messagesLimit;
-                      const statusLabel = s.status === "active" ? "نشط" : s.status === "expired" ? "منتهي" : "مُستنفد";
-                      const statusColor = s.status === "active" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-muted-foreground bg-white/5 border-white/10";
+                      // Derive the visible status from the SAME signals
+                      // the student-side gating uses (expiresAt + gem
+                      // balance), not the legacy `s.status` column which
+                      // isn't kept in sync once a sub silently runs out
+                      // of gems mid-window. Order: expired beats
+                      // exhausted (a row that's both gets the more
+                      // informative "منتهي" label).
+                      const statusLabel = isExpired
+                        ? "منتهي"
+                        : isExhausted
+                          ? "مُستنفد"
+                          : "نشط";
+                      const statusColor = (!isExpired && !isExhausted)
+                        ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                        : isExpired
+                          ? "text-red-400 bg-red-500/10 border-red-500/20"
+                          : "text-amber-300 bg-amber-500/10 border-amber-500/20";
                       return (
                         <TableRow key={s.id} className="border-white/5 hover:bg-white/3">
                           <TableCell>

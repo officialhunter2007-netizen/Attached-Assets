@@ -59,6 +59,7 @@ declare global {
   }
 }
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
+import { getAccessForUser } from "../lib/access";
 import { writeGemLedger } from "../lib/gem-ledger";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
 import { robustJsonParse } from "../lib/json-repair";
@@ -298,44 +299,39 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     ))
     .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
+  // ── Centralised access decision ──────────────────────────────────────────
+  // Single source of truth across lessons/progress/ai/subject endpoints.
+  // The helper internally re-applies daily rollover for both the
+  // per-subject row (when subjectId is given) and the legacy global wallet,
+  // and enforces the strict "subject row blocks legacy fallback" rule the
+  // task spec requires. Below we only derive the rich return shape this
+  // function's downstream callers (deduction code at L3526+, prompts) need.
+  const access = await getAccessForUser({ userId, subjectId });
+  // Reload subjectGemsSub AFTER the helper to pick up its rollover writes
+  // — the helper mutates the DB row but we hold a separate in-memory copy
+  // that the deduction UPDATE later in this file dereferences by id.
   if (subjectGemsSub) {
-    await applyDailyGemsRolloverForSubjectSub(subjectGemsSub);
+    [subjectGemsSub] = await db
+      .select()
+      .from(userSubjectSubscriptionsTable)
+      .where(eq(userSubjectSubscriptionsTable.id, subjectGemsSub.id));
   }
+  // Reload `user` for the same reason — its in-memory gem fields may be
+  // stale after the helper applied the legacy-wallet rollover.
+  const [refreshedUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (refreshedUser) Object.assign(user, refreshedUser);
 
-  const hasPerSubjectGemsSub = !!(
-    subjectGemsSub &&
-    (subjectGemsSub.gemsBalance ?? 0) > 0 &&
-    new Date(subjectGemsSub.expiresAt) > now
-  );
-
-  // ── Legacy global wallet (grandfathered users) ────────────────────────────
-  // Users who paid before the per-subject pivot still have a global wallet on
-  // usersTable. We honor it as a fallback so they don't lose access mid-period
-  // — but only when the user has NOT bought a per-subject plan for this
-  // subject. Once a per-subject wallet exists, it takes precedence.
-  await applyDailyGemsRollover(user);
-  const hasLegacyGemsSub = !hasPerSubjectGemsSub && !!(
-    (user.gemsBalance ?? 0) > 0 &&
-    user.gemsExpiresAt &&
-    new Date(user.gemsExpiresAt) > now
-  );
-
-  const hasGemsSub = hasPerSubjectGemsSub || hasLegacyGemsSub;
-
-  // Daily-exhausted check uses whichever wallet is the source of truth.
-  let gemsBalance = 0;
-  let gemsDailyLimit = 0;
-  let effectiveGemsUsedToday = 0;
-  if (hasPerSubjectGemsSub && subjectGemsSub) {
-    gemsBalance = subjectGemsSub.gemsBalance ?? 0;
-    gemsDailyLimit = subjectGemsSub.gemsDailyLimit ?? 0;
-    effectiveGemsUsedToday = subjectGemsSub.gemsUsedToday ?? 0;
-  } else if (hasLegacyGemsSub) {
-    gemsBalance = user.gemsBalance ?? 0;
-    gemsDailyLimit = user.gemsDailyLimit ?? 0;
-    effectiveGemsUsedToday = user.gemsUsedToday ?? 0;
-  }
-  const gemsDailyExhausted = hasGemsSub && gemsDailyLimit > 0 && effectiveGemsUsedToday >= gemsDailyLimit;
+  const hasPerSubjectGemsSub = access.source === "per-subject";
+  const hasLegacyGemsSub = access.source === "legacy";
+  const hasGemsSub = access.hasActiveSub;
+  const gemsBalance = access.gemsRemaining;
+  const gemsDailyLimit = hasPerSubjectGemsSub
+    ? (subjectGemsSub?.gemsDailyLimit ?? 0)
+    : (hasLegacyGemsSub ? (user.gemsDailyLimit ?? 0) : 0);
+  const effectiveGemsUsedToday = hasPerSubjectGemsSub
+    ? (subjectGemsSub?.gemsUsedToday ?? 0)
+    : (hasLegacyGemsSub ? (user.gemsUsedToday ?? 0) : 0);
+  const gemsDailyExhausted = access.blockReason === "daily_limit";
 
   const canAccessViaSubscription = hasGemsSub;
   const hasActiveSub = hasGemsSub;

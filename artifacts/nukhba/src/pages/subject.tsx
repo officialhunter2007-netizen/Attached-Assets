@@ -3677,7 +3677,14 @@ function SubjectPathChat({
   // /ai/teach call, and immediately get 429'd back into the same overlay.
   useEffect(() => {
     if (!dailyLimitUntil) return;
-    if (new Date(dailyLimitUntil).getTime() > Date.now()) return;
+    // Trigger when EITHER the wall-clock deadline has already passed (page
+    // mounted post-midnight) OR the live timer just hit zero in this
+    // session (`countdownExpired` set by Countdown.onExpired). Without the
+    // latter, a session that watches the timer tick to 00:00:00 would
+    // show the green "ابدأ الجلسة التالية" CTA without us ever calling
+    // /subscriptions/gems-balance to confirm the server actually rolled.
+    const deadlineReached = new Date(dailyLimitUntil).getTime() <= Date.now();
+    if (!deadlineReached && !countdownExpired) return;
     let cancelled = false;
     let attempt = 0;
     const verifyAndStart = async () => {
@@ -3716,7 +3723,7 @@ function SubjectPathChat({
     verifyAndStart();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dailyLimitUntil]);
+  }, [dailyLimitUntil, countdownExpired]);
 
   // ── Overlay cascade-clearing ─────────────────────────────────────────────
   // The four overlays (accessDenied, dailyLimitUntil, quotaExhausted,

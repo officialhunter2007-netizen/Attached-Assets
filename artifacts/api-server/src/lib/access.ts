@@ -6,14 +6,16 @@
  * implementations that used to live in routes/lessons.ts and routes/progress.ts
  * and were missing the per-subject gem wallet entirely.
  *
- * Precedence (mirrors the gating in routes/ai.ts):
+ * Precedence (single source of truth for ALL routes including ai.ts):
  *   1. If a `subjectId` is provided AND a per-subject row exists for that
- *      subject → that row decides. We do NOT fall back to the legacy global
- *      wallet even if the per-subject sub is expired or drained — students
- *      who explicitly bought a per-subject plan must not silently regain
- *      access via the global wallet.
- *   2. Otherwise (no subjectId, or no per-subject row) → fall back to the
- *      legacy global wallet on usersTable for grandfathered users.
+ *      subject → that row decides. We do NOT fall back to the legacy
+ *      global wallet even if the per-subject sub is expired or drained.
+ *      Rationale (per task #31 spec): a student who explicitly bought a
+ *      per-subject plan owns that subject; their global legacy wallet
+ *      must not silently rescue an expired per-subject sub, otherwise
+ *      the per-subject ownership/renew model breaks down.
+ *   2. Otherwise (no subjectId, or no per-subject row at all) → fall back
+ *      to the legacy global wallet on usersTable for grandfathered users.
  *   3. The first-lesson grace window applies in both modes; a student who
  *      hasn't completed their free first lesson can still use it once.
  */
@@ -138,41 +140,30 @@ export async function getAccessForUser(opts: {
         };
       }
 
-      // Per-subject row exists but is expired or out of gems. We will fall
-      // through to the legacy global wallet so behavior matches routes/ai.ts
-      // (which gates access via `hasPerSubjectGemsSub || hasLegacyGemsSub`,
-      // letting an expired/drained per-subject row still benefit from a
-      // separately-active legacy wallet — rare in practice but consistent).
-      // Capture the per-subject "expired" signal here so the API can still
-      // surface it to the renew banner even when legacy fallback succeeds.
+      // Per-subject row exists but is expired or out of gems. STRICT: do
+      // NOT fall back to the legacy global wallet for this subject. The
+      // renew wall in subject.tsx and the gem-deduction code in
+      // routes/ai.ts both depend on this strictness — falling back to
+      // legacy would suppress the renew prompt and let an expired user
+      // continue paying from a totally unrelated global wallet.
       const expiredRecently =
         expiresAt < now &&
         now.getTime() - expiresAt.getTime() < RECENT_EXPIRY_WINDOW_MS;
-      const perSubjectExpiredFallback = {
+      const blockReason: AccessReason =
+        balance <= 0 ? "no_gems" : "no_active_sub";
+      return {
+        hasActiveSub: false,
         gemsRemaining: balance,
         dailyRemaining,
         expiresAt,
         expiredRecently,
         isFirstLesson,
+        // First-lesson grace still applies even when the per-subject sub
+        // is dead, so a student who hasn't used their free lesson can.
+        blockReason: isFirstLesson ? null : blockReason,
+        canAccess: isFirstLesson,
+        source: isFirstLesson ? "first-lesson" : "none",
       };
-      // Continue to legacy fallback below; we'll prefer first-lesson grace
-      // before legacy if the per-subject sub is expired.
-      if (isFirstLesson) {
-        return {
-          hasActiveSub: false,
-          gemsRemaining: balance,
-          dailyRemaining,
-          expiresAt,
-          expiredRecently,
-          isFirstLesson: true,
-          blockReason: null,
-          canAccess: true,
-          source: "first-lesson",
-        };
-      }
-      // fall through, but remember per-subject expiry context
-      // (used below to decide blockReason/expiredRecently if legacy is also dead)
-      return await legacyFallbackForExpiredSubjectSub(user, perSubjectExpiredFallback);
     }
 
     // No per-subject row at all. First-lesson grace, then legacy fallback.
@@ -249,61 +240,6 @@ export async function getAccessForUser(opts: {
     expiredRecently: legacyExpiredRecently,
     isFirstLesson: false,
     blockReason: balance <= 0 ? "no_gems" : "no_active_sub",
-    canAccess: false,
-    source: "none",
-  };
-}
-
-/**
- * Legacy fallback path used when the user has a per-subject row that is
- * expired/drained. Mirrors the second half of getAccessForUser's legacy
- * branch but prefers the per-subject expiry metadata (so the renew banner
- * shows "your subject sub expired N days ago", not the legacy expiry).
- */
-async function legacyFallbackForExpiredSubjectSub(
-  user: typeof usersTable.$inferSelect,
-  perSubject: {
-    gemsRemaining: number;
-    dailyRemaining: number;
-    expiresAt: Date | null;
-    expiredRecently: boolean;
-    isFirstLesson: boolean;
-  },
-): Promise<AccessResult> {
-  await applyDailyGemsRollover(user).catch(() => {});
-
-  const now = new Date();
-  const legacyExpires = user.gemsExpiresAt ? new Date(user.gemsExpiresAt) : null;
-  const legacyBalance = user.gemsBalance ?? 0;
-  const dailyLimit = user.gemsDailyLimit ?? 0;
-  const usedToday = user.gemsUsedToday ?? 0;
-  const exhaustedDaily = dailyLimit > 0 && usedToday >= dailyLimit;
-  const legacyActive = !!(legacyExpires && legacyExpires > now && legacyBalance > 0);
-
-  if (legacyActive) {
-    return {
-      hasActiveSub: true,
-      gemsRemaining: legacyBalance,
-      dailyRemaining: Math.max(0, dailyLimit - usedToday),
-      expiresAt: legacyExpires,
-      expiredRecently: false,
-      isFirstLesson: false,
-      blockReason: exhaustedDaily ? "daily_limit" : null,
-      canAccess: !exhaustedDaily,
-      source: "legacy",
-    };
-  }
-
-  // Both walls are dead — the per-subject expiry metadata is more useful
-  // for the UI than the legacy one, so prefer it for the wall copy.
-  return {
-    hasActiveSub: false,
-    gemsRemaining: perSubject.gemsRemaining,
-    dailyRemaining: perSubject.dailyRemaining,
-    expiresAt: perSubject.expiresAt,
-    expiredRecently: perSubject.expiredRecently,
-    isFirstLesson: false,
-    blockReason: perSubject.gemsRemaining <= 0 ? "no_gems" : "no_active_sub",
     canAccess: false,
     source: "none",
   };

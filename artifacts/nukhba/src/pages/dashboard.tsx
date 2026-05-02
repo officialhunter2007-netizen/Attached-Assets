@@ -606,8 +606,13 @@ export default function Dashboard() {
     }
     return s.messagesUsed < s.messagesLimit;
   });
-  const hasAnyActiveSubjectSub = activeSubjectSubs.length > 0;
-  const isBlocked = user?.firstLessonComplete && !hasAnyActiveSubjectSub;
+  // "Blocked" must reflect "no USABLE sub" (active AND has gems/daily
+  // remaining), not "no time-active sub". A subscription that is still
+  // within its window but whose gem balance hit zero leaves the student
+  // with no way to learn — they need the renew CTA just as much as a
+  // user whose sub fully expired.
+  const hasAnyUsableSub = usableSubjectSubs.length > 0;
+  const isBlocked = user?.firstLessonComplete && !hasAnyUsableSub;
 
   // Only show the red "your subscriptions expired" banner for recently-
   // expired subs (within the last 30 days) — older expired rows are
