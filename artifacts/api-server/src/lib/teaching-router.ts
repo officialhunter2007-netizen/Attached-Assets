@@ -16,10 +16,14 @@ import type { CostCapStatus } from "./cost-cap";
  *                       On Gemini failure the route returns a friendly Arabic
  *                       apology and rolls back the free-turn claim.
  *
- *   I3 (UNLIMITED):    isUnlimited === true        ⇒  provider === ANTHROPIC,
- *                       model === SONNET. Reserved for admin/internal QA
- *                       accounts so the team can A/B-compare Gemini output
- *                       against the strongest Sonnet baseline at any time.
+ *   I3 (UNLIMITED):    isUnlimited === true        ⇒  provider === GEMINI,
+ *                       model === gemini-2.0-flash. Per the May-2026 product
+ *                       directive ("احصر استخدام المعلم الذكي على Gemini 2.0
+ *                       Flash فقط لا غير") even admin/QA accounts are served
+ *                       by Gemini. The flag is preserved as input only so the
+ *                       `reason` field can mark these turns as
+ *                       `unlimited_user_gemini` for analytics — it no longer
+ *                       changes the model choice.
  *
  *   I4 (FORCE CHEAP):  costStatus.forceCheapModel === true  ⇒  provider ===
  *                       GEMINI (already the cheapest sustainable path).
@@ -30,25 +34,28 @@ import type { CostCapStatus } from "./cost-cap";
  *   I5 (REASON SHAPE): every decision carries a non-empty `reason` string
  *                       suitable for analytics aggregation.
  *
- *   I6 (GEMINI-ONLY):  for every non-admin (non-unlimited) student turn the
- *                       chosen model is GEMINI 2.0 FLASH — no fallback to
- *                       any other model. The router records *why* via `reason`
- *                       (free_tier_locked_gemini / total_cap_exhausted /
- *                       daily_cap_exhausted / gemini_diagnostic_phase /
- *                       gemini_mastery_check / gemini_lab_report /
- *                       gemini_deep_reasoning / gemini_long_message /
- *                       default_gemini) so analytics can slice by context.
+ *   I6 (GEMINI-ONLY):  EVERY teaching turn — free, paid, admin, diagnostic,
+ *                       mastery, lab-report, force-cheap — resolves to
+ *                       Gemini 2.0 Flash. There is no other code path. The
+ *                       router records *why* via `reason`
+ *                       (free_tier_locked_gemini / unlimited_user_gemini /
+ *                       total_cap_exhausted / daily_cap_exhausted /
+ *                       gemini_diagnostic_phase / gemini_mastery_check /
+ *                       gemini_lab_report / gemini_deep_reasoning /
+ *                       gemini_long_message / default_gemini) so analytics can
+ *                       slice usage by context.
  *
  *   I7 (NO FALLBACK):  /ai/teach does NOT fall back to any other model on
  *                       Gemini failure. A friendly Arabic apology is streamed
  *                       instead and the turn is not counted against the
- *                       student's quota. Only admin/unlimited traffic ever
- *                       touches the Anthropic SDK path.
+ *                       student's quota. NO other provider is ever invoked
+ *                       from the teacher path — not even for admin/unlimited
+ *                       traffic.
  */
 
 export type RouterDecision = {
-  model: "claude-sonnet-4-6" | "gemini-2.5-flash";
-  provider: "anthropic" | "gemini";
+  model: "gemini-2.0-flash";
+  provider: "gemini";
   /** Why this model was picked — surfaces in logs/metadata for analysis. */
   reason: string;
 };
@@ -77,31 +84,33 @@ export type RouterInput = {
   /** Cost cap status — if `forceCheapModel` is true the router stays on
    *  Gemini (already the cheapest path; no downgrade possible). */
   costStatus: CostCapStatus;
-  /** Unlimited admin user — always Sonnet for them (no cost concerns,
-   *  reserved as a quality-comparison baseline for the internal team). */
+  /** Unlimited admin user — kept for telemetry only. The model is still
+   *  Gemini 2.0 Flash; the `reason` field becomes `unlimited_user_gemini`
+   *  so admin sessions are still distinguishable in analytics. */
   isUnlimited: boolean;
 };
 
-const SONNET = "claude-sonnet-4-6" as const;
-// Switched from gemini-2.0-flash → gemini-2.5-flash (current GA, the same
-// model the rest of the codebase uses successfully in materials.ts and the
-// /ai/platform-help fallback). 2.0-flash still works on Google API but the
-// 2.5 family has noticeably better Arabic instruction-following and lower
-// 503 ("overloaded") rates under sustained load.
-const GEMINI = "gemini-2.5-flash" as const;
+// Locked to gemini-2.0-flash by product decision (May 2026). Reason: 2.0-flash
+// is materially cheaper than 2.5-flash on OpenRouter (input $0.10 vs $0.30 /
+// 1M tok, output $0.40 vs $2.50 / 1M tok) and the teaching system prompt is
+// already heavily scaffolded for instruction-following, so the 2.0 generation
+// produces high-quality Arabic teaching turns at a fraction of the cost.
+// Mapping to OpenRouter's `google/gemini-2.0-flash-001` is handled in
+// lib/gemini-stream.ts → toOpenRouterModel().
+const GEMINI = "gemini-2.0-flash" as const;
 
 /**
  * Pick the AI model for a /ai/teach call.
  *
- * Policy (current):
- *  • Admin/unlimited users → Sonnet 4.6 via Anthropic (so the internal team
- *    can A/B-compare Gemini output against the strongest baseline whenever
- *    they want).
- *  • Every other student turn → Gemini 2.0 Flash via Google.
+ * Policy (May 2026 — strict Gemini lock):
+ *  • EVERY student turn — free, paid, admin, diagnostic, mastery, lab-report,
+ *    force-cheap — resolves to Gemini 2.0 Flash. There is no other model
+ *    code path in the teacher.
  *
- *  We deliberately route 100% of paid + free student traffic to Gemini 2.0
- *  Flash because:
- *    - It is the primary and ONLY model for student turns — no fallback to
+ *  Why 100% Gemini 2.0 Flash:
+ *    - Per direct product directive: "احصر استخدام المعلم الذكي على
+ *      Gemini 2.0 Flash فقط لا غير" — no exceptions, including admin/QA.
+ *    - It is the primary AND ONLY model for student turns — no fallback to
  *      any other model. If Gemini fails, the student gets a friendly Arabic
  *      apology and their turn quota is not consumed.
  *    - The teaching system prompt is heavily structured for instruction-
@@ -112,19 +121,21 @@ const GEMINI = "gemini-2.5-flash" as const;
  *      previous Haiku-based path, widening margin on every subscription.
  *
  *  We still record the *teaching context* of every turn in `reason`
- *  (gemini_diagnostic_phase, gemini_mastery_check, gemini_lab_report,
- *  gemini_deep_reasoning, gemini_long_message, default_gemini) so analytics
+ *  (unlimited_user_gemini, gemini_diagnostic_phase, gemini_mastery_check,
+ *  gemini_lab_report, gemini_deep_reasoning, gemini_long_message,
+ *  default_gemini, free_tier_locked_gemini, *_cap_exhausted) so analytics
  *  can slice usage and quality by the same buckets we used to route on.
  */
 export function pickTeachingModel(input: RouterInput): RouterDecision {
-  // Admin / internal QA: keep Sonnet so the team can compare quality.
+  // Admin / internal QA is now served by Gemini too. We tag the turn so
+  // it stays distinguishable in analytics, but the model does not change.
   if (input.isUnlimited) {
-    return { model: SONNET, provider: "anthropic", reason: "unlimited_user" };
+    return { model: GEMINI, provider: "gemini", reason: "unlimited_user_gemini" };
   }
 
-  // Hard rule: free tier still routes to Gemini (cheapest path). The Haiku
-  // safety net inside /ai/teach catches any Gemini failure and re-streams
-  // a Haiku answer, so a free user is never silenced by a Gemini outage.
+  // Free tier is on Gemini (cheapest path). On Gemini failure the route
+  // returns the friendly Arabic apology and rolls back the free-turn
+  // claim — the student is never silenced and never charged for failure.
   if (input.isFreeFirstLesson) {
     return { model: GEMINI, provider: "gemini", reason: "free_tier_locked_gemini" };
   }

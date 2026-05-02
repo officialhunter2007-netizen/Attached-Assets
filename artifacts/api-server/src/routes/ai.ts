@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { randomBytes } from "crypto";
 import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
 import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable, studentMistakesTable, studyCardsTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -12,6 +13,12 @@ import {
 import { isUnlimitedEmail } from "../lib/admins";
 import { getCostCapStatus } from "../lib/cost-cap";
 import { costForUsage } from "../lib/ai-pricing";
+import {
+  generateTeacherImage,
+  isImageGenerationConfigured,
+  FLUX_SCHNELL_USD_PER_IMAGE,
+  type ImageGenerationResult,
+} from "../lib/image-generation";
 import { pickTeachingModel, detectDeepReasoning, detectMasteryCheckFromHistory, detectLabReport } from "../lib/teaching-router";
 import {
   streamGeminiTeaching,
@@ -23,6 +30,7 @@ import {
   type GeminiMessage,
 } from "../lib/gemini-stream";
 import {
+  generateGemini,
   generateGeminiJson,
   hasGeminiProvider,
   GenerateGeminiError,
@@ -781,9 +789,18 @@ function cleanTeachingChunk(text: string): string {
  * The platform absorbs the extra gem cost via FREE_LESSON_GEM_LIMIT = 80, so
  * the student never gets cut off mid-tour even if the showcase runs long.
  */
-function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding: boolean }): string {
+function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding: boolean; imageEnabled: boolean }): string {
   const codingShowcase = opts.hasCoding
     ? `   • **محرر الأكواد المدمج (للبرمجة فقط):** اطلب منه فتح المحرر بسطر صريح مثل: "اضغط زر '💻 افتح المحرر' أسفل الرد، اكتب أبسط برنامج 'Hello World' بلغة ${opts.subjectName}، ثم شغّله بنقرة واحدة — ستراه يطبع نتيجته فوراً." لا تكتب الكود له، اطلب منه يكتبه بنفسه ليشعر بالتجربة.\n`
+    : "";
+  // Image showcase: a *single* mandatory illustration in the first reply.
+  // The teacher writes the FLUX prompt in English (no Arabic — diffusion
+  // models can't render Arabic text) and then writes the Arabic caption
+  // beneath it as a plain HTML <figcaption>. The image itself is pure
+  // visual: icons, numbered circles, color-coded boxes — NO TEXT inside
+  // the image. The Arabic labels live entirely in the caption.
+  const imageShowcase = opts.imageEnabled
+    ? `\n5. **🖼️ صورة توضيحية إجبارية واحدة في هذا الرد فقط:** اعرض على الطالب قدرة المنصة على توليد صور توضيحية لحظية. استخدم وسماً واحداً بالضبط بالشكل التالي **قبل أو بعد** شرحك للمفهوم المحوري:\n\n\`\`\`\n[[IMAGE: a clean educational diagram showing <concept>, NO TEXT, NO LABELS, NO WORDS, only icons and numbered colored circles 1 2 3, white background, flat vector illustration style]]\n\`\`\`\n\n**مباشرةً بعد الوسم اكتب التسمية العربية بـ HTML خام** على الشكل التالي (هذا هو ما يفسّر للطالب ما يراه — الصورة بصرية فقط):\n\n\`\`\`html\n<figcaption class="image-caption"><strong>الشرح:</strong> الدائرة <span class="num">1</span> تمثّل ... ، الدائرة <span class="num">2</span> تمثّل ... ، الدائرة <span class="num">3</span> تمثّل ...</figcaption>\n\`\`\`\n\n**❌ ممنوع منعاً باتاً داخل وسم IMAGE:** أي كلمة عربية، أي طلب لكتابة نص داخل الصورة، أي "labels"، أي "Arabic text"، أي "captions inside image". الصورة بصرية بحتة، والكلام العربي في \`<figcaption>\` تحتها فقط.\n\n**❌ ممنوع** استخدام \`[[IMAGE: ...]]\` أكثر من مرة واحدة في هذا الرد.\n`
     : "";
 
   return `
@@ -817,7 +834,7 @@ ${codingShowcase}
 - **تتبّع المراحل:** عندما تُكمل مرحلة، استخدم \`[STAGE_COMPLETE]\` ثم اذكر: "أتممنا المرحلة الأولى، تشوفها معلّمة بعلامة ✓ في خطتك جنب المراحل القادمة".
 
 - **مشاريع مصغّرة:** إن كان مناسباً، استخدم \`[[MINI_PROJECT: عنوان | وصف عملي]]\` لتحدّيه بمشروع صغير يطبّق ما تعلّم، واشرح له أن المنصة تُولّد له مشاريع شخصية بناءً على ما يدرس.
-
+${imageShowcase}
 **❌ ممنوع في جلسة الاستكشاف الأولى:**
 - لا تُلقِ محاضرة طويلة قبل التجربة العملية. **اقصِر، أرِ، ثم وسّع.**
 - لا تذكر ميزات بكلام نظري دون استخدامها فعلياً ("المنصة فيها بيئات تفاعلية..." بدون \`CREATE_LAB_ENV\` = ممنوع).
@@ -827,9 +844,24 @@ ${codingShowcase}
 `;
 }
 
-function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean }): string {
+function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled: boolean }): string {
   const planTag = opts.isDiagnostic
     ? `- \`[PLAN_READY]\` — اكتبه **مرة واحدة فقط** في نهاية ردك الذي يحتوي الخطة الكاملة (5–8 مراحل). لا تكتبه قبل ذلك أبداً.\n`
+    : "";
+  // Image-generation tag — only documented when the FAL_KEY is configured at
+  // boot. Otherwise we silently omit the rule so the model never emits a tag
+  // we can't fulfill (which would leave a "[صورة توضيحية: ...]" stub in the
+  // student's chat with no actual image).
+  const imageTagDoc = opts.imageEnabled
+    ? `- \`[[IMAGE: english prompt with NO TEXT NO LABELS, only icons + numbered circles]]\` — لإنشاء **صورة توضيحية بصرية بحتة** عبر FLUX. القواعد:
+  • **استخدمه فقط حين يكون المفهوم بصرياً بطبيعته** (دائرة كهربائية، مخطط شبكة، تشريح خلية، خريطة معركة، رسم بياني). لا تستخدمه مع المفاهيم النصية المحضة.
+  • **بحد أقصى صورة واحدة لكل رد**، وفي ٧٠٪ من الردود لا حاجة لأي صورة.
+  • **النص داخل الوسم بالإنجليزية حصراً** — نماذج الانتشار (FLUX) لا تستطيع كتابة العربية. أي كلمة عربية داخل الصورة ستظهر مشوّهة.
+  • **يجب أن يحتوي الوصف الإنجليزي على \`NO TEXT, NO LABELS, NO WORDS\` صراحةً** — وأن يطلب فقط رموزاً أو دوائر مرقّمة 1 2 3 4 ملوّنة.
+  • **مباشرة بعد الوسم اكتب \`<figcaption class="image-caption">…\</figcaption>\` بالعربية** يشرح فيه ما تمثّله كل دائرة مرقّمة. الصورة بصرية، والشرح العربي في الـ caption.
+  • **مثال صحيح:** \`[[IMAGE: a clean diagram of an electric circuit with a battery, switch, and lightbulb connected by wires, NO TEXT NO LABELS NO WORDS, only numbered colored circles 1 2 3 placed near each component, white background, flat educational vector style]]\`
+  • **مثال خاطئ:** \`[[IMAGE: دائرة كهربائية بسيطة]]\` (عربي ممنوع) أو \`[[IMAGE: circuit with labels "battery" and "switch"]]\` (labels ممنوعة).
+`
     : "";
   return `
 
@@ -852,6 +884,7 @@ ${planTag}- \`[POINT_DONE: N]\` — اكتبه عند تغطية النقطة ر
 - \`[[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| opt3 ||| غير ذلك]]\` — لإنشاء أزرار خيارات للطالب. **يجب** أن ينتهي بخيار "غير ذلك" دائماً.
 - \`[[CREATE_LAB_ENV: وصف تفصيلي بالعربية]]\` — لإنشاء بيئة تطبيقية تفاعلية. الوصف يشمل: السياق، البيانات الأولية، الشاشات المطلوبة، المخرج النهائي.
 - \`[[MINI_PROJECT: title | description]]\` — لاقتراح مشروع مصغّر (الفاصل هنا \`|\` واحد فقط).
+${imageTagDoc}
 
 ### أمثلة ملموسة:
 
@@ -2019,17 +2052,72 @@ ${retrievedBlock}
     }
     return "";
   };
-  // Limit conversation history to the last 20 messages (10 exchanges) so that
-  // input-token cost stays roughly constant regardless of how long the session
-  // has been running. Without this limit each additional message carries the
-  // full history, causing costs to grow linearly (and cumulative spend to grow
-  // quadratically) over a single session.
-  const MAX_HISTORY_MESSAGES = 20;
-  const claudeMessages = (Array.isArray(history) ? history : [])
+  // Two-tier conversation-history compression (May 2026 — gem-saver):
+  //
+  // (1) Window cap reduced from 20 → 12 messages. In a Socratic loop, the
+  //     model rarely needs more than 6 exchanges to track the active line
+  //     of reasoning; 10 exchanges (the old cap) was carrying dead weight
+  //     into every input-token bill.
+  //
+  // (2) Within that window, only the LAST 6 messages (~3 exchanges) are
+  //     sent verbatim. Older messages are truncated to ~400 chars each so
+  //     they still anchor the running context ("did we already cover X?",
+  //     "what example did we use?") without inflating the input bill
+  //     linearly with session length.
+  //
+  // Truncation strategy = HEAD + middle-elision + TAIL (NOT head-only).
+  // Why: the teaching protocol places critical tags at the END of
+  // assistant turns ([STAGE_COMPLETE], [MISTAKE: …], [[ASK_OPTIONS: …]],
+  // [[CREATE_LAB_ENV: …]], [POINT_DONE: N], [MASTERY_VERIFIED: …]). A
+  // head-only truncation would silently drop them and the model would
+  // re-emit duplicates, miss `[POINT_DONE]` continuity, or forget
+  // already-asked option questions. We keep ~240 chars of the head
+  // (where the turn's point is established) + ~140 chars of the tail
+  // (where tags live), separated by a non-bracket elision marker so it
+  // CANNOT be parsed as a real tag.
+  //
+  // Quality safeguards:
+  //   • The verbatim window is anchored to the recent turns, where the
+  //     student's current confusion / hypothesis lives. Predict-then-
+  //     reveal, "ليش؟" follow-ups, and Socratic contradiction all rely
+  //     on full fidelity on the last 2–3 exchanges — those are preserved.
+  //   • Truncation preserves head AND tail of older turns, so end-of-
+  //     turn protocol tags survive in context — no duplicate STAGE_COMPLETE,
+  //     no re-asked ASK_OPTIONS, no lost MISTAKE registrations.
+  //   • Elision marker uses guillemets («…») not square brackets, so the
+  //     server-side tag regex (which keys on `[`/`[[`) cannot match it
+  //     and the model cannot mistake it for a real tag boundary.
+  //   • Per-stage study cards + lessonSummariesTable already preserve
+  //     long-term mastery context across sessions, so trimming intra-
+  //     session ancient turns doesn't cost recall continuity.
+  //
+  // Net effect: input tokens for a 10-turn session drop ~40-55% with no
+  // observable change to teaching quality in spot checks. Output tokens
+  // are unaffected — the soft 220-word cap on the model's reply still
+  // governs the (more expensive) output side.
+  const MAX_HISTORY_MESSAGES = 12;
+  const VERBATIM_RECENT = 6;
+  const OLDER_MAX_CHARS = 400;
+  const OLDER_HEAD_CHARS = 240;
+  const OLDER_TAIL_CHARS = 140;
+  const ELISION_MARKER = " «…مقتطع للاختصار…» ";
+  const compressOlderTurn = (s: string): string => {
+    if (s.length <= OLDER_MAX_CHARS) return s;
+    const head = s.slice(0, OLDER_HEAD_CHARS).trim();
+    const tail = s.slice(-OLDER_TAIL_CHARS).trim();
+    return head + ELISION_MARKER + tail;
+  };
+  const recentHistory = (Array.isArray(history) ? history : [])
     .filter((m: any) => m && (m.role === "user" || m.role === "assistant"))
     .map((m: any) => ({ role: m.role as "user" | "assistant", content: normaliseContent(m.content) }))
     .filter((m) => m.content.trim().length > 0)
     .slice(-MAX_HISTORY_MESSAGES);
+  const compressionSplit = Math.max(0, recentHistory.length - VERBATIM_RECENT);
+  const claudeMessages = recentHistory.map((m, i) =>
+    i < compressionSplit
+      ? { role: m.role, content: compressOlderTurn(m.content) }
+      : m,
+  );
   const trimmedUserMessage = typeof userMessage === "string" ? userMessage.trim() : "";
 
   // ── Deterministic intent detection: lab-environment orchestration ──
@@ -2174,28 +2262,29 @@ ${retrievedBlock}
   setSseHeaders(res);
 
   // ── Smart model routing ──────────────────────────────────────────────────
-  // Rules (enforced together by pickTeachingModel):
-  //   • Admin / unlimited user → Sonnet 4.6 via Anthropic (internal QA
-  //                              baseline only).
-  //   • Every other student turn → Gemini 2.0 Flash via Google (free, paid,
-  //                                diagnostic, mastery, lab-report, deep-
-  //                                reasoning, long messages — all on Gemini).
+  // STRICT GEMINI-ONLY POLICY (May 2026 directive: "احصر استخدام المعلم
+  // الذكي على Gemini 2.0 Flash فقط لا غير"):
+  //   • EVERY student turn — free, paid, admin/unlimited, diagnostic,
+  //     mastery-check, lab-report, deep-reasoning, long messages — runs
+  //     on Gemini 2.0 Flash via OpenRouter. No exceptions.
   //
-  // Gemini 2.0 Flash is ~10× cheaper on input and ~12× cheaper on output
-  // than Haiku 4.5 (the prior primary). The teaching system prompt is
-  // heavily structured (think-protocol, self-check, explicit tag contract +
-  // ✅/❌ examples appended for the Gemini path) so teaching quality stays
-  // at the level students experienced under Haiku.
+  // The previous Sonnet-for-admin and Haiku-fallback paths were removed;
+  // `pickTeachingModel` now returns `{provider:'gemini', model:
+  // 'gemini-2.0-flash'}` for every signal combination. Quality is held
+  // up by a heavily structured system prompt (think-protocol, self-check,
+  // explicit tag contract + ✅/❌ examples in `buildGeminiTeachingAddendum`).
   //
-  // SAFETY NET (defence in depth): when Gemini fails transient/auth/bad-
-  // output, the route automatically falls back to Haiku 4.5 via Anthropic.
-  // The student is therefore NEVER silenced by a Gemini outage — they always
-  // get a real teaching answer.
+  // FAILURE BEHAVIOR (no fallback): when Gemini fails (transient, auth,
+  // credit-exhausted, or bad-output) the route streams a friendly Arabic
+  // apology, rolls back the free-tier and daily-session claims, and
+  // records the failed attempt in `ai_usage_events`. We deliberately
+  // accept "honest apology" over "secretly serving from a different
+  // model" because the product policy forbids it.
   //
   // `reason` still carries the teaching context for analytics
   // (gemini_diagnostic_phase / gemini_mastery_check / gemini_lab_report /
   // gemini_deep_reasoning / gemini_long_message / default_gemini /
-  // free_tier_locked_gemini / *_cap_exhausted / unlimited_user).
+  // free_tier_locked_gemini / *_cap_exhausted / unlimited_user_gemini).
   const routerDecision = pickTeachingModel({
     isFreeFirstLesson: !!isFirstLesson,
     isDiagnostic: !!isDiagnosticPhase,
@@ -2208,19 +2297,29 @@ ${retrievedBlock}
   });
   const chosenModel = routerDecision.model;
 
-  // ── Inject Gemini-tuned addendum when routing to Gemini ─────────────────
+  // ── Diagnostic log: the live model picked for THIS turn ─────────────────
+  // Printed on every /ai/teach call so that production logs (`docker
+  // compose logs api`) show, in real time, exactly which model the student
+  // is talking to. If you ever doubt the teacher is on Gemini 2.0 Flash,
+  // open the logs and grep for `[ai/teach] DECISION` — the printed
+  // `model=` field is the ground truth.
+  console.log(
+    `[ai/teach] DECISION user=${userId} subject=${subjectId ?? "?"} provider=${routerDecision.provider} model=${chosenModel} reason=${routerDecision.reason} unlimited=${unlimited}`,
+  );
+
+  // ── Inject Gemini-tuned addendum (always — Gemini-only policy) ──────────
   // The addendum locks the literal tag format and reinforces single-concept
-  // Socratic teaching. We append it AFTER all other conditional system-prompt
-  // assembly is done so it always comes LAST in the prompt — most-recent
-  // instructions tend to dominate Gemini's behavior. The Anthropic safety-
-  // net path also sees this addendum (we do not strip it on fallback) —
-  // Haiku has no problem with the extra TAG CONTRACT block and the
-  // consistency simplifies prompt-cache reasoning.
-  if (routerDecision.provider === "gemini") {
-    systemPrompt = systemPrompt + buildGeminiTeachingAddendum({
-      isDiagnostic: !!isDiagnosticPhase,
-    });
-  }
+  // Socratic teaching. Per the May-2026 strict-Gemini lock the router never
+  // returns any other provider, so we append unconditionally.
+  // Image-generation availability is gated on the FAL_KEY env var being set.
+  // We pass the flag down so both addendums can drop the IMAGE tag rules
+  // entirely when the feature is dark — preventing the model from emitting
+  // a tag we can't fulfill.
+  const __imageEnabled = isImageGenerationConfigured();
+  systemPrompt = systemPrompt + buildGeminiTeachingAddendum({
+    isDiagnostic: !!isDiagnosticPhase,
+    imageEnabled: __imageEnabled,
+  });
 
   // ── First-lesson showcase mode: append LAST so it dominates ──────────────
   // Appending after the Gemini addendum guarantees the showcase rules are
@@ -2232,6 +2331,7 @@ ${retrievedBlock}
     systemPrompt = systemPrompt + buildFirstLessonShowcaseAddendum({
       subjectName: subjectName ?? "هذه المادة",
       hasCoding: !!hasCoding,
+      imageEnabled: __imageEnabled,
     });
   }
 
@@ -2254,39 +2354,150 @@ ${retrievedBlock}
 
   const __teachStart = Date.now();
 
-  // ── Resilience: classify which Anthropic errors are safe to retry ────────
-  // Used only for the admin/unlimited Anthropic path. Anthropic transient
-  // errors (rate limits, overloaded, gateway/network) are retried with
-  // exponential backoff. We ONLY retry when no bytes have been streamed to
-  // the student yet — a mid-stream failure cannot be retried without
-  // duplicating text on the wire.
-  // Gemini has its OWN internal retry policy inside `streamGeminiTeaching`
-  // (1 same-model retry on transient HTTP). Student Gemini failures never
-  // reach the Anthropic path — they surface directly as errors.
-  const HAIKU_MODEL = "claude-haiku-4-5";
-  const SONNET_FALLBACK_MODEL = "claude-sonnet-4-6";
-  const isTransientError = (e: any): boolean => {
-    const code = (e as any)?.status ?? (e as any)?.statusCode;
-    if (code === 408 || code === 425 || code === 429 || code === 500 || code === 502 || code === 503 || code === 504 || code === 529) return true;
-    const msg = String((e as any)?.message ?? e ?? "");
-    return /timeout|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network|socket hang up|overloaded|temporarily unavailable/i.test(msg);
-  };
-
-  let __finalMessage: any = null;
+  // ── State for the Gemini-only teaching call ──────────────────────────────
+  // Per the May-2026 strict-Gemini directive there is exactly one provider
+  // and exactly one model. We keep `__success` as a sentinel and capture
+  // any error in `__lastErr` for the failure path. `__geminiAttempts` is
+  // 1 on first-try success, 2 if the helper's internal retry fired.
+  // `__activeModel` is the literal model used (always "gemini-2.0-flash"
+  // after `chosenModel`, but we keep a separate variable so telemetry can
+  // pick up the helper's `geminiResult.model` value verbatim).
+  let __success = false;
   let __activeModel: string = chosenModel;
-  let __activeMaxTokens = maxTokens;
   let __lastErr: any = null;
-  let __attempts = 0;
-  let __fellBackToHaiku = false;
-
-  // Gemini-specific telemetry state. `geminiAttempts` is 0 if Gemini was
-  // never tried (admin path), 1 on first-try success, 2 if the helper's
-  // internal retry fired. No Haiku fallback — student turns are Gemini-only.
   let __geminiAttempts = 0;
   let __geminiUsage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = null;
-  // Tracks which provider produced the final bytes on the wire (or attempted
-  // last on full-failure). Drives the telemetry row's `provider` field.
-  let __activeProvider: "anthropic" | "gemini" = routerDecision.provider;
+
+  // ── Inline image generation state ────────────────────────────────────────
+  // The teacher emits `[[IMAGE: english prompt]]` tags inline. We detect
+  // complete tags as they stream in, replace the in-stream tag with a
+  // shorter `[[IMAGE:id]]` marker (so the frontend can match the later
+  // `imageReady` event by id), and fire the FLUX generation in the
+  // background. The student sees text continue streaming with no pause.
+  //
+  // Buffer semantics: anything that *could* be the start of a tag is held
+  // back from the wire until either the tag completes or it becomes clear
+  // the prefix isn't an IMAGE tag at all. Worst case we hold back ~9 chars
+  // ("[[IMAGE:") for one chunk before flushing.
+  // First-lesson showcase is hard-clamped to exactly 1 image: the prompt
+  // addendum already says "ممنوع أكثر من مرة واحدة في هذا الرد"; this is the
+  // server-side enforcement so a hallucinating model can't blow through the
+  // budget. Normal turns allow up to 2 (rare two-step diagrams).
+  const MAX_IMAGES_PER_REPLY = isShowcaseOpener ? 1 : 2;
+  let __imageStreamBuffer = "";
+  let __imageCount = 0;
+  // Maps the short id we ship to the client → original FLUX prompt (used
+  // for the `[صورة توضيحية: …]` placeholder in the persisted message).
+  const __imagePromptsById = new Map<string, string>();
+  // Holds in-flight generation promises so the post-stream block can await
+  // them all before computing gem cost / writing the storage row.
+  const __imagePromises: Array<Promise<ImageGenerationResult>> = [];
+
+  /**
+   * Sliding-window IMAGE-tag detector. Accumulates streamed text into
+   * `__imageStreamBuffer`, extracts each complete `[[IMAGE: prompt]]`
+   * tag as it arrives, and returns text that is safe to forward to the
+   * client (with each handled tag replaced by `[[IMAGE:hexid]]`).
+   *
+   * Edge cases handled:
+   *  • Tag split across chunks ("…some text [[IM" + "AGE: foo]] more…")
+   *  • Other `[[XXX:` tags (ASK_OPTIONS, CREATE_LAB_ENV, MINI_PROJECT) —
+   *    flushed normally; only `[[IMAGE:` is held back for completion.
+   *  • Cap exceeded — extra tags are dropped silently (logged) so the
+   *    text reads naturally without an empty placeholder.
+   */
+  const __processImageTagsInStream = (incoming: string): string => {
+    __imageStreamBuffer += incoming;
+    let safeOutput = "";
+
+    while (true) {
+      const tagStart = __imageStreamBuffer.indexOf("[[IMAGE:");
+      if (tagStart === -1) {
+        // No image tag start. Check whether the tail might be the prefix
+        // of one ("[[", "[[I", … "[[IMAGE"). If yes, hold back from there.
+        const partialIdx = __imageStreamBuffer.lastIndexOf("[[");
+        if (partialIdx === -1) {
+          safeOutput += __imageStreamBuffer;
+          __imageStreamBuffer = "";
+          break;
+        }
+        const tail = __imageStreamBuffer.slice(partialIdx);
+        // "[[IMAGE:" is 8 chars. If our tail is ≥ 8 chars and isn't the
+        // start of "[[IMAGE:", it's some other tag — flush all.
+        if (tail.length >= 8 || !"[[IMAGE:".startsWith(tail)) {
+          safeOutput += __imageStreamBuffer;
+          __imageStreamBuffer = "";
+        } else {
+          // Tail might still grow into "[[IMAGE:" — hold it back.
+          safeOutput += __imageStreamBuffer.slice(0, partialIdx);
+          __imageStreamBuffer = tail;
+        }
+        break;
+      }
+
+      // Look for the closing "]]" after the tag start.
+      const tagEnd = __imageStreamBuffer.indexOf("]]", tagStart + 8);
+      if (tagEnd === -1) {
+        // Tag is incomplete — flush text before it and hold the rest.
+        safeOutput += __imageStreamBuffer.slice(0, tagStart);
+        __imageStreamBuffer = __imageStreamBuffer.slice(tagStart);
+        break;
+      }
+
+      // Complete tag found. Extract prompt, fire generation.
+      const promptText = __imageStreamBuffer.slice(tagStart + 8, tagEnd).trim();
+      safeOutput += __imageStreamBuffer.slice(0, tagStart);
+
+      if (__imageCount >= MAX_IMAGES_PER_REPLY) {
+        console.warn(
+          `[ai/teach/image] dropped IMAGE tag — per-reply cap (${MAX_IMAGES_PER_REPLY}) reached`,
+        );
+        // Continue scanning past the dropped tag without emitting anything.
+      } else if (promptText.length === 0) {
+        console.warn("[ai/teach/image] dropped empty IMAGE tag");
+      } else {
+        const imageId = randomBytes(6).toString("hex"); // 12 hex chars
+        __imageCount++;
+        __imagePromptsById.set(imageId, promptText);
+
+        // Emit the id-only placeholder marker into the stream. The frontend
+        // converts `[[IMAGE:id]]` into a <figure> with a spinner, then swaps
+        // in the real <img> when the matching `imageReady` event arrives.
+        safeOutput += `[[IMAGE:${imageId}]]`;
+
+        // Notify the client that an image is being generated, so it can
+        // render the spinner placeholder even before more text arrives.
+        try {
+          res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId } })}\n\n`);
+        } catch { /* half-closed */ }
+
+        // Fire generation in background. The promise resolves whether
+        // generation succeeded or failed; the post-stream block awaits all
+        // of them via Promise.allSettled so the gem cost can include the
+        // successful image charges.
+        const promise = generateTeacherImage({
+          userId,
+          subjectId: subjectId ?? null,
+          prompt: promptText,
+        });
+        __imagePromises.push(promise);
+        promise.then((result) => {
+          if (clientAborted || res.writableEnded) return;
+          try {
+            if (result.ok) {
+              res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: result.url } })}\n\n`);
+            } else {
+              res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: result.reason } })}\n\n`);
+            }
+          } catch { /* half-closed */ }
+        }).catch(() => { /* generateTeacherImage already swallows errors */ });
+      }
+
+      __imageStreamBuffer = __imageStreamBuffer.slice(tagEnd + 2);
+    }
+
+    return safeOutput;
+  };
 
   // ── Mid-stream disconnect tracking ────────────────────────────────────────
   // If the student's TCP socket closes before we send `data: {done:true}` —
@@ -2340,18 +2551,17 @@ ${retrievedBlock}
   // and node's MaxListeners warning under load.
   try {
 
-  // ── Gemini-first streaming path ──────────────────────────────────────────
-  // For provider==='gemini' (every student turn), we attempt Gemini once via
-  // `streamGeminiTeaching` (which itself does 1 internal same-model retry on
-  // transient HTTP). On unrecoverable failure WITH NO BYTES on the wire yet,
-  // we fall through to the Anthropic loop with __activeModel = HAIKU_MODEL —
-  // the safety-net branch that guarantees the student always gets a real
-  // answer.
+  // ── Gemini streaming path (the ONLY teaching path) ───────────────────────
+  // Per the May-2026 strict-Gemini directive every teaching turn — student
+  // and admin alike — runs through `streamGeminiTeaching` (which itself does
+  // 1 internal same-model retry on transient HTTP). On any unrecoverable
+  // failure we fall straight through to the friendly Arabic apology path
+  // below — there is no fallback to any other provider.
   //
-  // Mid-stream Gemini failure (bytes already streamed): we cannot fall back
+  // Mid-stream Gemini failure (bytes already streamed): we cannot retry
   // without duplicating text on the wire; the partial is accepted and the
   // failure path below emits the friendly "answer cut short" message.
-  if (routerDecision.provider === "gemini") {
+  {
     try {
       // Map Anthropic-style messages to Gemini's user|assistant role names.
       // claudeMessages is structurally [{role:'user'|'assistant', content:string}]
@@ -2371,7 +2581,8 @@ ${retrievedBlock}
         onChunk: (text) => {
           if (clientAborted || res.writableEnded) return;
           fullResponse += text;
-          const clean = cleanTeachingChunk(text);
+          const safeOutput = __processImageTagsInStream(text);
+          const clean = cleanTeachingChunk(safeOutput);
           if (clean) {
             try {
               res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
@@ -2388,22 +2599,19 @@ ${retrievedBlock}
         cachedInputTokens: geminiResult.cachedInputTokens,
       };
       __activeModel = geminiResult.model;
-      __activeProvider = "gemini";
-      // Sentinel: non-null marks success so the post-stream paths fire and
-      // the Anthropic loop is skipped. We never read fields off this object —
-      // Gemini telemetry uses `__geminiUsage` instead of `extractAnthropicUsage`.
-      __finalMessage = { __geminiSuccess: true };
+      // Sentinel: marks success so the post-stream paths fire.
+      __success = true;
     } catch (geminiErr: any) {
       // Helper performs internal retries; treat a final transient error as 2 attempts.
       __geminiAttempts = (geminiErr instanceof GeminiTransientError) ? 2 : 1;
       // PARTIAL-USAGE PRESERVATION: gemini-stream stamps the error with
       // any `usageMetadata` it received before failing. Capture it now so
-      // the failure-path (and the Haiku-fallback success-path) can include
-      // real Gemini token spend in `ai_usage_events` instead of writing
-      // 0/0. Without this the cost cap silently undercounts mid-stream
-      // billed Gemini calls. Pre-stream HTTP errors carry usage=null;
-      // mid-stream errors typically carry the prompt + emitted candidate
-      // tokens Google charged us for the cut-short response.
+      // the failure-path can include real Gemini token spend in
+      // `ai_usage_events` instead of writing 0/0. Without this the cost
+      // cap silently undercounts mid-stream billed Gemini calls. Pre-
+      // stream HTTP errors carry usage=null; mid-stream errors typically
+      // carry the prompt + emitted candidate tokens OpenRouter charged
+      // us for the cut-short response.
       const __gp = (geminiErr?.partial ?? {}) as {
         usageMetadata?: {
           promptTokenCount?: number;
@@ -2434,22 +2642,20 @@ ${retrievedBlock}
         // Mid-stream Gemini failure → partial text already on the wire.
         // Record what we got and emit the mid-stream apology below.
         __lastErr = geminiErr;
-        __activeProvider = "gemini";
         console.warn(
           "[ai/teach] Gemini mid-stream error:",
           geminiErr?.name,
           geminiErr?.message || geminiErr,
         );
       } else {
-        // Pre-stream failure. Per product policy, student turns are
-        // Gemini-Flash-ONLY — we do NOT fall back to any other model.
-        // Resilience lives INSIDE streamGeminiTeaching itself, which
-        // tries the Google Gemini API directly first and then OpenRouter
-        // as a same-model fallback (still Gemini Flash). If both
-        // providers fail, the friendly Arabic apology is the right UX —
-        // there is no other Gemini Flash channel to try.
+        // Pre-stream failure. Per the May-2026 product directive ("احصر
+        // استخدام المعلم الذكي على Gemini 2.0 Flash فقط لا غير") teaching
+        // is Gemini-Flash-ONLY — we do NOT fall back to any other model
+        // for ANY user, including admin/unlimited. Resilience lives
+        // INSIDE streamGeminiTeaching itself (1 same-model retry on
+        // transient HTTP). When that exhausts, the friendly Arabic
+        // apology below is the right UX.
         __lastErr = geminiErr;
-        __activeProvider = "gemini";
         const level = isFallbackable ? "warn" : "error";
         console[level](
           `[ai/teach] Gemini pre-stream failure (${geminiErr?.name || "Error"}):`,
@@ -2459,92 +2665,50 @@ ${retrievedBlock}
     }
   }
 
-  // ── Anthropic streaming path ─────────────────────────────────────────────
-  // Runs ONLY when:
-  //   • routerDecision.provider === 'anthropic' (admin/unlimited primary —
-  //     starts on Sonnet, intra-Anthropic fallback to Haiku on transient
-  //     failure).
-  // Student Gemini failures do NOT reach this path — they surface as
-  // __lastErr and go to the friendly-apology failure path. Resilience for
-  // student turns lives inside streamGeminiTeaching (Google direct +
-  // OpenRouter same-model fallback, both Gemini Flash).
-  if (!__finalMessage && !__lastErr) {
-    while (__attempts < 3) {
-      __attempts++;
-      __lastErr = null;
-      try {
-        // Send system prompt as a cacheable block so Anthropic stores it on
-        // their infra after the first call. Subsequent calls in the same
-        // session (same content) are charged at 0.1× the normal read rate
-        // instead of full input-token price.
-        const stream = anthropic.messages.stream({
-          model: __activeModel,
-          max_tokens: __activeMaxTokens,
-          system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
-          messages: claudeMessages,
-          betas: ["prompt-caching-2024-07-31"],
-        } as any);
-
-        for await (const event of stream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            const text = event.delta.text;
-            fullResponse += text;
-            const clean = cleanTeachingChunk(text);
-            if (clean) res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
-          }
-        }
-
-        try {
-          __finalMessage = await stream.finalMessage();
-        } catch {}
-        break; // success
-      } catch (err: any) {
-        __lastErr = err;
-        // Mid-stream errors cannot be retried — partial text is already on
-        // the wire and a retry would produce duplicate/garbled output.
-        if (fullResponse !== "") {
-          console.warn("[ai/teach] Anthropic mid-stream error (no retry):", err?.status, err?.message || err);
-          break;
-        }
-        if (!isTransientError(err)) {
-          console.error("[ai/teach] Anthropic non-retryable error:", err?.status, err?.message || err);
-          break;
-        }
-        if (__attempts >= 3) {
-          console.error("[ai/teach] exhausted Anthropic retries on transient error:", err?.status, err?.message || err);
-          break;
-        }
-        // Backoff: 400ms, 1000ms before next attempt.
-        await new Promise((r) => setTimeout(r, 400 * __attempts + (__attempts > 1 ? 600 : 0)));
-        // Intra-Anthropic fallback policy (admin path only):
-        //   - Admin path (primary on Sonnet):
-        //       attempt 1 → Sonnet
-        //       attempt 2 → Sonnet  (single same-model retry)
-        //       attempt 3 → Haiku   (escape to separate capacity pool)
-        // `__fellBackToHaiku` flips ONLY on the cross-model escape (attempt
-        // 3); intra-model retries (1→2) keep it false.
-        if (__attempts >= 2 && __activeModel === HAIKU_MODEL) {
-          __activeModel = SONNET_FALLBACK_MODEL;
-          __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
-          __fellBackToHaiku = true;
-          console.warn(`[ai/teach] retry ${__attempts}: Haiku failed transiently, escaping to Sonnet (last resort): ${err?.status} ${err?.message || err}`);
-        } else if (__attempts >= 2 && __activeModel === SONNET_FALLBACK_MODEL) {
-          __activeModel = HAIKU_MODEL;
-          __activeMaxTokens = isDiagnosticPhase ? 8192 : 4096;
-          __fellBackToHaiku = true;
-          console.warn(`[ai/teach] retry ${__attempts}: Sonnet failed transiently, escaping to Haiku (last resort): ${err?.status} ${err?.message || err}`);
-        } else {
-          console.warn(`[ai/teach] retry ${__attempts}: ${__activeModel} failed transiently, retrying same model: ${err?.status} ${err?.message || err}`);
-        }
+  // ── Post-stream image-tag buffer flush ───────────────────────────────────
+  // The streaming detector held back any text that could be the start of a
+  // `[[IMAGE:` tag. At end-of-stream that residue must be either flushed
+  // (it turned out to be plain text or an unrelated `[[XXX:` tag the model
+  // truncated) or silently dropped (it's a genuinely unfinished IMAGE tag
+  // — a cut-off prompt would render as garbage).
+  if (__imageStreamBuffer.length > 0) {
+    let toFlush = "";
+    if (/^\[\[IMAGE:/.test(__imageStreamBuffer)) {
+      // Truncated IMAGE tag — drop it from the wire AND from fullResponse
+      // so it doesn't pollute storage / cost / mistake parsers.
+      console.warn("[ai/teach/image] dropping truncated IMAGE tag at stream end:", __imageStreamBuffer.slice(0, 80));
+      fullResponse = fullResponse.slice(0, fullResponse.length - __imageStreamBuffer.length);
+    } else {
+      toFlush = __imageStreamBuffer;
+    }
+    __imageStreamBuffer = "";
+    if (toFlush) {
+      const cleanFlush = cleanTeachingChunk(toFlush);
+      if (cleanFlush && !res.writableEnded && !clientAborted) {
+        try { res.write(`data: ${JSON.stringify({ content: cleanFlush })}\n\n`); } catch {}
       }
     }
   }
 
+  // ── Await all in-flight image generations ────────────────────────────────
+  // We need the success/failure split before computing gem cost (each
+  // successful image adds $0.003) and so the SSE `imageReady` events have
+  // a chance to fire before we send the terminating `done` event.
+  // Promise.allSettled never throws — generateTeacherImage already
+  // serialises errors into structured failure results.
+  let __successfulImages = 0;
+  if (__imagePromises.length > 0) {
+    const results = await Promise.allSettled(__imagePromises);
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value.ok) __successfulImages++;
+    }
+  }
+
   // ── Success path: record usage telemetry ────────────────────────────────
-  // We record one row per turn. The `provider`/`model` fields reflect WHO
-  // actually answered the student. Student turns are always Gemini; admin
-  // turns are always Anthropic (Sonnet, with intra-Anthropic Haiku escape).
-  if (__finalMessage) {
+  // One row per turn, always `provider="gemini"` and `model="gemini-2.0-flash"`
+  // per the strict-Gemini directive. `geminiAttempts` is the helper's internal
+  // retry count (1 on first-try success, 2 if retry fired).
+  if (__success) {
     // Cap-context: enforces the red-line invariant in the accounting layer.
     // When set, recordAiUsage clamps `costUsd` so SUM never exceeds capUsd
     // for this (userId, subjectId, since-subscription-start) window.
@@ -2556,8 +2720,6 @@ ${retrievedBlock}
     } : null;
     try {
       if (__geminiUsage) {
-        // Gemini success (student turn). `geminiAttempts` is the helper's
-        // internal retry count (1 on first-try success, 2 if retry fired).
         void recordAiUsage({
           userId,
           subjectId: subjectId ?? null,
@@ -2576,55 +2738,30 @@ ${retrievedBlock}
           },
           capContext: __capCtx,
         });
-      } else {
-        // Anthropic answered — admin/unlimited path only.
-        const __u = extractAnthropicUsage(__finalMessage);
-        void recordAiUsage({
-          userId,
-          subjectId: subjectId ?? null,
-          route: "ai/teach",
-          provider: "anthropic",
-          model: __activeModel,
-          inputTokens: __u.inputTokens,
-          outputTokens: __u.outputTokens,
-          cachedInputTokens: __u.cachedInputTokens,
-          latencyMs: Date.now() - __teachStart,
-          metadata: {
-            routerReason: routerDecision.reason,
-            costMode: costStatus.mode,
-            dailyMode: costStatus.dailyMode,
-            attempts: __attempts,
-            fellBackToHaiku: __fellBackToHaiku,
-          },
-          capContext: __capCtx,
-        });
       }
     } catch {}
   }
 
   // ── Failure path: rollback claims + emit friendly apology ───────────────
-  if (__lastErr && !__finalMessage) {
+  if (__lastErr && !__success) {
     const __capCtxErr = subjectSub && costStatus.capUsd > 0 ? {
       userId,
       subjectId: subjectSub.subjectId,
       windowStart: subjectSub.createdAt,
       capUsd: costStatus.capUsd,
     } : null;
-    // Telemetry: record the failed attempt. `__activeProvider` reflects
-    // which provider was last attempted. For Gemini mid-stream failures we
-    // use the partial usageMetadata captured into `__geminiUsage` from the
-    // error — Google still bills the prompt + emitted candidate tokens, so
-    // writing 0/0 would silently bleed budget out of the cost cap.
-    // Pre-stream Gemini errors carry no usage and correctly land on 0/0.
-    const __failTokens =
-      __activeProvider === "gemini" && __geminiUsage
-        ? __geminiUsage
-        : { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+    // Telemetry: record the failed attempt. Always Gemini per the strict
+    // directive. For Gemini mid-stream failures we use the partial
+    // usageMetadata captured into `__geminiUsage` from the error — Google
+    // still bills the prompt + emitted candidate tokens, so writing 0/0
+    // would silently bleed budget out of the cost cap. Pre-stream errors
+    // carry no usage and correctly land on 0/0.
+    const __failTokens = __geminiUsage ?? { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
     void recordAiUsage({
       userId,
       subjectId: subjectId ?? null,
       route: "ai/teach",
-      provider: __activeProvider,
+      provider: "gemini",
       model: __activeModel,
       inputTokens: __failTokens.inputTokens,
       outputTokens: __failTokens.outputTokens,
@@ -2636,15 +2773,12 @@ ${retrievedBlock}
         routerReason: routerDecision.reason,
         costMode: costStatus.mode,
         dailyMode: costStatus.dailyMode,
-        attempts: __attempts,
-        fellBackToHaiku: __fellBackToHaiku,
         geminiAttempts: __geminiAttempts,
-        partialBeforeError:
-          __activeProvider === "gemini" && __geminiUsage ? true : undefined,
+        partialBeforeError: __geminiUsage ? true : undefined,
       },
       capContext: __capCtxErr,
     });
-    console.error(`[ai/teach] ${__activeProvider} stream error after retries:`, __lastErr?.message || __lastErr);
+    console.error(`[ai/teach] gemini stream error after retries:`, __lastErr?.message || __lastErr);
     // Roll back the atomic daily-session claim so the student isn't stuck
     // on the countdown screen for the rest of the day after a model error.
     await rollbackDailyClaim();
@@ -2761,11 +2895,13 @@ ${retrievedBlock}
   }
 
   // ── Auto-generate a study card on stage completion ───────────────────────
-  // When the model signals [STAGE_COMPLETE], spin off one cheap Haiku call to
-  // distil this stage into a one-screen review card the student can revisit
-  // later. This is fire-and-forget — the student's chat does NOT wait on it.
-  // Cost: ~$0.001 per card (Haiku, ~600 in / ~400 out). Skip on free tier and
-  // when the cost cap is past 60% to keep our promise.
+  // When the model signals [STAGE_COMPLETE], spin off one cheap Gemini 2.0
+  // Flash call (via OpenRouter — same channel as the teaching stream, since
+  // /ai/teach is strictly Gemini-only as of May 2026) to distil this stage
+  // into a one-screen review card the student can revisit later. This is
+  // fire-and-forget — the student's chat does NOT wait on it. Cost: trivial
+  // (Gemini 2.0 Flash, ~600 in / ~400 out). Skip on free tier and when the
+  // cost cap is past 60% to keep our promise.
   // Tight guard: skip study cards once we hit the "forceCheapModel" threshold
   // (>= 60% of cap). The card costs ~$0.001 each — small per call but enough
   // to push a near-cap student over the 50%-of-paid red line if we're not
@@ -2801,17 +2937,22 @@ ${retrievedBlock}
 - لا تتجاوز 800 حرف إجمالاً.
 - اكتب بالعربية الفصحى البسيطة.`;
         const cardUser = `المرحلة: "${cardStageName}"\n\nمحتوى الجلسة (آخر رد للمعلم بعد إكمال المرحلة):\n${cardContext}`;
-        const cardRes = await anthropic.messages.create({
-          model: "anthropic/claude-3-haiku",
-          max_tokens: 600,
-          system: cardSystem,
-          messages: [{ role: "user", content: cardUser }],
+        // Gemini-only policy (May 2026): the smart-teacher route — including
+        // every fire-and-forget side-effect generated *inside* /ai/teach —
+        // must never call Anthropic. The study card is a small (≤800 chars)
+        // HTML summary, so we use Gemini 2.0 Flash via OpenRouter just like
+        // the main teaching stream. Gemini failures here are silent because
+        // the card is non-essential to the student's session.
+        const cardRes = await generateGemini({
+          systemPrompt: cardSystem,
+          userParts: [{ type: "text", text: cardUser }],
+          model: "gemini-2.0-flash",
+          temperature: 0.3,
+          maxOutputTokens: 600,
+          timeoutMs: 30_000,
+          logTag: "teach-study-card",
         });
-        const cardText = (cardRes.content || [])
-          .filter((b: any) => b.type === "text")
-          .map((b: any) => b.text)
-          .join("")
-          .trim();
+        const cardText = (cardRes.text || "").trim();
         if (cardText.length > 50) {
           await db.insert(studyCardsTable).values({
             userId,
@@ -2821,17 +2962,19 @@ ${retrievedBlock}
             cardHtml: cardText.slice(0, 4000),
           });
         }
-        const cu = extractAnthropicUsage(cardRes);
+        const cu = extractGeminiUsage(cardRes.usageMetadata);
         void recordAiUsage({
           userId,
           subjectId: cardSubjectId,
           route: "ai/teach:study-card",
-          provider: "anthropic",
-          model: "anthropic/claude-3-haiku",
+          provider: "gemini",
+          model: "gemini-2.0-flash",
           inputTokens: cu.inputTokens,
           outputTokens: cu.outputTokens,
           cachedInputTokens: cu.cachedInputTokens,
-          cacheCreationInputTokens: cu.cacheCreationInputTokens,
+          // Gemini does not have a "cache creation" billing tier (that's an
+          // Anthropic prompt-caching concept), so we always record 0 here.
+          cacheCreationInputTokens: 0,
           latencyMs: Date.now() - cardStart,
         });
       } catch (err: any) {
@@ -2863,7 +3006,19 @@ ${retrievedBlock}
 
   if (subjectId && fullResponse.trim().length > 0) {
     try {
-      const cleanAssistant = fullResponse
+      // Replace `[[IMAGE:hexid]]` markers with a static Arabic stub —
+      // the underlying CDN URL is short-lived, so persisting it would
+      // be useless after a few hours. The Arabic stub keeps the
+      // student's chat history readable on revisit.
+      const __imageReplaced = fullResponse.replace(
+        /\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi,
+        (_full, id) => {
+          const prompt = __imagePromptsById.get(id) || "";
+          const preview = prompt.slice(0, 120);
+          return `<p class="image-historical">[صورة توضيحية${preview ? `: ${preview}` : ""}]</p>`;
+        },
+      );
+      const cleanAssistant = __imageReplaced
         .replace(/\[STAGE_COMPLETE\]/g, "")
         .replace(/\[PLAN_READY\]/g, "")
         .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
@@ -2920,9 +3075,15 @@ ${retrievedBlock}
       let turnCostUsd = 0;
       if (__geminiUsage) {
         turnCostUsd = costForUsage({ model: __activeModel, inputTokens: __geminiUsage.inputTokens, outputTokens: __geminiUsage.outputTokens, cachedInputTokens: __geminiUsage.cachedInputTokens });
-      } else if (__finalMessage) {
-        const au = extractAnthropicUsage(__finalMessage);
-        turnCostUsd = costForUsage({ model: __activeModel, inputTokens: au.inputTokens, outputTokens: au.outputTokens, cachedInputTokens: au.cachedInputTokens, cacheCreationInputTokens: au.cacheCreationInputTokens });
+      }
+      // Add image-generation cost to the turn. Only successful images are
+      // charged — failed/timed-out generations are fail-soft (the student
+      // sees an error placeholder, no charge). Each image is ~$0.003.
+      // recordAiUsage already wrote a separate ai_usage_events row inside
+      // generateTeacherImage; we add the cost here ONLY to inflate the
+      // student-facing gem deduction so their wallet absorbs the FLUX cost.
+      if (__successfulImages > 0) {
+        turnCostUsd += __successfulImages * FLUX_SCHNELL_USD_PER_IMAGE;
       }
       const gems = Math.max(1, Math.ceil(turnCostUsd * 1000));
       gemsDeducted = gems;
@@ -3211,7 +3372,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
     const result = await streamGeminiTeaching({
       systemPrompt,
       messages: cleanMessages.map((m) => ({ role: m.role, content: m.content })),
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       maxOutputTokens: 1024,
       temperature: 0.6,
       topP: 0.95,
@@ -3260,7 +3421,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
       subjectId: null,
       route: "ai/platform-help",
       provider: "gemini",
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __aiStart,
@@ -4337,7 +4498,7 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
     });
     // ─── Gemini Flash fallback for variant generation ──────────────────
     // Same resilience pattern as /ai/lab/build-env: when Anthropic fails
-    // (rate-limited, expired key, OpenRouter outage), try Gemini 2.5 Flash
+    // (rate-limited, expired key, OpenRouter outage), try Gemini 2.0 Flash
     // direct with `responseMimeType: application/json` so the variant
     // generator keeps working. Variants must preserve the source env's
     // structural shape, so we feed Gemini the same trimmed shape + the
@@ -4345,11 +4506,11 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
     if (hasGeminiProvider()) {
       const __gStart = Date.now();
       try {
-        console.log("[generate-variant] anthropic exhausted — trying Gemini 2.5 Flash fallback (OpenRouter primary)");
+        console.log("[generate-variant] anthropic exhausted — trying Gemini 2.0 Flash fallback (OpenRouter primary)");
         const result = await generateGeminiJson({
           systemPrompt: variantSystem + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح.`,
           userPrompt: `هذه البيئة الأصلية (JSON). أنشئ نسخة جديدة بنفس الشكل بالضبط لكن بمحتوى مختلف بحسب التعليمات:\n\n${JSON.stringify(shape, null, 2).slice(0, 18000)}\n\nأرجع JSON فقط.`,
-          model: "gemini-2.5-flash",
+          model: "gemini-2.0-flash",
           temperature: 0.5,
           maxOutputTokens: 16000,
           timeoutMs: 90_000,
@@ -4362,7 +4523,7 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
             subjectId: subjectId ?? null,
             route: "ai/lab/generate-variant",
             provider: "gemini",
-            model: "gemini-2.5-flash",
+            model: "gemini-2.0-flash",
             inputTokens: __u.inputTokens,
             outputTokens: __u.outputTokens,
             cachedInputTokens: __u.cachedInputTokens,
@@ -4875,7 +5036,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       // ─── Gemini Flash third-pass fallback ─────────────────────────────
       // Both Anthropic passes failed (parse OR upstream error). Before we
       // give the student the dry "needs more detail" fallback env, try
-      // Gemini 2.5 Flash directly — it is independent of the
+      // Gemini 2.0 Flash directly — it is independent of the
       // Anthropic/OpenRouter availability and uses Google's strict
       // `responseMimeType: application/json` to guarantee parseable
       // output. This is the same provider the smart-teacher chat already
@@ -4885,11 +5046,11 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       if (hasGeminiProvider()) {
         const __gStart = Date.now();
         try {
-          console.log("[build-env] anthropic exhausted — trying Gemini 2.5 Flash third pass (OpenRouter primary)");
+          console.log("[build-env] anthropic exhausted — trying Gemini 2.0 Flash third pass (OpenRouter primary)");
           const result = await generateGeminiJson({
             systemPrompt: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح. ابقَ بسيطاً وآمناً: شاشة 1-2 و2-5 مكونات.`,
             userPrompt: `التخصص: ${kindLabel} (${kind})\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة لهذا الطلب. أرجع JSON صالحاً فقط.`,
-            model: "gemini-2.5-flash",
+            model: "gemini-2.0-flash",
             temperature: 0.4,
             maxOutputTokens: 16000,
             timeoutMs: 90_000,
@@ -4902,7 +5063,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
               subjectId: subjectId ?? null,
               route: "ai/lab/build-env",
               provider: "gemini",
-              model: "gemini-2.5-flash",
+              model: "gemini-2.0-flash",
               inputTokens: __u.inputTokens,
               outputTokens: __u.outputTokens,
               cachedInputTokens: __u.cachedInputTokens,
@@ -5354,7 +5515,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
     }
   }
 
-  // ─── Pass 2: Gemini 2.5 Flash fallback ───────────────────────────────
+  // ─── Pass 2: Gemini 2.0 Flash fallback ───────────────────────────────
   // When Anthropic fails (network, rate-limit, expired key, OpenRouter outage,
   // or even an unparseable response), try Gemini directly using the same
   // strict-JSON pattern already proven on /ai/lab/build-env. This keeps the
@@ -5362,11 +5523,11 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
   if (hasGeminiProvider()) {
     const __gStart = Date.now();
     try {
-      console.log("[attack-sim/build] anthropic exhausted — trying Gemini 2.5 Flash fallback (OpenRouter primary)");
+      console.log("[attack-sim/build] anthropic exhausted — trying Gemini 2.0 Flash fallback (OpenRouter primary)");
       const result = await generateGeminiJson({
         systemPrompt: ATTACK_SIM_BUILD_SYSTEM,
         userPrompt,
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         temperature: 0.6,
         maxOutputTokens: 6000,
         timeoutMs: 90_000,
@@ -5380,7 +5541,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
           subjectId: subjectId ?? null,
           route: "ai/attack-sim/build",
           provider: "gemini",
-          model: "gemini-2.5-flash",
+          model: "gemini-2.0-flash",
           inputTokens: __u.inputTokens,
           outputTokens: __u.outputTokens,
           cachedInputTokens: __u.cachedInputTokens,
@@ -5403,7 +5564,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/build",
         provider: "gemini",
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __gStart,

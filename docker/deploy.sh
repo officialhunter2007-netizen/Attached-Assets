@@ -27,11 +27,13 @@ command -v curl   >/dev/null 2>&1 || fail "curl غير مثبّت: apt install c
 
 source .env
 
-[ -z "$POSTGRES_PASSWORD" ]                 && fail "POSTGRES_PASSWORD فارغ في .env — ضع كلمة مرور قوية!"
-[ -z "$SESSION_SECRET" ]                    && fail "SESSION_SECRET فارغ في .env"
-[ -z "$AI_INTEGRATIONS_ANTHROPIC_API_KEY" ] && fail "AI_INTEGRATIONS_ANTHROPIC_API_KEY فارغ في .env"
-[ -z "$AI_INTEGRATIONS_OPENAI_API_KEY" ]    && fail "AI_INTEGRATIONS_OPENAI_API_KEY فارغ في .env"
-[ -z "$APP_DOMAIN" ]                        && fail "APP_DOMAIN فارغ في .env"
+[ -z "$POSTGRES_PASSWORD" ] && fail "POSTGRES_PASSWORD فارغ في .env — ضع كلمة مرور قوية!"
+[ -z "$SESSION_SECRET" ]    && fail "SESSION_SECRET فارغ في .env"
+[ -z "$OPENROUTER_API_KEY" ] && fail "OPENROUTER_API_KEY فارغ في .env — مطلوب لتشغيل المعلّم الذكي. احصل عليه من openrouter.ai/keys"
+[ -z "$APP_DOMAIN" ]        && fail "APP_DOMAIN فارغ في .env"
+
+# تنبيهات لمتغيّرات اختيارية مهمة
+[ -z "$FAL_KEY" ] && warn "FAL_KEY فارغ — ستعمل المنصة بدون الصور التوضيحية (يمكن إضافته لاحقاً)"
 
 # ─────────────────────────────────────────────────────────────────
 # التحديث (بعد git pull)

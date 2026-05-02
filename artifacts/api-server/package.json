@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@fal-ai/serverless-client": "^0.15.0",
     "@google-cloud/storage": "^7.19.0",
     "@types/sanitize-html": "^2.16.1",
     "@workspace/api-zod": "workspace:*",

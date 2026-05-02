@@ -3,7 +3,7 @@ import { db, aiUsageEventsTable } from "@workspace/db";
 import { costForUsage } from "./ai-pricing";
 import { logger } from "./logger";
 
-export type AiProvider = "anthropic" | "gemini" | "openai";
+export type AiProvider = "anthropic" | "gemini" | "openai" | "fal-ai";
 
 /**
  * Optional per-subscription cap context. When provided, recordAiUsage runs a
