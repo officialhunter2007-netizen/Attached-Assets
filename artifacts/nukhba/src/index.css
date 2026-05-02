@@ -1165,3 +1165,314 @@
   .nk-hover-lift:hover { transform: none; }
   .card-3d:hover, .card-3d-sm:hover { transform: none; }
 }
+
+/* ═══════════════════════════════════════════════
+   TASK #19 — TEACHER SESSION UI (May 2026)
+   Per-message toolbar, pro-input, path-drawer trigger,
+   enhanced lightbox toolbar, KaTeX fallback styling.
+═══════════════════════════════════════════════ */
+
+/* Per-message action toolbar (copy/regen/TTS/rate/share). Sits under
+   each completed AI bubble, hugs the right side (RTL) and stays out of
+   the way of the message bubble's natural padding. */
+.msg-toolbar {
+  margin-top: 6px;
+}
+.msg-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.6);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.msg-toolbar-btn:hover {
+  background: rgba(245,158,11,0.12);
+  border-color: rgba(245,158,11,0.35);
+  color: rgba(254,243,199,0.95);
+}
+.msg-toolbar-btn:focus-visible {
+  outline: 2px solid rgba(245,158,11,0.5);
+  outline-offset: 2px;
+}
+.msg-toolbar-btn-active {
+  background: rgba(245,158,11,0.2);
+  border-color: rgba(245,158,11,0.55);
+  color: #fef3c7;
+}
+.msg-toolbar-btn-up {
+  background: rgba(16,185,129,0.18);
+  border-color: rgba(16,185,129,0.5);
+  color: #a7f3d0;
+}
+.msg-toolbar-btn-down {
+  background: rgba(244,63,94,0.18);
+  border-color: rgba(244,63,94,0.5);
+  color: #fecdd3;
+}
+.msg-toolbar-label {
+  font-size: 10.5px;
+  font-weight: 700;
+}
+@media (max-width: 480px) {
+  /* Tighter on phones — labels get hidden, icons-only is fine. */
+  .msg-toolbar-label { display: none; }
+  .msg-toolbar-btn { padding: 5px 6px; }
+}
+
+/* Pro-input shell (textarea + image attach + mic + send). The
+   icon buttons sit at the bottom edge of the textarea so they
+   visually belong to the same control. */
+.input-pro-shell {
+  /* Component is laid out by Tailwind; this hook is for future tweaks. */
+}
+.input-pro-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.65);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  margin-bottom: 5px;
+}
+.input-pro-icon-btn:hover:not(:disabled) {
+  background: rgba(245,158,11,0.14);
+  border-color: rgba(245,158,11,0.4);
+  color: #fef3c7;
+}
+.input-pro-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.input-pro-icon-btn:focus-visible {
+  outline: 2px solid rgba(245,158,11,0.5);
+  outline-offset: 2px;
+}
+/* Recording — pulse ring + red tint so the user knows the mic is hot. */
+.input-pro-icon-btn-recording {
+  background: rgba(244,63,94,0.22) !important;
+  border-color: rgba(244,63,94,0.6) !important;
+  color: #fecdd3 !important;
+  box-shadow: 0 0 0 0 rgba(244,63,94,0.5);
+  animation: nukhba-mic-pulse 1.4s ease-out infinite;
+}
+@keyframes nukhba-mic-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(244,63,94,0.55); }
+  70%  { box-shadow: 0 0 0 10px rgba(244,63,94,0);    }
+  100% { box-shadow: 0 0 0 0   rgba(244,63,94,0);    }
+}
+
+/* Path-drawer trigger button (header). Looks like a pill with a map
+   icon — when no plan exists yet it's disabled (subdued). */
+.path-drawer-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(139,92,246,0.18), rgba(245,158,11,0.14));
+  border: 1px solid rgba(245,158,11,0.32);
+  color: #fde68a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.path-drawer-trigger:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(139,92,246,0.28), rgba(245,158,11,0.22));
+  border-color: rgba(245,158,11,0.55);
+  transform: translateY(-1px);
+}
+.path-drawer-trigger:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Lightbox toolbar (zoom in/out, download, "explain again"). Floats
+   along the bottom of the lightbox, on top of the dark backdrop. */
+.teach-image-lightbox-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(11,13,23,0.85);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2147483646;
+  direction: rtl;
+  max-width: calc(100vw - 32px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.lightbox-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.85);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.lightbox-tool-btn:hover:not(:disabled) {
+  background: rgba(245,158,11,0.18);
+  border-color: rgba(245,158,11,0.45);
+  color: #fef3c7;
+}
+.lightbox-tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.lightbox-tool-btn-primary {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border-color: rgba(245,158,11,0.7);
+  color: #0b0d17;
+}
+.lightbox-tool-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #000;
+}
+.lightbox-zoom-label {
+  display: inline-block;
+  min-width: 38px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255,255,255,0.6);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.teach-image-lightbox-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 18px;
+  margin: 0 auto;
+  padding: 8px 14px;
+  max-width: min(90%, 640px);
+  background: rgba(11,13,23,0.85);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  color: rgba(255,255,255,0.92);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+  direction: rtl;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2147483646;
+}
+
+/* KaTeX fallback — when the math couldn't be rendered (bad LaTeX, etc),
+   we surface the raw expression in a muted box so the student still
+   sees the formula instead of a silent failure. */
+.katex-fallback {
+  display: inline-block;
+  padding: 2px 6px;
+  margin: 0 2px;
+  background: rgba(244,63,94,0.10);
+  border: 1px dashed rgba(244,63,94,0.35);
+  border-radius: 5px;
+  color: #fecaca;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  direction: ltr;
+}
+/* KaTeX displays inside RTL content — keep the equations LTR for
+   correct rendering, and add a touch of breathing room above/below. */
+.ai-msg .katex-display { direction: ltr; margin: 12px 0; overflow-x: auto; overflow-y: hidden; }
+.ai-msg .katex { direction: ltr; font-size: 1.05em; }
+
+/* hljs token colours sit on top of the dark theme imported in main.tsx;
+   these tweaks just add a subtle "language pill" + a per-line gutter
+   feel via a top-border so multi-block answers are easy to skim. */
+.ai-msg pre code.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+}
+.ai-msg pre[data-lang]::before {
+  content: attr(data-lang);
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(245,158,11,0.85);
+  margin-bottom: 6px;
+}
+
+/* "Copy code" button injected by enhanceTeacherDom — one per <pre>. Sits
+   at the top-left so it doesn't fight the language pill on the right. */
+.ai-msg pre {
+  position: relative;
+}
+.copy-code-btn {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.75);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.ai-msg pre:hover .copy-code-btn,
+.ai-msg pre:focus-within .copy-code-btn {
+  opacity: 1;
+}
+.copy-code-btn:hover {
+  background: rgba(245,158,11,0.2);
+  color: #fef3c7;
+  border-color: rgba(245,158,11,0.45);
+}
+.copy-code-btn-copied {
+  background: rgba(16,185,129,0.22);
+  border-color: rgba(16,185,129,0.5);
+  color: #a7f3d0 !important;
+  opacity: 1 !important;
+}
+@media (max-width: 480px) {
+  /* On phones we always show the copy button — there's no hover. */
+  .copy-code-btn { opacity: 0.85; }
+}
+
+/* xs breakpoint helper used in the new session header (Tailwind doesn't
+   ship xs by default — this matches the project's earlier conventions). */
+@media (min-width: 480px) {
+  .xs\:flex { display: flex; }
+  .xs\:hidden { display: none; }
+  .xs\:inline { display: inline; }
+}

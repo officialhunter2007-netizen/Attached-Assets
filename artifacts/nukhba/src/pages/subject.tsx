@@ -1,7 +1,18 @@
-import { useState, useEffect, useRef, memo, useCallback } from "react";
+import { useState, useEffect, useRef, memo, useCallback, useMemo } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { writeUserJson, readUserJson, removeUserKey } from "@/lib/user-storage";
+import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@/lib/teacher-render";
+import { loadDraft, makeDebouncedDraftSaver, clearDraft } from "@/lib/draft-storage";
+import { isSpeechRecognitionSupported, isSpeechSynthesisSupported, startRecognition, speakText, stopSpeaking, isSpeaking } from "@/lib/web-speech";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+  DrawerClose,
+} from "@/components/ui/drawer";
 import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
@@ -9,7 +20,7 @@ import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@workspace/api-client-react";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical, MoreHorizontal, BookMarked, GraduationCap, Lightbulb } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical, MoreHorizontal, BookMarked, GraduationCap, Lightbulb, Copy, Check, Volume2, VolumeX, ThumbsUp, ThumbsDown, Share2, Mic, MicOff, ImagePlus, Pause, Play, RotateCcw, Download, ZoomIn, ZoomOut, Map as MapIcon, Gauge } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +28,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
@@ -1261,12 +1275,17 @@ function renderAssistantHtml(raw: string): string {
   // marked is synchronous when no async extensions are registered, but the
   // type signature is `string | Promise<string>` — `as string` is safe here.
   const withImages = renderImageMarkers(raw);
-  const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(withImages))) as string;
+  // Math is extracted as plain ASCII placeholders BEFORE marked + DOMPurify,
+  // then restored AFTER sanitization with pre-rendered KaTeX HTML. This keeps
+  // KaTeX's inline styles (vertical-align, padding, etc.) intact since they
+  // bypass `stripInlineStyles` and DOMPurify's attribute filter.
+  const { text: withMathStripped, blocks } = extractMathBlocks(withImages);
+  const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(withMathStripped))) as string;
   const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target', 'data-image-id', 'loading'],
     ADD_TAGS: ['button', 'figure', 'figcaption'],
   });
-  return stripBrokenButtonCodeSpans(sanitized);
+  return restoreMathPlaceholders(stripBrokenButtonCodeSpans(sanitized), blocks);
 }
 
 // Streaming variant: same conversion, but we must tolerate half-finished
@@ -1290,12 +1309,18 @@ function renderStreamingHtml(raw: string): string {
   // imageReady SSE event resolves. Renders BEFORE marked so the raw HTML
   // block survives markdown parsing intact.
   const withImages = renderImageMarkers(normalized);
-  const cleaned = unwrapHtmlCodeFences(withImages);
+  // Math extraction runs mid-stream too: only complete `$$..$$` and `$..$`
+  // blocks match the regex, so partial spans never get rendered. The user
+  // sees raw `$...` until the closing `$` arrives — better than rendering
+  // half-formed TeX or stalling the stream.
+  const { text: withMathStripped, blocks } = extractMathBlocks(withImages);
+  const cleaned = unwrapHtmlCodeFences(withMathStripped);
   const html = marked.parse(stripInlineStyles(cleaned)) as string;
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target', 'data-image-id', 'loading'],
     ADD_TAGS: ['button', 'figure', 'figcaption'],
   });
+  return restoreMathPlaceholders(sanitized, blocks);
 }
 
 
@@ -1372,6 +1397,280 @@ function extractAskOptions(content: string): { stripped: string; ask: { question
   return { stripped: cleanStripped(content), ask: { question, options, allowOther } };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Session-UI helpers (Task #19): elapsed timer hook, per-message action
+// toolbar, welcome empty-state, unified error state, and an attached-image
+// preview chip used by the pro input box. All purely presentational —
+// streaming, [[CREATE_LAB_ENV]], [[IMAGE:id]], gem accounting and stage
+// flow remain in the parent component.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function formatElapsed(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
+
+// Ticks once per second whenever `running && !paused`. We accumulate elapsed
+// on a ref so pause/resume don't lose progress; the state mirrors the ref
+// for re-render. `reset()` clears both ref + state.
+function useElapsedTimer(running: boolean, paused: boolean) {
+  const [elapsed, setElapsed] = useState(0);
+  const accRef = useRef(0);
+  const startedAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!running || paused) {
+      if (startedAtRef.current !== null) {
+        accRef.current += (Date.now() - startedAtRef.current) / 1000;
+        startedAtRef.current = null;
+        setElapsed(accRef.current);
+      }
+      return;
+    }
+    startedAtRef.current = Date.now();
+    const id = setInterval(() => {
+      if (startedAtRef.current === null) return;
+      const live = accRef.current + (Date.now() - startedAtRef.current) / 1000;
+      setElapsed(live);
+    }, 1000);
+    return () => {
+      clearInterval(id);
+      if (startedAtRef.current !== null) {
+        accRef.current += (Date.now() - startedAtRef.current) / 1000;
+        startedAtRef.current = null;
+      }
+    };
+  }, [running, paused]);
+
+  const reset = useCallback(() => {
+    accRef.current = 0;
+    startedAtRef.current = running && !paused ? Date.now() : null;
+    setElapsed(0);
+  }, [running, paused]);
+
+  return { elapsed, reset };
+}
+
+// Strips HTML tags and KaTeX/code artifacts from a teacher message so the
+// browser TTS engine doesn't read out "less-than slash p greater-than".
+function plainTextFromHtmlContent(raw: string): string {
+  if (!raw) return "";
+  // Drop fenced code blocks entirely (TTS would mangle them).
+  let s = raw.replace(/```[\s\S]*?```/g, " ");
+  // Drop our internal markers so they don't get spoken.
+  s = s.replace(/\[\[(?:CREATE_LAB_ENV|ASK_OPTIONS|IMAGE|PLAN_READY)[^\]]*\]\]/gi, " ");
+  // Strip raw HTML tags.
+  if (typeof document !== "undefined") {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = s;
+    s = tmp.textContent || tmp.innerText || "";
+  } else {
+    s = s.replace(/<[^>]*>/g, " ");
+  }
+  return s.replace(/\s+/g, " ").trim();
+}
+
+const MessageToolbar = memo(function MessageToolbar({
+  content,
+  onRegenerate,
+  onShare,
+  canRegenerate,
+}: {
+  content: string;
+  onRegenerate?: () => void;
+  onShare?: () => void;
+  canRegenerate: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [rated, setRated] = useState<null | "up" | "down">(null);
+
+  const ttsAvailable = isSpeechSynthesisSupported();
+
+  // Stop any in-flight TTS if the message unmounts (e.g. user navigates).
+  useEffect(() => () => { if (speaking) stopSpeaking(); }, [speaking]);
+
+  const handleCopy = useCallback(async () => {
+    const txt = plainTextFromHtmlContent(content);
+    try {
+      await navigator.clipboard.writeText(txt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }, [content]);
+
+  const handleShare = useCallback(async () => {
+    const txt = plainTextFromHtmlContent(content);
+    const payload = `${txt}\n\n— من جلسة نُخبة\n${typeof window !== "undefined" ? window.location.href : ""}`;
+    try {
+      const navAny = navigator as any;
+      if (navAny?.share) {
+        await navAny.share({ text: payload });
+      } else {
+        await navigator.clipboard.writeText(payload);
+        setShared(true);
+        setTimeout(() => setShared(false), 1400);
+      }
+    } catch { /* user cancelled */ }
+    onShare?.();
+  }, [content, onShare]);
+
+  const handleTTS = useCallback(() => {
+    if (!ttsAvailable) return;
+    if (speaking || isSpeaking()) {
+      stopSpeaking();
+      setSpeaking(false);
+      return;
+    }
+    const ok = speakText(plainTextFromHtmlContent(content));
+    setSpeaking(ok);
+    if (ok && typeof window !== "undefined") {
+      // Watchdog: speechSynthesis doesn't always fire `onend` reliably.
+      const id = setInterval(() => {
+        if (!isSpeaking()) { setSpeaking(false); clearInterval(id); }
+      }, 600);
+    }
+  }, [content, speaking, ttsAvailable]);
+
+  const handleRate = useCallback((value: "up" | "down") => {
+    setRated((prev) => (prev === value ? null : value));
+    try {
+      const key = "nukhba.feedback";
+      const prev = JSON.parse(localStorage.getItem(key) || "[]");
+      prev.push({ ts: Date.now(), value, sample: plainTextFromHtmlContent(content).slice(0, 140) });
+      localStorage.setItem(key, JSON.stringify(prev.slice(-200)));
+    } catch { /* storage full / private mode */ }
+  }, [content]);
+
+  return (
+    <div className="msg-toolbar mt-1.5 flex flex-wrap items-center gap-1" style={{ direction: "rtl" }}>
+      <button type="button" className="msg-toolbar-btn" title="نسخ النص" aria-label="نسخ النص" onClick={handleCopy}>
+        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+        <span className="msg-toolbar-label">{copied ? "نُسِخ" : "نسخ"}</span>
+      </button>
+      {canRegenerate && onRegenerate && (
+        <button type="button" className="msg-toolbar-btn" title="أعد توليد الإجابة" aria-label="أعد توليد الإجابة" onClick={onRegenerate}>
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span className="msg-toolbar-label">أعد التوليد</span>
+        </button>
+      )}
+      {ttsAvailable && (
+        <button
+          type="button"
+          className={`msg-toolbar-btn ${speaking ? "msg-toolbar-btn-active" : ""}`}
+          title={speaking ? "إيقاف القراءة" : "اقرأها بصوت عربي"}
+          aria-label={speaking ? "إيقاف القراءة" : "اقرأها بصوت عربي"}
+          onClick={handleTTS}
+        >
+          {speaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+          <span className="msg-toolbar-label">{speaking ? "أوقف" : "اقرأها"}</span>
+        </button>
+      )}
+      <button
+        type="button"
+        className={`msg-toolbar-btn ${rated === "up" ? "msg-toolbar-btn-up" : ""}`}
+        title="إجابة مفيدة"
+        aria-label="إجابة مفيدة"
+        onClick={() => handleRate("up")}
+      >
+        <ThumbsUp className="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        className={`msg-toolbar-btn ${rated === "down" ? "msg-toolbar-btn-down" : ""}`}
+        title="إجابة بحاجة لتحسين"
+        aria-label="إجابة بحاجة لتحسين"
+        onClick={() => handleRate("down")}
+      >
+        <ThumbsDown className="w-3.5 h-3.5" />
+      </button>
+      <button type="button" className="msg-toolbar-btn" title="مشاركة" aria-label="مشاركة" onClick={handleShare}>
+        <Share2 className="w-3.5 h-3.5" />
+        <span className="msg-toolbar-label">{shared ? "نُسِخ ✓" : "شارك"}</span>
+      </button>
+    </div>
+  );
+});
+
+function WelcomeEmptyState({
+  subjectName,
+  modeBadge,
+  starters,
+  onPick,
+}: {
+  subjectName: string;
+  modeBadge: string;
+  starters: string[];
+  onPick: (text: string) => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center px-4 py-10 text-center" style={{ direction: "rtl" }}>
+      <div className="w-16 h-16 mb-4 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
+        <Sparkles className="w-8 h-8 text-black" />
+      </div>
+      <span className="text-[11px] font-bold text-amber-300 mb-1">{modeBadge}</span>
+      <h3 className="text-xl font-black text-white mb-1.5">أهلاً بك في {subjectName}</h3>
+      <p className="text-sm text-white/55 leading-relaxed max-w-md mb-5">
+        ابدأ بسؤال، أو اختر اقتراحاً للأسفل. يستطيع المعلم شرح المفاهيم وحل التمارين وبناء بيئات تطبيقية تفاعلية لك.
+      </p>
+      <div className="flex flex-wrap gap-2 justify-center max-w-xl">
+        {starters.map((s, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onPick(s)}
+            className="text-[12px] sm:text-sm px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-amber-500/15 border border-white/10 hover:border-amber-500/40 text-white/75 hover:text-amber-100 transition-all"
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TeacherErrorState({
+  title,
+  description,
+  actionLabel,
+  onAction,
+  tone = "warning",
+}: {
+  title: string;
+  description: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  tone?: "warning" | "danger" | "info";
+}) {
+  const palette = tone === "danger"
+    ? { bg: "bg-rose-500/15", border: "border-rose-500/40", text: "text-rose-200", body: "text-rose-100/90", btnBg: "bg-rose-500/40 hover:bg-rose-500/60", btnBorder: "border-rose-400/50", btnText: "text-rose-100 hover:text-white" }
+    : tone === "info"
+    ? { bg: "bg-cyan-500/12", border: "border-cyan-500/35", text: "text-cyan-200", body: "text-cyan-100/90", btnBg: "bg-cyan-500/40 hover:bg-cyan-500/60", btnBorder: "border-cyan-400/50", btnText: "text-cyan-100 hover:text-white" }
+    : { bg: "bg-amber-500/15", border: "border-amber-500/40", text: "text-amber-200", body: "text-amber-100/90", btnBg: "bg-amber-500/40 hover:bg-amber-500/60", btnBorder: "border-amber-400/50", btnText: "text-amber-100 hover:text-white" };
+  return (
+    <div className={`max-w-2xl mx-auto mb-3 p-4 rounded-xl ${palette.bg} ${palette.border} border shadow-lg`} style={{ direction: "rtl" }}>
+      <div className={`text-sm font-bold mb-2 ${palette.text}`}>⚠️ {title}</div>
+      <div className={`text-sm mb-3 leading-relaxed ${palette.body}`}>{description}</div>
+      {actionLabel && onAction && (
+        <button
+          type="button"
+          onClick={onAction}
+          className={`text-sm font-bold transition-all px-4 py-2 rounded-lg ${palette.btnBg} ${palette.btnBorder} border ${palette.btnText}`}
+        >
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // In-flight teacher-image state shared with AIMessage. `loading` shows the
 // spinner placeholder; `ready` swaps in <img>; `error` shows a friendly
 // retry hint. URLs from fal.ai are short-lived (≈1h CDN cache) so we don't
@@ -1380,10 +1679,13 @@ function extractAskOptions(content: string): { stripped: string; ask: { question
 type TeacherImageState = { status: 'loading' | 'ready' | 'error'; url?: string };
 type TeacherImageMap = Map<string, TeacherImageState>;
 
-const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onImageTimeout }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onImageTimeout?: (id: string) => void }) {
+const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onImageTimeout, onReExplainImage }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onImageTimeout?: (id: string) => void; onReExplainImage?: (url: string) => void }) {
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxAlt, setLightboxAlt] = useState<string>("");
+  const [lightboxZoom, setLightboxZoom] = useState<number>(1);
+  const [lightboxPan, setLightboxPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const { stripped, ask } = !isStreaming ? extractAskOptions(content) : { stripped: content, ask: null };
 
@@ -1612,11 +1914,23 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
       const img = fig.querySelector('img') as HTMLImageElement | null;
       if (!img || !img.src) return;
       e.preventDefault();
+      const cap = fig.querySelector('figcaption.image-caption');
+      setLightboxAlt((cap?.textContent || img.alt || "").trim());
+      setLightboxZoom(1);
+      setLightboxPan({ x: 0, y: 0 });
       setLightboxUrl(img.src);
     };
     root.addEventListener('click', handler);
     return () => root.removeEventListener('click', handler);
   }, []);
+
+  // Apply highlight.js + decorate code blocks (copy button) after every
+  // render. KaTeX HTML is already pre-rendered by `restoreMathPlaceholders`
+  // so this effect only deals with code styling. Idempotent — guards via
+  // dataset.hljsApplied prevent double-highlighting on streaming chunks.
+  useEffect(() => {
+    enhanceTeacherDom(containerRef.current);
+  }, [displayHtml]);
 
   // While the lightbox is open: close on Escape (desktop convenience), lock
   // body scroll so mobile browsers don't scroll the chat behind the modal,
@@ -1683,11 +1997,78 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
           >
             ×
           </button>
+          <div className="teach-image-lightbox-toolbar" onClick={(e) => e.stopPropagation()} style={{ direction: "rtl" }}>
+            <button
+              type="button"
+              className="lightbox-tool-btn"
+              aria-label="تصغير"
+              title="تصغير"
+              onClick={() => { setLightboxZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2))); setLightboxPan({ x: 0, y: 0 }); }}
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <span className="lightbox-zoom-label">{Math.round(lightboxZoom * 100)}%</span>
+            <button
+              type="button"
+              className="lightbox-tool-btn"
+              aria-label="تكبير"
+              title="تكبير"
+              onClick={() => { setLightboxZoom(z => Math.min(4, +(z + 0.25).toFixed(2))); }}
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              className="lightbox-tool-btn"
+              aria-label="تنزيل الصورة"
+              title="تنزيل"
+              onClick={async () => {
+                try {
+                  const r = await fetch(lightboxUrl);
+                  const blob = await r.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `nukhba-${Date.now()}.png`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  setTimeout(() => URL.revokeObjectURL(url), 1500);
+                } catch {
+                  window.open(lightboxUrl, '_blank', 'noopener');
+                }
+              }}
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            {onReExplainImage && (
+              <button
+                type="button"
+                className="lightbox-tool-btn lightbox-tool-btn-primary"
+                onClick={() => {
+                  onReExplainImage(lightboxUrl);
+                  setLightboxUrl(null);
+                }}
+              >
+                <span className="text-xs">اشرحها لي مرة أخرى</span>
+              </button>
+            )}
+          </div>
           <img
             src={lightboxUrl}
-            alt="صورة توضيحية مكبّرة"
+            alt={lightboxAlt || "صورة توضيحية مكبّرة"}
             onClick={(e) => e.stopPropagation()}
+            style={{
+              transform: `scale(${lightboxZoom}) translate(${lightboxPan.x}px, ${lightboxPan.y}px)`,
+              transition: 'transform 0.15s ease-out',
+              cursor: lightboxZoom > 1 ? 'grab' : 'zoom-in',
+            }}
           />
+          {lightboxAlt && (
+            <div className="teach-image-lightbox-caption" onClick={(e) => e.stopPropagation()} style={{ direction: "rtl" }}>
+              {lightboxAlt}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1791,7 +2172,40 @@ function SubjectPathChat({
   };
   const initial = loadInitialChat();
   const [messages, setMessages] = useState<ChatMessage[]>(initial.messages);
-  const [input, setInput] = useState("");
+  // ── Pro-input + session-UX state (Task #19) ───────────────────────────────
+  // Draft is restored from localStorage on mount (per subjectId), autosaved
+  // on every keystroke (debounced 500ms), and cleared on successful send.
+  const [input, setInput] = useState(() => {
+    try { return loadDraft(subject.id); } catch { return ""; }
+  });
+  // Optional inline image preview (data URL). Sent as a markdown image tag
+  // prepended to the user message text — keeps backend untouched.
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  // Speech-recognition control: a non-null handle means we're actively
+  // recording; calling .stop() ends the session and triggers `onend`.
+  const [recordingHandle, setRecordingHandle] = useState<{ stop: () => void } | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  // Session control state.
+  const [sessionPaused, setSessionPaused] = useState(false);
+  const [pathDrawerOpen, setPathDrawerOpen] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  // Difficulty hint sent to the backend on every /ai/teach request. The
+  // server safely ignores unknown body fields, so this lights up the UI
+  // even if the backend hasn't been taught about it yet.
+  const [difficulty, setDifficulty] = useState<"easy" | "normal" | "advanced">(() => {
+    try { return (localStorage.getItem(`nukhba.difficulty.${subject.id}`) as any) || "normal"; } catch { return "normal"; }
+  });
+  // Persist difficulty per-subject so it survives reloads.
+  useEffect(() => {
+    try { localStorage.setItem(`nukhba.difficulty.${subject.id}`, difficulty); } catch {}
+  }, [difficulty, subject.id]);
+  const difficultyRef = useRef(difficulty);
+  useEffect(() => { difficultyRef.current = difficulty; }, [difficulty]);
+  // Stable debounced draft saver — a fresh closure each render would
+  // re-create the timer and we'd never coalesce keystrokes.
+  const draftSaverRef = useRef<(value: string) => void>(() => {});
+  useEffect(() => { draftSaverRef.current = makeDebouncedDraftSaver(subject.id, 500); }, [subject.id]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [stages] = useState<string[]>(subject.defaultStages);
   const [currentStage, setCurrentStage] = useState(initial.currentStage);
@@ -2220,6 +2634,10 @@ function SubjectPathChat({
           currentStage: usedStage,
           isDiagnosticPhase: diagMode,
           hasCoding: subject.hasCoding,
+          // Difficulty hint — backend may use it to scale explanation depth
+          // and exercise difficulty. Currently advisory; the server safely
+          // ignores unknown body fields so this is non-breaking.
+          difficultyHint: difficultyRef.current,
         })
       });
 
@@ -2607,12 +3025,200 @@ function SubjectPathChat({
   });
 
   const handleSend = () => {
-    if (!input.trim() || isStreaming) return;
-    sendTeachMessage(input);
+    if ((!input.trim() && !attachedImage) || isStreaming || sessionPaused) return;
+    // If a clipboard/upload image was attached, prepend it as a markdown
+    // image so the assistant sees the user's reference visually. Data URL
+    // means no backend upload is needed for this minimal flow.
+    const imgPrefix = attachedImage ? `![صورة مرفقة](${attachedImage})\n\n` : "";
+    const finalText = `${imgPrefix}${input.trim()}`;
+    sendTeachMessage(finalText);
+    setAttachedImage(null);
+    // Clear the persisted draft now that the message is on its way.
+    try { clearDraft(subject.id); } catch {}
     if (inputRef.current) {
       inputRef.current.style.height = "56px";
     }
   };
+
+  // ── Per-message regeneration ──────────────────────────────────────────────
+  // Pops the last assistant turn (and the matching user turn) and re-sends
+  // the user's prompt. Mirrors the truncation-recovery flow at the bottom
+  // of the chat — same setMessages contract so history stays consistent.
+  const handleRegenerateLast = useCallback(() => {
+    if (isStreaming || sessionPaused) return;
+    let lastUserText = "";
+    setMessages(prev => {
+      const nm = [...prev];
+      if (nm.length && nm[nm.length - 1].role === "assistant") nm.pop();
+      if (nm.length && nm[nm.length - 1].role === "user") {
+        lastUserText = nm[nm.length - 1].content || "";
+        nm.pop();
+      }
+      return nm;
+    });
+    if (lastUserText) setTimeout(() => sendTeachMessage(lastUserText), 60);
+  }, [isStreaming, sessionPaused]);
+
+  // ── Restart current stage ────────────────────────────────────────────────
+  // We don't truncate the message history (that would lose context). Instead
+  // we synthesize a user request asking the teacher to restart the current
+  // stage — keeping all the state-machine invariants intact.
+  const handleRestartStage = useCallback(() => {
+    if (isStreaming || sessionPaused) return;
+    if (!confirm("سيُعيد المعلم شرح هذه المرحلة من البداية. هل تريد المتابعة؟")) return;
+    sendTeachMessage("أعد لي شرح هذه المرحلة من البداية بطريقة مختلفة وأبسط، وكأنني أبدأها لأول مرة.");
+  }, [isStreaming, sessionPaused]);
+
+  // ── Re-explain image ──────────────────────────────────────────────────────
+  // Triggered from the lightbox toolbar — sends a synthesized user message
+  // referencing the image so the teacher knows which figure to elaborate on.
+  const handleReExplainImage = useCallback((imageUrl: string) => {
+    if (isStreaming || sessionPaused) return;
+    sendTeachMessage(`اشرح لي الصورة التوضيحية التالية مرة أخرى بتفصيل أكبر، واذكر العناصر المرقمة فيها واحداً تلو الآخر:\n\n![صورة من جلستك](${imageUrl})`);
+  }, [isStreaming, sessionPaused]);
+
+  // ── Copy share link ──────────────────────────────────────────────────────
+  const handleCopyShareLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1600);
+    } catch { /* clipboard denied */ }
+  }, []);
+
+  // ── PDF export ───────────────────────────────────────────────────────────
+  // Captures the messages-scroll container as a high-resolution canvas, then
+  // tiles it across A4 pages so long conversations export cleanly. Loaded
+  // dynamically to keep the initial bundle slim — neither library is needed
+  // until the student actually clicks "تصدير المحادثة (PDF)".
+  const handleExportPDF = useCallback(async () => {
+    if (exportingPdf) return;
+    const target = scrollRef.current;
+    if (!target) return;
+    setExportingPdf(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const { jsPDF } = await import("jspdf");
+      const canvas = await html2canvas(target, {
+        backgroundColor: "#0b0d17",
+        scale: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+        useCORS: true,
+        logging: false,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      let heightLeft = imgH;
+      let position = 0;
+      pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
+      heightLeft -= pageH;
+      while (heightLeft > 0) {
+        position = heightLeft - imgH;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
+        heightLeft -= pageH;
+      }
+      const safeName = (subject.name || "session").replace(/[^\p{L}\p{N}\-_ ]/gu, "").trim() || "session";
+      pdf.save(`nukhba-${safeName}-${Date.now()}.pdf`);
+    } catch (err) {
+      console.error("[pdf-export] failed:", err);
+      alert("تعذّر تصدير المحادثة كـ PDF. حاول مرة أخرى.");
+    } finally {
+      setExportingPdf(false);
+    }
+  }, [exportingPdf, subject.name]);
+
+  // ── Voice input (SpeechRecognition) ───────────────────────────────────────
+  const handleToggleMic = useCallback(() => {
+    if (recordingHandle) {
+      recordingHandle.stop();
+      setRecordingHandle(null);
+      return;
+    }
+    setRecordingError(null);
+    const handle = startRecognition({
+      lang: "ar-SA",
+      onResult: (transcript, isFinal) => {
+        // Append final transcripts to whatever's already in the input;
+        // interim transcripts are previewed inline so the user can see
+        // the live recognition.
+        setInput(prev => {
+          const sep = prev && !prev.endsWith(" ") ? " " : "";
+          if (isFinal) return `${prev}${sep}${transcript}`.trim() + " ";
+          return prev; // interim previews don't pollute the saved value
+        });
+        if (isFinal) draftSaverRef.current(transcript);
+      },
+      onError: (err) => {
+        setRecordingError(err);
+        setRecordingHandle(null);
+      },
+      onEnd: () => setRecordingHandle(null),
+    });
+    if (handle) setRecordingHandle(handle);
+  }, [recordingHandle]);
+
+  // Stop recognition if the component unmounts while listening.
+  useEffect(() => () => { recordingHandle?.stop(); stopSpeaking(); }, [recordingHandle]);
+
+  // ── Image attach (file + paste) ───────────────────────────────────────────
+  const handleAttachImageFile = useCallback((file: File) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    if (file.size > 4 * 1024 * 1024) {
+      alert("حجم الصورة أكبر من 4MB. اختر صورة أصغر.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = typeof reader.result === "string" ? reader.result : "";
+      if (url) setAttachedImage(url);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!e.clipboardData) return;
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          handleAttachImageFile(file);
+          return;
+        }
+      }
+    }
+  }, [handleAttachImageFile]);
+
+  // ── Elapsed session timer ─────────────────────────────────────────────────
+  // Starts ticking once the student has at least one user message in the
+  // chat — i.e. the session is "live". Pauses on session-pause toggle.
+  const hasUserActivity = messages.some(m => m.role === "user");
+  const { elapsed: elapsedSeconds } = useElapsedTimer(hasUserActivity, sessionPaused);
+
+  // ── Welcome empty-state starters ──────────────────────────────────────────
+  // Same heuristics as the inline suggestion chips, exposed here so the
+  // empty-state card can show them too.
+  const welcomeStarters = useMemo(() => {
+    const text = `${String(subject?.id || "")} ${String(subject?.name || "")}`.toLowerCase();
+    const has = (re: RegExp) => re.test(text);
+    if (has(/cyber|سيبران|أمن.*معلومات|اختراق/)) return ["ابنِ لي بيئة تطبيقية لمحاكاة هجوم تعليمي", "اشرح لي مفهوم XSS بمثال", "أعطني تمرين تشخيص ثغرة"];
+    if (has(/network|شبكات|tcp|ip|router/)) return ["ابنِ لي بيئة لتحليل حزم شبكة", "اشرح TCP handshake خطوة بخطوة", "كيف أصمم شبكة صغيرة؟"];
+    if (has(/program|برمج|code|python|java|javascript|c\+\+/)) return ["ابنِ لي بيئة برمجة لحل مسألة", "اشرح الفرق بين stack و heap", "أعطني تمرين خوارزميات"];
+    if (has(/account|محاسب|مالي/)) return ["ابنِ لي بيئة تدريب على القيود اليومية", "اشرح الميزانية العمومية", "أعطني تمرين ميزان مراجعة"];
+    if (has(/physic|فيزياء/)) return ["ابنِ لي محاكاة لقانون نيوتن الثاني", "اشرح الفرق بين السرعة والتسارع", "أعطني تمرين على الطاقة"];
+    return ["ابنِ لي بيئة تطبيقية تفاعلية", "اشرح لي أهم مفهوم في هذه المادة", "أعطني تمريناً يناسب مستواي"];
+  }, [subject?.id, subject?.name]);
+
+  const modeBadgeText = teachingMode === "professor" ? "📚 منهج الأستاذ" : teachingMode === "custom" ? "🧭 مسار مخصّص" : "جلسة تعليمية";
+
+  const pickStarter = useCallback((s: string) => {
+    setInput(s);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
 
   const handleEndSession = () => {
     if (messages.length < 2 || isStreaming) return;
@@ -3052,6 +3658,44 @@ function SubjectPathChat({
           material-required gate, and the chat never share the screen. */}
       {!needsModeChoice && !needsMaterial && (<>
 
+      {/* Session header (Task #19): subject name on the right, elapsed
+          timer + drawer toggle + difficulty badge in the middle. Sits
+          ABOVE the mode mini-bar so the most useful at-a-glance info
+          (how long the student has been working, where they are in the
+          path) is the first thing they see. */}
+      {teachingMode && teachingMode !== 'unset' && (
+        <div className="shrink-0 px-2.5 sm:px-3 py-1.5 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "linear-gradient(180deg, rgba(245,158,11,0.05), rgba(245,158,11,0.02))", direction: "rtl" }}>
+          <div className="min-w-0 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPathDrawerOpen(true)}
+              className="path-drawer-trigger session-action-btn"
+              title="مسار التعلّم"
+              aria-label="عرض مسار التعلّم"
+              disabled={!customPlan}
+            >
+              <MapIcon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">المسار</span>
+            </button>
+            <div className="hidden xs:flex items-center gap-1 text-[11px] text-white/55">
+              <Clock className="w-3 h-3" />
+              <span className="tabular-nums">{formatElapsed(elapsedSeconds)}</span>
+            </div>
+          </div>
+          <div className="min-w-0 flex items-center gap-2 truncate">
+            <span className="text-[12px] font-bold text-white/85 truncate">{subject.name}</span>
+            <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border ${
+              difficulty === "easy" ? "bg-emerald-500/12 border-emerald-500/30 text-emerald-200"
+              : difficulty === "advanced" ? "bg-rose-500/12 border-rose-500/30 text-rose-200"
+              : "bg-amber-500/12 border-amber-500/30 text-amber-200"
+            }`}>
+              <Gauge className="w-3 h-3" />
+              {difficulty === "easy" ? "مبسّط" : difficulty === "advanced" ? "متقدّم" : "عادي"}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Mode/sources mini-bar (visible whenever mode is set).
           REDESIGN (May 2026): the previous row had 3 separate visible
           buttons (مصادري + اختبرني + الامتحان) that crowded the bar on
@@ -3111,6 +3755,57 @@ function SubjectPathChat({
                     </DropdownMenuItem>
                   </>
                 )}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-[11px] text-white/50 font-normal">التحكم بالجلسة</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={() => setSessionPaused(p => !p)}
+                  className="cursor-pointer gap-2 text-sm"
+                >
+                  {sessionPaused ? <Play className="w-4 h-4 text-emerald-400" /> : <Pause className="w-4 h-4 text-white/60" />}
+                  <span>{sessionPaused ? "استئناف الجلسة" : "إيقاف مؤقت"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={handleRestartStage}
+                  disabled={isStreaming || sessionPaused || stages.length === 0}
+                  className="cursor-pointer gap-2 text-sm"
+                >
+                  <RotateCcw className="w-4 h-4 text-white/60" />
+                  <span>إعادة شرح هذه المرحلة</span>
+                </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="cursor-pointer gap-2 text-sm">
+                    <Gauge className="w-4 h-4 text-white/60" />
+                    <span>مستوى الصعوبة</span>
+                    <span className="me-auto text-[10px] text-white/40">{difficulty === "easy" ? "مبسّط" : difficulty === "advanced" ? "متقدّم" : "عادي"}</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent style={{ direction: "rtl" }}>
+                    <DropdownMenuItem onSelect={() => setDifficulty("easy")} className="cursor-pointer gap-2 text-sm">
+                      <span className="text-emerald-400">●</span><span>مبسّط</span>{difficulty === "easy" && <Check className="w-4 h-4 me-auto text-emerald-400" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setDifficulty("normal")} className="cursor-pointer gap-2 text-sm">
+                      <span className="text-amber-400">●</span><span>عادي</span>{difficulty === "normal" && <Check className="w-4 h-4 me-auto text-amber-400" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setDifficulty("advanced")} className="cursor-pointer gap-2 text-sm">
+                      <span className="text-rose-400">●</span><span>متقدّم</span>{difficulty === "advanced" && <Check className="w-4 h-4 me-auto text-rose-400" />}
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={handleExportPDF}
+                  disabled={exportingPdf || messages.length === 0}
+                  className="cursor-pointer gap-2 text-sm"
+                >
+                  {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin text-white/60" /> : <Download className="w-4 h-4 text-white/60" />}
+                  <span>{exportingPdf ? "جاري التصدير..." : "تصدير المحادثة (PDF)"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={handleCopyShareLink}
+                  className="cursor-pointer gap-2 text-sm"
+                >
+                  {shareCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4 text-white/60" />}
+                  <span>{shareCopied ? "تم نسخ الرابط ✓" : "نسخ رابط المشاركة"}</span>
+                </DropdownMenuItem>
                 {messages.length >= 2 && (
                   <>
                     <DropdownMenuSeparator />
@@ -3202,9 +3897,30 @@ function SubjectPathChat({
         </div>
       )}
 
-      {/* Personalized learning path — sticky panel above messages once plan is built */}
+      {/* Personalized learning path — moved into a side Drawer (Task #19).
+          The previous inline collapsible panel ate vertical space on phones
+          and obscured the conversation. We keep the same `LearningPathPanel`
+          markup but render it inside a Drawer that slides in from the right
+          (RTL) when the path icon in the header is tapped. */}
       {chatPhase === 'teaching' && customPlan && (
-        <LearningPathPanel planHtml={customPlan} currentStage={currentStage} totalStages={stages.length} />
+        <Drawer open={pathDrawerOpen} onOpenChange={setPathDrawerOpen} direction="right">
+          <DrawerContent className="h-full sm:!max-w-md md:!max-w-lg w-full sm:w-[440px] !top-0 !mt-0 !rounded-none !rounded-r-2xl border-l-0 border-r border-white/10 bg-[#0b0d17]" style={{ direction: "rtl" }}>
+            <DrawerHeader className="border-b border-white/10 flex-row items-center justify-between gap-2">
+              <div>
+                <DrawerTitle className="text-white text-base">مسار التعلّم</DrawerTitle>
+                <DrawerDescription className="text-[11px] text-white/50">المرحلة {Math.min(currentStage + 1, stages.length || 1)} من {stages.length || 1}</DrawerDescription>
+              </div>
+              <DrawerClose asChild>
+                <button type="button" className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white" aria-label="إغلاق">
+                  <X className="w-4 h-4" />
+                </button>
+              </DrawerClose>
+            </DrawerHeader>
+            <div className="overflow-y-auto flex-1">
+              <LearningPathPanel planHtml={customPlan} currentStage={currentStage} totalStages={stages.length} />
+            </div>
+          </DrawerContent>
+        </Drawer>
       )}
 
       {/* Diagnostic phase banner */}
@@ -3219,7 +3935,41 @@ function SubjectPathChat({
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-5 py-4 sm:py-5" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-5 py-4 sm:py-5 relative" ref={scrollRef}>
+        {/* Welcome empty-state (Task #19) — shown when there are no messages
+            yet, the plan is loaded, and the chat isn't gated. The bootstrap
+            effect normally fires within ~50ms of mount and replaces this
+            with a teacher reply, so it's mainly visible on returning-user
+            sessions where the message history was cleared. */}
+        {messages.length === 0 && !isStreaming && planLoaded && !chatGated && chatPhase !== 'diagnostic' && (
+          <WelcomeEmptyState
+            subjectName={subject.name}
+            modeBadge={modeBadgeText}
+            starters={welcomeStarters}
+            onPick={pickStarter}
+          />
+        )}
+        {/* Paused overlay — blocks the chat surface so the student can't keep
+            typing while a pause is in effect. Click "استئناف" to resume. */}
+        {sessionPaused && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center backdrop-blur-sm" style={{ background: "rgba(11,13,23,0.78)" }}>
+            <div className="text-center max-w-sm mx-auto p-6 rounded-2xl bg-[#131726] border border-amber-500/30 shadow-2xl shadow-amber-500/10" style={{ direction: "rtl" }}>
+              <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
+                <Pause className="w-6 h-6 text-amber-300" />
+              </div>
+              <h4 className="text-lg font-bold text-white mb-1">الجلسة متوقّفة مؤقتاً</h4>
+              <p className="text-[12px] text-white/60 leading-relaxed mb-4">المؤقّت متوقّف وحقل الإدخال معطّل. اضغط "استئناف" للعودة للتعلّم.</p>
+              <button
+                type="button"
+                onClick={() => setSessionPaused(false)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 text-black font-bold text-sm hover:from-amber-300 hover:to-amber-500 transition-all"
+              >
+                <Play className="w-4 h-4" />
+                استئناف
+              </button>
+            </div>
+          </div>
+        )}
         <div className="max-w-2xl mx-auto space-y-4 sm:space-y-5 pb-4">
           {messages.map((msg, i) => {
             const isLastMsg = i === messages.length - 1;
@@ -3256,7 +4006,19 @@ function SubjectPathChat({
                         onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
                         imageMap={imageMap}
                         onImageTimeout={handleImageTimeout}
+                        onReExplainImage={handleReExplainImage}
                       />
+                      {/* Per-message action toolbar (Task #19) — copy / regen
+                          / TTS / rate / share. Hidden on the streaming bubble
+                          since the content is still arriving; appears once the
+                          last AI message has finished. */}
+                      {!(isStreaming && isLastMsg) && msg.role === 'assistant' && (msg.content || '').length > 0 && (
+                        <MessageToolbar
+                          content={msg.content}
+                          onRegenerate={handleRegenerateLast}
+                          canRegenerate={isLastMsg && !isStreaming && !sessionPaused}
+                        />
+                      )}
                       {/* Quick-action buttons under the latest AI message — let
                           the student ask for help in one tap. Only on the last
                           AI message, when not streaming, and only if the
@@ -3412,111 +4174,161 @@ function SubjectPathChat({
             "الإجراءات" dropdown menu in May 2026 to reclaim vertical space
             and keep all secondary actions in one place. */}
         {streamTruncated && !isStreaming && !diagnosticIncomplete && (
-          <div className="max-w-2xl mx-auto mb-3 p-4 rounded-xl bg-amber-500/15 border border-amber-500/40 shadow-lg shadow-amber-500/10">
-            <div className="text-amber-200 text-sm font-bold mb-2">
-              ⚠️ يبدو أن ردّ المعلّم انقطع قبل أن يكتمل
-            </div>
-            <div className="text-amber-100/90 text-sm mb-3 leading-relaxed">
-              قد يكون السبب ضعفاً مؤقّتاً في الاتصال. اضغط الزر أدناه لإعادة إرسال آخر رسالة وإكمال الفكرة.
-            </div>
-            <button
-              disabled={isStreaming}
-              onClick={() => {
-                if (isStreaming) return;
-                // Pop the truncated assistant bubble and the user message
-                // that produced it, then re-send so the model starts the
-                // reply over from a clean slate. We capture the message
-                // text first because clearing state is async.
-                const lastMsg = streamTruncated.lastUserMessage;
-                setStreamTruncated(null);
-                setMessages(prev => {
-                  const nm = [...prev];
-                  // Drop trailing assistant bubble if present.
-                  if (nm.length > 0 && nm[nm.length - 1].role === 'assistant') nm.pop();
-                  // Drop the matching user bubble so sendTeachMessage can
-                  // re-add it cleanly without producing a duplicate.
-                  if (nm.length > 0 && nm[nm.length - 1].role === 'user') nm.pop();
-                  return nm;
-                });
-                setTimeout(() => sendTeachMessage(lastMsg, stages, currentStage, false), 100);
-              }}
-              className="text-sm font-bold text-amber-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-amber-500/40 hover:bg-amber-500/60 border border-amber-400/50 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              أعد إرسال آخر رسالة
-            </button>
-          </div>
+          <TeacherErrorState
+            tone="warning"
+            title="يبدو أن ردّ المعلّم انقطع قبل أن يكتمل"
+            description="قد يكون السبب ضعفاً مؤقّتاً في الاتصال. اضغط الزر أدناه لإعادة إرسال آخر رسالة وإكمال الفكرة."
+            actionLabel="أعد إرسال آخر رسالة"
+            onAction={() => {
+              if (isStreaming) return;
+              const lastMsg = streamTruncated.lastUserMessage;
+              setStreamTruncated(null);
+              setMessages(prev => {
+                const nm = [...prev];
+                if (nm.length > 0 && nm[nm.length - 1].role === 'assistant') nm.pop();
+                if (nm.length > 0 && nm[nm.length - 1].role === 'user') nm.pop();
+                return nm;
+              });
+              setTimeout(() => sendTeachMessage(lastMsg, stages, currentStage, false), 100);
+            }}
+          />
         )}
         {diagnosticIncomplete && !isStreaming && (
-          <div className="max-w-2xl mx-auto mb-3 p-4 rounded-xl bg-rose-500/15 border border-rose-500/40 shadow-lg shadow-rose-500/10">
-            <div className="text-rose-200 text-sm font-bold mb-2">
-              ⚠️ يبدو أن الخطة لم تكتمل
-            </div>
-            <div className="text-rose-100/90 text-sm mb-3 leading-relaxed">
-              لم تصل علامة نهاية الخطة من المعلم — قد تكون انقطعت أثناء التوليد. اضغط الزر أدناه لإعادة بناء الخطة من جديد.
-            </div>
-            <button
-              disabled={isStreaming}
-              onClick={() => {
-                if (isStreaming) return;
-                setDiagnosticIncomplete(false);
-                setMessages([]);
-                setCustomPlan(null);
-                setChatPhase('diagnostic');
-                setPendingTeachStart(false);
-                // Re-run the diagnostic from a clean slate. The higher
-                // max_tokens ceiling on the backend now makes truncation
-                // very unlikely on the second pass.
-                setTimeout(() => sendTeachMessage("", stages, 0, true), 200);
-              }}
-              className="text-sm font-bold text-rose-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-rose-500/40 hover:bg-rose-500/60 border border-rose-400/50 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              أعد بناء الخطة
-            </button>
-          </div>
+          <TeacherErrorState
+            tone="danger"
+            title="يبدو أن الخطة لم تكتمل"
+            description="لم تصل علامة نهاية الخطة من المعلم — قد تكون انقطعت أثناء التوليد. اضغط الزر أدناه لإعادة بناء الخطة من جديد."
+            actionLabel="أعد بناء الخطة"
+            onAction={() => {
+              if (isStreaming) return;
+              setDiagnosticIncomplete(false);
+              setMessages([]);
+              setCustomPlan(null);
+              setChatPhase('diagnostic');
+              setPendingTeachStart(false);
+              setTimeout(() => sendTeachMessage("", stages, 0, true), 200);
+            }}
+          />
         )}
+        {recordingError && (
+          <TeacherErrorState
+            tone="info"
+            title="تعذّر استخدام الإدخال الصوتي"
+            description={recordingError === "غير مدعوم في هذا المتصفح" ? "متصفّحك لا يدعم الإدخال الصوتي. جرّب Chrome أو Edge على الجوال." : `حدث خطأ: ${recordingError}. تأكد من السماح بالميكروفون.`}
+            actionLabel="إخفاء"
+            onAction={() => setRecordingError(null)}
+          />
+        )}
+        {/* Pro input (Task #19): mic / image attach / char counter / paste /
+            draft autosave. Ctrl+Enter still sends instantly; Enter alone
+            inserts a newline (so multi-line questions stay easy). */}
         <form
-          className="max-w-2xl mx-auto flex items-end gap-2.5"
+          className="max-w-2xl mx-auto flex flex-col gap-1.5"
           onSubmit={(e) => { e.preventDefault(); handleSend(); }}
         >
-          <textarea
-            ref={inputRef}
-            value={input}
-            rows={1}
-            onChange={(e) => {
-              setInput(e.target.value);
-              e.target.style.height = "auto";
-              e.target.style.height = Math.min(e.target.scrollHeight, 144) + "px";
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                handleSend();
+          {/* Attached image preview chip */}
+          {attachedImage && (
+            <div className="self-end flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-amber-500/10 border border-amber-500/30" style={{ direction: "rtl" }}>
+              <img src={attachedImage} alt="معاينة" className="w-12 h-12 rounded-lg object-cover" />
+              <span className="text-[11px] text-amber-200">صورة مرفقة جاهزة للإرسال</span>
+              <button
+                type="button"
+                onClick={() => setAttachedImage(null)}
+                className="w-6 h-6 rounded-full bg-rose-500/20 hover:bg-rose-500/40 border border-rose-400/30 flex items-center justify-center text-rose-200 hover:text-white transition-all"
+                aria-label="إزالة الصورة"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-2 sm:gap-2.5 input-pro-shell" style={{ direction: "rtl" }}>
+            {/* Hidden file input — triggered by the attach button */}
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              ref={(el) => { (window as any).__nukhbaAttachInput = el; }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleAttachImageFile(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => (window as any).__nukhbaAttachInput?.click?.()}
+              disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+              className="input-pro-icon-btn"
+              title="إرفاق صورة"
+              aria-label="إرفاق صورة"
+            >
+              <ImagePlus className="w-4 h-4" />
+            </button>
+            {isSpeechRecognitionSupported() && (
+              <button
+                type="button"
+                onClick={handleToggleMic}
+                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+                className={`input-pro-icon-btn ${recordingHandle ? "input-pro-icon-btn-recording" : ""}`}
+                title={recordingHandle ? "إيقاف التسجيل" : "إدخال صوتي"}
+                aria-label={recordingHandle ? "إيقاف التسجيل" : "إدخال صوتي"}
+              >
+                {recordingHandle ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </button>
+            )}
+            <textarea
+              ref={inputRef}
+              value={input}
+              rows={1}
+              maxLength={4200}
+              onChange={(e) => {
+                const v = e.target.value;
+                setInput(v);
+                draftSaverRef.current(v);
+                e.target.style.height = "auto";
+                e.target.style.height = Math.min(e.target.scrollHeight, 144) + "px";
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              onPaste={handlePaste}
+              placeholder={
+                sessionPaused ? "الجلسة متوقّفة — اضغط استئناف للمتابعة..." :
+                chatGated ? "اختر طريقة التعلّم أولاً..." :
+                quotaExhausted ? "انتهى رصيدك — يرجى تجديد الاشتراك" :
+                recordingHandle ? "🎙️ تحدّث الآن... سيظهر النص هنا" :
+                "اكتب رسالتك للمعلم... (Ctrl+V للصق صورة)"
               }
-            }}
-            placeholder={chatGated ? "اختر طريقة التعلّم أولاً..." : quotaExhausted ? "انتهى رصيدك — يرجى تجديد الاشتراك" : "اكتب رسالتك للمعلم..."}
-            disabled={isStreaming || quotaExhausted || chatGated}
-            style={{
-              minHeight: "48px",
-              maxHeight: "144px",
-              resize: "none",
-              direction: "rtl",
-              background: "#131726",
-              border: "1px solid rgba(255,255,255,0.1)",
-            }}
-            className="flex-1 px-4 py-3 rounded-2xl text-[15px] leading-relaxed outline-none focus:border-gold/50 focus:shadow-[0_0_0_3px_rgba(245,158,11,0.1)] disabled:opacity-40 text-white placeholder:text-white/25 overflow-y-auto transition-all"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || isStreaming || quotaExhausted || chatGated}
-            className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ background: input.trim() && !isStreaming && !quotaExhausted ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(245,158,11,0.15)", boxShadow: input.trim() && !isStreaming && !quotaExhausted ? "0 4px 15px rgba(245,158,11,0.3)" : "none" }}
-          >
-            <Send className="w-4.5 h-4.5 text-black" style={{ width: "18px", height: "18px" }} />
-          </button>
+              disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+              style={{
+                minHeight: "48px",
+                maxHeight: "144px",
+                resize: "none",
+                direction: "rtl",
+                background: "#131726",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}
+              className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-[15px] leading-relaxed outline-none focus:border-gold/50 focus:shadow-[0_0_0_3px_rgba(245,158,11,0.1)] disabled:opacity-40 text-white placeholder:text-white/25 overflow-y-auto transition-all"
+            />
+            <button
+              type="submit"
+              disabled={(!input.trim() && !attachedImage) || isStreaming || quotaExhausted || chatGated || sessionPaused}
+              className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ background: ((input.trim() || attachedImage) && !isStreaming && !quotaExhausted && !sessionPaused) ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(245,158,11,0.15)", boxShadow: ((input.trim() || attachedImage) && !isStreaming && !quotaExhausted && !sessionPaused) ? "0 4px 15px rgba(245,158,11,0.3)" : "none" }}
+            >
+              <Send className="w-4.5 h-4.5 text-black" style={{ width: "18px", height: "18px" }} />
+            </button>
+          </div>
+          <div className="flex items-center justify-between text-[10px] max-w-2xl mx-auto w-full" style={{ direction: "rtl" }}>
+            <span className="text-white/15">Ctrl+Enter للإرسال السريع</span>
+            <span className={`tabular-nums ${input.length > 3800 ? "text-rose-400 font-bold" : input.length > 3000 ? "text-amber-300" : "text-white/25"}`}>
+              {input.length} / 4000
+            </span>
+          </div>
         </form>
-        <p className="text-center text-[10px] text-white/15 mt-1.5 max-w-2xl mx-auto" style={{ direction: "rtl" }}>
-          Ctrl+Enter للإرسال السريع
-        </p>
       </div>
 
       </>)}

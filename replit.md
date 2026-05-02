@@ -13,6 +13,75 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 - **Free first session** per subject = 80 gems; tracks via `userSubjectFirstLessonsTable.freeMessagesUsed`. Bumped from 50 → 80 to give the AI's "first-lesson showcase" mode enough headroom to build a hands-on lab env, optionally invite the student to the code editor, and still leave room for the first real teaching message — without cutting the student off mid-tour.
 - **First-lesson showcase mode** (`buildFirstLessonShowcaseAddendum` in `ai.ts`): when `isFirstLesson && !isDiagnosticPhase`, the teaching system prompt gains an addendum that redirects the AI from "lecture-mode" into a 90-second hands-on tour — proactively using `[[CREATE_LAB_ENV: ...]]` to demonstrate a practical environment matching the subject, mentioning the in-chat code editor for coding subjects, and surfacing mistake/stage tracking through actual use rather than description. Goal: the student's *first* impression of the platform is power, not chat.
 
+## Teacher session UI polish (Task #19, May 2026)
+
+The `/subject/:subjectId` chat got an end-to-end UX upgrade without changing
+streaming, `[[CREATE_LAB_ENV]]`, `[[IMAGE:id]]`, gem accounting, summary or
+stage flow:
+
+- **Rich rendering inside teacher bubbles**: `highlight.js` (github-dark) for
+  every `<pre><code class="language-…">` block, KaTeX for `$…$` and `$$…$$`
+  expressions. Math is extracted from the markdown source BEFORE
+  `marked()` + DOMPurify (placeholders `XNUKHBAMATHX…XENDMATHX`) and
+  re-injected as KaTeX HTML AFTER sanitization, so neither the parser nor
+  the sanitizer can corrupt LaTeX. A "نسخ" button is auto-injected over each
+  code block (visible on hover desktop, always on mobile). All this lives
+  in `src/lib/teacher-render.ts` (`extractMathBlocks` /
+  `restoreMathPlaceholders` / `enhanceTeacherDom`); the global imports are
+  in `main.tsx` (`highlight.js/styles/github-dark.css`, `katex/dist/katex.min.css`).
+- **Per-message toolbar**: copy / regenerate / TTS toggle / 👍👎 / share
+  under every completed AI bubble (hidden during streaming). Regenerate
+  pops the last assistant + user turn and re-sends. TTS uses
+  `speechSynthesis` (`ar-SA`); ratings are stored in `localStorage` under
+  `nukhba.feedback` (best-effort, no backend). Implemented as
+  `<MessageToolbar>` in `subject.tsx`.
+- **Pro input box**: image attach (file or paste) + mic (SpeechRecognition,
+  `ar-SA`) + 4000-char counter + 500ms-debounced draft autosave per
+  subjectId. Drafts restore on remount; pasting an image inlines it as a
+  data-URL markdown tag prepended to the user message text — no backend
+  schema change. Helpers in `src/lib/draft-storage.ts` and
+  `src/lib/web-speech.ts`.
+- **Session header (above the mode mini-bar)**: subject name on the right,
+  elapsed-time tab + map icon + difficulty badge in the middle. The map
+  icon opens the **LearningPath as a side `Drawer`** (vaul, RTL right side,
+  full-page on phones) instead of stealing vertical space inline. Timer
+  hook = `useElapsedTimer(running, paused)` — accumulates on a ref so
+  pause/resume don't lose progress.
+- **Expanded session-actions menu** (existing dropdown got a "التحكم بالجلسة"
+  section): Pause (overlay blocks input + timer freezes), Restart current
+  stage (synthesizes a "أعد لي شرح هذه المرحلة من البداية…" user message —
+  doesn't touch `messages` so we don't desync the state machine),
+  Difficulty submenu (مبسّط / عادي / متقدّم, persisted to localStorage,
+  sent on every `/ai/teach` POST as `difficultyHint` — backend safely
+  ignores unknown body fields), Export PDF (dynamic `import('jspdf')` +
+  `import('html2canvas')`, multi-page A4 tile of the messages container —
+  zero bundle cost until clicked), Copy share link (`navigator.clipboard`),
+  End & save summary (existing handler).
+- **Lightbox enhancements**: zoom in/out (0.5–4x with %label), download
+  (fetch + blob → `nukhba-{subjectId}-{ts}.png`), drag-to-pan when zoomed,
+  caption from `<figcaption>`, and "اشرحها لي مرة أخرى" — sends a
+  synthesized user message embedding the image so the teacher can elaborate
+  on the figure. The new toolbar floats inside the existing lightbox
+  overlay (`.teach-image-lightbox-toolbar`).
+- **Welcome empty-state**: centered card with subject name + mode badge +
+  3-4 keyword-aware starter chips (cyber / network / programming /
+  accounting / physics fallbacks). Visible only when
+  `messages.length === 0 && !isStreaming && planLoaded && !chatGated &&
+  chatPhase !== 'diagnostic'` — replaced by the bootstrap teacher reply
+  within ~50ms of mount, so it primarily helps returning users with a
+  cleared history.
+- **Unified `<TeacherErrorState>`**: one component now renders the
+  stream-truncated, diagnostic-incomplete and recording-error banners
+  with a tone prop (`warning` / `danger` / `info`).
+- **Mobile polish**: toolbar labels collapse to icons-only under 480px;
+  Drawer becomes full-width on phones; `xs:` breakpoint helper added.
+
+CSS additions (~310 lines) appended at end of `src/index.css` under the
+"TASK #19 — TEACHER SESSION UI" banner. New deps: `highlight.js`, `katex`,
+`@types/katex`, `jspdf`, `html2canvas`. Streaming, `[[IMAGE:id]]`,
+`[[CREATE_LAB_ENV]]`, gem deduction, `[STAGE_COMPLETE]` flow, summary
+endpoint and the per-stage study-card side-effect were not touched.
+
 ## Teacher content-policy guardrails (May 2026)
 
 The teaching system prompt is the AI teacher's only mouth. Anything it promises must be a real, working platform feature — empty promises are worse than missing features. The `/subject/:id` audit (Task #9) found and fixed three classes of "lying":
