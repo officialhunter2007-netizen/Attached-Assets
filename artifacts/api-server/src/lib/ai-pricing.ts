@@ -141,6 +141,17 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     label: "GPT-4o Mini (OpenRouter)",
   },
 
+  // ── fal.ai image generation ──
+  // FLUX.1 [schnell] costs ~$0.003 per generated image. We model image
+  // generation as "1 output token = 1 image" so the standard cost pipeline
+  // (costForUsage → ceil(cost*1000) → gems) works without special-casing.
+  // output: $3000 per 1,000,000 "tokens" = $0.003 per token = $0.003 per image.
+  "flux-schnell": {
+    input: 0,
+    output: 3000.0,
+    label: "FLUX.1 Schnell (1 image)",
+  },
+
   // ── Meta / OpenRouter free-tier ──
   "meta-llama/llama-3.3-70b-instruct": {
     input: 0.13,

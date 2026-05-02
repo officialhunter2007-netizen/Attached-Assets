@@ -1232,6 +1232,16 @@ function normalizeLabEnvButtons(raw: string): string {
   return result;
 }
 
+// Replaces inline `[[IMAGE:hex]]` markers (12-char hex IDs from the backend
+// streaming detector) with placeholder <figure> markup. The figure carries
+// `data-image-id` so an effect in AIMessage can swap in the real <img> when
+// the matching SSE `imageReady` event resolves the URL.
+function renderImageMarkers(raw: string): string {
+  return raw.replace(/\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi, (_m, id) =>
+    `\n\n<figure class="teach-image teach-image-loading" data-image-id="${id}"><div class="teach-image-spinner"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="label">جارٍ توليد الصورة التوضيحية…</span></div></figure>\n\n`,
+  );
+}
+
 function renderAssistantHtml(raw: string): string {
   if (!raw) return "";
   // NOTE: `normalizeLabEnvButtons` must be called by the CALLER, BEFORE
@@ -1239,10 +1249,11 @@ function renderAssistantHtml(raw: string): string {
   // <button> markup that expandLabEnvTags just produced and undo it.
   // marked is synchronous when no async extensions are registered, but the
   // type signature is `string | Promise<string>` — `as string` is safe here.
-  const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(raw))) as string;
+  const withImages = renderImageMarkers(raw);
+  const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(withImages))) as string;
   const sanitized = DOMPurify.sanitize(html, {
-    ADD_ATTR: ['data-build-env', 'target'],
-    ADD_TAGS: ['button'],
+    ADD_ATTR: ['data-build-env', 'target', 'data-image-id', 'loading'],
+    ADD_TAGS: ['button', 'figure', 'figcaption'],
   });
   return stripBrokenButtonCodeSpans(sanitized);
 }
@@ -1263,11 +1274,16 @@ function renderStreamingHtml(raw: string): string {
     .replace(/&lt;button[^&]*?data-build-env[\s\S]*?(?:&lt;\/button&gt;|$)/gi, '')
     .replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '')
     .replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, '');
-  const cleaned = unwrapHtmlCodeFences(normalized);
+  // IMAGE markers are kept and converted to placeholder <figure> elements
+  // mid-stream; the AIMessage effect swaps in the real <img> when the
+  // imageReady SSE event resolves. Renders BEFORE marked so the raw HTML
+  // block survives markdown parsing intact.
+  const withImages = renderImageMarkers(normalized);
+  const cleaned = unwrapHtmlCodeFences(withImages);
   const html = marked.parse(stripInlineStyles(cleaned)) as string;
   return DOMPurify.sanitize(html, {
-    ADD_ATTR: ['data-build-env', 'target'],
-    ADD_TAGS: ['button'],
+    ADD_ATTR: ['data-build-env', 'target', 'data-image-id', 'loading'],
+    ADD_TAGS: ['button', 'figure', 'figcaption'],
   });
 }
 
@@ -1345,7 +1361,15 @@ function extractAskOptions(content: string): { stripped: string; ask: { question
   return { stripped: cleanStripped(content), ask: { question, options, allowOther } };
 }
 
-const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void }) {
+// In-flight teacher-image state shared with AIMessage. `loading` shows the
+// spinner placeholder; `ready` swaps in <img>; `error` shows a friendly
+// retry hint. URLs from fal.ai are short-lived (≈1h CDN cache) so we don't
+// persist this map — once the page reloads the historical message will
+// have the `<p class="image-historical">` stub the backend wrote on save.
+type TeacherImageState = { status: 'loading' | 'ready' | 'error'; url?: string };
+type TeacherImageMap = Map<string, TeacherImageState>;
+
+const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap }) {
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1405,6 +1429,43 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
     root.addEventListener('click', handler);
     return () => root.removeEventListener('click', handler);
   }, [displayHtml, onCreateLabEnv]);
+
+  // ── Teacher-image figure updater ──────────────────────────────────────────
+  // dangerouslySetInnerHTML rebuilds the figure markup on every chunk during
+  // streaming, blowing away any <img> we previously injected. So we re-walk
+  // the DOM after every render and reconcile each figure's contents with
+  // the latest `imageMap` state. Cheap (≤2 figures per message in practice).
+  useEffect(() => {
+    if (!containerRef.current || !imageMap || imageMap.size === 0) return;
+    const root = containerRef.current;
+    const figures = root.querySelectorAll<HTMLElement>('figure[data-image-id]');
+    figures.forEach((fig) => {
+      const id = fig.getAttribute('data-image-id') || '';
+      const state = imageMap.get(id);
+      if (!state) return;
+      if (state.status === 'ready' && state.url) {
+        // Skip if the same URL is already rendered (avoids a flicker on
+        // every chunk during streaming).
+        const existing = fig.querySelector('img') as HTMLImageElement | null;
+        if (existing && existing.src === state.url) return;
+        fig.classList.remove('teach-image-loading');
+        fig.classList.add('teach-image-ready');
+        // Use textContent reset + appendChild instead of innerHTML to keep
+        // attribute escaping consistent with the rest of the React tree.
+        fig.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = state.url;
+        img.alt = 'صورة توضيحية';
+        img.loading = 'lazy';
+        fig.appendChild(img);
+      } else if (state.status === 'error') {
+        if (fig.classList.contains('teach-image-error')) return;
+        fig.classList.remove('teach-image-loading');
+        fig.classList.add('teach-image-error');
+        fig.innerHTML = '<div class="teach-image-fail">⚠️ تعذّر توليد الصورة — أكمل القراءة.</div>';
+      }
+    });
+  }, [displayHtml, imageMap]);
 
   return (
     <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] sm:max-w-[92%] max-sm:max-w-[calc(100vw-60px)] shadow-md"
@@ -1537,6 +1598,12 @@ function SubjectPathChat({
   const [summaryError, setSummaryError] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
   const [gemsRemaining, setGemsRemaining] = useState<number | null>(null);
+  // Tracks in-flight teacher-image generations keyed by the 12-char hex id
+  // the backend embeds in `[[IMAGE:id]]` markers. AIMessage uses this map
+  // to swap placeholder figures for real <img>s as `imageReady` SSE events
+  // arrive. Not persisted — fal.ai URLs expire and historical messages
+  // already store a `<p class="image-historical">` stub (server side).
+  const [imageMap, setImageMap] = useState<TeacherImageMap>(() => new Map());
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
   const [countdownExpired, setCountdownExpired] = useState(false);
   // Bumped every time the student clicks "ابدأ الجلسة التالية الآن" so the
@@ -2018,6 +2085,41 @@ function SubjectPathChat({
                   return updated;
                 });
                 break;
+              }
+              // ── Teacher-image SSE events ───────────────────────────────
+              // Three event shapes from the server:
+              //   { imagePlaceholder: { id } }       — generation kicked off
+              //   { imageReady: { id, url } }        — URL resolved (≈3-6s)
+              //   { imageError: { id, message? } }   — flux/timeout failure
+              // We mutate imageMap in-place via setState; AIMessage reacts.
+              if (data.imagePlaceholder?.id) {
+                const id = String(data.imagePlaceholder.id);
+                setImageMap(prev => {
+                  if (prev.has(id)) return prev;
+                  const next = new Map(prev);
+                  next.set(id, { status: 'loading' });
+                  return next;
+                });
+                continue;
+              }
+              if (data.imageReady?.id && data.imageReady.url) {
+                const id = String(data.imageReady.id);
+                const url = String(data.imageReady.url);
+                setImageMap(prev => {
+                  const next = new Map(prev);
+                  next.set(id, { status: 'ready', url });
+                  return next;
+                });
+                continue;
+              }
+              if (data.imageError?.id) {
+                const id = String(data.imageError.id);
+                setImageMap(prev => {
+                  const next = new Map(prev);
+                  next.set(id, { status: 'error' });
+                  return next;
+                });
+                continue;
               }
               if (!diagMode && data.stageComplete && data.nextStage !== undefined) {
                 if (data.nextStage >= usedStages.length) {
@@ -2768,6 +2870,7 @@ function SubjectPathChat({
                         isStreaming={isStreaming && isLastMsg}
                         onCreateLabEnv={onCreateLabEnv}
                         onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
+                        imageMap={imageMap}
                       />
                       {/* Quick-action buttons under the latest AI message — let
                           the student ask for help in one tap. Only on the last

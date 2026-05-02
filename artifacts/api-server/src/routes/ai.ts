@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { randomBytes } from "crypto";
 import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
 import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable, studentMistakesTable, studyCardsTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -12,6 +13,12 @@ import {
 import { isUnlimitedEmail } from "../lib/admins";
 import { getCostCapStatus } from "../lib/cost-cap";
 import { costForUsage } from "../lib/ai-pricing";
+import {
+  generateTeacherImage,
+  isImageGenerationConfigured,
+  FLUX_SCHNELL_USD_PER_IMAGE,
+  type ImageGenerationResult,
+} from "../lib/image-generation";
 import { pickTeachingModel, detectDeepReasoning, detectMasteryCheckFromHistory, detectLabReport } from "../lib/teaching-router";
 import {
   streamGeminiTeaching,
@@ -782,9 +789,18 @@ function cleanTeachingChunk(text: string): string {
  * The platform absorbs the extra gem cost via FREE_LESSON_GEM_LIMIT = 80, so
  * the student never gets cut off mid-tour even if the showcase runs long.
  */
-function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding: boolean }): string {
+function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding: boolean; imageEnabled: boolean }): string {
   const codingShowcase = opts.hasCoding
     ? `   • **محرر الأكواد المدمج (للبرمجة فقط):** اطلب منه فتح المحرر بسطر صريح مثل: "اضغط زر '💻 افتح المحرر' أسفل الرد، اكتب أبسط برنامج 'Hello World' بلغة ${opts.subjectName}، ثم شغّله بنقرة واحدة — ستراه يطبع نتيجته فوراً." لا تكتب الكود له، اطلب منه يكتبه بنفسه ليشعر بالتجربة.\n`
+    : "";
+  // Image showcase: a *single* mandatory illustration in the first reply.
+  // The teacher writes the FLUX prompt in English (no Arabic — diffusion
+  // models can't render Arabic text) and then writes the Arabic caption
+  // beneath it as a plain HTML <figcaption>. The image itself is pure
+  // visual: icons, numbered circles, color-coded boxes — NO TEXT inside
+  // the image. The Arabic labels live entirely in the caption.
+  const imageShowcase = opts.imageEnabled
+    ? `\n5. **🖼️ صورة توضيحية إجبارية واحدة في هذا الرد فقط:** اعرض على الطالب قدرة المنصة على توليد صور توضيحية لحظية. استخدم وسماً واحداً بالضبط بالشكل التالي **قبل أو بعد** شرحك للمفهوم المحوري:\n\n\`\`\`\n[[IMAGE: a clean educational diagram showing <concept>, NO TEXT, NO LABELS, NO WORDS, only icons and numbered colored circles 1 2 3, white background, flat vector illustration style]]\n\`\`\`\n\n**مباشرةً بعد الوسم اكتب التسمية العربية بـ HTML خام** على الشكل التالي (هذا هو ما يفسّر للطالب ما يراه — الصورة بصرية فقط):\n\n\`\`\`html\n<figcaption class="image-caption"><strong>الشرح:</strong> الدائرة <span class="num">1</span> تمثّل ... ، الدائرة <span class="num">2</span> تمثّل ... ، الدائرة <span class="num">3</span> تمثّل ...</figcaption>\n\`\`\`\n\n**❌ ممنوع منعاً باتاً داخل وسم IMAGE:** أي كلمة عربية، أي طلب لكتابة نص داخل الصورة، أي "labels"، أي "Arabic text"، أي "captions inside image". الصورة بصرية بحتة، والكلام العربي في \`<figcaption>\` تحتها فقط.\n\n**❌ ممنوع** استخدام \`[[IMAGE: ...]]\` أكثر من مرة واحدة في هذا الرد.\n`
     : "";
 
   return `
@@ -818,7 +834,7 @@ ${codingShowcase}
 - **تتبّع المراحل:** عندما تُكمل مرحلة، استخدم \`[STAGE_COMPLETE]\` ثم اذكر: "أتممنا المرحلة الأولى، تشوفها معلّمة بعلامة ✓ في خطتك جنب المراحل القادمة".
 
 - **مشاريع مصغّرة:** إن كان مناسباً، استخدم \`[[MINI_PROJECT: عنوان | وصف عملي]]\` لتحدّيه بمشروع صغير يطبّق ما تعلّم، واشرح له أن المنصة تُولّد له مشاريع شخصية بناءً على ما يدرس.
-
+${imageShowcase}
 **❌ ممنوع في جلسة الاستكشاف الأولى:**
 - لا تُلقِ محاضرة طويلة قبل التجربة العملية. **اقصِر، أرِ، ثم وسّع.**
 - لا تذكر ميزات بكلام نظري دون استخدامها فعلياً ("المنصة فيها بيئات تفاعلية..." بدون \`CREATE_LAB_ENV\` = ممنوع).
@@ -828,9 +844,24 @@ ${codingShowcase}
 `;
 }
 
-function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean }): string {
+function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled: boolean }): string {
   const planTag = opts.isDiagnostic
     ? `- \`[PLAN_READY]\` — اكتبه **مرة واحدة فقط** في نهاية ردك الذي يحتوي الخطة الكاملة (5–8 مراحل). لا تكتبه قبل ذلك أبداً.\n`
+    : "";
+  // Image-generation tag — only documented when the FAL_KEY is configured at
+  // boot. Otherwise we silently omit the rule so the model never emits a tag
+  // we can't fulfill (which would leave a "[صورة توضيحية: ...]" stub in the
+  // student's chat with no actual image).
+  const imageTagDoc = opts.imageEnabled
+    ? `- \`[[IMAGE: english prompt with NO TEXT NO LABELS, only icons + numbered circles]]\` — لإنشاء **صورة توضيحية بصرية بحتة** عبر FLUX. القواعد:
+  • **استخدمه فقط حين يكون المفهوم بصرياً بطبيعته** (دائرة كهربائية، مخطط شبكة، تشريح خلية، خريطة معركة، رسم بياني). لا تستخدمه مع المفاهيم النصية المحضة.
+  • **بحد أقصى صورة واحدة لكل رد**، وفي ٧٠٪ من الردود لا حاجة لأي صورة.
+  • **النص داخل الوسم بالإنجليزية حصراً** — نماذج الانتشار (FLUX) لا تستطيع كتابة العربية. أي كلمة عربية داخل الصورة ستظهر مشوّهة.
+  • **يجب أن يحتوي الوصف الإنجليزي على \`NO TEXT, NO LABELS, NO WORDS\` صراحةً** — وأن يطلب فقط رموزاً أو دوائر مرقّمة 1 2 3 4 ملوّنة.
+  • **مباشرة بعد الوسم اكتب \`<figcaption class="image-caption">…\</figcaption>\` بالعربية** يشرح فيه ما تمثّله كل دائرة مرقّمة. الصورة بصرية، والشرح العربي في الـ caption.
+  • **مثال صحيح:** \`[[IMAGE: a clean diagram of an electric circuit with a battery, switch, and lightbulb connected by wires, NO TEXT NO LABELS NO WORDS, only numbered colored circles 1 2 3 placed near each component, white background, flat educational vector style]]\`
+  • **مثال خاطئ:** \`[[IMAGE: دائرة كهربائية بسيطة]]\` (عربي ممنوع) أو \`[[IMAGE: circuit with labels "battery" and "switch"]]\` (labels ممنوعة).
+`
     : "";
   return `
 
@@ -853,6 +884,7 @@ ${planTag}- \`[POINT_DONE: N]\` — اكتبه عند تغطية النقطة ر
 - \`[[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| opt3 ||| غير ذلك]]\` — لإنشاء أزرار خيارات للطالب. **يجب** أن ينتهي بخيار "غير ذلك" دائماً.
 - \`[[CREATE_LAB_ENV: وصف تفصيلي بالعربية]]\` — لإنشاء بيئة تطبيقية تفاعلية. الوصف يشمل: السياق، البيانات الأولية، الشاشات المطلوبة، المخرج النهائي.
 - \`[[MINI_PROJECT: title | description]]\` — لاقتراح مشروع مصغّر (الفاصل هنا \`|\` واحد فقط).
+${imageTagDoc}
 
 ### أمثلة ملموسة:
 
@@ -2279,8 +2311,14 @@ ${retrievedBlock}
   // The addendum locks the literal tag format and reinforces single-concept
   // Socratic teaching. Per the May-2026 strict-Gemini lock the router never
   // returns any other provider, so we append unconditionally.
+  // Image-generation availability is gated on the FAL_KEY env var being set.
+  // We pass the flag down so both addendums can drop the IMAGE tag rules
+  // entirely when the feature is dark — preventing the model from emitting
+  // a tag we can't fulfill.
+  const __imageEnabled = isImageGenerationConfigured();
   systemPrompt = systemPrompt + buildGeminiTeachingAddendum({
     isDiagnostic: !!isDiagnosticPhase,
+    imageEnabled: __imageEnabled,
   });
 
   // ── First-lesson showcase mode: append LAST so it dominates ──────────────
@@ -2293,6 +2331,7 @@ ${retrievedBlock}
     systemPrompt = systemPrompt + buildFirstLessonShowcaseAddendum({
       subjectName: subjectName ?? "هذه المادة",
       hasCoding: !!hasCoding,
+      imageEnabled: __imageEnabled,
     });
   }
 
@@ -2328,6 +2367,133 @@ ${retrievedBlock}
   let __lastErr: any = null;
   let __geminiAttempts = 0;
   let __geminiUsage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = null;
+
+  // ── Inline image generation state ────────────────────────────────────────
+  // The teacher emits `[[IMAGE: english prompt]]` tags inline. We detect
+  // complete tags as they stream in, replace the in-stream tag with a
+  // shorter `[[IMAGE:id]]` marker (so the frontend can match the later
+  // `imageReady` event by id), and fire the FLUX generation in the
+  // background. The student sees text continue streaming with no pause.
+  //
+  // Buffer semantics: anything that *could* be the start of a tag is held
+  // back from the wire until either the tag completes or it becomes clear
+  // the prefix isn't an IMAGE tag at all. Worst case we hold back ~9 chars
+  // ("[[IMAGE:") for one chunk before flushing.
+  const MAX_IMAGES_PER_REPLY = 2;
+  let __imageStreamBuffer = "";
+  let __imageCount = 0;
+  // Maps the short id we ship to the client → original FLUX prompt (used
+  // for the `[صورة توضيحية: …]` placeholder in the persisted message).
+  const __imagePromptsById = new Map<string, string>();
+  // Holds in-flight generation promises so the post-stream block can await
+  // them all before computing gem cost / writing the storage row.
+  const __imagePromises: Array<Promise<ImageGenerationResult>> = [];
+
+  /**
+   * Sliding-window IMAGE-tag detector. Accumulates streamed text into
+   * `__imageStreamBuffer`, extracts each complete `[[IMAGE: prompt]]`
+   * tag as it arrives, and returns text that is safe to forward to the
+   * client (with each handled tag replaced by `[[IMAGE:hexid]]`).
+   *
+   * Edge cases handled:
+   *  • Tag split across chunks ("…some text [[IM" + "AGE: foo]] more…")
+   *  • Other `[[XXX:` tags (ASK_OPTIONS, CREATE_LAB_ENV, MINI_PROJECT) —
+   *    flushed normally; only `[[IMAGE:` is held back for completion.
+   *  • Cap exceeded — extra tags are dropped silently (logged) so the
+   *    text reads naturally without an empty placeholder.
+   */
+  const __processImageTagsInStream = (incoming: string): string => {
+    __imageStreamBuffer += incoming;
+    let safeOutput = "";
+
+    while (true) {
+      const tagStart = __imageStreamBuffer.indexOf("[[IMAGE:");
+      if (tagStart === -1) {
+        // No image tag start. Check whether the tail might be the prefix
+        // of one ("[[", "[[I", … "[[IMAGE"). If yes, hold back from there.
+        const partialIdx = __imageStreamBuffer.lastIndexOf("[[");
+        if (partialIdx === -1) {
+          safeOutput += __imageStreamBuffer;
+          __imageStreamBuffer = "";
+          break;
+        }
+        const tail = __imageStreamBuffer.slice(partialIdx);
+        // "[[IMAGE:" is 8 chars. If our tail is ≥ 8 chars and isn't the
+        // start of "[[IMAGE:", it's some other tag — flush all.
+        if (tail.length >= 8 || !"[[IMAGE:".startsWith(tail)) {
+          safeOutput += __imageStreamBuffer;
+          __imageStreamBuffer = "";
+        } else {
+          // Tail might still grow into "[[IMAGE:" — hold it back.
+          safeOutput += __imageStreamBuffer.slice(0, partialIdx);
+          __imageStreamBuffer = tail;
+        }
+        break;
+      }
+
+      // Look for the closing "]]" after the tag start.
+      const tagEnd = __imageStreamBuffer.indexOf("]]", tagStart + 8);
+      if (tagEnd === -1) {
+        // Tag is incomplete — flush text before it and hold the rest.
+        safeOutput += __imageStreamBuffer.slice(0, tagStart);
+        __imageStreamBuffer = __imageStreamBuffer.slice(tagStart);
+        break;
+      }
+
+      // Complete tag found. Extract prompt, fire generation.
+      const promptText = __imageStreamBuffer.slice(tagStart + 8, tagEnd).trim();
+      safeOutput += __imageStreamBuffer.slice(0, tagStart);
+
+      if (__imageCount >= MAX_IMAGES_PER_REPLY) {
+        console.warn(
+          `[ai/teach/image] dropped IMAGE tag — per-reply cap (${MAX_IMAGES_PER_REPLY}) reached`,
+        );
+        // Continue scanning past the dropped tag without emitting anything.
+      } else if (promptText.length === 0) {
+        console.warn("[ai/teach/image] dropped empty IMAGE tag");
+      } else {
+        const imageId = randomBytes(6).toString("hex"); // 12 hex chars
+        __imageCount++;
+        __imagePromptsById.set(imageId, promptText);
+
+        // Emit the id-only placeholder marker into the stream. The frontend
+        // converts `[[IMAGE:id]]` into a <figure> with a spinner, then swaps
+        // in the real <img> when the matching `imageReady` event arrives.
+        safeOutput += `[[IMAGE:${imageId}]]`;
+
+        // Notify the client that an image is being generated, so it can
+        // render the spinner placeholder even before more text arrives.
+        try {
+          res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId } })}\n\n`);
+        } catch { /* half-closed */ }
+
+        // Fire generation in background. The promise resolves whether
+        // generation succeeded or failed; the post-stream block awaits all
+        // of them via Promise.allSettled so the gem cost can include the
+        // successful image charges.
+        const promise = generateTeacherImage({
+          userId,
+          subjectId: subjectId ?? null,
+          prompt: promptText,
+        });
+        __imagePromises.push(promise);
+        promise.then((result) => {
+          if (clientAborted || res.writableEnded) return;
+          try {
+            if (result.ok) {
+              res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: result.url } })}\n\n`);
+            } else {
+              res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: result.reason } })}\n\n`);
+            }
+          } catch { /* half-closed */ }
+        }).catch(() => { /* generateTeacherImage already swallows errors */ });
+      }
+
+      __imageStreamBuffer = __imageStreamBuffer.slice(tagEnd + 2);
+    }
+
+    return safeOutput;
+  };
 
   // ── Mid-stream disconnect tracking ────────────────────────────────────────
   // If the student's TCP socket closes before we send `data: {done:true}` —
@@ -2411,7 +2577,8 @@ ${retrievedBlock}
         onChunk: (text) => {
           if (clientAborted || res.writableEnded) return;
           fullResponse += text;
-          const clean = cleanTeachingChunk(text);
+          const safeOutput = __processImageTagsInStream(text);
+          const clean = cleanTeachingChunk(safeOutput);
           if (clean) {
             try {
               res.write(`data: ${JSON.stringify({ content: clean })}\n\n`);
@@ -2491,6 +2658,45 @@ ${retrievedBlock}
           geminiErr?.message || geminiErr,
         );
       }
+    }
+  }
+
+  // ── Post-stream image-tag buffer flush ───────────────────────────────────
+  // The streaming detector held back any text that could be the start of a
+  // `[[IMAGE:` tag. At end-of-stream that residue must be either flushed
+  // (it turned out to be plain text or an unrelated `[[XXX:` tag the model
+  // truncated) or silently dropped (it's a genuinely unfinished IMAGE tag
+  // — a cut-off prompt would render as garbage).
+  if (__imageStreamBuffer.length > 0) {
+    let toFlush = "";
+    if (/^\[\[IMAGE:/.test(__imageStreamBuffer)) {
+      // Truncated IMAGE tag — drop it from the wire AND from fullResponse
+      // so it doesn't pollute storage / cost / mistake parsers.
+      console.warn("[ai/teach/image] dropping truncated IMAGE tag at stream end:", __imageStreamBuffer.slice(0, 80));
+      fullResponse = fullResponse.slice(0, fullResponse.length - __imageStreamBuffer.length);
+    } else {
+      toFlush = __imageStreamBuffer;
+    }
+    __imageStreamBuffer = "";
+    if (toFlush) {
+      const cleanFlush = cleanTeachingChunk(toFlush);
+      if (cleanFlush && !res.writableEnded && !clientAborted) {
+        try { res.write(`data: ${JSON.stringify({ content: cleanFlush })}\n\n`); } catch {}
+      }
+    }
+  }
+
+  // ── Await all in-flight image generations ────────────────────────────────
+  // We need the success/failure split before computing gem cost (each
+  // successful image adds $0.003) and so the SSE `imageReady` events have
+  // a chance to fire before we send the terminating `done` event.
+  // Promise.allSettled never throws — generateTeacherImage already
+  // serialises errors into structured failure results.
+  let __successfulImages = 0;
+  if (__imagePromises.length > 0) {
+    const results = await Promise.allSettled(__imagePromises);
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value.ok) __successfulImages++;
     }
   }
 
@@ -2796,7 +3002,19 @@ ${retrievedBlock}
 
   if (subjectId && fullResponse.trim().length > 0) {
     try {
-      const cleanAssistant = fullResponse
+      // Replace `[[IMAGE:hexid]]` markers with a static Arabic stub —
+      // the underlying CDN URL is short-lived, so persisting it would
+      // be useless after a few hours. The Arabic stub keeps the
+      // student's chat history readable on revisit.
+      const __imageReplaced = fullResponse.replace(
+        /\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi,
+        (_full, id) => {
+          const prompt = __imagePromptsById.get(id) || "";
+          const preview = prompt.slice(0, 120);
+          return `<p class="image-historical">[صورة توضيحية${preview ? `: ${preview}` : ""}]</p>`;
+        },
+      );
+      const cleanAssistant = __imageReplaced
         .replace(/\[STAGE_COMPLETE\]/g, "")
         .replace(/\[PLAN_READY\]/g, "")
         .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
@@ -2853,6 +3071,15 @@ ${retrievedBlock}
       let turnCostUsd = 0;
       if (__geminiUsage) {
         turnCostUsd = costForUsage({ model: __activeModel, inputTokens: __geminiUsage.inputTokens, outputTokens: __geminiUsage.outputTokens, cachedInputTokens: __geminiUsage.cachedInputTokens });
+      }
+      // Add image-generation cost to the turn. Only successful images are
+      // charged — failed/timed-out generations are fail-soft (the student
+      // sees an error placeholder, no charge). Each image is ~$0.003.
+      // recordAiUsage already wrote a separate ai_usage_events row inside
+      // generateTeacherImage; we add the cost here ONLY to inflate the
+      // student-facing gem deduction so their wallet absorbs the FLUX cost.
+      if (__successfulImages > 0) {
+        turnCostUsd += __successfulImages * FLUX_SCHNELL_USD_PER_IMAGE;
       }
       const gems = Math.max(1, Math.ceil(turnCostUsd * 1000));
       gemsDeducted = gems;
