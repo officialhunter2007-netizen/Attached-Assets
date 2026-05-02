@@ -3145,6 +3145,15 @@ function SubjectPathChat({
     if (cut > 0 && cur[cut - 1]?.role === "user") cut -= 1;
     const lastUserText = cur[cut]?.role === "user" ? (cur[cut].content || "") : "";
     if (!lastUserText) return;
+    // Image-attachment turns persist only the "📎 [صورة مرفقة]" placeholder
+    // in history (the real data URL is sent ONCE inline to avoid history
+    // bloat / 10MB body overflow). Regenerating from the placeholder would
+    // ship a meaningless prompt to the model, so we refuse and tell the
+    // student to re-attach.
+    if (lastUserText.includes("📎 [صورة مرفقة]")) {
+      alert("لا يمكن إعادة توليد رسالة تحتوي على صورة مرفقة. أرفق الصورة مرة أخرى وأرسلها من جديد.");
+      return;
+    }
     const trimmed = cur.slice(0, cut);
     messagesRef.current = trimmed;
     setMessages(trimmed);
