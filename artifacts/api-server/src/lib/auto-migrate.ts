@@ -335,7 +335,7 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     table: "course_materials",
     columns: [
       { name: "structured_outline", ddl: "text" },
-      // Task #22 — professor-mode pro additions.
+      // Professor-mode columns.
       { name: "printed_page_offset", ddl: "integer NOT NULL DEFAULT 0" },
       { name: "role", ddl: "text NOT NULL DEFAULT 'primary'" },
       { name: "coverage_status", ddl: "text NOT NULL DEFAULT 'ok'" },
@@ -345,7 +345,7 @@ const REQUIRED_COLUMNS: TableSpec[] = [
   {
     table: "material_chunks",
     columns: [
-      // Arabic-normalized search column (Task #22).
+      // Arabic-normalized search column.
       { name: "content_normalized", ddl: "text" },
     ],
   },

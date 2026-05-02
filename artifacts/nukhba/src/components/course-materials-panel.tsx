@@ -25,6 +25,7 @@ export interface Material {
   progress?: MaterialProgress | null;
   coverageStatus?: "ok" | "partial" | "failed" | null;
   role?: "primary" | "reference" | null;
+  pageStatus?: { failed: number[]; lowConfidence: number[] } | null;
 }
 
 export function CourseMaterialsPanel({
@@ -476,6 +477,13 @@ export function CourseMaterialsPanel({
                       )}
                       {m.status === "ready" && m.errorMessage && (
                         <p className="mt-1.5 text-[11px] text-amber-300/80 leading-relaxed">⚠️ {m.errorMessage}</p>
+                      )}
+                      {m.status === "ready" && (m.coverageStatus === "partial" || m.coverageStatus === "failed") && m.pageStatus && (m.pageStatus.failed.length > 0 || m.pageStatus.lowConfidence.length > 0) && (
+                        <p className="mt-1.5 text-[11px] text-orange-300/80 leading-relaxed">
+                          صفحات لم تُقرأ بدقة:{" "}
+                          {[...m.pageStatus.failed, ...m.pageStatus.lowConfidence].slice(0, 12).join("، ")}
+                          {(m.pageStatus.failed.length + m.pageStatus.lowConfidence.length) > 12 && ` … (+${(m.pageStatus.failed.length + m.pageStatus.lowConfidence.length) - 12})`}
+                        </p>
                       )}
                       <div className="mt-2 flex items-center gap-2 flex-wrap">
                         {m.status === "ready" && (

@@ -295,10 +295,26 @@ router.get("/materials", async (req, res): Promise<any> => {
         lastInteractedAt: p.lastInteractedAt ? p.lastInteractedAt.toISOString() : null,
       };
     }
-    // Strip the heavy outline + structured_outline JSON from the list response.
-    // They're available individually via /api/materials/:id when needed.
+    // For materials with non-OK coverage, surface the actual failed +
+    // low-confidence page numbers so the UI can show them inline.
+    let failedPages: number[] = [];
+    let lowConfidencePages: number[] = [];
+    if (r.status === "ready" && (r.coverageStatus === "partial" || r.coverageStatus === "failed")) {
+      try {
+        const sRows = await db
+          .select({ pageNumber: materialPageStatusTable.pageNumber, status: materialPageStatusTable.status })
+          .from(materialPageStatusTable)
+          .where(eq(materialPageStatusTable.materialId, r.id));
+        for (const s of sRows) {
+          if (s.status === "failed") failedPages.push(s.pageNumber);
+          else if (s.status === "low_confidence") lowConfidencePages.push(s.pageNumber);
+        }
+        failedPages.sort((a, b) => a - b);
+        lowConfidencePages.sort((a, b) => a - b);
+      } catch {}
+    }
     const { outline: _omit, structuredOutline: _omit2, ...rest } = r;
-    return { ...rest, progress, chapters };
+    return { ...rest, progress, chapters, pageStatus: { failed: failedPages, lowConfidence: lowConfidencePages } };
   }));
 
   res.json({ materials: enriched });
@@ -2162,7 +2178,7 @@ async function ocrPdfChunk(chunkBuf: Buffer, label: string, ctx?: AiUsageCtx): P
 }
 
 const OCR_CHUNK_PAGES = 4;   // smaller chunks = smaller failure blast radius and lower per-call token usage
-const OCR_MAX_CHUNKS = 24;   // hard cap on chunks per document (24 * 4 = 96 pages)
+const OCR_MAX_CHUNKS = 150;  // 150 * 4 = 600 pages — matches the upload page-count ceiling
 
 interface OcrResult {
   text: string;          // accumulated successful-chunk text (NO failure placeholders)
@@ -3089,29 +3105,46 @@ export async function getActiveMaterialContext(userId: number, subjectId: string
   };
 
   let mat: any = null;
+  // Active material is honoured ONLY if its role is still 'primary'.
+  // Demoting the active book to 'reference' must not silently keep teaching
+  // from it — the next call falls through to the primary lookup below.
   if (mode.activeMaterialId) {
     const [m] = await db
-      .select(matCols)
+      .select({ ...matCols, role: courseMaterialsTable.role })
       .from(courseMaterialsTable)
       .where(eq(courseMaterialsTable.id, mode.activeMaterialId));
-    if (m && m.status === "ready") mat = m;
+    if (m && m.status === "ready" && m.role !== "reference") mat = m;
   }
-  // Fallback: most-recent ready material for this subject. Keeps the session
-  // running even when the saved active pointer is stale or errored.
+  // Fallback: prefer the most-recent ready PRIMARY for this subject, then
+  // any most-recent ready (covers legacy materials with no role set yet).
   if (!mat) {
-    const [m] = await db
+    const [primary] = await db
       .select(matCols)
       .from(courseMaterialsTable)
       .where(and(
         eq(courseMaterialsTable.userId, userId),
         eq(courseMaterialsTable.subjectId, subjectId),
         eq(courseMaterialsTable.status, "ready"),
+        eq(courseMaterialsTable.role, "primary"),
       ))
       .orderBy(desc(courseMaterialsTable.createdAt))
       .limit(1);
+    let m = primary as any;
+    if (!m) {
+      const [any1] = await db
+        .select(matCols)
+        .from(courseMaterialsTable)
+        .where(and(
+          eq(courseMaterialsTable.userId, userId),
+          eq(courseMaterialsTable.subjectId, subjectId),
+          eq(courseMaterialsTable.status, "ready"),
+        ))
+        .orderBy(desc(courseMaterialsTable.createdAt))
+        .limit(1);
+      m = any1;
+    }
     if (m) {
       mat = m;
-      // Self-heal the pointer so future calls hit the fast path.
       await db
         .update(userSubjectTeachingModesTable)
         .set({ activeMaterialId: m.id, updatedAt: new Date() })
