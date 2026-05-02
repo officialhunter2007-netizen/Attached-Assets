@@ -672,6 +672,14 @@ export default function Subject() {
         .then(r => r.json())
         .then(data => setAllSummaries(Array.isArray(data) ? data : []))
         .catch(() => {});
+      // Force-close every interactive panel so the renew wall is the only
+      // surface the student can interact with.
+      setIsChatOpen(false);
+      setIsIDEOpen(false);
+      setIsLabOpen(false);
+      setIsYemenSoftOpen(false);
+      setIsAccountingLabOpen(false);
+      setIsDynamicEnvOpen(false);
     }
   }, [isSubscriptionExpired]);
 

@@ -1,24 +1,3 @@
-/**
- * Centralised per-user access helper.
- *
- * Single source of truth for "can this user use the platform right now?".
- * Replaces the duplicated, legacy-only `getUserWithAccess` / `checkAccess`
- * implementations that used to live in routes/lessons.ts and routes/progress.ts
- * and were missing the per-subject gem wallet entirely.
- *
- * Precedence (single source of truth for ALL routes including ai.ts):
- *   1. If a `subjectId` is provided AND a per-subject row exists for that
- *      subject → that row decides. We do NOT fall back to the legacy
- *      global wallet even if the per-subject sub is expired or drained.
- *      Rationale (per task #31 spec): a student who explicitly bought a
- *      per-subject plan owns that subject; their global legacy wallet
- *      must not silently rescue an expired per-subject sub, otherwise
- *      the per-subject ownership/renew model breaks down.
- *   2. Otherwise (no subjectId, or no per-subject row at all) → fall back
- *      to the legacy global wallet on usersTable for grandfathered users.
- *   3. The first-lesson grace window applies in both modes; a student who
- *      hasn't completed their free first lesson can still use it once.
- */
 import { and, desc, eq, gt } from "drizzle-orm";
 import {
   db,
@@ -32,8 +11,6 @@ import {
 } from "./gems";
 
 const RECENT_EXPIRY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-// Mirrors FREE_LESSON_GEM_LIMIT in routes/subscriptions.ts. Kept local here
-// so this module has zero coupling to a route file.
 const FREE_LESSON_GEM_LIMIT = 80;
 
 export type AccessSource = "per-subject" | "legacy" | "first-lesson" | "none";
@@ -45,16 +22,13 @@ export type AccessReason =
   | null;
 
 export type AccessResult = {
-  /** Subscription window is open (time-active) AND has gems remaining. */
   hasActiveSub: boolean;
   gemsRemaining: number;
   dailyRemaining: number;
   expiresAt: Date | null;
-  /** Per-subject (or legacy) sub expired in the last 30 days. */
   expiredRecently: boolean;
   isFirstLesson: boolean;
   blockReason: AccessReason;
-  /** True when the user can perform the gated action right now. */
   canAccess: boolean;
   source: AccessSource;
 };
@@ -86,7 +60,6 @@ export async function getAccessForUser(opts: {
 
   const now = new Date();
 
-  // ── Per-subject path ──────────────────────────────────────────────────────
   if (subjectId) {
     const [firstLesson] = await db
       .select()
@@ -115,8 +88,7 @@ export async function getAccessForUser(opts: {
       .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
     if (sub) {
-      // Apply daily rollover so gemsUsedToday reflects today's value.
-      await applyDailyGemsRolloverForSubjectSub(sub).catch(() => {});
+      await applyDailyGemsRolloverForSubjectSub(sub);
 
       const expiresAt = new Date(sub.expiresAt);
       const balance = sub.gemsBalance ?? 0;
@@ -140,12 +112,7 @@ export async function getAccessForUser(opts: {
         };
       }
 
-      // Per-subject row exists but is expired or out of gems. STRICT: do
-      // NOT fall back to the legacy global wallet for this subject. The
-      // renew wall in subject.tsx and the gem-deduction code in
-      // routes/ai.ts both depend on this strictness — falling back to
-      // legacy would suppress the renew prompt and let an expired user
-      // continue paying from a totally unrelated global wallet.
+      // Per-subject row exists but is dead → strict, no legacy fallback.
       const expiredRecently =
         expiresAt < now &&
         now.getTime() - expiresAt.getTime() < RECENT_EXPIRY_WINDOW_MS;
@@ -158,15 +125,12 @@ export async function getAccessForUser(opts: {
         expiresAt,
         expiredRecently,
         isFirstLesson,
-        // First-lesson grace still applies even when the per-subject sub
-        // is dead, so a student who hasn't used their free lesson can.
         blockReason: isFirstLesson ? null : blockReason,
         canAccess: isFirstLesson,
         source: isFirstLesson ? "first-lesson" : "none",
       };
     }
 
-    // No per-subject row at all. First-lesson grace, then legacy fallback.
     if (isFirstLesson) {
       return {
         hasActiveSub: false,
@@ -180,11 +144,9 @@ export async function getAccessForUser(opts: {
         source: "first-lesson",
       };
     }
-    // fall through to legacy
   }
 
-  // ── Legacy global wallet ──────────────────────────────────────────────────
-  await applyDailyGemsRollover(user).catch(() => {});
+  await applyDailyGemsRollover(user);
 
   const legacyExpires = user.gemsExpiresAt ? new Date(user.gemsExpiresAt) : null;
   const balance = user.gemsBalance ?? 0;
@@ -193,11 +155,7 @@ export async function getAccessForUser(opts: {
   const dailyRemaining = Math.max(0, dailyLimit - usedToday);
   const exhaustedDaily = dailyLimit > 0 && usedToday >= dailyLimit;
   const isFirstLessonGlobal = !user.firstLessonComplete;
-  const legacyActive = !!(
-    legacyExpires &&
-    legacyExpires > now &&
-    balance > 0
-  );
+  const legacyActive = !!(legacyExpires && legacyExpires > now && balance > 0);
 
   if (legacyActive) {
     return {
@@ -213,12 +171,8 @@ export async function getAccessForUser(opts: {
     };
   }
 
-  // ── Pre-gems legacy wallet ────────────────────────────────────────────────
-  // Grandfathered users from before the gems migration: nukhbaPlan +
-  // subscriptionExpiresAt + messagesUsed/messagesLimit. We expose the
-  // remaining messages through gemsRemaining so callers don't need a new
-  // field. Source is still "legacy" so the rest of the system treats them
-  // identically to the legacy gems wallet.
+  // Pre-gems wallet: nukhbaPlan + subscriptionExpiresAt + messagesUsed/Limit.
+  // Remaining messages are surfaced through gemsRemaining.
   const planExpires = user.subscriptionExpiresAt ? new Date(user.subscriptionExpiresAt) : null;
   const messagesLimit = user.messagesLimit ?? 0;
   const messagesUsed = user.messagesUsed ?? 0;
@@ -278,19 +232,6 @@ export async function getAccessForUser(opts: {
   };
 }
 
-/**
- * "Does this user have *any* path to use the platform right now?". Used by
- * write endpoints (progress, lessons.views) that don't care which subject
- * the user is operating on, only that they have access at all.
- *
- * Considers, in order:
- *   - First-lesson grace (global `firstLessonComplete = false`).
- *   - Any active per-subject sub (time-active AND balance > 0).
- *   - Legacy gem wallet on usersTable (time-active AND balance > 0).
- *   - Legacy nukhbaPlan / messagesUsed / messagesLimit triple, for the
- *     oldest grandfathered users still on the pre-gems wallet.
- *   - Referral session credits.
- */
 export async function userHasAnyAccess(userId: number): Promise<boolean> {
   const [user] = await db
     .select()
@@ -319,7 +260,7 @@ export async function userHasAnyAccess(userId: number): Promise<boolean> {
     if ((s.gemsBalance ?? 0) > 0) return true;
   }
 
-  await applyDailyGemsRollover(user).catch(() => {});
+  await applyDailyGemsRollover(user);
   if (
     user.gemsExpiresAt &&
     new Date(user.gemsExpiresAt) > now &&

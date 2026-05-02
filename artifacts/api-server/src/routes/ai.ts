@@ -285,11 +285,10 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   const freeMessagesUsed = freeGemsUsed;
   const freeMessagesLeft = Math.max(0, FREE_LESSON_GEM_LIMIT - freeGemsUsed);
 
-  // ── Per-subject gems wallet ────────────────────────────────────────────────
-  // Each subject is now its own independent subscription. We look up the
-  // wallet keyed by (userId, subjectId). If found and active, we forfeit any
-  // unused daily allowance from prior days first so the access check reflects
-  // the truth.
+  // Run the centralised access check first so any rollover writes land
+  // before we read subjectGemsSub / user back into memory.
+  const access = await getAccessForUser({ userId, subjectId });
+
   let [subjectGemsSub] = await db
     .select()
     .from(userSubjectSubscriptionsTable)
@@ -299,25 +298,6 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     ))
     .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
-  // ── Centralised access decision ──────────────────────────────────────────
-  // Single source of truth across lessons/progress/ai/subject endpoints.
-  // The helper internally re-applies daily rollover for both the
-  // per-subject row (when subjectId is given) and the legacy global wallet,
-  // and enforces the strict "subject row blocks legacy fallback" rule the
-  // task spec requires. Below we only derive the rich return shape this
-  // function's downstream callers (deduction code at L3526+, prompts) need.
-  const access = await getAccessForUser({ userId, subjectId });
-  // Reload subjectGemsSub AFTER the helper to pick up its rollover writes
-  // — the helper mutates the DB row but we hold a separate in-memory copy
-  // that the deduction UPDATE later in this file dereferences by id.
-  if (subjectGemsSub) {
-    [subjectGemsSub] = await db
-      .select()
-      .from(userSubjectSubscriptionsTable)
-      .where(eq(userSubjectSubscriptionsTable.id, subjectGemsSub.id));
-  }
-  // Reload `user` for the same reason — its in-memory gem fields may be
-  // stale after the helper applied the legacy-wallet rollover.
   const [refreshedUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
   if (refreshedUser) Object.assign(user, refreshedUser);
 

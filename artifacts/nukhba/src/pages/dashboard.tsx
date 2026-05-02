@@ -471,6 +471,22 @@ export default function Dashboard() {
   const [showMobileCodingWarning, setShowMobileCodingWarning] = useState(false);
   const [materials, setMaterials] = useState<MaterialWithProgress[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState(true);
+  // Legacy/global gems wallet (grandfathered users without per-subject rows).
+  // Filled from /gems-balance with no subjectId — that endpoint resolves
+  // the legacy wallet via the same access helper the rest of the system uses.
+  const [hasLegacyGlobalAccess, setHasLegacyGlobalAccess] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/subscriptions/gems-balance", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (cancelled) return;
+        setHasLegacyGlobalAccess(!!(d && d.source === "legacy" && d.canUseGems));
+      })
+      .catch(() => { if (!cancelled) setHasLegacyGlobalAccess(false); });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   useEffect(() => {
     fetch("/api/lesson-summaries", { credentials: "include" })
@@ -612,7 +628,21 @@ export default function Dashboard() {
   // with no way to learn — they need the renew CTA just as much as a
   // user whose sub fully expired.
   const hasAnyUsableSub = usableSubjectSubs.length > 0;
-  const isBlocked = user?.firstLessonComplete && !hasAnyUsableSub;
+  // Pre-gems grandfathered users: nukhbaPlan + future expiry + messages left.
+  const hasLegacyPreGemsAccess = !!(
+    user?.nukhbaPlan &&
+    user?.subscriptionExpiresAt &&
+    new Date(user.subscriptionExpiresAt) > now &&
+    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0)
+  );
+  // hasLegacyGlobalAccess covers the legacy gems wallet on usersTable for
+  // users who haven't been migrated to per-subject rows. While the
+  // /gems-balance probe is in flight (null), don't block — wait for it.
+  const isBlocked =
+    user?.firstLessonComplete &&
+    !hasAnyUsableSub &&
+    !hasLegacyPreGemsAccess &&
+    hasLegacyGlobalAccess === false;
 
   // Only show the red "your subscriptions expired" banner for recently-
   // expired subs (within the last 30 days) — older expired rows are

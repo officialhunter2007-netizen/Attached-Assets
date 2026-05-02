@@ -2152,109 +2152,54 @@ router.get("/admin/discount-codes/:id/subscribers", async (req, res): Promise<vo
 });
 
 // ── User: get current gems balance ────────────────────────────────────────────
-// Takes ?subjectId=X — gem wallets are per-subject. If a subject has an active
-// per-subject subscription, we report that wallet. Otherwise we fall back to
-// the legacy global wallet on usersTable (for grandfathered users from before
-// the per-subject pivot) so they don't lose access mid-period.
 router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
-  try {
-    const userId = getUserId(req);
-    if (!userId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-
-    const user = await getUser(userId);
-    if (!user) {
-      res.status(401).json({ error: "User not found" });
-      return;
-    }
-
-    const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
-    const now = new Date();
-
-    if (subjectId) {
-      const [sub] = await db
-        .select()
-        .from(userSubjectSubscriptionsTable)
-        .where(and(
-          eq(userSubjectSubscriptionsTable.userId, userId),
-          eq(userSubjectSubscriptionsTable.subjectId, subjectId),
-        ))
-        .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
-
-      if (sub && new Date(sub.expiresAt) > now) {
-        await applyDailyGemsRolloverForSubjectSub(sub).catch(() => {});
-        const usedToday = sub.gemsUsedToday ?? 0;
-        const dailyRemaining = Math.max(0, (sub.gemsDailyLimit ?? 0) - usedToday);
-        // ── API contract ────────────────────────────────────────────────
-        // hasActiveSub  = subscription window is open (time-active). The
-        //                 header badge uses this so it can stay visible
-        //                 (in alert mode) when the student has burned
-        //                 through their gems and needs to renew.
-        // canUseGems    = the user can actually spend gems right now
-        //                 (time-active AND balance > 0). Use this for any
-        //                 access/permission gating.
-        // AI gating itself does NOT depend on either flag — it re-checks
-        // expiry+balance at the call site (see ai.ts).
-        const canUseGems = (sub.gemsBalance ?? 0) > 0;
-        res.json({
-          subjectId,
-          subjectName: sub.subjectName ?? null,
-          gemsBalance: sub.gemsBalance ?? 0,
-          gemsDailyLimit: sub.gemsDailyLimit ?? 0,
-          gemsUsedToday: usedToday,
-          dailyRemaining,
-          gemsExpiresAt: sub.expiresAt,
-          hasActiveSub: true,
-          canUseGems,
-          plan: sub.plan,
-          source: "per-subject" as const,
-        });
-        return;
-      }
-    }
-
-    // Legacy fallback: pre-pivot users still have a global wallet.
-    await applyDailyGemsRollover(user).catch(() => {});
-    // Legacy wallet is considered active whenever it has a future expiry,
-    // regardless of remaining balance (mirrors the per-subject behaviour).
-    const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now);
-    const usedToday = user.gemsUsedToday ?? 0;
-    const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - usedToday);
-    const legacyCanUseGems = hasLegacyActive && (user.gemsBalance ?? 0) > 0;
-
-    res.json({
-      subjectId: subjectId || null,
-      subjectName: null,
-      gemsBalance: hasLegacyActive ? (user.gemsBalance ?? 0) : 0,
-      gemsDailyLimit: hasLegacyActive ? (user.gemsDailyLimit ?? 0) : 0,
-      gemsUsedToday: hasLegacyActive ? usedToday : 0,
-      dailyRemaining: hasLegacyActive ? dailyRemaining : 0,
-      gemsExpiresAt: hasLegacyActive ? user.gemsExpiresAt : null,
-      hasActiveSub: hasLegacyActive,
-      canUseGems: legacyCanUseGems,
-      plan: hasLegacyActive ? (user.nukhbaPlan ?? null) : null,
-      source: hasLegacyActive ? ("legacy" as const) : ("none" as const),
-    });
-  } catch (err) {
-    console.error("[gems-balance] failed:", err);
-    // Defensive fallback so the polling header endpoint never spams the
-    // client with 500s. Server-side error is still logged above.
-    res.json({
-      subjectId: null,
-      subjectName: null,
-      gemsBalance: 0,
-      gemsDailyLimit: 0,
-      gemsUsedToday: 0,
-      dailyRemaining: 0,
-      gemsExpiresAt: null,
-      hasActiveSub: false,
-      canUseGems: false,
-      plan: null,
-      source: "none" as const,
-    });
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
   }
+
+  const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
+  const access = await getAccessForUser({ userId, subjectId: subjectId || undefined });
+
+  let subjectName: string | null = null;
+  let plan: string | null = null;
+  let gemsDailyLimit = 0;
+  let gemsUsedToday = 0;
+
+  if (access.source === "per-subject" && subjectId) {
+    const [sub] = await db
+      .select()
+      .from(userSubjectSubscriptionsTable)
+      .where(and(
+        eq(userSubjectSubscriptionsTable.userId, userId),
+        eq(userSubjectSubscriptionsTable.subjectId, subjectId),
+      ))
+      .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
+    subjectName = sub?.subjectName ?? null;
+    plan = sub?.plan ?? null;
+    gemsDailyLimit = sub?.gemsDailyLimit ?? 0;
+    gemsUsedToday = sub?.gemsUsedToday ?? 0;
+  } else if (access.source === "legacy") {
+    const user = await getUser(userId);
+    plan = user?.nukhbaPlan ?? null;
+    gemsDailyLimit = user?.gemsDailyLimit ?? 0;
+    gemsUsedToday = user?.gemsUsedToday ?? 0;
+  }
+
+  res.json({
+    subjectId: subjectId || null,
+    subjectName,
+    gemsBalance: access.gemsRemaining,
+    gemsDailyLimit,
+    gemsUsedToday,
+    dailyRemaining: access.dailyRemaining,
+    gemsExpiresAt: access.expiresAt,
+    hasActiveSub: access.hasActiveSub,
+    canUseGems: access.canAccess && access.gemsRemaining > 0,
+    plan,
+    source: access.source === "first-lesson" ? ("none" as const) : access.source,
+  });
 });
 
 // ── Aggregate gems summary: all active subscriptions for the header badge ────
