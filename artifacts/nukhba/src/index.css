@@ -1036,6 +1036,117 @@
 }
 
 /* ═══════════════════════════════════════════════
+   NUKHBA CODE EDITOR — NEON FRAME & STATUS BAR
+═══════════════════════════════════════════════ */
+.editor-frame-neon {
+  border: 1px solid rgba(245,158,11,0.18);
+  box-shadow:
+    0 0 0 1px rgba(245,158,11,0.06),
+    0 4px 32px rgba(0,0,0,0.6),
+    0 0 48px rgba(245,158,11,0.04) inset;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.editor-frame-neon:focus-within {
+  border-color: rgba(245,158,11,0.35);
+  box-shadow:
+    0 0 0 1px rgba(245,158,11,0.12),
+    0 8px 48px rgba(0,0,0,0.7),
+    0 0 60px rgba(245,158,11,0.06) inset;
+}
+
+.editor-status-bar {
+  background: linear-gradient(90deg, #090b14 0%, #0d1017 100%);
+  border-top: 1px solid rgba(245,158,11,0.10);
+  color: rgba(255,255,255,0.4);
+  min-height: 22px;
+  user-select: none;
+}
+
+.editor-tab-glow {
+  position: relative;
+}
+.editor-tab-glow::after {
+  content: "";
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #F59E0B, transparent);
+  animation: editor-tab-glow-pulse 2s ease-in-out infinite;
+}
+@keyframes editor-tab-glow-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.editor-caret-glow .cm-cursor,
+.editor-caret-glow .cm-cursor-primary {
+  border-left-color: #F59E0B !important;
+  border-left-width: 2px !important;
+  filter: drop-shadow(0 0 4px rgba(245,158,11,0.6));
+}
+
+/* ── RUN & PREVIEW BUTTON PULSE ── */
+.run-btn-pulse {
+  position: relative;
+  overflow: visible;
+}
+.run-btn-pulse::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  background: transparent;
+  border: 1px solid rgba(245,158,11,0.35);
+  animation: run-btn-ring 2.4s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes run-btn-ring {
+  0%   { opacity: 0; transform: scale(0.9); }
+  40%  { opacity: 0.8; }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+
+.preview-btn-pulse {
+  position: relative;
+  overflow: visible;
+}
+.preview-btn-pulse::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  background: transparent;
+  border: 1px solid rgba(16,185,129,0.4);
+  animation: preview-btn-ring 2.4s ease-out infinite 0.8s;
+  pointer-events: none;
+}
+@keyframes preview-btn-ring {
+  0%   { opacity: 0; transform: scale(0.9); }
+  40%  { opacity: 0.8; }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+
+/* ── EDITOR LOADING SHIMMER ── */
+@keyframes editor-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.editor-loading-shimmer {
+  background: linear-gradient(90deg, #0b0d17 25%, rgba(245,158,11,0.05) 50%, #0b0d17 75%);
+  background-size: 800px 100%;
+  animation: editor-shimmer 1.6s infinite;
+}
+
+/* ── CONSOLE LOG ENTRY ANIMATION ── */
+@keyframes console-entry {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.console-log-entry {
+  animation: console-entry 0.15s ease-out;
+}
+
+/* ═══════════════════════════════════════════════
    REDUCED MOTION
 ═══════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
@@ -1046,7 +1157,9 @@
   .nk-glow-pulse::after, .nk-neon-pulse, .nk-border-neon,
   .nk-spin-slow, .nk-spin-reverse,
   .holographic, .aurora-bg::before, .aurora-bg::after,
-  .neon-card-border::before {
+  .neon-card-border::before,
+  .editor-tab-glow::after, .run-btn-pulse::before, .preview-btn-pulse::before,
+  .console-log-entry {
     animation: none !important;
   }
   .nk-hover-lift:hover { transform: none; }
