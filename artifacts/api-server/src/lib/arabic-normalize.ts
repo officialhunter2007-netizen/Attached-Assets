@@ -71,9 +71,41 @@ function stripArabicClitics(tok: string): string {
 
 function stripArabicSuffix(tok: string): string {
   for (const sfx of TRAILING_SUFFIXES) {
-    if (tok.endsWith(sfx) && tok.length - sfx.length >= 3) return tok.slice(0, -sfx.length);
+    // Min residue 2 (not 3) so taa-marbuta words like "ذره" → "ذر" still
+    // produce a usable stem; the Arabic root system tops out at trilateral
+    // but bilateral fragments are still meaningful for prefix matching.
+    if (tok.endsWith(sfx) && tok.length - sfx.length >= 2) return tok.slice(0, -sfx.length);
   }
   return tok;
+}
+
+/**
+ * Index-time projection: returns the normalized text PLUS its stem variants,
+ * each separated by a space, so that to_tsvector('simple', …) emits both
+ * the original and the stem as searchable lexemes. With this, an indexed
+ * "بالذرات" produces lexemes for "بالذرات", "ذرات", and "ذر" — letting a
+ * query for "الذرة" (which expands to "ذره" / "ذر") hit the row.
+ */
+export function normalizeArabicForIndex(input: string): string {
+  const base = normalizeArabic(input);
+  if (!base) return "";
+  const tokens = base.split(/\s+/);
+  const extras: string[] = [];
+  const seen = new Set<string>();
+  for (const tok of tokens) {
+    if (tok.length < 3) continue;
+    const noClitic = stripArabicClitics(tok);
+    if (noClitic !== tok && noClitic.length >= 2 && !seen.has(noClitic)) {
+      seen.add(noClitic);
+      extras.push(noClitic);
+    }
+    const stem = stripArabicSuffix(noClitic);
+    if (stem !== noClitic && stem.length >= 2 && !seen.has(stem)) {
+      seen.add(stem);
+      extras.push(stem);
+    }
+  }
+  return extras.length === 0 ? base : `${base} ${extras.join(" ")}`;
 }
 
 /**

@@ -514,7 +514,7 @@ export function CourseMaterialsPanel({
                             استخدم هذا الملف
                           </button>
                         )}
-                        {m.status === "ready" && (m.coverageStatus === "partial" || m.coverageStatus === "failed") && (
+                        {(m.status === "error" || (m.status === "ready" && (m.coverageStatus === "partial" || m.coverageStatus === "failed"))) && (
                           <button
                             onClick={() => handleRetryOcr(m.id)}
                             disabled={busyChapter === `${m.id}:retry-ocr`}
@@ -523,7 +523,7 @@ export function CourseMaterialsPanel({
                             {busyChapter === `${m.id}:retry-ocr` ? (
                               <><Loader2 className="w-3 h-3 animate-spin" /> جارٍ المعالجة...</>
                             ) : (
-                              <><RotateCcw className="w-3 h-3" /> أعد قراءة الصفحات الناقصة</>
+                              <><RotateCcw className="w-3 h-3" /> {m.status === "error" ? "أعد المعالجة" : "أعد قراءة الصفحات الناقصة"}</>
                             )}
                           </button>
                         )}

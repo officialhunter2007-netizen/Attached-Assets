@@ -19,6 +19,7 @@ import {
 } from "@workspace/db";
 import {
   normalizeArabic,
+  normalizeArabicForIndex,
   normalizeQueryTokens,
   detectPrintedPageOffset,
   formatPageCitation,
@@ -790,7 +791,13 @@ router.post("/materials/:id/retry-ocr", async (req, res): Promise<any> => {
     .from(courseMaterialsTable)
     .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
   if (!row) return res.status(404).json({ error: "Not found" });
-  if (row.status !== "ready") return res.status(409).json({ error: "MATERIAL_NOT_READY" });
+  // Allow retry from both 'ready' (partial coverage) AND 'error' (hard
+  // OCR failure) — as long as we still have the source PDF blob, the
+  // user can recover holes. We re-flip status to 'ready' once the retry
+  // produces at least one new page of text.
+  if (row.status !== "ready" && row.status !== "error") {
+    return res.status(409).json({ error: "MATERIAL_NOT_READY" });
+  }
 
   // Pull the list of pages that need retry.
   let needRetry: number[] = [];
@@ -805,6 +812,12 @@ router.post("/materials/:id/retry-ocr", async (req, res): Promise<any> => {
       .sort((a, b) => a - b);
   } catch (e: any) {
     console.warn("[materials/retry-ocr] status load failed:", e?.message || e);
+  }
+  // For status='error' materials there may be no per-page rows at all
+  // (the original extract bailed out before writing them) — fall back to
+  // retrying every page in the document.
+  if (needRetry.length === 0 && row.status === "error" && (row.pageCount ?? 0) > 0) {
+    needRetry = Array.from({ length: row.pageCount }, (_, i) => i + 1);
   }
   if (needRetry.length === 0) return res.json({ ok: true, retried: 0, recovered: 0, coverageStatus: row.coverageStatus });
 
@@ -888,7 +901,7 @@ router.post("/materials/:id/retry-ocr", async (req, res): Promise<any> => {
           records.push({
             materialId: id, userId: row.userId, subjectId: row.subjectId,
             pageNumber: page, chunkIndex: ci, content: slice,
-            contentNormalized: normalizeArabic(slice),
+            contentNormalized: normalizeArabicForIndex(slice),
           });
         });
         if (records.length > before) pagesWithReplacement.add(page);
@@ -981,9 +994,18 @@ router.post("/materials/:id/retry-ocr", async (req, res): Promise<any> => {
       else if (r.status === "low_confidence") stats.lowConfidence++;
     }
     coverageStatus = computeCoverageStatus(stats, after.length || (row.pageCount ?? 0));
+    // If we recovered any pages from a previously errored material, flip
+    // status back to 'ready' so the rest of the pipeline (teach, quiz,
+    // exam) can use it.
+    const newStatus = (row.status === "error" && recovered > 0 && coverageStatus !== "failed") ? "ready" : row.status;
     await db
       .update(courseMaterialsTable)
-      .set({ coverageStatus, updatedAt: new Date() })
+      .set({
+        coverageStatus,
+        status: newStatus,
+        errorMessage: newStatus === "ready" ? null : row.errorMessage,
+        updatedAt: new Date(),
+      })
       .where(eq(courseMaterialsTable.id, id));
   } catch (e: any) {
     console.warn("[materials/retry-ocr] coverage recompute failed:", e?.message || e);
@@ -1535,7 +1557,7 @@ async function processMaterial(materialId: number) {
             pageNumber: page,
             chunkIndex: idx,
             content: slice,
-            contentNormalized: normalizeArabic(slice),
+            contentNormalized: normalizeArabicForIndex(slice),
           });
         });
       }

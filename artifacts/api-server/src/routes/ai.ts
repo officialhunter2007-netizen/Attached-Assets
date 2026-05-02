@@ -38,6 +38,26 @@ import {
   GenerateGeminiError,
 } from "../lib/openrouter-generate";
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
+
+// Per-request material context tunneled from the prompt-build phase to the
+// post-stream parser. Lives on `req` (not `ctx`) so we don't mutate the
+// shared getActiveMaterialContext() result with handler-local state.
+interface MaterialAiCtx {
+  materialId: number;
+  structuredChapters: Array<{ idx: number; title: string; startPage: number; endPage: number; keyPoints: string[] }>;
+  isReviewing: boolean;
+  injectedChapterIndex: number;
+  injectedPointTexts: string[];
+  currentChapterIndex: number;
+}
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      materialCtx?: MaterialAiCtx;
+    }
+  }
+}
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { writeGemLedger } from "../lib/gem-ledger";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
@@ -1810,16 +1830,17 @@ ${formattingRules}`;
         // chapter/page reference detector below.
         const structuredChapters: StructuredChapter[] = safeParseStructuredOutline(m.structuredOutline);
         const coveredMap = await loadCoveredPoints(userId, m.id).catch(() => ({} as Record<string, number[]>));
-        // Stash so the post-stream handler can read what we sent without re-querying.
-        (ctx as any).__structuredChapters = structuredChapters;
-        (ctx as any).__coveredMap = coveredMap;
+        let progressForHandler: Awaited<ReturnType<typeof loadProgress>> | undefined;
+        let isReviewingForHandler = false;
+        let injectedChapterIndexForHandler = -1;
+        let injectedPointTextsForHandler: string[] = [];
 
         // Per-(user, material) chapter progress so the tutor knows where the
         // student left off and can say "أكملت الفصل 3، اليوم نبدأ الفصل 4".
         let chapterProgressBlock = "";
         try {
           const prog = await loadProgress(userId, m.id, m.outline ?? "", m.structuredOutline ?? null);
-          (ctx as any).__progress = prog;
+          progressForHandler = prog;
           if (prog.chapters.length > 0) {
             const completedNames = prog.completedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);
             const skippedNames = prog.skippedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);
@@ -1902,14 +1923,14 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
                 isReviewing = true;
               }
             } else if (/(?:ارجع|راجع|للوراء)[^0-9]{0,30}(?:الفصل\s*السابق|للسابق|اللي\s*قبل|previous)/i.test(q)) {
-              const cur = (ctx as any).__progress?.currentChapterIndex ?? 0;
+              const cur = progressForHandler?.currentChapterIndex ?? 0;
               if (cur > 0) { reviewMatchIdx = cur - 1; isReviewing = true; }
             } else if (/(?:اقفز|تخط[ىي]?|انتقل|skip|jump)[^0-9]{0,30}(?:الفصل\s*التالي|للتالي|الجاي|next)/i.test(q)) {
-              const cur = (ctx as any).__progress?.currentChapterIndex ?? 0;
+              const cur = progressForHandler?.currentChapterIndex ?? 0;
               if (cur + 1 < structuredChapters.length) { reviewMatchIdx = cur + 1; isReviewing = true; }
             }
           }
-          (ctx as any).__isReviewing = isReviewing;
+          isReviewingForHandler = isReviewing;
 
           const chapterRefMatch = q.match(/(?:الفصل|chapter|باب|الباب)\s*(?:رقم\s*)?(\d{1,3})/i);
           // Page references: "صفحة 12" / "صفحه 12" / "ص.12" / "ص 12" / "ص12"
@@ -1933,7 +1954,7 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           // ── Layer 1: anchor on the active (or referenced) chapter ─────
           let activeChapter: StructuredChapter | null = null;
           let activeChapterIdx = -1;
-          const prog = (ctx as any).__progress as Awaited<ReturnType<typeof loadProgress>> | undefined;
+          const prog = progressForHandler;
           if (targetChapterIdx >= 0) {
             activeChapter = structuredChapters[targetChapterIdx];
             activeChapterIdx = targetChapterIdx;
@@ -2155,9 +2176,8 @@ ${formatted}
 - إن لم تجد المعلومة في المقاطع أعلاه، قل صراحةً للطالب: "هذا ليس في المقاطع التي استرجعتها من ملفك، اطلب مني البحث عن مصطلح أدق." ولا تخمّن.`;
           }
 
-          // Stash for the post-stream handler to consume.
-          (ctx as any).__injectedChapterIndex = injectedChapterIndex;
-          (ctx as any).__injectedPointTexts = injectedPointTexts;
+          injectedChapterIndexForHandler = injectedChapterIndex;
+          injectedPointTextsForHandler = injectedPointTexts;
         } catch (e: any) {
           console.warn("[ai/teach] retrieval failed:", e?.message || e);
         }
@@ -2210,8 +2230,14 @@ ${retrievedBlock}
 ═══ نهاية المنهج ═══
 `;
         systemPrompt = systemPrompt + materialBlock;
-        // Stash for the post-stream handler.
-        (req as any).__materialCtx = { materialId: m.id, ctx };
+        req.materialCtx = {
+          materialId: m.id,
+          structuredChapters,
+          isReviewing: isReviewingForHandler,
+          injectedChapterIndex: injectedChapterIndexForHandler,
+          injectedPointTexts: injectedPointTextsForHandler,
+          currentChapterIndex: progressForHandler?.currentChapterIndex ?? 0,
+        };
       }
     }
   } catch (e: any) {
@@ -3142,14 +3168,13 @@ ${retrievedBlock}
   // re-teach it (and not to advance the chapter prematurely).
   let pointsCoveredUpdate: { chapterIndex: number; newlyCovered: number[] } | null = null;
   try {
-    const matCtx = (req as any).__materialCtx as { materialId: number; ctx: any } | undefined;
+    const matCtx = req.materialCtx;
     if (matCtx && !isDiagnosticPhase) {
-      const injectedIdx: number = matCtx.ctx?.__injectedChapterIndex ?? -1;
-      const pointTexts: string[] = matCtx.ctx?.__injectedPointTexts ?? [];
+      const injectedIdx = matCtx.injectedChapterIndex;
+      const pointTexts = matCtx.injectedPointTexts;
       // In review mode the prompt instructs the model NOT to emit fresh
-      // [POINT_DONE] tags; honor that on the persistence side too so a
-      // mistaken model emission can't double-mark coverage during review.
-      const isReviewing: boolean = !!matCtx.ctx?.__isReviewing;
+      // [POINT_DONE] tags; honor that on the persistence side too.
+      const isReviewing = matCtx.isReviewing;
       if (injectedIdx >= 0 && pointTexts.length > 0 && !isReviewing) {
         const tagMatches = Array.from(fullResponse.matchAll(/\[POINT_DONE:\s*(\d{1,3})\s*\]/gi));
         const indices: number[] = [];
@@ -3262,7 +3287,7 @@ ${retrievedBlock}
   // chapter — advancing here would skip past their NEXT real chapter. So we
   // gate advancement on !isReviewing (mirrors the POINT_DONE skip above).
   let materialProgressUpdate: { materialId: number; chaptersTotal: number; completedCount: number; currentChapterIndex: number; currentChapterTitle: string | null } | null = null;
-  const __reviewingForAdvance: boolean = !!(req as any).__materialCtx?.ctx?.__isReviewing;
+  const __reviewingForAdvance: boolean = !!req.materialCtx?.isReviewing;
   if (stageComplete && !isDiagnosticPhase && subjectId && !__reviewingForAdvance) {
     try {
       const advanced = await advanceActiveMaterialChapter(userId, subjectId);
