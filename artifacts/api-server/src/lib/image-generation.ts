@@ -37,12 +37,15 @@ function ensureFalConfigured(): boolean {
 }
 
 // ── Per-user rate limit ─────────────────────────────────────────────────────
-// In-memory sliding window. Caps each user at 5 image generations per minute
+// In-memory sliding window. Caps each user at 8 image generations per minute
 // to prevent runaway cost if the model hallucinates the IMAGE tag in every
 // reply during a hot loop. This is a soft safety net on top of the per-reply
-// MAX_IMAGES_PER_REPLY cap and the system-prompt usage policy.
+// MAX_IMAGES_PER_REPLY cap (3) and the system-prompt usage policy. The cap
+// was raised from 5 → 8 in task #15 so the new pedagogical patterns
+// (Compare/Contrast = 2 images, Hook + Reveal across two consecutive turns)
+// don't get rate-throttled mid-lesson.
 const RATE_WINDOW_MS = 60_000;
-const RATE_MAX_PER_WINDOW = 5;
+const RATE_MAX_PER_WINDOW = 8;
 const userImageTimestamps = new Map<number, number[]>();
 
 function checkRateLimit(userId: number): { allowed: boolean; retryAfterMs: number } {
@@ -124,7 +127,7 @@ export async function generateTeacherImage(
     return {
       ok: false,
       reason: "rate-limited",
-      errorMessage: `image rate limit (5/min) exceeded; retry in ${Math.ceil(rate.retryAfterMs / 1000)}s`,
+      errorMessage: `image rate limit (8/min) exceeded; retry in ${Math.ceil(rate.retryAfterMs / 1000)}s`,
       latencyMs: 0,
     };
   }

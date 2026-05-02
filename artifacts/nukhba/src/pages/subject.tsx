@@ -1443,38 +1443,125 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
   // dangerouslySetInnerHTML rebuilds the figure markup on every chunk during
   // streaming, blowing away any <img> we previously injected. So we re-walk
   // the DOM after every render and reconcile each figure's contents with
-  // the latest `imageMap` state. Cheap (≤2 figures per message in practice).
+  // the latest `imageMap` state. Cheap (≤3 figures per message in practice).
+  // Tracks figure ids that have already shown their final state so we can
+  // ignore late SSE updates after a local-timeout fallback fired (and avoid
+  // surfacing a "fixed" image once the user has seen the error message).
+  const localTimedOutRef = useRef<Set<string>>(new Set());
+  // For each figure currently in `loading`, schedule a 10s local timeout
+  // that flips it to `error` if neither `imageReady` nor `imageError` SSE
+  // event has resolved it. This is a safety net for the bug reported in
+  // task #15 where the spinner was hanging indefinitely — even if the
+  // SSE stream silently drops the terminal event (network blip, proxy
+  // buffering, server crash), the user always gets a clear answer in
+  // ≤10s instead of an infinite spinner.
+  const localTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
   useEffect(() => {
-    if (!containerRef.current || !imageMap || imageMap.size === 0) return;
+    if (!containerRef.current) return;
     const root = containerRef.current;
     const figures = root.querySelectorAll<HTMLElement>('figure[data-image-id]');
     figures.forEach((fig) => {
       const id = fig.getAttribute('data-image-id') || '';
-      const state = imageMap.get(id);
-      if (!state) return;
+      if (!id) return;
+      const state = imageMap?.get(id);
+      // Image-bearing img.onerror fallback for historical figures whose
+      // CDN URL has expired — surface the same friendly error message
+      // instead of a broken-image icon.
+      const existingImg = fig.querySelector('img') as HTMLImageElement | null;
+      if (existingImg && !existingImg.onerror) {
+        existingImg.onerror = () => {
+          console.debug('[teach-image] img onerror fallback', { id, src: existingImg.src.slice(0, 80) });
+          fig.classList.remove('teach-image-loading', 'teach-image-ready');
+          fig.classList.add('teach-image-error');
+          fig.innerHTML = '<div class="teach-image-fail">⚠️ انتهت صلاحية رابط الصورة — أعد فتح الجلسة.</div>';
+        };
+      }
+      if (!state) {
+        // Figure exists but no map entry yet (race between marker arriving
+        // in DOM and placeholder SSE event). Schedule local timeout
+        // anyway — keyed on the first sighting of the id.
+        if (!localTimersRef.current.has(id) && !localTimedOutRef.current.has(id)) {
+          const timer = setTimeout(() => {
+            if (localTimedOutRef.current.has(id)) return;
+            console.debug('[teach-image] local timeout fired', { id });
+            localTimedOutRef.current.add(id);
+            const liveFig = root.querySelector<HTMLElement>(`figure[data-image-id="${id}"]`);
+            if (liveFig && !liveFig.classList.contains('teach-image-ready')) {
+              liveFig.classList.remove('teach-image-loading');
+              liveFig.classList.add('teach-image-error');
+              liveFig.innerHTML = '<div class="teach-image-fail">⚠️ تعذّر توليد الصورة — أكمل القراءة.</div>';
+            }
+          }, 10_000);
+          localTimersRef.current.set(id, timer);
+        }
+        return;
+      }
       if (state.status === 'ready' && state.url) {
         // Skip if the same URL is already rendered (avoids a flicker on
         // every chunk during streaming).
         const existing = fig.querySelector('img') as HTMLImageElement | null;
         if (existing && existing.src === state.url) return;
+        // Cancel any pending local timeout for this id.
+        const t = localTimersRef.current.get(id);
+        if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
+        if (localTimedOutRef.current.has(id)) {
+          // We already showed the error; don't undo it on a late arrival.
+          console.debug('[teach-image] late ready ignored (already timed out)', { id });
+          return;
+        }
+        console.debug('[teach-image] figure upgraded to ready', { id });
         fig.classList.remove('teach-image-loading');
         fig.classList.add('teach-image-ready');
-        // Use textContent reset + appendChild instead of innerHTML to keep
-        // attribute escaping consistent with the rest of the React tree.
         fig.innerHTML = '';
         const img = document.createElement('img');
         img.src = state.url;
         img.alt = 'صورة توضيحية';
         img.loading = 'lazy';
+        img.onerror = () => {
+          console.debug('[teach-image] img onerror fallback', { id });
+          fig.classList.remove('teach-image-ready');
+          fig.classList.add('teach-image-error');
+          fig.innerHTML = '<div class="teach-image-fail">⚠️ انتهت صلاحية رابط الصورة — أعد فتح الجلسة.</div>';
+        };
         fig.appendChild(img);
       } else if (state.status === 'error') {
         if (fig.classList.contains('teach-image-error')) return;
+        const t = localTimersRef.current.get(id);
+        if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
+        localTimedOutRef.current.add(id);
+        console.debug('[teach-image] figure upgraded to error', { id });
         fig.classList.remove('teach-image-loading');
         fig.classList.add('teach-image-error');
         fig.innerHTML = '<div class="teach-image-fail">⚠️ تعذّر توليد الصورة — أكمل القراءة.</div>';
+      } else if (state.status === 'loading') {
+        // Schedule local timeout if not already scheduled.
+        if (!localTimersRef.current.has(id) && !localTimedOutRef.current.has(id)) {
+          const timer = setTimeout(() => {
+            if (localTimedOutRef.current.has(id)) return;
+            console.debug('[teach-image] local timeout fired', { id });
+            localTimedOutRef.current.add(id);
+            const liveFig = root.querySelector<HTMLElement>(`figure[data-image-id="${id}"]`);
+            if (liveFig && !liveFig.classList.contains('teach-image-ready')) {
+              liveFig.classList.remove('teach-image-loading');
+              liveFig.classList.add('teach-image-error');
+              liveFig.innerHTML = '<div class="teach-image-fail">⚠️ تعذّر توليد الصورة — أكمل القراءة.</div>';
+            }
+          }, 10_000);
+          localTimersRef.current.set(id, timer);
+        }
       }
     });
   }, [displayHtml, imageMap]);
+
+  // Cleanup local timers on unmount so timers don't fire after the user
+  // navigates away from the session.
+  useEffect(() => {
+    return () => {
+      localTimersRef.current.forEach((t) => clearTimeout(t));
+      localTimersRef.current.clear();
+    };
+  }, []);
 
   // ── Teacher-image click-to-zoom (lightbox) ────────────────────────────────
   // Delegated click handler on the message container. Opens any ready
@@ -2266,6 +2353,7 @@ function SubjectPathChat({
             // the stream, never as part of the terminal done event.
             if (data.imagePlaceholder?.id) {
               const id = String(data.imagePlaceholder.id);
+              console.debug('[teach-image] placeholder received', { id });
               setImageMap(prev => {
                 if (prev.has(id)) return prev;
                 const next = new Map(prev);
@@ -2277,6 +2365,7 @@ function SubjectPathChat({
             if (data.imageReady?.id && data.imageReady.url) {
               const id = String(data.imageReady.id);
               const url = String(data.imageReady.url);
+              console.debug('[teach-image] ready received', { id, url: url.slice(0, 80) });
               setImageMap(prev => {
                 const next = new Map(prev);
                 next.set(id, { status: 'ready', url });
@@ -2286,6 +2375,8 @@ function SubjectPathChat({
             }
             if (data.imageError?.id) {
               const id = String(data.imageError.id);
+              const reason = data.imageError.reason || 'unknown';
+              console.debug('[teach-image] error received', { id, reason });
               setImageMap(prev => {
                 const next = new Map(prev);
                 next.set(id, { status: 'error' });

@@ -718,6 +718,69 @@
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+/* Compare/Contrast pattern: when the teacher emits two consecutive
+   <figure class="teach-image"> + <figcaption> blocks (e.g. before/after,
+   correct/incorrect), they should sit side-by-side on desktop and stack
+   vertically on mobile. We achieve this by selecting any teach-image
+   that has another teach-image as its immediate previous or next
+   sibling and capping the width so both fit on a single row at ≥640px.
+   The aspect-ratio on `.teach-image img` keeps both panels aligned
+   even before the second image loads.
+
+   On mobile (<640px) the natural block flow already stacks them,
+   and we let max-width: 100% take over so each fills the bubble. */
+.teach-image + .teach-image,
+.teach-image:has(+ .teach-image) {
+  display: inline-block;
+  vertical-align: top;
+  max-width: calc(50% - 8px);
+  margin-left: 4px;
+  margin-right: 4px;
+}
+@media (max-width: 640px) {
+  .teach-image + .teach-image,
+  .teach-image:has(+ .teach-image) {
+    display: block;
+    max-width: min(420px, 100%);
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* Pedagogical caption styles: the teacher writes
+   <figcaption class="image-caption"><strong>سؤال:</strong> ...</figcaption>
+   so the leading label (سؤال / تحدٍّ / الكشف / المرساة …) is bolded
+   and the question/explanation reads as a clear pedagogical prompt. */
+.teach-image figcaption.image-caption {
+  font-style: normal;
+  color: #e2e8f0 !important;
+  font-size: 0.86em;
+  line-height: 1.65;
+}
+.teach-image figcaption.image-caption strong {
+  color: #f59e0b;
+  font-weight: 700;
+  margin-left: 4px;
+}
+/* Inline numbered-circle markers (matches the colored 1 2 3 4 inside the
+   image so the caption can refer to them: "الدائرة <span class='num'>1</span>
+   تمثّل ..."). Tiny, readable, no clash with the body type. */
+.teach-image figcaption .num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(245,158,11,0.22);
+  color: #fbbf24 !important;
+  font-weight: 800;
+  font-size: 0.78em;
+  margin: 0 2px;
+  font-style: normal;
+}
+
 /* Historical placeholder rendered server-side after stream ends */
 .image-historical {
   margin: 10px 0;

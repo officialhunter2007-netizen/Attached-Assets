@@ -853,14 +853,64 @@ function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled
   // we can't fulfill (which would leave a "[صورة توضيحية: ...]" stub in the
   // student's chat with no actual image).
   const imageTagDoc = opts.imageEnabled
-    ? `- \`[[IMAGE: english prompt with NO TEXT NO LABELS, only icons + numbered circles]]\` — لإنشاء **صورة توضيحية بصرية بحتة** عبر FLUX. القواعد:
-  • **استخدمه فقط حين يكون المفهوم بصرياً بطبيعته** (دائرة كهربائية، مخطط شبكة، تشريح خلية، خريطة معركة، رسم بياني). لا تستخدمه مع المفاهيم النصية المحضة.
-  • **بحد أقصى صورة واحدة لكل رد**، وفي ٧٠٪ من الردود لا حاجة لأي صورة.
-  • **النص داخل الوسم بالإنجليزية حصراً** — نماذج الانتشار (FLUX) لا تستطيع كتابة العربية. أي كلمة عربية داخل الصورة ستظهر مشوّهة.
-  • **يجب أن يحتوي الوصف الإنجليزي على \`NO TEXT, NO LABELS, NO WORDS\` صراحةً** — وأن يطلب فقط رموزاً أو دوائر مرقّمة 1 2 3 4 ملوّنة.
-  • **مباشرة بعد الوسم اكتب \`<figcaption class="image-caption">…\</figcaption>\` بالعربية** يشرح فيه ما تمثّله كل دائرة مرقّمة. الصورة بصرية، والشرح العربي في الـ caption.
-  • **مثال صحيح:** \`[[IMAGE: a clean diagram of an electric circuit with a battery, switch, and lightbulb connected by wires, NO TEXT NO LABELS NO WORDS, only numbered colored circles 1 2 3 placed near each component, white background, flat educational vector style]]\`
-  • **مثال خاطئ:** \`[[IMAGE: دائرة كهربائية بسيطة]]\` (عربي ممنوع) أو \`[[IMAGE: circuit with labels "battery" and "switch"]]\` (labels ممنوعة).
+    ? `- \`[[IMAGE: english prompt with NO TEXT NO LABELS, only icons + numbered circles]]\` — لإنشاء **صورة توضيحية بصرية بحتة** عبر FLUX. أنت **معلّم محترف بالصور** — استعملها كلّما أضافت قيمة تربوية حقيقية، حتى لو في معظم الردود. الصورة وحدها ليست تربوية، **السؤال أو الجملة التي تلفّها هو ما يجعلها تعليمية**.
+
+  **القيود التقنية الثابتة (لا تُمسّ):**
+  • **النص داخل الوسم بالإنجليزية حصراً** — FLUX لا يكتب العربية، أي كلمة عربية داخل الصورة تظهر مشوّهة.
+  • **يجب أن يحتوي الوصف الإنجليزي على \`NO TEXT, NO LABELS, NO WORDS\` صراحةً** — وأن يطلب فقط رموزاً أو دوائر مرقّمة 1 2 3 4 ملوّنة لتمييز الأجزاء.
+  • **مباشرة بعد الوسم اكتب \`<figcaption class="image-caption">…</figcaption>\` بالعربية** يشرح ما تمثّله كل دائرة مرقّمة أو يطرح السؤال البيداغوجي. الصورة بصرية، والكلام العربي في الـ caption.
+  • **حدّ أقصى ٣ صور في الرد الواحد** (الأغلب صورة أو اثنتان؛ ٣ مخصّصة لنمط المقارنة + تحفيز).
+
+  **🎨 مكتبة الأنماط البيداغوجية الثمانية — استخدم النمط الأنسب للحظة التدريسية:**
+
+  **١. صورة-تحفيز (Curiosity Hook)** — تعرض الصورة *قبل* الشرح وتسأل الطالب «ماذا ترى؟ ماذا تتوقّع؟».
+  مثال: «خلّيني أوريك شيئاً وقلّي وش تتوقّع يصير...»
+  \`[[IMAGE: a glass of water with an ice cube floating, side view, cross-section showing the ice partly submerged, NO TEXT NO LABELS, white background, flat educational style]]\`
+  \`<figcaption class="image-caption"><strong>سؤال:</strong> برأيك، إذا ذاب الجليد كاملاً، هل سيفيض الماء من الكأس؟ لماذا؟</figcaption>\`
+
+  **٢. صورة-لغز بصري (Visual Riddle)** — مشهد فيه خطأ مقصود أو تحدٍّ، تسأل «أين الخلل؟» / «أيّهما أصحّ؟».
+  مثال: «شوف الرسم وحاول تكتشف الخطأ...»
+  \`[[IMAGE: an electrical circuit diagram with a battery, switch, and lightbulb but with a deliberate broken wire on one side, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 3 4 marking each component, white background, flat vector]]\`
+  \`<figcaption class="image-caption"><strong>تحدٍّ:</strong> هذه الدارة لن يضيء فيها المصباح. اكتشف السبب من خلال أرقام الدوائر <span class="num">1</span> <span class="num">2</span> <span class="num">3</span> <span class="num">4</span>.</figcaption>\`
+
+  **٣. صورة-مقارنة (Compare/Contrast)** — صورتان متتاليتان «قبل/بعد»، «صحيح/خاطئ»، أو حالتان. **مسموح هنا أن تُصدر وسمَين \`[[IMAGE:...]]\` متتاليَين** بفاصل caption بسيط بينهما.
+  مثال: «خلّيني أعرض لك الفرق بين الحالتين بصرياً...»
+  \`[[IMAGE: a healthy plant cell cross-section with intact organelles, NO TEXT NO LABELS, only numbered circles 1 2 3, white background, flat scientific illustration]]\`
+  \`<figcaption class="image-caption"><strong>الحالة الطبيعية:</strong> الخلية كاملة الأجزاء.</figcaption>\`
+  \`[[IMAGE: a damaged plant cell cross-section with shrunken vacuole and ruptured membrane, NO TEXT NO LABELS, only numbered circles 1 2 3, white background, flat scientific illustration]]\`
+  \`<figcaption class="image-caption"><strong>بعد الجفاف:</strong> لاحظ كيف انكمشت الفجوة العصارية <span class="num">1</span>.</figcaption>\`
+
+  **٤. صورة-استعارة بصرية (Visual Metaphor)** — تشبيه بصري لمفهوم مجرّد. **هذا النمط يصلح حتى للمفاهيم النصية تماماً** كالذاكرة والخوارزميات والمنطق.
+  مثال: «الذاكرة العشوائية تشبه طاولة عمل... شوف:»
+  \`[[IMAGE: a wooden desk with a few books open and pens scattered on top, contrasted next to a tall library shelf in the background, NO TEXT NO LABELS NO WORDS, white background, flat illustrated style]]\`
+  \`<figcaption class="image-caption"><strong>التشبيه:</strong> الطاولة = الذاكرة العشوائية (RAM)، الرف الكبير = القرص الصلب.</figcaption>\`
+
+  **٥. صورة-مشهد تطبيقي (Scenario)** — تضع الطالب في موقف واقعي.
+  مثال: «تخيّل نفسك تقف في هذه المحطة...»
+  \`[[IMAGE: a small train station platform from a passenger's view, with two trains arriving from opposite directions, NO TEXT NO LABELS, white background, flat vector scene]]\`
+  \`<figcaption class="image-caption"><strong>الموقف:</strong> القطاران يقتربان معاً. كيف تحسب اللحظة التي يلتقيان فيها؟</figcaption>\`
+
+  **٦. صورة-خطوة من عملية (Process Step)** — تصوير مرحلة محدَّدة من سلسلة خطوات.
+  مثال: «هذه الخطوة الثالثة من العملية، ركّز فيها...»
+  \`[[IMAGE: zoomed-in cross-section of a single neuron firing, with arrows showing electrical signal direction along the axon, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 3, white background, scientific flat style]]\`
+  \`<figcaption class="image-caption"><strong>الخطوة ٣:</strong> الإشارة تنتقل من <span class="num">1</span> إلى <span class="num">3</span> عبر المحور.</figcaption>\`
+
+  **٧. صورة-جواب لاحق (Reveal)** — في الرد الحالي تطرح سؤالاً بدون صورة، **وفي الرد التالي** بعد جواب الطالب تكشف الإجابة بصورة.
+  مثال (الرد الحالي): «قبل ما أوريك الجواب، خمّن كيف يبدو شكل الأمواج لو تضاعف التردد...»
+  مثال (الرد التالي بعد جواب الطالب):
+  \`[[IMAGE: two sine waves drawn one above the other, the bottom wave with double the frequency of the top, NO TEXT NO LABELS, white background, clean mathematical illustration]]\`
+  \`<figcaption class="image-caption"><strong>الكشف:</strong> هذا هو الفرق — الموجة السفلى ترددها ضعف العليا.</figcaption>\`
+
+  **٨. صورة-مرساة ذاكرة (Memory Anchor)** — رسم مرئي بسيط جداً يربطه الطالب بالمفهوم لاحقاً، يظهر مرّة واحدة في الجلسة لمفهوم مهم.
+  مثال: «خذ هذه الصورة في ذهنك، كلّما تذكرتها ستتذكر القاعدة...»
+  \`[[IMAGE: a simple icon of a heart connected by an arrow to a brain, both highly stylized minimal flat icons, NO TEXT NO LABELS NO WORDS, white background, vector minimal style]]\`
+  \`<figcaption class="image-caption"><strong>المرساة:</strong> العاطفة تسبق المنطق دائماً في القرار اللحظي.</figcaption>\`
+
+  **❌ أمثلة خاطئة:**
+  • \`[[IMAGE: دائرة كهربائية بسيطة]]\` — عربي داخل الوسم ممنوع.
+  • \`[[IMAGE: circuit with labels "battery" and "switch"]]\` — labels ممنوعة في FLUX.
+  • صورة بدون \`<figcaption>\` بعدها — الصورة وحدها لا تعلّم، العربية تشرح ما يراه.
+  • أربع صور في رد واحد — السقف ٣ كحدٍّ أقصى.
 `
     : "";
   return `
@@ -2368,8 +2418,9 @@ ${retrievedBlock}
   // First-lesson showcase is hard-clamped to exactly 1 image: the prompt
   // addendum already says "ممنوع أكثر من مرة واحدة في هذا الرد"; this is the
   // server-side enforcement so a hallucinating model can't blow through the
-  // budget. Normal turns allow up to 2 (rare two-step diagrams).
-  const MAX_IMAGES_PER_REPLY = isShowcaseOpener ? 1 : 2;
+  // budget. Normal turns allow up to 3 to support the Compare/Contrast
+  // pattern (two side-by-side diagrams) plus an additional Hook image.
+  const MAX_IMAGES_PER_REPLY = isShowcaseOpener ? 1 : 3;
   let __imageStreamBuffer = "";
   let __imageCount = 0;
   // Maps the short id we ship to the client → original FLUX prompt (used
@@ -2377,15 +2428,7 @@ ${retrievedBlock}
   const __imagePromptsById = new Map<string, string>();
   // Holds in-flight generation promises so the post-stream block can await
   // them all before computing gem cost / writing the storage row.
-  // Each entry preserves the imageId so the persistence step can map
-  // each successful URL back to its `[[IMAGE:hexid]]` marker in the
-  // streamed response — without that mapping, we'd lose the URL→marker
-  // association after Promise.allSettled and have to re-derive it.
-  const __imagePromises: Array<Promise<{ id: string; result: ImageGenerationResult }>> = [];
-  // Populated after Promise.allSettled below. Keyed by imageId so the
-  // `[[IMAGE:hexid]]` → final markup replacement (in the persistence
-  // block) knows whether each image succeeded and what its URL is.
-  const __imageResultsById = new Map<string, { ok: true; url: string } | { ok: false }>();
+  const __imagePromises: Array<Promise<ImageGenerationResult>> = [];
 
   /**
    * Sliding-window IMAGE-tag detector. Accumulates streamed text into
@@ -2463,12 +2506,17 @@ ${retrievedBlock}
         // render the spinner placeholder even before more text arrives.
         try {
           res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId } })}\n\n`);
+          console.log(`[ai/teach/image] placeholder sent id=${imageId} prompt="${promptText.slice(0, 80)}"`);
         } catch { /* half-closed */ }
 
         // Fire generation in background. The promise resolves whether
         // generation succeeded or failed; the post-stream block awaits all
         // of them via Promise.allSettled so the gem cost can include the
         // successful image charges.
+        // Every code path (success, structured error, unexpected throw) MUST
+        // emit exactly one terminal event so the frontend's loading bubble
+        // can resolve. Failure to do so leaves the spinner stuck forever —
+        // the original bug we are fixing in task #15.
         const promise = generateTeacherImage({
           userId,
           subjectId: subjectId ?? null,
@@ -2476,15 +2524,32 @@ ${retrievedBlock}
         });
         __imagePromises.push(promise);
         promise.then((result) => {
-          if (clientAborted || res.writableEnded) return;
+          if (clientAborted || res.writableEnded) {
+            console.log(`[ai/teach/image] result discarded (stream closed) id=${imageId} ok=${result.ok}`);
+            return;
+          }
           try {
             if (result.ok) {
               res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: result.url } })}\n\n`);
+              console.log(`[ai/teach/image] ready sent id=${imageId} latencyMs=${result.latencyMs}`);
             } else {
               res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: result.reason } })}\n\n`);
+              console.log(`[ai/teach/image] error sent id=${imageId} reason=${result.reason}`);
             }
+          } catch (writeErr: any) {
+            console.warn(`[ai/teach/image] failed to write SSE event id=${imageId}: ${writeErr?.message || writeErr}`);
+          }
+        }).catch((err: any) => {
+          // Defensive: generateTeacherImage normalizes its own errors, so
+          // this should never fire — but if it does (e.g. SDK constructor
+          // throws synchronously), still emit imageError so the bubble
+          // doesn't hang.
+          console.error(`[ai/teach/image] unexpected throw id=${imageId}: ${err?.message || err}`);
+          if (clientAborted || res.writableEnded) return;
+          try {
+            res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: "api-error" } })}\n\n`);
           } catch { /* half-closed */ }
-        }).catch(() => { /* generateTeacherImage already swallows errors */ });
+        });
       }
 
       __imageStreamBuffer = __imageStreamBuffer.slice(tagEnd + 2);
