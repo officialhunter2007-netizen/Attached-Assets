@@ -813,10 +813,10 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
 
   const now = new Date();
   const hasSubjectSub = access.hasActiveSub && access.source === "per-subject";
-  const subjectSubExpired = !!(subjectSub && (
-    new Date(subjectSub.expiresAt) <= now ||
-    (subjectSub.gemsBalance ?? 0) <= 0
-  )) && access.source !== "per-subject";
+  // Renew wall fires when the user has no current access AND something
+  // expired recently — covers per-subject expiry AND legacy expiry.
+  const subjectSubExpired =
+    !access.hasActiveSub && !access.isFirstLesson && access.expiredRecently;
 
   // hasAccess covers lesson viewing and the renew wall. Daily-cap state
   // is surfaced separately via blockReason and handled by the chat overlay.

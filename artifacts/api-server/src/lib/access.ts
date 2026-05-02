@@ -135,19 +135,10 @@ export async function getAccessForUser(opts: {
       };
     }
 
-    if (isFirstLesson) {
-      return {
-        hasActiveSub: false,
-        gemsRemaining: 0,
-        dailyRemaining: 0,
-        expiresAt: null,
-        expiredRecently: false,
-        isFirstLesson: true,
-        blockReason: null,
-        canAccess: true,
-        source: "first-lesson",
-      };
-    }
+    // No per-subject row → fall through to the legacy/global wallet
+    // below before considering first-lesson grace, so a paid legacy
+    // user who hasn't completed the free lesson still resolves as
+    // source: "legacy" rather than "first-lesson".
   }
 
   await applyDailyGemsRollover(user);

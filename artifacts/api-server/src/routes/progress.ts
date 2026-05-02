@@ -38,12 +38,9 @@ router.post("/progress", async (req, res): Promise<void> => {
     return;
   }
 
-  // Use the per-subject access helper when we know the subject; this lets a
-  // user who has an active per-subject sub for THIS subject save progress
-  // even when their legacy global wallet is empty.
   const subjectId = parsed.data.subjectOrSpecialization || null;
   const access = await getAccessForUser({ userId, subjectId });
-  if (!access.canAccess) {
+  if (!access.hasActiveSub && !access.isFirstLesson) {
     res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }
@@ -104,12 +101,10 @@ router.post("/learning-paths", async (req, res): Promise<void> => {
     return;
   }
 
-  // Per-subject access check using the path's subject. We deliberately do
-  // NOT fall back to userHasAnyAccess here: a learning path is bound to
-  // ONE subject, so a user with active access to subject A must not be
-  // able to create/update a learning path scoped to subject B.
+  // Strictly subject-scoped: access to subject A must not authorise a
+  // learning path for subject B.
   const access = await getAccessForUser({ userId, subjectId: parsed.data.subjectId });
-  if (!access.canAccess) {
+  if (!access.hasActiveSub && !access.isFirstLesson) {
     res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }

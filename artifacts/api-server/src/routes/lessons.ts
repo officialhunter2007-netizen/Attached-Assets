@@ -27,18 +27,15 @@ function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
 }
 
-/**
- * Returns the per-subject (or legacy) access verdict for `userId`, scoped
- * to the lesson's subject so per-subject subscribers are recognised even
- * when `nukhbaPlan` is null (the post-pivot case the legacy check missed).
- */
 async function getUserWithAccess(userId: number, subjectId: string | null) {
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
   if (!user) return null;
 
   const access = await getAccessForUser({ userId, subjectId });
   const hasReferralAccess = (user.referralSessionsLeft ?? 0) > 0;
-  const canAccess = access.canAccess || hasReferralAccess;
+  // Lesson views/progress only need a subscription or first-lesson
+  // grace — daily AI cap should not block them.
+  const canAccess = access.hasActiveSub || access.isFirstLesson || hasReferralAccess;
 
   return {
     user,
