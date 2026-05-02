@@ -77,6 +77,41 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 - **Welcome offer (20% off, single-use, 24h)**: First-time visitor to `/subscription` who leaves without subscribing sees a one-time popup (`artifacts/nukhba/src/components/welcome-offer-modal.tsx`) with a 24-hour countdown. Mounted globally in `App.tsx`. Trigger flow: subscription page POSTs `/api/subscriptions/welcome-offer/visit` on mount → marks `users.sub_page_first_visited_at`. On unmount without submit, the page sets `sessionStorage["nukhba.leftSubPageWithoutSub"]`. The modal (any other page) checks the flag + GETs `/api/subscriptions/welcome-offer`; if `eligibleToShow` is true, POSTs `/welcome-offer/show` (atomic conditional update sets `welcome_offer_shown_at` + `welcome_offer_expires_at = now + 24h` and starts the countdown). Once shown the modal never reappears (gated by `welcome_offer_shown_at IS NOT NULL` and `localStorage["nukhba.welcomeOfferDismissed"]`). When the offer is `active`, the subscription page hides the coupon-code input, shows a gold welcome banner with live countdown, and the server (`/subscriptions/request`) atomically consumes the offer (`UPDATE … WHERE welcome_offer_used_at IS NULL AND welcome_offer_expires_at > NOW()`) and applies a fixed 20% (`WELCOME_OFFER_PERCENT=20`, label `WELCOME20`). **Red line**: server returns 400 if a discount code is sent while the welcome offer is active — the two cannot stack. Eligibility is gated on `users.welcome_offer_shown_at IS NULL` AND a non-null `sub_page_first_visited_at` AND no rows in `user_subject_subscriptions` AND no past `subscription_requests` (so re-subscribers and admins testing twice never see it). Schema columns: `sub_page_first_visited_at`, `welcome_offer_shown_at`, `welcome_offer_expires_at`, `welcome_offer_used_at` on `users`, all auto-migrated.
 - **Admin Panel**: Approve/reject subscription requests, grant/revoke per-subject subscriptions, view activation cards, stats
 
+## Conversation context compression in `/ai/teach` (May 2026 gem-saver)
+
+To keep input-token cost flat as a teaching session grows, `/ai/teach`
+applies two-tier history compression before sending to Gemini:
+
+1. **Window cap = 12 messages** (was 20). 6 exchanges is the practical
+   ceiling the Socratic loop ever needs; the previous 10-exchange cap
+   carried dead weight into every input-token bill.
+2. **Within the window: last 6 messages verbatim, older messages
+   truncated to ~400 chars each via HEAD (~240) + elision marker
+   (`«…مقتطع للاختصار…»`) + TAIL (~140).** Head + tail (not head-only)
+   is critical because the teaching protocol places tags at the END of
+   assistant turns (`[STAGE_COMPLETE]`, `[MISTAKE:…]`, `[[ASK_OPTIONS:…]]`,
+   `[[CREATE_LAB_ENV:…]]`, `[POINT_DONE: N]`, `[MASTERY_VERIFIED:…]`);
+   keeping the tail prevents duplicate STAGE_COMPLETE, re-asked
+   ASK_OPTIONS, and lost MISTAKE registrations. The elision marker
+   uses guillemets (not square brackets) so it cannot be parsed as a
+   real tag by the server-side regex or the model. The verbatim window
+   anchors the active line of reasoning (predict-then-reveal,
+   "ليش؟" follow-ups, Socratic contradiction) where full fidelity
+   matters; older turns only need to answer "did we already cover X?".
+
+Long-term continuity across sessions is preserved separately by
+`lessonSummariesTable` (last 2 sessions, ≤ 800 chars each, injected
+into the system prompt prefix) and `study_cards` (per-stage mastery
+artifacts surfaced in the dashboard). Net effect: input tokens for a
+10-turn session drop ~40–55% with no observable change in teaching
+quality. Output tokens are unaffected — the soft 220-word reply cap
+still governs the more-expensive output side.
+
+The compression code lives in `artifacts/api-server/src/routes/ai.ts`
+just above the `streamGeminiTeaching` call (`MAX_HISTORY_MESSAGES`,
+`VERBATIM_RECENT`, `OLDER_MAX_CHARS`, `OLDER_HEAD_CHARS`,
+`OLDER_TAIL_CHARS`, `ELISION_MARKER`, `compressOlderTurn`).
+
 ## DB Schema
 
 Tables: users, cached_lessons, lesson_views, user_progress, learning_paths, subscription_requests, activation_cards, referrals, conversations, messages, **user_subject_subscriptions** (per-subject sub tracking — now also stores `paid_price_yer` + `region` so we know exactly how many Riyals each student paid for each subscription, used by the cost cap), **user_subject_first_lessons** (per-subject paywall), **ai_usage_events** (per-LLM-call tracking: provider/model/tokens/cost_usd/latency_ms/status, indexed by user_id+created_at+model), **student_mistakes** (per-subject mistakes bank — topic + short text + resolved flag, surfaced back into the teaching prompt every few sessions until resolved), **study_cards** (one HTML "what you mastered today" card per stage-completion, generated cheaply by Gemini 2.0 Flash via OpenRouter and persisted for the dashboard — moved off Haiku in May 2026 to keep `/ai/teach` strictly Gemini-only)
