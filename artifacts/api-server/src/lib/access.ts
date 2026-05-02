@@ -213,10 +213,43 @@ export async function getAccessForUser(opts: {
     };
   }
 
+  // ── Pre-gems legacy wallet ────────────────────────────────────────────────
+  // Grandfathered users from before the gems migration: nukhbaPlan +
+  // subscriptionExpiresAt + messagesUsed/messagesLimit. We expose the
+  // remaining messages through gemsRemaining so callers don't need a new
+  // field. Source is still "legacy" so the rest of the system treats them
+  // identically to the legacy gems wallet.
+  const planExpires = user.subscriptionExpiresAt ? new Date(user.subscriptionExpiresAt) : null;
+  const messagesLimit = user.messagesLimit ?? 0;
+  const messagesUsed = user.messagesUsed ?? 0;
+  const messagesRemaining = Math.max(0, messagesLimit - messagesUsed);
+  const planActive = !!(
+    user.nukhbaPlan &&
+    planExpires &&
+    planExpires > now &&
+    messagesRemaining > 0
+  );
+  if (planActive) {
+    return {
+      hasActiveSub: true,
+      gemsRemaining: messagesRemaining,
+      dailyRemaining: messagesRemaining,
+      expiresAt: planExpires,
+      expiredRecently: false,
+      isFirstLesson: isFirstLessonGlobal,
+      blockReason: null,
+      canAccess: true,
+      source: "legacy",
+    };
+  }
+
   const legacyExpiredRecently = legacyExpires
     ? legacyExpires < now &&
       now.getTime() - legacyExpires.getTime() < RECENT_EXPIRY_WINDOW_MS
-    : false;
+    : (planExpires
+        ? planExpires < now &&
+          now.getTime() - planExpires.getTime() < RECENT_EXPIRY_WINDOW_MS
+        : false);
 
   if (isFirstLessonGlobal) {
     return {
