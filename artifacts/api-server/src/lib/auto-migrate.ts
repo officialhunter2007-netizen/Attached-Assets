@@ -197,6 +197,32 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE UNIQUE INDEX IF NOT EXISTS "uq_admin_alerts_type_unresolved" ON "admin_alerts" ("type") WHERE resolved = false`,
     ],
   },
+  {
+    // Per-message student feedback on the AI teacher's answers (👍 / 👎).
+    // The MessageToolbar in the chat UI POSTs to /api/ai/feedback after
+    // the student rates an assistant turn; rows here power the "تقييمات
+    // الطلاب" admin tab that surfaces low-rated answers for prompt tuning.
+    // `message_sample` is a short head-snippet of the assistant content
+    // (server-truncated to 280 chars) — enough to recognize the answer
+    // without inflating the row.
+    table: "teacher_feedback",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "teacher_feedback" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer,
+        "subject_id" text,
+        "rating" text NOT NULL,
+        "stage_index" integer,
+        "difficulty" text,
+        "message_sample" text,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "teacher_feedback_subject_created_idx" ON "teacher_feedback" ("subject_id", "created_at")`,
+      `CREATE INDEX IF NOT EXISTS "teacher_feedback_rating_idx" ON "teacher_feedback" ("rating", "created_at")`,
+    ],
+  },
 ];
 
 // Default prices used to seed `plan_prices` on first boot only. Subsequent

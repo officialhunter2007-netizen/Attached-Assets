@@ -31,16 +31,24 @@ stage flow:
   in `main.tsx` (`highlight.js/styles/github-dark.css`, `katex/dist/katex.min.css`).
 - **Per-message toolbar**: copy / regenerate / TTS toggle / 👍👎 / share
   under every completed AI bubble (hidden during streaming). Regenerate
-  pops the last assistant + user turn and re-sends. TTS uses
-  `speechSynthesis` (`ar-SA`); ratings are stored in `localStorage` under
-  `nukhba.feedback` (best-effort, no backend). Implemented as
-  `<MessageToolbar>` in `subject.tsx`.
+  reads the latest committed history from `messagesRef` (no stale
+  closure) and re-sends. TTS uses `speechSynthesis` (`ar-SA`). Ratings
+  POST to `POST /api/ai/feedback` (best-effort, never throws back) which
+  inserts into `teacher_feedback` (`user_id`, `subject_id`, `rating`,
+  `stage_index`, `difficulty`, `message_sample` ≤280 chars) — auto-
+  created by `auto-migrate.ts` on boot, indexed on `(subject_id,
+  created_at)` and `(rating, created_at)` for the future "تقييمات
+  الطلاب" admin tab. Implemented as `<MessageToolbar>` in `subject.tsx`.
 - **Pro input box**: image attach (file or paste) + mic (SpeechRecognition,
   `ar-SA`) + 4000-char counter + 500ms-debounced draft autosave per
-  subjectId. Drafts restore on remount; pasting an image inlines it as a
-  data-URL markdown tag prepended to the user message text — no backend
-  schema change. Helpers in `src/lib/draft-storage.ts` and
-  `src/lib/web-speech.ts`.
+  subjectId. Drafts restore on remount. **Attachments do NOT bloat
+  history**: the persisted user message is a slim `📎 [صورة مرفقة]`
+  placeholder, while the data URL is sent ONCE inline with that turn's
+  outgoing `userMessage` + last `history` row (via the new
+  `sendPayloadOverride` 6th param of `sendTeachMessage`). Subsequent
+  turns therefore never re-transmit the multi-megabyte base64 blob.
+  File input uses a typed `useRef<HTMLInputElement>` (no `window` global).
+  Helpers in `src/lib/draft-storage.ts` and `src/lib/web-speech.ts`.
 - **Session header (above the mode mini-bar)**: subject name on the right,
   elapsed-time tab + map icon + difficulty badge in the middle. The map
   icon opens the **LearningPath as a side `Drawer`** (vaul, RTL right side,
@@ -52,17 +60,31 @@ stage flow:
   stage (synthesizes a "أعد لي شرح هذه المرحلة من البداية…" user message —
   doesn't touch `messages` so we don't desync the state machine),
   Difficulty submenu (مبسّط / عادي / متقدّم, persisted to localStorage,
-  sent on every `/ai/teach` POST as `difficultyHint` — backend safely
-  ignores unknown body fields), Export PDF (dynamic `import('jspdf')` +
+  sent on every `/ai/teach` POST as `difficultyHint`. The backend
+  validates it (collapses unknown values to `"normal"`) and, when the
+  phase is *not* diagnostic, appends a difficulty-specific Arabic
+  addendum to the teaching system prompt — `easy` slows the pace and
+  uses Yemeni daily-life analogies, `advanced` raises challenge density
+  and assumes prior knowledge), Export PDF (dynamic `import('jspdf')` +
   `import('html2canvas')`, multi-page A4 tile of the messages container —
   zero bundle cost until clicked), Copy share link (`navigator.clipboard`),
   End & save summary (existing handler).
 - **Lightbox enhancements**: zoom in/out (0.5–4x with %label), download
-  (fetch + blob → `nukhba-{subjectId}-{ts}.png`), drag-to-pan when zoomed,
-  caption from `<figcaption>`, and "اشرحها لي مرة أخرى" — sends a
-  synthesized user message embedding the image so the teacher can elaborate
-  on the figure. The new toolbar floats inside the existing lightbox
-  overlay (`.teach-image-lightbox-toolbar`).
+  (fetch + blob → `nukhba-{subjectId}-{ts}.png` — `subjectId` is threaded
+  through `<AIMessage>` so different subjects produce distinguishable
+  filenames), drag-to-pan when zoomed (PointerEvent capture on the
+  `<img>`, scaled by current zoom level so the panning feels 1:1
+  regardless of zoom), caption from `<figcaption>`, and "اشرحها لي مرة
+  أخرى" — sends a synthesized user message embedding the image so the
+  teacher can elaborate on the figure. The new toolbar floats inside the
+  existing lightbox overlay (`.teach-image-lightbox-toolbar`).
+- **LearningPath drawer body**: the side-drawer panel now leads with a
+  pure-SVG circular progress ring (gold gradient stroke, % label inside)
+  + active-stage headline. Each stage row carries a status pill
+  (مكتملة / الحالية / مقفلة 🔒) and a "اقفز هنا ←" / "↻ راجع هذه
+  المرحلة" button. Jumping doesn't desync the state machine — it
+  synthesizes a stage-request user message and lets the server's
+  next-stage protocol drive `currentStage`.
 - **Welcome empty-state**: centered card with subject name + mode badge +
   3-4 keyword-aware starter chips (cyber / network / programming /
   accounting / physics fallbacks). Visible only when

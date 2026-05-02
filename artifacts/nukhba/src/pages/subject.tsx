@@ -310,8 +310,17 @@ function parsePlanStages(planHtml: string | null): { title: string; descHtml: st
   } catch { return []; }
 }
 
-function LearningPathPanel({ planHtml, currentStage, totalStages }: { planHtml: string | null; currentStage: number; totalStages: number }) {
-  const [expanded, setExpanded] = useState(false);
+function LearningPathPanel({
+  planHtml,
+  currentStage,
+  totalStages,
+  onJumpToStage,
+}: {
+  planHtml: string | null;
+  currentStage: number;
+  totalStages: number;
+  onJumpToStage?: (stageIndex: number, stageTitle: string) => void;
+}) {
   if (!planHtml) return null;
   const stages = parsePlanStages(planHtml);
   if (stages.length === 0) return null;
@@ -319,80 +328,116 @@ function LearningPathPanel({ planHtml, currentStage, totalStages }: { planHtml: 
   const progressPct = Math.min(100, Math.round((currentStage / Math.max(effectiveTotal, 1)) * 100));
   const active = stages[currentStage] ?? stages[0];
 
+  // Circular progress ring — pure SVG, no extra deps. r=28 → C ≈ 175.93.
+  const r = 28;
+  const c = 2 * Math.PI * r;
+  const dash = (progressPct / 100) * c;
+
   return (
-    <div className="shrink-0 border-b border-amber-500/15" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.07), rgba(139,92,246,0.05))" }}>
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-white/5 transition-colors"
-        style={{ direction: "rtl" }}
-      >
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
-            <Trophy className="w-4 h-4 text-black" />
-          </div>
-          <div className="min-w-0 flex-1 text-right">
-            <div className="text-[12px] font-bold text-amber-200 flex items-center gap-2">
-              <span>المرحلة {Math.min(currentStage + 1, stages.length)} من {stages.length}</span>
-              <span className="text-amber-300/70 font-normal">·</span>
-              <span className="text-white/85 truncate">{active.title}</span>
-            </div>
-            <div className="mt-1 h-1.5 w-full bg-white/8 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-l from-amber-400 to-amber-600 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
-            </div>
+    <div className="px-4 py-4 space-y-4" style={{ direction: "rtl" }}>
+      {/* Overall progress: ring + headline */}
+      <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-br from-amber-500/10 to-purple-500/8 border border-amber-500/20">
+        <div className="relative w-16 h-16 shrink-0">
+          <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
+            <circle cx="32" cy="32" r={r} stroke="rgba(255,255,255,0.08)" strokeWidth="5" fill="none" />
+            <circle
+              cx="32" cy="32" r={r}
+              stroke="url(#pathGrad)"
+              strokeWidth="5"
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray={`${dash} ${c}`}
+              style={{ transition: "stroke-dasharray 0.4s ease-out" }}
+            />
+            <defs>
+              <linearGradient id="pathGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#f59e0b" />
+                <stop offset="100%" stopColor="#d97706" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center text-[13px] font-black text-amber-200 tabular-nums">
+            {progressPct}%
           </div>
         </div>
-        {expanded ? <ChevronUp className="w-4 h-4 text-amber-300 shrink-0" /> : <ChevronDown className="w-4 h-4 text-amber-300 shrink-0" />}
-      </button>
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-3 pt-1" style={{ direction: "rtl" }}>
-              <ol className="space-y-1.5">
-                {stages.map((s, idx) => {
-                  const isActive = idx === currentStage;
-                  const isDone = idx < currentStage;
-                  return (
-                    <li
-                      key={idx}
-                      className={`flex items-start gap-2.5 rounded-lg px-2.5 py-2 border text-[12px] leading-relaxed ${
-                        isActive
-                          ? "path-panel-stage-active"
-                          : isDone
-                            ? "bg-emerald-500/8 border-emerald-500/25 text-emerald-100/85"
-                            : "bg-white/[0.03] border-white/8 text-white/65"
-                      }`}
-                    >
-                      <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-black ${
-                        isActive
-                          ? "bg-amber-500 text-black"
-                          : isDone
-                            ? "bg-emerald-500/30 text-emerald-200"
-                            : "bg-white/8 text-white/60"
-                      }`}>
-                        {isDone ? "✓" : idx + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold">{s.title}</div>
-                        {s.duration && (
-                          <div className="text-[10px] mt-0.5 inline-block bg-purple-500/15 border border-purple-400/25 text-purple-200 rounded-full px-2 py-0.5">
-                            ⏱ {s.duration}
-                          </div>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] text-amber-300/80 font-bold mb-0.5">التقدّم العام</div>
+          <div className="text-[13px] font-bold text-white truncate">{active.title}</div>
+          <div className="text-[10px] text-white/50 mt-0.5">
+            المرحلة {Math.min(currentStage + 1, stages.length)} من {stages.length}
+          </div>
+        </div>
+      </div>
+
+      {/* Per-stage list with status badges + jump button */}
+      <ol className="space-y-2">
+        {stages.map((s, idx) => {
+          const isActive = idx === currentStage;
+          const isDone = idx < currentStage;
+          const isLocked = idx > currentStage;
+          const status = isDone ? "مكتملة" : isActive ? "الحالية" : "مقفلة";
+          return (
+            <li
+              key={idx}
+              className={`rounded-xl px-3 py-2.5 border ${
+                isActive
+                  ? "bg-amber-500/10 border-amber-500/40 shadow-md shadow-amber-500/10"
+                  : isDone
+                    ? "bg-emerald-500/[0.06] border-emerald-500/25"
+                    : "bg-white/[0.03] border-white/10"
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                <span className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-black ${
+                  isActive
+                    ? "bg-amber-500 text-black"
+                    : isDone
+                      ? "bg-emerald-500/30 text-emerald-200 border border-emerald-500/40"
+                      : "bg-white/8 text-white/50 border border-white/10"
+                }`}>
+                  {isDone ? "✓" : isLocked ? "🔒" : idx + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`font-bold text-[13px] ${isActive ? "text-white" : isDone ? "text-emerald-100" : "text-white/70"}`}>
+                      {s.title}
+                    </span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
+                      isActive
+                        ? "bg-amber-500/30 text-amber-100 border border-amber-400/40"
+                        : isDone
+                          ? "bg-emerald-500/20 text-emerald-200 border border-emerald-500/30"
+                          : "bg-white/5 text-white/40 border border-white/10"
+                    }`}>{status}</span>
+                  </div>
+                  {s.duration && (
+                    <div className="text-[10px] mt-1 inline-block bg-purple-500/15 border border-purple-400/25 text-purple-200 rounded-full px-2 py-0.5">
+                      ⏱ {s.duration}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* Jump-to-stage button: present on every non-active stage so
+                  the student can revisit a completed stage or peek ahead.
+                  The parent decides what "jump" means (synthesizes a user
+                  message asking the teacher to start that stage). */}
+              {!isActive && onJumpToStage && (
+                <button
+                  type="button"
+                  onClick={() => onJumpToStage(idx, s.title)}
+                  className={`mt-2 w-full text-[11px] font-bold py-1.5 rounded-lg border transition-all ${
+                    isDone
+                      ? "bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-100"
+                      : "bg-amber-500/10 hover:bg-amber-500/25 border-amber-500/30 text-amber-200"
+                  }`}
+                >
+                  {isDone ? "↻ راجع هذه المرحلة" : "اقفز هنا ←"}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -1398,9 +1443,8 @@ function extractAskOptions(content: string): { stripped: string; ask: { question
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Session-UI helpers (Task #19): elapsed timer hook, per-message action
-// toolbar, welcome empty-state, unified error state, and an attached-image
-// preview chip used by the pro input box. All purely presentational —
+// Session-UI helpers: elapsed timer hook, per-message action toolbar,
+// welcome empty-state, and unified error state. Purely presentational —
 // streaming, [[CREATE_LAB_ENV]], [[IMAGE:id]], gem accounting and stage
 // flow remain in the parent component.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1478,11 +1522,13 @@ const MessageToolbar = memo(function MessageToolbar({
   content,
   onRegenerate,
   onShare,
+  onRate,
   canRegenerate,
 }: {
   content: string;
   onRegenerate?: () => void;
   onShare?: () => void;
+  onRate?: (value: "up" | "down") => void;
   canRegenerate: boolean;
 }) {
   const [copied, setCopied] = useState(false);
@@ -1510,9 +1556,9 @@ const MessageToolbar = memo(function MessageToolbar({
     const txt = plainTextFromHtmlContent(content);
     const payload = `${txt}\n\n— من جلسة نُخبة\n${typeof window !== "undefined" ? window.location.href : ""}`;
     try {
-      const navAny = navigator as any;
-      if (navAny?.share) {
-        await navAny.share({ text: payload });
+      const nav = navigator as Navigator & { share?: (data: { text: string }) => Promise<void> };
+      if (typeof nav.share === "function") {
+        await nav.share({ text: payload });
       } else {
         await navigator.clipboard.writeText(payload);
         setShared(true);
@@ -1539,15 +1585,13 @@ const MessageToolbar = memo(function MessageToolbar({
     }
   }, [content, speaking, ttsAvailable]);
 
-  const handleRate = useCallback((value: "up" | "down") => {
+  const handleRateClick = useCallback((value: "up" | "down") => {
+    // Toggle off if the student taps the same button twice — the parent's
+    // onRate handler is still notified so it can debounce the duplicate
+    // POST or send a separate "retract" event in the future.
     setRated((prev) => (prev === value ? null : value));
-    try {
-      const key = "nukhba.feedback";
-      const prev = JSON.parse(localStorage.getItem(key) || "[]");
-      prev.push({ ts: Date.now(), value, sample: plainTextFromHtmlContent(content).slice(0, 140) });
-      localStorage.setItem(key, JSON.stringify(prev.slice(-200)));
-    } catch { /* storage full / private mode */ }
-  }, [content]);
+    onRate?.(value);
+  }, [onRate]);
 
   return (
     <div className="msg-toolbar mt-1.5 flex flex-wrap items-center gap-1" style={{ direction: "rtl" }}>
@@ -1578,7 +1622,7 @@ const MessageToolbar = memo(function MessageToolbar({
         className={`msg-toolbar-btn ${rated === "up" ? "msg-toolbar-btn-up" : ""}`}
         title="إجابة مفيدة"
         aria-label="إجابة مفيدة"
-        onClick={() => handleRate("up")}
+        onClick={() => handleRateClick("up")}
       >
         <ThumbsUp className="w-3.5 h-3.5" />
       </button>
@@ -1587,7 +1631,7 @@ const MessageToolbar = memo(function MessageToolbar({
         className={`msg-toolbar-btn ${rated === "down" ? "msg-toolbar-btn-down" : ""}`}
         title="إجابة بحاجة لتحسين"
         aria-label="إجابة بحاجة لتحسين"
-        onClick={() => handleRate("down")}
+        onClick={() => handleRateClick("down")}
       >
         <ThumbsDown className="w-3.5 h-3.5" />
       </button>
@@ -1679,7 +1723,7 @@ function TeacherErrorState({
 type TeacherImageState = { status: 'loading' | 'ready' | 'error'; url?: string };
 type TeacherImageMap = Map<string, TeacherImageState>;
 
-const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onImageTimeout, onReExplainImage }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onImageTimeout?: (id: string) => void; onReExplainImage?: (url: string) => void }) {
+const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onImageTimeout, onReExplainImage, subjectId }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onImageTimeout?: (id: string) => void; onReExplainImage?: (url: string) => void; subjectId?: string }) {
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -2029,7 +2073,7 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = `nukhba-${Date.now()}.png`;
+                  a.download = subjectId ? `nukhba-${subjectId}-${Date.now()}.png` : `nukhba-${Date.now()}.png`;
                   document.body.appendChild(a);
                   a.click();
                   document.body.removeChild(a);
@@ -2057,11 +2101,40 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
           <img
             src={lightboxUrl}
             alt={lightboxAlt || "صورة توضيحية مكبّرة"}
+            draggable={false}
             onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => {
+              if (lightboxZoom <= 1) return;
+              e.stopPropagation();
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const startPan = lightboxPan;
+              const target = e.currentTarget as HTMLImageElement;
+              try { target.setPointerCapture(e.pointerId); } catch {}
+              target.style.cursor = 'grabbing';
+              const move = (ev: PointerEvent) => {
+                setLightboxPan({
+                  x: startPan.x + (ev.clientX - startX) / lightboxZoom,
+                  y: startPan.y + (ev.clientY - startY) / lightboxZoom,
+                });
+              };
+              const up = (ev: PointerEvent) => {
+                target.style.cursor = lightboxZoom > 1 ? 'grab' : 'zoom-in';
+                target.removeEventListener('pointermove', move);
+                target.removeEventListener('pointerup', up);
+                target.removeEventListener('pointercancel', up);
+                try { target.releasePointerCapture(ev.pointerId); } catch {}
+              };
+              target.addEventListener('pointermove', move);
+              target.addEventListener('pointerup', up);
+              target.addEventListener('pointercancel', up);
+            }}
             style={{
               transform: `scale(${lightboxZoom}) translate(${lightboxPan.x}px, ${lightboxPan.y}px)`,
               transition: 'transform 0.15s ease-out',
               cursor: lightboxZoom > 1 ? 'grab' : 'zoom-in',
+              touchAction: 'none',
+              userSelect: 'none',
             }}
           />
           {lightboxAlt && (
@@ -2172,15 +2245,19 @@ function SubjectPathChat({
   };
   const initial = loadInitialChat();
   const [messages, setMessages] = useState<ChatMessage[]>(initial.messages);
-  // ── Pro-input + session-UX state (Task #19) ───────────────────────────────
+  // ── Pro-input + session-UX state ──────────────────────────────────────────
   // Draft is restored from localStorage on mount (per subjectId), autosaved
   // on every keystroke (debounced 500ms), and cleared on successful send.
   const [input, setInput] = useState(() => {
     try { return loadDraft(subject.id); } catch { return ""; }
   });
-  // Optional inline image preview (data URL). Sent as a markdown image tag
-  // prepended to the user message text — keeps backend untouched.
+  // Optional inline image preview (data URL). Sent ONCE with the next
+  // outgoing /ai/teach request and surfaced to the student as a small
+  // chip in the bubble — but the persisted history stores only a
+  // short `[صورة مرفقة]` placeholder so subsequent turns don't
+  // re-transmit the multi-megabyte data URL on every request.
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Speech-recognition control: a non-null handle means we're actively
   // recording; calling .stop() ends the session and triggers `onend`.
   const [recordingHandle, setRecordingHandle] = useState<{ stop: () => void } | null>(null);
@@ -2190,11 +2267,16 @@ function SubjectPathChat({
   const [pathDrawerOpen, setPathDrawerOpen] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
-  // Difficulty hint sent to the backend on every /ai/teach request. The
-  // server safely ignores unknown body fields, so this lights up the UI
-  // even if the backend hasn't been taught about it yet.
+  // Difficulty hint sent on every /ai/teach request — the server reads it
+  // and appends a difficulty-specific addendum to the teaching system
+  // prompt (see routes/ai.ts). Persisted per-subject so the choice
+  // survives reloads.
   const [difficulty, setDifficulty] = useState<"easy" | "normal" | "advanced">(() => {
-    try { return (localStorage.getItem(`nukhba.difficulty.${subject.id}`) as any) || "normal"; } catch { return "normal"; }
+    try {
+      const stored = localStorage.getItem(`nukhba.difficulty.${subject.id}`);
+      if (stored === "easy" || stored === "advanced" || stored === "normal") return stored;
+    } catch {}
+    return "normal";
   });
   // Persist difficulty per-subject so it survives reloads.
   useEffect(() => {
@@ -2579,7 +2661,12 @@ function SubjectPathChat({
     return () => clearTimeout(t);
   }, [pendingTeachStart, isStreaming, chatPhase]);
 
-  const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }) => {
+  // `sendPayloadOverride` lets a caller send a different payload to the
+  // server than what gets persisted in the messages state — used for
+  // image attachments where the multi-MB data URL is sent ONCE with this
+  // turn's request but never written into chat history (which would
+  // bloat localStorage and re-transmit on every subsequent turn).
+  const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }, sendPayloadOverride?: string) => {
     // Tracks whether the network/abort path threw so the `finally` block
     // can branch on it without re-inspecting the error. Declared at function
     // scope so both the `catch` (sets it) and `finally` (reads it) blocks
@@ -2618,25 +2705,29 @@ function SubjectPathChat({
         body: JSON.stringify({
           subjectId: subject.id,
           subjectName: subject.name,
-          userMessage: text,
+          // The OUTGOING payload (server-only); for image attachments this
+          // contains the inline data URL. The persisted user message in
+          // `messages` is the shorter `text` instead.
+          userMessage: sendPayloadOverride ?? text,
           // CRITICAL: setMessages above is async, so reading `messages`
           // here would miss the just-appended user turn. Build the
           // history snapshot synchronously so the server sees the full
           // exchange (otherwise the assistant occasionally "forgets" the
           // very question the student just asked). For the empty-text
           // (auto-start/restart) path we read from messagesRef instead
-          // of the closed-over `messages` so the bootstrap orphan-clear
-          // can update the ref *before* this body runs and prevent
-          // stale-orphan leaks into the very first request.
-          history: text ? [...messages, { role: "user", content: text }] : messagesRef.current,
+          // of the closed-over `messages`. The last turn uses the
+          // `sendPayloadOverride` (if any) so the server gets the data
+          // URL once; history rows always use the slim `text` form.
+          history: text
+            ? [...messages, { role: "user", content: sendPayloadOverride ?? text }]
+            : messagesRef.current,
           planContext: customPlan,
           stages: usedStages,
           currentStage: usedStage,
           isDiagnosticPhase: diagMode,
           hasCoding: subject.hasCoding,
-          // Difficulty hint — backend may use it to scale explanation depth
-          // and exercise difficulty. Currently advisory; the server safely
-          // ignores unknown body fields so this is non-breaking.
+          // Difficulty hint — server appends a difficulty-specific addendum
+          // to the teaching system prompt. See routes/ai.ts.
           difficultyHint: difficultyRef.current,
         })
       });
@@ -3025,13 +3116,25 @@ function SubjectPathChat({
   });
 
   const handleSend = () => {
-    if ((!input.trim() && !attachedImage) || isStreaming || sessionPaused) return;
-    // If a clipboard/upload image was attached, prepend it as a markdown
-    // image so the assistant sees the user's reference visually. Data URL
-    // means no backend upload is needed for this minimal flow.
-    const imgPrefix = attachedImage ? `![صورة مرفقة](${attachedImage})\n\n` : "";
-    const finalText = `${imgPrefix}${input.trim()}`;
-    sendTeachMessage(finalText);
+    const trimmed = input.trim();
+    if ((!trimmed && !attachedImage) || isStreaming || sessionPaused) return;
+    if (attachedImage) {
+      // Persist a slim placeholder in chat history (no data URL bloat),
+      // but send the FULL image data URL inline with this single request
+      // so the model can see it. Subsequent turns will only see the
+      // placeholder, which is correct: re-transmitting a 2 MB base64 blob
+      // every turn would blow up the request payload and the input-token
+      // bill, and the model has no way to "remember" old images anyway.
+      const visibleText = trimmed
+        ? `📎 [صورة مرفقة]\n\n${trimmed}`
+        : "📎 [صورة مرفقة]";
+      const outgoingText = trimmed
+        ? `![صورة مرفقة من الطالب](${attachedImage})\n\n${trimmed}`
+        : `![صورة مرفقة من الطالب](${attachedImage})`;
+      sendTeachMessage(visibleText, undefined, undefined, undefined, undefined, outgoingText);
+    } else {
+      sendTeachMessage(trimmed);
+    }
     setAttachedImage(null);
     // Clear the persisted draft now that the message is on its way.
     try { clearDraft(subject.id); } catch {}
@@ -3041,22 +3144,28 @@ function SubjectPathChat({
   };
 
   // ── Per-message regeneration ──────────────────────────────────────────────
-  // Pops the last assistant turn (and the matching user turn) and re-sends
-  // the user's prompt. Mirrors the truncation-recovery flow at the bottom
-  // of the chat — same setMessages contract so history stays consistent.
+  // Pops the trailing assistant + user pair, then re-sends the user's
+  // text as a fresh turn. Uses messagesRef (kept in sync via useEffect)
+  // so the work happens against the latest committed messages — the old
+  // implementation read from a stale closure and racy setMessages, which
+  // could fork the stream when clicked twice in quick succession.
   const handleRegenerateLast = useCallback(() => {
     if (isStreaming || sessionPaused) return;
-    let lastUserText = "";
-    setMessages(prev => {
-      const nm = [...prev];
-      if (nm.length && nm[nm.length - 1].role === "assistant") nm.pop();
-      if (nm.length && nm[nm.length - 1].role === "user") {
-        lastUserText = nm[nm.length - 1].content || "";
-        nm.pop();
-      }
-      return nm;
-    });
-    if (lastUserText) setTimeout(() => sendTeachMessage(lastUserText), 60);
+    const cur = messagesRef.current;
+    if (cur.length === 0) return;
+    let cut = cur.length;
+    if (cur[cut - 1]?.role === "assistant") cut -= 1;
+    if (cut > 0 && cur[cut - 1]?.role === "user") cut -= 1;
+    const lastUserText = cur[cut]?.role === "user" ? (cur[cut].content || "") : "";
+    if (!lastUserText) return;
+    const trimmed = cur.slice(0, cut);
+    setMessages(trimmed);
+    messagesRef.current = trimmed;
+    // Defer slightly so React commits the trimmed history before we
+    // append the regenerated user turn (sendTeachMessage reads from
+    // messagesRef on the empty-text path, and from `messages` for the
+    // non-empty path — we want both views consistent).
+    setTimeout(() => sendTeachMessage(lastUserText), 0);
   }, [isStreaming, sessionPaused]);
 
   // ── Restart current stage ────────────────────────────────────────────────
@@ -3658,7 +3767,7 @@ function SubjectPathChat({
           material-required gate, and the chat never share the screen. */}
       {!needsModeChoice && !needsMaterial && (<>
 
-      {/* Session header (Task #19): subject name on the right, elapsed
+      {/* Session header: subject name on the right, elapsed
           timer + drawer toggle + difficulty badge in the middle. Sits
           ABOVE the mode mini-bar so the most useful at-a-glance info
           (how long the student has been working, where they are in the
@@ -3897,11 +4006,11 @@ function SubjectPathChat({
         </div>
       )}
 
-      {/* Personalized learning path — moved into a side Drawer (Task #19).
-          The previous inline collapsible panel ate vertical space on phones
-          and obscured the conversation. We keep the same `LearningPathPanel`
-          markup but render it inside a Drawer that slides in from the right
-          (RTL) when the path icon in the header is tapped. */}
+      {/* Personalized learning path — rendered inside a side Drawer rather
+          than inline above the messages, so it stops eating vertical space
+          on phones and no longer obscures the conversation. The drawer
+          slides in from the right (RTL) when the path icon in the header
+          is tapped. */}
       {chatPhase === 'teaching' && customPlan && (
         <Drawer open={pathDrawerOpen} onOpenChange={setPathDrawerOpen} direction="right">
           <DrawerContent className="h-full sm:!max-w-md md:!max-w-lg w-full sm:w-[440px] !top-0 !mt-0 !rounded-none !rounded-r-2xl border-l-0 border-r border-white/10 bg-[#0b0d17]" style={{ direction: "rtl" }}>
@@ -3917,7 +4026,24 @@ function SubjectPathChat({
               </DrawerClose>
             </DrawerHeader>
             <div className="overflow-y-auto flex-1">
-              <LearningPathPanel planHtml={customPlan} currentStage={currentStage} totalStages={stages.length} />
+              <LearningPathPanel
+                planHtml={customPlan}
+                currentStage={currentStage}
+                totalStages={stages.length}
+                onJumpToStage={(idx, title) => {
+                  if (isStreaming || sessionPaused) return;
+                  setPathDrawerOpen(false);
+                  // Synthesize a user message asking the teacher to move
+                  // to the requested stage. We don't directly call
+                  // setCurrentStage — the server's [STAGE_DONE] / next
+                  // stage protocol controls the index, and skipping it
+                  // client-side would desync the two views.
+                  const text = idx < currentStage
+                    ? `أريد مراجعة المرحلة ${idx + 1}: ${title}. ابدأ الشرح من بدايتها.`
+                    : `أريد الانتقال إلى المرحلة ${idx + 1}: ${title}. ابدأ شرحها الآن.`;
+                  sendTeachMessage(text);
+                }}
+              />
             </div>
           </DrawerContent>
         </Drawer>
@@ -3936,8 +4062,8 @@ function SubjectPathChat({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-5 py-4 sm:py-5 relative" ref={scrollRef}>
-        {/* Welcome empty-state (Task #19) — shown when there are no messages
-            yet, the plan is loaded, and the chat isn't gated. The bootstrap
+        {/* Welcome empty-state — shown when there are no messages yet,
+            the plan is loaded, and the chat isn't gated. The bootstrap
             effect normally fires within ~50ms of mount and replaces this
             with a teacher reply, so it's mainly visible on returning-user
             sessions where the message history was cleared. */}
@@ -4007,16 +4133,37 @@ function SubjectPathChat({
                         imageMap={imageMap}
                         onImageTimeout={handleImageTimeout}
                         onReExplainImage={handleReExplainImage}
+                        subjectId={subject.id}
                       />
-                      {/* Per-message action toolbar (Task #19) — copy / regen
-                          / TTS / rate / share. Hidden on the streaming bubble
-                          since the content is still arriving; appears once the
+                      {/* Per-message action toolbar — copy / regen / TTS /
+                          rate / share. Hidden on the streaming bubble since
+                          the content is still arriving; appears once the
                           last AI message has finished. */}
                       {!(isStreaming && isLastMsg) && msg.role === 'assistant' && (msg.content || '').length > 0 && (
                         <MessageToolbar
                           content={msg.content}
                           onRegenerate={handleRegenerateLast}
                           canRegenerate={isLastMsg && !isStreaming && !sessionPaused}
+                          onRate={(value) => {
+                            // Best-effort POST — server endpoint validates,
+                            // truncates, and never throws. We don't await
+                            // or surface failures; the toolbar already
+                            // updated optimistically.
+                            try {
+                              fetch('/api/ai/feedback', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({
+                                  rating: value,
+                                  subjectId: subject.id,
+                                  stageIndex: currentStage,
+                                  difficulty,
+                                  sample: plainTextFromHtmlContent(msg.content || '').slice(0, 280),
+                                }),
+                              }).catch(() => {});
+                            } catch { /* swallow */ }
+                          }}
                         />
                       )}
                       {/* Quick-action buttons under the latest AI message — let
@@ -4219,7 +4366,7 @@ function SubjectPathChat({
             onAction={() => setRecordingError(null)}
           />
         )}
-        {/* Pro input (Task #19): mic / image attach / char counter / paste /
+        {/* Pro input: mic / image attach / char counter / paste /
             draft autosave. Ctrl+Enter still sends instantly; Enter alone
             inserts a newline (so multi-line questions stay easy). */}
         <form
@@ -4247,7 +4394,7 @@ function SubjectPathChat({
               type="file"
               accept="image/*"
               className="sr-only"
-              ref={(el) => { (window as any).__nukhbaAttachInput = el; }}
+              ref={fileInputRef}
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) handleAttachImageFile(f);
@@ -4256,7 +4403,7 @@ function SubjectPathChat({
             />
             <button
               type="button"
-              onClick={() => (window as any).__nukhbaAttachInput?.click?.()}
+              onClick={() => fileInputRef.current?.click()}
               disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
               className="input-pro-icon-btn"
               title="إرفاق صورة"
