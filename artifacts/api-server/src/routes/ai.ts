@@ -37,6 +37,7 @@ import {
 } from "../lib/openrouter-generate";
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
+import { writeGemLedger } from "../lib/gem-ledger";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
 import { robustJsonParse } from "../lib/json-repair";
 import { signMasteryToken, verifyMasteryToken, newAttemptId } from "../lib/lab-exam-token";
