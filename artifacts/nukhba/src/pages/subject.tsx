@@ -1586,9 +1586,6 @@ const MessageToolbar = memo(function MessageToolbar({
   }, [content, speaking, ttsAvailable]);
 
   const handleRateClick = useCallback((value: "up" | "down") => {
-    // Toggle off if the student taps the same button twice — the parent's
-    // onRate handler is still notified so it can debounce the duplicate
-    // POST or send a separate "retract" event in the future.
     setRated((prev) => (prev === value ? null : value));
     onRate?.(value);
   }, [onRate]);
@@ -2251,11 +2248,7 @@ function SubjectPathChat({
   const [input, setInput] = useState(() => {
     try { return loadDraft(subject.id); } catch { return ""; }
   });
-  // Optional inline image preview (data URL). Sent ONCE with the next
-  // outgoing /ai/teach request and surfaced to the student as a small
-  // chip in the bubble — but the persisted history stores only a
-  // short `[صورة مرفقة]` placeholder so subsequent turns don't
-  // re-transmit the multi-megabyte data URL on every request.
+  // Inline image preview (data URL). Sent once via sendPayloadOverride; persisted history holds a short placeholder.
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Speech-recognition control: a non-null handle means we're actively
@@ -2661,11 +2654,7 @@ function SubjectPathChat({
     return () => clearTimeout(t);
   }, [pendingTeachStart, isStreaming, chatPhase]);
 
-  // `sendPayloadOverride` lets a caller send a different payload to the
-  // server than what gets persisted in the messages state — used for
-  // image attachments where the multi-MB data URL is sent ONCE with this
-  // turn's request but never written into chat history (which would
-  // bloat localStorage and re-transmit on every subsequent turn).
+  // sendPayloadOverride: server-only payload for this turn (e.g. image data URL); messages state stores `text`.
   const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }, sendPayloadOverride?: string) => {
     // Tracks whether the network/abort path threw so the `finally` block
     // can branch on it without re-inspecting the error. Declared at function
@@ -2705,21 +2694,11 @@ function SubjectPathChat({
         body: JSON.stringify({
           subjectId: subject.id,
           subjectName: subject.name,
-          // The OUTGOING payload (server-only); for image attachments this
-          // contains the inline data URL. The persisted user message in
-          // `messages` is the shorter `text` instead.
+          // For attachments, the data URL goes here once; persisted history holds the short placeholder.
           userMessage: sendPayloadOverride ?? text,
-          // CRITICAL: setMessages above is async, so reading `messages`
-          // here would miss the just-appended user turn. Build the
-          // history snapshot synchronously so the server sees the full
-          // exchange (otherwise the assistant occasionally "forgets" the
-          // very question the student just asked). For the empty-text
-          // (auto-start/restart) path we read from messagesRef instead
-          // of the closed-over `messages`. The last turn uses the
-          // `sendPayloadOverride` (if any) so the server gets the data
-          // URL once; history rows always use the slim `text` form.
+          // History reads from messagesRef (always latest committed) so regenerate's synchronous trim sticks.
           history: text
-            ? [...messages, { role: "user", content: sendPayloadOverride ?? text }]
+            ? [...messagesRef.current, { role: "user", content: sendPayloadOverride ?? text }]
             : messagesRef.current,
           planContext: customPlan,
           stages: usedStages,
@@ -3119,15 +3098,7 @@ function SubjectPathChat({
     const trimmed = input.trim();
     if ((!trimmed && !attachedImage) || isStreaming || sessionPaused) return;
     if (attachedImage) {
-      // Persist a slim placeholder in chat history (no data URL bloat),
-      // but send the FULL image data URL inline with this single request
-      // so the model can see it. Subsequent turns will only see the
-      // placeholder, which is correct: re-transmitting a 2 MB base64 blob
-      // every turn would blow up the request payload and the input-token
-      // bill, and the model has no way to "remember" old images anyway.
-      const visibleText = trimmed
-        ? `📎 [صورة مرفقة]\n\n${trimmed}`
-        : "📎 [صورة مرفقة]";
+      const visibleText = trimmed ? `📎 [صورة مرفقة]\n\n${trimmed}` : "📎 [صورة مرفقة]";
       const outgoingText = trimmed
         ? `![صورة مرفقة من الطالب](${attachedImage})\n\n${trimmed}`
         : `![صورة مرفقة من الطالب](${attachedImage})`;
@@ -3136,19 +3107,11 @@ function SubjectPathChat({
       sendTeachMessage(trimmed);
     }
     setAttachedImage(null);
-    // Clear the persisted draft now that the message is on its way.
     try { clearDraft(subject.id); } catch {}
-    if (inputRef.current) {
-      inputRef.current.style.height = "56px";
-    }
+    if (inputRef.current) inputRef.current.style.height = "56px";
   };
 
-  // ── Per-message regeneration ──────────────────────────────────────────────
-  // Pops the trailing assistant + user pair, then re-sends the user's
-  // text as a fresh turn. Uses messagesRef (kept in sync via useEffect)
-  // so the work happens against the latest committed messages — the old
-  // implementation read from a stale closure and racy setMessages, which
-  // could fork the stream when clicked twice in quick succession.
+  // Trim the trailing assistant + user pair from the latest committed messagesRef, then re-send.
   const handleRegenerateLast = useCallback(() => {
     if (isStreaming || sessionPaused) return;
     const cur = messagesRef.current;
@@ -3159,13 +3122,9 @@ function SubjectPathChat({
     const lastUserText = cur[cut]?.role === "user" ? (cur[cut].content || "") : "";
     if (!lastUserText) return;
     const trimmed = cur.slice(0, cut);
-    setMessages(trimmed);
     messagesRef.current = trimmed;
-    // Defer slightly so React commits the trimmed history before we
-    // append the regenerated user turn (sendTeachMessage reads from
-    // messagesRef on the empty-text path, and from `messages` for the
-    // non-empty path — we want both views consistent).
-    setTimeout(() => sendTeachMessage(lastUserText), 0);
+    setMessages(trimmed);
+    sendTeachMessage(lastUserText);
   }, [isStreaming, sessionPaused]);
 
   // ── Restart current stage ────────────────────────────────────────────────
@@ -3273,20 +3232,52 @@ function SubjectPathChat({
   // Stop recognition if the component unmounts while listening.
   useEffect(() => () => { recordingHandle?.stop(); stopSpeaking(); }, [recordingHandle]);
 
-  // ── Image attach (file + paste) ───────────────────────────────────────────
-  const handleAttachImageFile = useCallback((file: File) => {
-    if (!file || !file.type.startsWith("image/")) return;
-    if (file.size > 4 * 1024 * 1024) {
-      alert("حجم الصورة أكبر من 4MB. اختر صورة أصغر.");
+  // ── File attach (image OR text, plus paste) ──────────────────────────────
+  // Images become an inline preview chip + are sent ONCE via the data URL
+  // override path. Text files have their content extracted client-side and
+  // appended to the textarea so the student can edit before sending —
+  // avoids backend changes and keeps the existing /ai/teach contract.
+  const TEXT_EXTENSIONS = useMemo(
+    () => /\.(txt|md|markdown|csv|tsv|json|log|xml|yaml|yml|ini|conf|sql|html?|css|js|jsx|ts|tsx|py|java|c|h|cpp|cs|go|rb|rs|php|sh|bat)$/i,
+    [],
+  );
+  const handleAttachFile = useCallback((file: File) => {
+    if (!file) return;
+    const isImage = file.type.startsWith("image/");
+    const isText = file.type.startsWith("text/")
+      || file.type === "application/json"
+      || TEXT_EXTENSIONS.test(file.name);
+    if (isImage) {
+      if (file.size > 4 * 1024 * 1024) {
+        alert("حجم الصورة أكبر من 4MB. اختر صورة أصغر.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = typeof reader.result === "string" ? reader.result : "";
+        if (url) setAttachedImage(url);
+      };
+      reader.readAsDataURL(file);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = typeof reader.result === "string" ? reader.result : "";
-      if (url) setAttachedImage(url);
-    };
-    reader.readAsDataURL(file);
-  }, []);
+    if (isText) {
+      if (file.size > 256 * 1024) {
+        alert("الملف النصي أكبر من 256KB. الصق المقتطف الذي تريد سؤال المعلم عنه.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const txt = typeof reader.result === "string" ? reader.result : "";
+        if (!txt) return;
+        const truncated = txt.length > 12000 ? txt.slice(0, 12000) + "\n... [اقتُطع الباقي]" : txt;
+        const block = `📄 محتوى الملف ${file.name}:\n\`\`\`\n${truncated}\n\`\`\`\n\n`;
+        setInput((prev) => (prev ? `${block}${prev}` : `${block}سؤالي عن هذا الملف: `));
+      };
+      reader.readAsText(file);
+      return;
+    }
+    alert("نوع الملف غير مدعوم. ارفع صورة أو ملف نصي (txt, md, json, csv, code...).");
+  }, [TEXT_EXTENSIONS]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (!e.clipboardData) return;
@@ -3295,12 +3286,12 @@ function SubjectPathChat({
         const file = item.getAsFile();
         if (file) {
           e.preventDefault();
-          handleAttachImageFile(file);
+          handleAttachFile(file);
           return;
         }
       }
     }
-  }, [handleAttachImageFile]);
+  }, [handleAttachFile]);
 
   // ── Elapsed session timer ─────────────────────────────────────────────────
   // Starts ticking once the student has at least one user message in the
@@ -3767,11 +3758,7 @@ function SubjectPathChat({
           material-required gate, and the chat never share the screen. */}
       {!needsModeChoice && !needsMaterial && (<>
 
-      {/* Session header: subject name on the right, elapsed
-          timer + drawer toggle + difficulty badge in the middle. Sits
-          ABOVE the mode mini-bar so the most useful at-a-glance info
-          (how long the student has been working, where they are in the
-          path) is the first thing they see. */}
+      {/* Session header: subject name + elapsed timer + drawer toggle + difficulty badge. */}
       {teachingMode && teachingMode !== 'unset' && (
         <div className="shrink-0 px-2.5 sm:px-3 py-1.5 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "linear-gradient(180deg, rgba(245,158,11,0.05), rgba(245,158,11,0.02))", direction: "rtl" }}>
           <div className="min-w-0 flex items-center gap-2">
@@ -4006,14 +3993,13 @@ function SubjectPathChat({
         </div>
       )}
 
-      {/* Personalized learning path — rendered inside a side Drawer rather
-          than inline above the messages, so it stops eating vertical space
-          on phones and no longer obscures the conversation. The drawer
-          slides in from the right (RTL) when the path icon in the header
-          is tapped. */}
+      {/* Personalized learning path — side drawer (RTL right edge) opened from the header path icon. */}
       {chatPhase === 'teaching' && customPlan && (
         <Drawer open={pathDrawerOpen} onOpenChange={setPathDrawerOpen} direction="right">
-          <DrawerContent className="h-full sm:!max-w-md md:!max-w-lg w-full sm:w-[440px] !top-0 !mt-0 !rounded-none !rounded-r-2xl border-l-0 border-r border-white/10 bg-[#0b0d17]" style={{ direction: "rtl" }}>
+          <DrawerContent
+            className="!inset-x-auto !right-0 !left-auto !bottom-0 !top-0 !mt-0 !h-full !rounded-none !rounded-l-2xl border-l border-white/10 border-r-0 bg-[#0b0d17] w-full sm:!w-[440px] md:!w-[480px]"
+            style={{ direction: "rtl" }}
+          >
             <DrawerHeader className="border-b border-white/10 flex-row items-center justify-between gap-2">
               <div>
                 <DrawerTitle className="text-white text-base">مسار التعلّم</DrawerTitle>
@@ -4033,11 +4019,6 @@ function SubjectPathChat({
                 onJumpToStage={(idx, title) => {
                   if (isStreaming || sessionPaused) return;
                   setPathDrawerOpen(false);
-                  // Synthesize a user message asking the teacher to move
-                  // to the requested stage. We don't directly call
-                  // setCurrentStage — the server's [STAGE_DONE] / next
-                  // stage protocol controls the index, and skipping it
-                  // client-side would desync the two views.
                   const text = idx < currentStage
                     ? `أريد مراجعة المرحلة ${idx + 1}: ${title}. ابدأ الشرح من بدايتها.`
                     : `أريد الانتقال إلى المرحلة ${idx + 1}: ${title}. ابدأ شرحها الآن.`;
@@ -4062,11 +4043,7 @@ function SubjectPathChat({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-5 py-4 sm:py-5 relative" ref={scrollRef}>
-        {/* Welcome empty-state — shown when there are no messages yet,
-            the plan is loaded, and the chat isn't gated. The bootstrap
-            effect normally fires within ~50ms of mount and replaces this
-            with a teacher reply, so it's mainly visible on returning-user
-            sessions where the message history was cleared. */}
+        {/* Welcome empty-state — shown when no messages, plan ready, chat ungated. */}
         {messages.length === 0 && !isStreaming && planLoaded && !chatGated && chatPhase !== 'diagnostic' && (
           <WelcomeEmptyState
             subjectName={subject.name}
@@ -4135,20 +4112,13 @@ function SubjectPathChat({
                         onReExplainImage={handleReExplainImage}
                         subjectId={subject.id}
                       />
-                      {/* Per-message action toolbar — copy / regen / TTS /
-                          rate / share. Hidden on the streaming bubble since
-                          the content is still arriving; appears once the
-                          last AI message has finished. */}
+                      {/* Per-message toolbar (copy/regen/TTS/rate/share) — hidden while streaming. */}
                       {!(isStreaming && isLastMsg) && msg.role === 'assistant' && (msg.content || '').length > 0 && (
                         <MessageToolbar
                           content={msg.content}
                           onRegenerate={handleRegenerateLast}
                           canRegenerate={isLastMsg && !isStreaming && !sessionPaused}
                           onRate={(value) => {
-                            // Best-effort POST — server endpoint validates,
-                            // truncates, and never throws. We don't await
-                            // or surface failures; the toolbar already
-                            // updated optimistically.
                             try {
                               fetch('/api/ai/feedback', {
                                 method: 'POST',
@@ -4162,7 +4132,7 @@ function SubjectPathChat({
                                   sample: plainTextFromHtmlContent(msg.content || '').slice(0, 280),
                                 }),
                               }).catch(() => {});
-                            } catch { /* swallow */ }
+                            } catch {}
                           }}
                         />
                       )}
@@ -4366,9 +4336,7 @@ function SubjectPathChat({
             onAction={() => setRecordingError(null)}
           />
         )}
-        {/* Pro input: mic / image attach / char counter / paste /
-            draft autosave. Ctrl+Enter still sends instantly; Enter alone
-            inserts a newline (so multi-line questions stay easy). */}
+        {/* Pro input: mic / file attach / char counter / paste / draft autosave. Ctrl+Enter sends. */}
         <form
           className="max-w-2xl mx-auto flex flex-col gap-1.5"
           onSubmit={(e) => { e.preventDefault(); handleSend(); }}
@@ -4392,12 +4360,12 @@ function SubjectPathChat({
             {/* Hidden file input — triggered by the attach button */}
             <input
               type="file"
-              accept="image/*"
+              accept="image/*,text/*,.txt,.md,.markdown,.csv,.tsv,.json,.log,.xml,.yaml,.yml,.ini,.conf,.sql,.html,.htm,.css,.js,.jsx,.ts,.tsx,.py,.java,.c,.h,.cpp,.cs,.go,.rb,.rs,.php,.sh,.bat"
               className="sr-only"
               ref={fileInputRef}
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) handleAttachImageFile(f);
+                if (f) handleAttachFile(f);
                 e.target.value = "";
               }}
             />
@@ -4406,8 +4374,8 @@ function SubjectPathChat({
               onClick={() => fileInputRef.current?.click()}
               disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
               className="input-pro-icon-btn"
-              title="إرفاق صورة"
-              aria-label="إرفاق صورة"
+              title="إرفاق صورة أو ملف نصي"
+              aria-label="إرفاق ملف"
             >
               <ImagePlus className="w-4 h-4" />
             </button>
