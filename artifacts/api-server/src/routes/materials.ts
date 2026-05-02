@@ -1806,7 +1806,15 @@ export async function searchMaterialChunks(
   // FTS pass — rank by ts_rank against the Arabic-normalized column. The
   // COALESCE keeps legacy rows (where content_normalized may be NULL until
   // the first reprocess) searchable via the raw `content`.
-  const tsQueryStr = tokens.map((t) => t.replace(/['\\]/g, "")).filter(Boolean).join(" | ");
+  // Append `:*` to every token so tsquery does prefix matching — covers
+  // remaining Arabic morphology that the stem heuristic misses (e.g.
+  // verb conjugations on a noun stem). Quotes/backslashes stripped to
+  // keep the literal safe inside the binding.
+  const tsQueryStr = tokens
+    .map((t) => t.replace(/['\\:*&|!()]/g, ""))
+    .filter(Boolean)
+    .map((t) => `${t}:*`)
+    .join(" | ");
   let rows: { pageNumber: number; chunkIndex: number; content: string; score: number }[] = [];
   if (tsQueryStr) {
     try {
@@ -2465,11 +2473,22 @@ async function generateStructuredChapters(
         backChars += blocks[backIdx].len;
       }
       i = backIdx;
-      // Safety cap to bound rate-limit/cost. With ~70k chars per window plus
-      // 5k overlap, 12 windows ≈ 780k chars of source text — enough to cover
-      // a 600-page Arabic textbook end-to-end (the task's stated ceiling).
-      if (windows.length >= 12) break;
+      // Safety cap. A 600-page Arabic textbook OCR'd at ~3.5k chars/page
+      // is ≈ 2.1M chars; with 70k/window minus 5k overlap that's ≈ 32
+      // windows. 64 doubles that for image-heavy or formula-dense scans.
+      if (windows.length >= 64) break;
     }
+  }
+  // If the windowing loop terminated before consuming every block, record
+  // the skipped page range so the caller can expose it to the user.
+  const lastWindow = windows[windows.length - 1];
+  const lastBlockPage = blocks[blocks.length - 1]?.page ?? 0;
+  if (lastWindow && lastBlockPage > lastWindow.endPage) {
+    console.warn("[structured-outline] window cap reached; pages not analyzed", {
+      windows: windows.length,
+      lastAnalyzedPage: lastWindow.endPage,
+      lastDocPage: lastBlockPage,
+    });
   }
 
   const langWord = language === "ar" ? "العربية" : "الإنجليزية";

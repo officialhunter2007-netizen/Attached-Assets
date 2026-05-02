@@ -24,15 +24,6 @@ export const courseMaterialsTable = pgTable("course_materials", {
   structuredOutline: text("structured_outline"),
   summary: text("summary"),
   starters: text("starters"),
-  // Professor-mode pro fields (Task #22):
-  //   * printedPageOffset: detected delta between PDF page and the page
-  //     number printed in the book's footer (cover + ToC offset).
-  //   * role: 'primary' (the active source) or 'reference' (supplementary;
-  //     not the chapter-anchor but its top FTS snippets are surfaced).
-  //   * coverageStatus: 'ok' / 'partial' / 'failed' — surfaces in the UI
-  //     so the student knows when a chunk of the book wasn't OCR'd.
-  //   * processingMetrics: opaque JSON for telemetry (extract/ocr/outline
-  //     timings, retry counts, model used). Not user-facing.
   printedPageOffset: integer("printed_page_offset").notNull().default(0),
   role: text("role").notNull().default("primary"),
   coverageStatus: text("coverage_status").notNull().default("ok"),

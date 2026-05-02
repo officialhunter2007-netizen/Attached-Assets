@@ -48,11 +48,41 @@ export function normalizeArabic(input: string): string {
   return s;
 }
 
+// Common single-letter Arabic clitics (conjunctions/prepositions) that fuse
+// onto the front of a noun: و (and), ف (then), ب (with/in), ل (for/to),
+// ك (like), س (will). These must be peeled BEFORE the "ال" article so a
+// query like "بالذرات" reduces through "الذرات" → "ذرات" → stem "ذر".
+const LEADING_CLITICS = ["و", "ف", "ب", "ل", "ك", "س"];
+// Common Arabic noun/verb suffixes — possessives, plural & feminine markers.
+// Order matters: longer suffixes first so "ـات" doesn't get truncated by "ـة".
+const TRAILING_SUFFIXES = ["ات", "ون", "ين", "ان", "ها", "هم", "هن", "نا", "كم", "كن", "تم", "تن", "ة", "ه", "ي", "ا"];
+
+function stripArabicClitics(tok: string): string {
+  let s = tok;
+  for (const c of LEADING_CLITICS) {
+    if (s.startsWith(c) && s.length > c.length + 2) {
+      s = s.slice(c.length);
+      break;
+    }
+  }
+  if (s.startsWith("ال") && s.length >= 4) s = s.slice(2);
+  return s;
+}
+
+function stripArabicSuffix(tok: string): string {
+  for (const sfx of TRAILING_SUFFIXES) {
+    if (tok.endsWith(sfx) && tok.length - sfx.length >= 3) return tok.slice(0, -sfx.length);
+  }
+  return tok;
+}
+
 /**
  * Normalize a query string and split into tokens suitable for to_tsquery.
  * Strips short tokens, dedupes, and limits to the top 12 most distinctive.
- * The optional al- prefix on Arabic nouns is removed so "الفصل" matches
- * "فصل" (frequent in PDFs that drop the article in section headers).
+ * For each token we also emit a stem (clitic-stripped, suffix-stripped)
+ * variant so a search for "الذرة" matches "بالذرات", "ذرات", "ذرتها", etc.
+ * Tokens are returned WITHOUT a tsquery prefix marker — the caller decides
+ * whether to append `:*`.
  */
 export function normalizeQueryTokens(query: string, opts: { stripAl?: boolean } = {}): string[] {
   const stripAl = opts.stripAl ?? true;
@@ -61,25 +91,24 @@ export function normalizeQueryTokens(query: string, opts: { stripAl?: boolean } 
   const raw = normalized.split(/[^\p{L}\p{N}]+/u);
   const out: string[] = [];
   const seen = new Set<string>();
+  const push = (val: string) => {
+    if (val.length < 2 || seen.has(val)) return;
+    seen.add(val);
+    out.push(val);
+  };
   for (const t of raw) {
-    let tok = t.trim();
+    const tok = t.trim();
     if (tok.length < 2) continue;
-    if (stripAl && /^ال/.test(tok) && tok.length >= 4) {
-      // Strip definite article "ال" only when the result is still meaningful
-      // (>=2 chars). "الـ" by itself becomes empty and is dropped above.
-      const stripped = tok.slice(2);
-      if (stripped.length >= 2 && !seen.has(stripped)) {
-        seen.add(stripped);
-        out.push(stripped);
-      }
-    }
-    if (!seen.has(tok)) {
-      seen.add(tok);
-      out.push(tok);
+    push(tok);
+    if (stripAl) {
+      const noClitic = stripArabicClitics(tok);
+      if (noClitic !== tok) push(noClitic);
+      const stem = stripArabicSuffix(noClitic);
+      if (stem !== noClitic && stem.length >= 3) push(stem);
     }
     if (out.length >= 24) break;
   }
-  return out.slice(0, 12);
+  return out.slice(0, 16);
 }
 
 /**
