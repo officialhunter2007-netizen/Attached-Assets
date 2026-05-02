@@ -1377,7 +1377,7 @@ function extractAskOptions(content: string): { stripped: string; ask: { question
 type TeacherImageState = { status: 'loading' | 'ready' | 'error'; url?: string };
 type TeacherImageMap = Map<string, TeacherImageState>;
 
-const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap }) {
+const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onImageTimeout }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onImageTimeout?: (id: string) => void }) {
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -1441,125 +1441,157 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
 
   // ── Teacher-image figure updater ──────────────────────────────────────────
   // dangerouslySetInnerHTML rebuilds the figure markup on every chunk during
-  // streaming, blowing away any <img> we previously injected. So we re-walk
-  // the DOM after every render and reconcile each figure's contents with
-  // the latest `imageMap` state. Cheap (≤3 figures per message in practice).
-  // Tracks figure ids that have already shown their final state so we can
-  // ignore late SSE updates after a local-timeout fallback fired (and avoid
-  // surfacing a "fixed" image once the user has seen the error message).
-  const localTimedOutRef = useRef<Set<string>>(new Set());
-  // For each figure currently in `loading`, schedule a 10s local timeout
-  // that flips it to `error` if neither `imageReady` nor `imageError` SSE
-  // event has resolved it. This is a safety net for the bug reported in
-  // task #15 where the spinner was hanging indefinitely — even if the
-  // SSE stream silently drops the terminal event (network blip, proxy
-  // buffering, server crash), the user always gets a clear answer in
-  // ≤10s instead of an infinite spinner.
+  // streaming and once more when the message stops streaming (the
+  // `safeRef.current` switchover). Each rebuild blows away whatever <img>
+  // or error UI we previously injected. So we re-walk the DOM after every
+  // render and reconcile each figure's contents with the latest `imageMap`
+  // state — which is the persistent source of truth. Cheap (≤3 figures
+  // per message in practice).
+  //
+  // The 10-second local timeout (safety net for the stuck-spinner bug
+  // reported in task #15) calls `onImageTimeout(id)` so the parent flips
+  // imageMap[id] to {status:'error'}. This is critical: mutating the DOM
+  // alone would be undone on the very next render. By updating React
+  // state, the error survives all subsequent re-renders (including the
+  // streaming → final swap) because every render of the effect sees
+  // `state.status === 'error'` and re-applies the error UI.
   const localTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
     if (!containerRef.current) return;
     const root = containerRef.current;
+
+    // ── Step 1: adopt sibling <figcaption class="image-caption"> ─────────
+    // The teacher emits `[[IMAGE:hex]]` followed by a sibling `<figcaption
+    // class="image-caption">…</figcaption>`. After our renderImageMarkers
+    // + marked + DOMPurify pipeline, the caption ends up as a *sibling*
+    // of the <figure>, not a child. We move it inside so:
+    //   (a) `.teach-image figcaption.image-caption` CSS rules apply.
+    //   (b) Two consecutive image+caption pairs become directly adjacent
+    //       <figure>+<figure>, which lets the `.teach-image + .teach-image`
+    //       desktop side-by-side rule fire for Compare/Contrast.
+    // marked sometimes wraps the figcaption in a stray <p> when it sits
+    // alone on a line; we unwrap that case.
+    const figuresForAdoption = root.querySelectorAll<HTMLElement>('figure[data-image-id]');
+    figuresForAdoption.forEach((fig) => {
+      // Already has its own caption? Done.
+      if (fig.querySelector(':scope > figcaption.image-caption')) return;
+      let next = fig.nextElementSibling as HTMLElement | null;
+      let captionEl: HTMLElement | null = null;
+      let wrapperToCleanup: HTMLElement | null = null;
+      if (next) {
+        if (next.tagName === 'FIGCAPTION' && next.classList.contains('image-caption')) {
+          captionEl = next;
+        } else if (
+          next.tagName === 'P' &&
+          next.children.length === 1 &&
+          next.firstElementChild instanceof HTMLElement &&
+          next.firstElementChild.tagName === 'FIGCAPTION' &&
+          next.firstElementChild.classList.contains('image-caption')
+        ) {
+          captionEl = next.firstElementChild as HTMLElement;
+          wrapperToCleanup = next;
+        }
+      }
+      if (captionEl) {
+        fig.appendChild(captionEl);
+        if (wrapperToCleanup && wrapperToCleanup.children.length === 0 && !wrapperToCleanup.textContent?.trim()) {
+          wrapperToCleanup.remove();
+        }
+      }
+    });
+
+    // ── Step 2: reconcile each figure with imageMap state ────────────────
     const figures = root.querySelectorAll<HTMLElement>('figure[data-image-id]');
     figures.forEach((fig) => {
       const id = fig.getAttribute('data-image-id') || '';
       if (!id) return;
       const state = imageMap?.get(id);
-      // Image-bearing img.onerror fallback for historical figures whose
-      // CDN URL has expired — surface the same friendly error message
-      // instead of a broken-image icon.
-      const existingImg = fig.querySelector('img') as HTMLImageElement | null;
-      if (existingImg && !existingImg.onerror) {
-        existingImg.onerror = () => {
-          console.debug('[teach-image] img onerror fallback', { id, src: existingImg.src.slice(0, 80) });
-          fig.classList.remove('teach-image-loading', 'teach-image-ready');
-          fig.classList.add('teach-image-error');
-          fig.innerHTML = '<div class="teach-image-fail">⚠️ انتهت صلاحية رابط الصورة — أعد فتح الجلسة.</div>';
-        };
-      }
-      if (!state) {
-        // Figure exists but no map entry yet (race between marker arriving
-        // in DOM and placeholder SSE event). Schedule local timeout
-        // anyway — keyed on the first sighting of the id.
-        if (!localTimersRef.current.has(id) && !localTimedOutRef.current.has(id)) {
+
+      // Helper: clear figure body but preserve any adopted caption.
+      const clearBodyKeepCaption = (): HTMLElement | null => {
+        const cap = fig.querySelector(':scope > figcaption.image-caption') as HTMLElement | null;
+        while (fig.firstChild) fig.removeChild(fig.firstChild);
+        return cap;
+      };
+
+      if (!state || state.status === 'loading') {
+        // Schedule a local 10s safety-net timer once for this figure id.
+        // Even if the placeholder SSE event hasn't arrived yet (race
+        // between the marker landing in the DOM and the SSE event),
+        // we still want a guaranteed resolution within 10s.
+        if (!localTimersRef.current.has(id)) {
           const timer = setTimeout(() => {
-            if (localTimedOutRef.current.has(id)) return;
             console.debug('[teach-image] local timeout fired', { id });
-            localTimedOutRef.current.add(id);
-            const liveFig = root.querySelector<HTMLElement>(`figure[data-image-id="${id}"]`);
-            if (liveFig && !liveFig.classList.contains('teach-image-ready')) {
-              liveFig.classList.remove('teach-image-loading');
-              liveFig.classList.add('teach-image-error');
-              liveFig.innerHTML = '<div class="teach-image-fail">⚠️ تعذّر توليد الصورة — أكمل القراءة.</div>';
-            }
+            localTimersRef.current.delete(id);
+            // Mutate React state so the error survives re-renders.
+            // The parent's onImageTimeout handler is idempotent and
+            // refuses to clobber a state that is already `ready`.
+            onImageTimeout?.(id);
           }, 10_000);
           localTimersRef.current.set(id, timer);
         }
         return;
       }
+
       if (state.status === 'ready' && state.url) {
-        // Skip if the same URL is already rendered (avoids a flicker on
-        // every chunk during streaming).
-        const existing = fig.querySelector('img') as HTMLImageElement | null;
-        if (existing && existing.src === state.url) return;
-        // Cancel any pending local timeout for this id.
+        // Cancel any pending timer.
         const t = localTimersRef.current.get(id);
         if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
-        if (localTimedOutRef.current.has(id)) {
-          // We already showed the error; don't undo it on a late arrival.
-          console.debug('[teach-image] late ready ignored (already timed out)', { id });
-          return;
-        }
+        // Skip if the same URL is already rendered.
+        const existingImg = fig.querySelector(':scope > img') as HTMLImageElement | null;
+        if (existingImg && existingImg.src === state.url && fig.classList.contains('teach-image-ready')) return;
+
         console.debug('[teach-image] figure upgraded to ready', { id });
-        fig.classList.remove('teach-image-loading');
-        fig.classList.add('teach-image-ready');
-        fig.innerHTML = '';
+        const cap = clearBodyKeepCaption();
         const img = document.createElement('img');
         img.src = state.url;
         img.alt = 'صورة توضيحية';
         img.loading = 'lazy';
         img.onerror = () => {
-          console.debug('[teach-image] img onerror fallback', { id });
-          fig.classList.remove('teach-image-ready');
+          console.debug('[teach-image] img onerror fallback', { id, src: img.src.slice(0, 80) });
+          const cap2 = clearBodyKeepCaption();
+          const fail = document.createElement('div');
+          fail.className = 'teach-image-fail';
+          fail.textContent = '⚠️ انتهت صلاحية رابط الصورة — أعد فتح الجلسة.';
+          fig.appendChild(fail);
+          if (cap2) fig.appendChild(cap2);
+          fig.classList.remove('teach-image-ready', 'teach-image-loading');
           fig.classList.add('teach-image-error');
-          fig.innerHTML = '<div class="teach-image-fail">⚠️ انتهت صلاحية رابط الصورة — أعد فتح الجلسة.</div>';
         };
         fig.appendChild(img);
-      } else if (state.status === 'error') {
-        if (fig.classList.contains('teach-image-error')) return;
+        if (cap) fig.appendChild(cap);
+        fig.classList.remove('teach-image-loading', 'teach-image-error');
+        fig.classList.add('teach-image-ready');
+        return;
+      }
+
+      if (state.status === 'error') {
         const t = localTimersRef.current.get(id);
         if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
-        localTimedOutRef.current.add(id);
+        // Skip if already showing error (and no spinner remains).
+        if (fig.classList.contains('teach-image-error') && !fig.querySelector(':scope > .teach-image-spinner')) return;
+
         console.debug('[teach-image] figure upgraded to error', { id });
-        fig.classList.remove('teach-image-loading');
+        const cap = clearBodyKeepCaption();
+        const fail = document.createElement('div');
+        fail.className = 'teach-image-fail';
+        fail.textContent = '⚠️ تعذّر توليد الصورة — أكمل القراءة.';
+        fig.appendChild(fail);
+        if (cap) fig.appendChild(cap);
+        fig.classList.remove('teach-image-loading', 'teach-image-ready');
         fig.classList.add('teach-image-error');
-        fig.innerHTML = '<div class="teach-image-fail">⚠️ تعذّر توليد الصورة — أكمل القراءة.</div>';
-      } else if (state.status === 'loading') {
-        // Schedule local timeout if not already scheduled.
-        if (!localTimersRef.current.has(id) && !localTimedOutRef.current.has(id)) {
-          const timer = setTimeout(() => {
-            if (localTimedOutRef.current.has(id)) return;
-            console.debug('[teach-image] local timeout fired', { id });
-            localTimedOutRef.current.add(id);
-            const liveFig = root.querySelector<HTMLElement>(`figure[data-image-id="${id}"]`);
-            if (liveFig && !liveFig.classList.contains('teach-image-ready')) {
-              liveFig.classList.remove('teach-image-loading');
-              liveFig.classList.add('teach-image-error');
-              liveFig.innerHTML = '<div class="teach-image-fail">⚠️ تعذّر توليد الصورة — أكمل القراءة.</div>';
-            }
-          }, 10_000);
-          localTimersRef.current.set(id, timer);
-        }
       }
     });
-  }, [displayHtml, imageMap]);
+  }, [displayHtml, imageMap, onImageTimeout]);
 
   // Cleanup local timers on unmount so timers don't fire after the user
   // navigates away from the session.
   useEffect(() => {
+    const timers = localTimersRef.current;
     return () => {
-      localTimersRef.current.forEach((t) => clearTimeout(t));
-      localTimersRef.current.clear();
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
     };
   }, []);
 
@@ -1773,6 +1805,25 @@ function SubjectPathChat({
   // arrive. Not persisted — fal.ai URLs expire and historical messages
   // already store a `<p class="image-historical">` stub (server side).
   const [imageMap, setImageMap] = useState<TeacherImageMap>(() => new Map());
+  // Local 10s safety-net timeout fires from inside AIMessage when neither
+  // imageReady nor imageError SSE events arrived in time. Flipping
+  // imageMap to `error` here (rather than mutating the DOM inside the
+  // child) is what makes the error survive every subsequent render —
+  // including the streaming → final `safeRef.current` swap that rebuilds
+  // the figure markup from scratch.
+  const handleImageTimeout = useCallback((id: string) => {
+    setImageMap(prev => {
+      const cur = prev.get(id);
+      // Don't clobber a successful resolution that raced and won.
+      if (cur && cur.status === 'ready') return prev;
+      // Idempotent — already error, no change.
+      if (cur && cur.status === 'error') return prev;
+      console.debug('[teach-image] state → error (local timeout)', { id });
+      const next = new Map(prev);
+      next.set(id, { status: 'error' });
+      return next;
+    });
+  }, []);
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
   const [countdownExpired, setCountdownExpired] = useState(false);
   // Bumped every time the student clicks "ابدأ الجلسة التالية الآن" so the
@@ -2367,6 +2418,16 @@ function SubjectPathChat({
               const url = String(data.imageReady.url);
               console.debug('[teach-image] ready received', { id, url: url.slice(0, 80) });
               setImageMap(prev => {
+                const cur = prev.get(id);
+                // If the local 10s timeout already flipped this id to
+                // `error`, the user has already seen the friendly fail
+                // message — don't suddenly resurrect a successful image
+                // (would be confusing and break the contract that the
+                // bubble resolves within 10s).
+                if (cur && cur.status === 'error') {
+                  console.debug('[teach-image] late ready ignored (already errored)', { id });
+                  return prev;
+                }
                 const next = new Map(prev);
                 next.set(id, { status: 'ready', url });
                 return next;
@@ -3183,6 +3244,7 @@ function SubjectPathChat({
                         onCreateLabEnv={onCreateLabEnv}
                         onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
                         imageMap={imageMap}
+                        onImageTimeout={handleImageTimeout}
                       />
                       {/* Quick-action buttons under the latest AI message — let
                           the student ask for help in one tap. Only on the last
