@@ -223,7 +223,50 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE INDEX IF NOT EXISTS "teacher_feedback_rating_idx" ON "teacher_feedback" ("rating", "created_at")`,
     ],
   },
+  {
+    // Per-page OCR / extraction status for the professor-mode "where did the
+    // text go?" debugger and the new retry endpoint. One row per
+    // (material_id, page_number); status is one of 'ok' / 'failed' /
+    // 'low_confidence'. The unique index lets the OCR pipeline upsert by
+    // (material_id, page_number) without a select-then-insert race.
+    table: "material_page_status",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "material_page_status" (
+        "id" serial PRIMARY KEY,
+        "material_id" integer NOT NULL,
+        "page_number" integer NOT NULL,
+        "status" text NOT NULL DEFAULT 'ok',
+        "attempts" integer NOT NULL DEFAULT 1,
+        "last_provider" text,
+        "error_message" text,
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "material_page_status_material_page_idx" ON "material_page_status" ("material_id", "page_number")`,
+      `CREATE INDEX IF NOT EXISTS "material_page_status_status_idx" ON "material_page_status" ("material_id", "status")`,
+    ],
+  },
 ];
+
+// Best-effort: ensure the FTS index over `material_chunks.content_normalized`
+// exists. We don't gate on the column existing — auto-migrate adds the
+// column first via REQUIRED_COLUMNS, and the GIN index creation below uses
+// IF NOT EXISTS so re-runs are idempotent. Wrapped in a try/catch so a stale
+// schema (column missing on a half-migrated DB) doesn't crash startup.
+async function ensureNormalizedFtsIndex(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "material_chunks_normalized_fts_idx"
+      ON "material_chunks" USING GIN (to_tsvector('simple', COALESCE("content_normalized", "content")))
+    `);
+  } catch (err: any) {
+    logger.warn(
+      { err: err?.message },
+      "auto-migrate: failed to create material_chunks_normalized_fts_idx (will be retried next boot)",
+    );
+  }
+}
 
 // Default prices used to seed `plan_prices` on first boot only. Subsequent
 // boots NEVER overwrite admin edits — we use ON CONFLICT DO NOTHING so the
@@ -292,6 +335,18 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     table: "course_materials",
     columns: [
       { name: "structured_outline", ddl: "text" },
+      // Task #22 — professor-mode pro additions.
+      { name: "printed_page_offset", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "role", ddl: "text NOT NULL DEFAULT 'primary'" },
+      { name: "coverage_status", ddl: "text NOT NULL DEFAULT 'ok'" },
+      { name: "processing_metrics", ddl: "text" },
+    ],
+  },
+  {
+    table: "material_chunks",
+    columns: [
+      // Arabic-normalized search column (Task #22).
+      { name: "content_normalized", ddl: "text" },
     ],
   },
   {
@@ -493,6 +548,8 @@ export async function runStartupMigrations(): Promise<void> {
     await seedPlanPrices();
     await seedPaymentSettings();
     const { added, errors } = await ensureRequiredColumns();
+    // FTS index depends on `content_normalized` column existing — order matters.
+    await ensureNormalizedFtsIndex();
     const ms = Date.now() - start;
     if (added.length === 0 && errors.length === 0) {
       logger.info({ ms }, "auto-migrate: schema is up to date");

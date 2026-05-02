@@ -24,6 +24,19 @@ export const courseMaterialsTable = pgTable("course_materials", {
   structuredOutline: text("structured_outline"),
   summary: text("summary"),
   starters: text("starters"),
+  // Professor-mode pro fields (Task #22):
+  //   * printedPageOffset: detected delta between PDF page and the page
+  //     number printed in the book's footer (cover + ToC offset).
+  //   * role: 'primary' (the active source) or 'reference' (supplementary;
+  //     not the chapter-anchor but its top FTS snippets are surfaced).
+  //   * coverageStatus: 'ok' / 'partial' / 'failed' — surfaces in the UI
+  //     so the student knows when a chunk of the book wasn't OCR'd.
+  //   * processingMetrics: opaque JSON for telemetry (extract/ocr/outline
+  //     timings, retry counts, model used). Not user-facing.
+  printedPageOffset: integer("printed_page_offset").notNull().default(0),
+  role: text("role").notNull().default("primary"),
+  coverageStatus: text("coverage_status").notNull().default("ok"),
+  processingMetrics: text("processing_metrics"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -76,6 +89,11 @@ export const materialChunksTable = pgTable("material_chunks", {
   pageNumber: integer("page_number").notNull(),
   chunkIndex: integer("chunk_index").notNull().default(0),
   content: text("content").notNull(),
+  // Arabic-normalized version of `content` for FTS — alef variants unified,
+  // diacritics stripped, Arabic-Indic digits → ASCII. The tsvector index
+  // (built in auto-migrate) targets this column so search queries run
+  // through the same normalize() function find the right rows.
+  contentNormalized: text("content_normalized"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("material_chunks_material_idx").on(t.materialId),
@@ -85,6 +103,28 @@ export const materialChunksTable = pgTable("material_chunks", {
 export const insertMaterialChunkSchema = createInsertSchema(materialChunksTable).omit({ id: true, createdAt: true });
 export type InsertMaterialChunk = z.infer<typeof insertMaterialChunkSchema>;
 export type MaterialChunk = typeof materialChunksTable.$inferSelect;
+
+// Per-page OCR/extraction status for partial-coverage tracking and retry.
+// One row per (materialId, pageNumber). Status is one of:
+//   * 'ok'              — text was extracted (native or OCR) successfully
+//   * 'failed'          — OCR returned nothing usable; retry candidate
+//   * 'low_confidence'  — text returned but unusually short/garbled
+// `lastProvider` records which OCR provider answered last so retry can
+// try a *different* one rather than re-hammering the same failed one.
+export const materialPageStatusTable = pgTable("material_page_status", {
+  id: serial("id").primaryKey(),
+  materialId: integer("material_id").notNull(),
+  pageNumber: integer("page_number").notNull(),
+  status: text("status").notNull().default("ok"),
+  attempts: integer("attempts").notNull().default(1),
+  lastProvider: text("last_provider"),
+  errorMessage: text("error_message"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("material_page_status_material_page_idx").on(t.materialId, t.pageNumber),
+]);
+
+export type MaterialPageStatus = typeof materialPageStatusTable.$inferSelect;
 
 // Stores the raw PDF bytes for a course material. Kept in a separate table so
 // the bytea column (which can be tens of MB) is never accidentally pulled into

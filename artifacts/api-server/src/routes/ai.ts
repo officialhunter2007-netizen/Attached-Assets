@@ -62,6 +62,7 @@ import {
   loadProgress,
   advanceActiveMaterialChapter,
   searchMaterialChunks,
+  searchAcrossMaterials,
   getMaterialOpeningPages,
   safeParseStructuredOutline,
   getChapterChunksByPageRange,
@@ -69,6 +70,7 @@ import {
   markPointsCovered,
   type StructuredChapter,
 } from "./materials";
+import { courseMaterialsTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
@@ -1880,6 +1882,34 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           const toAsciiDigits = (s: string) => s.replace(/[\u0660-\u0669]/g, (d) =>
             String(d.charCodeAt(0) - 0x0660));
           const q = toAsciiDigits(queryText);
+          // Chapter REVIEW intent — student explicitly wants to revisit a
+          // previously taught chapter (or jump back/forward by one). Matched
+          // BEFORE the generic chapterRefMatch so we can flag it as a review
+          // pass that must NOT mark new POINT_DONE coverage.
+          //
+          //   راجع الفصل 2 / ارجع للفصل 3 / مراجعة الفصل 4
+          //   ارجع للفصل السابق / الفصل اللي قبل
+          //   اقفز للفصل التالي / الفصل الجاي
+          let reviewMatchIdx = -1;
+          let isReviewing = false;
+          if (structuredChapters.length > 0) {
+            const reviewNumeric = q.match(/(?:راج[عِ]?|ارجع|مراجعة|review)[^0-9]{0,40}(?:الفصل|chapter|باب|الباب)\s*(?:رقم\s*)?(\d{1,3})/i);
+            if (reviewNumeric) {
+              const n = Number(reviewNumeric[1]);
+              if (n >= 1 && n <= structuredChapters.length) {
+                reviewMatchIdx = n - 1;
+                isReviewing = true;
+              }
+            } else if (/(?:ارجع|راجع|للوراء)[^0-9]{0,30}(?:الفصل\s*السابق|للسابق|اللي\s*قبل|previous)/i.test(q)) {
+              const cur = (ctx as any).__progress?.currentChapterIndex ?? 0;
+              if (cur > 0) { reviewMatchIdx = cur - 1; isReviewing = true; }
+            } else if (/(?:اقفز|تخط[ىي]?|انتقل|skip|jump)[^0-9]{0,30}(?:الفصل\s*التالي|للتالي|الجاي|next)/i.test(q)) {
+              const cur = (ctx as any).__progress?.currentChapterIndex ?? 0;
+              if (cur + 1 < structuredChapters.length) { reviewMatchIdx = cur + 1; isReviewing = true; }
+            }
+          }
+          (ctx as any).__isReviewing = isReviewing;
+
           const chapterRefMatch = q.match(/(?:الفصل|chapter|باب|الباب)\s*(?:رقم\s*)?(\d{1,3})/i);
           // Page references: "صفحة 12" / "صفحه 12" / "ص.12" / "ص 12" / "ص12"
           // and English "page 12" / "p.12" / "p 12" / "pg 12". Word-boundary on
@@ -1889,8 +1919,12 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           );
 
           // Resolve which chapter (if any) the student is asking about.
+          // Review intent wins over a generic chapter mention so "راجع الفصل 2"
+          // beats a side-mention of a different chapter number in the same line.
           let targetChapterIdx = -1;
-          if (chapterRefMatch && structuredChapters.length > 0) {
+          if (reviewMatchIdx >= 0) {
+            targetChapterIdx = reviewMatchIdx;
+          } else if (chapterRefMatch && structuredChapters.length > 0) {
             const n = Number(chapterRefMatch[1]);
             if (n >= 1 && n <= structuredChapters.length) targetChapterIdx = n - 1;
           }
@@ -1905,6 +1939,19 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           } else if (structuredChapters.length > 0 && prog && prog.chapters.length > 0) {
             activeChapterIdx = Math.min(prog.currentChapterIndex, structuredChapters.length - 1);
             activeChapter = structuredChapters[activeChapterIdx];
+          }
+
+          // When reviewing, prepend a clear note so the model knows not to
+          // emit fresh [POINT_DONE] tags for already-covered points.
+          if (isReviewing && activeChapter) {
+            chapterChecklistBlock += `
+
+— وضع المراجعة لهذا الفصل —
+الطالب يطلب مراجعة الفصل رقم ${activeChapterIdx + 1}: "${activeChapter.title}". هذه ليست جلسة تدريس جديدة:
+- اشرح بإيجاز محاور الفصل ثم اطرح سؤالاً يقيس ما يتذكّره الطالب.
+- لا تضع [POINT_DONE:N] في هذه المراجعة (النقاط مُغطّاة سابقاً) إلا إذا قال الطالب صراحةً "أعد تسجيل تغطية هذه النقطة".
+- لا تضع [STAGE_COMPLETE] في جلسة مراجعة.
+`;
           }
 
           if (activeChapter && activeChapter.startPage && activeChapter.endPage) {
@@ -2014,6 +2061,59 @@ ${formatted}
 <material_content>
 ${formatted}
 </material_content>`;
+            }
+          }
+
+          // ── Layer 4: reference-role companion books ───────────────────
+          // Other materials in the same subject that the student tagged as
+          // `role='reference'` get their top-2 FTS snippets surfaced here
+          // as supplementary citations. Soft-fails: if there are no
+          // reference materials, or the FTS misses, we just skip silently.
+          if (queryText.length >= 3 && subjectId) {
+            try {
+              const refRows = await db
+                .select({ id: courseMaterialsTable.id, fileName: courseMaterialsTable.fileName })
+                .from(courseMaterialsTable)
+                .where(and(
+                  eq(courseMaterialsTable.userId, userId),
+                  eq(courseMaterialsTable.subjectId, subjectId),
+                  eq(courseMaterialsTable.role, "reference"),
+                  ne(courseMaterialsTable.id, m.id),
+                ))
+                .limit(4);
+              if (refRows.length > 0) {
+                const nameById = new Map(refRows.map((r) => [r.id, r.fileName]));
+                const refHits = await searchAcrossMaterials(
+                  refRows.map((r) => r.id),
+                  queryText,
+                  2,
+                );
+                if (refHits.length > 0) {
+                  // Cap total reference text to ~6k chars so the primary
+                  // chapter content keeps priority in the prompt budget.
+                  let used = 0;
+                  const lines: string[] = [];
+                  for (const h of refHits) {
+                    const name = nameById.get(h.materialId) ?? `مرجع #${h.materialId}`;
+                    const snippet = h.content.replace(/<\/?material_content>/gi, "").slice(0, 1200);
+                    if (used + snippet.length > 6000) break;
+                    lines.push(`[مرجع: ${name} — صفحة ${h.pageNumber}]\n${snippet}`);
+                    used += snippet.length;
+                  }
+                  if (lines.length > 0) {
+                    retrievedBlock += `
+
+— مقاطع من المراجع المساعدة (مواد ثانوية في نفس المادة) —
+<material_content>
+${lines.join("\n\n―――\n\n")}
+</material_content>
+
+تعليمة: هذه مقاطع من كتب مرجعية مكمّلة، وليست المنهج الأساسي. استشهد بها بصيغة (مرجع: <اسم الملف>، صفحة N) — وذكّر الطالب أن المصدر الأساسي يبقى "${m.fileName}".`;
+                  }
+                }
+              }
+            } catch (e: any) {
+              console.warn("[ai/teach] reference materials retrieval failed:", e?.message || e);
             }
           }
 
@@ -3040,7 +3140,11 @@ ${retrievedBlock}
     if (matCtx && !isDiagnosticPhase) {
       const injectedIdx: number = matCtx.ctx?.__injectedChapterIndex ?? -1;
       const pointTexts: string[] = matCtx.ctx?.__injectedPointTexts ?? [];
-      if (injectedIdx >= 0 && pointTexts.length > 0) {
+      // In review mode the prompt instructs the model NOT to emit fresh
+      // [POINT_DONE] tags; honor that on the persistence side too so a
+      // mistaken model emission can't double-mark coverage during review.
+      const isReviewing: boolean = !!matCtx.ctx?.__isReviewing;
+      if (injectedIdx >= 0 && pointTexts.length > 0 && !isReviewing) {
         const tagMatches = Array.from(fullResponse.matchAll(/\[POINT_DONE:\s*(\d{1,3})\s*\]/gi));
         const indices: number[] = [];
         for (const m2 of tagMatches) {
@@ -3148,8 +3252,12 @@ ${retrievedBlock}
 
   // Professor mode: a stage-complete signal also means the current chapter of
   // the active PDF is mastered, so advance the per-(user, material) progress.
+  // BUT during a review pass the student is revisiting an already-completed
+  // chapter — advancing here would skip past their NEXT real chapter. So we
+  // gate advancement on !isReviewing (mirrors the POINT_DONE skip above).
   let materialProgressUpdate: { materialId: number; chaptersTotal: number; completedCount: number; currentChapterIndex: number; currentChapterTitle: string | null } | null = null;
-  if (stageComplete && !isDiagnosticPhase && subjectId) {
+  const __reviewingForAdvance: boolean = !!(req as any).__materialCtx?.ctx?.__isReviewing;
+  if (stageComplete && !isDiagnosticPhase && subjectId && !__reviewingForAdvance) {
     try {
       const advanced = await advanceActiveMaterialChapter(userId, subjectId);
       if (advanced && advanced.chapters.length > 0) {

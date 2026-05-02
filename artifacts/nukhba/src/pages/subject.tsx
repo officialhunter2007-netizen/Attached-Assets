@@ -2413,6 +2413,23 @@ function SubjectPathChat({
   );
   const [activeMaterialStarters, setActiveMaterialStarters] = useState<string | null>(null);
   const [activeMaterialWeakAreas, setActiveMaterialWeakAreas] = useState<{ topic: string; missed: number }[]>([]);
+  // Task #22 — curriculum sidebar data + drawer toggle. Pulled together
+  // with starters from /api/materials/:id so we don't make a second round-trip
+  // every time the drawer opens.
+  type CurriculumChapter = {
+    idx: number;
+    title: string;
+    startPage: number;
+    endPage: number;
+    summary?: string;
+    keyPoints?: string[];
+    confidence?: number;
+  };
+  const [curriculumChapters, setCurriculumChapters] = useState<CurriculumChapter[]>([]);
+  const [coveredPointsByChapter, setCoveredPointsByChapter] = useState<Record<string, number[]>>({});
+  const [activeMaterialCoverage, setActiveMaterialCoverage] = useState<"ok" | "partial" | "failed" | null>(null);
+  const [activeMaterialFileName, setActiveMaterialFileName] = useState<string | null>(null);
+  const [showCurriculumDrawer, setShowCurriculumDrawer] = useState(false);
   const [quizPanel, setQuizPanel] = useState<{ open: boolean; kind: QuizKind }>({ open: false, kind: "chapter" });
   const [showSourcesPanel, setShowSourcesPanel] = useState(initialSourcesMaterialId != null);
   const consumedSourcesParamRef = useRef(false);
@@ -2522,9 +2539,19 @@ function SubjectPathChat({
     return () => { cancelled = true; };
   }, [subject.id]);
 
-  // When active material changes, fetch its starters for the chip row
+  // When active material changes, fetch its starters for the chip row PLUS
+  // the structured chapters / covered-points map / coverage_status so the
+  // curriculum sidebar can render without a second round-trip.
   useEffect(() => {
-    if (!activeMaterialId) { setActiveMaterialStarters(null); setActiveMaterialWeakAreas([]); return; }
+    if (!activeMaterialId) {
+      setActiveMaterialStarters(null);
+      setActiveMaterialWeakAreas([]);
+      setCurriculumChapters([]);
+      setCoveredPointsByChapter({});
+      setActiveMaterialCoverage(null);
+      setActiveMaterialFileName(null);
+      return;
+    }
     let cancelled = false;
     fetch(`/api/materials/${activeMaterialId}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
@@ -2532,6 +2559,10 @@ function SubjectPathChat({
         if (cancelled || !d) return;
         setActiveMaterialStarters(d.starters || null);
         setActiveMaterialWeakAreas(Array.isArray(d.recentWeakAreas) ? d.recentWeakAreas : []);
+        setCurriculumChapters(Array.isArray(d.chapters) ? d.chapters : []);
+        setCoveredPointsByChapter(d.coveredPointsByChapter && typeof d.coveredPointsByChapter === "object" ? d.coveredPointsByChapter : {});
+        setActiveMaterialCoverage(d.coverageStatus === "ok" || d.coverageStatus === "partial" || d.coverageStatus === "failed" ? d.coverageStatus : null);
+        setActiveMaterialFileName(typeof d.fileName === "string" ? d.fileName : null);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -3943,6 +3974,22 @@ function SubjectPathChat({
               <>
                 <span className="text-[11px] font-bold text-amber-300 shrink-0">📚 منهج الأستاذ</span>
                 <span className="text-[10px] text-white/40 truncate">{activeMaterialId ? "ملف نشط" : "اختر ملفاً"}</span>
+                {activeMaterialId && activeMaterialCoverage === "partial" && (
+                  <span
+                    className="shrink-0 text-[9px] font-bold text-amber-200 bg-amber-500/20 border border-amber-500/40 rounded px-1.5 py-0.5"
+                    title="بعض صفحات هذا الملف لم يُستخرج نصها بدقة — يمكن إعادة المحاولة من نافذة المصادر"
+                  >
+                    تغطية جزئية
+                  </span>
+                )}
+                {activeMaterialId && activeMaterialCoverage === "failed" && (
+                  <span
+                    className="shrink-0 text-[9px] font-bold text-rose-200 bg-rose-500/20 border border-rose-500/40 rounded px-1.5 py-0.5"
+                    title="تعذّر استخراج نص هذا الملف — افتح نافذة المصادر لإعادة المحاولة"
+                  >
+                    فشل التغطية
+                  </span>
+                )}
               </>
             ) : (
               <span className="text-[11px] font-bold text-purple-300 shrink-0">🧭 مسار مخصّص</span>
@@ -3972,6 +4019,17 @@ function SubjectPathChat({
                 </DropdownMenuItem>
                 {teachingMode === 'professor' && activeMaterialId && (
                   <>
+                    <DropdownMenuItem
+                      onSelect={() => setShowCurriculumDrawer(true)}
+                      disabled={curriculumChapters.length === 0}
+                      className="cursor-pointer gap-2 text-sm"
+                    >
+                      <MapIcon className="w-4 h-4 text-amber-300" />
+                      <span>خريطة المنهج</span>
+                      {curriculumChapters.length > 0 && (
+                        <span className="me-auto text-[10px] text-white/40">{curriculumChapters.length} فصل</span>
+                      )}
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() => setQuizPanel({ open: true, kind: 'chapter' })}
                       className="cursor-pointer gap-2 text-sm"
@@ -4065,6 +4123,117 @@ function SubjectPathChat({
         materialId={activeMaterialId}
         kind={quizPanel.kind}
       />
+
+      {/* Curriculum sidebar — Task #22. Bottom drawer (matches the existing
+          mobile design language). Lists every chapter from the structured
+          outline with a status icon (✓ covered, ▶ active, ○ upcoming), a
+          page range, and a coverage bar (covered keyPoints / total). The
+          "راجع" button injects "راجع الفصل N" into the composer so the
+          existing chapter-review intent regex on the server picks it up. */}
+      {teachingMode === 'professor' && (
+        <Drawer open={showCurriculumDrawer} onOpenChange={setShowCurriculumDrawer}>
+          <DrawerContent style={{ direction: "rtl" }} className="max-h-[85vh]">
+            <DrawerHeader className="text-right">
+              <DrawerTitle className="flex items-center gap-2">
+                <MapIcon className="w-5 h-5 text-amber-300" />
+                <span>خريطة المنهج</span>
+                {activeMaterialFileName && (
+                  <span className="text-xs font-normal text-white/50 truncate">— {activeMaterialFileName}</span>
+                )}
+              </DrawerTitle>
+              <DrawerDescription className="text-right text-xs">
+                ✓ مُكتمل · ▶ نشط · ○ قادم — اضغط "راجع" للعودة لأي فصل سابق.
+              </DrawerDescription>
+            </DrawerHeader>
+            <div className="overflow-y-auto px-4 pb-6 space-y-2" style={{ direction: "rtl" }}>
+              {curriculumChapters.length === 0 ? (
+                <div className="text-center text-sm text-white/50 py-8">
+                  لا يوجد فهرس مُولَّد لهذا الملف بعد.
+                </div>
+              ) : (
+                curriculumChapters.map((c) => {
+                  const totalPts = Array.isArray(c.keyPoints) ? c.keyPoints.length : 0;
+                  const coveredArr = coveredPointsByChapter[String(c.idx)] ?? [];
+                  const coveredCount = Math.min(coveredArr.length, totalPts);
+                  const ratio = totalPts > 0 ? coveredCount / totalPts : 0;
+                  const fullyCovered = totalPts > 0 && coveredCount >= totalPts;
+                  // "Active" = the first chapter that isn't fully covered.
+                  // We compute this by walking forward and marking the first
+                  // not-fully-covered chapter as the active one.
+                  const isActive = (() => {
+                    for (const ch of curriculumChapters) {
+                      const total = Array.isArray(ch.keyPoints) ? ch.keyPoints.length : 0;
+                      const got = (coveredPointsByChapter[String(ch.idx)] ?? []).length;
+                      if (total === 0 || got < total) return ch.idx === c.idx;
+                    }
+                    return false;
+                  })();
+                  const icon = fullyCovered ? "✓" : isActive ? "▶" : "○";
+                  const iconColor = fullyCovered
+                    ? "text-emerald-400"
+                    : isActive
+                      ? "text-amber-300"
+                      : "text-white/30";
+                  return (
+                    <div
+                      key={c.idx}
+                      className={`rounded-lg border p-3 transition-colors ${
+                        isActive
+                          ? "border-amber-500/40 bg-amber-500/5"
+                          : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className={`text-lg font-bold shrink-0 ${iconColor}`} aria-hidden>
+                          {icon}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-white/90 truncate">
+                              {c.idx + 1}. {c.title}
+                            </span>
+                            {c.startPage > 0 && c.endPage > 0 && (
+                              <span className="text-[10px] text-white/40 shrink-0">
+                                صفحات {c.startPage}–{c.endPage}
+                              </span>
+                            )}
+                          </div>
+                          {totalPts > 0 && (
+                            <div className="mt-1.5 flex items-center gap-2">
+                              <div className="flex-1 h-1 bg-white/10 rounded overflow-hidden">
+                                <div
+                                  className={`h-full ${fullyCovered ? "bg-emerald-400" : isActive ? "bg-amber-400" : "bg-white/30"}`}
+                                  style={{ width: `${Math.round(ratio * 100)}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-white/50 shrink-0 tabular-nums">
+                                {coveredCount}/{totalPts}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="shrink-0 text-[11px] font-bold px-2 py-1 rounded border border-amber-500/40 text-amber-200 hover:bg-amber-500/15 transition-colors"
+                          title={`أرسل "راجع الفصل ${c.idx + 1}" للمعلّم`}
+                          onClick={() => {
+                            const text = `راجع الفصل ${c.idx + 1}`;
+                            setInput((prev) => (prev && prev.trim().length > 0 ? `${prev}\n${text}` : text));
+                            setShowCurriculumDrawer(false);
+                            setTimeout(() => inputRef.current?.focus(), 80);
+                          }}
+                        >
+                          راجع
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </DrawerContent>
+        </Drawer>
+      )}
 
       {/* Stage progress bar.
           Two layouts based on stage count to keep things legible on 360px:
