@@ -35,11 +35,7 @@ export default function Lesson() {
   // Access Control
   const { data: views } = useGetLessonViews();
 
-  // Pull the per-subject access verdict from the server (per-subject row
-  // first, legacy global wallet only as fallback). The legacy inline check
-  // we used to do here required `nukhbaPlan` + `subscriptionExpiresAt` —
-  // both null for users on the new per-subject gem wallet, which silently
-  // locked them out of every lesson page they hadn't already viewed.
+  // Per-subject access verdict from the server.
   type SubjectAccess = {
     hasAccess: boolean;
     isFirstLesson: boolean;

@@ -591,11 +591,7 @@ export default function Subject() {
   const [labReports, setLabReports] = useState<LabReport[]>([]);
   const [labReportsLoading, setLabReportsLoading] = useState(true);
 
-  // Per-subject access verdict from the server. Replaces the legacy inline
-  // check on `user.nukhbaPlan + user.subscriptionExpiresAt`, which always
-  // returned `false` for users on the new per-subject gem wallet (their
-  // global wallet has no `nukhbaPlan`), so the renew CTA never fired even
-  // when the per-subject sub had clearly expired.
+  // Per-subject access verdict from the server.
   type SubjectAccessInfo = {
     hasAccess: boolean;
     isFirstLesson: boolean;
@@ -629,9 +625,8 @@ export default function Subject() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject?.id]);
 
-  // Drive the in-page renew banner from the per-subject verdict. Falls back
-  // to the legacy global check only as a last resort for grandfathered
-  // users whose row hasn't been migrated to the gems wallet yet.
+  // Per-subject verdict drives the renew banner; the legacy global check
+  // is the fallback when the access fetch hasn't returned yet.
   const isSubscriptionExpired = subjectAccessInfo
     ? (subjectAccessInfo.subjectSubExpired && !subjectAccessInfo.hasAccess)
     : !!(
@@ -3763,11 +3758,8 @@ function SubjectPathChat({
     }
   }, [quotaExhausted]);
 
-  // ── Overlay render cascade ───────────────────────────────────────────────
-  // Order MUST stay accessDenied → dailyLimitUntil → quotaExhausted →
-  // sessionComplete to match the cascade-clearing effects above. Reordering
-  // these blocks WILL re-introduce the multi-overlay bugs described in
-  // task-31.
+  // Overlay precedence: accessDenied → dailyLimitUntil → quotaExhausted →
+  // sessionComplete. Matches the cascade-clearing effects above.
   if (accessDenied) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">

@@ -285,8 +285,8 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   const freeMessagesUsed = freeGemsUsed;
   const freeMessagesLeft = Math.max(0, FREE_LESSON_GEM_LIMIT - freeGemsUsed);
 
-  // Run the centralised access check first so any rollover writes land
-  // before we read subjectGemsSub / user back into memory.
+  // Run the access helper first so its rollover writes are reflected in
+  // the subjectGemsSub / user reads below.
   const access = await getAccessForUser({ userId, subjectId });
 
   let [subjectGemsSub] = await db

@@ -71,10 +71,13 @@ export async function getAccessForUser(opts: {
         ),
       );
 
+    // First-lesson grace requires both the global flag and a non-completed
+    // per-subject row, so the free lesson can only be consumed once.
     const isFirstLesson =
-      !firstLesson ||
-      (!firstLesson.completed &&
-        (firstLesson.freeMessagesUsed ?? 0) < FREE_LESSON_GEM_LIMIT);
+      !user.firstLessonComplete &&
+      (!firstLesson ||
+        (!firstLesson.completed &&
+          (firstLesson.freeMessagesUsed ?? 0) < FREE_LESSON_GEM_LIMIT));
 
     const [sub] = await db
       .select()
@@ -112,7 +115,8 @@ export async function getAccessForUser(opts: {
         };
       }
 
-      // Per-subject row exists but is dead → strict, no legacy fallback.
+      // Strict: a dead per-subject row does not fall back to the legacy
+      // wallet for that subject.
       const expiredRecently =
         expiresAt < now &&
         now.getTime() - expiresAt.getTime() < RECENT_EXPIRY_WINDOW_MS;
@@ -171,8 +175,7 @@ export async function getAccessForUser(opts: {
     };
   }
 
-  // Pre-gems wallet: nukhbaPlan + subscriptionExpiresAt + messagesUsed/Limit.
-  // Remaining messages are surfaced through gemsRemaining.
+  // Pre-gems grandfathered wallet (nukhbaPlan + messages counter).
   const planExpires = user.subscriptionExpiresAt ? new Date(user.subscriptionExpiresAt) : null;
   const messagesLimit = user.messagesLimit ?? 0;
   const messagesUsed = user.messagesUsed ?? 0;
@@ -232,6 +235,8 @@ export async function getAccessForUser(opts: {
   };
 }
 
+// "Does the user have any path to use the platform right now?" Used by
+// write endpoints (progress, lesson views) that don't care which subject.
 export async function userHasAnyAccess(userId: number): Promise<boolean> {
   const [user] = await db
     .select()

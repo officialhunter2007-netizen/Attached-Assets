@@ -800,13 +800,8 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
     return;
   }
 
-  // Centralised per-subject access verdict (per-subject row first, legacy
-  // global wallet only as fallback when no per-subject row exists).
   const access = await getAccessForUser({ userId, subjectId });
 
-  // Re-read the per-subject row so we can return rich subscription detail
-  // for the client (the helper applies daily rollover internally before
-  // returning, so this read is post-rollover).
   const [subjectSub] = await db
     .select()
     .from(userSubjectSubscriptionsTable)
@@ -818,21 +813,18 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
 
   const now = new Date();
   const hasSubjectSub = access.hasActiveSub && access.source === "per-subject";
-  // Per-subject sub exists but is no longer usable (expired window or
-  // gemsBalance hit zero). Drives the per-subject "renew" wall on the
-  // subject page.
   const subjectSubExpired = !!(subjectSub && (
     new Date(subjectSub.expiresAt) <= now ||
     (subjectSub.gemsBalance ?? 0) <= 0
   )) && access.source !== "per-subject";
 
+  // hasAccess covers lesson viewing and the renew wall. Daily-cap state
+  // is surfaced separately via blockReason and handled by the chat overlay.
   res.json({
-    hasAccess: access.canAccess,
+    hasAccess: access.hasActiveSub || access.isFirstLesson,
     isFirstLesson: access.isFirstLesson,
     hasSubjectSubscription: hasSubjectSub,
     hasLegacyGlobalSubscription: access.source === "legacy",
-    // ── New per-subject gem fields the frontend needs to drive the
-    // per-subject wall, the renew banner, and the gems badge.
     subjectSubExpired,
     expiredRecently: access.expiredRecently,
     gemsBalance: access.gemsRemaining,

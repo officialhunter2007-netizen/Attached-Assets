@@ -471,9 +471,7 @@ export default function Dashboard() {
   const [showMobileCodingWarning, setShowMobileCodingWarning] = useState(false);
   const [materials, setMaterials] = useState<MaterialWithProgress[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState(true);
-  // Legacy/global gems wallet (grandfathered users without per-subject rows).
-  // Filled from /gems-balance with no subjectId — that endpoint resolves
-  // the legacy wallet via the same access helper the rest of the system uses.
+  // Legacy global gems wallet, resolved through /gems-balance (no subjectId).
   const [hasLegacyGlobalAccess, setHasLegacyGlobalAccess] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -612,32 +610,22 @@ export default function Dashboard() {
 
   const now = new Date();
   const activeSubjectSubs = mySubjectSubs.filter(s => new Date(s.expiresAt) > now);
-  // Usable = time-active AND has gems left for today (or, when the gems
-  // wallet hasn't been migrated, has messages left). A sub whose gems
-  // balance hit zero before its expiry should still surface in the
-  // dashboard's "renew" banner, not silently disappear from the list.
+  // Usable = time-active AND has gems/messages remaining.
   const usableSubjectSubs = activeSubjectSubs.filter(s => {
     if (typeof s.gemsBalance === "number") {
       return s.gemsBalance > 0 || (s.dailyRemaining ?? 0) > 0;
     }
     return s.messagesUsed < s.messagesLimit;
   });
-  // "Blocked" must reflect "no USABLE sub" (active AND has gems/daily
-  // remaining), not "no time-active sub". A subscription that is still
-  // within its window but whose gem balance hit zero leaves the student
-  // with no way to learn — they need the renew CTA just as much as a
-  // user whose sub fully expired.
   const hasAnyUsableSub = usableSubjectSubs.length > 0;
-  // Pre-gems grandfathered users: nukhbaPlan + future expiry + messages left.
+  // Pre-gems wallet: nukhbaPlan + future expiry + messages left.
   const hasLegacyPreGemsAccess = !!(
     user?.nukhbaPlan &&
     user?.subscriptionExpiresAt &&
     new Date(user.subscriptionExpiresAt) > now &&
     (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0)
   );
-  // hasLegacyGlobalAccess covers the legacy gems wallet on usersTable for
-  // users who haven't been migrated to per-subject rows. While the
-  // /gems-balance probe is in flight (null), don't block — wait for it.
+  // Wait for the /gems-balance probe (null) before blocking the user.
   const isBlocked =
     user?.firstLessonComplete &&
     !hasAnyUsableSub &&
