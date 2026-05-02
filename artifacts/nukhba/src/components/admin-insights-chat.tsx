@@ -138,6 +138,9 @@ export function AdminInsightsChat() {
     setInput("");
     setStreaming(true);
     setStreamBuf("");
+    // Clear stale context-trimmed warning from a prior turn so it can never
+    // hang under an unrelated error message or a fresh full-context answer.
+    setContextTrimmed(false);
 
     const ac = new AbortController();
     abortRef.current = ac;
@@ -171,6 +174,7 @@ export function AdminInsightsChat() {
         }
         setMessages((p) => [...p, { role: "assistant", content: errText }]);
         setStreaming(false);
+        setContextTrimmed(false);
         return;
       }
 
@@ -202,6 +206,7 @@ export function AdminInsightsChat() {
                 setMessages((p) => [...p, { role: "assistant", content: finalText }]);
                 setStreamBuf("");
                 setStreaming(false);
+                setContextTrimmed(false);
                 abortRef.current = null;
                 try { await reader.cancel(); } catch {}
                 return;
@@ -230,6 +235,7 @@ export function AdminInsightsChat() {
     } catch (e: any) {
       if (e?.name !== "AbortError") {
         setMessages((p) => [...p, { role: "assistant", content: "حدث خطأ غير متوقّع." }]);
+        setContextTrimmed(false);
       }
     } finally {
       setStreaming(false);

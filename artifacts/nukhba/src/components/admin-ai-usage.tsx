@@ -136,7 +136,8 @@ function providerColor(provider: string): string {
   switch (provider) {
     case "anthropic": return "#d97757"; // anthropic-ish
     case "openai": return "#10a37f";    // openai-ish
-    case "gemini": return "#4285f4";    // google-ish
+    case "gemini": return "#4285f4";    // google-ish (direct API)
+    case "google": return "#4285f4";    // google via OpenRouter (admin assistant)
     default: return "#9ca3af";
   }
 }
