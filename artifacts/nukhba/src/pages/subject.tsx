@@ -1516,7 +1516,7 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
   }, [lightboxUrl]);
 
   return (
-    <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] sm:max-w-[92%] max-sm:max-w-[calc(100vw-60px)] shadow-md"
+    <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] sm:max-w-[92%] max-sm:max-w-[calc(100vw-50px)] shadow-md"
       style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)", overflow: "hidden" }}>
       <div className="px-3 sm:px-4 py-3 sm:py-3.5 overflow-x-hidden">
         <div ref={containerRef} className="ai-msg overflow-x-hidden" dangerouslySetInnerHTML={{ __html: displayHtml }} />
@@ -1645,17 +1645,19 @@ function SubjectPathChat({
   // never see each other's messages. If user is not yet loaded, we start
   // empty and only persist once we have a verified user.
   const CHAT_STORAGE_KEY = user?.id ? `nukhba::u:${user.id}::chat::${subject.id}` : null;
-  const loadInitialChat = (): { messages: ChatMessage[]; currentStage: number } => {
-    if (!CHAT_STORAGE_KEY) return { messages: [], currentStage: 0 };
+  const loadInitialChat = (): { messages: ChatMessage[]; currentStage: number; chatPhase: 'diagnostic' | 'teaching' | null } => {
+    if (!CHAT_STORAGE_KEY) return { messages: [], currentStage: 0, chatPhase: null };
     try {
       const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-      if (!raw) return { messages: [], currentStage: 0 };
+      if (!raw) return { messages: [], currentStage: 0, chatPhase: null };
       const parsed = JSON.parse(raw);
+      const persistedPhase = parsed.chatPhase === 'diagnostic' || parsed.chatPhase === 'teaching' ? parsed.chatPhase : null;
       return {
         messages: Array.isArray(parsed.messages) ? parsed.messages : [],
         currentStage: typeof parsed.currentStage === "number" ? parsed.currentStage : 0,
+        chatPhase: persistedPhase,
       };
-    } catch { return { messages: [], currentStage: 0 }; }
+    } catch { return { messages: [], currentStage: 0, chatPhase: null }; }
   };
   const initial = loadInitialChat();
   const [messages, setMessages] = useState<ChatMessage[]>(initial.messages);
@@ -1681,7 +1683,12 @@ function SubjectPathChat({
   // Bumped every time the student clicks "ابدأ الجلسة التالية الآن" so the
   // bootstrap effect re-fires (its other deps don't change after restart).
   const [sessionRestartKey, setSessionRestartKey] = useState(0);
-  const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
+  // Phase priority: persisted (refresh-safe) → first-session default → teaching.
+  // Without restoring from localStorage, refreshing mid-diagnostic would
+  // bounce the student into 'teaching' even though no plan was built yet.
+  const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(
+    initial.chatPhase ?? (isFirstSession ? 'diagnostic' : 'teaching'),
+  );
   const [customPlan, setCustomPlan] = useState<string | null>(null);
   const [planLoaded, setPlanLoaded] = useState(false);
   // Set to `true` the moment the diagnostic stream finishes with [PLAN_READY].
@@ -1751,15 +1758,18 @@ function SubjectPathChat({
     }
   }, [messageCount]);
 
-  // Persist chat messages + stage so they survive close/reopen and refresh.
+  // Persist chat messages + stage + phase so they survive close/reopen and refresh.
   // Only persists when CHAT_STORAGE_KEY is non-null (i.e. user is loaded).
+  // chatPhase MUST be persisted: without it, refreshing mid-diagnostic would
+  // restore the messages but reset the phase to 'teaching', stranding the
+  // student with a half-finished diagnostic and no way to complete the plan.
   useEffect(() => {
     if (!CHAT_STORAGE_KEY) return;
     if (messages.length === 0 && currentStage === 0) return;
     try {
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, currentStage }));
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, currentStage, chatPhase }));
     } catch {}
-  }, [messages, currentStage, CHAT_STORAGE_KEY]);
+  }, [messages, currentStage, chatPhase, CHAT_STORAGE_KEY]);
 
   // Clear persisted chat once the session is finalized
   useEffect(() => {
@@ -1992,7 +2002,12 @@ function SubjectPathChat({
           subjectId: subject.id,
           subjectName: subject.name,
           userMessage: text,
-          history: messages,
+          // CRITICAL: setMessages above is async, so reading `messages`
+          // here would miss the just-appended user turn. Build the
+          // history snapshot synchronously so the server sees the full
+          // exchange (otherwise the assistant occasionally "forgets" the
+          // very question the student just asked).
+          history: text ? [...messages, { role: "user", content: text }] : messages,
           planContext: customPlan,
           stages: usedStages,
           currentStage: usedStage,
@@ -2807,44 +2822,53 @@ function SubjectPathChat({
           material-required gate, and the chat never share the screen. */}
       {!needsModeChoice && !needsMaterial && (<>
 
-      {/* Mode/sources mini-bar (visible whenever mode is set) */}
+      {/* Mode/sources mini-bar (visible whenever mode is set).
+          Compact layout: a single mode chip on the right, action icons on
+          the left. On phones the quiz buttons collapse to icons-only to
+          stop the whole bar from wrapping into two rows. */}
       {teachingMode && teachingMode !== 'unset' && (
-        <div className="shrink-0 px-3 py-2 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "rgba(245,158,11,0.04)" }}>
-          <div className="flex items-center gap-2 min-w-0" style={{ direction: "rtl" }}>
+        <div className="shrink-0 px-2.5 sm:px-3 py-1.5 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "rgba(245,158,11,0.04)" }}>
+          <div className="flex items-center gap-1.5 min-w-0" style={{ direction: "rtl" }}>
             {teachingMode === 'professor' ? (
               <>
-                <span className="text-[11px] font-bold text-amber-300">📚 منهج الأستاذ</span>
-                <span className="text-[10px] text-white/40 truncate">{activeMaterialId ? "ملف نشط" : "لم تختر ملفاً بعد"}</span>
+                <span className="text-[11px] font-bold text-amber-300 shrink-0">📚 منهج الأستاذ</span>
+                <span className="text-[10px] text-white/40 truncate">{activeMaterialId ? "ملف نشط" : "اختر ملفاً"}</span>
               </>
             ) : (
-              <span className="text-[11px] font-bold text-purple-300">🧭 مسار مخصّص</span>
+              <span className="text-[11px] font-bold text-purple-300 shrink-0">🧭 مسار مخصّص</span>
             )}
           </div>
-          <div className="shrink-0 flex items-center gap-1.5">
+          <div className="shrink-0 flex items-center gap-1">
             {teachingMode === 'professor' && activeMaterialId && (
               <>
                 <button
                   onClick={() => setQuizPanel({ open: true, kind: 'chapter' })}
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 text-amber-200 transition-all flex items-center gap-1.5"
+                  className="text-[11px] font-bold px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 text-amber-200 transition-all flex items-center gap-1"
                   title="اختبر نفسك على الفصل الحالي"
+                  aria-label="اختبرني على هذا الفصل"
                 >
-                  📘 اختبرني على هذا الفصل
+                  <span>📘</span>
+                  <span className="hidden sm:inline">اختبرني</span>
                 </button>
                 <button
                   onClick={() => setQuizPanel({ open: true, kind: 'exam' })}
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-purple-200 transition-all flex items-center gap-1.5"
+                  className="text-[11px] font-bold px-2 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-purple-200 transition-all flex items-center gap-1"
                   title="امتحان شامل من 30 سؤالاً يغطّي كامل الملف"
+                  aria-label="الامتحان النهائي"
                 >
-                  🏆 الامتحان النهائي
+                  <span>🏆</span>
+                  <span className="hidden sm:inline">الامتحان</span>
                 </button>
               </>
             )}
             <button
               onClick={() => setShowSourcesPanel(true)}
-              className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-amber-200 transition-all flex items-center gap-1.5"
+              className="text-[11px] font-bold px-2 py-1 rounded-lg bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-amber-200 transition-all flex items-center gap-1"
+              title="مصادري"
+              aria-label="مصادري"
             >
               <BookOpen className="w-3 h-3" />
-              مصادري
+              <span className="hidden sm:inline">مصادري</span>
             </button>
           </div>
         </div>
@@ -2858,37 +2882,65 @@ function SubjectPathChat({
         kind={quizPanel.kind}
       />
 
-      {/* Stage progress bar */}
+      {/* Stage progress bar.
+          Two layouts based on stage count to keep things legible on 360px:
+          • ≤5 stages → original step-by-step bullets with labels.
+          • >5 stages → compact mode: single linear progress bar +
+            "المرحلة X من Y" text + current stage name. The dotted UI
+            collapses awkwardly when there are 6+ stages on a phone. */}
       {chatPhase === 'teaching' && stages.length > 0 && (
-        <div className="shrink-0 px-4 py-2.5 border-b border-white/5 flex items-center gap-3" style={{ background: "#0b0d17" }}>
-          <div className="flex items-center gap-1.5 flex-1">
-            {stages.map((s, idx) => {
-              const done = idx < currentStage;
-              const active = idx === currentStage;
-              return (
-                <div key={idx} className="flex items-center gap-1.5 flex-1 min-w-0">
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 transition-all ${
-                    done ? "bg-emerald-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.5)]"
-                    : active ? "bg-gold text-black shadow-[0_0_8px_rgba(245,158,11,0.5)]"
-                    : "bg-white/10 text-white/30"
-                  }`}>
-                    {done ? "✓" : idx + 1}
+        <div className="shrink-0 px-3 sm:px-4 py-2 border-b border-white/5 flex items-center gap-2 sm:gap-3" style={{ background: "#0b0d17" }}>
+          {stages.length <= 5 ? (
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              {stages.map((s, idx) => {
+                const done = idx < currentStage;
+                const active = idx === currentStage;
+                return (
+                  <div key={idx} className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 transition-all ${
+                      done ? "bg-emerald-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                      : active ? "bg-gold text-black shadow-[0_0_8px_rgba(245,158,11,0.5)]"
+                      : "bg-white/10 text-white/30"
+                    }`}>
+                      {done ? "✓" : idx + 1}
+                    </div>
+                    <div className="flex-1 hidden sm:block truncate">
+                      <span className={`text-[11px] truncate ${active ? "text-gold font-semibold" : done ? "text-emerald-400/70" : "text-white/25"}`}>{s}</span>
+                    </div>
+                    {idx < stages.length - 1 && (
+                      <div className={`h-px flex-1 mx-1 transition-all ${done ? "bg-emerald-500/50" : "bg-white/8"}`} />
+                    )}
                   </div>
-                  <div className="flex-1 hidden sm:block truncate">
-                    <span className={`text-[11px] truncate ${active ? "text-gold font-semibold" : done ? "text-emerald-400/70" : "text-white/25"}`}>{s}</span>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="w-5 h-5 rounded-full bg-gold text-black flex items-center justify-center text-[10px] font-black shrink-0 shadow-[0_0_8px_rgba(245,158,11,0.5)]">
+                    {Math.min(currentStage + 1, stages.length)}
                   </div>
-                  {idx < stages.length - 1 && (
-                    <div className={`h-px flex-1 mx-1 transition-all ${done ? "bg-emerald-500/50" : "bg-white/8"}`} />
-                  )}
+                  <span className="text-[11px] text-gold font-semibold truncate">
+                    {stages[Math.min(currentStage, stages.length - 1)]}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
+                <span className="text-[10px] text-white/40 shrink-0 tabular-nums">
+                  {Math.min(currentStage + 1, stages.length)} / {stages.length}
+                </span>
+              </div>
+              <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-l from-emerald-500 to-gold transition-all duration-500"
+                  style={{ width: `${Math.min(100, ((currentStage) / Math.max(1, stages.length)) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
           {gemsRemaining !== null && gemsRemaining > 0 && (
-            <div className={`shrink-0 flex items-center gap-1 rounded-lg px-2.5 py-1 ${gemsRemaining < 50 ? 'bg-red-500/15 border border-red-500/30 animate-pulse' : gemsRemaining < 150 ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5 border border-white/10'}`}>
+            <div className={`shrink-0 flex items-center gap-1 rounded-lg px-2 py-1 ${gemsRemaining < 50 ? 'bg-red-500/15 border border-red-500/30 animate-pulse' : gemsRemaining < 150 ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5 border border-white/10'}`}>
               <span className="text-[11px]">💎</span>
-              <span className={`text-[11px] font-bold ${gemsRemaining < 50 ? 'text-red-400' : gemsRemaining < 150 ? 'text-amber-400' : 'text-muted-foreground'}`}>{gemsRemaining}</span>
-              <span className={`text-[10px] hidden sm:inline ${gemsRemaining < 50 ? 'text-red-400/70' : gemsRemaining < 150 ? 'text-amber-400/70' : 'text-muted-foreground/70'}`}>جوهرة اليوم</span>
+              <span className={`text-[11px] font-bold tabular-nums ${gemsRemaining < 50 ? 'text-red-400' : gemsRemaining < 150 ? 'text-amber-400' : 'text-muted-foreground'}`}>{gemsRemaining}</span>
             </div>
           )}
         </div>
@@ -2935,7 +2987,7 @@ function SubjectPathChat({
                 {/* Bubble */}
                 <div style={{ direction: 'rtl' }} className={`min-w-0 ${msg.role === 'user' ? 'flex justify-start' : 'flex-1'}`}>
                   {msg.role === 'user' ? (
-                    <div className="max-w-[80%] max-sm:max-w-[calc(100vw-70px)] rounded-2xl rounded-br-none px-3 sm:px-4 py-3 text-[14px] sm:text-[15px] leading-relaxed"
+                    <div className="max-w-[80%] max-sm:max-w-[calc(100vw-60px)] rounded-2xl rounded-br-none px-3 sm:px-4 py-3 text-[14px] sm:text-[15px] leading-relaxed"
                       style={{ background: "linear-gradient(135deg, #1e2235 0%, #191c2a 100%)", border: "1px solid rgba(255,255,255,0.1)", overflowWrap: "break-word", wordBreak: "break-word", whiteSpace: "pre-wrap", width: "fit-content" }}>
                       {msg.content}
                     </div>
@@ -3099,7 +3151,9 @@ function SubjectPathChat({
               قد يكون السبب ضعفاً مؤقّتاً في الاتصال. اضغط الزر أدناه لإعادة إرسال آخر رسالة وإكمال الفكرة.
             </div>
             <button
+              disabled={isStreaming}
               onClick={() => {
+                if (isStreaming) return;
                 // Pop the truncated assistant bubble and the user message
                 // that produced it, then re-send so the model starts the
                 // reply over from a clean slate. We capture the message
@@ -3117,7 +3171,7 @@ function SubjectPathChat({
                 });
                 setTimeout(() => sendTeachMessage(lastMsg, stages, currentStage, false), 100);
               }}
-              className="text-sm font-bold text-amber-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-amber-500/40 hover:bg-amber-500/60 border border-amber-400/50"
+              className="text-sm font-bold text-amber-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-amber-500/40 hover:bg-amber-500/60 border border-amber-400/50 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               أعد إرسال آخر رسالة
             </button>
@@ -3132,7 +3186,9 @@ function SubjectPathChat({
               لم تصل علامة نهاية الخطة من المعلم — قد تكون انقطعت أثناء التوليد. اضغط الزر أدناه لإعادة بناء الخطة من جديد.
             </div>
             <button
+              disabled={isStreaming}
               onClick={() => {
+                if (isStreaming) return;
                 setDiagnosticIncomplete(false);
                 setMessages([]);
                 setCustomPlan(null);
@@ -3143,7 +3199,7 @@ function SubjectPathChat({
                 // very unlikely on the second pass.
                 setTimeout(() => sendTeachMessage("", stages, 0, true), 200);
               }}
-              className="text-sm font-bold text-rose-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-rose-500/40 hover:bg-rose-500/60 border border-rose-400/50"
+              className="text-sm font-bold text-rose-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-rose-500/40 hover:bg-rose-500/60 border border-rose-400/50 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               أعد بناء الخطة
             </button>
