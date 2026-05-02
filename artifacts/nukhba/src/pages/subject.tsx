@@ -1372,6 +1372,7 @@ type TeacherImageMap = Map<string, TeacherImageState>;
 const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap }) {
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const { stripped, ask } = !isStreaming ? extractAskOptions(content) : { stripped: content, ask: null };
 
@@ -1467,6 +1468,53 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
     });
   }, [displayHtml, imageMap]);
 
+  // ── Teacher-image click-to-zoom (lightbox) ────────────────────────────────
+  // Delegated click handler on the message container. Opens any ready
+  // teacher illustration in a full-screen modal so students on small phones
+  // can read the small numbered circles / overlapping elements.
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const root = containerRef.current;
+    const handler = (e: Event) => {
+      const target = e.target as HTMLElement;
+      const fig = target.closest('figure.teach-image-ready') as HTMLElement | null;
+      if (!fig) return;
+      const img = fig.querySelector('img') as HTMLImageElement | null;
+      if (!img || !img.src) return;
+      e.preventDefault();
+      setLightboxUrl(img.src);
+    };
+    root.addEventListener('click', handler);
+    return () => root.removeEventListener('click', handler);
+  }, []);
+
+  // While the lightbox is open: close on Escape (desktop convenience), lock
+  // body scroll so mobile browsers don't scroll the chat behind the modal,
+  // and move focus to the close button (restoring it to the previously
+  // focused element on dismissal). Touch users tap the backdrop or × to
+  // close — both wired up in the JSX below.
+  const lightboxCloseRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!lightboxUrl) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxUrl(null);
+    };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    // Defer focus until after the close button is mounted.
+    const focusTimer = window.setTimeout(() => {
+      lightboxCloseRef.current?.focus();
+    }, 0);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+      window.clearTimeout(focusTimer);
+      previouslyFocused?.focus?.();
+    };
+  }, [lightboxUrl]);
+
   return (
     <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] sm:max-w-[92%] max-sm:max-w-[calc(100vw-60px)] shadow-md"
       style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)", overflow: "hidden" }}>
@@ -1488,6 +1536,30 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
           </div>
         )}
       </div>
+      {lightboxUrl && (
+        <div
+          className="teach-image-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="عرض الصورة بحجم كامل"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            ref={lightboxCloseRef}
+            type="button"
+            className="teach-image-lightbox-close"
+            aria-label="إغلاق"
+            onClick={(e) => { e.stopPropagation(); setLightboxUrl(null); }}
+          >
+            ×
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="صورة توضيحية مكبّرة"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 });

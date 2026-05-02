@@ -587,6 +587,14 @@
   border-radius: 10px;
   box-shadow: 0 4px 18px rgba(0,0,0,0.35);
 }
+/* Click-to-zoom affordance: only ready images are interactive. */
+.teach-image-ready { cursor: zoom-in; }
+.teach-image-ready img {
+  cursor: zoom-in;
+  transition: transform 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.teach-image-ready:hover img { transform: scale(1.015); }
 .teach-image figcaption {
   margin-top: 8px;
   font-size: 0.82em;
@@ -629,6 +637,64 @@
   font-size: 0.85em;
   color: #fca5a5 !important;
   padding: 10px;
+}
+/* Full-screen lightbox modal for tapped teacher illustrations.
+   Fixed-positioned so it escapes the message bubble's overflow:hidden.
+   z-index sits above the chat header (which uses z-50 in the layout). */
+.teach-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
+  animation: teach-lightbox-fade 0.18s ease-out;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: contain;
+}
+.teach-image-lightbox img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 12px 60px rgba(0, 0, 0, 0.6);
+  cursor: default;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.teach-image-lightbox-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.teach-image-lightbox-close:hover,
+.teach-image-lightbox-close:focus-visible {
+  background: rgba(255, 255, 255, 0.22);
+  outline: none;
+}
+@keyframes teach-lightbox-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 /* Historical placeholder rendered server-side after stream ends */
 .image-historical {
