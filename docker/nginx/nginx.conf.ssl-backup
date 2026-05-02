@@ -24,7 +24,7 @@ http {
     gzip_types text/plain text/css application/json application/javascript
                text/xml application/xml text/javascript image/svg+xml;
 
-    # ─── HTTP: إعادة توجيه إلى HTTPS ─────────────────────────────
+    # HTTP: إعادة توجيه إلى HTTPS
     server {
         listen 80;
         server_name _;
@@ -38,7 +38,7 @@ http {
         }
     }
 
-    # ─── HTTPS: الخادم الرئيسي ────────────────────────────────────
+    # HTTPS: الخادم الرئيسي
     server {
         listen 443 ssl;
         server_name learnukhba.com;
