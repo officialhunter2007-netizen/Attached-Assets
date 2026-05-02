@@ -140,7 +140,13 @@ export class GeminiClientError extends Error {
   }
 }
 
-export type GeminiMessage = { role: "user" | "assistant"; content: string };
+export type GeminiContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+export type GeminiMessage = {
+  role: "user" | "assistant";
+  content: string | GeminiContentPart[];
+};
 
 export type StreamGeminiArgs = {
   systemPrompt: string;
@@ -256,7 +262,7 @@ function notifyAuthFailure(status: number, body: string, model: string, logTag?:
 // ────────────────────────────────────────────────────────────────────────────
 
 function buildOpenRouterRequestBody(args: StreamGeminiArgs): string {
-  const messages: { role: string; content: string }[] = [
+  const messages: { role: string; content: string | GeminiContentPart[] }[] = [
     { role: "system", content: args.systemPrompt },
     ...args.messages.map((m) => ({
       role: m.role === "assistant" ? "assistant" : "user",

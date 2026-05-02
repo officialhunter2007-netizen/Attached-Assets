@@ -2117,19 +2117,46 @@ ${retrievedBlock}
   //   • content: string
   //   • content: Array<{ type: "text", text: string }> (e.g. from older clients
   //     that mirror Anthropic's block format).
+  // Defense-in-depth: strip any base64 data URL out of free-text history rows
+  // (the frontend already persists only a slim placeholder, but a forged or
+  // older client could still submit one — never let multi-MB blobs hit the
+  // model history or the admin log table).
+  const DATA_URL_RE = /data:image\/[a-zA-Z+.\-]+;base64,[A-Za-z0-9+/=]+/g;
+  const stripDataUrls = (s: string): string =>
+    s.replace(DATA_URL_RE, "[صورة محذوفة من السجل]");
   const normaliseContent = (raw: unknown): string => {
-    if (typeof raw === "string") return raw;
+    if (typeof raw === "string") return stripDataUrls(raw);
     if (Array.isArray(raw)) {
-      return raw
-        .map((b: any) => {
-          if (typeof b === "string") return b;
-          if (b && typeof b === "object" && typeof b.text === "string") return b.text;
-          return "";
-        })
-        .join("\n")
-        .trim();
+      return stripDataUrls(
+        raw
+          .map((b: any) => {
+            if (typeof b === "string") return b;
+            if (b && typeof b === "object" && typeof b.text === "string") return b.text;
+            return "";
+          })
+          .join("\n")
+          .trim(),
+      );
     }
     return "";
+  };
+  // Detect a data URL embedded in the CURRENT user turn (markdown image
+  // syntax produced by the frontend attachment flow) and split it out so
+  // we can (a) sanitize what we persist + log and (b) feed the model a
+  // proper multimodal `image_url` part instead of a giant base64 blob in
+  // text. Returns at most ONE image (we only allow a single attachment
+  // per turn from the UI).
+  const SINGLE_IMAGE_DATA_URL_RE = /data:image\/[a-zA-Z+.\-]+;base64,[A-Za-z0-9+/=]+/;
+  const extractFirstDataUrl = (text: string): { dataUrl: string | null; cleaned: string } => {
+    if (typeof text !== "string" || text.length === 0) return { dataUrl: null, cleaned: text || "" };
+    const m = text.match(SINGLE_IMAGE_DATA_URL_RE);
+    if (!m) return { dataUrl: null, cleaned: text };
+    const dataUrl = m[0];
+    const cleaned = text
+      .replace(/!\[[^\]]*\]\(data:image\/[a-zA-Z+.\-]+;base64,[A-Za-z0-9+/=]+\)/, "[صورة مرفقة]")
+      .replace(SINGLE_IMAGE_DATA_URL_RE, "[صورة مرفقة]")
+      .trim();
+    return { dataUrl, cleaned };
   };
   // Two-tier conversation-history compression (May 2026 — gem-saver):
   //
@@ -2293,8 +2320,30 @@ ${retrievedBlock}
     }
   }
 
+  // Multimodal split: if the student attached an image (frontend sends the
+  // data URL inline this turn ONLY), pull it out of the text and send it
+  // as a proper `image_url` content part. The persisted DB row + the model
+  // history then carry only the placeholder, never the multi-MB blob.
+  let attachedImageDataUrl: string | null = null;
   if (mutatedUserMessage.length > 0) {
-    claudeMessages.push({ role: "user" as const, content: mutatedUserMessage });
+    const split = extractFirstDataUrl(mutatedUserMessage);
+    if (split.dataUrl) {
+      attachedImageDataUrl = split.dataUrl;
+      mutatedUserMessage = split.cleaned || "[صورة مرفقة من الطالب]";
+    }
+  }
+  if (mutatedUserMessage.length > 0) {
+    if (attachedImageDataUrl) {
+      claudeMessages.push({
+        role: "user" as const,
+        content: [
+          { type: "text", text: mutatedUserMessage },
+          { type: "image_url", image_url: { url: attachedImageDataUrl } },
+        ] as any,
+      });
+    } else {
+      claudeMessages.push({ role: "user" as const, content: mutatedUserMessage });
+    }
   } else if (claudeMessages.length === 0) {
     const initPrompt = isDiagnosticPhase
       ? `ابدأ جلسة التشخيص`
@@ -2317,14 +2366,20 @@ ${retrievedBlock}
   let stageComplete = false;
 
   // Persist the user message (and later the assistant response) for admin visibility.
+  // CRITICAL: never persist the raw base64 data URL of an attached image —
+  // that is a privacy/PII concern and can balloon the row by megabytes. We
+  // store the post-extraction `mutatedUserMessage` (which already shows
+  // "[صورة مرفقة]") and additionally run stripDataUrls() as a belt-and-
+  // braces guard against any future code path that bypasses extraction.
   if (userMessage && subjectId) {
     try {
+      const safeContent = stripDataUrls(String(mutatedUserMessage || userMessage)).slice(0, 8000);
       await db.insert(aiTeacherMessagesTable).values({
         userId,
         subjectId,
         subjectName: subjectName ?? null,
         role: "user",
-        content: String(userMessage).slice(0, 8000),
+        content: safeContent,
         isDiagnostic: isDiagnosticPhase ? 1 : 0,
         stageIndex: typeof currentStage === "number" ? currentStage : null,
       });
@@ -2669,9 +2724,14 @@ ${retrievedBlock}
       // claudeMessages is structurally [{role:'user'|'assistant', content:string}]
       // already; gemini-stream.ts handles the user→user / assistant→model
       // role translation internally.
+      // Pass multimodal arrays through untouched (image_url parts) so
+      // Gemini sees the attached image as a real visual input — not a
+      // base64 string in text. Plain string content stays as-is.
       const geminiMessages: GeminiMessage[] = (claudeMessages as any[]).map((m) => ({
         role: m.role as "user" | "assistant",
-        content: typeof m.content === "string" ? m.content : "",
+        content: Array.isArray(m.content)
+          ? (m.content as any)
+          : (typeof m.content === "string" ? m.content : ""),
       }));
       const geminiResult = await streamGeminiTeaching({
         systemPrompt,

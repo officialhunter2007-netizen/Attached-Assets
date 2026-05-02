@@ -2694,11 +2694,15 @@ function SubjectPathChat({
         body: JSON.stringify({
           subjectId: subject.id,
           subjectName: subject.name,
-          // For attachments, the data URL goes here once; persisted history holds the short placeholder.
+          // For attachments, the data URL goes ONCE here; the same blob must NOT
+          // also appear in the appended history row, otherwise the JSON request
+          // body doubles in size and can blow past express.json's 10MB cap.
           userMessage: sendPayloadOverride ?? text,
-          // History reads from messagesRef (always latest committed) so regenerate's synchronous trim sticks.
+          // History reads from messagesRef (always latest committed) so regenerate's
+          // synchronous trim sticks. The appended last user row always carries the
+          // slim `text` (placeholder for attachments), never the override.
           history: text
-            ? [...messagesRef.current, { role: "user", content: sendPayloadOverride ?? text }]
+            ? [...messagesRef.current, { role: "user", content: text }]
             : messagesRef.current,
           planContext: customPlan,
           stages: usedStages,
