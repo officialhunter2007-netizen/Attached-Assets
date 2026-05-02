@@ -812,12 +812,16 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
     .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
   const hasSubjectSub = access.hasActiveSub && access.source === "per-subject";
-  // Renew wall fires whenever the user has no usable path to access
-  // this subject — expired/exhausted per-subject row, expired legacy
-  // wallet, or no subscription at all. Daily-cap-only is NOT included
-  // (hasActiveSub stays true in that case) and is handled separately
-  // by the chat overlay.
-  const subjectSubExpired = !access.hasActiveSub && !access.isFirstLesson;
+  // Renew wall fires only when the user previously had a subscription
+  // (per-subject row OR legacy wallet) and now has none. A user who
+  // never subscribed must not be shown the "renew" wall — they get
+  // the regular subscribe flow instead.
+  const hadPreviousSub =
+    !!subjectSub ||
+    !!user.gemsExpiresAt ||
+    !!(user.nukhbaPlan && user.subscriptionExpiresAt);
+  const subjectSubExpired =
+    hadPreviousSub && !access.hasActiveSub && !access.isFirstLesson;
 
   // hasAccess covers lesson viewing and the renew wall. Daily-cap state
   // is surfaced separately via blockReason and handled by the chat overlay.

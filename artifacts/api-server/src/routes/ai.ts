@@ -317,8 +317,12 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     : (hasLegacyGemsSub ? (user.gemsUsedToday ?? 0) : 0);
   const gemsDailyExhausted = access.blockReason === "daily_limit";
 
-  const canAccessViaSubscription = hasGemsSub;
-  const hasActiveSub = hasGemsSub;
+  // hasActiveSub / canAccessViaSubscription must include the pre-gems
+  // legacy-messages wallet too, otherwise grandfathered users get a
+  // 403 ACCESS_DENIED at the gate. Gem-balance/daily-cap gates below
+  // remain limited to hasGemsSub.
+  const hasActiveSub = access.hasActiveSub;
+  const canAccessViaSubscription = hasActiveSub;
   const quotaExhausted = hasActiveSub && gemsDailyExhausted;
 
   // Backward-compat fields kept for older route handlers.
