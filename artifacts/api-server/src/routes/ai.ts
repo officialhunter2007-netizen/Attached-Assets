@@ -28,6 +28,7 @@ import {
   GeminiBadOutputError,
   GeminiClientError,
   type GeminiMessage,
+  type GeminiContentPart,
 } from "../lib/gemini-stream";
 import {
   generateGemini,
@@ -2219,7 +2220,8 @@ ${retrievedBlock}
     .filter((m) => m.content.trim().length > 0)
     .slice(-MAX_HISTORY_MESSAGES);
   const compressionSplit = Math.max(0, recentHistory.length - VERBATIM_RECENT);
-  const claudeMessages = recentHistory.map((m, i) =>
+  type TeachMessage = { role: "user" | "assistant"; content: string | GeminiContentPart[] };
+  const claudeMessages: TeachMessage[] = recentHistory.map((m, i) =>
     i < compressionSplit
       ? { role: m.role, content: compressOlderTurn(m.content) }
       : m,
@@ -2334,12 +2336,13 @@ ${retrievedBlock}
   }
   if (mutatedUserMessage.length > 0) {
     if (attachedImageDataUrl) {
+      const multimodalParts: GeminiContentPart[] = [
+        { type: "text", text: mutatedUserMessage },
+        { type: "image_url", image_url: { url: attachedImageDataUrl } },
+      ];
       claudeMessages.push({
         role: "user" as const,
-        content: [
-          { type: "text", text: mutatedUserMessage },
-          { type: "image_url", image_url: { url: attachedImageDataUrl } },
-        ] as any,
+        content: multimodalParts,
       });
     } else {
       claudeMessages.push({ role: "user" as const, content: mutatedUserMessage });
@@ -2727,11 +2730,9 @@ ${retrievedBlock}
       // Pass multimodal arrays through untouched (image_url parts) so
       // Gemini sees the attached image as a real visual input — not a
       // base64 string in text. Plain string content stays as-is.
-      const geminiMessages: GeminiMessage[] = (claudeMessages as any[]).map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: Array.isArray(m.content)
-          ? (m.content as any)
-          : (typeof m.content === "string" ? m.content : ""),
+      const geminiMessages: GeminiMessage[] = claudeMessages.map((m) => ({
+        role: m.role,
+        content: Array.isArray(m.content) ? m.content : (m.content || ""),
       }));
       const geminiResult = await streamGeminiTeaching({
         systemPrompt,

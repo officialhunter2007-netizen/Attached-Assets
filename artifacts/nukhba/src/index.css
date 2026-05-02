@@ -1476,3 +1476,39 @@
   .xs\:hidden { display: none; }
   .xs\:inline { display: inline; }
 }
+
+/* Low / empty gem-balance neon glow shown in the in-session header
+   (subject.tsx). Mirrors the global header's badge so the warning is
+   recognisable across the app, but pulses faster when truly empty. */
+@keyframes gem-low-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45), 0 0 8px rgba(245, 158, 11, 0.30); }
+  50%      { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.0),  0 0 14px rgba(245, 158, 11, 0.55); }
+}
+@keyframes gem-empty-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.55), 0 0 10px rgba(244, 63, 94, 0.40); }
+  50%      { box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.0),  0 0 18px rgba(244, 63, 94, 0.70); }
+}
+.gem-badge-low   { animation: gem-low-pulse   1.6s ease-in-out infinite; }
+.gem-badge-empty { animation: gem-empty-pulse 1.1s ease-in-out infinite; }
+
+/* Inline compact path bar — a thin, horizontal stage-dot strip rendered
+   directly under the session header alongside the side drawer. Lets
+   accustomed users see "where am I in the plan?" without opening the
+   drawer. The active dot pulses; completed dots fill amber; locked
+   dots stay subtle. */
+.compact-path-bar { display: flex; align-items: center; gap: 4px; }
+.compact-path-dot {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  transition: background 0.2s ease, transform 0.2s ease;
+  min-width: 8px;
+}
+.compact-path-dot.is-done    { background: rgba(245, 158, 11, 0.65); }
+.compact-path-dot.is-active  {
+  background: linear-gradient(90deg, rgba(245,158,11,0.95), rgba(251,191,36,0.95));
+  transform: scaleY(1.4);
+  box-shadow: 0 0 8px rgba(245,158,11,0.55);
+}
+.compact-path-dot.is-locked  { background: rgba(255,255,255,0.06); }

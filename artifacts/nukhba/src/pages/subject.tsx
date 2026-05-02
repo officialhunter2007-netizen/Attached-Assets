@@ -1524,17 +1524,28 @@ const MessageToolbar = memo(function MessageToolbar({
   onShare,
   onRate,
   canRegenerate,
+  ratingKey,
 }: {
   content: string;
   onRegenerate?: () => void;
   onShare?: () => void;
   onRate?: (value: "up" | "down") => void;
   canRegenerate: boolean;
+  ratingKey?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [rated, setRated] = useState<null | "up" | "down">(null);
+  // Ratings are persisted to localStorage under `nukhba.feedback.<key>` so
+  // a thumbs-up/down survives reload, remount, and tab close. The backend
+  // POST is best-effort/admin-side; the local cache is what the UI shows.
+  const [rated, setRated] = useState<null | "up" | "down">(() => {
+    if (typeof window === "undefined" || !ratingKey) return null;
+    try {
+      const v = window.localStorage.getItem(`nukhba.feedback.${ratingKey}`);
+      return v === "up" || v === "down" ? v : null;
+    } catch { return null; }
+  });
 
   const ttsAvailable = isSpeechSynthesisSupported();
 
@@ -1586,9 +1597,18 @@ const MessageToolbar = memo(function MessageToolbar({
   }, [content, speaking, ttsAvailable]);
 
   const handleRateClick = useCallback((value: "up" | "down") => {
-    setRated((prev) => (prev === value ? null : value));
+    setRated((prev) => {
+      const next = prev === value ? null : value;
+      if (typeof window !== "undefined" && ratingKey) {
+        try {
+          if (next === null) window.localStorage.removeItem(`nukhba.feedback.${ratingKey}`);
+          else window.localStorage.setItem(`nukhba.feedback.${ratingKey}`, next);
+        } catch {}
+      }
+      return next;
+    });
     onRate?.(value);
-  }, [onRate]);
+  }, [onRate, ratingKey]);
 
   return (
     <div className="msg-toolbar mt-1.5 flex flex-wrap items-center gap-1" style={{ direction: "rtl" }}>
@@ -3168,7 +3188,19 @@ function SubjectPathChat({
     const target = scrollRef.current;
     if (!target) return;
     setExportingPdf(true);
+    // Save and restore the scrollable container's overflow + height so
+    // html2canvas snapshots the FULL conversation (including off-screen
+    // messages), not just the visible viewport. Without this the export
+    // truncates long sessions to whatever the user happened to be
+    // looking at when they clicked.
+    const prevOverflow = target.style.overflow;
+    const prevHeight = target.style.height;
+    const prevMaxHeight = target.style.maxHeight;
+    const fullHeight = target.scrollHeight;
     try {
+      target.style.overflow = "visible";
+      target.style.height = `${fullHeight}px`;
+      target.style.maxHeight = "none";
       const html2canvas = (await import("html2canvas")).default;
       const { jsPDF } = await import("jspdf");
       const canvas = await html2canvas(target, {
@@ -3176,6 +3208,9 @@ function SubjectPathChat({
         scale: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
         useCORS: true,
         logging: false,
+        height: fullHeight,
+        windowHeight: fullHeight,
+        scrollY: -window.scrollY,
       });
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
@@ -3199,6 +3234,9 @@ function SubjectPathChat({
       console.error("[pdf-export] failed:", err);
       alert("تعذّر تصدير المحادثة كـ PDF. حاول مرة أخرى.");
     } finally {
+      target.style.overflow = prevOverflow;
+      target.style.height = prevHeight;
+      target.style.maxHeight = prevMaxHeight;
       setExportingPdf(false);
     }
   }, [exportingPdf, subject.name]);
@@ -3302,6 +3340,39 @@ function SubjectPathChat({
   // chat — i.e. the session is "live". Pauses on session-pause toggle.
   const hasUserActivity = messages.some(m => m.role === "user");
   const { elapsed: elapsedSeconds } = useElapsedTimer(hasUserActivity, sessionPaused);
+
+  // ── Gem balance for the in-session header ────────────────────────────────
+  // Kept local to subject.tsx so the chat bar can show a low-balance neon
+  // warning without depending on the AppLayout chrome (which is hidden in
+  // mobile fullscreen sessions). Refetches on the same `nukhba:gems-changed`
+  // event the global header listens to, so a successful /ai/teach turn
+  // updates both badges in lockstep.
+  const [gemState, setGemState] = useState<{ balance: number; daily: number; remaining: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchGems = () => {
+      fetch(`/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (cancelled || !d) return;
+          setGemState({
+            balance: typeof d.gemsBalance === "number" ? d.gemsBalance : 0,
+            daily: typeof d.gemsDailyLimit === "number" ? d.gemsDailyLimit : 0,
+            remaining: typeof d.dailyRemaining === "number" ? d.dailyRemaining : 0,
+          });
+        })
+        .catch(() => {});
+    };
+    fetchGems();
+    const handler = () => fetchGems();
+    window.addEventListener("nukhba:gems-changed", handler);
+    return () => { cancelled = true; window.removeEventListener("nukhba:gems-changed", handler); };
+  }, [subject.id]);
+  // Low-balance threshold: <70 daily-remaining gems is roughly one short
+  // turn left before the daily allowance is exhausted on a typical Gemini
+  // teach call.
+  const gemLowBalance = !!gemState && gemState.remaining > 0 && gemState.remaining < 70;
+  const gemEmpty = !!gemState && gemState.remaining <= 0;
 
   // ── Welcome empty-state starters ──────────────────────────────────────────
   // Same heuristics as the inline suggestion chips, exposed here so the
@@ -3781,6 +3852,22 @@ function SubjectPathChat({
               <Clock className="w-3 h-3" />
               <span className="tabular-nums">{formatElapsed(elapsedSeconds)}</span>
             </div>
+            {gemState && (
+              <div
+                className={`hidden sm:flex items-center gap-1 text-[11px] tabular-nums px-1.5 py-0.5 rounded-md border transition-all ${
+                  gemEmpty
+                    ? "gem-badge-empty text-rose-200 bg-rose-500/15 border-rose-500/40"
+                    : gemLowBalance
+                      ? "gem-badge-low text-amber-100 bg-amber-500/15 border-amber-500/45"
+                      : "text-amber-200/90 bg-amber-500/8 border-amber-500/25"
+                }`}
+                title={`المتبقي اليوم: ${gemState.remaining.toLocaleString("ar-EG")} / ${gemState.daily.toLocaleString("ar-EG")} 💎 — الرصيد الكلي: ${gemState.balance.toLocaleString("ar-EG")}`}
+                aria-label={`الجواهر المتبقية اليوم ${gemState.remaining}`}
+              >
+                <span aria-hidden>💎</span>
+                <span>{gemState.remaining.toLocaleString("ar-EG")}</span>
+              </div>
+            )}
           </div>
           <div className="min-w-0 flex items-center gap-2 truncate">
             <span className="text-[12px] font-bold text-white/85 truncate">{subject.name}</span>
@@ -3795,6 +3882,43 @@ function SubjectPathChat({
           </div>
         </div>
       )}
+
+      {/* Inline compact path bar — a thin horizontal stage-dot strip directly
+          under the session header. Renders alongside (not instead of) the
+          side drawer so accustomed users keep their familiar inline path
+          view, while new users still get the richer drawer with progress
+          ring + per-stage controls. Hidden until a custom plan exists. */}
+      {teachingMode && teachingMode !== 'unset' && customPlan && (() => {
+        const compactStages = parsePlanStages(customPlan);
+        if (compactStages.length === 0) return null;
+        const total = compactStages.length;
+        const currentIdx = Math.min(currentStage, total - 1);
+        return (
+          <button
+            type="button"
+            onClick={() => setPathDrawerOpen(true)}
+            className="shrink-0 px-2.5 sm:px-3 py-1 border-b border-white/5 hover:bg-white/[0.03] transition-colors text-right w-full"
+            style={{ direction: "rtl" }}
+            title={`المرحلة ${Math.min(currentStage + 1, total)} من ${total} — اضغط لفتح المسار الكامل`}
+            aria-label="عرض شريط المراحل المضغوط — اضغط لفتح المسار الكامل"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-amber-300/80 shrink-0 tabular-nums">
+                {Math.min(currentStage + 1, total)}/{total}
+              </span>
+              <div className="compact-path-bar flex-1">
+                {compactStages.map((_, idx) => {
+                  const cls = idx < currentStage ? "is-done" : idx === currentStage ? "is-active" : "is-locked";
+                  return <span key={idx} className={`compact-path-dot ${cls}`} />;
+                })}
+              </div>
+              <span className="text-[10px] text-white/45 truncate hidden sm:inline">
+                {compactStages[currentIdx]?.title || ""}
+              </span>
+            </div>
+          </button>
+        );
+      })()}
 
       {/* Mode/sources mini-bar (visible whenever mode is set).
           REDESIGN (May 2026): the previous row had 3 separate visible
@@ -4120,6 +4244,7 @@ function SubjectPathChat({
                       {!(isStreaming && isLastMsg) && msg.role === 'assistant' && (msg.content || '').length > 0 && (
                         <MessageToolbar
                           content={msg.content}
+                          ratingKey={`${subject.id}:${i}`}
                           onRegenerate={handleRegenerateLast}
                           canRegenerate={isLastMsg && !isStreaming && !sessionPaused}
                           onRate={(value) => {
