@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, ne, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { createReadStream, promises as fsp } from "fs";
 import { tmpdir } from "os";
@@ -252,6 +252,9 @@ router.get("/materials", async (req, res): Promise<any> => {
       starters: courseMaterialsTable.starters,
       outline: courseMaterialsTable.outline,
       structuredOutline: courseMaterialsTable.structuredOutline,
+      coverageStatus: courseMaterialsTable.coverageStatus,
+      role: courseMaterialsTable.role,
+      printedPageOffset: courseMaterialsTable.printedPageOffset,
       createdAt: courseMaterialsTable.createdAt,
     })
     .from(courseMaterialsTable)
@@ -992,10 +995,38 @@ router.patch("/materials/:id/role", async (req, res): Promise<any> => {
     .from(courseMaterialsTable)
     .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
   if (!row) return res.status(404).json({ error: "Not found" });
-  await db
-    .update(courseMaterialsTable)
-    .set({ role, updatedAt: new Date() })
-    .where(eq(courseMaterialsTable.id, id));
+  // When promoting a material to primary we ALSO demote every other primary
+  // in the same (user, subject) so the "primary book" invariant holds and
+  // the professor-mode anchor (active material) is unambiguous. We also
+  // promote it to the active material so subsequent /ai/teach calls switch
+  // to it immediately. Both updates run inside one transaction so a partial
+  // failure can't leave two primaries.
+  await db.transaction(async (tx) => {
+    if (role === "primary") {
+      await tx
+        .update(courseMaterialsTable)
+        .set({ role: "reference", updatedAt: new Date() })
+        .where(and(
+          eq(courseMaterialsTable.userId, userId),
+          eq(courseMaterialsTable.subjectId, row.subjectId),
+          eq(courseMaterialsTable.role, "primary"),
+          ne(courseMaterialsTable.id, id),
+        ));
+    }
+    await tx
+      .update(courseMaterialsTable)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(courseMaterialsTable.id, id));
+    if (role === "primary") {
+      await tx
+        .update(userSubjectTeachingModesTable)
+        .set({ activeMaterialId: id, updatedAt: new Date() })
+        .where(and(
+          eq(userSubjectTeachingModesTable.userId, userId),
+          eq(userSubjectTeachingModesTable.subjectId, row.subjectId),
+        ));
+    }
+  });
   res.json({ ok: true, role });
 });
 
@@ -2423,9 +2454,10 @@ async function generateStructuredChapters(
         backChars += blocks[backIdx].len;
       }
       i = backIdx;
-      // Safety cap: never produce more than 6 windows even on a huge book —
-      // beyond that we risk hitting hourly rate limits.
-      if (windows.length >= 6) break;
+      // Safety cap to bound rate-limit/cost. With ~70k chars per window plus
+      // 5k overlap, 12 windows ≈ 780k chars of source text — enough to cover
+      // a 600-page Arabic textbook end-to-end (the task's stated ceiling).
+      if (windows.length >= 12) break;
     }
   }
 
@@ -3036,7 +3068,7 @@ export async function getRecentWeakAreasForMaterial(
 // ── Helper exposed for ai/teach to load the active material context ────────────
 export async function getActiveMaterialContext(userId: number, subjectId: string): Promise<{
   mode: string;
-  material: { id: number; fileName: string; outline: string | null; structuredOutline: string | null; summary: string | null; extractedText: string | null; language: string | null } | null;
+  material: { id: number; fileName: string; outline: string | null; structuredOutline: string | null; summary: string | null; extractedText: string | null; language: string | null; printedPageOffset: number } | null;
   recentWeakAreas?: { topic: string; missed: number }[];
 } | null> {
   const [mode] = await db
@@ -3058,6 +3090,7 @@ export async function getActiveMaterialContext(userId: number, subjectId: string
     extractedText: courseMaterialsTable.extractedText,
     language: courseMaterialsTable.language,
     status: courseMaterialsTable.status,
+    printedPageOffset: courseMaterialsTable.printedPageOffset,
   };
 
   let mat: any = null;

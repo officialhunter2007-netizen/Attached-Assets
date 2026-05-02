@@ -101,9 +101,18 @@ export function detectPrintedPageOffset(pageTexts: Map<number, string>): number 
     .sort((a, b) => a[0] - b[0])
     .slice(0, 30);
   for (const [pdfPage, raw] of pages) {
-    const text = normalizeArabic(raw);
-    if (!text) continue;
-    const lines = text.split(/[\n\r]+/).map((l) => l.trim()).filter(Boolean);
+    if (!raw) continue;
+    // Soft-normalize ONLY characters relevant to footer/header digit detection
+    // (digits, alef variants, taa marbuta, diacritics, tatweel) while
+    // preserving line breaks. The full normalizeArabic() collapses whitespace
+    // into single spaces, which destroys the per-line structure we need.
+    let text = String(raw).normalize("NFKC");
+    text = text.replace(HARAKAT, "").replace(TATWEEL, "");
+    text = text.replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+    text = text.replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
+    text = text.toLowerCase();
+    if (!text.trim()) continue;
+    const lines = text.split(/[\n\r]+/).map((l) => l.replace(/[ \t\u00A0]+/g, " ").trim()).filter(Boolean);
     // Inspect the footer (last 2 lines) and header (first 1 line) for a
     // bare digit. PDF page numbers in book scans almost always live there.
     const candidates = [

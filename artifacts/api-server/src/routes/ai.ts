@@ -11,6 +11,7 @@ import {
   extractGeminiUsage,
 } from "../lib/ai-usage";
 import { isUnlimitedEmail } from "../lib/admins";
+import { formatPageCitation } from "../lib/arabic-normalize";
 import { getCostCapStatus } from "../lib/cost-cap";
 import { costForUsage } from "../lib/ai-pricing";
 import {
@@ -1963,7 +1964,7 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
             );
             if (chapterChunks.length > 0) {
               const formatted = chapterChunks
-                .map((c) => `[صفحة ${c.pageNumber}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
+                .map((c) => `[${formatPageCitation(c.pageNumber, m.printedPageOffset || 0)}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
                 .join("\n\n―――\n\n");
               pagesUsed.push(...chapterChunks.map((c) => c.pageNumber));
 
@@ -2026,7 +2027,7 @@ ${formatted}
               const filtered = pageChunks.filter((c) => wantedPages.has(c.pageNumber));
               if (filtered.length > 0) {
                 const formatted = filtered
-                  .map((c) => `[صفحة ${c.pageNumber}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
+                  .map((c) => `[${formatPageCitation(c.pageNumber, m.printedPageOffset || 0)}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
                   .join("\n\n―――\n\n");
                 pagesUsed.push(...filtered.map((c) => c.pageNumber));
                 retrievedBlock += `
@@ -2052,7 +2053,7 @@ ${formatted}
             const extra = fts.filter((c) => !usedSet.has(c.pageNumber));
             if (extra.length > 0) {
               const formatted = extra
-                .map((c) => `[صفحة ${c.pageNumber}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
+                .map((c) => `[${formatPageCitation(c.pageNumber, m.printedPageOffset || 0)}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
                 .join("\n\n―――\n\n");
               pagesUsed.push(...extra.map((c) => c.pageNumber));
               retrievedBlock += `
@@ -2125,7 +2126,7 @@ ${lines.join("\n\n―――\n\n")}
             }
             if (chunks.length > 0) {
               const formatted = chunks
-                .map((c) => `[صفحة ${c.pageNumber}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
+                .map((c) => `[${formatPageCitation(c.pageNumber, m.printedPageOffset || 0)}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
                 .join("\n\n―――\n\n");
               pagesUsed.push(...chunks.map((c) => c.pageNumber));
               retrievedBlock += `

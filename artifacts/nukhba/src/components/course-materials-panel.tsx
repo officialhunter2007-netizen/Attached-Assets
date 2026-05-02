@@ -23,6 +23,7 @@ export interface Material {
   starters: string | null;
   createdAt: string;
   progress?: MaterialProgress | null;
+  coverageStatus?: "ok" | "partial" | "failed" | null;
 }
 
 export function CourseMaterialsPanel({
@@ -219,6 +220,25 @@ export function CourseMaterialsPanel({
       if (activeMaterialId === id) onActiveChange(null);
       await refresh();
     } catch {}
+  };
+
+  const handleRetryOcr = async (id: number) => {
+    setBusyChapter(`${id}:retry-ocr`);
+    setError(null);
+    try {
+      const r = await fetch(`/api/materials/${id}/retry-ocr`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        setError("تعذّر إعادة معالجة الصفحات الناقصة — حاول لاحقاً.");
+      } else {
+        await refresh();
+      }
+    } catch {
+      setError("تعذّر إعادة معالجة الصفحات الناقصة — حاول لاحقاً.");
+    }
+    setBusyChapter(null);
   };
 
   const handleActivate = async (id: number) => {
@@ -438,10 +458,23 @@ export function CourseMaterialsPanel({
                       {m.status === "ready" && m.errorMessage && (
                         <p className="mt-1.5 text-[11px] text-amber-300/80 leading-relaxed">⚠️ {m.errorMessage}</p>
                       )}
-                      <div className="mt-2 flex items-center gap-2">
+                      <div className="mt-2 flex items-center gap-2 flex-wrap">
                         {m.status === "ready" && !isActive && (
                           <button onClick={() => handleActivate(m.id)} className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition-all">
                             استخدم هذا الملف
+                          </button>
+                        )}
+                        {m.status === "ready" && (m.coverageStatus === "partial" || m.coverageStatus === "failed") && (
+                          <button
+                            onClick={() => handleRetryOcr(m.id)}
+                            disabled={busyChapter === `${m.id}:retry-ocr`}
+                            className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 transition-all flex items-center gap-1 disabled:opacity-50"
+                          >
+                            {busyChapter === `${m.id}:retry-ocr` ? (
+                              <><Loader2 className="w-3 h-3 animate-spin" /> جارٍ المعالجة...</>
+                            ) : (
+                              <><RotateCcw className="w-3 h-3" /> أعد قراءة الصفحات الناقصة</>
+                            )}
                           </button>
                         )}
                         <button onClick={() => handleDelete(m.id)} className="text-[11px] px-2.5 py-1 rounded-lg hover:bg-red-500/15 text-white/40 hover:text-red-300 transition-all flex items-center gap-1">
