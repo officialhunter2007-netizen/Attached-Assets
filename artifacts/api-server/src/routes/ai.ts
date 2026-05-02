@@ -2379,7 +2379,11 @@ ${retrievedBlock}
   // back from the wire until either the tag completes or it becomes clear
   // the prefix isn't an IMAGE tag at all. Worst case we hold back ~9 chars
   // ("[[IMAGE:") for one chunk before flushing.
-  const MAX_IMAGES_PER_REPLY = 2;
+  // First-lesson showcase is hard-clamped to exactly 1 image: the prompt
+  // addendum already says "ممنوع أكثر من مرة واحدة في هذا الرد"; this is the
+  // server-side enforcement so a hallucinating model can't blow through the
+  // budget. Normal turns allow up to 2 (rare two-step diagrams).
+  const MAX_IMAGES_PER_REPLY = isShowcaseOpener ? 1 : 2;
   let __imageStreamBuffer = "";
   let __imageCount = 0;
   // Maps the short id we ship to the client → original FLUX prompt (used

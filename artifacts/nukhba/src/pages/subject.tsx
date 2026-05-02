@@ -2086,41 +2086,6 @@ function SubjectPathChat({
                 });
                 break;
               }
-              // ── Teacher-image SSE events ───────────────────────────────
-              // Three event shapes from the server:
-              //   { imagePlaceholder: { id } }       — generation kicked off
-              //   { imageReady: { id, url } }        — URL resolved (≈3-6s)
-              //   { imageError: { id, message? } }   — flux/timeout failure
-              // We mutate imageMap in-place via setState; AIMessage reacts.
-              if (data.imagePlaceholder?.id) {
-                const id = String(data.imagePlaceholder.id);
-                setImageMap(prev => {
-                  if (prev.has(id)) return prev;
-                  const next = new Map(prev);
-                  next.set(id, { status: 'loading' });
-                  return next;
-                });
-                continue;
-              }
-              if (data.imageReady?.id && data.imageReady.url) {
-                const id = String(data.imageReady.id);
-                const url = String(data.imageReady.url);
-                setImageMap(prev => {
-                  const next = new Map(prev);
-                  next.set(id, { status: 'ready', url });
-                  return next;
-                });
-                continue;
-              }
-              if (data.imageError?.id) {
-                const id = String(data.imageError.id);
-                setImageMap(prev => {
-                  const next = new Map(prev);
-                  next.set(id, { status: 'error' });
-                  return next;
-                });
-                continue;
-              }
               if (!diagMode && data.stageComplete && data.nextStage !== undefined) {
                 if (data.nextStage >= usedStages.length) {
                   setCurrentStage(usedStages.length);
@@ -2143,6 +2108,45 @@ function SubjectPathChat({
                 }
               }
               break;
+            }
+            // ── Teacher-image SSE events (mid-stream) ─────────────────────
+            // Three event shapes from the server, fired BEFORE `data.done`:
+            //   { imagePlaceholder: { id } }       — generation kicked off
+            //   { imageReady: { id, url } }        — URL resolved (≈3-6s)
+            //   { imageError: { id, message? } }   — flux/timeout failure
+            // We mutate imageMap via setState; AIMessage reacts and swaps
+            // the placeholder figure for the real <img>. CRITICAL: these
+            // handlers MUST live outside the `if (data.done)` branch above
+            // — they arrive interleaved with `data.content` chunks during
+            // the stream, never as part of the terminal done event.
+            if (data.imagePlaceholder?.id) {
+              const id = String(data.imagePlaceholder.id);
+              setImageMap(prev => {
+                if (prev.has(id)) return prev;
+                const next = new Map(prev);
+                next.set(id, { status: 'loading' });
+                return next;
+              });
+              continue;
+            }
+            if (data.imageReady?.id && data.imageReady.url) {
+              const id = String(data.imageReady.id);
+              const url = String(data.imageReady.url);
+              setImageMap(prev => {
+                const next = new Map(prev);
+                next.set(id, { status: 'ready', url });
+                return next;
+              });
+              continue;
+            }
+            if (data.imageError?.id) {
+              const id = String(data.imageError.id);
+              setImageMap(prev => {
+                const next = new Map(prev);
+                next.set(id, { status: 'error' });
+                return next;
+              });
+              continue;
             }
             if (data.content) {
               assistantMsg += data.content;
