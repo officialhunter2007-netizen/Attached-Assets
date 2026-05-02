@@ -302,8 +302,12 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   if (refreshedUser) Object.assign(user, refreshedUser);
 
   const hasPerSubjectGemsSub = access.source === "per-subject";
-  const hasLegacyGemsSub = access.source === "legacy";
-  const hasGemsSub = access.hasActiveSub;
+  const hasLegacyGemsSub = access.source === "legacy" && access.legacyKind === "gems";
+  const hasLegacyMessagesSub = access.source === "legacy" && access.legacyKind === "messages";
+  // hasGemsSub is true only when an actual gem wallet backs the access.
+  // Legacy pre-gems users (messages wallet) are subscribed but NOT on a
+  // gem wallet, so the gem-balance/daily-cap gates below skip them.
+  const hasGemsSub = hasPerSubjectGemsSub || hasLegacyGemsSub;
   const gemsBalance = access.gemsRemaining;
   const gemsDailyLimit = hasPerSubjectGemsSub
     ? (subjectGemsSub?.gemsDailyLimit ?? 0)
@@ -324,7 +328,7 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   return {
     isFirstLesson,
     canAccessViaSubjectSub,
-    canAccessViaLegacyGlobal: hasLegacyGemsSub,
+    canAccessViaLegacyGlobal: hasLegacyGemsSub || hasLegacyMessagesSub,
     canAccessViaSubscription,
     canAccessViaReferral: false,
     hasActiveSub,
@@ -336,6 +340,7 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     hasGemsSub,
     hasPerSubjectGemsSub,
     hasLegacyGemsSub,
+    hasLegacyMessagesSub,
     perSubjectGemsSub: subjectGemsSub ?? null,
     gemsDailyExhausted,
     gemsBalance,
@@ -1043,6 +1048,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     gemsDailyExhausted: rawGemsDailyExhausted,
     hasPerSubjectGemsSub: rawHasPerSubject,
     hasLegacyGemsSub: rawHasLegacy,
+    hasLegacyMessagesSub: rawHasLegacyMessages,
     perSubjectGemsSub,
   } = access;
   const isFirstLesson = unlimited ? false : rawFirstLesson;
@@ -1051,6 +1057,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const hasGemsSub = unlimited ? false : (rawHasGems ?? false);
   const hasPerSubjectGemsSub = unlimited ? false : (rawHasPerSubject ?? false);
   const hasLegacyGemsSub = unlimited ? false : (rawHasLegacy ?? false);
+  const hasLegacyMessagesSub = unlimited ? false : (rawHasLegacyMessages ?? false);
   const gemsDailyExhausted = unlimited ? false : (rawGemsDailyExhausted ?? false);
   const isNewSession = !userMessage;
 
@@ -3525,7 +3532,6 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           metadata: { model: __activeModel, costUsd: turnCostUsd },
         });
       } else if (hasLegacyGemsSub) {
-        // Legacy (grandfathered) wallet on usersTable.
         const [updatedUser] = await db.update(usersTable)
           .set({
             gemsBalance: sql`GREATEST(0, ${usersTable.gemsBalance} - ${gems})`,
@@ -3541,9 +3547,14 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           balanceAfter: updatedUser?.gemsBalance ?? 0,
           reason: "debit",
           source: "ai_teach",
-          note: `AI turn (${__activeModel || "model?"}) [legacy wallet]`,
+          note: `AI turn (${__activeModel || "model?"}) [legacy gems wallet]`,
           metadata: { model: __activeModel, costUsd: turnCostUsd },
         });
+      } else if (hasLegacyMessagesSub) {
+        // Pre-gems wallet: count one message instead of debiting gems.
+        await db.update(usersTable)
+          .set({ messagesUsed: sql`${usersTable.messagesUsed} + 1` })
+          .where(eq(usersTable.id, userId));
       }
     } catch (err: any) {
       // Distinctive prefix — alert on this in your monitoring stack. A
@@ -3556,7 +3567,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         userId,
         subjectId,
         gems,
-        chargingPath: isFirstLesson ? "free-cap" : (hasPerSubjectGemsSub ? "per-subject" : (hasLegacyGemsSub ? "legacy" : "none")),
+        chargingPath: isFirstLesson ? "free-cap" : (hasPerSubjectGemsSub ? "per-subject" : (hasLegacyGemsSub ? "legacy-gems" : (hasLegacyMessagesSub ? "legacy-messages" : "none"))),
         message: err?.message || String(err),
       });
     }
@@ -3578,6 +3589,8 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     const approxUsedToday = (user.gemsUsedToday ?? 0) + gemsDeducted;
     const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - approxUsedToday);
     gemsRemaining = Math.min(approxBalance, dailyRemaining);
+  } else if (hasLegacyMessagesSub) {
+    gemsRemaining = Math.max(0, (user.messagesLimit ?? 0) - (user.messagesUsed ?? 0) - 1);
   }
   const messagesRemaining = gemsRemaining; // alias kept for compat
   const isQuotaExhausted = !unlimited && gemsRemaining === 0;

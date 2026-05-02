@@ -21,6 +21,8 @@ export type AccessReason =
   | "no_gems"
   | null;
 
+export type LegacyKind = "gems" | "messages" | null;
+
 export type AccessResult = {
   hasActiveSub: boolean;
   gemsRemaining: number;
@@ -31,6 +33,8 @@ export type AccessResult = {
   blockReason: AccessReason;
   canAccess: boolean;
   source: AccessSource;
+  // When source === "legacy", which kind of wallet backs it.
+  legacyKind: LegacyKind;
 };
 
 export async function getAccessForUser(opts: {
@@ -55,6 +59,7 @@ export async function getAccessForUser(opts: {
       blockReason: "no_user",
       canAccess: false,
       source: "none",
+      legacyKind: null,
     };
   }
 
@@ -112,6 +117,7 @@ export async function getAccessForUser(opts: {
           blockReason: exhaustedDaily ? "daily_limit" : null,
           canAccess: !exhaustedDaily,
           source: "per-subject",
+          legacyKind: null,
         };
       }
 
@@ -132,6 +138,7 @@ export async function getAccessForUser(opts: {
         blockReason: isFirstLesson ? null : blockReason,
         canAccess: isFirstLesson,
         source: isFirstLesson ? "first-lesson" : "none",
+        legacyKind: null,
       };
     }
 
@@ -163,6 +170,7 @@ export async function getAccessForUser(opts: {
       blockReason: exhaustedDaily ? "daily_limit" : null,
       canAccess: !exhaustedDaily,
       source: "legacy",
+      legacyKind: "gems",
     };
   }
 
@@ -188,6 +196,7 @@ export async function getAccessForUser(opts: {
       blockReason: null,
       canAccess: true,
       source: "legacy",
+      legacyKind: "messages",
     };
   }
 
@@ -210,6 +219,7 @@ export async function getAccessForUser(opts: {
       blockReason: null,
       canAccess: true,
       source: "first-lesson",
+      legacyKind: null,
     };
   }
 
@@ -223,6 +233,7 @@ export async function getAccessForUser(opts: {
     blockReason: balance <= 0 ? "no_gems" : "no_active_sub",
     canAccess: false,
     source: "none",
+    legacyKind: null,
   };
 }
 
