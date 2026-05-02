@@ -1978,7 +1978,10 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
                 : "(الفهرس المُولَّد لم يُنتج نقاطاً مفصّلة لهذا الفصل — استخرج أنت النقاط من نص الفصل أعلاه واعمل بنفس القاعدة: غطِّ كل نقطة قبل الانتقال).";
               const remaining = pts.length - coveredSet.size;
 
-              chapterChecklistBlock = `
+              // Append (don't reassign) so the review-mode preface above
+              // survives. Otherwise "راجع الفصل N" would be silently demoted
+              // to a fresh teaching session at the prompt layer.
+              chapterChecklistBlock += `
 
 — الفصل النشط رقم ${activeChapterIdx + 1}: "${activeChapter.title}" (صفحات ${activeChapter.startPage}–${activeChapter.endPage}) —
 ملخص الفصل: ${activeChapter.summary || "(لا ملخص)"}
@@ -2004,17 +2007,19 @@ ${formatted}
           }
 
           // ── Layer 2: explicit page reference ──────────────────────────
-          // If the student named specific pages, pull those chunks and a
-          // window of ±1 around each so context isn't cut off mid-sentence.
+          // The student types the printed page number ("صفحة 12"). Translate
+          // to PDF page (printed + printedPageOffset) before retrieval so the
+          // book's front-matter doesn't shift the lookup off the actual page.
           if (pageRefMatches.length > 0) {
+            const offset = m.printedPageOffset || 0;
             const wantedPages = new Set<number>();
             for (const mt of pageRefMatches) {
-              const p = Number(mt[1]);
-              if (Number.isFinite(p) && p >= 1) {
-                wantedPages.add(p);
-                wantedPages.add(p - 1);
-                wantedPages.add(p + 1);
-              }
+              const printed = Number(mt[1]);
+              if (!Number.isFinite(printed) || printed < 1) continue;
+              const pdf = printed + offset;
+              wantedPages.add(pdf);
+              wantedPages.add(pdf - 1);
+              wantedPages.add(pdf + 1);
             }
             const pageList = Array.from(wantedPages).filter((p) => p >= 1).sort((a, b) => a - b);
             if (pageList.length > 0) {

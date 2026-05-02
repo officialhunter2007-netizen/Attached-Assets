@@ -24,6 +24,7 @@ export interface Material {
   createdAt: string;
   progress?: MaterialProgress | null;
   coverageStatus?: "ok" | "partial" | "failed" | null;
+  role?: "primary" | "reference" | null;
 }
 
 export function CourseMaterialsPanel({
@@ -220,6 +221,24 @@ export function CourseMaterialsPanel({
       if (activeMaterialId === id) onActiveChange(null);
       await refresh();
     } catch {}
+  };
+
+  const handleSetRole = async (id: number, role: "primary" | "reference") => {
+    setBusyChapter(`${id}:role:${role}`);
+    setError(null);
+    try {
+      const r = await fetch(`/api/materials/${id}/role`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      if (!r.ok) setError("تعذّر تغيير دور الملف.");
+      else await refresh();
+    } catch {
+      setError("تعذّر تغيير دور الملف.");
+    }
+    setBusyChapter(null);
   };
 
   const handleRetryOcr = async (id: number) => {
@@ -459,6 +478,29 @@ export function CourseMaterialsPanel({
                         <p className="mt-1.5 text-[11px] text-amber-300/80 leading-relaxed">⚠️ {m.errorMessage}</p>
                       )}
                       <div className="mt-2 flex items-center gap-2 flex-wrap">
+                        {m.status === "ready" && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${m.role === "reference" ? "bg-white/10 text-white/60" : "bg-amber-500/20 text-amber-300"}`}>
+                            {m.role === "reference" ? "مرجع" : "أساسي"}
+                          </span>
+                        )}
+                        {m.status === "ready" && m.role !== "primary" && (
+                          <button
+                            onClick={() => handleSetRole(m.id, "primary")}
+                            disabled={busyChapter === `${m.id}:role:primary`}
+                            className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 transition-all disabled:opacity-50"
+                          >
+                            اجعله الكتاب الأساسي
+                          </button>
+                        )}
+                        {m.status === "ready" && m.role === "primary" && (
+                          <button
+                            onClick={() => handleSetRole(m.id, "reference")}
+                            disabled={busyChapter === `${m.id}:role:reference`}
+                            className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 transition-all disabled:opacity-50"
+                          >
+                            اجعله مرجعاً
+                          </button>
+                        )}
                         {m.status === "ready" && !isActive && (
                           <button onClick={() => handleActivate(m.id)} className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition-all">
                             استخدم هذا الملف

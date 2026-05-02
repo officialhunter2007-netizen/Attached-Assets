@@ -472,6 +472,10 @@ async function buildAdminContext(focusUser: any | null) {
           pageCount: courseMaterialsTable.pageCount,
           language: courseMaterialsTable.language,
           summary: sql<string>`left(coalesce(${courseMaterialsTable.summary}, ''), 250)`,
+          coverageStatus: courseMaterialsTable.coverageStatus,
+          role: courseMaterialsTable.role,
+          printedPageOffset: courseMaterialsTable.printedPageOffset,
+          processingMetrics: courseMaterialsTable.processingMetrics,
           createdAt: courseMaterialsTable.createdAt,
         })
         .from(courseMaterialsTable)

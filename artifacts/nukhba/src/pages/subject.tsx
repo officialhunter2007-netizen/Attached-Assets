@@ -2413,7 +2413,7 @@ function SubjectPathChat({
   );
   const [activeMaterialStarters, setActiveMaterialStarters] = useState<string | null>(null);
   const [activeMaterialWeakAreas, setActiveMaterialWeakAreas] = useState<{ topic: string; missed: number }[]>([]);
-  // Task #22 — curriculum sidebar data + drawer toggle. Pulled together
+  // Curriculum sidebar data + drawer toggle. Pulled together
   // with starters from /api/materials/:id so we don't make a second round-trip
   // every time the drawer opens.
   type CurriculumChapter = {
@@ -4124,7 +4124,7 @@ function SubjectPathChat({
         kind={quizPanel.kind}
       />
 
-      {/* Curriculum sidebar — Task #22. Bottom drawer (matches the existing
+      {/* Curriculum sidebar — bottom drawer (matches the existing
           mobile design language). Lists every chapter from the structured
           outline with a status icon (✓ covered, ▶ active, ○ upcoming), a
           page range, and a coverage bar (covered keyPoints / total). The

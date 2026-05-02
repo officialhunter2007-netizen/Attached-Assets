@@ -705,7 +705,6 @@ router.get("/materials/:id", async (req, res): Promise<any> => {
       starters: courseMaterialsTable.starters,
       outline: courseMaterialsTable.outline,
       structuredOutline: courseMaterialsTable.structuredOutline,
-      // Task #22 fields surfaced to the UI:
       printedPageOffset: courseMaterialsTable.printedPageOffset,
       role: courseMaterialsTable.role,
       coverageStatus: courseMaterialsTable.coverageStatus,
@@ -995,12 +994,8 @@ router.patch("/materials/:id/role", async (req, res): Promise<any> => {
     .from(courseMaterialsTable)
     .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
   if (!row) return res.status(404).json({ error: "Not found" });
-  // When promoting a material to primary we ALSO demote every other primary
-  // in the same (user, subject) so the "primary book" invariant holds and
-  // the professor-mode anchor (active material) is unambiguous. We also
-  // promote it to the active material so subsequent /ai/teach calls switch
-  // to it immediately. Both updates run inside one transaction so a partial
-  // failure can't leave two primaries.
+  // Promoting to primary demotes existing primaries in the same (user,
+  // subject) and repoints activeMaterialId in one transaction.
   await db.transaction(async (tx) => {
     if (role === "primary") {
       await tx
