@@ -772,7 +772,10 @@ router.get("/subscriptions/my-subjects", async (req, res): Promise<void> => {
       }
       const dailyLimit = s.gemsDailyLimit ?? 0;
       const usedToday = s.gemsUsedToday ?? 0;
-      const dailyRemaining = Math.max(0, dailyLimit - usedToday);
+      const balance = s.gemsBalance ?? 0;
+      // Cap dailyRemaining by total balance so an exhausted-but-active
+      // sub never appears usable.
+      const dailyRemaining = Math.min(balance, Math.max(0, dailyLimit - usedToday));
       return { ...s, dailyRemaining };
     }),
   );

@@ -3696,12 +3696,9 @@ function SubjectPathChat({
           const r = await fetch(`/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(sid)}`, { credentials: "include" });
           if (r.ok) {
             const d = await r.json();
-            const dailyRemaining = typeof d.dailyRemaining === "number" ? d.dailyRemaining : 0;
-            const dailyLimit = typeof d.gemsDailyLimit === "number" ? d.gemsDailyLimit : 0;
-            // Server has rolled over when there's daily allowance again,
-            // OR when the row simply has no daily limit (so no rollover
-            // gates access). Either way, safe to restart.
-            if (dailyRemaining > 0 || dailyLimit === 0) {
+            // Restart only when the server confirms the user can spend
+            // gems again — covers daily-cap rollover AND total balance.
+            if (d.canUseGems === true) {
               if (!cancelled) startNextSession();
               return;
             }
