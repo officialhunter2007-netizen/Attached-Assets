@@ -44,6 +44,13 @@ export const UpdateMeBody = zod.object({
   lastActive: zod.string().nullish(),
   badges: zod.array(zod.string()).nullish(),
   nukhbaPlan: zod.string().nullish(),
+  // `region` is read by the /auth/me PATCH handler (see api-server/src/
+  // routes/auth.ts) and is required for onboarding to persist the student's
+  // chosen geographic region. The upstream OpenAPI spec is missing it, so
+  // we add it here manually until the spec is regenerated. Without this
+  // line, zod.safeParse strips `region` from req.body and the field is
+  // silently dropped.
+  region: zod.enum(["north", "south"]).nullish(),
 });
 
 export const UpdateMeResponse = zod.object({

@@ -124,8 +124,12 @@ function sendBrowserNotification(title: string, body: string, url?: string) {
       icon: "/favicon.svg",
       badge: "/favicon.svg",
       tag: "nukhba-support",
+      // `renotify` is a real Chrome/Edge field that re-fires the alert sound
+      // even when an existing notification with the same `tag` is replaced,
+      // but it isn't in the standard NotificationOptions lib type. Cast the
+      // options bag to skip the type-check while preserving runtime behavior.
       renotify: true,
-    });
+    } as NotificationOptions);
     if (url) {
       notif.onclick = () => {
         window.focus();

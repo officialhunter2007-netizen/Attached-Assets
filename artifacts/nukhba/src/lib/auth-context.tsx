@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
-import { UserProfile } from "@workspace/api-client-react/generated/api.schemas";
+import type { UserProfile } from "@workspace/api-client-react";
 import { useGetMe, useLogoutUser } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
@@ -23,8 +23,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const { data: me, error, isLoading: isMeLoading } = useGetMe({
     query: {
+      // queryKey is required by orval's generated type signature even though
+      // the hook supplies its own internally — pass the canonical key here
+      // to satisfy the type-checker without changing runtime behavior.
+      queryKey: getGetMeQueryKey(),
       retry: false,
-    }
+    },
   });
 
   const logoutMutation = useLogoutUser();

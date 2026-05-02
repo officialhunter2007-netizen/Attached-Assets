@@ -9,11 +9,10 @@ import { OAuth2Client } from "google-auth-library";
 
 const router: IRouter = Router();
 
-declare module "express-serve-static-core" {
-  interface Request {
-    session?: { userId?: number };
-  }
-}
+// (Module augmentation removed: `express-serve-static-core` is not directly
+// installed in this workspace, so the `declare module` block failed to
+// resolve. The session helper below already accepts `req: any`, so no
+// global Request shape change is required for the routes in this file.)
 
 function getUserId(req: any): number | null {
   return req.session?.userId ?? null;

@@ -3129,6 +3129,10 @@ ${retrievedBlock}
   // Compute actual cost from token counts and deduct gems from the user.
   // 1 gem = $0.001 → gemsToDeduct = ceil(costUsd * 1000).
   let gemsDeducted = 0;
+  // Hoisted so the outer `catch` block can include the computed cost in its
+  // BUDGET_LEAK log line. Without hoisting, `gems` only exists inside the
+  // try-block scope and the catch's shorthand reference is undeclared.
+  let gems = 0;
   if (chargeable && !unlimited) {
     try {
       let turnCostUsd = 0;
@@ -3144,7 +3148,7 @@ ${retrievedBlock}
       if (__successfulImages > 0) {
         turnCostUsd += __successfulImages * FLUX_SCHNELL_USD_PER_IMAGE;
       }
-      const gems = Math.max(1, Math.ceil(turnCostUsd * 1000));
+      gems = Math.max(1, Math.ceil(turnCostUsd * 1000));
       gemsDeducted = gems;
 
       // ── Lab-env exemption for first-session SHOWCASE OPENER ─────────────

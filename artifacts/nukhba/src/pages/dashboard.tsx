@@ -492,7 +492,7 @@ export default function Dashboard() {
         });
 
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
-        const dismissKey = user?.id ? getMobileCodingDismissKey(user.id) : "";
+        const dismissKey = user?.id ? getMobileCodingDismissKey(String(user.id)) : "";
         const dismissed = dismissKey ? localStorage.getItem(dismissKey) === "true" : false;
 
         if (isMobile && hasCodingSub && !dismissed) {
@@ -592,7 +592,7 @@ export default function Dashboard() {
 
   const handleDismissMobileCoding = () => {
     if (user?.id) {
-      localStorage.setItem(getMobileCodingDismissKey(user.id), "true");
+      localStorage.setItem(getMobileCodingDismissKey(String(user.id)), "true");
     }
     setShowMobileCodingWarning(false);
   };

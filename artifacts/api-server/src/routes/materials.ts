@@ -1520,7 +1520,7 @@ async function ocrChunkClaude(chunkBuf: Buffer, label: string, ctx?: AiUsageCtx)
       });
     }
     const text = msg.content
-      .map((c) => (c.type === "text" ? c.text : ""))
+      .map((c: any) => (c.type === "text" ? c.text : ""))
       .join("\n")
       .trim();
     if (text.length === 0) return { ok: false, status: "transient", reason: "empty_response" };
@@ -2569,7 +2569,7 @@ async function generateQuestionsViaClaude(opts: QuestionGenOpts, ctx?: AiUsageCt
       metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
     });
   }
-  const txt = msg.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+  const txt = msg.content.map((c: any) => (c.type === "text" ? c.text : "")).join("");
   return parseQuizQuestionsJson(txt);
 }
 

@@ -550,14 +550,18 @@ export default function Admin() {
           </div>
         </div>
 
-        {(stats?.recentlyExpiredSubscriptions ?? 0) > 0 && (
+        {(((stats as any)?.recentlyExpiredSubscriptions ?? 0) > 0) && (
           <div className="mb-6 rounded-2xl border-2 border-red-500/30 bg-red-500/5 p-4 flex items-center gap-4">
             <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0">
               <AlertTriangle className="w-5 h-5 text-red-400" />
             </div>
             <div className="flex-1">
               <p className="font-bold text-red-300 text-sm">اشتراكات منتهية مؤخراً</p>
-              <p className="text-xs text-red-200/60">{stats.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
+              {/* `recentlyExpiredSubscriptions` is returned by the backend but
+                  not yet present in the auto-generated AdminStats type. Read
+                  through `as any` so the dashboard reflects the live value
+                  without waiting for a full client regen. */}
+              <p className="text-xs text-red-200/60">{(stats as any)?.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
             </div>
           </div>
         )}

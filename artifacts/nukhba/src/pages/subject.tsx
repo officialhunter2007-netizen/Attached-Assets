@@ -7,7 +7,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/auth-context";
 import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
-import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
+import type { ChatMessage } from "@workspace/api-client-react";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical, MoreHorizontal, BookMarked, GraduationCap, Lightbulb } from "lucide-react";
 import {
@@ -502,14 +502,17 @@ export default function Subject() {
   const setPendingDynamicEnv = useCallback((env: any | null) => {
     setPendingDynamicEnvState(env);
     if (!user?.id || !dynamicEnvStorageSuffix) return;
-    if (env) writeUserJson(user.id, dynamicEnvStorageSuffix, env);
-    else removeUserKey(user.id, dynamicEnvStorageSuffix);
+    // user.id is a numeric DB row id; the user-storage helpers expect the
+    // stringified form (so the same code path also works for guest sessions
+    // that store IDs as strings). Cast at every boundary call.
+    if (env) writeUserJson(String(user.id), dynamicEnvStorageSuffix, env);
+    else removeUserKey(String(user.id), dynamicEnvStorageSuffix);
   }, [user?.id, dynamicEnvStorageSuffix]);
   // On mount / when user or subject changes, restore any saved env so a
   // page reload or accidental close still finds the previous lab.
   useEffect(() => {
     if (!user?.id || !dynamicEnvStorageSuffix) return;
-    const saved = readUserJson<any | null>(user.id, dynamicEnvStorageSuffix, null);
+    const saved = readUserJson<any | null>(String(user.id), dynamicEnvStorageSuffix, null);
     if (saved && typeof saved === "object") setPendingDynamicEnvState(saved);
   }, [user?.id, dynamicEnvStorageSuffix]);
   const [chatStarter, setChatStarter] = useState<string | null>(null);
@@ -1862,7 +1865,7 @@ function SubjectPathChat({
   // would cause a re-fire on every keystroke / message). The intent of those
   // effects is "fire on the trigger — read everything else fresh", which is
   // exactly what refs encode. Replaces the previous eslint-disable comments.
-  const stagesRef = useRef<string[]>(initial.stages);
+  const stagesRef = useRef<string[]>(stages);
   useEffect(() => { stagesRef.current = stages; }, [stages]);
   const currentStageRef = useRef<number>(initial.currentStage);
   useEffect(() => { currentStageRef.current = currentStage; }, [currentStage]);
@@ -2091,7 +2094,9 @@ function SubjectPathChat({
         // next render, and the immediate call below would close over the
         // stale orphans.
         messagesRef.current = [];
-        try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+        if (CHAT_STORAGE_KEY) {
+          try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+        }
       }
       // Read everything else through refs so this effect doesn't re-fire
       // on every keystroke / phase flip / stage change. Triggers stay
@@ -2161,6 +2166,12 @@ function SubjectPathChat({
   }, [pendingTeachStart, isStreaming, chatPhase]);
 
   const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }) => {
+    // Tracks whether the network/abort path threw so the `finally` block
+    // can branch on it without re-inspecting the error. Declared at function
+    // scope so both the `catch` (sets it) and `finally` (reads it) blocks
+    // share the same binding — without this, TypeScript flags
+    // `networkErrored = true` and `void networkErrored` as undeclared.
+    let networkErrored = false;
     setIsStreaming(true);
     // A new turn supersedes any prior truncation banner — either the retry
     // button is what fired this call, or the student has decided to move

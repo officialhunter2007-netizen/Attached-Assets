@@ -42,8 +42,11 @@ function FloatingOrb({ className, delay = 0, size = 300 }: { className?: string;
 }
 
 /* ─── 3D Floating Icon ─── */
+// `x` and `y` accept either a number (px) or a string (any CSS length such as
+// "5%") — the JSX call sites pass percentage strings to keep icons positioned
+// proportionally as the viewport scales, while defaults stay numeric.
 function FloatingIcon({ icon: Icon, color, size = 40, delay = 0, x = 0, y = 0 }: {
-  icon: React.ElementType; color: string; size?: number; delay?: number; x?: number; y?: number;
+  icon: React.ElementType; color: string; size?: number; delay?: number; x?: number | string; y?: number | string;
 }) {
   return (
     <motion.div

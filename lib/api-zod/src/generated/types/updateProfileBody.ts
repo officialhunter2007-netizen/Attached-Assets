@@ -21,4 +21,6 @@ export interface UpdateProfileBody {
   badges?: string[] | null;
   /** @nullable */
   nukhbaPlan?: string | null;
+  /** @nullable */
+  region?: "north" | "south" | null;
 }
