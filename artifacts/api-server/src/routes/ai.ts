@@ -2164,15 +2164,21 @@ ${formatted}
             }
           }
 
-          // Common citation rules block (always emitted when we have any pages).
+          // Common citation rules block (always emitted when we have any
+          // pages). The allowed-pages list uses formatPageCitation so it
+          // matches the labels we put in front of each chunk above —
+          // otherwise the model would see "صفحة 12 (PDF 14)" labels but
+          // be told to cite only "14", losing the printed-page distinction.
           if (pagesUsed.length > 0) {
+            const offset = m.printedPageOffset || 0;
             const uniquePages = Array.from(new Set(pagesUsed)).sort((a, b) => a - b);
+            const allowedLabels = uniquePages.map((p) => formatPageCitation(p, offset));
             retrievedBlock += `
 
 قواعد الاستشهاد بالصفحات (إلزامية):
-- كل معلومة تأخذها من مقطع، اذكر صفحته بين قوسين هكذا: (صفحة N).
-- إذا دمجت معلومات من عدة مقاطع، اذكر كل الصفحات: (صفحة N، M).
-- الأرقام المسموحة حصراً: ${uniquePages.join("، ")}. لا تختلق أي رقم آخر.
+- كل معلومة تأخذها من مقطع، اذكر صفحته بين قوسين كما تظهر في عنوان المقطع.
+- إذا دمجت معلومات من عدة مقاطع، اذكر كل الصفحات.
+- الاستشهادات المسموحة حصراً: ${allowedLabels.join(" | ")}. لا تختلق أي رقم آخر.
 - إن لم تجد المعلومة في المقاطع أعلاه، قل صراحةً للطالب: "هذا ليس في المقاطع التي استرجعتها من ملفك، اطلب مني البحث عن مصطلح أدق." ولا تخمّن.`;
           }
 

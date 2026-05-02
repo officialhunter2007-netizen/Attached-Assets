@@ -920,39 +920,54 @@ router.post("/materials/:id/retry-ocr", async (req, res): Promise<any> => {
           if (records.length > 0) {
             await tx.insert(materialChunksTable).values(records);
           }
+          // Upsert: when retrying a status='error' material there may be
+          // no existing rows in material_page_status, so a plain UPDATE
+          // would silently no-op and the recompute below would still see
+          // an empty status set (→ coverage='failed', material stays in
+          // error). ON CONFLICT DO UPDATE handles both first-write and
+          // subsequent retries.
           for (const page of pagesWithReplacement) {
             await tx
-              .update(materialPageStatusTable)
-              .set({
+              .insert(materialPageStatusTable)
+              .values({
+                materialId: id,
+                pageNumber: page,
                 status: "ok",
-                attempts: sql`${materialPageStatusTable.attempts} + 1`,
+                attempts: 1,
                 lastProvider: "ocr-retry",
-                errorMessage: null,
-                updatedAt: new Date(),
               })
-              .where(and(
-                eq(materialPageStatusTable.materialId, id),
-                eq(materialPageStatusTable.pageNumber, page),
-              ));
+              .onConflictDoUpdate({
+                target: [materialPageStatusTable.materialId, materialPageStatusTable.pageNumber],
+                set: {
+                  status: "ok",
+                  attempts: sql`${materialPageStatusTable.attempts} + 1`,
+                  lastProvider: "ocr-retry",
+                  errorMessage: null,
+                  updatedAt: new Date(),
+                },
+              });
           }
-          // Pages with no replacement: bump attempts + record the soft
-          // failure reason but keep status as 'failed' so the UI can
-          // surface them and the user can retry again with a clearer
-          // file or a different provider.
           for (const page of c.pages) {
             if (pagesWithReplacement.has(page)) continue;
             await tx
-              .update(materialPageStatusTable)
-              .set({
-                attempts: sql`${materialPageStatusTable.attempts} + 1`,
+              .insert(materialPageStatusTable)
+              .values({
+                materialId: id,
+                pageNumber: page,
+                status: "failed",
+                attempts: 1,
                 lastProvider: "ocr-retry",
                 errorMessage: "retry returned no parseable text for this page",
-                updatedAt: new Date(),
               })
-              .where(and(
-                eq(materialPageStatusTable.materialId, id),
-                eq(materialPageStatusTable.pageNumber, page),
-              ));
+              .onConflictDoUpdate({
+                target: [materialPageStatusTable.materialId, materialPageStatusTable.pageNumber],
+                set: {
+                  attempts: sql`${materialPageStatusTable.attempts} + 1`,
+                  lastProvider: "ocr-retry",
+                  errorMessage: "retry returned no parseable text for this page",
+                  updatedAt: new Date(),
+                },
+              });
           }
         });
         txOk = true;
@@ -964,17 +979,24 @@ router.post("/materials/:id/retry-ocr", async (req, res): Promise<any> => {
       try {
         for (const page of c.pages) {
           await db
-            .update(materialPageStatusTable)
-            .set({
-              attempts: sql`${materialPageStatusTable.attempts} + 1`,
+            .insert(materialPageStatusTable)
+            .values({
+              materialId: id,
+              pageNumber: page,
+              status: "failed",
+              attempts: 1,
               lastProvider: "ocr-retry",
               errorMessage: "retry returned no text",
-              updatedAt: new Date(),
             })
-            .where(and(
-              eq(materialPageStatusTable.materialId, id),
-              eq(materialPageStatusTable.pageNumber, page),
-            ));
+            .onConflictDoUpdate({
+              target: [materialPageStatusTable.materialId, materialPageStatusTable.pageNumber],
+              set: {
+                attempts: sql`${materialPageStatusTable.attempts} + 1`,
+                lastProvider: "ocr-retry",
+                errorMessage: "retry returned no text",
+                updatedAt: new Date(),
+              },
+            });
         }
       } catch {}
     }
