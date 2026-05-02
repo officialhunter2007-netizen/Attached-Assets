@@ -38,6 +38,8 @@ import { AdminDbMonitor } from "@/components/admin-db-monitor";
 import { AdminPlanPrices } from "@/components/admin-plan-prices";
 import { AdminConversations } from "@/components/admin-conversations";
 import { AdminAlerts } from "@/components/admin-alerts";
+import { AdminGemLedger } from "@/components/admin-gem-ledger";
+import { AdminPaymentSettings } from "@/components/admin-payment-settings";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -82,6 +84,20 @@ export default function Admin() {
   const [extendDialog, setExtendDialog] = useState<{ subId: number; userName: string; subjectName: string } | null>(null);
   const [extendDays, setExtendDays] = useState(14);
   const [isExtending, setIsExtending] = useState(false);
+
+  // Gem refund/grant dialog (per subject subscription). delta > 0 grants,
+  // delta < 0 refunds (clamped server-side to [0, messagesLimit]). The
+  // reason is REQUIRED — every adjustment is recorded in the gem ledger
+  // for audit, so we make it impossible to submit without one.
+  const [gemAdjustDialog, setGemAdjustDialog] = useState<{
+    subId: number;
+    userName: string;
+    subjectName: string;
+    currentBalance: number;
+  } | null>(null);
+  const [gemAdjustDelta, setGemAdjustDelta] = useState<string>("");
+  const [gemAdjustReason, setGemAdjustReason] = useState("");
+  const [isGemAdjusting, setIsGemAdjusting] = useState(false);
 
   // Card creation subject
   const [newCardSubjectId, setNewCardSubjectId] = useState("");
@@ -453,6 +469,48 @@ export default function Admin() {
     }
   };
 
+  const handleGemAdjust = async () => {
+    if (!gemAdjustDialog) return;
+    const delta = parseInt(gemAdjustDelta, 10);
+    if (!Number.isFinite(delta) || delta === 0) {
+      toast({ variant: "destructive", title: "أدخل رقماً غير صفر (موجب للمنح، سالب للسحب)" });
+      return;
+    }
+    if (Math.abs(delta) > 100000) {
+      toast({ variant: "destructive", title: "الحد الأقصى لكل عملية ١٠٠٬٠٠٠ جوهرة" });
+      return;
+    }
+    const reason = gemAdjustReason.trim();
+    if (reason.length < 3) {
+      toast({ variant: "destructive", title: "السبب إلزامي (٣ أحرف على الأقل)" });
+      return;
+    }
+    setIsGemAdjusting(true);
+    try {
+      const r = await fetch(`/api/admin/subject-subscriptions/${gemAdjustDialog.subId}/refund-gems`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ delta, reason }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "فشلت العملية");
+      toast({
+        title: delta > 0 ? `تم منح ${delta.toLocaleString("ar-EG")} جوهرة` : `تم سحب ${Math.abs(delta).toLocaleString("ar-EG")} جوهرة`,
+        className: "bg-emerald-600 text-white border-none",
+      });
+      setGemAdjustDialog(null);
+      setGemAdjustDelta("");
+      setGemAdjustReason("");
+      // Refresh affected views.
+      if (allSubjectSubs !== null) loadAllSubjectSubs();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } finally {
+      setIsGemAdjusting(false);
+    }
+  };
+
   const handleRevokeFromAllTab = async (subId: number) => {
     try {
       const r = await fetch(`/api/admin/revoke-subject-subscription/${subId}`, {
@@ -663,6 +721,14 @@ export default function Admin() {
                   {unresolvedAlertsCount > 99 ? "99+" : unresolvedAlertsCount}
                 </span>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="gem-ledger" className="flex items-center gap-1.5">
+              <Gem className="w-3.5 h-3.5 text-emerald-400" />
+              سجل الجواهر
+            </TabsTrigger>
+            <TabsTrigger value="payment-settings" className="flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5 text-gold" />
+              إعدادات الدفع
             </TabsTrigger>
           </TabsList>
 
@@ -1127,7 +1193,7 @@ export default function Admin() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            <div className="flex gap-1.5 justify-center">
+                            <div className="flex gap-1.5 justify-center flex-wrap">
                               <Button
                                 size="sm"
                                 className="h-7 text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 gap-1"
@@ -1135,6 +1201,21 @@ export default function Admin() {
                               >
                                 <CalendarDays className="w-3 h-3" />
                                 تمديد
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 gap-1"
+                                onClick={() => setGemAdjustDialog({
+                                  subId: s.id,
+                                  userName: s.userName ?? s.userEmail,
+                                  subjectName: s.subjectName ?? s.subjectId,
+                                  // Backend shape uses gemsBalance / messagesLimit interchangeably during the migration window.
+                                  currentBalance: typeof s.gemsBalance === "number" ? s.gemsBalance : Math.max(0, (s.messagesLimit ?? 0) - (s.messagesUsed ?? 0)),
+                                })}
+                                title="منح أو سحب جواهر — يُسجَّل في سجل الجواهر"
+                              >
+                                <Gem className="w-3 h-3" />
+                                جواهر
                               </Button>
                               <Button
                                 size="sm"
@@ -1346,6 +1427,16 @@ export default function Admin() {
           <TabsContent value="alerts">
             <AdminAlerts />
           </TabsContent>
+
+          {/* Gem Ledger Tab */}
+          <TabsContent value="gem-ledger">
+            <AdminGemLedger />
+          </TabsContent>
+
+          {/* Payment Settings Tab */}
+          <TabsContent value="payment-settings">
+            <AdminPaymentSettings />
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -1535,6 +1626,74 @@ export default function Admin() {
                 {isGranting ? "جاري المنح..." : "منح الاشتراك"}
               </Button>
               <Button variant="outline" className="border-white/10" onClick={() => { setGrantTarget(null); setShowGrantSubjectPicker(false); }}>
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Gem Adjust (Refund / Grant) Dialog — reason is REQUIRED for audit */}
+      <Dialog open={!!gemAdjustDialog} onOpenChange={(open) => { if (!open) { setGemAdjustDialog(null); setGemAdjustDelta(""); setGemAdjustReason(""); } }}>
+        <DialogContent className="glass border-amber-500/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <Gem className="w-5 h-5 text-amber-400" />
+            تعديل جواهر اشتراك
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              <strong className="text-foreground">{gemAdjustDialog?.userName}</strong> — مادة{" "}
+              <strong className="text-foreground">{gemAdjustDialog?.subjectName}</strong>
+            </p>
+            <div className="rounded-xl bg-black/40 border border-white/5 p-3 text-center">
+              <p className="text-[11px] text-muted-foreground">الرصيد الحالي</p>
+              <p className="text-2xl font-bold text-amber-300">
+                {(gemAdjustDialog?.currentBalance ?? 0).toLocaleString("ar-EG")} 💎
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">المقدار (موجب للمنح، سالب للسحب)</Label>
+              <Input
+                type="number"
+                placeholder="مثال: +500 أو -200"
+                className="bg-black/40 text-center text-lg font-bold"
+                value={gemAdjustDelta}
+                onChange={e => setGemAdjustDelta(e.target.value)}
+                dir="ltr"
+              />
+              <div className="flex gap-1 justify-between">
+                {[-500, -100, 100, 500, 1000].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setGemAdjustDelta(String(v))}
+                    className={`flex-1 text-[11px] py-1 rounded-md border ${v > 0 ? "border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10" : "border-red-500/30 text-red-400 hover:bg-red-500/10"}`}
+                  >
+                    {v > 0 ? `+${v}` : v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">السبب (إلزامي — يُسجَّل في سجل الجواهر)</Label>
+              <Textarea
+                placeholder="مثال: تعويض عن انقطاع خدمة في 2026-04-30"
+                className="bg-black/40 min-h-[70px]"
+                value={gemAdjustReason}
+                onChange={e => setGemAdjustReason(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                {gemAdjustReason.trim().length}/3 حرف كحد أدنى
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 gradient-gold text-primary-foreground font-bold"
+                disabled={isGemAdjusting || gemAdjustReason.trim().length < 3}
+                onClick={handleGemAdjust}
+              >
+                {isGemAdjusting ? "جاري الحفظ..." : "تأكيد"}
+              </Button>
+              <Button variant="outline" className="border-white/10" onClick={() => { setGemAdjustDialog(null); setGemAdjustDelta(""); setGemAdjustReason(""); }}>
                 إلغاء
               </Button>
             </div>

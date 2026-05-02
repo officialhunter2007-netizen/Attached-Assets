@@ -103,6 +103,69 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    // Gem ledger — append-only history of every balance change. Powers the
+    // admin "ledger" tab and refund flow. Indexed on (user_id, created_at)
+    // for fast per-user history queries.
+    table: "gem_ledger",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "gem_ledger" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "subject_sub_id" integer,
+        "subject_id" text,
+        "delta" integer NOT NULL,
+        "balance_after" integer NOT NULL,
+        "reason" text NOT NULL,
+        "source" text,
+        "admin_user_id" integer,
+        "note" text,
+        "metadata" jsonb,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_gem_ledger_user_created" ON "gem_ledger" ("user_id", "created_at")`,
+      `CREATE INDEX IF NOT EXISTS "idx_gem_ledger_subject_sub" ON "gem_ledger" ("subject_sub_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_gem_ledger_reason" ON "gem_ledger" ("reason")`,
+    ],
+  },
+  {
+    // Per-user discount-code redemption ledger. Inserted inside the approve
+    // transaction so a row only exists for an actually-granted subscription.
+    table: "discount_code_redemptions",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "discount_code_redemptions" (
+        "id" serial PRIMARY KEY,
+        "code_id" integer NOT NULL,
+        "user_id" integer NOT NULL,
+        "subscription_request_id" integer,
+        "redeemed_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_discount_code_redemptions_code_user" ON "discount_code_redemptions" ("code_id", "user_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_discount_code_redemptions_user" ON "discount_code_redemptions" ("user_id")`,
+    ],
+  },
+  {
+    // Admin-editable payment settings (Kuraimi account numbers, names, etc.).
+    // Key/value so new keys can be added from the admin UI without a
+    // schema migration.
+    table: "payment_settings",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "payment_settings" (
+        "id" serial PRIMARY KEY,
+        "key" text NOT NULL UNIQUE,
+        "value" text NOT NULL DEFAULT '',
+        "label" text,
+        "category" text NOT NULL DEFAULT 'payment',
+        "updated_by_user_id" integer,
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [],
+  },
+  {
     // Operational alerts surfaced to the admin panel (OpenRouter credit
     // exhausted, auth failures, repeated transient errors, etc.). The
     // helper recordAdminAlert() de-dupes by `type` over a 30-min window.
@@ -162,6 +225,38 @@ async function seedPlanPrices(): Promise<void> {
     logger.error(
       { err: err?.message },
       "auto-migrate: failed to seed plan_prices defaults",
+    );
+  }
+}
+
+// Default Kuraimi payment numbers (mirrors the values previously hardcoded in
+// admin.tsx and subscription.tsx). Seeded ON CONFLICT DO NOTHING so admin
+// edits persist across restarts.
+const DEFAULT_PAYMENT_SETTINGS: Array<{
+  key: string;
+  value: string;
+  label: string;
+  category: string;
+}> = [
+  { key: "kuraimi.north.number", value: "3165778412",            label: "رقم حساب كريمي — الشمال", category: "payment" },
+  { key: "kuraimi.north.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الشمال", category: "payment" },
+  { key: "kuraimi.south.number", value: "3167076083",            label: "رقم حساب كريمي — الجنوب", category: "payment" },
+  { key: "kuraimi.south.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الجنوب", category: "payment" },
+];
+
+async function seedPaymentSettings(): Promise<void> {
+  try {
+    for (const s of DEFAULT_PAYMENT_SETTINGS) {
+      await db.execute(sql`
+        INSERT INTO "payment_settings" ("key", "value", "label", "category")
+        VALUES (${s.key}, ${s.value}, ${s.label}, ${s.category})
+        ON CONFLICT ("key") DO NOTHING
+      `);
+    }
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message },
+      "auto-migrate: failed to seed payment_settings defaults",
     );
   }
 }
@@ -246,6 +341,18 @@ const REQUIRED_COLUMNS: TableSpec[] = [
       { name: "used_by_user_id", ddl: "integer" },
       { name: "used_at", ddl: "timestamp with time zone" },
       { name: "expires_at", ddl: "timestamp with time zone" },
+    ],
+  },
+  {
+    // Discount-code hardening: max-uses, per-user limit, optional active
+    // window. Existing rows get NULL (= unlimited / always active) so the
+    // behaviour is unchanged for legacy codes.
+    table: "discount_codes",
+    columns: [
+      { name: "max_uses", ddl: "integer" },
+      { name: "per_user_limit", ddl: "integer" },
+      { name: "starts_at", ddl: "timestamp with time zone" },
+      { name: "ends_at", ddl: "timestamp with time zone" },
     ],
   },
   {
@@ -358,6 +465,7 @@ export async function runStartupMigrations(): Promise<void> {
   try {
     await ensureRequiredTables();
     await seedPlanPrices();
+    await seedPaymentSettings();
     const { added, errors } = await ensureRequiredColumns();
     const ms = Date.now() - start;
     if (added.length === 0 && errors.length === 0) {

@@ -6,22 +6,35 @@ import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
 
-if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
-  throw new Error(
-    "AI_INTEGRATIONS_OPENAI_BASE_URL must be set. Did you forget to provision the OpenAI AI integration?",
-  );
+// Lazy client: same fix as ../client.ts and ./image/client.ts — defer the
+// missing-key error to the first real call so unrelated routes can boot.
+
+let cachedAudio: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (cachedAudio) return cachedAudio;
+  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  if (!baseURL) {
+    throw new Error(
+      "AI_INTEGRATIONS_OPENAI_BASE_URL must be set. Did you forget to provision the OpenAI AI integration?",
+    );
+  }
+  if (!apiKey) {
+    throw new Error(
+      "AI_INTEGRATIONS_OPENAI_API_KEY must be set. Did you forget to provision the OpenAI AI integration?",
+    );
+  }
+  cachedAudio = new OpenAI({ apiKey, baseURL });
+  return cachedAudio;
 }
 
-if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-  throw new Error(
-    "AI_INTEGRATIONS_OPENAI_API_KEY must be set. Did you forget to provision the OpenAI AI integration?",
-  );
-}
-
-export const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+export const openai = new Proxy({} as OpenAI, {
+  get(_target, prop, receiver) {
+    const client = getClient();
+    const value = Reflect.get(client as object, prop, receiver);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+}) as OpenAI;
 
 export type AudioFormat = "wav" | "mp3" | "webm" | "mp4" | "ogg" | "unknown";
 

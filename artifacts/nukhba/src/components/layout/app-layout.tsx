@@ -16,6 +16,9 @@ type GemsState = {
   hasActiveSub: boolean;
   activeSubjectCount?: number;
   label?: string | null;
+  // Nearest-expiry warning. ≤ 7 days flips the badge into a warning state;
+  // 0–1 days reuses the existing red alert visuals so the user can't miss it.
+  expiresInDays?: number | null;
 } | null;
 
 function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boolean }) {
@@ -25,16 +28,22 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
   const dailyExhausted = gems.dailyRemaining <= 0 && gems.gemsDailyLimit > 0;
   const lowDaily = gems.dailyRemaining < 20;
   const lowBalance = gems.gemsBalance < 200;
-  const alert = balanceEmpty || dailyExhausted || lowDaily || lowBalance;
+  // Sub-window expiry warning. < 2 days = red alert, < 7 days = orange warn.
+  const days = gems.expiresInDays;
+  const expiringCritical = days != null && days >= 0 && days < 2;
+  const expiringSoon = days != null && days >= 0 && days < 7;
+  const alert = balanceEmpty || dailyExhausted || lowDaily || lowBalance || expiringCritical;
+  const warn = !alert && expiringSoon;
 
   const multiSub = (gems.activeSubjectCount ?? 1) > 1;
   const subjectsPart = multiSub
     ? ` — لديك ${gems.activeSubjectCount} مادة نشطة`
     : (gems.label ? ` (${gems.label})` : "");
   const baseTooltip = `المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${subjectsPart} — الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")}`;
+  const expiryPart = expiringSoon ? ` — ينتهي ${days === 0 ? "اليوم" : `خلال ${days} يوم`}` : "";
   const tooltip = balanceEmpty
-    ? `${baseTooltip} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
-    : baseTooltip;
+    ? `${baseTooltip}${expiryPart} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
+    : `${baseTooltip}${expiryPart}`;
 
   const scopeLabel = multiSub
     ? `${gems.activeSubjectCount} مواد`
@@ -51,6 +60,11 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
           color: "#F87171",
           boxShadow: "0 0 12px rgba(239,68,68,0.2)",
           animation: "neon-border-pulse 2s ease-in-out infinite",
+        } : warn ? {
+          background: "rgba(249,115,22,0.12)",
+          border: "1px solid rgba(249,115,22,0.4)",
+          color: "#FB923C",
+          boxShadow: "0 0 10px rgba(249,115,22,0.18)",
         } : {
           background: "rgba(245,158,11,0.1)",
           border: "1px solid rgba(245,158,11,0.3)",
@@ -64,9 +78,16 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
         {!compact && (
           <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
         )}
+        {warn && !compact && (
+          <span className="opacity-90 font-bold border-r pr-1 mr-0.5"
+            style={{ borderColor: "rgba(249,115,22,0.4)" }}
+          >
+            ⏰ {days === 0 ? "آخر يوم" : `${days}ي`}
+          </span>
+        )}
         {scopeLabel && (
           <span className="opacity-80 font-normal truncate max-w-[120px] border-r pr-1 mr-0.5"
-            style={{ borderColor: alert ? "rgba(239,68,68,0.4)" : "rgba(245,158,11,0.3)" }}
+            style={{ borderColor: alert ? "rgba(239,68,68,0.4)" : warn ? "rgba(249,115,22,0.4)" : "rgba(245,158,11,0.3)" }}
           >
             {scopeLabel}
           </span>
@@ -226,6 +247,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
               (typeof d.subjectId === "string" && d.subjectId.trim() && d.subjectId !== "all" ? d.subjectId : null) ||
               currentSubjectId ||
               "اشتراكي";
+            // Compute days-until-expiry from the per-subject endpoint's
+            // expiresAt so the badge can show the warning state even when
+            // the user is inside a single subject view.
+            let expiresInDays: number | null = null;
+            if (d.expiresAt) {
+              const ms = new Date(d.expiresAt).getTime() - Date.now();
+              if (Number.isFinite(ms)) expiresInDays = Math.max(0, Math.ceil(ms / 86_400_000));
+            }
             setGems({
               gemsBalance: d.gemsBalance ?? 0,
               dailyRemaining: d.dailyRemaining ?? 0,
@@ -233,6 +262,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               hasActiveSub: d.hasActiveSub ?? false,
               activeSubjectCount: 1,
               label,
+              expiresInDays,
             });
           })
           .catch(() => {});
@@ -260,6 +290,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               hasActiveSub: true,
               activeSubjectCount: d.activeSubjectCount ?? 1,
               label,
+              expiresInDays: typeof d.nearestExpiresInDays === "number" ? d.nearestExpiresInDays : null,
             });
           })
           .catch(() => {});

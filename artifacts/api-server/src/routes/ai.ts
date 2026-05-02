@@ -1064,18 +1064,17 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   let claimedTodaySession = false;
   const rollbackDailyClaim = async () => {};
 
-  if (isNewSession && hasGemsSub && !unlimited) {
+  // Step 1: rollover + balance gate ALWAYS run for paid subs, not only at
+  // the first turn of a session. The previous gating skipped the balance
+  // re-check for continuation turns, which let a student keep streaming
+  // after their wallet had been clamped to zero (the post-call deduction
+  // uses GREATEST(0, …), so silently no-op deductions just kept happening).
+  // We now refuse mid-session as soon as the wallet is empty.
+  if (hasGemsSub && !unlimited) {
     if (hasPerSubjectGemsSub && subjectSub) {
       await applyDailyGemsRolloverForSubjectSub(subjectSub);
       if ((subjectSub.gemsBalance ?? 0) <= 0) {
         res.status(403).json({ code: "NO_GEMS" });
-        return;
-      }
-      const usedToday = subjectSub.gemsUsedToday ?? 0;
-      const dailyLimit = subjectSub.gemsDailyLimit ?? 0;
-      if (dailyLimit > 0 && usedToday >= dailyLimit) {
-        const nextSessionAt = getNextMidnightYemen().toISOString();
-        res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
         return;
       }
     } else if (hasLegacyGemsSub) {
@@ -1084,6 +1083,23 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
         res.status(403).json({ code: "NO_GEMS" });
         return;
       }
+    }
+  }
+
+  // Step 2: daily-limit "session claim" stays scoped to the first turn — it
+  // is about counting daily *sessions*, not per-turn gems. A student can run
+  // a single 200-turn session per day without tripping it; they can't open
+  // multiple distinct sessions past the daily limit.
+  if (isNewSession && hasGemsSub && !unlimited) {
+    if (hasPerSubjectGemsSub && subjectSub) {
+      const usedToday = subjectSub.gemsUsedToday ?? 0;
+      const dailyLimit = subjectSub.gemsDailyLimit ?? 0;
+      if (dailyLimit > 0 && usedToday >= dailyLimit) {
+        const nextSessionAt = getNextMidnightYemen().toISOString();
+        res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
+        return;
+      }
+    } else if (hasLegacyGemsSub) {
       const usedToday = user.gemsUsedToday ?? 0;
       const dailyLimit = user.gemsDailyLimit ?? 0;
       if (dailyLimit > 0 && usedToday >= dailyLimit) {
@@ -3199,21 +3215,47 @@ ${retrievedBlock}
         // Paid per-subject subscription: deduct from THIS subject's wallet
         // only — never from any other subject's wallet, and never from the
         // legacy global wallet. Race-safe: GREATEST(0, ...) clamps the
-        // balance so concurrent requests cannot underflow.
-        await db.update(userSubjectSubscriptionsTable)
+        // balance so concurrent requests cannot underflow. We use RETURNING
+        // so the ledger row reflects the *true* post-debit balance even
+        // when concurrent requests interleave.
+        const [updatedSub] = await db.update(userSubjectSubscriptionsTable)
           .set({
             gemsBalance: sql`GREATEST(0, ${userSubjectSubscriptionsTable.gemsBalance} - ${gems})`,
             gemsUsedToday: sql`${userSubjectSubscriptionsTable.gemsUsedToday} + ${gems}`,
           })
-          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
+          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id))
+          .returning({ gemsBalance: userSubjectSubscriptionsTable.gemsBalance });
+        await writeGemLedger({
+          userId,
+          subjectSubId: subjectSub.id,
+          subjectId,
+          delta: -gems,
+          balanceAfter: updatedSub?.gemsBalance ?? 0,
+          reason: "debit",
+          source: "ai_teach",
+          note: `AI turn (${(modelUsed as string) || "model?"})`,
+          metadata: { model: modelUsed, costUsd: costUsdEstimate ?? null },
+        });
       } else if (hasLegacyGemsSub) {
         // Legacy (grandfathered) wallet on usersTable.
-        await db.update(usersTable)
+        const [updatedUser] = await db.update(usersTable)
           .set({
             gemsBalance: sql`GREATEST(0, ${usersTable.gemsBalance} - ${gems})`,
             gemsUsedToday: sql`${usersTable.gemsUsedToday} + ${gems}`,
           })
-          .where(eq(usersTable.id, userId));
+          .where(eq(usersTable.id, userId))
+          .returning({ gemsBalance: usersTable.gemsBalance });
+        await writeGemLedger({
+          userId,
+          subjectSubId: null,
+          subjectId,
+          delta: -gems,
+          balanceAfter: updatedUser?.gemsBalance ?? 0,
+          reason: "debit",
+          source: "ai_teach",
+          note: `AI turn (${(modelUsed as string) || "model?"}) [legacy wallet]`,
+          metadata: { model: modelUsed, costUsd: costUsdEstimate ?? null },
+        });
       }
     } catch (err: any) {
       // Distinctive prefix — alert on this in your monitoring stack. A

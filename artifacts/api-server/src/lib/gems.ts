@@ -25,6 +25,7 @@
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { db, usersTable, userSubjectSubscriptionsTable } from "@workspace/db";
 import { getYemenDateString } from "./yemen-time";
+import { writeGemLedger } from "./gem-ledger";
 
 const ONE_DAY_MS = 86_400_000;
 const YEMEN_OFFSET_MS = 3 * 60 * 60 * 1000;
@@ -127,6 +128,18 @@ export async function applyDailyGemsRollover<T extends UserGemsState>(user: T): 
 
   if (updated.length > 0) {
     // We won the race; apply the post-update state to the in-memory user.
+    if (forfeit > 0) {
+      await writeGemLedger({
+        userId: user.id,
+        subjectSubId: null,
+        delta: -forfeit,
+        balanceAfter: updated[0].gemsBalance ?? 0,
+        reason: "forfeit",
+        source: "daily_rollover",
+        note: `Yemen-midnight rollover (legacy wallet)`,
+        metadata: { dailyLimit, usedToday, expiresAt },
+      });
+    }
     user.gemsBalance = updated[0].gemsBalance;
     user.gemsUsedToday = updated[0].gemsUsedToday;
     user.gemsResetDate = updated[0].gemsResetDate;
@@ -206,6 +219,30 @@ export async function applyDailyGemsRolloverForSubjectSub<T extends SubjectSubGe
     });
 
   if (updated.length > 0) {
+    if (forfeit > 0) {
+      // Need the user_id so the ledger entry is queryable per-student. The
+      // SubjectSubGemsState doesn't carry it, so do a tiny lookup; this only
+      // runs once per Yemen-midnight per wallet.
+      try {
+        const [meta] = await db
+          .select({ userId: userSubjectSubscriptionsTable.userId, subjectId: userSubjectSubscriptionsTable.subjectId })
+          .from(userSubjectSubscriptionsTable)
+          .where(eq(userSubjectSubscriptionsTable.id, sub.id));
+        if (meta) {
+          await writeGemLedger({
+            userId: meta.userId,
+            subjectSubId: sub.id,
+            subjectId: meta.subjectId,
+            delta: -forfeit,
+            balanceAfter: updated[0].gemsBalance ?? 0,
+            reason: "forfeit",
+            source: "daily_rollover",
+            note: "Yemen-midnight rollover",
+            metadata: { dailyLimit, usedToday, expiresAt },
+          });
+        }
+      } catch {/* ledger best-effort */}
+    }
     sub.gemsBalance = updated[0].gemsBalance;
     sub.gemsUsedToday = updated[0].gemsUsedToday;
     sub.gemsResetDate = updated[0].gemsResetDate;
