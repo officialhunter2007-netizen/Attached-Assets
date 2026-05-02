@@ -2377,7 +2377,15 @@ ${retrievedBlock}
   const __imagePromptsById = new Map<string, string>();
   // Holds in-flight generation promises so the post-stream block can await
   // them all before computing gem cost / writing the storage row.
-  const __imagePromises: Array<Promise<ImageGenerationResult>> = [];
+  // Each entry preserves the imageId so the persistence step can map
+  // each successful URL back to its `[[IMAGE:hexid]]` marker in the
+  // streamed response — without that mapping, we'd lose the URL→marker
+  // association after Promise.allSettled and have to re-derive it.
+  const __imagePromises: Array<Promise<{ id: string; result: ImageGenerationResult }>> = [];
+  // Populated after Promise.allSettled below. Keyed by imageId so the
+  // `[[IMAGE:hexid]]` → final markup replacement (in the persistence
+  // block) knows whether each image succeeded and what its URL is.
+  const __imageResultsById = new Map<string, { ok: true; url: string } | { ok: false }>();
 
   /**
    * Sliding-window IMAGE-tag detector. Accumulates streamed text into
