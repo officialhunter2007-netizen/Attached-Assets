@@ -381,7 +381,7 @@ function DynamicEnvShellInner({
   const [tasksAsideCollapsed, setTasksAsideCollapsed] = useState(false);
   const [objectivesOpen, setObjectivesOpen] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-  const [extraNotes, setExtraNotes] = useState("");
+  const [extraNotes] = useState("");
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const startedAtRef = useRef<number>(Date.now());
 
@@ -678,7 +678,7 @@ ${stateSnap}${userNotes}${masteryBlock}`;
     onSubmitToTeacher(report, { envTitle: env.title || "", envBriefing: env.briefing || "" });
     setShowSubmitDialog(false);
     setShowCloseConfirm(false);
-    setExtraNotes("");
+    // extraNotes is not user-settable; nothing to reset
   };
 
   const handleCloseClick = () => {
@@ -1325,7 +1325,7 @@ ${stateSnap}${userNotes}${masteryBlock}`;
               </div>
             <div ref={chatBoxRef} className="flex-1 overflow-y-auto p-3 space-y-2 text-sm">
               {assistMsgs.length === 0 && (
-                <div className="text-white/50 text-xs">اطرح سؤالاً عن البيئة، الخطوات، أو الحلول الجزئية.</div>
+                <div className="text-white/50 text-xs">اطرح سؤالاً عن المحتوى أو الخطوات.</div>
               )}
               {assistMsgs.map((m, i) => (
                 <div key={i} className={`p-2 rounded-lg ${m.role === "user" ? "bg-cyan-500/10 text-cyan-100" : "bg-white/5 text-white/90"}`}>
@@ -1344,14 +1344,14 @@ ${stateSnap}${userNotes}${masteryBlock}`;
                 forensics: ["ما الذي تشير إليه هذه السجلات؟", "ما الدليل الأهم هنا؟", "اشرح الـ timeline", "ماذا أكتب في التقرير؟"],
                 networking: ["اشرح هذه الحزمة", "ما البروتوكول المستخدم؟", "ما الخطأ في الإعدادات؟", "كيف أتحقق من الاتصال؟"],
                 os: ["اشرح الأمر الأخير", "كيف أنفّذ هذه المهمة عبر الطرفية؟", "ما الفرق بين الصلاحيات هنا؟", "كيف أرى العمليات النشطة؟"],
-                programming: ["لماذا فشل الكود؟", "اشرح الخطأ في الكونسول", "اقترح إصلاحاً", "ما تحسينات الأداء الممكنة؟"],
+                programming: ["لماذا فشل الكود؟", "اشرح الخطأ في الكونسول", "اشرح هذه الخطوة", "أعطني تلميحاً دون حلّ كامل"],
                 "data-science": ["ماذا يعني هذا الرسم؟", "ما القيمة الشاذة؟", "اقترح تحويلاً مناسباً للبيانات", "ما الاستنتاج المبدئي؟"],
                 food: ["كيف أحسب نسبة الأمان الغذائي؟", "ما الخطوة التالية في الإنتاج؟", "اشرح المعايير المطلوبة", "ما الخطأ في القراءات؟"],
                 accounting: ["اشرح هذا القيد المحاسبي", "كيف أُرحّله للأستاذ؟", "ما توازن الميزان بعد هذا القيد؟", "أين الخطأ في الفاتورة؟"],
                 yemensoft: ["كيف أُنشئ فاتورة جديدة؟", "اشرح حركة المخزون هذه", "ما تقرير اليوم المتوقع؟", "كيف أصلح خطأ الترحيل؟"],
                 business: ["اشرح هذا المؤشر", "ما تحليل SWOT للحالة؟", "ما الخطوة التالية كصاحب قرار؟", "كيف أبرّر هذا التوصية؟"],
                 physics: ["اشرح القانون المستخدم", "كيف أحسب الناتج خطوة بخطوة؟", "ما تأثير تغيير المتغير الفلاني؟", "أين الخطأ في حسابي؟"],
-                language: ["صحّح هذه الجملة", "اشرح القاعدة المطبقة", "اقترح صياغة أفضل", "ما الترجمة الأدق؟"],
+                language: ["اشرح هذه الخطوة", "اشرح القاعدة المطبقة", "أعطني تلميحاً دون حلّ كامل", "ما الترجمة الأدق؟"],
                 generic: ["كيف أبدأ؟", "اشرح الخطوة الحالية", "أعطني تلميحاً دون حلّ كامل", "ما المعيار الذي يثبت أني أنجزتُ المهمة؟"],
               };
               const items = SUGGESTIONS[k] || SUGGESTIONS.generic;
@@ -1406,14 +1406,6 @@ ${stateSnap}${userNotes}${masteryBlock}`;
                 <p className="text-xs text-white/60 mt-1">سيستلم المعلم ملخصاً تلقائياً عن البيئة، المهام المنجزة ({doneCount}/{totalTasks})، والمدة المستغرقة، ثم يعطيك ملاحظاته.</p>
               </div>
             </div>
-            <label className="text-xs text-white/70 mb-1 block">ملاحظاتك للمعلم (اختياري):</label>
-            <textarea
-              value={extraNotes}
-              onChange={(e) => setExtraNotes(e.target.value)}
-              placeholder="مثلاً: واجهت صعوبة في الخطوة الثالثة، أو: أريد تعليقك على القيد الذي أدخلته..."
-              className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 min-h-[80px] resize-y mb-4"
-              dir="rtl"
-            />
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setShowSubmitDialog(false)}

@@ -27,7 +27,8 @@
     "pino": "^9",
     "pino-http": "^10",
     "sanitize-html": "^2.17.3",
-    "unpdf": "^1.6.0"
+    "unpdf": "^1.6.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

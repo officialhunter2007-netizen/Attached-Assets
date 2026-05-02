@@ -442,6 +442,12 @@ function LearningPathPanel({
   );
 }
 
+// Client-side mirror of the server's LAB_ENV_INTENT_RE. Used to detect
+// natural-language lab-environment requests typed into the chat input so we
+// can set labIntakeActiveRef before the model responds — matching the same
+// detection the server uses so [[LAB_INTAKE_DONE]] is never silently ignored.
+const LAB_INTENT_RE = /(?:أريد|اريد|ابن[ِيه]?|اعمل|انشئ|أنشئ|ابدأ)\s*(?:لي\s*)?(?:بيئة|محاكاة|مختبر|سيناريو|تطبيق)\s*(?:تطبيقي[ةه]?|عملي[ةه]?|تفاعلي[ةه]?|تدريبي[ةه]?|مخصص[ةه]?)?/u;
+
 const ENV_BUILD_PHRASES = [
   { icon: "🧠", text: "نُحلّل مستواك ونصمّم بيئة تطبيقية تناسبك تماماً..." },
   { icon: "📐", text: "نرسم خطوات التعلم بترتيب ذكي يبني المهارة تدريجياً..." },
@@ -978,44 +984,72 @@ export default function Subject() {
               chatStarter={chatStarter}
               onConsumeChatStarter={() => setChatStarter(null)}
               initialSourcesMaterialId={initialSourcesMaterialId}
-              onCreateLabEnv={async (description: string) => {
-                console.log("[create-lab-env] click; isCreatingEnv=", isCreatingEnv, "description=", description);
+              onCreateLabEnv={async (description: string, spec?: object) => {
+                console.log("[create-lab-env] click; isCreatingEnv=", isCreatingEnv, "spec=", !!spec);
                 if (isCreatingEnv) return;
                 setCreateEnvError(null);
                 setIsCreatingEnv(true);
-                try {
-                  // Universal AI-built dynamic env — works for ANY subject.
-                  const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/build-env`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    credentials: "include",
-                    body: JSON.stringify({ subjectId: subject!.id, description }),
-                  });
-                  console.log("[create-lab-env] dynamic response:", r.status);
-                  if (!r.ok) {
-                    const errText = await r.text().catch(() => "");
-                    throw new Error(`فشل بناء البيئة (${r.status}): ${errText.slice(0, 200)}`);
+                // Spec builds get a silent automatic retry (up to 2 total attempts)
+                // before surfacing any error to the student. Legacy description builds
+                // (no spec) only get one attempt since they already have their own
+                // internal retry chain inside build-env.
+                const maxAttempts = spec ? 2 : 1;
+                let lastErr: Error | null = null;
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                  try {
+                    const body = spec
+                      ? { subjectId: subject!.id, spec }
+                      : { subjectId: subject!.id, description };
+                    const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/build-env`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      credentials: "include",
+                      body: JSON.stringify(body),
+                    });
+                    console.log(`[create-lab-env] response attempt ${attempt}:`, r.status);
+                    if (!r.ok) {
+                      const errText = await r.text().catch(() => "");
+                      lastErr = new Error(`فشل بناء البيئة (${r.status}): ${errText.slice(0, 200)}`);
+                      if (attempt < maxAttempts) {
+                        console.warn("[create-lab-env] retrying after failure on attempt", attempt);
+                        await new Promise((res) => setTimeout(res, 1500));
+                        continue;
+                      }
+                      break;
+                    }
+                    const data = await r.json();
+                    if (data.env) {
+                      setPendingDynamicEnv(data.env);
+                      setIsDynamicEnvOpen(true);
+                      setIsLabOpen(false);
+                      setIsYemenSoftOpen(false);
+                      setIsAccountingLabOpen(false);
+                      lastErr = null;
+                      break; // success
+                    } else {
+                      lastErr = new Error("الاستجابة لا تحتوي على بيئة صالحة");
+                      if (attempt < maxAttempts) {
+                        await new Promise((res) => setTimeout(res, 1500));
+                        continue;
+                      }
+                      break;
+                    }
+                  } catch (e: unknown) {
+                    lastErr = e instanceof Error ? e : new Error(String(e));
+                    console.error(`[create-lab-env] attempt ${attempt} threw:`, lastErr.message);
+                    if (attempt < maxAttempts) {
+                      await new Promise((res) => setTimeout(res, 1500));
+                    }
                   }
-                  const data = await r.json();
-                  console.log("[create-lab-env] dynamic data:", data);
-                  if (data.env) {
-                    setPendingDynamicEnv(data.env);
-                    setIsDynamicEnvOpen(true);
-                    setIsLabOpen(false);
-                    setIsYemenSoftOpen(false);
-                    setIsAccountingLabOpen(false);
-                  } else {
-                    throw new Error("الاستجابة لا تحتوي على بيئة صالحة");
-                  }
-                } catch (e: any) {
-                  console.error("[create-lab-env] failed:", e);
-                  setCreateEnvError(e?.message || "حدث خطأ غير متوقع أثناء بناء البيئة");
-                } finally {
-                  setIsCreatingEnv(false);
                 }
+                if (lastErr) {
+                  console.error("[create-lab-env] all attempts failed:", lastErr.message);
+                  setCreateEnvError(lastErr.message || "حدث خطأ غير متوقع أثناء بناء البيئة");
+                }
+                setIsCreatingEnv(false);
               }}
               isCreatingEnv={isCreatingEnv}
-              onStartLabEnvIntent={() => setPendingLabStarter("أريد بناء بيئة تطبيقية تفاعلية مخصصة لي في هذه المادة. اطرح عليّ ٢-٤ أسئلة متعددة الخيارات (مع خيار «غير ذلك») لتحديد ما أريد التدرب عليه ومستواي الحالي، ثم ابنِ البيئة المناسبة.")}
+              onStartLabEnvIntent={() => setPendingLabStarter("[LAB_INTAKE_START]")}
               attackSimEnabled={isSecuritySubject}
               attackSimOpen={isAttackSimOpen}
               pendingAttackScenario={pendingAttackScenario}
@@ -1068,7 +1102,7 @@ export default function Subject() {
           }}
         />
 
-        {/* Recommendation modal before opening custom-env chat starter */}
+        {/* Lab intake start confirmation modal */}
         {pendingLabStarter && (
           <div
             className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4"
@@ -1080,32 +1114,32 @@ export default function Subject() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center text-xl shrink-0">💡</div>
+                <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center text-xl shrink-0">🧪</div>
                 <div className="flex-1">
-                  <h3 className="text-white font-extrabold text-lg mb-1">قبل أن تبدأ بناء بيئتك بنفسك</h3>
+                  <h3 className="text-white font-extrabold text-lg mb-1">بناء بيئة تطبيقية مخصصة</h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    يُفضّل أن تتبع المعلم الذكي في مسارك التعليمي — فهو سيُنشئ لك البيئة التطبيقية تلقائياً وفق المفاهيم التي تتعلمها في كل مرحلة، فيكون التطبيق العملي مرتبطاً مباشرة بما درسته.
+                    سيطرح عليك المعلم الذكي ٥ أسئلة سريعة لفهم ما تريد التدرّب عليه، ثم يُجهّز لك بيئة تطبيقية مصمّمة خصيصاً لك.
                   </p>
                 </div>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3 mb-4 text-xs text-muted-foreground leading-relaxed">
-                إن أصرّيت على فتح بيئة مخصّصة الآن، سيطرح عليك المعلم سؤالاً متعدد الخيارات لتحديد ما تريد التدرّب عليه، ثم يبني لك البيئة من الصفر.
+                ⏱️ تستغرق الأسئلة أقل من دقيقة — ستكون البيئة جاهزة بعدها مباشرة.
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setPendingLabStarter(null)}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-slate-900 font-bold hover:bg-gold/90 transition-colors text-sm"
-                >
-                  حسناً، سأتابع مع المعلم
-                </button>
-                <button
                   onClick={() => {
-                    setChatStarter(pendingLabStarter);
+                    setChatStarter(pendingLabStarter!);
                     setPendingLabStarter(null);
                   }}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-slate-900 font-bold hover:bg-gold/90 transition-colors text-sm"
+                >
+                  ابدأ الأسئلة
+                </button>
+                <button
+                  onClick={() => setPendingLabStarter(null)}
                   className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-colors text-sm"
                 >
-                  أريدها الآن
+                  إلغاء
                 </button>
               </div>
             </div>
@@ -2231,7 +2265,7 @@ function SubjectPathChat({
   chatStarter?: string | null;
   onConsumeChatStarter?: () => void;
   initialSourcesMaterialId?: number | null;
-  onCreateLabEnv?: (description: string) => void;
+  onCreateLabEnv?: (description: string, spec?: object) => void;
   isCreatingEnv?: boolean;
   onStartLabEnvIntent?: () => void;
   attackSimEnabled?: boolean;
@@ -2400,6 +2434,14 @@ function SubjectPathChat({
   // truncation past max_tokens, network blip, model refusal). We surface a
   // visible retry button so the student never gets silently stranded.
   const [diagnosticIncomplete, setDiagnosticIncomplete] = useState(false);
+  // Lab intake interview state
+  const [labIntakeActive, setLabIntakeActive] = useState(false);
+  const labIntakeActiveRef = useRef(false);
+  const labIntakeStartIdxRef = useRef<number>(0);
+  const [compiledSpec, setCompiledSpec] = useState<Record<string, unknown> | null>(null);
+  const [isCompilingSpec, setIsCompilingSpec] = useState(false);
+  const [specCompileError, setSpecCompileError] = useState<string | null>(null);
+  useEffect(() => { labIntakeActiveRef.current = labIntakeActive; }, [labIntakeActive]);
   // Set when a regular teaching reply ended without the server's terminating
   // `done` event — almost always a network/proxy truncation. Holds the user's
   // last message so the retry button can re-send it without making the
@@ -2705,6 +2747,38 @@ function SubjectPathChat({
     return () => clearTimeout(t);
   }, [pendingTeachStart, isStreaming, chatPhase]);
 
+  const compileLabSpec = async (pairs: {q: string; a: string}[]) => {
+    setIsCompilingSpec(true);
+    setSpecCompileError(null);
+    setCompiledSpec(null);
+    try {
+      const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/compile-spec`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          subjectId: subject.id,
+          subjectName: subject.name,
+          intakeAnswers: pairs,
+        }),
+      });
+      if (!r.ok) {
+        const t = await r.text().catch(() => "");
+        throw new Error(`فشل تجميع المواصفة (${r.status}): ${t.slice(0, 200)}`);
+      }
+      const data = await r.json();
+      if (data.spec) {
+        setCompiledSpec(data.spec);
+      } else {
+        throw new Error("الاستجابة لا تحتوي على مواصفة صالحة");
+      }
+    } catch (e: any) {
+      setSpecCompileError(e?.message || "حدث خطأ أثناء تجميع مواصفة البيئة");
+    } finally {
+      setIsCompilingSpec(false);
+    }
+  };
+
   // sendPayloadOverride: server-only payload for this turn (e.g. image data URL); messages state stores `text`.
   const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }, sendPayloadOverride?: string) => {
     // Tracks whether the network/abort path threw so the `finally` block
@@ -2713,7 +2787,23 @@ function SubjectPathChat({
     // share the same binding — without this, TypeScript flags
     // `networkErrored = true` and `void networkErrored` as undeclared.
     let networkErrored = false;
+    // Capture the message-array length before any new messages are pushed.
+    // Used as the intake start index for both the explicit-button path and
+    // the natural-language fallback so Q&A pair collection is always anchored
+    // to the right position in the conversation history.
+    const preMessageCount = messagesRef.current.length;
     setIsStreaming(true);
+    // Track when the intake interview starts so we can collect Q&A pairs later.
+    // Two detection paths:
+    //   1. Hidden [LAB_INTAKE_START] token — injected by the floating button.
+    //   2. Natural-language lab request matching LAB_INTENT_RE — mirrors the
+    //      server-side LAB_ENV_INTENT_RE so the client never misses an intake
+    //      triggered by a typed message like "ابنِ لي بيئة تطبيقية".
+    if (text.includes("[LAB_INTAKE_START]") || LAB_INTENT_RE.test(text.trim())) {
+      setLabIntakeActive(true);
+      labIntakeActiveRef.current = true;
+      labIntakeStartIdxRef.current = preMessageCount;
+    }
     // A new turn supersedes any prior truncation banner — either the retry
     // button is what fired this call, or the student has decided to move
     // on with a fresh question. Either way the stale banners shouldn't
@@ -3001,6 +3091,16 @@ function SubjectPathChat({
             }
             if (data.content) {
               assistantMsg += data.content;
+              // Streaming fallback intake detection: if the model starts
+              // emitting [[ASK_OPTIONS:]] questions but labIntakeActiveRef was
+              // never set (e.g. typed request not caught by LAB_INTENT_RE),
+              // retroactively mark the session as an intake anchored at the
+              // pre-stream message position.
+              if (!labIntakeActiveRef.current && assistantMsg.includes("[[ASK_OPTIONS:]]")) {
+                setLabIntakeActive(true);
+                labIntakeActiveRef.current = true;
+                labIntakeStartIdxRef.current = preMessageCount;
+              }
               // Update the ref BEFORE scheduling so when the timer fires it
               // paints the latest accumulated text — fixes the stale-closure
               // bug where only the first chunk of each 50ms window survived.
@@ -3056,6 +3156,49 @@ function SubjectPathChat({
           nm[nm.length - 1] = { role: "assistant", content: assistantMsg };
           return nm;
         });
+      }
+
+      // ── Lab intake completion detection ─────────────────────────────────
+      // When the teacher emits [[LAB_INTAKE_DONE]] and we were in intake mode,
+      // collect the Q&A pairs from the intake conversation and compile the spec.
+      if (!emptyStream && assistantMsg.includes("[[LAB_INTAKE_DONE]]") && labIntakeActiveRef.current) {
+        setLabIntakeActive(false);
+        labIntakeActiveRef.current = false;
+        const startIdx = labIntakeStartIdxRef.current;
+        // Read from messagesRef — the state update above is async and may not
+        // have committed yet, but the ref we maintain is always current.
+        const snapshot = messagesRef.current.slice(startIdx);
+        const pairs: { q: string; a: string }[] = [];
+        for (let i = 0; i < snapshot.length - 1; i++) {
+          const m = snapshot[i];
+          const next = snapshot[i + 1];
+          if (m.role === "assistant" && next?.role === "user" && next.content?.trim()) {
+            const q = m.content
+              .replace(/\[\[LAB_INTAKE_DONE\]\]/g, "")
+              .replace(/\[\[ASK_OPTIONS:\s*([\s\S]+?)\]\]/g, (_: string, inner: string) => inner.split("|||")[0]?.trim() || "")
+              .replace(/<[^>]+>/g, " ")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 400);
+            pairs.push({ q, a: next.content.trim() });
+          }
+        }
+        // Require all 5 Q&A pairs before compiling. If fewer are found,
+        // the model emitted [[LAB_INTAKE_DONE]] prematurely — treat as
+        // an error rather than silently producing an incomplete spec.
+        if (pairs.length >= 5) {
+          console.log("[lab-intake] detected [[LAB_INTAKE_DONE]] with", pairs.length, "Q&A pairs — compiling spec");
+          setTimeout(() => compileLabSpec(pairs), 300);
+        } else if (pairs.length >= 1) {
+          // Partial completion (2-4 pairs) — surface an error so the student
+          // can restart rather than getting a spec built on incomplete input.
+          setSpecCompileError(`لم تكتمل المقابلة (وُجدت ${pairs.length} إجابات من 5). يرجى إعادة المحاولة.`);
+          setLabIntakeActive(false);
+          labIntakeActiveRef.current = false;
+          console.warn("[lab-intake] [[LAB_INTAKE_DONE]] with only", pairs.length, "pairs — aborting compile");
+        } else {
+          console.warn("[lab-intake] [[LAB_INTAKE_DONE]] but no Q&A pairs found — skipping compile");
+        }
       }
 
       // ── Diagnostic completeness check ──────────────────────────────────
@@ -3679,13 +3822,137 @@ function SubjectPathChat({
         <span className="max-w-[160px] truncate">العودة لبيئتك: {pendingDynamicEnv?.title || "البيئة التطبيقية"}</span>
       </button>
     )}
+    {/* ── Spec compiling overlay — shown while compile-spec is running ─────── */}
+    {isCompilingSpec && (
+      <div className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-4" style={{ direction: "rtl" }}>
+        <div className="bg-slate-900 border border-gold/30 rounded-2xl shadow-2xl max-w-sm w-full p-8 text-center">
+          <div className="w-16 h-16 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center mx-auto mb-4">
+            <Loader2 className="w-8 h-8 text-gold animate-spin" />
+          </div>
+          <h3 className="text-white font-bold text-lg mb-2">جاري تجهيز مواصفة بيئتك...</h3>
+          <p className="text-muted-foreground text-sm leading-relaxed">
+            يحلّل المعلم الذكي إجاباتك ويُصمّم بيئة تطبيقية مخصصة لك
+          </p>
+        </div>
+      </div>
+    )}
+
+    {/* ── Compiled spec preview card ─────────────────────────────────────── */}
+    {compiledSpec && !isCompilingSpec && !isCreatingEnv && (
+      <div className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-4" style={{ direction: "rtl" }}>
+        <div className="bg-slate-900 border border-gold/30 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden">
+          <div className="bg-gradient-to-l from-amber-500/20 to-transparent border-b border-gold/20 px-6 py-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center text-xl shrink-0">🧪</div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-white font-extrabold text-base leading-tight">مواصفة بيئتك التطبيقية جاهزة</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">راجع التفاصيل ثم اضغط «ابنِ الآن»</p>
+            </div>
+          </div>
+          <div className="p-5 space-y-3 max-h-[50vh] overflow-y-auto">
+            {!!compiledSpec.goal && (
+              <div className="bg-white/5 rounded-xl p-3">
+                <p className="text-xs text-gold font-bold mb-1">الهدف</p>
+                <p className="text-sm text-white leading-relaxed">{String(compiledSpec.goal)}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {!!compiledSpec.difficulty && (
+                <div className="bg-white/5 rounded-xl p-3">
+                  <p className="text-xs text-muted-foreground mb-0.5">الصعوبة</p>
+                  <p className="text-sm font-bold text-white">{String(compiledSpec.difficulty)}</p>
+                </div>
+              )}
+              {!!compiledSpec.estimatedMinutes && (
+                <div className="bg-white/5 rounded-xl p-3">
+                  <p className="text-xs text-muted-foreground mb-0.5">الوقت المتوقع</p>
+                  <p className="text-sm font-bold text-white">{String(compiledSpec.estimatedMinutes)} دقيقة</p>
+                </div>
+              )}
+            </div>
+            {Array.isArray(compiledSpec.screens) && compiledSpec.screens.length > 0 && (
+              <div className="bg-white/5 rounded-xl p-3">
+                <p className="text-xs text-gold font-bold mb-2">الشاشات ({compiledSpec.screens.length})</p>
+                <div className="space-y-1">
+                  {(compiledSpec.screens as Record<string, unknown>[]).map((sc, i: number) => (
+                    <div key={i} className="flex items-start gap-2 text-xs">
+                      <span className="text-gold shrink-0">{i + 1}.</span>
+                      <span className="text-white">{String(sc.title ?? "")}</span>
+                      {!!sc.purpose && <span className="text-muted-foreground">— {String(sc.purpose)}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {Array.isArray(compiledSpec.successCriteria) && compiledSpec.successCriteria.length > 0 && (
+              <div className="bg-white/5 rounded-xl p-3">
+                <p className="text-xs text-gold font-bold mb-2">معايير النجاح</p>
+                <ul className="space-y-1">
+                  {(compiledSpec.successCriteria as string[]).map((c, i: number) => (
+                    <li key={i} className="text-xs text-white flex items-start gap-1.5">
+                      <span className="text-emerald-400 shrink-0 mt-0.5">✓</span>
+                      <span>{String(c)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+          {specCompileError && (
+            <div className="px-5 pb-3">
+              <p className="text-xs text-red-400 bg-red-950/50 rounded-lg p-2">{specCompileError}</p>
+            </div>
+          )}
+          <div className="px-5 pb-5 pt-2 flex gap-2">
+            <button
+              onClick={() => {
+                const spec = compiledSpec;
+                setCompiledSpec(null);
+                onCreateLabEnv?.("", spec);
+              }}
+              className="flex-1 px-4 py-3 rounded-xl bg-gold text-slate-900 font-extrabold hover:bg-gold/90 transition-colors text-sm"
+            >
+              🚀 ابنِ الآن
+            </button>
+            <button
+              onClick={() => {
+                // Dismiss the spec preview and restart the intake interview from
+                // the beginning so the student can re-answer all 5 questions.
+                setCompiledSpec(null);
+                setSpecCompileError(null);
+                setLabIntakeActive(false);
+                labIntakeActiveRef.current = false;
+                // Re-trigger the intake via the parent's onStartLabEnvIntent callback,
+                // which goes through the same pendingLabStarter confirmation modal
+                // flow so the student intentionally confirms the restart.
+                onStartLabEnvIntent?.();
+              }}
+              className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-colors text-sm"
+            >
+              عدِّل إجاباتي
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Spec compile error toast (when spec card is dismissed but error remains) */}
+    {specCompileError && !compiledSpec && !isCompilingSpec && (
+      <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[70] max-w-sm w-[92%]">
+        <div className="bg-red-950/95 border border-red-500/40 rounded-xl px-4 py-3 shadow-xl flex items-start gap-3" style={{ direction: "rtl" }}>
+          <span className="text-xl shrink-0">⚠️</span>
+          <div className="flex-1 text-sm text-red-100">{specCompileError}</div>
+          <button onClick={() => setSpecCompileError(null)} className="text-red-300 hover:text-white text-lg leading-none shrink-0">×</button>
+        </div>
+      </div>
+    )}
+
     {/* Universal floating "build env" button — available across ALL subjects.
         Hidden when an env already exists (the "return" button takes over),
         when a panel is open, or while the build is in flight.
         IMPORTANT: this does NOT call /ai/lab/build-env directly. It triggers
-        the teacher-orchestrated dialog (ASK_OPTIONS in /ai/teach), which
-        emits [[CREATE_LAB_ENV]] only after the student picks specifics. */}
-    {!pendingDynamicEnv && !anyPanelOpen && !isCreatingEnv && onStartLabEnvIntent && chatVisible && (
+        the teacher-orchestrated intake interview, which emits
+        [[LAB_INTAKE_DONE]] only after all 5 questions complete. */}
+    {!pendingDynamicEnv && !anyPanelOpen && !isCreatingEnv && !compiledSpec && !isCompilingSpec && onStartLabEnvIntent && chatVisible && (
       <button
         onClick={() => onStartLabEnvIntent()}
         className="fixed bottom-24 md:bottom-6 right-4 z-[70] bg-gradient-to-l from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-amber-300/50"
@@ -4404,7 +4671,11 @@ function SubjectPathChat({
                   {msg.role === 'user' ? (
                     <div className="max-w-[80%] max-sm:max-w-[calc(100vw-60px)] rounded-2xl rounded-br-none px-3 sm:px-4 py-3 text-[14px] sm:text-[15px] leading-relaxed"
                       style={{ background: "linear-gradient(135deg, #1e2235 0%, #191c2a 100%)", border: "1px solid rgba(255,255,255,0.1)", overflowWrap: "break-word", wordBreak: "break-word", whiteSpace: "pre-wrap", width: "fit-content" }}>
-                      {msg.content}
+                      {/* Strip internal control tokens from the visible chat bubble.
+                          [LAB_INTAKE_START] is kept in message storage so server-side
+                          history scanning can detect the intake session, but should
+                          never be shown to the student as raw text. */}
+                      {msg.content.replace(/\[LAB_INTAKE_START\]/g, "").trim() || "ابنِ بيئة تطبيقية"}
                     </div>
                   ) : (
                     <>

@@ -62,6 +62,7 @@ import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../
 import { writeGemLedger } from "../lib/gem-ledger";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
 import { robustJsonParse } from "../lib/json-repair";
+import { z } from "zod";
 import { signMasteryToken, verifyMasteryToken, newAttemptId } from "../lib/lab-exam-token";
 import {
   createAttempt,
@@ -957,7 +958,8 @@ ${planTag}- \`[POINT_DONE: N]\` — اكتبه عند تغطية النقطة ر
 - \`[MISTAKE: topic ||| description]\` — لتسجيل خطأ مفاهيمي جديد (مرة واحدة في الرد كحد أقصى). \`topic\` قصير (≤ 5 كلمات)، \`description\` جملة واضحة.
 - \`[MISTAKE_RESOLVED: id]\` — لتأكيد حل خطأ سابق (الـ id من قائمة الأخطاء النشطة في السياق).
 - \`[[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| opt3 ||| غير ذلك]]\` — لإنشاء أزرار خيارات للطالب. **يجب** أن ينتهي بخيار "غير ذلك" دائماً.
-- \`[[CREATE_LAB_ENV: وصف تفصيلي بالعربية]]\` — لإنشاء بيئة تطبيقية تفاعلية. الوصف يشمل: السياق، البيانات الأولية، الشاشات المطلوبة، المخرج النهائي.
+- \`[[CREATE_LAB_ENV: وصف تفصيلي بالعربية]]\` — لإنشاء بيئة تطبيقية تفاعلية (المسار القديم — للتوافق فقط). **الآن:** استخدم بروتوكول المقابلة وأصدر \`[[LAB_INTAKE_DONE]]\` عند اكتمال الأسئلة الخمسة الإلزامية.
+- \`[[LAB_INTAKE_DONE]]\` — يُصدَر مرة واحدة فقط بعد اكتمال أسئلة المقابلة الخمسة لبناء البيئة التطبيقية. لا تضيف أي نص بعده.
 ${imageTagDoc}
 
 ### أمثلة ملموسة:
@@ -2372,16 +2374,93 @@ ${retrievedBlock}
   // orchestration path (2–4 multiple-choice questions, then [[CREATE_LAB_ENV]]).
   // This prevents the model from drifting into a lecture instead.
   const LAB_ENV_INTENT_RE = /(?:أريد|اريد|ابن[ِيه]?|اعمل|انشئ|أنشئ|ابدأ)\s*(?:لي\s*)?(?:بيئة|محاكاة|مختبر|سيناريو|تطبيق)\s*(?:تطبيقي[ةه]?|عملي[ةه]?|تفاعلي[ةه]?|تدريبي[ةه]?|مخصص[ةه]?)?/u;
-  const labEnvIntentDetected = !!trimmedUserMessage && LAB_ENV_INTENT_RE.test(trimmedUserMessage);
+  const labIntakeProtocol = trimmedUserMessage?.includes("[LAB_INTAKE_START]");
+
+  // Detect ongoing intake from conversation history: if history contains
+  // [LAB_INTAKE_START] in a user turn but [[LAB_INTAKE_DONE]] hasn't appeared
+  // in any assistant turn yet, we are still mid-interview. This ensures every
+  // answer turn (Q2–Q5) also receives the full protocol in the system prompt
+  // instead of only the first turn that contained [LAB_INTAKE_START].
+  const intakeOngoing = !labIntakeProtocol && (() => {
+    if (!Array.isArray(history) || history.length === 0) return false;
+    // Find the MOST RECENT [LAB_INTAKE_START] user turn (handles restarts where
+    // a previous completed session already has [[LAB_INTAKE_DONE]] in history).
+    let lastIntakeStartIdx = -1;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (
+        history[i].role === "user" &&
+        String((history[i] as { role: string; content: string }).content || "").includes("[LAB_INTAKE_START]")
+      ) {
+        lastIntakeStartIdx = i;
+        break;
+      }
+    }
+    if (lastIntakeStartIdx === -1) return false;
+    // Check for [[LAB_INTAKE_DONE]] only in messages AFTER that start point.
+    // Earlier sessions' [[LAB_INTAKE_DONE]] must not interfere with the new session.
+    return !history.slice(lastIntakeStartIdx + 1).some(
+      (m: { role: string; content: string }) =>
+        m.role === "assistant" && String(m.content || "").includes("[[LAB_INTAKE_DONE]]"),
+    );
+  })();
+
+  // Count how many ASK_OPTIONS questions the assistant has already asked in the
+  // CURRENT intake session — only counting turns AFTER the most recent
+  // [LAB_INTAKE_START] user message, not prior sessions.
+  const intakeQuestionsAsked = (() => {
+    if (!intakeOngoing && !labIntakeProtocol) return 0;
+    const src = Array.isArray(history) ? history : [];
+    // Find the index of the most-recent [LAB_INTAKE_START] user turn.
+    let startIdx = -1;
+    for (let i = src.length - 1; i >= 0; i--) {
+      if (src[i].role === "user" && String(src[i].content || "").includes("[LAB_INTAKE_START]")) {
+        startIdx = i;
+        break;
+      }
+    }
+    if (startIdx === -1) return 0; // no intake start in history yet (fresh session)
+    // Count [[ASK_OPTIONS:]] in assistant turns that appear AFTER that index only.
+    return src.slice(startIdx + 1).filter(
+      (m: { role: string; content: string }) =>
+        m.role === "assistant" && String(m.content || "").includes("[[ASK_OPTIONS:"),
+    ).length;
+  })();
+
+  const labEnvIntentDetected =
+    !!trimmedUserMessage && (LAB_ENV_INTENT_RE.test(trimmedUserMessage) || labIntakeProtocol || intakeOngoing);
   if (labEnvIntentDetected) {
+    const nextQuestion = intakeQuestionsAsked + 1; // which question the model must ask next (1–5)
+    const questionReminder =
+      intakeQuestionsAsked >= 5
+        ? "لقد طُرحت الأسئلة الخمسة وتلقّيت الإجابات — أصدر [[LAB_INTAKE_DONE]] الآن ولا تضيف أي نص بعده."
+        : intakeQuestionsAsked === 0
+        ? "ابدأ بالسؤال الأول (أ) الآن."
+        : `أسئلة مكتملة حتى الآن: ${intakeQuestionsAsked}/5 — اطرح السؤال رقم ${nextQuestion} (${
+            ["أ", "ب", "ج", "د", "هـ"][intakeQuestionsAsked] ?? "هـ"
+          }) الآن.`;
     systemPrompt = systemPrompt + `
 
-[INTENT_DETECTED: BUILD_LAB_ENV]
-الطالب طلب صراحةً بناء بيئة تطبيقية. التزم بالتنسيق التالي بدقة:
-1) ابدأ فوراً (دون مقدمات طويلة) بسؤال واحد متعدد الخيارات باستخدام الوسم [[ASK_OPTIONS: ...]] لتحديد ما يريد التدرب عليه بالضبط (3–5 خيارات + «غير ذلك»).
-2) بعد إجابته اطرح ١-٢ سؤال متابعة (متعدد الخيارات أيضاً) لتحديد المستوى أو الزاوية أو السياق.
-3) عند اكتمال الصورة، اختم برسالة تحوي وسم واحد: [[CREATE_LAB_ENV: وصف دقيق وموجز للبيئة المطلوبة بناءً على إجاباته]].
-لا تعطِ شرحاً نظرياً قبل بناء البيئة.`;
+[INTENT_DETECTED: BUILD_LAB_ENV — بروتوكول المقابلة الإلزامية]
+${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : "المقابلة جارية — أجاب الطالب على " + intakeQuestionsAsked + " من 5 أسئلة."}
+يجب عليك اتباع بروتوكول المقابلة الإلزامية التالي حرفياً:
+
+**مرحلة LAB_INTAKE — قواعد صارمة:**
+1. اطرح الأسئلة الإلزامية التالية بالترتيب، سؤال واحد في كل رد، كل سؤال باستخدام [[ASK_OPTIONS: ...]] مع خيار «غير ذلك» دائماً:
+   (أ) الموضوع المحدد داخل المادة (ماذا تريد أن تتدرب عليه تحديداً؟) — ٣-٥ خيارات من محتوى المادة الحالية + غير ذلك
+   (ب) مستواك الحالي في هذا الموضوع — خيارات: مبتدئ تماماً ||| درست الأساسيات ||| متوسط ||| متقدم ||| غير ذلك
+   (ج) النتيجة المرجوّة من البيئة — خيارات: فهم المفهوم النظري ||| تطبيق عملي خطوة بخطوة ||| اختبار نفسي ||| بناء مشروع كامل ||| غير ذلك
+   (د) نوع الواجهة المفضّلة — خيارات: نموذج إدخال بيانات ||| جداول تفاعلية ||| محطة أوامر ||| مخططات ورسوم ||| تطبيق ويب تجريبي ||| غير ذلك
+   (هـ) درجة الصعوبة — خيارات: سهل (مع إرشادات كاملة) ||| متوسط (تلميحات فقط) ||| صعب (بلا مساعدة) ||| غير ذلك
+
+2. **ممنوع منعاً باتاً** إصدار [[CREATE_LAB_ENV: ...]] قبل اكتمال الأسئلة الخمسة.
+
+3. **إذا طلب الطالب التخطي أو قال «ابنِ مباشرة»:** رُدّ بأدب: «لأبني لك بيئة دقيقة بلا أخطاء أحتاج إجابتك على هذا السؤال أولاً» وأعد طرح نفس السؤال.
+
+4. **بعد آخر إجابة (السؤال الخامس):** لا تُصدر [[CREATE_LAB_ENV: ...]]، بل أصدر بدلاً من ذلك وسم [[LAB_INTAKE_DONE]] في نهاية ردك. سيقوم النظام تلقائياً بمعالجة الإجابات وبناء البيئة.
+
+5. الوسم [[LAB_INTAKE_DONE]] يصدر مرة واحدة فقط عند اكتمال المقابلة. لا تضيف أي نص بعده.
+
+**الحالة الراهنة:** ${questionReminder}`;
   }
 
   // ── Phase 3 hardening — server-authoritative mastery verification ───────
@@ -4956,6 +5035,241 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Spec Compiler — converts structured intake answers into a validated JSON spec
+// that the env-builder uses instead of a free-form text description.
+// ─────────────────────────────────────────────────────────────────────────────
+const SPEC_COMPILER_SYSTEM = `أنت **مهندس مواصفات بيئات تعليمية** متخصص. مهمتك الوحيدة: تحويل إجابات الطالب من مقابلة منظَّمة إلى مواصفة JSON كاملة ومُتحقَّق منها لبناء بيئة تطبيقية تفاعلية. لا تُصدر أي شرح أو نص خارج JSON.
+
+## قواعد الإخراج (إلزامية):
+- أرجع كائن JSON واحداً صالحاً تماماً، لا markdown، لا كتل code block، لا أي نص قبله أو بعده.
+- يجب أن يطابق الهيكل الآتي بدقة (كل حقل مطلوب).
+- كل الحقول النصية بالعربية.
+
+## هيكل المواصفة المطلوب:
+{
+  "goal": "هدف البيئة بجملة أو جملتين — ماذا سيُنجز الطالب بالضبط؟",
+  "context": "السياق التعليمي: المادة، الموضوع، المرحلة الدراسية، المستوى الحالي للطالب",
+  "topic": "الموضوع المحدد داخل المادة (من إجابة السؤال الأول)",
+  "difficulty": "سهل|متوسط|صعب",
+  "estimatedMinutes": 15,
+  "interfaceStyle": "form|table|terminal|chart|webapp|mixed",
+  "specializationKind": "accounting|programming|cybersecurity|networking|data-science|food|business|generic",
+  "initialData": {
+    "description": "وصف نصي للبيانات الابتدائية",
+    "sampleValues": {}
+  },
+  "screens": [
+    {
+      "id": "screen1",
+      "title": "عنوان الشاشة الأولى",
+      "purpose": "الغرض منها",
+      "keyInteractions": ["تفاعل 1", "تفاعل 2"]
+    }
+  ],
+  "successCriteria": [
+    "معيار نجاح قابل للقياس 1",
+    "معيار نجاح قابل للقياس 2"
+  ],
+  "commonMisconceptions": [
+    "مفهوم خاطئ شائع 1 في هذا الموضوع",
+    "مفهوم خاطئ شائع 2"
+  ],
+  "componentPattern": "editableTable|form|journalEditor|webApp|terminal|chart|mixed",
+  "narrativeContext": "قصة قصيرة محفّزة (سطر واحد) تضع الطالب في موقف واقعي"
+}
+
+## قواعد ملء الحقول:
+1. **goal**: اشتق من النتيجة المرجوّة (إجابة السؤال الثالث) + الموضوع. مثال: "إنشاء وتسوية قيود يومية لشركة تجارية وتحليل ميزان المراجعة الناتج."
+2. **context**: ادمج الموضوع + المستوى. مثال: "مادة المحاسبة المالية — موضوع القيود اليومية — مستوى متوسط."
+3. **difficulty**: حوّل: "سهل (مع إرشادات)" → "سهل"، "متوسط (تلميحات)" → "متوسط"، "صعب (بلا مساعدة)" → "صعب". افتراضي: "متوسط".
+4. **estimatedMinutes**: سهل=10، متوسط=18، صعب=25.
+5. **interfaceStyle**: استنتج من نوع الواجهة المختارة. نموذج إدخال → "form"، جداول → "table"، طرفية → "terminal"، مخططات → "chart"، تطبيق ويب → "webapp"، غير محدد → "mixed".
+6. **specializationKind**: استنتج من الموضوع + المادة. محاسبة/مالية → "accounting"، برمجة/تطوير → "programming"، أمن سيبراني → "cybersecurity"، شبكات → "networking"، بيانات/إحصاء → "data-science"، غذاء/زراعة → "food"، إدارة/أعمال → "business"، أخرى → "generic".
+7. **screens**: اقترح على الأقل 3 شاشات منطقية تُكمل بعضها. مثال لمحاسبة: شاشة الإدخال + شاشة المراجعة + شاشة النتائج.
+8. **successCriteria**: 3-5 معايير قابلة للقياس آلياً. أمثلة: "يُدخل قيداً متوازناً بطرفين مدين ودائن"، "يرصد الخطأ في الميزان ويُصحّحه"، "يُكمل جميع المهام بلا مساعدة في وضع الامتحان".
+9. **commonMisconceptions**: 2-4 أخطاء شائعة يقع فيها الطلاب في هذا الموضوع تحديداً.
+10. **componentPattern**: استنتج من interfaceStyle + specializationKind. محاسبة → "journalEditor|editableTable"، برمجة → "webApp|form"، أمن → "terminal|webApp"، بيانات → "chart|editableTable"، عام → "form|mixed".
+
+## أمثلة few-shot:
+
+**مثال 1 — أمن سيبراني:**
+إجابات: (أ) اختراق تطبيقات ويب (ب) متوسط (ج) تطبيق عملي (د) تطبيق ويب تجريبي (هـ) صعب
+\`\`\`json
+{"goal":"اكتشاف واستغلال ثغرة SQL Injection في تطبيق ويب تعليمي ومعرفة طرق الحماية منها","context":"مادة الأمن السيبراني — موضوع ثغرات تطبيقات الويب — مستوى متوسط","topic":"ثغرات تطبيقات الويب — SQL Injection","difficulty":"صعب","estimatedMinutes":25,"interfaceStyle":"webapp","specializationKind":"cybersecurity","initialData":{"description":"تطبيق ويب بسيط بصفحة تسجيل دخول وقاعدة بيانات تجريبية","sampleValues":{"users":[{"id":1,"username":"admin","password":"secret123"}]}},"screens":[{"id":"screen1","title":"🔍 استكشاف التطبيق","purpose":"فهم بنية التطبيق ونقاط الدخول","keyInteractions":["تصفح صفحات التطبيق","قراءة كود المصدر"]},{"id":"screen2","title":"💉 تنفيذ الهجوم","purpose":"تجربة حقن SQL وفهم آليته","keyInteractions":["إدخال payload في حقل تسجيل الدخول","قراءة رد قاعدة البيانات"]},{"id":"screen3","title":"🛡️ الحماية والإصلاح","purpose":"تطبيق تقنيات الحماية","keyInteractions":["استخدام Prepared Statements","اختبار الإصلاح"]}],"successCriteria":["يُدخل payload يتجاوز تسجيل الدخول بنجاح","يستخرج معلومات من قاعدة البيانات","يُطبّق حلاً صحيحاً لمنع الثغرة","يشرح الفرق بين الطريقتين"],"commonMisconceptions":["الخلط بين XSS وSQL Injection","الظن بأن تشفير كلمة المرور فقط يكفي","عدم فهم لماذا Prepared Statements أكثر أماناً"],"componentPattern":"webApp|terminal","narrativeContext":"اكتُشف ثغرة في موقع شركة ناشئة — أنت الباحث الأمني المكلّف باختبارها وتوثيق الثغرة وإصلاحها."}
+\`\`\`
+
+**مثال 2 — محاسبة:**
+إجابات: (أ) القيود اليومية (ب) مبتدئ (ج) فهم نظري + تطبيق (د) نموذج إدخال (هـ) سهل
+\`\`\`json
+{"goal":"تسجيل قيود يومية متنوعة وفهم تأثيرها على المعادلة المحاسبية","context":"مادة المحاسبة المالية — موضوع القيود اليومية — مبتدئ","topic":"القيود اليومية وأثرها على الحسابات","difficulty":"سهل","estimatedMinutes":10,"interfaceStyle":"form","specializationKind":"accounting","initialData":{"description":"شركة تجارية ناشئة ببيانات ابتدائية بسيطة","sampleValues":{"accounts":[{"code":"101","name":"الصندوق","balance":5000},{"code":"401","name":"المبيعات","balance":0}],"entries":[]}},"screens":[{"id":"screen1","title":"📚 فهم القيد","purpose":"شرح مفهوم القيد المحاسبي","keyInteractions":["قراءة المثال","مشاهدة أثر القيد على الحسابات"]},{"id":"screen2","title":"✏️ تسجيل القيود","purpose":"تطبيق القيود عملياً","keyInteractions":["إدخال الطرف المدين","إدخال الطرف الدائن","التحقق من التوازن"]},{"id":"screen3","title":"📊 ميزان المراجعة","purpose":"مراجعة أثر القيود","keyInteractions":["قراءة الأرصدة","اكتشاف أخطاء التوازن"]}],"successCriteria":["يُسجّل قيداً بطرفين مدين ودائن متساويين","يختار الحساب الصحيح لكل طرف","يُلاحظ أثر القيد على الميزان"],"commonMisconceptions":["الخلط بين الحساب المدين والدائن","نسيان أن المجموعين يجب أن يتساويا","الخلط بين رصيد الحساب والتغيير عليه"],"componentPattern":"journalEditor|editableTable","narrativeContext":"أنت محاسب جديد في شركة الأمل التجارية — مهمتك تسجيل عمليات اليوم الأول."}
+\`\`\`
+
+**مثال 3 — برمجة:**
+إجابات: (أ) الدوال والمعاملات (ب) درست الأساسيات (ج) تطبيق عملي (د) جداول تفاعلية (هـ) متوسط
+\`\`\`json
+{"goal":"فهم تعريف الدوال واستدعائها وتمرير المعاملات والقيم المُعادة في Python","context":"مادة البرمجة — موضوع الدوال والمعاملات — مستوى مبتدئ-متوسط","topic":"الدوال والمعاملات في Python","difficulty":"متوسط","estimatedMinutes":18,"interfaceStyle":"webapp","specializationKind":"programming","initialData":{"description":"بيئة Python تفاعلية مع أمثلة جاهزة قابلة للتعديل","sampleValues":{"challenges":["اكتب دالة تحسب مساحة مستطيل","أضف معامل اختياري للنتيجة","حوّل الدالة لإعادة قيمتين"]}},"screens":[{"id":"screen1","title":"🔍 فهم الدوال","purpose":"استكشاف بنية الدالة وأجزائها","keyInteractions":["قراءة مثال دالة بسيطة","تعديل المعاملات"]},{"id":"screen2","title":"⚙️ كتابة دوال","purpose":"تطبيق كتابة الدوال","keyInteractions":["كتابة دالة من الصفر","اختبارها بقيم مختلفة"]},{"id":"screen3","title":"🎯 تحديات","purpose":"حل تحديات متصاعدة","keyInteractions":["حل 3 تحديات","مقارنة الحلول"]}],"successCriteria":["يكتب دالة صحيحة بمعاملات ويستدعيها","يفهم الفرق بين return وprint","يستخدم معاملات افتراضية بشكل صحيح"],"commonMisconceptions":["الخلط بين تعريف الدالة واستدعائها","نسيان return وتوقع طباعة القيمة","الخلط بين المتغيرات المحلية والعامة"],"componentPattern":"webApp|form","narrativeContext":"أنت مطور جديد تبني مكتبة دوال لأتمتة حسابات شركة صغيرة."}
+\`\`\`
+
+التزم بإصدار JSON صالح مباشرة بدون أي شرح أو markdown.`;
+
+// POST /api/ai/lab/compile-spec
+// Takes structured intake answers + subject info and emits a validated JSON spec
+// for the env builder. Retries up to 3x on parse failure, then falls back to Gemini.
+router.post("/ai/lab/compile-spec", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { subjectId, subjectName, specializationKind, intakeAnswers } = req.body as {
+    subjectId: string;
+    subjectName: string;
+    specializationKind?: string;
+    intakeAnswers: Array<{ q: string; a: string; isFreeText?: boolean }>;
+  };
+  if (!subjectId || !subjectName || !Array.isArray(intakeAnswers) || intakeAnswers.length === 0) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const userPrompt = `مادة: ${subjectName} (${subjectId})
+نوع التخصص المتوقّع: ${specializationKind || "غير محدد"}
+
+إجابات الطالب من المقابلة:
+${intakeAnswers.map((a, i) => `${i + 1}. السؤال: ${a.q || "—"}\n   الإجابة: ${a.a}`).join("\n\n")}
+
+أصدر مواصفة JSON كاملة مباشرة بلا أي شرح.`;
+
+  // Zod schema for the compiled lab spec — single source of truth used by
+  // both /compile-spec (output validation) and /build-env (input validation).
+  const LabSpecSchema = z.object({
+    goal:                z.string().min(20),
+    context:             z.string().min(5),
+    topic:               z.string().min(5),
+    difficulty:          z.enum(["سهل", "متوسط", "صعب"]),
+    estimatedMinutes:    z.number().min(5),
+    interfaceStyle:      z.string().min(5),
+    specializationKind:  z.string().min(5),
+    componentPattern:    z.string().min(5),
+    narrativeContext:    z.string().min(5),
+    initialData:         z.union([z.record(z.unknown()), z.string()]),
+    screens: z.array(z.object({
+      id:               z.string().min(1),
+      title:            z.string().min(2),
+      purpose:          z.string().min(5),
+      keyInteractions:  z.array(z.unknown()),
+    })).min(3),
+    successCriteria:       z.array(z.string()).min(3),
+    commonMisconceptions:  z.array(z.string()).min(2),
+  });
+
+  const validateSpec = (obj: unknown): { ok: boolean; error?: string } => {
+    const result = LabSpecSchema.safeParse(obj);
+    if (result.success) return { ok: true };
+    const first = result.error.issues[0];
+    const path = first.path.length > 0 ? first.path.join(".") + ": " : "";
+    return { ok: false, error: `${path}${first.message}` };
+  };
+
+  let lastError = "";
+  let spec: Record<string, unknown> | null = null;
+
+  // Try Anthropic Claude 3.5 Sonnet up to 3 times
+  for (let attempt = 1; attempt <= 3 && !spec; attempt++) {
+    const __start = Date.now();
+    try {
+      console.log(`[compile-spec] attempt ${attempt}/3 via Anthropic`);
+      const messages: any[] = [{ role: "user", content: userPrompt }];
+      if (attempt > 1 && lastError) {
+        messages.push({ role: "assistant", content: "{" });
+        messages.push({ role: "user", content: `المحاولة السابقة أنتجت JSON خاطئاً: ${lastError}. أعد المحاولة وأصدر JSON صالحاً فقط مباشرة.` });
+      }
+      const msg = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 3000,
+        temperature: 0.2,
+        system: SPEC_COMPILER_SYSTEM,
+        messages: attempt === 1 ? [{ role: "user", content: userPrompt }] : [{ role: "user", content: userPrompt + `\n\n[محاولة ${attempt}] الخطأ السابق: ${lastError}. أصدر JSON مباشرة بلا شرح.` }],
+      });
+      const raw = (msg.content[0] as { type: string; text?: string })?.text || "";
+      const cleaned = raw.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/i, "").trim();
+      const parsed = robustJsonParse(cleaned, "[compile-spec]");
+      const validation = validateSpec(parsed);
+      if (validation.ok) {
+        spec = parsed;
+        console.log(`[compile-spec] success on attempt ${attempt}`);
+      } else {
+        lastError = validation.error || "Unknown validation error";
+        console.warn(`[compile-spec] attempt ${attempt} validation failed: ${lastError}`);
+      }
+      try {
+        const u = extractAnthropicUsage(msg);
+        void recordAiUsage({
+          userId,
+          subjectId: subjectId ?? null,
+          route: "ai/lab/compile-spec",
+          provider: "anthropic",
+          model: "claude-3-5-sonnet-20241022",
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          cachedInputTokens: u.cachedInputTokens,
+          latencyMs: Date.now() - __start,
+          metadata: { attempt },
+        });
+      } catch {}
+    } catch (err: any) {
+      lastError = err?.message || String(err);
+      console.error(`[compile-spec] attempt ${attempt} threw:`, lastError);
+    }
+  }
+
+  // Gemini fallback if Anthropic exhausted
+  if (!spec && hasGeminiProvider()) {
+    const __gStart = Date.now();
+    try {
+      console.log("[compile-spec] Anthropic failed — trying Gemini 2.0 Flash fallback");
+      const result = await generateGeminiJson({
+        systemPrompt: SPEC_COMPILER_SYSTEM,
+        userPrompt: userPrompt + "\n\nأصدر JSON صالحاً فقط مباشرة بلا شرح.",
+        model: "gemini-2.0-flash",
+        temperature: 0.2,
+        maxOutputTokens: 3000,
+        timeoutMs: 45_000,
+        logTag: "compile-spec",
+      });
+      const parsed = robustJsonParse(result.text, "[compile-spec]");
+      const validation = validateSpec(parsed);
+      if (validation.ok) {
+        spec = parsed;
+        console.log("[compile-spec] Gemini fallback succeeded");
+      } else {
+        console.error("[compile-spec] Gemini fallback validation failed:", validation.error);
+      }
+      try {
+        const u = extractGeminiUsage(result.usageMetadata);
+        void recordAiUsage({
+          userId,
+          subjectId: subjectId ?? null,
+          route: "ai/lab/compile-spec",
+          provider: "gemini",
+          model: "gemini-2.0-flash",
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          cachedInputTokens: u.cachedInputTokens,
+          latencyMs: Date.now() - __gStart,
+          metadata: { attempt: "gemini_fallback", channel: result.channel },
+        });
+      } catch {}
+    } catch (gErr: any) {
+      console.error("[compile-spec] Gemini fallback threw:", gErr?.message || gErr);
+    }
+  }
+
+  if (!spec) {
+    return res.status(500).json({ error: "تعذّر تجميع المواصفة بعد عدة محاولات", detail: lastError });
+  }
+
+  return res.json({ spec });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Universal dynamic-env builder — generates a fully tailored interactive
 // practice environment per request, for any subject.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5199,8 +5513,54 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-  const { subjectId, description } = req.body as { subjectId: string; description: string };
-  if (!subjectId || !description) return res.status(400).json({ error: "Missing subjectId or description" });
+  const body = req.body as { subjectId: string; description?: string; spec?: any };
+  const subjectId = body.subjectId;
+  if (!subjectId) return res.status(400).json({ error: "Missing subjectId" });
+
+  // Accept either structured spec (preferred) or free-form description (legacy).
+  // When a spec is provided, convert it to a rich structured description that the
+  // builder can use. This preserves full backward compatibility.
+  // Track whether the caller provided a structured spec (rather than a raw
+  // description) so we can bypass the thin-description gate and replace the
+  // student-facing fallback env with a clean API error on complete failure.
+  const callerProvidedSpec = !!(body.spec && typeof body.spec === "object");
+
+  let description: string;
+  if (callerProvidedSpec) {
+    // body.spec was validated by compile-spec before reaching this endpoint;
+    // cast to a known-shape record for safe property access.
+    const s = body.spec as Record<string, unknown>;
+    const initialDataRaw = s.initialData;
+    const initialDataDesc: string =
+      initialDataRaw && typeof initialDataRaw === "object"
+        ? String((initialDataRaw as Record<string, unknown>).description ?? "")
+        : typeof initialDataRaw === "string"
+        ? initialDataRaw
+        : "";
+    const screens = Array.isArray(s.screens) ? (s.screens as Record<string, unknown>[]) : [];
+    const successCriteria = Array.isArray(s.successCriteria) ? (s.successCriteria as string[]) : [];
+    const commonMisconceptions = Array.isArray(s.commonMisconceptions) ? (s.commonMisconceptions as string[]) : [];
+    description = [
+      `السياق: ${s.context || ""}`,
+      `الهدف: ${s.goal || ""}`,
+      `الموضوع: ${s.topic || ""}`,
+      `الصعوبة: ${s.difficulty || "متوسط"} — الوقت المتوقع: ${s.estimatedMinutes || 15} دقيقة`,
+      `نمط الواجهة: ${s.interfaceStyle || "mixed"} — نمط المكوّنات: ${s.componentPattern || "form"}`,
+      `القصة: ${s.narrativeContext || ""}`,
+      `البيانات الأولية: ${initialDataDesc}`,
+      `الشاشات (${screens.length}):`,
+      ...screens.map((sc: any, i: number) => `  ${i + 1}. "${sc.title}" — ${sc.purpose || ""} — تفاعلات: ${(sc.keyInteractions || []).join("، ")}`),
+      `معايير النجاح:`,
+      ...successCriteria.map((c: string) => `  – ${c}`),
+      `المفاهيم الخاطئة الشائعة المتوقّع اختبارها:`,
+      ...commonMisconceptions.map((m: string) => `  – ${m}`),
+    ].join("\n");
+    console.log("[build-env] using compiled spec — generated description length:", description.length);
+  } else if (typeof body.description === "string" && body.description.trim()) {
+    description = body.description;
+  } else {
+    return res.status(400).json({ error: "Missing description or spec" });
+  }
   // Hard server-side bound on description length. The client caps at 4000
   // and the teacher prompt produces 200-1500 char descriptions, so a 4000
   // limit comfortably covers legitimate traffic. Direct API callers that
@@ -5300,24 +5660,31 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   // so the teacher LLM can elaborate on the next round and resubmit. This
   // saves ~24K tokens per low-quality call and trains the teacher prompt
   // (over time) to write rich descriptions on the first try.
-  const quality = assessDescriptionQuality(description);
-  if (!quality.ok) {
-    console.log("[build-env] rejecting thin description:", quality.reasons.join(" | "));
-    const reasonsList = quality.reasons.map((r) => `• ${r}`).join("\n");
-    const note = `الوصف الذي وصلني لا يكفي لبناء بيئة احترافية. ينقصه:\n\n${reasonsList}\n\nاطلب من المعلم الذكي بالأسفل أن يوسّع الوصف بالأقسام الخمسة (السياق، البيانات الأولية، الشاشات، معايير النجاح، الأخطاء الشائعة المتوقّع اختبارها)، ثم سأبني لك بيئة كاملة.`;
-    const env = buildFallbackEnv(note);
-    // No recordAiUsage call here: no AI provider was invoked, so there's
-    // nothing to bill or attribute. The rejection is purely local.
-    return res.json({
-      env,
-      validation: {
-        autoHealed: 0,
-        unfixableCount: 0,
-        healCounts: {},
-        thinDescriptionRejected: true,
-        rejectionReasons: quality.reasons,
-      },
-    });
+  // Skip thin-description gate when the caller supplied a structured spec —
+  // the spec was already validated by compile-spec and converted to a rich
+  // description above. Applying the heuristic gate on top would be redundant
+  // and would incorrectly reject perfectly valid spec-derived descriptions
+  // (e.g. those lacking Arabic-Indic digits that the spec produces in English).
+  if (!callerProvidedSpec) {
+    const quality = assessDescriptionQuality(description);
+    if (!quality.ok) {
+      console.log("[build-env] rejecting thin description:", quality.reasons.join(" | "));
+      const reasonsList = quality.reasons.map((r) => `• ${r}`).join("\n");
+      const note = `الوصف الذي وصلني لا يكفي لبناء بيئة احترافية. ينقصه:\n\n${reasonsList}\n\nاطلب من المعلم الذكي بالأسفل أن يوسّع الوصف بالأقسام الخمسة (السياق، البيانات الأولية، الشاشات، معايير النجاح، الأخطاء الشائعة المتوقّع اختبارها)، ثم سأبني لك بيئة كاملة.`;
+      const env = buildFallbackEnv(note);
+      // No recordAiUsage call here: no AI provider was invoked, so there's
+      // nothing to bill or attribute. The rejection is purely local.
+      return res.json({
+        env,
+        validation: {
+          autoHealed: 0,
+          unfixableCount: 0,
+          healCounts: {},
+          thinDescriptionRejected: true,
+          rejectionReasons: quality.reasons,
+        },
+      });
+    }
   }
 
   const __aiStart = Date.now();
@@ -5463,9 +5830,55 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
         console.warn("[build-env] no Gemini provider configured — skipping third-pass fallback");
       }
     }
+    if (!env && callerProvidedSpec && hasGeminiProvider()) {
+      // For spec builds: try one final "simplification" pass — condense the spec
+      // into a shorter 3-sentence description and re-attempt generation with Gemini.
+      // This is the server-side silent recompile+rebuild path that avoids surfacing
+      // a 503 to the student on a transient generation failure.
+      const __e4Start = Date.now();
+      try {
+        const simplifiedDesc = [
+          `الهدف: ${(body.spec as Record<string, unknown>).goal || ""}`.slice(0, 200),
+          `الموضوع: ${(body.spec as Record<string, unknown>).topic || ""} — الصعوبة: ${(body.spec as Record<string, unknown>).difficulty || "متوسط"}`,
+          `ابنِ بيئة تفاعلية بسيطة وواضحة. أرجع JSON صالحاً فقط.`,
+        ].join("\n");
+        console.log("[build-env] spec build: attempting simplified emergency pass 4");
+        const result4 = await generateGeminiJson({
+          systemPrompt: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً — شاشة واحدة أو اثنتان، بدون markdown.`,
+          userPrompt: `التخصص: ${kindLabel} (${kind})\n${simplifiedDesc}`,
+          model: "gemini-2.0-flash",
+          temperature: 0.3,
+          maxOutputTokens: 10000,
+          timeoutMs: 60_000,
+          logTag: "build-env-emergency",
+        });
+        try {
+          const __u4 = extractGeminiUsage(result4.usageMetadata);
+          void recordAiUsage({
+            userId,
+            subjectId: subjectId ?? null,
+            route: "ai/lab/build-env",
+            provider: "gemini",
+            model: "gemini-2.0-flash",
+            inputTokens: __u4.inputTokens,
+            outputTokens: __u4.outputTokens,
+            cachedInputTokens: __u4.cachedInputTokens,
+            latencyMs: Date.now() - __e4Start,
+            metadata: { kind, attempt: "emergency_pass4" },
+          });
+        } catch {}
+        env = robustJsonParse(result4.text, "[build-env-emergency]");
+        if (env) console.log("[build-env] emergency pass 4 succeeded.");
+      } catch (e4Err: unknown) {
+        console.error("[build-env] emergency pass 4 threw:", (e4Err instanceof Error ? e4Err.message : String(e4Err)));
+      }
+    }
     if (!env) {
+      if (callerProvidedSpec) {
+        console.error("[build-env] all passes (including emergency) failed for spec build — returning 503.");
+        return res.status(503).json({ error: "تعذّر توليد البيئة بعد عدة محاولات — يرجى المحاولة مرة أخرى" });
+      }
       console.error("[build-env] all passes failed — returning actionable fallback env.");
-      // Don't throw — return a friendly fallback env so the user never sees a red error.
       return res.json({ kind, env: buildFallbackEnv("لم نتمكن من توليد البيئة الكاملة هذه المرّة (حتى بعد عدّة محاولات). يرجى وصف ما تريد بدقة في النموذج أدناه — سيستلمه المعلم ويبني لك بيئة جديدة.") });
     }
 
@@ -5701,8 +6114,11 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       errorMessage: String(e?.message || e).slice(0, 500),
       metadata: { kind },
     });
-    // Never surface a raw error to the user — return a minimal fallback env
-    // so the lab still opens and the user can iterate via the chat assistant.
+    // For spec builds return a clear error; for legacy description builds return
+    // the fallback env so the UI still has something to render.
+    if (callerProvidedSpec) {
+      return res.status(503).json({ error: "حدث اضطراب مؤقّت أثناء توليد البيئة — يرجى المحاولة مرة أخرى" });
+    }
     return res.json({ kind, env: buildFallbackEnv("حدث اضطراب مؤقّت أثناء توليد البيئة. يمكنك المحاولة مجدّداً بوصف أقصر، أو متابعة الشرح مع المعلم الذكي.") });
   }
 });
