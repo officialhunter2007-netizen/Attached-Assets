@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, userProgressTable, learningPathsTable } from "@workspace/db";
+import { db, userProgressTable, learningPathsTable, usersTable } from "@workspace/db";
 import { UpsertUserProgressBody, SaveLearningPathBody } from "@workspace/api-zod";
 import { getAccessForUser } from "../lib/access";
 
@@ -40,7 +40,10 @@ router.post("/progress", async (req, res): Promise<void> => {
 
   const subjectId = parsed.data.subjectOrSpecialization || null;
   const access = await getAccessForUser({ userId, subjectId });
-  if (!access.hasActiveSub && !access.isFirstLesson) {
+  const [progressUser] = await db.select({ referralSessionsLeft: usersTable.referralSessionsLeft })
+    .from(usersTable).where(eq(usersTable.id, userId));
+  const hasReferral = (progressUser?.referralSessionsLeft ?? 0) > 0;
+  if (!access.hasActiveSub && !access.isFirstLesson && !hasReferral) {
     res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }
@@ -102,9 +105,12 @@ router.post("/learning-paths", async (req, res): Promise<void> => {
   }
 
   // Strictly subject-scoped: access to subject A must not authorise a
-  // learning path for subject B.
+  // learning path for subject B. Referral grants global access.
   const access = await getAccessForUser({ userId, subjectId: parsed.data.subjectId });
-  if (!access.hasActiveSub && !access.isFirstLesson) {
+  const [pathUser] = await db.select({ referralSessionsLeft: usersTable.referralSessionsLeft })
+    .from(usersTable).where(eq(usersTable.id, userId));
+  const hasReferral = (pathUser?.referralSessionsLeft ?? 0) > 0;
+  if (!access.hasActiveSub && !access.isFirstLesson && !hasReferral) {
     res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }

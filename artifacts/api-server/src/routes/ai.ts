@@ -278,16 +278,16 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     }
   }
 
-  // Free first session is active if not completed and under 50-gem cap.
-  // freeMessagesUsed now tracks gems (not messages) spent on the free session.
   const freeGemsUsed = firstLessonRecord.freeMessagesUsed;
-  const isFirstLesson = !firstLessonRecord.completed && freeGemsUsed < FREE_LESSON_GEM_LIMIT;
   const freeMessagesUsed = freeGemsUsed;
   const freeMessagesLeft = Math.max(0, FREE_LESSON_GEM_LIMIT - freeGemsUsed);
 
   // Run the access helper first so its rollover writes are reflected in
-  // the subjectGemsSub / user reads below.
+  // the subjectGemsSub / user reads below. The helper enforces the global
+  // `users.firstLessonComplete` flag so the free lesson is consumed once,
+  // not once per subject.
   const access = await getAccessForUser({ userId, subjectId });
+  const isFirstLesson = access.isFirstLesson;
 
   let [subjectGemsSub] = await db
     .select()
