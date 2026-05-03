@@ -213,6 +213,8 @@ export default function Admin() {
 
   // Support messages
   const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
+  const [supportInitialLoading, setSupportInitialLoading] = useState(true);
+  const [supportError, setSupportError] = useState<string | null>(null);
   const [supportUnread, setSupportUnread] = useState(0);
   const [unresolvedAlertsCount, setUnresolvedAlertsCount] = useState(0);
   const [selectedThread, setSelectedThread] = useState<SupportThread | null>(null);
@@ -261,7 +263,7 @@ export default function Admin() {
       s.alerted = false;
     };
     const fetchSupportData = () => {
-      Promise.all([
+      return Promise.all([
         fetch("/api/admin/support/threads", { credentials: "include" })
           .then(async r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -283,8 +285,12 @@ export default function Admin() {
             if (d) setUnresolvedAlertsCount(Number(d.unresolvedCount ?? 0));
           }),
       ])
-        .then(() => onStreamSuccess("support"))
-        .catch(err => onStreamFailure("support", err));
+        .then(() => { onStreamSuccess("support"); setSupportError(null); })
+        .catch(err => {
+          onStreamFailure("support", err);
+          setSupportError(extractServerError(err) ?? (err as { message?: string } | null)?.message ?? "تعذّر تحميل المحادثات");
+        })
+        .finally(() => setSupportInitialLoading(false));
     };
     const fetchLiveUsers = () => {
       fetch("/api/admin/live-users", { credentials: "include" })
@@ -313,9 +319,6 @@ export default function Admin() {
         body: JSON.stringify({ userId, subject, message: replyMessage.trim() }),
       });
       if (!replyRes.ok) {
-        // Pull the server's Arabic error message so the admin sees WHY the
-        // reply failed (auth lapsed, validation, etc.) instead of the prior
-        // silent failure that just left the textarea full of unsent text.
         let serverMsg: string | null = null;
         try {
           const errBody = await replyRes.json();
@@ -339,8 +342,6 @@ export default function Admin() {
           if (updated) setSelectedThread(updated);
         }
       }
-      // Best-effort unread refresh; surface failures to the console (never
-      // silently swallow) but don't block the success toast on it.
       fetch("/api/admin/support/unread-count", { credentials: "include" })
         .then(r => r.ok ? r.json() : null)
         .then(d => d && setSupportUnread(Number(d.count ?? 0)))
@@ -352,14 +353,11 @@ export default function Admin() {
     }
   };
 
-  const { data: statsRaw, refetch: refetchStats } = useGetAdminStats();
+  const { data: statsRaw, isLoading: statsLoading, isError: statsError, error: statsErrorObj, refetch: refetchStats } = useGetAdminStats();
   const { data: requestsRaw, isLoading: requestsLoading, isError: requestsError, error: requestsErrorObj, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
   const { data: cardsRaw, isLoading: cardsLoading, isError: cardsError, error: cardsErrorObj, refetch: refetchCards } = useGetActivationCards();
   const { data: allUsersRaw, isLoading: usersLoading, isError: usersError, error: usersErrorObj, refetch: refetchUsers } = useGetAdminUsers();
   const stats = statsRaw as AdminStatsRow | undefined;
-  // Defensive coercion: the admin tabs used to assume these were arrays
-  // and `.filter`/`.map` would crash the whole page if the server ever
-  // returned an object error envelope or null. Always normalize first.
   const requests: AdminRequestRow[] = Array.isArray(requestsRaw) ? (requestsRaw as AdminRequestRow[]) : [];
   const cards = Array.isArray(cardsRaw) ? cardsRaw : [];
   const allUsers: AdminUserRow[] = Array.isArray(allUsersRaw) ? (allUsersRaw as AdminUserRow[]) : [];
@@ -412,14 +410,7 @@ export default function Admin() {
     refetchStats();
   };
 
-  // Pulls the server's Arabic error message out of an ApiError / axios / fetch
-  // failure so the admin sees WHY the action failed (instead of a generic
-  // toast that hides the real cause and makes diagnosis impossible).
-  // Checks BOTH common shapes:
-  //   - orval/customFetch:  err.data.{error|message}
-  //   - axios:              err.response.data.{error|message}
-  // Falls back to err.message only as a last resort because ApiError prefixes
-  // it with "HTTP <status> <statusText>:" which buries the Arabic reason.
+  // Extract a server-supplied Arabic error from orval/axios/fetch errors.
   const extractServerError = (err: unknown): string | null => {
     const e = err as { data?: { error?: unknown; message?: unknown }; response?: { data?: { error?: unknown; message?: unknown } }; message?: unknown } | null | undefined;
     const candidates = [e?.data, e?.response?.data];
@@ -464,8 +455,6 @@ export default function Admin() {
     setIncompleteNote("");
   };
 
-  // One toast helper so every failed admin action surfaces the server's
-  // Arabic reason (via extractServerError) instead of a generic message.
   const toastServerError = (err: unknown, title: string) => {
     const msg = extractServerError(err) ?? (err as { message?: string } | null)?.message ?? null;
     toast({
@@ -537,10 +526,7 @@ export default function Admin() {
     toast({ title: "تم التحديث", className: "bg-black border-white/10 text-white" });
   };
 
-  // Inline banner for the per-tab TanStack queries. Renders nothing on
-  // success so existing empty-states still show; surfaces a spinner while
-  // loading and a red retry banner on failure (the tab used to silently
-  // render "لا يوجد..." which masked outages).
+  // Loading/error banner for the per-tab queries. Returns null on success.
   const renderQueryStatus = (opts: {
     isLoading: boolean;
     isError: boolean;
@@ -822,6 +808,7 @@ export default function Admin() {
           </Button>
         </div>
 
+        {renderQueryStatus({ isLoading: statsLoading && !stats, isError: statsError, error: statsErrorObj, onRetry: () => refetchStats(), label: "الإحصائيات" })}
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="glass p-6 rounded-2xl border-white/5 flex items-center gap-4">
@@ -859,10 +846,6 @@ export default function Admin() {
             </div>
             <div className="flex-1">
               <p className="font-bold text-red-300 text-sm">اشتراكات منتهية مؤخراً</p>
-              {/* `recentlyExpiredSubscriptions` is returned by the backend but
-                  not yet present in the auto-generated AdminStats type. Read
-                  through `as any` so the dashboard reflects the live value
-                  without waiting for a full client regen. */}
               <p className="text-xs text-red-200/60">{stats?.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
             </div>
           </div>
@@ -1551,10 +1534,6 @@ export default function Admin() {
               <Button
                 className="gradient-gold text-primary-foreground gap-2 h-9"
                 onClick={() => {
-                  // Reset EVERY field — including `newCardPlan` — so the
-                  // dialog never shows a leftover plan from a previous
-                  // session that the admin might miss before clicking
-                  // "إنشاء البطاقة".
                   setShowCreateCard(true);
                   setCreatedCard(null);
                   setNewCardSubjectId("");
@@ -1613,11 +1592,28 @@ export default function Admin() {
 
           {/* Support Messages Tab */}
           <TabsContent value="support">
+            {supportInitialLoading && supportThreads.length === 0 && (
+              <div className="glass rounded-2xl border-white/5 p-4 mb-3 flex items-center gap-3 text-muted-foreground text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                جاري تحميل المحادثات...
+              </div>
+            )}
+            {supportError && (
+              <div className="glass rounded-2xl border border-red-500/30 bg-red-500/5 p-4 mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-red-200 text-sm">
+                  <AlertTriangle className="w-4 h-4 text-red-400" />
+                  <span>فشل تحميل المحادثات: {supportError}</span>
+                </div>
+                <Button size="sm" variant="outline" className="border-red-400/40 text-red-200 hover:bg-red-500/10" onClick={() => { setSupportError(null); }}>
+                  تجاهل
+                </Button>
+              </div>
+            )}
             <div className="grid md:grid-cols-3 gap-6">
               <div className="md:col-span-1 space-y-2 max-h-[600px] overflow-y-auto">
                 <h3 className="font-bold text-sm text-muted-foreground mb-3">المحادثات ({supportThreads.length})</h3>
                 {supportThreads.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground text-sm">لا توجد رسائل بعد</div>
+                  <div className="text-center py-10 text-muted-foreground text-sm">{supportInitialLoading ? '...' : 'لا توجد رسائل بعد'}</div>
                 ) : (
                   supportThreads.map(thread => (
                     <button

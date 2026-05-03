@@ -1683,11 +1683,9 @@ router.post("/admin/grant-subject-subscription", async (_req, res): Promise<void
   });
 });
 
-// ── Admin: revoke subject subscription (simplified path) ─────────────────────
-// Mirrors the older `/admin/users/:userId/subject-subscriptions/:subId` route
-// but on a flatter URL the admin UI uses. We MUST fetch the row first and
-// write a ledger entry capturing the burned balance — without it the audit
-// trail loses every admin-initiated revoke that goes through this endpoint.
+// Admin revoke — delete + ledger insert in one transaction so a ledger
+// failure rolls back the delete and the audit trail can never diverge from
+// the actual subscription state.
 router.delete("/admin/revoke-subject-subscription/:subId", async (req, res): Promise<void> => {
   const adminId = getUserId(req);
   if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -1697,28 +1695,38 @@ router.delete("/admin/revoke-subject-subscription/:subId", async (req, res): Pro
   const subId = parseInt(req.params.subId, 10);
   if (isNaN(subId)) { res.status(400).json({ error: "Invalid subscription id" }); return; }
 
-  const [sub] = await db
-    .select()
-    .from(userSubjectSubscriptionsTable)
-    .where(eq(userSubjectSubscriptionsTable.id, subId));
-  if (!sub) { res.status(404).json({ error: "الاشتراك غير موجود" }); return; }
-
-  await db.delete(userSubjectSubscriptionsTable).where(eq(userSubjectSubscriptionsTable.id, subId));
-
-  await writeGemLedger({
-    userId: sub.userId,
-    subjectSubId: sub.id,
-    subjectId: sub.subjectId,
-    delta: -(sub.gemsBalance ?? 0),
-    balanceAfter: 0,
-    reason: "adjust",
-    source: "subscription_revoke",
-    adminUserId: adminId,
-    note: "Admin revoked subscription",
-    metadata: { plan: sub.plan, region: sub.region, expiresAt: sub.expiresAt },
-  });
-
-  res.json({ success: true });
+  try {
+    await db.transaction(async (tx) => {
+      const [sub] = await tx
+        .select()
+        .from(userSubjectSubscriptionsTable)
+        .where(eq(userSubjectSubscriptionsTable.id, subId));
+      if (!sub) {
+        const err = new Error("not_found") as Error & { httpStatus?: number };
+        err.httpStatus = 404;
+        throw err;
+      }
+      await tx.delete(userSubjectSubscriptionsTable).where(eq(userSubjectSubscriptionsTable.id, subId));
+      await tx.insert(gemLedgerTable).values({
+        userId: sub.userId,
+        subjectSubId: sub.id,
+        subjectId: sub.subjectId,
+        delta: -(sub.gemsBalance ?? 0),
+        balanceAfter: 0,
+        reason: "adjust",
+        source: "subscription_revoke",
+        adminUserId: adminId,
+        note: "Admin revoked subscription",
+        metadata: { plan: sub.plan, region: sub.region, expiresAt: sub.expiresAt },
+      } as typeof gemLedgerTable.$inferInsert);
+    });
+    res.json({ success: true });
+  } catch (e) {
+    const err = e as Error & { httpStatus?: number };
+    if (err.httpStatus === 404) { res.status(404).json({ error: "الاشتراك غير موجود" }); return; }
+    logger.error({ err: err.message, subId, adminId }, "admin_revoke: transaction failed");
+    res.status(500).json({ error: "تعذّر إلغاء الاشتراك" });
+  }
 });
 
 // ── Admin: get ALL subject subscriptions (with user info) ─────────────────────
