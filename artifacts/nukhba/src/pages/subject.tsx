@@ -2423,7 +2423,7 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
           const cap2 = clearBodyKeepCaption();
           const fail = document.createElement('div');
           fail.className = 'teach-image-fail';
-          fail.textContent = '⚠️ انتهت صلاحية رابط الصورة — أعد فتح الجلسة.';
+          fail.textContent = '⚠️ تعذّر تحميل الصورة — تحقق من الاتصال أو أعد المحاولة.';
           fig.appendChild(fail);
           if (cap2) fig.appendChild(cap2);
           fig.classList.remove('teach-image-ready', 'teach-image-loading');
