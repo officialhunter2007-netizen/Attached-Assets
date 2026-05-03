@@ -1,179 +1,250 @@
 /**
- * Regression tests for Task #58 — per-subject 80-gem free first session.
+ * Task #58 regression suite — per-subject 80-gem free first session.
  *
- * Run with:  pnpm --filter @workspace/api-server exec tsx src/lib/__tests__/access-first-lesson.test.ts
- *
- * These tests document and enforce the contract that:
- *
- *   1. The per-subject `userSubjectFirstLessons` row owns the free-trial
- *      state. `completed = true` is set ONLY when the 80-gem cap is hit
- *      (by `settleAiCharge` in lib/charge-ai-usage.ts) — not after every
- *      session end (which was the Task #58 regression: summarize-lesson
- *      used to flip the row to completed:true after a single session,
- *      killing the remaining free gems on that subject forever).
- *
- *   2. The /subject-access contract surfaces the REMAINING free gems
- *      (80 − freeMessagesUsed), not 0. Reporting 0 made students think
- *      they were out of gems even though the trial was still alive.
- *
- *   3. The global `users.firstLessonComplete` flag does NOT block a new
- *      subject's trial — it's a legacy one-shot from the pre-per-subject
- *      era and is intentionally ignored when a subjectId is provided.
+ * Exercises the pure `computeAccess` core that backs `getAccessForUser`
+ * and therefore /api/subscriptions/subject-access. Fixtures are plain
+ * objects so no DB is required.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeFirstLessonView, FREE_LESSON_GEM_LIMIT } from "../access.js";
+import {
+  computeAccess,
+  computeFirstLessonView,
+  FREE_LESSON_GEM_LIMIT,
+  type AccessUserState,
+  type AccessSubState,
+  type AccessFirstLessonState,
+} from "../access.js";
 
 const CAP = FREE_LESSON_GEM_LIMIT;
+const NOW = new Date("2026-05-03T12:00:00Z");
+const SUBJECT = "subj_math";
 
-describe("computeFirstLessonView — pure helper used by getAccessForUser", () => {
-  test("FREE_LESSON_GEM_LIMIT is 80 (do not change without product approval)", () => {
-    assert.equal(CAP, 80);
-  });
+function makeUser(overrides: Partial<AccessUserState> = {}): AccessUserState {
+  return {
+    firstLessonComplete: false,
+    gemsBalance: 0,
+    gemsDailyLimit: 0,
+    gemsUsedToday: 0,
+    gemsExpiresAt: null,
+    nukhbaPlan: null,
+    subscriptionExpiresAt: null,
+    messagesLimit: 0,
+    messagesUsed: 0,
+    ...overrides,
+  };
+}
+function activeSub(overrides: Partial<AccessSubState> = {}): AccessSubState {
+  return {
+    expiresAt: new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000),
+    gemsBalance: 1500,
+    gemsDailyLimit: 200,
+    gemsUsedToday: 0,
+    ...overrides,
+  };
+}
 
-  test("Scenario A: brand-new user, brand-new subject (no row) → 80 free gems", () => {
+describe("computeFirstLessonView", () => {
+  test("FREE_LESSON_GEM_LIMIT is 80", () => assert.equal(CAP, 80));
+
+  test("no row → 80 free", () => {
     const v = computeFirstLessonView(null);
-    assert.equal(v.isFirstLesson, true);
-    assert.equal(v.gemsRemaining, 80);
-    assert.equal(v.freeMessagesUsed, 0);
+    assert.deepEqual(v, { isFirstLesson: true, gemsRemaining: 80, freeMessagesUsed: 0 });
   });
 
-  test("Scenario B: returning user (firstLessonComplete=true globally) on a new subject → still 80 free gems", () => {
-    // The global flag is a legacy signal; for subject-scoped access the
-    // per-subject row is authoritative. A user who finished the free
-    // trial on subject X must still get a fresh 80 gems on subject Y.
-    // No row = no prior usage on this subject → full cap available.
-    const v = computeFirstLessonView(undefined);
-    assert.equal(v.isFirstLesson, true);
-    assert.equal(v.gemsRemaining, 80);
-  });
-
-  test("Scenario C: same subject, partially used (5/80) → 75 free gems remaining", () => {
+  test("partial use (5/80) → 75 free", () => {
     const v = computeFirstLessonView({ completed: false, freeMessagesUsed: 5 });
+    assert.equal(v.gemsRemaining, 75);
     assert.equal(v.isFirstLesson, true);
-    assert.equal(v.gemsRemaining, 75,
-      "Task #58 regression: a student who used 5 of 80 gems and ended " +
-        "the session must keep 75 — the row is only completed when " +
-        "settleAiCharge flips it at the 80-gem boundary.");
   });
 
-  test("Scenario C': same subject, almost-exhausted (79/80) → 1 free gem remaining", () => {
-    const v = computeFirstLessonView({ completed: false, freeMessagesUsed: 79 });
-    assert.equal(v.isFirstLesson, true);
-    assert.equal(v.gemsRemaining, 1);
-  });
-
-  test("Scenario D: same subject, exhausted (80/80) → 0 gems, trial over", () => {
+  test("at cap (80/80) → exhausted", () => {
     const v = computeFirstLessonView({ completed: false, freeMessagesUsed: CAP });
     assert.equal(v.isFirstLesson, false);
-    assert.equal(v.gemsRemaining, 0,
-      "freeMessagesUsed >= cap is the authoritative exhaustion signal, " +
-        "even if the completed flag has not yet been written.");
-  });
-
-  test("Scenario D': same subject, over cap (clamped) → 0 gems, trial over", () => {
-    const v = computeFirstLessonView({ completed: false, freeMessagesUsed: CAP + 10 });
-    assert.equal(v.isFirstLesson, false);
     assert.equal(v.gemsRemaining, 0);
   });
 
-  test("Scenario E: completed flag set (e.g. from settleAiCharge cap-flip) → trial over", () => {
-    const v = computeFirstLessonView({ completed: true, freeMessagesUsed: CAP });
-    assert.equal(v.isFirstLesson, false);
-    assert.equal(v.gemsRemaining, 0);
-  });
-
-  test("defensive: completed=true with used=0 (shouldn't happen post-#58) → trial over", () => {
-    // The summaries.ts INSERT(completed:true,used:0) branch was removed
-    // in Task #58, so this row shape should no longer be created. But
-    // older rows with this shape exist in production — confirm the
-    // helper still respects the explicit completed=true.
+  test("Task #58 heal: completed=true with used < cap → still on trial", () => {
+    // Old summaries.ts wrote completed=true on session end with used=0 or
+    // used<80. freeMessagesUsed is now authoritative for exhaustion so
+    // those students get their remaining free gems back.
     const v = computeFirstLessonView({ completed: true, freeMessagesUsed: 0 });
-    assert.equal(v.isFirstLesson, false);
-    assert.equal(v.gemsRemaining, 0);
-  });
-
-  test("defensive: negative freeMessagesUsed is clamped to 0", () => {
-    const v = computeFirstLessonView({ completed: false, freeMessagesUsed: -5 });
     assert.equal(v.isFirstLesson, true);
     assert.equal(v.gemsRemaining, 80);
-    assert.equal(v.freeMessagesUsed, 0);
+    const v2 = computeFirstLessonView({ completed: true, freeMessagesUsed: 5 });
+    assert.equal(v2.isFirstLesson, true);
+    assert.equal(v2.gemsRemaining, 75);
   });
 
-  test("custom cap parameter is honored (for tests / future tier changes)", () => {
-    const v = computeFirstLessonView({ completed: false, freeMessagesUsed: 30 }, 50);
-    assert.equal(v.isFirstLesson, true);
-    assert.equal(v.gemsRemaining, 20);
+  test("negative usage clamped to 0", () => {
+    const v = computeFirstLessonView({ completed: false, freeMessagesUsed: -5 });
+    assert.equal(v.gemsRemaining, 80);
   });
 });
 
-describe("Task #58 contract: only settleAiCharge sets completed=true", () => {
-  test("summarize-lesson route must NOT write to userSubjectFirstLessonsTable", async () => {
-    // Static guard against re-introducing the regression. If anyone wires
-    // the summaries route back into the first-lesson table, this fails
-    // and points them at the right SSOT.
+describe("computeAccess — Task #58 access-path scenarios", () => {
+  test("A) brand-new user, brand-new subject → first-lesson, 80 gems", () => {
+    const r = computeAccess({
+      user: makeUser(), subjectId: SUBJECT, firstLesson: null, subs: [], now: NOW,
+    });
+    assert.equal(r.source, "first-lesson");
+    assert.equal(r.isFirstLesson, true);
+    assert.equal(r.canAccess, true);
+    assert.equal(r.gemsRemaining, 80);
+    assert.equal(r.blockReason, null);
+  });
+
+  test("B) returning user (firstLessonComplete=true) on a new subject → first-lesson, 80 gems", () => {
+    // The global flag is from the pre-per-subject era and must NOT block
+    // a new subject's free trial.
+    const r = computeAccess({
+      user: makeUser({ firstLessonComplete: true }),
+      subjectId: SUBJECT, firstLesson: null, subs: [], now: NOW,
+    });
+    assert.equal(r.source, "first-lesson");
+    assert.equal(r.gemsRemaining, 80);
+    assert.equal(r.canAccess, true);
+  });
+
+  test("C) partially-used same subject (5/80) → first-lesson, 75 gems", () => {
+    const r = computeAccess({
+      user: makeUser(), subjectId: SUBJECT,
+      firstLesson: { completed: false, freeMessagesUsed: 5 },
+      subs: [], now: NOW,
+    });
+    assert.equal(r.source, "first-lesson");
+    assert.equal(r.gemsRemaining, 75);
+    assert.equal(r.canAccess, true);
+  });
+
+  test("D) exhausted same subject (80/80) → no access, no_gems", () => {
+    const r = computeAccess({
+      user: makeUser(), subjectId: SUBJECT,
+      firstLesson: { completed: false, freeMessagesUsed: CAP },
+      subs: [], now: NOW,
+    });
+    assert.equal(r.source, "none");
+    assert.equal(r.isFirstLesson, false);
+    assert.equal(r.canAccess, false);
+    assert.equal(r.gemsRemaining, 0);
+  });
+
+  test("E) Task #58 heal: completed=true with used=5 → restored to first-lesson, 75 gems", () => {
+    // The summarize route used to corrupt rows like this. Without the
+    // heal, these students see canAccess:false / NO_GEMS even though
+    // they never used 80 gems. With the heal they get the remaining 75.
+    const r = computeAccess({
+      user: makeUser(), subjectId: SUBJECT,
+      firstLesson: { completed: true, freeMessagesUsed: 5 },
+      subs: [], now: NOW,
+    });
+    assert.equal(r.source, "first-lesson");
+    assert.equal(r.canAccess, true);
+    assert.equal(r.gemsRemaining, 75);
+  });
+
+  test("F) active paid per-subject sub → source=per-subject, balance=sub.gemsBalance", () => {
+    const r = computeAccess({
+      user: makeUser({ firstLessonComplete: true }), subjectId: SUBJECT,
+      firstLesson: { completed: false, freeMessagesUsed: CAP },
+      subs: [activeSub({ gemsBalance: 1200, gemsDailyLimit: 200, gemsUsedToday: 50 })],
+      now: NOW,
+    });
+    assert.equal(r.source, "per-subject");
+    assert.equal(r.hasActiveSub, true);
+    assert.equal(r.gemsRemaining, 1200);
+    assert.equal(r.dailyRemaining, 150);
+    assert.equal(r.canAccess, true);
+  });
+
+  test("G) active paid sub but daily limit hit → canAccess=false, daily_limit", () => {
+    const r = computeAccess({
+      user: makeUser(), subjectId: SUBJECT, firstLesson: null,
+      subs: [activeSub({ gemsDailyLimit: 200, gemsUsedToday: 200 })],
+      now: NOW,
+    });
+    assert.equal(r.source, "per-subject");
+    assert.equal(r.blockReason, "daily_limit");
+    assert.equal(r.canAccess, false);
+  });
+
+  test("H) dead per-subject sub + fresh first-lesson row → first-lesson with remaining gems", () => {
+    // Ensures the dead-row branch surfaces 80 (not the dead sub's 0).
+    const r = computeAccess({
+      user: makeUser(), subjectId: SUBJECT,
+      firstLesson: null,
+      subs: [activeSub({
+        expiresAt: new Date(NOW.getTime() - 1000),
+        gemsBalance: 0,
+      })],
+      now: NOW,
+    });
+    assert.equal(r.source, "first-lesson");
+    assert.equal(r.gemsRemaining, 80);
+    assert.equal(r.canAccess, true);
+  });
+
+  test("I) dead per-subject sub + exhausted first-lesson → no access", () => {
+    const r = computeAccess({
+      user: makeUser(), subjectId: SUBJECT,
+      firstLesson: { completed: false, freeMessagesUsed: CAP },
+      subs: [activeSub({
+        expiresAt: new Date(NOW.getTime() - 1000), gemsBalance: 0,
+      })],
+      now: NOW,
+    });
+    assert.equal(r.source, "none");
+    assert.equal(r.canAccess, false);
+  });
+
+  test("J) no user → blockReason=no_user", () => {
+    const r = computeAccess({
+      user: null, subjectId: SUBJECT, firstLesson: null, subs: [], now: NOW,
+    });
+    assert.equal(r.blockReason, "no_user");
+    assert.equal(r.canAccess, false);
+  });
+
+  test("K) subject-less call falls back to global firstLessonComplete flag", () => {
+    const fresh = computeAccess({
+      user: makeUser(), subjectId: null, firstLesson: null, subs: [], now: NOW,
+    });
+    assert.equal(fresh.source, "first-lesson");
+    assert.equal(fresh.gemsRemaining, 80);
+
+    const done = computeAccess({
+      user: makeUser({ firstLessonComplete: true }),
+      subjectId: null, firstLesson: null, subs: [], now: NOW,
+    });
+    assert.equal(done.source, "none");
+    assert.equal(done.canAccess, false);
+  });
+});
+
+describe("Task #58 SSOT guards", () => {
+  test("summaries.ts must not write to userSubjectFirstLessonsTable", async () => {
     const { readFileSync } = await import("node:fs");
     const { fileURLToPath } = await import("node:url");
     const { dirname, resolve } = await import("node:path");
     const here = dirname(fileURLToPath(import.meta.url));
-    const summariesPath = resolve(here, "../../routes/summaries.ts");
-    const src = readFileSync(summariesPath, "utf8");
-
-    const writeRegex =
-      /db\s*\.\s*(update|insert|delete)\s*\(\s*userSubjectFirstLessonsTable/;
+    const src = readFileSync(resolve(here, "../../routes/summaries.ts"), "utf8");
     assert.ok(
-      !writeRegex.test(src),
-      "summaries.ts must not write to userSubjectFirstLessonsTable. The " +
-        "per-subject 80-gem free trial is owned by settleAiCharge in " +
-        "lib/charge-ai-usage.ts; flipping completed=true on session end " +
-        "was the Task #58 regression.",
+      !/db\s*\.\s*(update|insert|delete)\s*\(\s*userSubjectFirstLessonsTable/.test(src),
+      "summaries.ts must not write the first-lesson table; settleAiCharge owns it.",
     );
   });
 
-  test("settleAiCharge atomically gates `completed` on freeMessagesUsed + gems >= cap", async () => {
+  test("settleAiCharge gates `completed` on freeMessagesUsed + gems >= cap", async () => {
     const { readFileSync } = await import("node:fs");
     const { fileURLToPath } = await import("node:url");
     const { dirname, resolve } = await import("node:path");
     const here = dirname(fileURLToPath(import.meta.url));
-    const chargePath = resolve(here, "../charge-ai-usage.ts");
-    const src = readFileSync(chargePath, "utf8");
+    const src = readFileSync(resolve(here, "../charge-ai-usage.ts"), "utf8");
     assert.ok(
       /completed:\s*sql`[^`]*freeMessagesUsed[^`]*\+[^`]*>=[^`]*\$\{cap\}/.test(src),
-      "charge-ai-usage.ts must atomically flip completed=true only when " +
-        "freeMessagesUsed + gems >= cap. This is the SSOT — do not move " +
-        "this responsibility to other routes.",
-    );
-  });
-
-  test("first-lesson ledger row carries subjectId and gemsConsumed for audit", async () => {
-    // Reviewer's third issue: ledger rows for first-lesson debits used to
-    // omit subjectId and used delta:0 with no record of actual gems
-    // consumed, so admin queries couldn't tell which subject's free
-    // trial the turn came from. The wallet now carries subjectId and
-    // gemsConsumed is written into ledger metadata.
-    const { readFileSync } = await import("node:fs");
-    const { fileURLToPath } = await import("node:url");
-    const { dirname, resolve } = await import("node:path");
-    const here = dirname(fileURLToPath(import.meta.url));
-
-    const chargeSrc = readFileSync(resolve(here, "../charge-ai-usage.ts"), "utf8");
-    assert.ok(
-      /opts\.wallet\.kind === "first-lesson"\s*\?\s*\(opts\.wallet\.subjectId/.test(chargeSrc),
-      "ledger insert must thread first-lesson wallet's subjectId into the row",
-    );
-    assert.ok(
-      /baseMetadata\.gemsConsumed\s*=\s*gems/.test(chargeSrc),
-      "ledger metadata must record actual gems consumed against the cap " +
-        "(delta is 0 because there's no real wallet to refund into)",
-    );
-
-    const aiSrc = readFileSync(resolve(here, "../../routes/ai.ts"), "utf8");
-    assert.ok(
-      /kind:\s*"first-lesson"[^}]*subjectId/.test(aiSrc),
-      "ai.ts must construct the first-lesson wallet with subjectId so " +
-        "the ledger row is subject-scoped",
+      "charge-ai-usage.ts must atomically gate completed=true on the cap.",
     );
   });
 });

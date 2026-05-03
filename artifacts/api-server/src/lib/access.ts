@@ -14,28 +14,19 @@ const RECENT_EXPIRY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 export const FREE_LESSON_GEM_LIMIT = 80;
 
 /**
- * Pure helper — derives the per-subject first-lesson view from the row
- * (or its absence). Exported so unit tests and other call sites can rely
- * on the same predicate the access layer uses.
- *
- *   • No row              → 80/80 free, on trial.
- *   • Partially used      → (cap - used)/cap free, on trial.
- *   • Used >= cap OR completed → 0/cap free, trial exhausted.
- *
- * This is the single source of truth for "did this user already burn the
- * free trial on this subject?". The `completed` flag is owned by
- * `settleAiCharge` (lib/charge-ai-usage.ts) and flips atomically when
- * `freeMessagesUsed + gems >= cap`. See Task #58 for the regression that
- * happened when other routes started flipping it on session end.
+ * Per-subject first-lesson view. `freeMessagesUsed >= cap` is authoritative
+ * for exhaustion. The denormalized `completed` flag is intentionally NOT
+ * gated on here: Task #58 corrupted some rows by writing completed=true
+ * with used < cap, and those students must still get their remaining
+ * free gems. settleAiCharge owns the atomic write of both fields together.
  */
 export function computeFirstLessonView(
   row: { completed: boolean; freeMessagesUsed: number } | null | undefined,
   cap: number = FREE_LESSON_GEM_LIMIT,
 ): { isFirstLesson: boolean; gemsRemaining: number; freeMessagesUsed: number } {
   const used = Math.max(0, row?.freeMessagesUsed ?? 0);
-  const completed = !!row?.completed;
-  const isFirstLesson = !row || (!completed && used < cap);
-  const gemsRemaining = isFirstLesson ? Math.max(0, cap - used) : 0;
+  const isFirstLesson = used < cap;
+  const gemsRemaining = isFirstLesson ? cap - used : 0;
   return { isFirstLesson, gemsRemaining, freeMessagesUsed: used };
 }
 
@@ -63,81 +54,63 @@ export type AccessResult = {
   legacyKind: LegacyKind;
 };
 
-export async function getAccessForUser(opts: {
-  userId: number;
-  subjectId?: string | null;
-}): Promise<AccessResult> {
-  const { userId, subjectId } = opts;
+// Snapshot of all DB state needed to decide access. Loaded by
+// `getAccessForUser`; consumed by the pure `computeAccess` core, which is
+// what the unit tests exercise.
+export type AccessUserState = {
+  firstLessonComplete: boolean | null;
+  gemsBalance: number | null;
+  gemsDailyLimit: number | null;
+  gemsUsedToday: number | null;
+  gemsExpiresAt: Date | string | null;
+  nukhbaPlan: string | null;
+  subscriptionExpiresAt: Date | string | null;
+  messagesLimit: number | null;
+  messagesUsed: number | null;
+};
+export type AccessSubState = {
+  expiresAt: Date | string;
+  gemsBalance: number | null;
+  gemsDailyLimit: number | null;
+  gemsUsedToday: number | null;
+};
+export type AccessFirstLessonState = {
+  completed: boolean;
+  freeMessagesUsed: number;
+} | null;
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.id, userId));
+export function computeAccess(input: {
+  user: AccessUserState | null;
+  subjectId?: string | null;
+  firstLesson: AccessFirstLessonState;
+  subs: AccessSubState[];
+  now: Date;
+}): AccessResult {
+  const { user, subjectId, firstLesson, subs, now } = input;
 
   if (!user) {
     return {
-      hasActiveSub: false,
-      gemsRemaining: 0,
-      dailyRemaining: 0,
-      expiresAt: null,
-      expiredRecently: false,
-      isFirstLesson: false,
-      blockReason: "no_user",
-      canAccess: false,
-      source: "none",
-      legacyKind: null,
+      hasActiveSub: false, gemsRemaining: 0, dailyRemaining: 0,
+      expiresAt: null, expiredRecently: false, isFirstLesson: false,
+      blockReason: "no_user", canAccess: false, source: "none", legacyKind: null,
     };
   }
 
-  const now = new Date();
-
-  // Per-subject first-lesson eligibility computed up-front so the global
-  // legacy fallthrough below can honor it too (a brand-new subject with no
-  // per-subject sub row should still resolve as `source: "first-lesson"`
-  // instead of falling back to `isFirstLessonGlobal`).
+  // Per-subject first-lesson eligibility computed up-front so the legacy
+  // fallthrough below can honor it (a brand-new subject with no per-subject
+  // sub row should still resolve as `source: "first-lesson"`).
   let perSubjectIsFirstLesson = false;
   let perSubjectFreeRemaining = FREE_LESSON_GEM_LIMIT;
   if (subjectId) {
-    const [firstLesson] = await db
-      .select()
-      .from(userSubjectFirstLessonsTable)
-      .where(
-        and(
-          eq(userSubjectFirstLessonsTable.userId, userId),
-          eq(userSubjectFirstLessonsTable.subjectId, subjectId),
-        ),
-      );
+    const view = computeFirstLessonView(firstLesson);
+    perSubjectIsFirstLesson = view.isFirstLesson;
+    perSubjectFreeRemaining = view.gemsRemaining;
 
-    // Per-subject first-lesson grace: each new تخصص/مهارة gets a fresh
-    // 80-gem free trial. We deliberately do NOT gate on the global
-    // `users.firstLessonComplete` flag here — that flag is a legacy
-    // one-shot from the pre-per-subject era; the authoritative source
-    // of "did this user already burn the free trial on this subject?"
-    // is the per-subject row itself.
-    const firstLessonView = computeFirstLessonView(firstLesson ?? null);
-    const isFirstLesson = firstLessonView.isFirstLesson;
-    perSubjectIsFirstLesson = isFirstLesson;
-    perSubjectFreeRemaining = firstLessonView.gemsRemaining;
-
-    // Prefer an active row that still has gems; fall back to the most
-    // recent row so we can report expired/exhausted state correctly.
-    const allSubs = await db
-      .select()
-      .from(userSubjectSubscriptionsTable)
-      .where(
-        and(
-          eq(userSubjectSubscriptionsTable.userId, userId),
-          eq(userSubjectSubscriptionsTable.subjectId, subjectId),
-        ),
-      )
-      .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
     const sub =
-      allSubs.find(s => new Date(s.expiresAt) > now && (s.gemsBalance ?? 0) > 0)
-      ?? allSubs[0];
+      subs.find(s => new Date(s.expiresAt) > now && (s.gemsBalance ?? 0) > 0)
+      ?? subs[0];
 
     if (sub) {
-      await applyDailyGemsRolloverForSubjectSub(sub);
-
       const expiresAt = new Date(sub.expiresAt);
       const balance = sub.gemsBalance ?? 0;
       const dailyLimit = sub.gemsDailyLimit ?? 0;
@@ -153,7 +126,7 @@ export async function getAccessForUser(opts: {
           dailyRemaining,
           expiresAt,
           expiredRecently: false,
-          isFirstLesson,
+          isFirstLesson: perSubjectIsFirstLesson,
           blockReason: exhaustedDaily ? "daily_limit" : null,
           canAccess: !exhaustedDaily,
           source: "per-subject",
@@ -162,7 +135,7 @@ export async function getAccessForUser(opts: {
       }
 
       // Strict: a dead per-subject row does not fall back to the legacy
-      // wallet for that subject.
+      // wallet for that subject — but the free trial still applies.
       const expiredRecently =
         expiresAt < now &&
         now.getTime() - expiresAt.getTime() < RECENT_EXPIRY_WINDOW_MS;
@@ -170,29 +143,19 @@ export async function getAccessForUser(opts: {
         balance <= 0 ? "no_gems" : "no_active_sub";
       return {
         hasActiveSub: false,
-        // When the per-subject sub is dead but the user is still on the
-        // free trial for this subject, surface the REMAINING free gems
-        // (not the dead sub balance). Without this, /subject-access
-        // reports `gemsBalance: 0` for a brand-new subject — Task #58.
-        gemsRemaining: isFirstLesson ? firstLessonView.gemsRemaining : balance,
-        dailyRemaining: isFirstLesson ? firstLessonView.gemsRemaining : dailyRemaining,
+        gemsRemaining: perSubjectIsFirstLesson ? perSubjectFreeRemaining : balance,
+        dailyRemaining: perSubjectIsFirstLesson ? perSubjectFreeRemaining : dailyRemaining,
         expiresAt,
         expiredRecently,
-        isFirstLesson,
-        blockReason: isFirstLesson ? null : blockReason,
-        canAccess: isFirstLesson,
-        source: isFirstLesson ? "first-lesson" : "none",
+        isFirstLesson: perSubjectIsFirstLesson,
+        blockReason: perSubjectIsFirstLesson ? null : blockReason,
+        canAccess: perSubjectIsFirstLesson,
+        source: perSubjectIsFirstLesson ? "first-lesson" : "none",
         legacyKind: null,
       };
     }
-
-    // No per-subject row → fall through to the legacy/global wallet
-    // below before considering first-lesson grace, so a paid legacy
-    // user who hasn't completed the free lesson still resolves as
-    // source: "legacy" rather than "first-lesson".
+    // No per-subject sub row → fall through to the legacy/global wallet.
   }
-
-  await applyDailyGemsRollover(user);
 
   const legacyExpires = user.gemsExpiresAt ? new Date(user.gemsExpiresAt) : null;
   const balance = user.gemsBalance ?? 0;
@@ -201,8 +164,7 @@ export async function getAccessForUser(opts: {
   const dailyRemaining = Math.max(0, dailyLimit - usedToday);
   const exhaustedDaily = dailyLimit > 0 && usedToday >= dailyLimit;
   // For subject-scoped calls, the per-subject row is authoritative; for
-  // subject-less calls (rare — dashboard-level access checks), fall back
-  // to the global one-shot flag.
+  // subject-less calls, fall back to the legacy global one-shot flag.
   const isFirstLessonGlobal = subjectId
     ? perSubjectIsFirstLesson
     : !user.firstLessonComplete;
@@ -229,10 +191,7 @@ export async function getAccessForUser(opts: {
   const messagesUsed = user.messagesUsed ?? 0;
   const messagesRemaining = Math.max(0, messagesLimit - messagesUsed);
   const planActive = !!(
-    user.nukhbaPlan &&
-    planExpires &&
-    planExpires > now &&
-    messagesRemaining > 0
+    user.nukhbaPlan && planExpires && planExpires > now && messagesRemaining > 0
   );
   if (planActive) {
     return {
@@ -258,11 +217,6 @@ export async function getAccessForUser(opts: {
         : false);
 
   if (isFirstLessonGlobal) {
-    // Surface the actual remaining free gems for the per-subject row
-    // (partially-used subject) or the full cap for a brand-new subject.
-    // Subject-less calls fall back to the cap as a safe default —
-    // /subject-access always passes subjectId so this fallback is only
-    // hit by dashboard-level access checks.
     const freeRemaining = subjectId ? perSubjectFreeRemaining : FREE_LESSON_GEM_LIMIT;
     return {
       hasActiveSub: false,
@@ -290,6 +244,76 @@ export async function getAccessForUser(opts: {
     source: "none",
     legacyKind: null,
   };
+}
+
+export async function getAccessForUser(opts: {
+  userId: number;
+  subjectId?: string | null;
+}): Promise<AccessResult> {
+  const { userId, subjectId } = opts;
+
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, userId));
+  if (!user) {
+    return computeAccess({ user: null, subjectId, firstLesson: null, subs: [], now: new Date() });
+  }
+
+  await applyDailyGemsRollover(user);
+
+  let firstLesson: AccessFirstLessonState = null;
+  let subs: AccessSubState[] = [];
+  if (subjectId) {
+    const [fl] = await db
+      .select()
+      .from(userSubjectFirstLessonsTable)
+      .where(
+        and(
+          eq(userSubjectFirstLessonsTable.userId, userId),
+          eq(userSubjectFirstLessonsTable.subjectId, subjectId),
+        ),
+      );
+    firstLesson = fl
+      ? { completed: !!fl.completed, freeMessagesUsed: fl.freeMessagesUsed ?? 0 }
+      : null;
+
+    const allSubs = await db
+      .select()
+      .from(userSubjectSubscriptionsTable)
+      .where(
+        and(
+          eq(userSubjectSubscriptionsTable.userId, userId),
+          eq(userSubjectSubscriptionsTable.subjectId, subjectId),
+        ),
+      )
+      .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
+    for (const s of allSubs) await applyDailyGemsRolloverForSubjectSub(s);
+    subs = allSubs.map(s => ({
+      expiresAt: s.expiresAt,
+      gemsBalance: s.gemsBalance,
+      gemsDailyLimit: s.gemsDailyLimit,
+      gemsUsedToday: s.gemsUsedToday,
+    }));
+  }
+
+  return computeAccess({
+    user: {
+      firstLessonComplete: user.firstLessonComplete,
+      gemsBalance: user.gemsBalance,
+      gemsDailyLimit: user.gemsDailyLimit,
+      gemsUsedToday: user.gemsUsedToday,
+      gemsExpiresAt: user.gemsExpiresAt,
+      nukhbaPlan: user.nukhbaPlan,
+      subscriptionExpiresAt: user.subscriptionExpiresAt,
+      messagesLimit: user.messagesLimit,
+      messagesUsed: user.messagesUsed,
+    },
+    subjectId,
+    firstLesson,
+    subs,
+    now: new Date(),
+  });
 }
 
 // "Does the user have any path to use the platform right now?" Used by
