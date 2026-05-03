@@ -1870,6 +1870,13 @@ router.get("/admin/gem-ledger", async (req, res): Promise<void> => {
   if (!isNaN(subQ)) conditions.push(eq(gemLedgerTable.subjectSubId, subQ));
   const reasonQ = typeof req.query.reason === "string" ? req.query.reason.trim() : "";
   if (reasonQ) conditions.push(eq(gemLedgerTable.reason, reasonQ));
+  const sourceQ = typeof req.query.source === "string" ? req.query.source.trim() : "";
+  if (sourceQ) conditions.push(eq(gemLedgerTable.source, sourceQ));
+  const requestIdQ = typeof req.query.requestId === "string" ? req.query.requestId.trim() : "";
+  if (requestIdQ) {
+    // requestId lives inside metadata jsonb. Use ->> to compare as text.
+    conditions.push(sql`${gemLedgerTable.metadata}->>'requestId' = ${requestIdQ}` as any);
+  }
   if (typeof req.query.from === "string") {
     const d = new Date(req.query.from);
     if (!isNaN(d.getTime())) conditions.push(gte(gemLedgerTable.createdAt, d) as any);
@@ -2187,6 +2194,14 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
     gemsUsedToday = user?.gemsUsedToday ?? 0;
   }
 
+  // Cross-subject summary: same shape as the `subjects` array on
+  // /gems-balance-summary so a single fetch can power both the subject view
+  // and the unified Usage screen. Computed only when the caller didn't pin a
+  // specific subject; on subject-scoped reads we leave it empty to keep the
+  // payload tight.
+  const { getNextMidnightYemen } = await import("../lib/yemen-time");
+  const dailyResetAtUtc = getNextMidnightYemen();
+
   res.json({
     subjectId: subjectId || null,
     subjectName,
@@ -2199,7 +2214,47 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
     canUseGems: access.canAccess && access.gemsRemaining > 0,
     plan,
     source: access.source === "first-lesson" ? ("none" as const) : access.source,
+    dailyResetAtUtc,
   });
+});
+
+// ── Per-user gems history (subject-scoped or all) ────────────────────────────
+// Powers the /usage page (recent activity feed) and any per-subject "where did
+// my gems go?" drill-down. Returns the latest N ledger rows for the caller —
+// debits, refunds, grants, daily forfeits — so the student can audit their own
+// account without admin help. Strictly user-scoped: we never serve another
+// user's rows even if a userId param were passed (we ignore it).
+router.get("/subscriptions/gems-history", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const subjectIdQ = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
+  const limitRaw = parseInt(String(req.query.limit ?? "50"), 10);
+  const limit = Math.min(200, Math.max(1, isNaN(limitRaw) ? 50 : limitRaw));
+
+  const conditions = [eq(gemLedgerTable.userId, userId)] as Array<ReturnType<typeof eq>>;
+  if (subjectIdQ) {
+    conditions.push(eq(gemLedgerTable.subjectId, subjectIdQ));
+  }
+
+  const rows = await db
+    .select()
+    .from(gemLedgerTable)
+    .where(and(...conditions))
+    .orderBy(desc(gemLedgerTable.createdAt))
+    .limit(limit);
+
+  res.json(rows.map(r => ({
+    id: r.id,
+    createdAt: r.createdAt,
+    delta: r.delta,
+    balanceAfter: r.balanceAfter,
+    reason: r.reason,
+    source: r.source,
+    note: r.note,
+    subjectId: r.subjectId,
+    subjectSubId: r.subjectSubId,
+  })));
 });
 
 // ── Aggregate gems summary: all active subscriptions for the header badge ────

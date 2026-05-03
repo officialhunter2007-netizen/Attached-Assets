@@ -3838,7 +3838,8 @@ function SubjectPathChat({
           </div>
           <h3 className="text-2xl font-bold mb-3">جواهرك نفدت 💎</h3>
           <p className="text-muted-foreground mb-2 max-w-sm text-sm leading-relaxed">
-            لقد استنفدت رصيد جواهرك لهذا الاشتراك.
+            استنفدت كامل رصيد جواهرك لهذا الاشتراك في هذه المادة. يمكنك متابعة
+            آخر العمليات في صفحة <a href="/usage" className="text-gold underline">استهلاك الجواهر</a>.
           </p>
           <p className="text-muted-foreground mb-6 max-w-sm text-sm leading-relaxed">
             {isSummarizing

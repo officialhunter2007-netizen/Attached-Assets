@@ -31,6 +31,9 @@ export type GemLedgerSource =
   | "admin_refund"
   | "admin_adjust"
   | "ai_teach"
+  | "ai_lesson"
+  | "ai_image"
+  | "platform_help"
   | "daily_rollover"
   | "subscription_extend"
   | "subscription_revoke";
@@ -46,6 +49,8 @@ export type WriteGemLedgerOpts = {
   adminUserId?: number | null;
   note?: string | null;
   metadata?: Record<string, unknown> | null;
+  /** Idempotency key for AI-call settlement; unique-indexed in DB. */
+  requestId?: string | null;
 };
 
 /**
@@ -66,7 +71,8 @@ export async function writeGemLedger(opts: WriteGemLedgerOpts): Promise<void> {
       adminUserId: opts.adminUserId ?? null,
       note: opts.note ?? null,
       metadata: opts.metadata ?? null,
-    });
+      ...(opts.requestId ? { requestId: opts.requestId } : {}),
+    } as any);
   } catch (err: any) {
     logger.error(
       {

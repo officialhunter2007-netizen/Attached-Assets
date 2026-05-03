@@ -231,6 +231,11 @@ export const gemLedgerTable = pgTable("gem_ledger", {
   adminUserId: integer("admin_user_id"),
   note: text("note"),
   metadata: jsonb("metadata"),
+  // Idempotency key for AI-call settlement. A unique partial index on
+  // (user_id, request_id) WHERE request_id IS NOT NULL is created in
+  // auto-migrate so two concurrent settles for the same AI call collapse
+  // into a single debit. Legacy rows have NULL and are exempt.
+  requestId: text("request_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("idx_gem_ledger_user_created").on(t.userId, t.createdAt),

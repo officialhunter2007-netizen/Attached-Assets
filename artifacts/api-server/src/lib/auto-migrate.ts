@@ -437,6 +437,15 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     ],
   },
   {
+    // gem_ledger: request_id column powers idempotent settle/refund. The
+    // accompanying unique partial index is created in ensureGemLedgerRequestIdIndex
+    // because REQUIRED_COLUMNS only handles ADD COLUMN, not CREATE INDEX.
+    table: "gem_ledger",
+    columns: [
+      { name: "request_id", ddl: "text" },
+    ],
+  },
+  {
     // Newer fields on subscription_requests (discount + per-subject fields)
     // that may be missing on legacy databases. Without them, request
     // creation works but approve later cannot read e.g. finalPrice/region.
@@ -550,6 +559,20 @@ export async function runStartupMigrations(): Promise<void> {
     const { added, errors } = await ensureRequiredColumns();
     // FTS index depends on `content_normalized` column existing — order matters.
     await ensureNormalizedFtsIndex();
+    // gem_ledger.request_id unique partial index — prerequisite for the
+    // INSERT-first idempotency pattern in lib/charge-ai-usage.ts. Partial so
+    // legacy ledger rows (where request_id IS NULL) don't collide.
+    try {
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_gem_ledger_user_request" ` +
+        `ON "gem_ledger" ("user_id", "request_id") WHERE "request_id" IS NOT NULL`,
+      ));
+    } catch (err: any) {
+      logger.error(
+        { err: err?.message },
+        "auto-migrate: failed to create uq_gem_ledger_user_request index",
+      );
+    }
     const ms = Date.now() - start;
     if (added.length === 0 && errors.length === 0) {
       logger.info({ ms }, "auto-migrate: schema is up to date");

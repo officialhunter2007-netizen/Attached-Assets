@@ -41,6 +41,9 @@ const SOURCE_LABEL: Record<string, string> = {
   admin_refund: "استرداد إداري",
   admin_adjust: "تعديل إداري",
   ai_teach: "درس ذكي",
+  ai_lesson: "توليد درس",
+  ai_image: "صورة تعليمية",
+  platform_help: "المساعد العام",
   daily_rollover: "تجديد يومي",
   subscription_extend: "تمديد اشتراك",
   subscription_revoke: "إلغاء اشتراك",
@@ -54,6 +57,8 @@ export function AdminGemLedger() {
   const [userId, setUserId] = useState("");
   const [subjectSubId, setSubjectSubId] = useState("");
   const [reason, setReason] = useState("");
+  const [source, setSource] = useState("");
+  const [requestId, setRequestId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
@@ -64,6 +69,8 @@ export function AdminGemLedger() {
       if (userId.trim()) params.set("userId", userId.trim());
       if (subjectSubId.trim()) params.set("subjectSubId", subjectSubId.trim());
       if (reason) params.set("reason", reason);
+      if (source) params.set("source", source);
+      if (requestId.trim()) params.set("requestId", requestId.trim());
       if (from) params.set("from", new Date(from).toISOString());
       if (to) params.set("to", new Date(to).toISOString());
       params.set("limit", "200");
@@ -76,7 +83,7 @@ export function AdminGemLedger() {
     } finally {
       setLoading(false);
     }
-  }, [userId, subjectSubId, reason, from, to, toast]);
+  }, [userId, subjectSubId, reason, source, requestId, from, to, toast]);
 
   useEffect(() => { load(); /* initial */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -98,7 +105,7 @@ export function AdminGemLedger() {
       </div>
 
       <div className="rounded-2xl border border-white/5 bg-black/20 p-4 space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
           <div>
             <Label className="text-[11px]">User ID</Label>
             <Input className="bg-black/40 h-9" value={userId} onChange={e => setUserId(e.target.value)} placeholder="مثال: 12" />
@@ -119,6 +126,28 @@ export function AdminGemLedger() {
                 <option key={v} value={v}>{l}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <Label className="text-[11px]">المصدر</Label>
+            <select
+              value={source}
+              onChange={e => setSource(e.target.value)}
+              className="w-full h-9 rounded-md bg-black/40 border border-white/10 text-sm px-2"
+            >
+              <option value="">الكل</option>
+              {Object.entries(SOURCE_LABEL).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-[11px]">Request ID</Label>
+            <Input
+              className="bg-black/40 h-9 font-mono text-xs"
+              value={requestId}
+              onChange={e => setRequestId(e.target.value)}
+              placeholder="r_xxx_yyy"
+            />
           </div>
           <div>
             <Label className="text-[11px]">من</Label>

@@ -61,6 +61,11 @@ declare global {
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { getAccessForUser } from "../lib/access";
 import { writeGemLedger } from "../lib/gem-ledger";
+import {
+  settleAiCharge,
+  newAiRequestId,
+  type ChargeWallet,
+} from "../lib/charge-ai-usage";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
 import { robustJsonParse } from "../lib/json-repair";
 import { z } from "zod";
@@ -3471,136 +3476,79 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     await rollbackFreeClaim();
   }
   // ── Gems deduction (post-AI-call) ────────────────────────────────────────
-  // Compute actual cost from token counts and deduct gems from the user.
-  // 1 gem = $0.001 → gemsToDeduct = ceil(costUsd * 1000).
+  // Single unified gateway: settleAiCharge() handles per-subject, legacy, and
+  // first-lesson wallets identically — same idempotency (requestId), same
+  // ledger shape, same race-safe atomic UPDATE. See lib/charge-ai-usage.ts.
   let gemsDeducted = 0;
-  // Hoisted so the outer `catch` block can include the computed cost in its
-  // BUDGET_LEAK log line. Without hoisting, `gems` only exists inside the
-  // try-block scope and the catch's shorthand reference is undeclared.
-  let gems = 0;
+  let gems = 0; // hoisted for the BUDGET_LEAK log line
+  const __requestId = newAiRequestId();
   if (chargeable && !unlimited) {
     try {
       let turnCostUsd = 0;
       if (__geminiUsage) {
         turnCostUsd = costForUsage({ model: __activeModel, inputTokens: __geminiUsage.inputTokens, outputTokens: __geminiUsage.outputTokens, cachedInputTokens: __geminiUsage.cachedInputTokens });
       }
-      // Add image-generation cost to the turn. Only successful images are
-      // charged — failed/timed-out generations are fail-soft (the student
-      // sees an error placeholder, no charge). Each image is ~$0.003.
-      // recordAiUsage already wrote a separate ai_usage_events row inside
-      // generateTeacherImage; we add the cost here ONLY to inflate the
-      // student-facing gem deduction so their wallet absorbs the FLUX cost.
+      // Successful images are billed via the same pipeline (1 image ≈ $0.003).
+      // Failed/timed-out generations are fail-soft (no charge).
       if (__successfulImages > 0) {
         turnCostUsd += __successfulImages * FLUX_SCHNELL_USD_PER_IMAGE;
       }
       gems = Math.max(1, Math.ceil(turnCostUsd * 1000));
-      gemsDeducted = gems;
 
-      // ── Lab-env exemption for first-session SHOWCASE OPENER ─────────────
-      // Per the user's explicit directive: the FIRST teaching reply after the
-      // diagnostic plan — the "showcase opener" — must be allowed to build a
-      // practical lab environment without that turn counting against the
-      // free-gem cap. The student needs to fully experience the platform's
-      // hands-on power on day one without being cut off mid-tour. The platform
-      // absorbs this single turn's cost as a one-time acquisition investment
-      // per subject.
-      //
-      // Why scope to the OPENER only (not every lab-env turn): a blanket "all
-      // lab turns are free" rule would let a student loop forever — request
-      // lab → use it → request another lab → use it → never hit the cap. By
-      // gating the exemption to `isShowcaseOpener`, we get a single free
-      // showcase per subject. Subsequent lab requests in the same first
-      // session count normally against the 80-gem cap, which is exactly the
-      // behavior the user asked for.
+      // Lab-env showcase opener exemption — first paid-feel session gets ONE
+      // free lab build to demonstrate platform power. Scoped to the very
+      // first turn so it can't be looped (see #33 history for rationale).
       const turnIncludedLabEnv = /\[\[\s*CREATE_LAB_ENV\s*:/i.test(fullResponse);
       const exemptFromFreeCap = isShowcaseOpener && turnIncludedLabEnv;
 
-      // NOTE on failure semantics: the inner per-statement `.catch(() => {})`
-      // calls used to silently swallow DB write failures, which meant a
-      // transient write blip during partial DB degradation would let the
-      // student receive an answer without the wallet being decremented
-      // (silent budget bypass). We now let those errors propagate to the
-      // outer `} catch (err: any)` block, which logs them with a
-      // distinctive prefix so ops can alert on `gems deduction failed`.
-      // The student is not penalized — they already received their answer
-      // — but every miss is now observable instead of invisible.
+      let wallet: ChargeWallet | null = null;
       if (isFirstLesson && firstLessonRecord && !exemptFromFreeCap) {
-        // Free session: track gems used against 80-gem cap (platform absorbs cost).
-        await db.update(userSubjectFirstLessonsTable)
-          .set({
-            freeMessagesUsed: sql`LEAST(${FREE_LESSON_GEM_LIMIT}, ${userSubjectFirstLessonsTable.freeMessagesUsed} + ${gems})`,
-            completed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + ${gems} >= ${FREE_LESSON_GEM_LIMIT}`,
-          })
-          .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
-        firstLessonRecord.freeMessagesUsed = Math.min(FREE_LESSON_GEM_LIMIT, firstLessonRecord.freeMessagesUsed + gems);
+        wallet = { kind: "first-lesson", firstLessonId: firstLessonRecord.id, cap: FREE_LESSON_GEM_LIMIT };
       } else if (exemptFromFreeCap) {
-        // Lab-env turn during free session — exemption applied. Log for
-        // visibility so we can audit how much "showcase grace" the platform
-        // is absorbing per acquisition.
         console.log(
           `[ai/teach] lab-env showcase exemption: userId=${userId} subjectId=${subjectId} costGems=${gems} (not deducted from free cap)`,
         );
       } else if (hasPerSubjectGemsSub && subjectSub) {
-        // Paid per-subject subscription: deduct from THIS subject's wallet
-        // only — never from any other subject's wallet, and never from the
-        // legacy global wallet. Race-safe: GREATEST(0, ...) clamps the
-        // balance so concurrent requests cannot underflow. We use RETURNING
-        // so the ledger row reflects the *true* post-debit balance even
-        // when concurrent requests interleave.
-        const [updatedSub] = await db.update(userSubjectSubscriptionsTable)
-          .set({
-            gemsBalance: sql`GREATEST(0, ${userSubjectSubscriptionsTable.gemsBalance} - ${gems})`,
-            gemsUsedToday: sql`${userSubjectSubscriptionsTable.gemsUsedToday} + ${gems}`,
-          })
-          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id))
-          .returning({ gemsBalance: userSubjectSubscriptionsTable.gemsBalance });
-        await writeGemLedger({
-          userId,
-          subjectSubId: subjectSub.id,
-          subjectId,
-          delta: -gems,
-          balanceAfter: updatedSub?.gemsBalance ?? 0,
-          reason: "debit",
-          source: "ai_teach",
-          note: `AI turn (${__activeModel || "model?"})`,
-          metadata: { model: __activeModel, costUsd: turnCostUsd },
-        });
+        wallet = { kind: "per-subject", subjectSubId: subjectSub.id, subjectId };
       } else if (hasLegacyGemsSub) {
-        const [updatedUser] = await db.update(usersTable)
-          .set({
-            gemsBalance: sql`GREATEST(0, ${usersTable.gemsBalance} - ${gems})`,
-            gemsUsedToday: sql`${usersTable.gemsUsedToday} + ${gems}`,
-          })
-          .where(eq(usersTable.id, userId))
-          .returning({ gemsBalance: usersTable.gemsBalance });
-        await writeGemLedger({
-          userId,
-          subjectSubId: null,
-          subjectId,
-          delta: -gems,
-          balanceAfter: updatedUser?.gemsBalance ?? 0,
-          reason: "debit",
-          source: "ai_teach",
-          note: `AI turn (${__activeModel || "model?"}) [legacy gems wallet]`,
-          metadata: { model: __activeModel, costUsd: turnCostUsd },
-        });
+        wallet = { kind: "legacy", subjectId };
       } else if (hasLegacyMessagesSub) {
         // Pre-gems wallet: count one message instead of debiting gems.
         await db.update(usersTable)
           .set({ messagesUsed: sql`${usersTable.messagesUsed} + 1` })
           .where(eq(usersTable.id, userId));
       }
+
+      if (wallet) {
+        const result = await settleAiCharge({
+          requestId: __requestId,
+          userId,
+          wallet,
+          gems,
+          source: "ai_teach",
+          model: __activeModel,
+          costUsd: turnCostUsd,
+          note: `AI turn (${__activeModel || "model?"})`,
+        });
+        gemsDeducted = result.gemsDeducted;
+        if (wallet.kind === "first-lesson" && firstLessonRecord) {
+          firstLessonRecord.freeMessagesUsed = Math.min(
+            FREE_LESSON_GEM_LIMIT,
+            firstLessonRecord.freeMessagesUsed + result.gemsDeducted,
+          );
+        }
+      }
     } catch (err: any) {
       // Distinctive prefix — alert on this in your monitoring stack. A
       // sustained rate of these means students got AI turns without their
       // wallets being decremented (silent revenue leak during DB
-      // degradation). Surfacing it here is the minimum-risk fix; a full
-      // transactional debit would require restructuring the streaming path
-      // and is tracked separately.
+      // degradation). The student is not penalized — they already received
+      // their answer — but every miss is now observable.
       console.error("[ai/teach] BUDGET_LEAK gems deduction failed:", {
         userId,
         subjectId,
         gems,
+        requestId: __requestId,
         chargingPath: isFirstLesson ? "free-cap" : (hasPerSubjectGemsSub ? "per-subject" : (hasLegacyGemsSub ? "legacy-gems" : (hasLegacyMessagesSub ? "legacy-messages" : "none"))),
         message: err?.message || String(err),
       });
@@ -3743,9 +3691,39 @@ router.post("/ai/feedback", async (req, res): Promise<any> => {
 // Platform Help Assistant — floating chat available across the app
 // Streams Arabic answers about how to use Nukhba.
 // ─────────────────────────────────────────────────────────────────────────────
+// Per-user daily cap on the free platform-help assistant. Without this, a
+// single user can hammer the helper bot to burn the platform's OpenRouter
+// credit. 30 questions/day is comfortably above any genuine help session.
+const PLATFORM_HELP_DAILY_LIMIT = 30;
+
 router.post("/ai/platform-help", async (req, res): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  // Rate-limit: count today's (since last Yemen midnight) platform-help calls
+  // for this user via ai_usage_events. We log to ai_usage_events on every
+  // success/error path below, so this counter is naturally accurate.
+  try {
+    const since = (await import("../lib/yemen-time")).getStartOfTodayYemen();
+    const { aiUsageEventsTable: tbl } = await import("@workspace/db");
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(tbl)
+      .where(and(
+        eq(tbl.userId, userId),
+        eq(tbl.route, "ai/platform-help"),
+        sql`${tbl.createdAt} >= ${since}`,
+      ));
+    if (Number(n ?? 0) >= PLATFORM_HELP_DAILY_LIMIT) {
+      return res.status(429).json({
+        error: `وصلت الحد اليومي للمساعد (${PLATFORM_HELP_DAILY_LIMIT} سؤالاً). يتجدّد منتصف الليل بتوقيت اليمن.`,
+        code: "PLATFORM_HELP_DAILY_LIMIT",
+      });
+    }
+  } catch (err: any) {
+    // Fail-open: a counter blip should not block the help bot.
+    console.warn("[platform-help] rate-limit check failed:", err?.message || err);
+  }
 
   const { messages } = (req.body ?? {}) as {
     messages?: Array<{ role: "user" | "assistant"; content: string }>;

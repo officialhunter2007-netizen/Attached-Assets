@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { runStartupMigrations } from "./lib/auto-migrate";
+import { startScheduledJobs } from "./lib/scheduled-jobs";
 
 const rawPort = process.env["PORT"];
 
@@ -28,6 +29,10 @@ async function start() {
     }
 
     logger.info({ port }, "Server listening");
+    // Hourly rollover sweep — guarantees daily forfeit fires within ~1h of
+    // Yemen midnight even if the server was asleep at the moment of
+    // midnight. Idempotent on already-rolled-over rows. See scheduled-jobs.
+    startScheduledJobs();
   });
 }
 
