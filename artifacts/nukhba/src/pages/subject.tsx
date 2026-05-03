@@ -5500,7 +5500,7 @@ function SubjectPathChat({
                 type="button"
                 onClick={() => onStartLabEnvIntent()}
                 disabled={sessionPaused}
-                className="quick-launch-chip min-h-[36px] text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 text-amber-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="quick-launch-chip min-h-[40px] sm:min-h-[36px] text-[11px] sm:text-xs px-3 sm:px-3 py-2 sm:py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 text-amber-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
                 aria-label="ابنِ بيئة تطبيقية"
               >
@@ -5513,7 +5513,7 @@ function SubjectPathChat({
                 type="button"
                 onClick={() => onOpenAttackIntake()}
                 disabled={sessionPaused}
-                className="quick-launch-chip min-h-[36px] text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-400/70 text-rose-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="quick-launch-chip min-h-[40px] sm:min-h-[36px] text-[11px] sm:text-xs px-3 sm:px-3 py-2 sm:py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-400/70 text-rose-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="ابدأ محاكاة هجمة تعليمية"
                 aria-label="محاكاة هجمة"
               >
@@ -5527,7 +5527,7 @@ function SubjectPathChat({
             <button
               type="button"
               onClick={() => setSuggestionsOpen((v) => !v)}
-              className="min-h-[36px] inline-flex items-center gap-1.5 text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-full text-white/70 hover:text-amber-200 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all"
+              className="min-h-[40px] sm:min-h-[36px] inline-flex items-center gap-1.5 text-[11px] sm:text-xs px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-white/70 hover:text-amber-200 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all"
               aria-expanded={suggestionsOpen}
               aria-controls="suggestion-chips"
               title={suggestionsOpen ? "إخفاء الاقتراحات" : "إظهار اقتراحات للأسئلة"}

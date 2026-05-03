@@ -3061,6 +3061,13 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // Maps the short id we ship to the client → original FLUX prompt (used
   // for the `[صورة توضيحية: …]` placeholder in the persisted message).
   const __imagePromptsById = new Map<string, string>();
+  // id → resolved same-origin /api/teacher-images/<hash>.<ext> URL.
+  // Populated when the generation promise resolves successfully. Used
+  // when serializing the assistant turn to message history so a session
+  // reload re-renders the exact same image (the URL is content-addressed
+  // and the server-side cache file is durable on disk), eliminating the
+  // legacy "[صورة توضيحية]" stub that lost the visual on revisit.
+  const __imageUrlsById = new Map<string, string>();
   // Holds in-flight generation promises so the post-stream block can await
   // them all before computing gem cost / writing the storage row.
   const __imagePromises: Array<Promise<ImageGenerationResult>> = [];
@@ -3165,6 +3172,11 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           }
           try {
             if (result.ok) {
+              // Remember the resolved URL so the post-stream persistence
+              // step (around line ~3810) can embed it directly into the
+              // saved message HTML — that's what makes "open old session"
+              // restore the same images instantly from the on-disk cache.
+              __imageUrlsById.set(imageId, result.url);
               res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: result.url } })}\n\n`);
               console.log(`[ai/teach/image] ready sent id=${imageId} latencyMs=${result.latencyMs}`);
             } else {
@@ -3800,14 +3812,30 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
 
   if (subjectId && fullResponse.trim().length > 0) {
     try {
-      // Replace `[[IMAGE:hexid]]` markers with a static Arabic stub —
-      // the underlying CDN URL is short-lived, so persisting it would
-      // be useless after a few hours. The Arabic stub keeps the
-      // student's chat history readable on revisit.
+      // Replace `[[IMAGE:hexid]]` markers with a durable HTML <figure>
+      // pointing at the same-origin /api/teacher-images/<hash>.<ext>
+      // URL. Because the new teacher-image-store is content-addressed
+      // (SHA-256 of prompt → file on disk), these URLs are stable for
+      // the lifetime of the cache entry — so reopening a past session
+      // renders the exact same images instantly from disk, no
+      // regeneration, no spinner, no broken image.
+      //
+      // If a [[IMAGE:id]] marker has no resolved URL (pure SVG fallback
+      // that errored, or the generation promise hadn't completed by
+      // end-of-stream), we still leave a tiny Arabic placeholder so the
+      // history reads coherently — but this is now an exceptional path,
+      // not the default.
+      const escapeAttr = (s: string) =>
+        s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const __imageReplaced = fullResponse.replace(
         /\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi,
         (_full, id) => {
+          const url = __imageUrlsById.get(id);
           const prompt = __imagePromptsById.get(id) || "";
+          const altText = prompt.slice(0, 200) || "بطاقة توضيحية";
+          if (url) {
+            return `<figure class="teach-image-fig"><img src="${escapeAttr(url)}" alt="${escapeAttr(altText)}" loading="lazy" class="teach-image" /></figure>`;
+          }
           const preview = prompt.slice(0, 120);
           return `<p class="image-historical">[صورة توضيحية${preview ? `: ${preview}` : ""}]</p>`;
         },

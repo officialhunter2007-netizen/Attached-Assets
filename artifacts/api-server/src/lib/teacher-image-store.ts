@@ -238,8 +238,12 @@ function detectImageExt(buf: Buffer): string | null {
     buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
     buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
   ) return ".webp";
-  // GIF: "GIF87a" or "GIF89a"
-  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return ".png"; // re-encode-ish, treat as png mime would lie — skip
+  // GIF (87a/89a): we deliberately reject these. The /api/teacher-images
+  // route only allow-lists png/jpg/jpeg/webp/svg, and re-labeling GIF
+  // bytes as `.png` would yield a wrong Content-Type. Treating GIF as
+  // "non-image" forces the provider chain to fall through to the
+  // guaranteed-good SVG poster instead.
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return null;
   // SVG: "<?xml" or "<svg"
   const head = buf.slice(0, Math.min(buf.length, 256)).toString("utf8").trimStart();
   if (head.startsWith("<?xml") || head.startsWith("<svg")) return ".svg";
