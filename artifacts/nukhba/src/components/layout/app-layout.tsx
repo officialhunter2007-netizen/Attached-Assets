@@ -276,8 +276,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [user, location]);
 
+  // Pull subjectId from any subject-scoped learning route so the header
+  // calls /gems-balance?subjectId=… (subject-specific truth) instead of
+  // falling back to the cross-subject summary endpoint. Covers /subject/:id
+  // and /lesson/:id/:unit/:lesson today; extend the alternation if new
+  // subject-scoped routes are added.
   const currentSubjectId = (() => {
-    const m = location.match(/^\/subject\/([^/?#]+)/);
+    const m = location.match(/^\/(?:subject|lesson)\/([^/?#]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   })();
 
