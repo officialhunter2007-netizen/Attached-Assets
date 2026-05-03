@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { MessageCircle, Send, ArrowRight, ShieldCheck, Clock, CheckCircle2, HelpCircle, Inbox } from "lucide-react";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 
 interface SupportMessage {
   id: number;
@@ -70,6 +70,8 @@ export default function Support() {
         toast({ title: "تم الإرسال", description: "رسالتك وصلت للمشرف — سيرد عليك قريباً", className: "bg-emerald-600 border-none text-white" });
         setMessage("");
         fetchMessages();
+      } else {
+        toast({ variant: "destructive", title: "تعذّر الإرسال", description: "حدث خطأ أثناء إرسال رسالتك. حاول مجدداً." });
       }
     } catch {
       toast({ variant: "destructive", title: "خطأ", description: "فشل في إرسال الرسالة" });

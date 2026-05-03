@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import { getSubjectById } from "@/lib/curriculum";
 import { 
   useGetLessonViews, 

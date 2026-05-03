@@ -3,7 +3,7 @@ import type { DynamicEnv } from "./types";
 import { ComponentRenderer } from "./component-renderer";
 import { EnvStateProvider, useEnvState } from "./state-engine";
 import { EnvThemeProvider, themeForKind, themeCssVars, KIND_THEMES } from "./theme";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 
 type AssistMsg = { role: "user" | "assistant"; content: string };
 

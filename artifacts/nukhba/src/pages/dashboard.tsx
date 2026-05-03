@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Library, FlaskConical, BookOpen } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { getSubjectById } from "@/lib/curriculum";
 

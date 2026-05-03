@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import { useLocation } from "wouter";
 import {
   useGetAdminStats,

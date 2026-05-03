@@ -1,11 +1,11 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { createContext, useEffect, useState, ReactNode, useCallback } from "react";
 import type { UserProfile } from "@workspace/api-client-react";
 import { useGetMe, useLogoutUser } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { clearAllNukhbaStorage, rotateUserIfChanged } from "@/lib/user-storage";
 
-interface AuthContextType {
+export interface AuthContextType {
   user: UserProfile | null;
   isLoading: boolean;
   authError: Error | null;
@@ -14,7 +14,7 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -76,10 +76,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
-}
+// `useAuth` lives in a separate module (`@/lib/use-auth`) so that editing
+// this provider file does not break React Fast Refresh for components that
+// only consume the hook. Import it from `@/lib/use-auth` directly.

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { CodeEditor, type Lang as CMEditorLang } from "./dynamic-env/code-editor";
 import {

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useLocation } from "wouter";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import { Sparkles, X, Clock, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 

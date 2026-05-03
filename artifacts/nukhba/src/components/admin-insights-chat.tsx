@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Sparkles, Send, Loader2, MessageSquarePlus, Brain, User as UserIcon, Download } from "lucide-react";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 
 type CourseRow = { subjectId: string; subjectName: string | null; students: number; messages: number; lastAt: string };
 

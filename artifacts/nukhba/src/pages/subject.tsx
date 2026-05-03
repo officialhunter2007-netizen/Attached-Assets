@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/drawer";
 import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@workspace/api-client-react";
