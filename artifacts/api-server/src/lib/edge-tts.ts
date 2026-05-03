@@ -53,10 +53,16 @@ function escapeXml(s: string): string {
 
 function buildSsml(text: string, voice: string): string {
   const lang = voice.slice(0, 5);
+  // Use narration-professional speaking style for a clearer, more polished delivery.
+  // styledegree="1.5" = moderate intensity (1=default, 2=maximum).
+  // rate="-10%" slows speech slightly for better Arabic diction clarity.
   return (
-    `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${lang}">` +
+    `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"` +
+    ` xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="${lang}">` +
     `<voice name="${voice}">` +
-    `<prosody rate="-5%" pitch="0%">${escapeXml(text)}</prosody>` +
+    `<mstts:express-as style="narration-professional" styledegree="1.5">` +
+    `<prosody rate="-10%" pitch="0%">${escapeXml(text)}</prosody>` +
+    `</mstts:express-as>` +
     `</voice></speak>`
   );
 }
