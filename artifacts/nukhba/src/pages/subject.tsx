@@ -2044,8 +2044,12 @@ const MessageToolbar = memo(function MessageToolbar({
 
   const ttsAvailable = isSpeechSynthesisSupported();
 
-  // Stop any in-flight TTS if the message unmounts (e.g. user navigates).
-  useEffect(() => () => { if (ttsState !== "idle") stopSpeaking(); }, [ttsState]);
+  // Stop any in-flight TTS only on component unmount (not on each state
+  // change — otherwise the cleanup from the `loading` render would abort
+  // playback the moment `onPlay` flips state to `playing`).
+  const ttsStateRef = useRef<"idle" | "loading" | "playing">("idle");
+  useEffect(() => { ttsStateRef.current = ttsState; }, [ttsState]);
+  useEffect(() => () => { if (ttsStateRef.current !== "idle") stopSpeaking(); }, []);
 
   const handleCopy = useCallback(async () => {
     const txt = plainTextFromHtmlContent(content);
