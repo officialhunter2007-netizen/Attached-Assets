@@ -869,13 +869,11 @@ ${kit.transitionLine}
 
 ────────────────────────────────────────`
     : "";
-  // Image showcase: a *single* mandatory illustration in the first reply.
-  // The teacher writes the FLUX prompt in English (no Arabic — diffusion
-  // models can't render Arabic text) and then writes the Arabic caption
-  // beneath it as a plain HTML <figcaption>. The image itself is pure
-  // visual: icons, numbered circles, color-coded boxes — NO TEXT inside
-  // the image. The Arabic labels live entirely in the caption.
-  const imageShowcase = opts.imageEnabled
+  // Generic image showcase fallback for subjects without a kit. When a kit
+  // is present, the kit's `(د)` block is the single source of truth for the
+  // showcase image — suppress this generic block to avoid two competing
+  // "exactly one [[IMAGE: ...]]" rules in the same prompt.
+  const imageShowcase = opts.imageEnabled && !kit
     ? `\n5. **🖼️ بطاقة معلوماتية إجبارية واحدة في هذا الرد فقط:** اعرض على الطالب قدرة المنصة على توليد بطاقات بصرية لحظية. استخدم وسماً واحداً بالضبط بالشكل التالي **قبل أو بعد** شرحك للمفهوم المحوري، والتزم بنواة الوصفة الإنجليزية كاملةً لرفع جودة الإخراج:\n\n\`\`\`\n[[IMAGE: professional editorial infographic illustration, clean multi-panel layout, isometric flat icons, color-coded sections (soft blue, mint green, warm orange, lavender), subtle gradient backgrounds, clear visual hierarchy with thin connector arrows, generous whitespace, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking <list the visual parts of the central concept here>]]\n\`\`\`\n\n**مباشرةً بعد الوسم اكتب المفتاح العربي بصيغة HTML الإلزامية** التي تجعل الصورة + النصّ بطاقةً موحّدة (الصورة بصرية فقط، والمعنى يأتي من المفتاح):\n\n\`\`\`html\n<figcaption class="image-caption">\n  <strong class="caption-title">المفتاح: <اسم البطاقة بالعربية></strong>\n  <ol class="caption-legend">\n    <li><span class="num n1">1</span> <شرح الدائرة الأولى></li>\n    <li><span class="num n2">2</span> <شرح الدائرة الثانية></li>\n    <li><span class="num n3">3</span> <شرح الدائرة الثالثة></li>\n  </ol>\n</figcaption>\n\`\`\`\n\n**اشترط على نفسك** أن المفهوم المحوري الذي تختاره للصورة **بصري بطبيعته** (بنية، علاقة مكانية، عملية متعدّدة الخطوات، مقارنة، أو استعارة بصرية تختصر شرحاً طويلاً). لا تختر مفهوماً نصيّاً بحتاً مجرّد للاستعراض.\n\n**❌ ممنوع منعاً باتاً داخل وسم IMAGE:** أي كلمة عربية، أي طلب لكتابة نص داخل الصورة، أي "labels"، أي "Arabic text"، أي "captions inside image". الصورة بصرية بحتة، والكلام العربي في \`<figcaption>\` تحتها فقط.\n\n**❌ ممنوع** استخدام \`[[IMAGE: ...]]\` أكثر من مرة واحدة في هذا الرد.\n`
     : "";
 
@@ -2034,57 +2032,26 @@ ${formattingRules}`;
   // normal teaching mode. This is robust to model drift because the lab tag
   // is the ONE concrete action the showcase mandates — its presence in
   // history is the cleanest "showcase already ran" signal we have.
-  const hasPriorLabEnvTag = (() => {
-    if (!Array.isArray(history)) return false;
-    for (const msg of history) {
-      const role = (msg as any)?.role;
-      if (role !== "assistant" && role !== "model") continue;
-      const content = (msg as any)?.content;
-      const text = typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content.map((c: any) => (typeof c === "string" ? c : c?.text ?? "")).join("")
-          : "";
-      if (/\[\[\s*CREATE_LAB_ENV\s*:/i.test(text)) return true;
+  type HistoryPart = string | { text?: string };
+  type HistoryMsg = { role?: string; content?: string | HistoryPart[] };
+  const extractText = (m: HistoryMsg): string => {
+    const c = m?.content;
+    if (typeof c === "string") return c;
+    if (Array.isArray(c)) {
+      return c.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("");
     }
-    return false;
-  })();
-  // Per-subject showcase eligibility. The request body's `isDiagnosticPhase`
-  // is the authoritative signal for "current turn is teaching" (the frontend
-  // persists chatPhase and flips it to teaching when planReady streams in).
-  // For "showcase hasn't already run for this subject" we check TWO markers
-  // (either one disables the showcase), giving redundancy against history
-  // truncation:
-  //   - `[[CREATE_LAB_ENV:` — the lab tag the kit mandates (already scanned
-  //     into hasPriorLabEnvTag earlier in this function).
-  //   - `[[IMAGE:` — the inline image tag the kit also mandates. Diagnostic
-  //     turns never emit images, so its presence reliably means a teaching
-  //     turn has already happened in this subject.
-  // Conversation history is keyed per (user, subject) on the client
-  // (CHAT_STORAGE_KEY = `nukhba::u:${user.id}::chat::${subject.id}`), and
-  // the client never truncates before sending, so either marker surviving
-  // in any prior assistant message means the showcase already ran here.
-  // We deliberately do NOT scan for HTML class markers like `praise` /
-  // `question-box`, because the diagnostic plan-reveal template uses
-  // `<div class="praise">` inside the learning-path block — that would
-  // false-trigger and suppress the showcase on the first teaching turn.
-  // We also do NOT use the global `users.firstLessonComplete` billing
-  // flag (consumed once per account, would suppress subjects #2..24).
-  const hasPriorImageTag = (() => {
-    if (!Array.isArray(history)) return false;
-    type Msg = { role?: string; content?: string | Array<string | { text?: string }> };
-    for (const m of history as Msg[]) {
-      if (m?.role !== "assistant" && m?.role !== "model") continue;
-      const c = m?.content;
-      const text = typeof c === "string"
-        ? c
-        : Array.isArray(c)
-          ? c.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("")
-          : "";
-      if (/\[\[\s*IMAGE\s*:/i.test(text)) return true;
-    }
-    return false;
-  })();
+    return "";
+  };
+  const isAssistantMsg = (m: HistoryMsg) => m?.role === "assistant" || m?.role === "model";
+  const historyMsgs: HistoryMsg[] = Array.isArray(history) ? (history as HistoryMsg[]) : [];
+  const hasPriorLabEnvTag = historyMsgs.some(
+    (m) => isAssistantMsg(m) && /\[\[\s*CREATE_LAB_ENV\s*:/i.test(extractText(m)),
+  );
+  // Either kit marker surviving cleanTeachingChunk in any prior assistant
+  // message means the showcase already ran for this subject.
+  const hasPriorImageTag = historyMsgs.some(
+    (m) => isAssistantMsg(m) && /\[\[\s*IMAGE\s*:/i.test(extractText(m)),
+  );
   const isShowcaseOpener = !isDiagnosticPhase && !hasPriorLabEnvTag && !hasPriorImageTag;
 
   // The showcase addendum itself is appended LATER — after the Gemini
