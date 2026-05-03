@@ -20,6 +20,7 @@ import { getCostCapStatus } from "../lib/cost-cap";
 import { costForUsage } from "../lib/ai-pricing";
 import {
   generateTeacherImage,
+  resolveTeacherImage,
   isImageGenerationConfigured,
   FLUX_SCHNELL_USD_PER_IMAGE,
   type ImageGenerationResult,
@@ -3061,6 +3062,13 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // Maps the short id we ship to the client → original FLUX prompt (used
   // for the `[صورة توضيحية: …]` placeholder in the persisted message).
   const __imagePromptsById = new Map<string, string>();
+  // id → resolved same-origin /api/teacher-images/<hash>.<ext> URL.
+  // Populated when the generation promise resolves successfully. Used
+  // when serializing the assistant turn to message history so a session
+  // reload re-renders the exact same image (the URL is content-addressed
+  // and the server-side cache file is durable on disk), eliminating the
+  // legacy "[صورة توضيحية]" stub that lost the visual on revisit.
+  const __imageUrlsById = new Map<string, string>();
   // Holds in-flight generation promises so the post-stream block can await
   // them all before computing gem cost / writing the storage row.
   const __imagePromises: Array<Promise<ImageGenerationResult>> = [];
@@ -3158,31 +3166,46 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           prompt: promptText,
         });
         __imagePromises.push(promise);
-        promise.then((result) => {
+        promise.then(async (result) => {
           if (clientAborted || res.writableEnded) {
             console.log(`[ai/teach/image] result discarded (stream closed) id=${imageId} ok=${result.ok}`);
             return;
           }
           try {
+            // The store guarantees a renderable URL on every code path
+            // (cache → fal → pollinations → local SVG poster), so
+            // `result.ok` is always true under normal operation. We
+            // unconditionally emit `imageReady` to honour the task's
+            // "always-visible image" promise: the student NEVER sees
+            // an error bubble for a teacher-emitted [[IMAGE:...]] tag.
             if (result.ok) {
+              __imageUrlsById.set(imageId, result.url);
               res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: result.url } })}\n\n`);
               console.log(`[ai/teach/image] ready sent id=${imageId} latencyMs=${result.latencyMs}`);
             } else {
-              res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: result.reason } })}\n\n`);
-              console.log(`[ai/teach/image] error sent id=${imageId} reason=${result.reason}`);
+              // Structural error path (empty prompt, etc.) — still
+              // resolve to the deterministic empty-prompt SVG so the
+              // bubble renders something instead of hanging.
+              const fallback = await resolveTeacherImage("");
+              __imageUrlsById.set(imageId, fallback.url);
+              res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: fallback.url } })}\n\n`);
+              console.log(`[ai/teach/image] ready (fallback) sent id=${imageId} reason=${result.reason}`);
             }
           } catch (writeErr: any) {
             console.warn(`[ai/teach/image] failed to write SSE event id=${imageId}: ${writeErr?.message || writeErr}`);
           }
-        }).catch((err: any) => {
-          // Defensive: generateTeacherImage normalizes its own errors, so
-          // this should never fire — but if it does (e.g. SDK constructor
-          // throws synchronously), still emit imageError so the bubble
-          // doesn't hang.
+        }).catch(async (err: any) => {
+          // Defensive: even if generateTeacherImage throws synchronously
+          // (e.g. SDK constructor blows up), resolve to a guaranteed
+          // local SVG so the bubble still renders. We never emit
+          // imageError on the SSE channel — the student always gets
+          // something to look at.
           console.error(`[ai/teach/image] unexpected throw id=${imageId}: ${err?.message || err}`);
           if (clientAborted || res.writableEnded) return;
           try {
-            res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: "api-error" } })}\n\n`);
+            const fallback = await resolveTeacherImage("");
+            __imageUrlsById.set(imageId, fallback.url);
+            res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: fallback.url } })}\n\n`);
           } catch { /* half-closed */ }
         });
       }
@@ -3393,11 +3416,16 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // a chance to fire before we send the terminating `done` event.
   // Promise.allSettled never throws — generateTeacherImage already
   // serialises errors into structured failure results.
-  let __successfulImages = 0;
+  // Only fal.ai-generated images cost money — cache hits, Pollinations,
+  // and the local SVG poster are all free. Bill strictly by provider so
+  // the gem charge matches the actual platform cost.
+  let __billableFalImages = 0;
   if (__imagePromises.length > 0) {
     const results = await Promise.allSettled(__imagePromises);
     for (const r of results) {
-      if (r.status === "fulfilled" && r.value.ok) __successfulImages++;
+      if (r.status === "fulfilled" && r.value.ok && r.value.provider === "fal") {
+        __billableFalImages++;
+      }
     }
   }
 
@@ -3800,14 +3828,37 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
 
   if (subjectId && fullResponse.trim().length > 0) {
     try {
-      // Replace `[[IMAGE:hexid]]` markers with a static Arabic stub —
-      // the underlying CDN URL is short-lived, so persisting it would
-      // be useless after a few hours. The Arabic stub keeps the
-      // student's chat history readable on revisit.
+      // Replace `[[IMAGE:hexid]]` markers with a durable HTML <figure>
+      // pointing at the same-origin /api/teacher-images/<hash>.<ext>
+      // URL. Because the new teacher-image-store is content-addressed
+      // (SHA-256 of prompt → file on disk), these URLs are stable for
+      // the lifetime of the cache entry — so reopening a past session
+      // renders the exact same images instantly from disk, no
+      // regeneration, no spinner, no broken image.
+      //
+      // If a [[IMAGE:id]] marker has no resolved URL (pure SVG fallback
+      // that errored, or the generation promise hadn't completed by
+      // end-of-stream), we still leave a tiny Arabic placeholder so the
+      // history reads coherently — but this is now an exceptional path,
+      // not the default.
+      const escapeAttr = (s: string) =>
+        s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const __imageReplaced = fullResponse.replace(
         /\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi,
         (_full, id) => {
+          const url = __imageUrlsById.get(id);
           const prompt = __imagePromptsById.get(id) || "";
+          const altText = prompt.slice(0, 200) || "بطاقة توضيحية";
+          if (url) {
+            // Match the exact class contract used by the live render path
+            // (`renderImageMarkers` + frontend CSS in index.css):
+            //   <figure class="teach-image teach-image-ready" data-image-id="…">
+            //     <img src="…" alt="…" loading="lazy" />
+            //   </figure>
+            // so historical images get the same hover/zoom/lightbox styling
+            // and behavior as freshly generated ones.
+            return `<figure class="teach-image teach-image-ready" data-image-id="${escapeAttr(id)}"><img src="${escapeAttr(url)}" alt="${escapeAttr(altText)}" loading="lazy" /></figure>`;
+          }
           const preview = prompt.slice(0, 120);
           return `<p class="image-historical">[صورة توضيحية${preview ? `: ${preview}` : ""}]</p>`;
         },
@@ -3886,10 +3937,11 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
       if (__geminiUsage) {
         turnCostUsd = costForUsage({ model: __activeModel, inputTokens: __geminiUsage.inputTokens, outputTokens: __geminiUsage.outputTokens, cachedInputTokens: __geminiUsage.cachedInputTokens });
       }
-      // Successful images are billed via the same pipeline (1 image ≈ $0.003).
-      // Failed/timed-out generations are fail-soft (no charge).
-      if (__successfulImages > 0) {
-        turnCostUsd += __successfulImages * FLUX_SCHNELL_USD_PER_IMAGE;
+      // Charge ONLY for images actually generated by paid fal.ai
+      // (1 image ≈ $0.003). Cache hits, Pollinations, and SVG fallbacks
+      // cost the platform $0 so the student should not pay for them.
+      if (__billableFalImages > 0) {
+        turnCostUsd += __billableFalImages * FLUX_SCHNELL_USD_PER_IMAGE;
       }
       gems = Math.max(1, Math.ceil(turnCostUsd * 1000));
 

@@ -321,6 +321,36 @@ Three layered upgrades that enforce the AI teacher's commitment to each student'
 - Compact path badge now shows the name of the next incomplete micro-step as a secondary subtitle.
 - Manual quality check scenarios: `.local/checks/personalized-path-quality.md`.
 
+## Teacher images — server-side cache (Task #63, May 2026)
+
+Teacher images (`[[IMAGE: …]]` infographics) are no longer served from
+third-party CDNs. They are generated on the server, validated by magic
+bytes, persisted under `/data/teacher-images/<sha256-of-prompt>.<ext>`,
+and served same-origin via `GET /api/teacher-images/<hash>.<ext>` with
+`Cache-Control: public, max-age=31536000, immutable`. This eliminates
+the production "stuck spinner forever" failure mode caused by
+short-lived/blocked CDN URLs.
+
+- **Provider chain** (`lib/teacher-image-store.ts`): fal.ai →
+  Pollinations → locally-built SVG poster. Each external buffer is
+  rejected if its magic bytes don't match PNG/JPEG/WEBP/SVG (so an HTML
+  200 error page can never be cached). The SVG poster cannot fail, so
+  the "always visible image" guarantee holds at the bytes level.
+- **Persistence in message history**: when an image generation succeeds
+  during streaming, the resolved `/api/teacher-images/...` URL is baked
+  into the assistant message's stored HTML as a real
+  `<figure class="teach-image teach-image-ready"><img>`. Reopening an
+  old session re-renders the same images instantly from the disk cache
+  — no regeneration, no spinner, no broken image.
+- **Cache budget**: LRU eviction keyed by `atime`, with 25%/75%
+  hysteresis. Default budget is **500 MB**, override via env
+  `TEACHER_IMAGE_CACHE_MB`. Maintenance runs once 30s after boot and
+  hourly thereafter (registered in `lib/scheduled-jobs.ts`).
+- **Self-hosted deployment**: docker-compose mounts a named volume
+  `teacher_images` at `/data/teacher-images` so the cache survives
+  `deploy.sh --update`. Override the on-disk path via env
+  `TEACHER_IMAGE_DIR`.
+
 ## Design System
 
 - Dark luxury theme: background hsl(222,28%,7%), cards hsl(222,24%,10%)

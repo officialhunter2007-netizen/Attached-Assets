@@ -594,26 +594,11 @@
   direction: rtl;
   overflow: hidden;
   box-shadow: 0 6px 24px rgba(0,0,0,0.45);
-  position: relative; /* anchor for .teach-image-overlay */
+  position: relative;
 }
-/* Loading overlay shown while a ready img is still being fetched by the
-   browser (Pollinations.ai can take 5-15s). Sits over the reserved
-   aspect-ratio:1/1 image box so the user always sees progress. */
-.teach-image-overlay {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  /* Cover only the image area (figcaption sits below); aspect-ratio
-     1:1 gives us a square equal to the figure width. */
-  aspect-ratio: 1 / 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 18, 32, 0.72);
-  backdrop-filter: blur(2px);
-  border-radius: 16px 16px 0 0;
-  pointer-events: none;
-  z-index: 2;
-}
+/* Legacy load-overlay kept as no-op selector for backward-compat — the
+   server-side cache now hands the browser instant same-origin URLs so the
+   overlay no longer renders. */
 .teach-image img {
   display: block;
   width: 100%;
@@ -1297,8 +1282,10 @@
   /* Component is laid out by Tailwind; this hook is for future tweaks. */
 }
 .input-pro-icon-btn {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   border-radius: 12px;
   display: inline-flex;
   align-items: center;
@@ -1336,6 +1323,24 @@
   0%   { box-shadow: 0 0 0 0   rgba(244,63,94,0.55); }
   70%  { box-shadow: 0 0 0 10px rgba(244,63,94,0);    }
   100% { box-shadow: 0 0 0 0   rgba(244,63,94,0);    }
+}
+
+/* ─── Mobile touch-target floor (≤480px) ──────────────────────────────────
+   Task #63 acceptance: every interactive element inside the chat dialog
+   must be at least 40x40 CSS pixels on phone widths so finger taps don't
+   misfire. We enforce this with a sweeping rule on every <button> and
+   role="button" inside the chat shell, plus on the input rail's icon
+   buttons. Anything that genuinely needs to be smaller (e.g. a 16x16
+   mute icon embedded inside a 40px hit-area) should wrap a <button> with
+   the visual icon styled inside, not shrink the button itself. */
+@media (max-width: 480px) {
+  .chat-shell button,
+  .chat-shell [role="button"],
+  .input-pro-icon-btn,
+  .input-pro-shell button {
+    min-width: 40px;
+    min-height: 40px;
+  }
 }
 
 /* Path-drawer trigger button (header). Looks like a pill with a map

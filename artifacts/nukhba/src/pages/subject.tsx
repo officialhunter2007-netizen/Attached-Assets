@@ -1279,14 +1279,16 @@ export default function Subject() {
 
             {/* Header */}
             <div className="shrink-0 border-b border-white/8" style={{ background: "linear-gradient(180deg, #0f1220 0%, #080a11 100%)" }}>
-              {/* Top bar */}
-              <div className="px-4 py-3 flex items-center justify-between">
+              {/* Top bar — collapsed to ~44px (was ~64px) to give the chat more
+                  vertical room. Avatar shrunk 10→8, paddings reduced, label
+                  font sizes bumped down one notch. */}
+              <div className="px-3 py-1.5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {isIDEOpen ? (
                     <>
                       <button
                         onClick={() => setIsIDEOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                        className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
                       >
                         <ArrowRight className="w-4 h-4" />
                       </button>
@@ -1302,7 +1304,7 @@ export default function Subject() {
                     <>
                       <button
                         onClick={() => setIsLabOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                        className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
                       >
                         <ArrowRight className="w-4 h-4" />
                       </button>
@@ -1318,7 +1320,7 @@ export default function Subject() {
                     <>
                       <button
                         onClick={() => setIsYemenSoftOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                        className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
                       >
                         <ArrowRight className="w-4 h-4" />
                       </button>
@@ -1334,7 +1336,7 @@ export default function Subject() {
                     <>
                       <button
                         onClick={() => setIsAccountingLabOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                        className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
                       >
                         <ArrowRight className="w-4 h-4" />
                       </button>
@@ -1348,15 +1350,15 @@ export default function Subject() {
                     </>
                   ) : (
                     <>
-                      <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg shrink-0`}>
-                        <span className="text-lg">{subject.emoji}</span>
+                      <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-md shrink-0`}>
+                        <span className="text-sm">{subject.emoji}</span>
                       </div>
-                      <div>
-                        <p className="font-bold text-base leading-tight">معلم {subject.name}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="font-bold text-sm leading-tight truncate max-w-[55vw] sm:max-w-[280px]">معلم {subject.name}</p>
+                        <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                          <p className="text-[11px] text-emerald-400 font-medium">متصل الآن</p>
-                        </div>
+                          متصل
+                        </span>
                       </div>
                     </>
                   )}
@@ -1377,7 +1379,7 @@ export default function Subject() {
                       flows through the same teacher-orchestrated dialog. */}
                   <button
                     onClick={() => setIsChatOpen(false)}
-                    className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors text-muted-foreground hover:text-white"
+                    className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors text-muted-foreground hover:text-white"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -2239,14 +2241,14 @@ function TeacherErrorState({
 }
 
 // In-flight teacher-image state shared with AIMessage. `loading` shows the
-// spinner placeholder; `ready` swaps in <img>; `error` shows a friendly
-// retry hint. URLs from fal.ai are short-lived (≈1h CDN cache) so we don't
-// persist this map — once the page reloads the historical message will
-// have the `<p class="image-historical">` stub the backend wrote on save.
-type TeacherImageState = { status: 'loading' | 'ready' | 'error'; url?: string };
+// spinner placeholder; `ready` swaps in <img>. URLs are now same-origin
+// `/api/teacher-images/<hash>.<ext>` paths backed by a persistent disk
+// cache, so historical messages already store the resolved URL in their
+// HTML — no expiring fal.ai links, no client-side timers needed.
+type TeacherImageState = { status: 'loading' | 'ready'; url?: string };
 type TeacherImageMap = Map<string, TeacherImageState>;
 
-const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onImageTimeout, onReExplainImage, subjectId }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onImageTimeout?: (id: string) => void; onReExplainImage?: (url: string) => void; subjectId?: string }) {
+const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onReExplainImage, subjectId }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onReExplainImage?: (url: string) => void; subjectId?: string }) {
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -2320,14 +2322,11 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
   // state — which is the persistent source of truth. Cheap (≤3 figures
   // per message in practice).
   //
-  // The 10-second local timeout (safety net for the stuck-spinner bug
-  // reported in task #15) calls `onImageTimeout(id)` so the parent flips
-  // imageMap[id] to {status:'error'}. This is critical: mutating the DOM
-  // alone would be undone on the very next render. By updating React
-  // state, the error survives all subsequent re-renders (including the
-  // streaming → final swap) because every render of the effect sees
-  // `state.status === 'error'` and re-applies the error UI.
-  const localTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // No client-side safety timers any more. The server-side store
+  // guarantees an `imageReady` event for every emitted [[IMAGE:...]]
+  // tag — worst case it returns the URL of a locally-synthesised SVG
+  // poster within ~8s. If the SSE channel itself dies the chat-level
+  // network safety-net (90s controller.abort) handles it.
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -2388,26 +2387,13 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
       };
 
       if (!state || state.status === 'loading') {
-        // Absolute safety-net timer (60s) — only fires if neither
-        // imageReady nor imageError SSE events arrived. The server's
-        // own FAL_TIMEOUT_MS (default 25s) is the real ceiling; this
-        // is purely a defence against a dropped SSE connection so the
-        // spinner never spins forever.
-        if (!localTimersRef.current.has(id)) {
-          const timer = setTimeout(() => {
-            console.debug('[teach-image] local timeout fired', { id });
-            localTimersRef.current.delete(id);
-            onImageTimeout?.(id);
-          }, 60_000);
-          localTimersRef.current.set(id, timer);
-        }
+        // Nothing to do — the figure already shows the streaming
+        // spinner placeholder rendered by renderImageMarkers. We
+        // simply wait for the next imageReady event.
         return;
       }
 
       if (state.status === 'ready' && state.url) {
-        // Cancel any pending timer.
-        const t = localTimersRef.current.get(id);
-        if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
         // Skip if the same URL is already rendered.
         const existingImg = fig.querySelector(':scope > img') as HTMLImageElement | null;
         if (existingImg && existingImg.src === state.url && fig.classList.contains('teach-image-ready')) return;
@@ -2415,102 +2401,37 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
         console.debug('[teach-image] figure upgraded to ready', { id });
         const cap = clearBodyKeepCaption();
 
-        // Build the <img> element first; we attach load/error handlers BEFORE
-        // setting src so we never miss the events for cached responses.
-        // CRITICAL UX: the URL might be a Pollinations.ai endpoint (when
-        // FAL_KEY is unset) — the browser then has to wait 5-15s for the
-        // image to actually arrive. We keep a "loading" overlay (spinner +
-        // text) visible during that window so users always see progress.
+        // Same-origin URL (`/api/teacher-images/<hash>.<ext>`) served
+        // from our own static handler — no CORS, no third-party CDN
+        // latency, no signed-URL expiry. Bytes are persisted server-side
+        // BEFORE this event arrives so the fetch is essentially instant.
         const img = document.createElement('img');
         img.alt = 'صورة توضيحية';
-        // Use 'eager' instead of 'lazy' so the browser fetches immediately
-        // (the figure is in-viewport by definition — it's the message the
-        // student is reading). Lazy-loading delayed Pollinations fetches
-        // until scroll, making the spinner appear stuck.
         img.loading = 'eager';
-
-        // Loading overlay (spinner + label) shown until img.onload fires.
-        // Absolutely positioned over the (still-empty) <img> box, which is
-        // already sized via aspect-ratio:1/1 in CSS so the overlay has space.
-        const overlay = document.createElement('div');
-        overlay.className = 'teach-image-overlay';
-        overlay.innerHTML =
-          '<div class="teach-image-spinner">' +
-            '<span class="dot"></span><span class="dot"></span><span class="dot"></span>' +
-            '<span class="label">جارٍ تحميل الصورة…</span>' +
-          '</div>';
-
-        let settled = false;
-        img.onload = () => {
-          if (settled) return;
-          settled = true;
-          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-          fig.classList.remove('teach-image-loading-overlay');
-        };
         img.onerror = () => {
-          if (settled) return;
-          settled = true;
-          console.debug('[teach-image] img onerror fallback', { id, src: img.src.slice(0, 80) });
+          // Only fires if the cached file was deleted between render and
+          // request (LRU eviction race) — extremely rare. Show a friendly
+          // hint instead of a broken-image icon.
+          console.debug('[teach-image] img onerror', { id, src: img.src.slice(0, 80) });
           const cap2 = clearBodyKeepCaption();
           const fail = document.createElement('div');
           fail.className = 'teach-image-fail';
-          fail.textContent = '⚠️ تعذّر تحميل الصورة — تحقق من الاتصال أو أعد المحاولة.';
+          fail.textContent = '⚠️ تعذّر تحميل الصورة — أعد المحاولة.';
           fig.appendChild(fail);
           if (cap2) fig.appendChild(cap2);
-          fig.classList.remove('teach-image-ready', 'teach-image-loading', 'teach-image-loading-overlay');
+          fig.classList.remove('teach-image-ready', 'teach-image-loading');
           fig.classList.add('teach-image-error');
         };
-        // Hard ceiling: if Pollinations / fal CDN takes > 90s, give up.
-        const fallbackTimer = setTimeout(() => {
-          if (settled) return;
-          if (img.complete && img.naturalWidth > 0) { img.onload?.(new Event('load')); return; }
-          img.onerror?.(new Event('error'));
-        }, 90_000);
-        const origOnload = img.onload;
-        img.onload = (ev) => { clearTimeout(fallbackTimer); origOnload?.call(img, ev); };
-
-        // Now actually start the fetch.
         img.src = state.url;
 
         fig.appendChild(img);
-        fig.appendChild(overlay);
         if (cap) fig.appendChild(cap);
         fig.classList.remove('teach-image-loading', 'teach-image-error');
-        fig.classList.add('teach-image-ready', 'teach-image-loading-overlay');
-
-        // Cached/instant case: img.complete may already be true synchronously.
-        if (img.complete && img.naturalWidth > 0) img.onload?.(new Event('load'));
+        fig.classList.add('teach-image-ready');
         return;
       }
-
-      if (state.status === 'error') {
-        const t = localTimersRef.current.get(id);
-        if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
-        // Skip if already showing error (and no spinner remains).
-        if (fig.classList.contains('teach-image-error') && !fig.querySelector(':scope > .teach-image-spinner')) return;
-
-        console.debug('[teach-image] figure upgraded to error', { id });
-        const cap = clearBodyKeepCaption();
-        const fail = document.createElement('div');
-        fail.className = 'teach-image-fail';
-        fail.textContent = '⚠️ تعذّر توليد الصورة — أكمل القراءة.';
-        fig.appendChild(fail);
-        if (cap) fig.appendChild(cap);
-        fig.classList.remove('teach-image-loading', 'teach-image-ready');
-        fig.classList.add('teach-image-error');
-      }
     });
-  }, [displayHtml, imageMap, onImageTimeout]);
-
-  // Cleanup local timers on unmount so timers don't fire after the user
-  // navigates away from the session.
-  useEffect(() => {
-    const timers = localTimersRef.current;
-    return () => {
-      timers.forEach((t) => clearTimeout(t));
-      timers.clear();
-    };
-  }, []);
+  }, [displayHtml, imageMap]);
 
   // ── Teacher-image click-to-zoom (lightbox) ────────────────────────────────
   // Delegated click handler on the message container. Opens any ready
@@ -2865,31 +2786,13 @@ function SubjectPathChat({
   const [summaryError, setSummaryError] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
   const [gemsRemaining, setGemsRemaining] = useState<number | null>(null);
-  // Tracks in-flight teacher-image generations keyed by the 12-char hex id
-  // the backend embeds in `[[IMAGE:id]]` markers. AIMessage uses this map
-  // to swap placeholder figures for real <img>s as `imageReady` SSE events
-  // arrive. Not persisted — fal.ai URLs expire and historical messages
-  // already store a `<p class="image-historical">` stub (server side).
+  // Tracks in-flight teacher-image generations keyed by the 16-char hex
+  // prompt-hash id the backend embeds in `[[IMAGE:id]]` markers. AIMessage
+  // uses this map to swap placeholder figures for real <img>s as
+  // `imageReady` SSE events arrive. Historical messages already embed
+  // the resolved same-origin URL in their persisted HTML, so this map
+  // only matters for live streams.
   const [imageMap, setImageMap] = useState<TeacherImageMap>(() => new Map());
-  // Local 10s safety-net timeout fires from inside AIMessage when neither
-  // imageReady nor imageError SSE events arrived in time. Flipping
-  // imageMap to `error` here (rather than mutating the DOM inside the
-  // child) is what makes the error survive every subsequent render —
-  // including the streaming → final `safeRef.current` swap that rebuilds
-  // the figure markup from scratch.
-  const handleImageTimeout = useCallback((id: string) => {
-    setImageMap(prev => {
-      const cur = prev.get(id);
-      // Don't clobber a successful resolution that raced and won.
-      if (cur && cur.status === 'ready') return prev;
-      // Idempotent — already error, no change.
-      if (cur && cur.status === 'error') return prev;
-      console.debug('[teach-image] state → error (local timeout)', { id });
-      const next = new Map(prev);
-      next.set(id, { status: 'error' });
-      return next;
-    });
-  }, []);
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
   const [countdownExpired, setCountdownExpired] = useState(false);
   // Bumped every time the student clicks "ابدأ الجلسة التالية الآن" so the
@@ -2989,6 +2892,24 @@ function SubjectPathChat({
   useEffect(() => {
     try { localStorage.setItem(SUGGESTIONS_KEY, suggestionsOpen ? '1' : '0'); } catch {}
   }, [SUGGESTIONS_KEY, suggestionsOpen]);
+  // ── Chat-chrome single collapsible strip (Task #63) ─────────────────────
+  // The compact path bar, mode/sources mini-bar, and stage-progress bar
+  // used to render as three independent stacked strips (~28+30+36 ≈ 94px
+  // of permanent chrome eating the message viewport on phones). We now
+  // wrap all three behind one `chromeOpen` toggle exposed as a 22px
+  // hide/show pill so the student can reclaim the entire vertical
+  // budget with a single tap. Choice persists per-subject so it survives
+  // page refresh.
+  const CHROME_KEY = `nukhba.chromeOpen.${subject.id}`;
+  const [chromeOpen, setChromeOpen] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem(CHROME_KEY);
+      return v === null ? true : v === '1';
+    } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(CHROME_KEY, chromeOpen ? '1' : '0'); } catch {}
+  }, [CHROME_KEY, chromeOpen]);
   // Set to `true` if the diagnostic stream ended without [PLAN_READY] (e.g.
   // truncation past max_tokens, network blip, model refusal). We surface a
   // visible retry button so the student never gets silently stranded.
@@ -3728,15 +3649,13 @@ function SubjectPathChat({
               break;
             }
             // ── Teacher-image SSE events (mid-stream) ─────────────────────
-            // Three event shapes from the server, fired BEFORE `data.done`:
+            // Two event shapes from the server, fired BEFORE `data.done`:
             //   { imagePlaceholder: { id } }       — generation kicked off
-            //   { imageReady: { id, url } }        — URL resolved (≈3-6s)
-            //   { imageError: { id, message? } }   — flux/timeout failure
-            // We mutate imageMap via setState; AIMessage reacts and swaps
-            // the placeholder figure for the real <img>. CRITICAL: these
-            // handlers MUST live outside the `if (data.done)` branch above
-            // — they arrive interleaved with `data.content` chunks during
-            // the stream, never as part of the terminal done event.
+            //   { imageReady: { id, url } }        — URL resolved (≈cache→fal→pollinations→svg, ≤8s)
+            // The server-side store guarantees `imageReady` for every
+            // emitted [[IMAGE:...]] tag (worst case it returns a local
+            // SVG poster URL), so there is no `imageError` event to
+            // handle on this channel any more.
             if (data.imagePlaceholder?.id) {
               const id = String(data.imagePlaceholder.id);
               console.debug('[teach-image] placeholder received', { id });
@@ -3753,23 +3672,8 @@ function SubjectPathChat({
               const url = String(data.imageReady.url);
               console.debug('[teach-image] ready received', { id, url: url.slice(0, 80) });
               setImageMap(prev => {
-                // Late-arriving `ready` after the 60s safety-net flipped to
-                // `error` is a genuine fal.ai response — adopt it so the
-                // student gets the image even if the dropped-SSE fallback
-                // fired first.
                 const next = new Map(prev);
                 next.set(id, { status: 'ready', url });
-                return next;
-              });
-              continue;
-            }
-            if (data.imageError?.id) {
-              const id = String(data.imageError.id);
-              const reason = data.imageError.reason || 'unknown';
-              console.debug('[teach-image] error received', { id, reason });
-              setImageMap(prev => {
-                const next = new Map(prev);
-                next.set(id, { status: 'error' });
                 return next;
               });
               continue;
@@ -4820,7 +4724,7 @@ function SubjectPathChat({
     </div>
 
     {/* Chat UI — visible only when no panel is open */}
-    <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11", display: chatVisible ? "flex" : "none" }}>
+    <div className="chat-shell flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11", display: chatVisible ? "flex" : "none" }}>
 
       {/* Mode-choice overlay (first session, before diagnostic).
           When shown, the chat UI below is hidden so the choice card fills the
@@ -4937,6 +4841,25 @@ function SubjectPathChat({
         </div>
       )}
 
+      {/* Single one-tap hide/show toggle for the consolidated chat-chrome
+          strip below (compact path + mode/sources + stage progress). 22px
+          tall — kept always visible so the student can re-open the chrome
+          even after collapsing. Aligns with the task requirement of "one
+          compact strip with one-tap hide/show". */}
+      {(teachingMode && teachingMode !== 'unset') && (
+        <button
+          type="button"
+          onClick={() => setChromeOpen(v => !v)}
+          className="shrink-0 w-full px-3 py-0.5 border-b border-white/5 bg-white/[0.02] hover:bg-white/[0.05] flex items-center justify-center gap-1 text-[10px] text-white/45 hover:text-amber-200 transition-colors"
+          aria-expanded={chromeOpen}
+          aria-controls="chat-chrome-strip"
+          title={chromeOpen ? "إخفاء شريط الحالة" : "إظهار شريط الحالة"}
+        >
+          {chromeOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          <span>{chromeOpen ? "إخفاء الحالة" : "إظهار الحالة"}</span>
+        </button>
+      )}
+      <div id="chat-chrome-strip" className={chromeOpen ? "contents" : "hidden"}>
       {/* Inline compact path bar — a thin horizontal stage-dot strip directly
           under the session header. Renders alongside (not instead of) the
           side drawer so accustomed users keep their familiar inline path
@@ -5325,6 +5248,9 @@ function SubjectPathChat({
         </div>
       )}
 
+      </div>
+      {/* /chat-chrome-strip */}
+
       {/* Personalized learning path — side drawer (RTL right edge) opened from the header path icon. */}
       {chatPhase === 'teaching' && customPlan && (
         <Drawer open={pathDrawerOpen} onOpenChange={setPathDrawerOpen} direction="right">
@@ -5338,7 +5264,7 @@ function SubjectPathChat({
                 <DrawerDescription className="text-[11px] text-white/50">المرحلة {Math.min(currentStage + 1, stages.length || 1)} من {stages.length || 1}</DrawerDescription>
               </div>
               <DrawerClose asChild>
-                <button type="button" className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white" aria-label="إغلاق">
+                <button type="button" className="w-10 h-10 sm:w-8 sm:h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white" aria-label="إغلاق">
                   <X className="w-4 h-4" />
                 </button>
               </DrawerClose>
@@ -5364,14 +5290,11 @@ function SubjectPathChat({
         </Drawer>
       )}
 
-      {/* Diagnostic phase banner */}
+      {/* Diagnostic phase banner — single-line slim strip (~28px, was ~52px). */}
       {chatPhase === 'diagnostic' && (
-        <div className="shrink-0 px-4 py-2.5 border-b border-purple-500/15 flex flex-col items-center justify-center gap-1" style={{ background: "rgba(139,92,246,0.06)" }}>
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-            <p className="text-[12px] text-purple-300 font-medium">مرحلة التشخيص — يبني معلمك خطتك التعليمية الشخصية</p>
-          </div>
-          <p className="text-[10px] text-purple-300/60">معلّم متخصّص يُصمَّم لك أنت — ليس إجابات عامة كـChatGPT.</p>
+        <div className="shrink-0 px-3 py-1 border-b border-purple-500/15 flex items-center justify-center gap-2" style={{ background: "rgba(139,92,246,0.06)" }}>
+          <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+          <p className="text-[11px] text-purple-300 font-medium truncate">مرحلة التشخيص — يبني معلمك خطتك التعليمية الشخصية</p>
         </div>
       )}
 
@@ -5446,7 +5369,6 @@ function SubjectPathChat({
                         onCreateLabEnv={onCreateLabEnv}
                         onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
                         imageMap={imageMap}
-                        onImageTimeout={handleImageTimeout}
                         onReExplainImage={handleReExplainImage}
                         subjectId={subject.id}
                       />
@@ -5524,36 +5446,56 @@ function SubjectPathChat({
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
-        {chatVisible && !anyPanelOpen && (
-          (onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec) ||
-          (attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario)
-        ) && (
-          <div className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
+      <div className="shrink-0 border-t border-white/8 p-2 sm:p-3" style={{ background: "#0b0d17" }}>
+        {/* Compact action rail — combines the lab/attack-sim CTAs AND the
+            suggestions toggle into a single ~32px-tall row (was three
+            separate ~36px rows = ~108px of permanent chrome). On phones
+            the labels collapse to icons-only via Tailwind's `xs:`/`sm:`
+            helpers, ensuring all targets stay ≥40px tall and never wrap
+            into a second row at ≤480px. */}
+        {chatVisible && !anyPanelOpen && !isStreaming && !chatGated && !quotaExhausted && (
+          <div className="max-w-2xl mx-auto mb-1.5 flex flex-wrap items-center gap-1.5 justify-center" style={{ direction: "rtl" }}>
             {onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec && (
               <button
                 type="button"
                 onClick={() => onStartLabEnvIntent()}
-                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
-                className="quick-launch-chip text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 text-amber-100 hover:text-amber-50 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={sessionPaused}
+                className="quick-launch-chip min-h-[40px] sm:min-h-[36px] text-[11px] sm:text-xs px-3 sm:px-3 py-2 sm:py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 text-amber-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
+                aria-label="ابنِ بيئة تطبيقية"
               >
-                <span>🧪</span>
-                <span>ابنِ بيئة تطبيقية</span>
+                <span aria-hidden="true">🧪</span>
+                <span className="hidden xs:inline sm:inline">بيئة تطبيقية</span>
               </button>
             )}
             {attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario && (
               <button
                 type="button"
                 onClick={() => onOpenAttackIntake()}
-                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
-                className="quick-launch-chip text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-400/70 text-rose-100 hover:text-rose-50 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={sessionPaused}
+                className="quick-launch-chip min-h-[40px] sm:min-h-[36px] text-[11px] sm:text-xs px-3 sm:px-3 py-2 sm:py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-400/70 text-rose-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="ابدأ محاكاة هجمة تعليمية"
+                aria-label="محاكاة هجمة"
               >
-                <span>🎯</span>
-                <span>محاكاة هجمة</span>
+                <span aria-hidden="true">🎯</span>
+                <span className="hidden xs:inline sm:inline">محاكاة هجمة</span>
               </button>
             )}
+            {/* Suggestions toggle — promoted from a standalone row into this
+                shared rail so the sub-rail render below only takes height
+                when actually expanded. */}
+            <button
+              type="button"
+              onClick={() => setSuggestionsOpen((v) => !v)}
+              className="min-h-[40px] sm:min-h-[36px] inline-flex items-center gap-1.5 text-[11px] sm:text-xs px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-white/70 hover:text-amber-200 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all"
+              aria-expanded={suggestionsOpen}
+              aria-controls="suggestion-chips"
+              title={suggestionsOpen ? "إخفاء الاقتراحات" : "إظهار اقتراحات للأسئلة"}
+            >
+              <Lightbulb className="w-3 h-3" aria-hidden="true" />
+              <span className="hidden xs:inline sm:inline">{suggestionsOpen ? "إخفاء الاقتراحات" : "اقتراحات"}</span>
+              {suggestionsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
           </div>
         )}
         {(recordingHandle || isTranscribing) && (
@@ -5595,22 +5537,9 @@ function SubjectPathChat({
             collapse behind a small "اقتراحات ✨" toggle so the student opens
             them only when stuck. Choice persisted per subject in localStorage.
             Generic fallback covers anything unknown. */}
-        {!isStreaming && !chatGated && !quotaExhausted && (
-          <div className="max-w-2xl mx-auto mb-2 flex justify-center" style={{ direction: "rtl" }}>
-            <button
-              type="button"
-              onClick={() => setSuggestionsOpen((v) => !v)}
-              className="session-toggle-btn inline-flex items-center gap-1.5 text-[11px] text-white/60 hover:text-amber-200 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all"
-              aria-expanded={suggestionsOpen}
-              aria-controls="suggestion-chips"
-              title={suggestionsOpen ? "إخفاء الاقتراحات" : "إظهار اقتراحات للأسئلة"}
-            >
-              <Lightbulb className="w-3 h-3" />
-              <span>{suggestionsOpen ? "إخفاء الاقتراحات" : "اقتراحات ✨"}</span>
-              {suggestionsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
-          </div>
-        )}
+        {/* Suggestions toggle was here — promoted into the shared compact
+            action rail above so it doesn't claim its own row. The expanded
+            chip list still renders below when toggled open. */}
         {!isStreaming && !chatGated && !quotaExhausted && suggestionsOpen && (() => {
           const text = `${String(subject?.id || "")} ${String(subject?.name || "")}`.toLowerCase();
           const has = (re: RegExp) => re.test(text);
