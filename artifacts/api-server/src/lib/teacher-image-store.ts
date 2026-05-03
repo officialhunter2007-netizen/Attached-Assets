@@ -202,9 +202,16 @@ function buildSvgPoster(prompt: string, hash: string): Buffer {
   const hue = parseInt(hash.slice(0, 4), 16) % 360;
   const accent = `hsl(${hue}, 70%, 55%)`;
   const accent2 = `hsl(${(hue + 30) % 360}, 65%, 45%)`;
-  const ideaWord = (prompt.split(/\s+/).find((w) => w.length > 3) || "idea")
-    .replace(/[<>&"']/g, "")
-    .slice(0, 20);
+  // Prefer the Arabic substring of the prompt as the topic label so the
+  // RTL student sees a recognisable concept word rather than a stray
+  // English token. Falls back to the first non-trivial word, then to
+  // the generic "صورة توضيحية" caption.
+  const sanitize = (s: string) => s.replace(/[<>&"']/g, "").trim().slice(0, 28);
+  const arabicMatch = prompt.match(/[\u0600-\u06FF][\u0600-\u06FF\s]{2,}/);
+  const topic = sanitize(
+    (arabicMatch && arabicMatch[0])
+      || (prompt.split(/\s+/).find((w) => w.length > 3) || ""),
+  );
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
@@ -219,14 +226,18 @@ function buildSvgPoster(prompt: string, hash: string): Buffer {
   </defs>
   <rect width="1024" height="1024" fill="url(#g)"/>
   <rect width="1024" height="1024" fill="url(#glow)"/>
-  <g transform="translate(512 460)" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif" fill="rgba(255,255,255,0.95)">
+  <g transform="translate(512 440)" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif" fill="rgba(255,255,255,0.95)">
     <circle r="120" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.5)" stroke-width="4"/>
     <text y="30" font-size="120" font-weight="700">💡</text>
   </g>
-  <text x="512" y="700" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif"
-        font-size="42" font-weight="700" fill="rgba(255,255,255,0.95)">صورة توضيحية</text>
-  <text x="512" y="760" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif"
-        font-size="28" fill="rgba(255,255,255,0.75)">${ideaWord}</text>
+  <text x="512" y="680" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif"
+        font-size="42" font-weight="700" fill="rgba(255,255,255,0.95)" direction="rtl">صورة توضيحية</text>
+  ${topic ? `<text x="512" y="740" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif"
+        font-size="32" fill="rgba(255,255,255,0.85)" direction="rtl">${topic}</text>` : ""}
+  <!-- Brand mark: small "نُخبة" wordmark in the bottom-right corner -->
+  <g transform="translate(940 970)" text-anchor="end" font-family="system-ui,Segoe UI,sans-serif">
+    <text font-size="28" font-weight="700" fill="rgba(255,255,255,0.85)" direction="rtl">نُخبة</text>
+  </g>
 </svg>`;
   return Buffer.from(svg, "utf8");
 }
