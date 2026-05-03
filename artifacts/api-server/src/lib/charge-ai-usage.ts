@@ -151,6 +151,10 @@ export async function settleAiCharge(opts: SettleAiChargeOpts): Promise<SettleAi
 
       if (opts.wallet.kind === "first-lesson") {
         const cap = Math.max(0, Math.floor(opts.wallet.cap));
+        const [usedBefore] = await tx
+          .select({ used: userSubjectFirstLessonsTable.freeMessagesUsed })
+          .from(userSubjectFirstLessonsTable)
+          .where(eq(userSubjectFirstLessonsTable.id, opts.wallet.firstLessonId));
         const [updated] = await tx
           .update(userSubjectFirstLessonsTable)
           .set({
@@ -160,6 +164,13 @@ export async function settleAiCharge(opts: SettleAiChargeOpts): Promise<SettleAi
           .where(eq(userSubjectFirstLessonsTable.id, opts.wallet.firstLessonId))
           .returning({ used: userSubjectFirstLessonsTable.freeMessagesUsed });
         balanceAfter = updated ? Math.max(0, cap - (updated.used ?? 0)) : 0;
+        // Tighten metadata to the actual cap-clamped increment (turns
+        // that overflow the cap consume only the remainder).
+        const actualIncrement = Math.max(0, (updated?.used ?? 0) - (usedBefore?.used ?? 0));
+        await tx
+          .update(gemLedgerTable)
+          .set({ metadata: { ...baseMetadata, gemsConsumed: actualIncrement, cap } })
+          .where(eq(gemLedgerTable.id, ledgerId));
       } else if (opts.wallet.kind === "per-subject") {
         // Conditional UPDATE: only debit when balance is actually sufficient.
         // If 0 rows return, throw to roll back the ledger placeholder too —
