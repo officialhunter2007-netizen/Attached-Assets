@@ -5,10 +5,10 @@
 1. **Kit table is exhaustive** — `SUBJECT_SHOWCASE_KITS` in `artifacts/api-server/src/lib/subject-showcase-kits.ts` has exactly 24 entries, one per subjectId in `curriculum.ts`. Verified by manual diff against `getSubjectById` lookup table.
 
 2. **Kit injection is gated PER SUBJECT, post-plan** — kit fires when `isShowcaseOpener === true`. The condition is:
-   - `!isDiagnosticPhase` — current turn is teaching, not diagnostic.
+   - `!isDiagnosticPhase` — request body flag set by the frontend; teaching turn (the frontend persists `chatPhase` and flips it to `teaching` when the planReady stream signal arrives).
    - `!hasPriorLabEnvTag` — no prior `[[CREATE_LAB_ENV:` in history (showcase didn't already run).
-   - `isFirstTeachingReplyForSubject` — locate the last assistant message containing `[PLAN_READY]`; the opener fires only if NO assistant message exists after it. Diagnostic-phase `ASK_OPTIONS` turns are ignored because they appear before `[PLAN_READY]`. Fallback when no `[PLAN_READY]` exists yet: only fire if no assistant turn exists at all.
-   - We deliberately decoupled this from the global `users.firstLessonComplete` billing flag — that flag is consumed once per account and would have prevented subjects #2..24 from ever showing the showcase. Conversation history is per-subject, so the history-based signal is naturally per-subject. Re-runs of l1 after the lab was launched do NOT re-inject the kit (no infinite tour).
+   - `!hasPriorTeachingReply` — no prior assistant message contains a teaching-only marker that survives `cleanTeachingChunk()`: `[[CREATE_LAB_ENV:`, `[[IMAGE:`, or `<div class="(question-box|praise|discover-box)`. We do NOT scan for `[PLAN_READY]` because `cleanTeachingChunk()` strips it before persistence. We do NOT use the global `users.firstLessonComplete` billing flag because it's consumed once per account and would have suppressed subjects #2..24. Diagnostic ASK_OPTIONS turns and the plan-reveal HTML do NOT contain these teaching markers, so they don't trigger the guard.
+   - Conversation history is per-subject, so the signal is naturally per-subject. Re-runs of l1 after the lab was launched do NOT re-inject the kit (no infinite tour).
 
 3. **Kit block is appended LAST** — placement is after `buildGeminiTeachingAddendum`, so the kit's literal instructions are the most-recent guidance the model reads, overriding any earlier "ask first" / "don't build a lab in first reply" rules.
 

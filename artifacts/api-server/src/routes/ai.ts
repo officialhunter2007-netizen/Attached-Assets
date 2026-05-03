@@ -2042,44 +2042,44 @@ ${formattingRules}`;
     }
     return false;
   })();
-  // Per-subject showcase eligibility. Fires on the first teaching reply after
-  // [PLAN_READY] in the per-subject conversation. Decoupled from the global
-  // users.firstLessonComplete billing flag so subjects #2..24 still get the
-  // showcase. Diagnostic ASK_OPTIONS turns appear before [PLAN_READY] and are
-  // correctly ignored. Fallback when no [PLAN_READY]: only fire if no prior
-  // assistant turn exists at all.
+  // Per-subject showcase eligibility. The request body's `isDiagnosticPhase`
+  // is the authoritative signal that the current turn is a teaching turn
+  // (frontend persists `chatPhase` and flips it on planReady). For "first
+  // teaching reply ever in this subject" we scan history for any prior
+  // assistant message that contains a TEACHING-ONLY marker that survives
+  // `cleanTeachingChunk()` (i.e. is not stripped before persistence):
+  //   - [[CREATE_LAB_ENV:        — interactive lab tag
+  //   - [[IMAGE:                  — image generation tag
+  //   - <div class="question-box  — teaching question box (diagnostic uses ASK_OPTIONS)
+  //   - <div class="praise"       — teaching praise box
+  //   - <div class="discover-box  — teaching discovery box
+  // Diagnostic phase replies use [[ASK_OPTIONS:]] and the plan-reveal HTML
+  // structure, neither of which contains these markers. We deliberately do
+  // NOT depend on [PLAN_READY] in history (cleanTeachingChunk strips it
+  // before persistence) and do NOT depend on the global isFirstLesson
+  // billing flag (consumed once per account).
+  const TEACHING_MARKER_RE = /\[\[\s*CREATE_LAB_ENV\s*:|\[\[\s*IMAGE\s*:|<div\s+class="(?:question-box|praise|discover-box)/i;
   type HistoryMsg = {
     role?: string;
     content?: string | Array<string | { text?: string }>;
   };
-  const isFirstTeachingReplyForSubject = (() => {
-    if (!Array.isArray(history)) return true;
+  const hasPriorTeachingReply = (() => {
+    if (!Array.isArray(history)) return false;
     const msgs = history as HistoryMsg[];
-    const isAssistant = (m: HistoryMsg): boolean => m?.role === "assistant" || m?.role === "model";
-    const extractText = (m: HistoryMsg): string => {
+    for (const m of msgs) {
+      if (m?.role !== "assistant" && m?.role !== "model") continue;
       const c = m?.content;
-      if (typeof c === "string") return c;
-      if (Array.isArray(c)) return c.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("");
-      return "";
-    };
-    let lastPlanReadyIdx = -1;
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (!isAssistant(msgs[i])) continue;
-      if (/\[PLAN_READY\]/.test(extractText(msgs[i]))) {
-        lastPlanReadyIdx = i;
-        break;
-      }
+      const text = typeof c === "string"
+        ? c
+        : Array.isArray(c)
+          ? c.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("")
+          : "";
+      if (TEACHING_MARKER_RE.test(text)) return true;
     }
-    if (lastPlanReadyIdx === -1) {
-      return !msgs.some(isAssistant);
-    }
-    for (let i = lastPlanReadyIdx + 1; i < msgs.length; i++) {
-      if (isAssistant(msgs[i])) return false;
-    }
-    return true;
+    return false;
   })();
   const isShowcaseOpener =
-    !isDiagnosticPhase && !hasPriorLabEnvTag && isFirstTeachingReplyForSubject;
+    !isDiagnosticPhase && !hasPriorLabEnvTag && !hasPriorTeachingReply;
 
   // The showcase addendum itself is appended LATER — after the Gemini
   // addendum — so it is the very last thing the model reads and overrides
