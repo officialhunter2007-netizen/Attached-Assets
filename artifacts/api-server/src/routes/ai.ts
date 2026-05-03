@@ -2047,43 +2047,18 @@ ${formattingRules}`;
     return false;
   })();
   // Per-subject showcase eligibility. The request body's `isDiagnosticPhase`
-  // is the authoritative signal that the current turn is a teaching turn
-  // (frontend persists `chatPhase` and flips it on planReady). For "first
-  // teaching reply ever in this subject" we scan history for any prior
-  // assistant message that contains a TEACHING-ONLY marker that survives
-  // `cleanTeachingChunk()` (i.e. is not stripped before persistence):
-  //   - [[CREATE_LAB_ENV:        — interactive lab tag
-  //   - [[IMAGE:                  — image generation tag
-  //   - <div class="question-box  — teaching question box (diagnostic uses ASK_OPTIONS)
-  //   - <div class="praise"       — teaching praise box
-  //   - <div class="discover-box  — teaching discovery box
-  // Diagnostic phase replies use [[ASK_OPTIONS:]] and the plan-reveal HTML
-  // structure, neither of which contains these markers. We deliberately do
-  // NOT depend on [PLAN_READY] in history (cleanTeachingChunk strips it
-  // before persistence) and do NOT depend on the global isFirstLesson
-  // billing flag (consumed once per account).
-  const TEACHING_MARKER_RE = /\[\[\s*CREATE_LAB_ENV\s*:|\[\[\s*IMAGE\s*:|<div\s+class="(?:question-box|praise|discover-box)/i;
-  type HistoryMsg = {
-    role?: string;
-    content?: string | Array<string | { text?: string }>;
-  };
-  const hasPriorTeachingReply = (() => {
-    if (!Array.isArray(history)) return false;
-    const msgs = history as HistoryMsg[];
-    for (const m of msgs) {
-      if (m?.role !== "assistant" && m?.role !== "model") continue;
-      const c = m?.content;
-      const text = typeof c === "string"
-        ? c
-        : Array.isArray(c)
-          ? c.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("")
-          : "";
-      if (TEACHING_MARKER_RE.test(text)) return true;
-    }
-    return false;
-  })();
-  const isShowcaseOpener =
-    !isDiagnosticPhase && !hasPriorLabEnvTag && !hasPriorTeachingReply;
+  // is the authoritative signal for "current turn is teaching" (the frontend
+  // persists chatPhase and flips it to teaching when planReady streams in).
+  // For "showcase hasn't already run for this subject" we use
+  // `hasPriorLabEnvTag` — `[[CREATE_LAB_ENV:` is the one concrete marker the
+  // showcase mandates, and it survives `cleanTeachingChunk()`. We deliberately
+  // do NOT scan for HTML class markers like `praise` / `question-box` because
+  // the diagnostic plan-reveal template uses `<div class="praise">` inside
+  // the learning-path block, which would false-trigger and suppress the
+  // showcase on the first teaching turn. We also do NOT use the global
+  // `users.firstLessonComplete` billing flag (consumed once per account, so
+  // it would suppress subjects #2..24).
+  const isShowcaseOpener = !isDiagnosticPhase && !hasPriorLabEnvTag;
 
   // The showcase addendum itself is appended LATER — after the Gemini
   // addendum — so it is the very last thing the model reads and overrides
