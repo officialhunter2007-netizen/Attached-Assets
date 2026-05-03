@@ -1443,7 +1443,7 @@ export default function Admin() {
                               <Button
                                 size="sm"
                                 className="h-7 text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 gap-1"
-                                onClick={() => setExtendDialog({ subId: s.id, userName: s.userName ?? s.userEmail, subjectName: s.subjectName ?? s.subjectId })}
+                                onClick={() => setExtendDialog({ subId: s.id, userName: s.userName ?? s.userEmail ?? "—", subjectName: s.subjectName ?? s.subjectId })}
                               >
                                 <CalendarDays className="w-3 h-3" />
                                 تمديد
@@ -1453,7 +1453,7 @@ export default function Admin() {
                                 className="h-7 text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 gap-1"
                                 onClick={() => setGemAdjustDialog({
                                   subId: s.id,
-                                  userName: s.userName ?? s.userEmail,
+                                  userName: s.userName ?? s.userEmail ?? "—",
                                   subjectName: s.subjectName ?? s.subjectId,
                                   // Backend shape uses gemsBalance / messagesLimit interchangeably during the migration window.
                                   currentBalance: typeof s.gemsBalance === "number" ? s.gemsBalance : Math.max(0, (s.messagesLimit ?? 0) - (s.messagesUsed ?? 0)),
