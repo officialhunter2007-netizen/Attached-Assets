@@ -1288,7 +1288,7 @@ export default function Subject() {
                     <>
                       <button
                         onClick={() => setIsIDEOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                        className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
                       >
                         <ArrowRight className="w-4 h-4" />
                       </button>
@@ -1304,7 +1304,7 @@ export default function Subject() {
                     <>
                       <button
                         onClick={() => setIsLabOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                        className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
                       >
                         <ArrowRight className="w-4 h-4" />
                       </button>
@@ -1320,7 +1320,7 @@ export default function Subject() {
                     <>
                       <button
                         onClick={() => setIsYemenSoftOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                        className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
                       >
                         <ArrowRight className="w-4 h-4" />
                       </button>
@@ -1336,7 +1336,7 @@ export default function Subject() {
                     <>
                       <button
                         onClick={() => setIsAccountingLabOpen(false)}
-                        className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
+                        className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"
                       >
                         <ArrowRight className="w-4 h-4" />
                       </button>
@@ -1379,7 +1379,7 @@ export default function Subject() {
                       flows through the same teacher-orchestrated dialog. */}
                   <button
                     onClick={() => setIsChatOpen(false)}
-                    className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors text-muted-foreground hover:text-white"
+                    className="w-10 h-10 sm:w-8 sm:h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors text-muted-foreground hover:text-white"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -5349,7 +5349,7 @@ function SubjectPathChat({
                 <DrawerDescription className="text-[11px] text-white/50">المرحلة {Math.min(currentStage + 1, stages.length || 1)} من {stages.length || 1}</DrawerDescription>
               </div>
               <DrawerClose asChild>
-                <button type="button" className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white" aria-label="إغلاق">
+                <button type="button" className="w-10 h-10 sm:w-8 sm:h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white" aria-label="إغلاق">
                   <X className="w-4 h-4" />
                 </button>
               </DrawerClose>
