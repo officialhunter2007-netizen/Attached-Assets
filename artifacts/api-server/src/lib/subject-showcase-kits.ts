@@ -484,3 +484,44 @@ export function getShowcaseKit(subjectId: string | undefined | null): SubjectSho
   if (!subjectId) return undefined;
   return SUBJECT_SHOWCASE_KITS[subjectId];
 }
+
+/**
+ * Short topic (≤ 5 Arabic words) per subject for the canonical
+ * `[MISTAKE: topic ||| description]` tag. Pairs with `firstMistakeTrap`
+ * (used as the description). The server-side parser at
+ * `routes/ai.ts` requires both a topic and a description separated by
+ * `|||`; emitting only the trap text would silently fail to persist
+ * into `studentMistakesTable`.
+ */
+export const FIRST_MISTAKE_TOPICS: Record<string, string> = {
+  "uni-it": "IP والمنفذ",
+  "uni-cybersecurity": "تصنيف التهديد",
+  "uni-data-science": "المتوسط مقابل الوسيط",
+  "uni-accounting": "قيد البيع المزدوج",
+  "uni-business": "تقدير حصة السوق",
+  "uni-software-eng": "إعادة الهيكلة",
+  "uni-ai": "فهم النماذج اللغوية",
+  "uni-mobile": "دورة حياة التطبيق",
+  "uni-cloud": "المرونة السحابية",
+  "uni-networks": "Latency مقابل فقدان الحزم",
+  "uni-food-eng": "النشاط المائي Aw",
+  "skill-html": "دلالة HTML",
+  "skill-css": "Box Model",
+  "skill-js": "غير المتزامن",
+  "skill-python": "أسلوب Pythonic",
+  "skill-cpp": "إدارة الذاكرة",
+  "skill-c": "نطاق المتغيرات",
+  "skill-java": "تصميم الكلاسات",
+  "skill-linux": "الأوامر التدميرية",
+  "skill-windows": "اختبار سكربت PowerShell",
+  "skill-net-basics": "تشخيص الطبقات",
+  "skill-nmap": "كشف الإصدار",
+  "skill-wireshark": "حزم DNS الصغيرة",
+  "skill-yemensoft": "نوع الفاتورة",
+};
+
+/** Helper: returns canonical topic for a subject, or a safe fallback. */
+export function getFirstMistakeTopic(subjectId: string | undefined | null): string {
+  if (!subjectId) return "خطأ مفاهيمي أول";
+  return FIRST_MISTAKE_TOPICS[subjectId] ?? "خطأ مفاهيمي أول";
+}

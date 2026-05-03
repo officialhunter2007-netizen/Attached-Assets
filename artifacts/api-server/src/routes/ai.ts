@@ -70,7 +70,7 @@ import { validateAndHealEnv } from "../lib/lab-env-validator";
 import { robustJsonParse } from "../lib/json-repair";
 import { z } from "zod";
 import { signMasteryToken, verifyMasteryToken, newAttemptId } from "../lib/lab-exam-token";
-import { getShowcaseKit, type SubjectShowcaseKit } from "../lib/subject-showcase-kits";
+import { getShowcaseKit, getFirstMistakeTopic, type SubjectShowcaseKit } from "../lib/subject-showcase-kits";
 import {
   createAttempt,
   getAttempt,
@@ -808,7 +808,8 @@ function cleanTeachingChunk(text: string): string {
  * The platform absorbs the extra gem cost via FREE_LESSON_GEM_LIMIT = 80, so
  * the student never gets cut off mid-tour even if the showcase runs long.
  */
-function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding: boolean; imageEnabled: boolean; kit?: SubjectShowcaseKit }): string {
+function buildFirstLessonShowcaseAddendum(opts: { subjectId?: string; subjectName: string; hasCoding: boolean; imageEnabled: boolean; kit?: SubjectShowcaseKit }): string {
+  const subjectId = opts.subjectId;
   const codingShowcase = opts.hasCoding
     ? `   • **محرر الأكواد المدمج (للبرمجة فقط):** اطلب منه فتح المحرر بسطر صريح مثل: "اضغط زر **IDE** الذهبي في **أعلى نافذة المحادثة** (أيقونة الكود)، اكتب أبسط برنامج 'Hello World' بلغة ${opts.subjectName}، ثم شغّله بنقرة واحدة — ستراه يطبع نتيجته فوراً." لا تكتب الكود له، اطلب منه يكتبه بنفسه ليشعر بالتجربة.\n`
     : "";
@@ -858,8 +859,10 @@ ${kit.labEnvBlueprint}
 
 ⚠️ **استخدم الوصف أعلاه داخل** \`[[CREATE_LAB_ENV: …]]\` **— لا تختصره ولا تعمّمه**.${kitImageBlock}
 
-**(هـ) فخ الخطأ الأول المتوقّع — كن جاهزاً لاستخدام \`[MISTAKE: …]\`:**
-عندما يقع الطالب في هذا الفخ: «${kit.firstMistakeTrap}» — استخدم \`[MISTAKE: ${kit.firstMistakeTrap}]\` في الرد التالي، واذكر له أن المنصة سجّلت الخطأ في ذاكرتك عنه.
+**(هـ) فخ الخطأ الأول المتوقّع — كن جاهزاً لاستخدام \`[MISTAKE: topic ||| description]\`:**
+عندما يقع الطالب في هذا الفخ: «${kit.firstMistakeTrap}» — استخدم **حرفياً** الوسم التالي في الرد التالي:
+\`[MISTAKE: ${getFirstMistakeTopic(subjectId)} ||| ${kit.firstMistakeTrap}]\`
+ثم اذكر للطالب أن المنصة سجّلت الخطأ في ذاكرتك عنه. ⚠️ الفاصل \`|||\` إلزامي وإلا لن يُحفظ الخطأ في قاعدة البيانات.
 
 **(و) سطر الانتقال إلى الخطة بعد التجربة:**
 ${kit.transitionLine}
@@ -2931,6 +2934,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // history) to avoid re-triggering the tour on every subsequent reply.
   if (isShowcaseOpener) {
     systemPrompt = systemPrompt + buildFirstLessonShowcaseAddendum({
+      subjectId,
       subjectName: subjectName ?? "هذه المادة",
       hasCoding: !!hasCoding,
       imageEnabled: __imageEnabled,
