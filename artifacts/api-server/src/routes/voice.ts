@@ -9,10 +9,10 @@ const router: IRouter = Router();
 
 const TTS_MAX_CHARS = 2000;
 const TTS_DAILY_LIMIT = 60;
-// 60s of opus at 32 kbps ≈ 240 KB. We allow 1.5 MB to give headroom for
-// higher-bitrate Safari mp4/m4a captures while still bounding the per-
-// request transcription cost.
-const STT_MAX_BYTES = 1_500_000;
+// 8 MB upper bound matches Whisper's per-request limit and accommodates
+// Safari mp4/AAC captures that can exceed 2 MB for a 60 s clip. The
+// 60 s duration cap is enforced client-side; this is the cost ceiling.
+const STT_MAX_BYTES = 8 * 1024 * 1024;
 const STT_DAILY_LIMIT = 60;
 const STT_ALLOWED_MIME_PREFIXES = [
   "audio/webm",
@@ -192,14 +192,10 @@ router.post("/ai/stt", upload.single("audio"), async (req, res): Promise<unknown
       message: "نوع الملف الصوتي غير مدعوم.",
     });
   }
-  // Cheap server-side duration guard: at 256 kbps (highest realistic
-  // browser MediaRecorder bitrate) 60 s ≈ 1.92 MB. The 1.5 MB hard cap
-  // above already enforces this, but reject explicitly for clearer error
-  // messaging when a client overrides the 60 s timer.
   if (file.buffer.length > STT_MAX_BYTES) {
     return res.status(413).json({
       error: "AUDIO_TOO_LARGE",
-      message: "التسجيل أطول من الحد المسموح (60 ثانية).",
+      message: `حجم الملف يتجاوز ${Math.round(STT_MAX_BYTES / (1024 * 1024))} ميجابايت.`,
     });
   }
   let ext = "webm";

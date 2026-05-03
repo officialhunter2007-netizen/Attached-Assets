@@ -159,6 +159,38 @@ export interface RecognitionOptions {
   onUploading?: () => void;
 }
 
+// Best-effort fallback when the cloud STT call fails. Uses the browser's
+// `webkitSpeechRecognition` (Chrome / Edge / Samsung) or the standard
+// `SpeechRecognition` to capture a single Arabic utterance. Returns
+// `true` if a recognition session was successfully started so the caller
+// can suppress the "transcription failed" toast.
+function tryBrowserSpeechRecognitionFallback(opts: RecognitionOptions): boolean {
+  if (typeof window === "undefined") return false;
+  const Ctor = (window as unknown as {
+    SpeechRecognition?: new () => SpeechRecognition;
+    webkitSpeechRecognition?: new () => SpeechRecognition;
+  }).SpeechRecognition ?? (window as unknown as {
+    webkitSpeechRecognition?: new () => SpeechRecognition;
+  }).webkitSpeechRecognition;
+  if (!Ctor) return false;
+  try {
+    const rec = new Ctor();
+    rec.lang = "ar-SA";
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (ev: SpeechRecognitionEvent) => {
+      const transcript = ev.results?.[0]?.[0]?.transcript?.trim() || "";
+      if (transcript) opts.onResult(transcript, true);
+    };
+    rec.onerror = () => { /* silently swallow — we already fell back */ };
+    rec.start();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function startRecognition(opts: RecognitionOptions): RecognitionHandle | null {
   if (!isMediaRecorderSupported()) {
     opts.onError?.("متصفّحك لا يدعم التسجيل الصوتي. جرّب Chrome أو Safari الحديث.");
@@ -208,8 +240,11 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
   const preferred = [
     "audio/webm;codecs=opus",
     "audio/webm",
+    "audio/mp4;codecs=mp4a.40.2",
     "audio/mp4",
+    "audio/aac",
     "audio/ogg;codecs=opus",
+    "audio/ogg",
   ];
   const supported = preferred.find(
     (t) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t),
@@ -251,7 +286,11 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
       recorder.onstop = () => {
         cleanupStreams();
         if (cancelled) return;
-        const mime = recorder?.mimeType || supported || "audio/webm";
+        // Some Safari versions return an empty mimeType on the recorder
+        // instance; fall back to the type we asked for, then to a sane
+        // default so the upload always carries a recognised audio MIME.
+        let mime = (recorder?.mimeType || "").trim() || supported || "audio/webm";
+        if (!/^audio\//i.test(mime)) mime = "audio/webm";
         const blob = new Blob(chunks, { type: mime });
         if (blob.size === 0) {
           opts.onError?.("لم يتم تسجيل أي صوت — تأكد من السماح بالميكروفون.");
@@ -260,9 +299,10 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
         }
         opts.onUploading?.();
         const fd = new FormData();
-        const ext = mime.includes("mp4") ? "m4a"
+        const ext = mime.includes("mp4") || mime.includes("aac") || mime.includes("m4a") ? "m4a"
           : mime.includes("ogg") ? "ogg"
           : mime.includes("wav") ? "wav"
+          : mime.includes("mpeg") || mime.includes("mp3") ? "mp3"
           : "webm";
         fd.append("audio", blob, `recording.${ext}`);
 
@@ -285,7 +325,12 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
             opts.onEnd?.();
           })
           .catch((err: unknown) => {
-            opts.onError?.(err instanceof Error ? err.message : "تعذّر تحويل الصوت إلى نص.");
+            const msg = err instanceof Error ? err.message : "تعذّر تحويل الصوت إلى نص.";
+            // Last-resort: try the browser's native SpeechRecognition so
+            // the user still gets a transcript even if the cloud route
+            // is down or the audio MIME was rejected.
+            const fellBack = tryBrowserSpeechRecognitionFallback(opts);
+            if (!fellBack) opts.onError?.(msg);
             opts.onEnd?.();
           });
       };

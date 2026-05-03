@@ -2030,10 +2030,6 @@ const MessageToolbar = memo(function MessageToolbar({
 }) {
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
-  // Three-state TTS lifecycle: "idle" → "loading" (fetch in flight) →
-  // "playing" → back to "idle". Modeled explicitly because the cloud
-  // round-trip introduces a visible gap between click and audio start
-  // that the old polling-based flag conflated with "not speaking".
   const [ttsState, setTtsState] = useState<"idle" | "loading" | "playing">("idle");
   // Ratings are persisted to localStorage under `nukhba.feedback.<key>` so
   // a thumbs-up/down survives reload, remount, and tab close. The backend
@@ -2080,9 +2076,6 @@ const MessageToolbar = memo(function MessageToolbar({
 
   const handleTTS = useCallback(() => {
     if (!ttsAvailable) return;
-    // Tap while loading or playing → cancel everything (also aborts the
-    // in-flight fetch and any other message's playback, so the toolbars
-    // can never both show "playing" simultaneously).
     if (ttsState !== "idle") {
       stopSpeaking();
       setTtsState("idle");
@@ -4625,9 +4618,6 @@ function SubjectPathChat({
         IMPORTANT: this does NOT call /ai/lab/build-env directly. It triggers
         the teacher-orchestrated intake interview, which emits
         [[LAB_INTAKE_DONE]] only after all 5 questions complete. */}
-    {/* "ابنِ بيئة تطبيقية" + "محاكاة هجمة" moved into the input-area
-        chip rail (search for `quick-launch-chip`) so they no longer
-        cover the last chat message on small screens. */}
     {/* Attack Simulation: re-open button when scenario exists but panel closed. */}
     {showReopenAttack && (
       <button
@@ -4928,9 +4918,6 @@ function SubjectPathChat({
             )}
           </div>
           <div className="shrink-0 flex items-center gap-1">
-            {/* "End session & save summary" — promoted out of the
-                dropdown so it's reachable in one tap. Hidden until the
-                session has at least one teacher reply to summarize. */}
             {messages.length >= 2 && (
               <button
                 type="button"
@@ -5434,8 +5421,6 @@ function SubjectPathChat({
 
       {/* Input area */}
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
-        {/* Quick-launch chips for "Build a lab env" + "Attack simulation",
-            replacing the previous bottom-right floating buttons. */}
         {chatVisible && !anyPanelOpen && (
           (onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec) ||
           (attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario)
@@ -5467,9 +5452,6 @@ function SubjectPathChat({
             )}
           </div>
         )}
-        {/* Visible recording / transcribing indicator with elapsed counter
-            and a pulsing waveform — sits above the input so the user has
-            unmistakable feedback that the mic is open. */}
         {(recordingHandle || isTranscribing) && (
           <div className="max-w-2xl mx-auto mb-2 flex items-center justify-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/40 text-rose-100 text-[11px] sm:text-xs font-bold" style={{ direction: "rtl" }}>
             {isTranscribing ? (
