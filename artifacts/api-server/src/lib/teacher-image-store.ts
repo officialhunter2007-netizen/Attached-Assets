@@ -317,7 +317,16 @@ export function startTeacherImageMaintenance(): void {
   setTimeout(() => { ensureDir().then(() => maybeEvict()).catch(() => {}); }, 30_000);
   // Hourly thereafter.
   const interval = setInterval(
-    () => { ensureDir().then(() => maybeEvict()).catch(() => {}); },
+    () => {
+      ensureDir().then(() => maybeEvict()).catch(() => {});
+      // Emit a single line summarising provider outcomes for the past
+      // hour so ops can spot regressions (e.g. svg-fallback ratio
+      // climbing means timeouts are too tight or fal is down).
+      logger.info(
+        { providerCounts: getTeacherImageStats() },
+        "teacher-image-store: hourly provider stats",
+      );
+    },
     60 * 60 * 1000,
   );
   // unref so the timer doesn't keep the process alive on shutdown.
@@ -326,6 +335,24 @@ export function startTeacherImageMaintenance(): void {
     { budgetMB: CACHE_BUDGET_MB, dir: CACHE_DIR },
     "teacher-image-store: maintenance scheduled (startup + hourly)",
   );
+}
+
+// ── Telemetry ───────────────────────────────────────────────────────────────
+// Lightweight in-memory counters so ops can monitor whether provider
+// timeouts are too aggressive (excessive svg fallbacks) or whether
+// fal/pollinations is consistently failing. Zero deps, reset on
+// process restart. Logged once per maintenance sweep.
+const __providerCounts: Record<ResolveResult["provider"], number> = {
+  cache: 0,
+  fal: 0,
+  pollinations: 0,
+  svg: 0,
+};
+function recordProvider(p: ResolveResult["provider"]): void {
+  __providerCounts[p] = (__providerCounts[p] || 0) + 1;
+}
+export function getTeacherImageStats(): Readonly<Record<ResolveResult["provider"], number>> {
+  return { ...__providerCounts };
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -364,6 +391,7 @@ export async function resolveTeacherImage(prompt: string): Promise<ResolveResult
     // 1. Disk cache hit?
     const hit = await findCached(hash);
     if (hit) {
+      recordProvider("cache");
       return { url: urlFor(hash, hit.ext), provider: "cache", latencyMs: Date.now() - start };
     }
 
@@ -423,6 +451,7 @@ export async function resolveTeacherImage(prompt: string): Promise<ResolveResult
     // Background eviction (never awaited).
     maybeEvict().catch(() => {});
 
+    recordProvider(provider);
     return { url: urlFor(hash, ext), provider, latencyMs: Date.now() - start };
   })();
 
