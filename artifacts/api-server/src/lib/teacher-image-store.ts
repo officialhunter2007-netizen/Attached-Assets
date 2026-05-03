@@ -491,7 +491,7 @@ export async function resolveTeacherImage(
 
 /**
  * Express handler: serve a previously-cached image by filename.
- * Filename must be `<64 hex chars><ext>` — anything else is rejected to
+ * Filename must be `<16 hex chars><ext>` — anything else is rejected to
  * prevent path traversal.
  */
 export async function serveTeacherImage(filename: string): Promise<

@@ -2,11 +2,12 @@
  * Static-file route for cached teacher illustrations.
  *
  * Mounted under /api/teacher-images/<hash>.<ext>. NO authentication —
- * the URL itself is unguessable (256-bit content hash) and the bytes are
- * intended for inline rendering inside teacher messages, which any
- * authenticated student already has the right to read.
+ * the URL is a 16-hex (64-bit) content hash and the bytes are intended
+ * for inline rendering inside teacher messages, which any authenticated
+ * student already has the right to read. The hash is short by design
+ * (compact URLs in chat history) and is NOT relied on as an auth token.
  *
- * Aggressive caching: a 64-hex content hash means the URL is immutable
+ * Aggressive caching: the 16-hex content hash means the URL is immutable
  * (different prompt = different hash), so we set `immutable, max-age=31536000`.
  *
  * The response body is true-streamed via `createReadStream` to keep
