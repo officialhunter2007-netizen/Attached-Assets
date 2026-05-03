@@ -1168,10 +1168,13 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
   const safeName = subjectName.replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "course";
   const ext = fmt === "text" ? "txt" : "md";
   const filename = `${safeName}-conversations-${today}.${ext}`;
+  // HTTP headers must be ASCII-only. Strip any non-ASCII (Arabic) characters
+  // for the legacy filename="" fallback; modern browsers use filename*= instead.
+  const asciiFilename = filename.replace(/[^\x20-\x7E]/g, "_");
   const mimeType = fmt === "text" ? "text/plain" : "text/markdown";
 
   res.setHeader("Content-Type", `${mimeType}; charset=utf-8`);
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.setHeader("Content-Disposition", `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
   res.setHeader("Cache-Control", "no-store");
   res.send(lines.join("\n"));
   } catch (err: any) {
