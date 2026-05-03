@@ -20,6 +20,7 @@ import { getCostCapStatus } from "../lib/cost-cap";
 import { costForUsage } from "../lib/ai-pricing";
 import {
   generateTeacherImage,
+  resolveTeacherImage,
   isImageGenerationConfigured,
   FLUX_SCHNELL_USD_PER_IMAGE,
   type ImageGenerationResult,
@@ -3165,36 +3166,46 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           prompt: promptText,
         });
         __imagePromises.push(promise);
-        promise.then((result) => {
+        promise.then(async (result) => {
           if (clientAborted || res.writableEnded) {
             console.log(`[ai/teach/image] result discarded (stream closed) id=${imageId} ok=${result.ok}`);
             return;
           }
           try {
+            // The store guarantees a renderable URL on every code path
+            // (cache → fal → pollinations → local SVG poster), so
+            // `result.ok` is always true under normal operation. We
+            // unconditionally emit `imageReady` to honour the task's
+            // "always-visible image" promise: the student NEVER sees
+            // an error bubble for a teacher-emitted [[IMAGE:...]] tag.
             if (result.ok) {
-              // Remember the resolved URL so the post-stream persistence
-              // step (around line ~3810) can embed it directly into the
-              // saved message HTML — that's what makes "open old session"
-              // restore the same images instantly from the on-disk cache.
               __imageUrlsById.set(imageId, result.url);
               res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: result.url } })}\n\n`);
               console.log(`[ai/teach/image] ready sent id=${imageId} latencyMs=${result.latencyMs}`);
             } else {
-              res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: result.reason } })}\n\n`);
-              console.log(`[ai/teach/image] error sent id=${imageId} reason=${result.reason}`);
+              // Structural error path (empty prompt, etc.) — still
+              // resolve to the deterministic empty-prompt SVG so the
+              // bubble renders something instead of hanging.
+              const fallback = await resolveTeacherImage("");
+              __imageUrlsById.set(imageId, fallback.url);
+              res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: fallback.url } })}\n\n`);
+              console.log(`[ai/teach/image] ready (fallback) sent id=${imageId} reason=${result.reason}`);
             }
           } catch (writeErr: any) {
             console.warn(`[ai/teach/image] failed to write SSE event id=${imageId}: ${writeErr?.message || writeErr}`);
           }
-        }).catch((err: any) => {
-          // Defensive: generateTeacherImage normalizes its own errors, so
-          // this should never fire — but if it does (e.g. SDK constructor
-          // throws synchronously), still emit imageError so the bubble
-          // doesn't hang.
+        }).catch(async (err: any) => {
+          // Defensive: even if generateTeacherImage throws synchronously
+          // (e.g. SDK constructor blows up), resolve to a guaranteed
+          // local SVG so the bubble still renders. We never emit
+          // imageError on the SSE channel — the student always gets
+          // something to look at.
           console.error(`[ai/teach/image] unexpected throw id=${imageId}: ${err?.message || err}`);
           if (clientAborted || res.writableEnded) return;
           try {
-            res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: "api-error" } })}\n\n`);
+            const fallback = await resolveTeacherImage("");
+            __imageUrlsById.set(imageId, fallback.url);
+            res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: fallback.url } })}\n\n`);
           } catch { /* half-closed */ }
         });
       }

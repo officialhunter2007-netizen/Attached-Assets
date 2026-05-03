@@ -25,6 +25,7 @@
 import { recordAiUsage } from "./ai-usage";
 import { logger } from "./logger";
 import { resolveTeacherImage } from "./teacher-image-store";
+export { resolveTeacherImage } from "./teacher-image-store";
 
 // ── Per-user rate limit (only counts paid fal.ai paths) ─────────────────────
 const RATE_WINDOW_MS = 60_000;
@@ -81,22 +82,40 @@ export async function generateTeacherImage(
     return { ok: false, reason: "empty-prompt", errorMessage: "prompt is empty", latencyMs: 0 };
   }
 
-  // Rate limit only applies when fal.ai is the active path (paid). When
-  // FAL_KEY is unset we skip the limit because Pollinations + SVG cost $0.
+  // Rate-limit policy:
+  //   The store caches by prompt-hash, so repeats are free. Fal.ai is
+  //   only billed on cache MISSES with a unique prompt. We still keep
+  //   a soft per-user cap so a runaway loop can't burn credits, but
+  //   when it trips we DO NOT return an error — we resolve through the
+  //   store which will hit cache (free) or fall back to Pollinations
+  //   (free) / local SVG (free). The student always sees an image.
   const falActive = !!(process.env.FAL_KEY || "").trim();
+  let limitedToFreeProviders = false;
   if (falActive) {
     const rate = checkRateLimit(params.userId);
     if (!rate.allowed) {
-      return {
-        ok: false,
-        reason: "rate-limited",
-        errorMessage: `image rate limit (${RATE_MAX_PER_WINDOW}/min) exceeded; retry in ${Math.ceil(rate.retryAfterMs / 1000)}s`,
-        latencyMs: 0,
-      };
+      limitedToFreeProviders = true;
+      logger.info(
+        { userId: params.userId, retryAfterMs: rate.retryAfterMs },
+        "image-generation: rate-limited — bypassing fal.ai for this request",
+      );
     }
   }
 
-  const result = await resolveTeacherImage(cleanPrompt);
+  // Temporarily mask FAL_KEY to force the store down the free path.
+  let savedFalKey: string | undefined;
+  if (limitedToFreeProviders) {
+    savedFalKey = process.env.FAL_KEY;
+    delete process.env.FAL_KEY;
+  }
+  let result;
+  try {
+    result = await resolveTeacherImage(cleanPrompt);
+  } finally {
+    if (limitedToFreeProviders && savedFalKey !== undefined) {
+      process.env.FAL_KEY = savedFalKey;
+    }
+  }
   const latencyMs = Date.now() - start;
 
   // Bookkeeping: only bill the user when fal.ai actually produced the image

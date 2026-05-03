@@ -35,37 +35,37 @@ describe("serveTeacherImage — filename allowlist", () => {
 
   test("rejects forward slash", async () => {
     const { serveTeacherImage } = await import("../teacher-image-store.js");
-    const r = await serveTeacherImage("a".repeat(64) + "/.png");
+    const r = await serveTeacherImage("a".repeat(16) + "/.png");
     assert.equal(r.ok, false);
   });
 
   test("rejects non-hex prefix", async () => {
     const { serveTeacherImage } = await import("../teacher-image-store.js");
-    const r = await serveTeacherImage("z".repeat(64) + ".png");
+    const r = await serveTeacherImage("z".repeat(16) + ".png");
     assert.equal(r.ok, false);
   });
 
   test("rejects wrong-length hash", async () => {
     const { serveTeacherImage } = await import("../teacher-image-store.js");
-    const r = await serveTeacherImage("a".repeat(63) + ".png");
+    const r = await serveTeacherImage("a".repeat(15) + ".png");
     assert.equal(r.ok, false);
   });
 
   test("rejects disallowed extension (gif)", async () => {
     const { serveTeacherImage } = await import("../teacher-image-store.js");
-    const r = await serveTeacherImage("a".repeat(64) + ".gif");
+    const r = await serveTeacherImage("a".repeat(16) + ".gif");
     assert.equal(r.ok, false);
   });
 
   test("rejects disallowed extension (html)", async () => {
     const { serveTeacherImage } = await import("../teacher-image-store.js");
-    const r = await serveTeacherImage("a".repeat(64) + ".html");
+    const r = await serveTeacherImage("a".repeat(16) + ".html");
     assert.equal(r.ok, false);
   });
 
   test("returns 404 for valid name with no file", async () => {
     const { serveTeacherImage } = await import("../teacher-image-store.js");
-    const r = await serveTeacherImage("a".repeat(64) + ".png");
+    const r = await serveTeacherImage("a".repeat(16) + ".png");
     assert.equal(r.ok, false);
     if (!r.ok) assert.equal(r.status, 404);
   });
@@ -85,7 +85,7 @@ describe("resolveTeacherImage — fallback-to-SVG + cache replay", () => {
       const prompt = "test-prompt-" + Date.now();
       const r1 = await resolveTeacherImage(prompt);
       assert.equal(r1.provider, "svg", "first call should fall through to svg");
-      assert.match(r1.url, /^\/api\/teacher-images\/[a-f0-9]{64}\.svg$/);
+      assert.match(r1.url, /^\/api\/teacher-images\/[a-f0-9]{16}\.svg$/);
 
       const filename = r1.url.split("/").pop()!;
       const persisted = path.join(tmpDir, filename);
@@ -112,7 +112,7 @@ describe("serveTeacherImage — content-type mapping", () => {
       [".svg", "image/svg+xml"],
     ];
     for (const [ext, ct] of cases) {
-      const hash = "b".repeat(64);
+      const hash = "b".repeat(16);
       const filename = hash + ext;
       const filePath = path.join(tmpDir, filename);
       await writeFile(filePath, Buffer.from("test-bytes"));

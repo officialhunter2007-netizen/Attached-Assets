@@ -2241,14 +2241,14 @@ function TeacherErrorState({
 }
 
 // In-flight teacher-image state shared with AIMessage. `loading` shows the
-// spinner placeholder; `ready` swaps in <img>; `error` shows a friendly
-// retry hint. URLs from fal.ai are short-lived (≈1h CDN cache) so we don't
-// persist this map — once the page reloads the historical message will
-// have the `<p class="image-historical">` stub the backend wrote on save.
-type TeacherImageState = { status: 'loading' | 'ready' | 'error'; url?: string };
+// spinner placeholder; `ready` swaps in <img>. URLs are now same-origin
+// `/api/teacher-images/<hash>.<ext>` paths backed by a persistent disk
+// cache, so historical messages already store the resolved URL in their
+// HTML — no expiring fal.ai links, no client-side timers needed.
+type TeacherImageState = { status: 'loading' | 'ready'; url?: string };
 type TeacherImageMap = Map<string, TeacherImageState>;
 
-const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onImageTimeout, onReExplainImage, subjectId }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onImageTimeout?: (id: string) => void; onReExplainImage?: (url: string) => void; subjectId?: string }) {
+const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onReExplainImage, subjectId }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onReExplainImage?: (url: string) => void; subjectId?: string }) {
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -2322,14 +2322,11 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
   // state — which is the persistent source of truth. Cheap (≤3 figures
   // per message in practice).
   //
-  // The 10-second local timeout (safety net for the stuck-spinner bug
-  // reported in task #15) calls `onImageTimeout(id)` so the parent flips
-  // imageMap[id] to {status:'error'}. This is critical: mutating the DOM
-  // alone would be undone on the very next render. By updating React
-  // state, the error survives all subsequent re-renders (including the
-  // streaming → final swap) because every render of the effect sees
-  // `state.status === 'error'` and re-applies the error UI.
-  const localTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // No client-side safety timers any more. The server-side store
+  // guarantees an `imageReady` event for every emitted [[IMAGE:...]]
+  // tag — worst case it returns the URL of a locally-synthesised SVG
+  // poster within ~8s. If the SSE channel itself dies the chat-level
+  // network safety-net (90s controller.abort) handles it.
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -2390,32 +2387,13 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
       };
 
       if (!state || state.status === 'loading') {
-        // Safety-net timer — fires only if neither imageReady nor imageError
-        // SSE events arrived (dropped connection). The server's worst-case
-        // is FAL_TIMEOUT_MS + POLLINATIONS_TIMEOUT_MS ≈ 60s, then SVG
-        // fallback (instant). 75s gives a 15s cushion before we declare the
-        // SSE channel dead.
-        if (!localTimersRef.current.has(id)) {
-          const timer = setTimeout(() => {
-            console.debug('[teach-image] local timeout fired', { id });
-            localTimersRef.current.delete(id);
-            onImageTimeout?.(id);
-          // Provider deadlines were tightened to 6s + 6s in the server
-          // store, so a healthy generation completes well under 15s. This
-          // safety timer is the absolute backstop for a dropped SSE
-          // channel; 20s gives a generous cushion before we surface the
-          // friendly "تعذّر تحميل الصورة" hint. Aligned with the task's
-          // ≤10s visible-image goal.
-          }, 20_000);
-          localTimersRef.current.set(id, timer);
-        }
+        // Nothing to do — the figure already shows the streaming
+        // spinner placeholder rendered by renderImageMarkers. We
+        // simply wait for the next imageReady event.
         return;
       }
 
       if (state.status === 'ready' && state.url) {
-        // Cancel any pending timer.
-        const t = localTimersRef.current.get(id);
-        if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
         // Skip if the same URL is already rendered.
         const existingImg = fig.querySelector(':scope > img') as HTMLImageElement | null;
         if (existingImg && existingImg.src === state.url && fig.classList.contains('teach-image-ready')) return;
@@ -2423,11 +2401,10 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
         console.debug('[teach-image] figure upgraded to ready', { id });
         const cap = clearBodyKeepCaption();
 
-        // Same-origin URL (`/api/teacher-images/<hash>.<ext>`) served from our
-        // own static handler — no CORS, no third-party CDN latency, no
-        // signed-URL expiry. Bytes are persisted server-side BEFORE this
-        // event arrives so the fetch is essentially instant. No load-overlay
-        // and no 90s safety timer needed any more.
+        // Same-origin URL (`/api/teacher-images/<hash>.<ext>`) served
+        // from our own static handler — no CORS, no third-party CDN
+        // latency, no signed-URL expiry. Bytes are persisted server-side
+        // BEFORE this event arrives so the fetch is essentially instant.
         const img = document.createElement('img');
         img.alt = 'صورة توضيحية';
         img.loading = 'eager';
@@ -2453,35 +2430,8 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
         fig.classList.add('teach-image-ready');
         return;
       }
-
-      if (state.status === 'error') {
-        const t = localTimersRef.current.get(id);
-        if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
-        // Skip if already showing error (and no spinner remains).
-        if (fig.classList.contains('teach-image-error') && !fig.querySelector(':scope > .teach-image-spinner')) return;
-
-        console.debug('[teach-image] figure upgraded to error', { id });
-        const cap = clearBodyKeepCaption();
-        const fail = document.createElement('div');
-        fail.className = 'teach-image-fail';
-        fail.textContent = '⚠️ تعذّر توليد الصورة — أكمل القراءة.';
-        fig.appendChild(fail);
-        if (cap) fig.appendChild(cap);
-        fig.classList.remove('teach-image-loading', 'teach-image-ready');
-        fig.classList.add('teach-image-error');
-      }
     });
-  }, [displayHtml, imageMap, onImageTimeout]);
-
-  // Cleanup local timers on unmount so timers don't fire after the user
-  // navigates away from the session.
-  useEffect(() => {
-    const timers = localTimersRef.current;
-    return () => {
-      timers.forEach((t) => clearTimeout(t));
-      timers.clear();
-    };
-  }, []);
+  }, [displayHtml, imageMap]);
 
   // ── Teacher-image click-to-zoom (lightbox) ────────────────────────────────
   // Delegated click handler on the message container. Opens any ready
@@ -2836,31 +2786,13 @@ function SubjectPathChat({
   const [summaryError, setSummaryError] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
   const [gemsRemaining, setGemsRemaining] = useState<number | null>(null);
-  // Tracks in-flight teacher-image generations keyed by the 12-char hex id
-  // the backend embeds in `[[IMAGE:id]]` markers. AIMessage uses this map
-  // to swap placeholder figures for real <img>s as `imageReady` SSE events
-  // arrive. Not persisted — fal.ai URLs expire and historical messages
-  // already store a `<p class="image-historical">` stub (server side).
+  // Tracks in-flight teacher-image generations keyed by the 16-char hex
+  // prompt-hash id the backend embeds in `[[IMAGE:id]]` markers. AIMessage
+  // uses this map to swap placeholder figures for real <img>s as
+  // `imageReady` SSE events arrive. Historical messages already embed
+  // the resolved same-origin URL in their persisted HTML, so this map
+  // only matters for live streams.
   const [imageMap, setImageMap] = useState<TeacherImageMap>(() => new Map());
-  // Local 10s safety-net timeout fires from inside AIMessage when neither
-  // imageReady nor imageError SSE events arrived in time. Flipping
-  // imageMap to `error` here (rather than mutating the DOM inside the
-  // child) is what makes the error survive every subsequent render —
-  // including the streaming → final `safeRef.current` swap that rebuilds
-  // the figure markup from scratch.
-  const handleImageTimeout = useCallback((id: string) => {
-    setImageMap(prev => {
-      const cur = prev.get(id);
-      // Don't clobber a successful resolution that raced and won.
-      if (cur && cur.status === 'ready') return prev;
-      // Idempotent — already error, no change.
-      if (cur && cur.status === 'error') return prev;
-      console.debug('[teach-image] state → error (local timeout)', { id });
-      const next = new Map(prev);
-      next.set(id, { status: 'error' });
-      return next;
-    });
-  }, []);
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
   const [countdownExpired, setCountdownExpired] = useState(false);
   // Bumped every time the student clicks "ابدأ الجلسة التالية الآن" so the
@@ -3717,15 +3649,13 @@ function SubjectPathChat({
               break;
             }
             // ── Teacher-image SSE events (mid-stream) ─────────────────────
-            // Three event shapes from the server, fired BEFORE `data.done`:
+            // Two event shapes from the server, fired BEFORE `data.done`:
             //   { imagePlaceholder: { id } }       — generation kicked off
-            //   { imageReady: { id, url } }        — URL resolved (≈3-6s)
-            //   { imageError: { id, message? } }   — flux/timeout failure
-            // We mutate imageMap via setState; AIMessage reacts and swaps
-            // the placeholder figure for the real <img>. CRITICAL: these
-            // handlers MUST live outside the `if (data.done)` branch above
-            // — they arrive interleaved with `data.content` chunks during
-            // the stream, never as part of the terminal done event.
+            //   { imageReady: { id, url } }        — URL resolved (≈cache→fal→pollinations→svg, ≤8s)
+            // The server-side store guarantees `imageReady` for every
+            // emitted [[IMAGE:...]] tag (worst case it returns a local
+            // SVG poster URL), so there is no `imageError` event to
+            // handle on this channel any more.
             if (data.imagePlaceholder?.id) {
               const id = String(data.imagePlaceholder.id);
               console.debug('[teach-image] placeholder received', { id });
@@ -3742,23 +3672,8 @@ function SubjectPathChat({
               const url = String(data.imageReady.url);
               console.debug('[teach-image] ready received', { id, url: url.slice(0, 80) });
               setImageMap(prev => {
-                // Late-arriving `ready` after the 60s safety-net flipped to
-                // `error` is a genuine fal.ai response — adopt it so the
-                // student gets the image even if the dropped-SSE fallback
-                // fired first.
                 const next = new Map(prev);
                 next.set(id, { status: 'ready', url });
-                return next;
-              });
-              continue;
-            }
-            if (data.imageError?.id) {
-              const id = String(data.imageError.id);
-              const reason = data.imageError.reason || 'unknown';
-              console.debug('[teach-image] error received', { id, reason });
-              setImageMap(prev => {
-                const next = new Map(prev);
-                next.set(id, { status: 'error' });
                 return next;
               });
               continue;
@@ -5454,7 +5369,6 @@ function SubjectPathChat({
                         onCreateLabEnv={onCreateLabEnv}
                         onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
                         imageMap={imageMap}
-                        onImageTimeout={handleImageTimeout}
                         onReExplainImage={handleReExplainImage}
                         subjectId={subject.id}
                       />

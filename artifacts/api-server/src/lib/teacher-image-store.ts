@@ -82,7 +82,13 @@ function isFalConfigured(): boolean {
 
 // ── Cache key + lookup ──────────────────────────────────────────────────────
 function hashPrompt(prompt: string): string {
-  return createHash("sha256").update(prompt.trim().toLowerCase()).digest("hex");
+  // 16 hex chars = 64 bits of entropy ≈ 1 collision in 2^32 unique
+  // prompts (roughly 4 billion). For an educational chat that's the
+  // sweet spot between URL length and uniqueness — short enough to
+  // embed in SSE events without bloat, long enough that a student
+  // never collides across the lifetime of the platform. The full
+  // SHA-256 is overkill for this usage.
+  return createHash("sha256").update(prompt.trim().toLowerCase()).digest("hex").slice(0, 16);
 }
 
 const CANDIDATE_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".svg"] as const;
@@ -469,7 +475,7 @@ export async function serveTeacherImage(filename: string): Promise<
   | { ok: true; path: string; size: number; contentType: string }
   | { ok: false; status: number; message: string }
 > {
-  if (!/^[a-f0-9]{64}\.(png|jpg|jpeg|webp|svg)$/i.test(filename)) {
+  if (!/^[a-f0-9]{16}\.(png|jpg|jpeg|webp|svg)$/i.test(filename)) {
     return { ok: false, status: 400, message: "invalid filename" };
   }
   const file = path.join(CACHE_DIR, filename);
