@@ -28,19 +28,37 @@ const STT_ALLOWED_MIME_PREFIXES = [
   "audio/x-wav",
   "audio/wave",
 ] as const;
-// Higher-quality cloud TTS model. `gpt-4o-mini-tts` supports the same
-// `voice` parameter set as `tts-1` but with markedly better Arabic
-// prosody and embedded-English handling.
+// Higher-quality cloud TTS model. `gpt-4o-mini-tts` supports the expanded
+// voice set (ash, coral, sage, verse, ballad…) and the `instructions`
+// parameter for fine-grained style control.
 const TTS_MODEL = "gpt-4o-mini-tts";
+
+// Style instructions passed to the model so the voice sounds like a calm,
+// professional Arabic teacher rather than a generic narrator.
+const TTS_INSTRUCTIONS =
+  "You are a professional Arabic teacher on an educational platform for students. " +
+  "Speak in clear, fluent Modern Standard Arabic (فصحى). " +
+  "Use a calm, warm, and confident tone — like a knowledgeable teacher explaining to a student. " +
+  "Pace yourself moderately: not too fast, not too slow. " +
+  "Pronounce each word precisely and naturally. " +
+  "Do not add any sounds, music, or commentary beyond reading the provided text.";
+
+// Default voice: `shimmer` — warm, articulate, and performs best for Arabic
+// among the available options on gpt-4o-mini-tts.
+const TTS_DEFAULT_VOICE = "shimmer" as const;
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: STT_MAX_BYTES, files: 1 },
 });
 
-type AllowedVoice = "nova" | "shimmer" | "alloy" | "echo" | "fable" | "onyx";
+// gpt-4o-mini-tts expanded voice set (superset of the old tts-1 voices).
+type AllowedVoice =
+  | "nova" | "shimmer" | "alloy" | "echo" | "fable" | "onyx"
+  | "ash" | "coral" | "sage" | "verse" | "ballad";
 const ALLOWED_VOICES: ReadonlySet<AllowedVoice> = new Set([
   "nova", "shimmer", "alloy", "echo", "fable", "onyx",
+  "ash", "coral", "sage", "verse", "ballad",
 ]);
 
 function getUserId(req: Request): number | null {
@@ -119,7 +137,9 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
   const text = cleaned.length > TTS_MAX_CHARS ? cleaned.slice(0, TTS_MAX_CHARS) : cleaned;
 
   const chosenVoice: AllowedVoice =
-    voice && ALLOWED_VOICES.has(voice as AllowedVoice) ? (voice as AllowedVoice) : "nova";
+    voice && ALLOWED_VOICES.has(voice as AllowedVoice)
+      ? (voice as AllowedVoice)
+      : TTS_DEFAULT_VOICE;
 
   const start = Date.now();
   try {
@@ -130,6 +150,11 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
       voice: chosenVoice,
       input: text,
       response_format: "mp3",
+      // Style instructions — guide the model to sound like a professional
+      // Arabic teacher rather than a generic narrator.
+      // @ts-expect-error — `instructions` is supported by gpt-4o-mini-tts
+      // but not yet typed in the current @types/openai version.
+      instructions: TTS_INSTRUCTIONS,
     });
     const arrayBuf = await speech.arrayBuffer();
     const buf = Buffer.from(arrayBuf);
