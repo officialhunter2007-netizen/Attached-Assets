@@ -19,10 +19,12 @@ export function StatTiles({
   streakDays, lessonsCompleted, challengesAnswered,
 }: { streakDays: number; lessonsCompleted: number; challengesAnswered: number }) {
   return (
-    <div className="grid grid-cols-3 gap-3 md:gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
       <Tile accent="amber"   icon={<Flame    className="w-7 h-7 text-amber-400" />}   value={streakDays}        label="أيام متتالية" />
       <Tile accent="blue"    icon={<BookOpen className="w-7 h-7 text-blue-400" />}    value={lessonsCompleted}  label="دروس مكتملة" />
-      <Tile accent="emerald" icon={<Target   className="w-7 h-7 text-emerald" />}     value={challengesAnswered} label="تحديات مجابة" />
+      <div className="col-span-2 sm:col-span-1">
+        <Tile accent="emerald" icon={<Target className="w-7 h-7 text-emerald" />} value={challengesAnswered} label="تحديات مجابة" />
+      </div>
     </div>
   );
 }

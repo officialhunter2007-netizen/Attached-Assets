@@ -36,7 +36,12 @@ interface GemsBalanceProbe {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { data: views } = useGetLessonViews();
+  const {
+    data: views,
+    isLoading: viewsLoading,
+    isError: viewsIsError,
+    refetch: refetchViews,
+  } = useGetLessonViews();
 
   const summaries = useDashboardFetch<LessonSummary[]>(
     "/api/lesson-summaries",
@@ -67,10 +72,26 @@ export default function Dashboard() {
   const [materialsLoading, setMaterialsLoading] = useState(true);
   const [materialsError, setMaterialsError] = useState<string | null>(null);
   const [materialsTick, setMaterialsTick] = useState(0);
-  const refetchMaterials = () => setMaterialsTick(t => t + 1);
+  const refetchMaterials = () => {
+    if (subjectSubs.error) subjectSubs.refetch();
+    setMaterialsTick(t => t + 1);
+  };
 
   useEffect(() => {
     let cancelled = false;
+    // Wait until the subscriptions fetch has settled — otherwise we'd
+    // show "no books" while subscriptions are still loading.
+    if (subjectSubs.loading) {
+      setMaterialsLoading(true);
+      setMaterialsError(null);
+      return;
+    }
+    if (subjectSubs.error) {
+      setMaterials([]);
+      setMaterialsLoading(false);
+      setMaterialsError("تعذّر تحميل اشتراكاتك، ولذلك لا يمكن عرض كتبك. حاول مجدداً.");
+      return;
+    }
     const subs = subjectSubs.data;
     if (subs.length === 0) {
       setMaterials([]);
@@ -143,7 +164,7 @@ export default function Dashboard() {
       })
       .finally(() => { if (!cancelled) setMaterialsLoading(false); });
     return () => { cancelled = true; };
-  }, [subjectSubs.data, materialsTick]);
+  }, [subjectSubs.data, subjectSubs.loading, subjectSubs.error, materialsTick]);
 
   // ── Mobile coding warning ──
   const [showMobileCodingWarning, setShowMobileCodingWarning] = useState(false);
@@ -182,6 +203,12 @@ export default function Dashboard() {
   }));
 
   const { usableSubs, expiredSubs, expiringSoonSubs, isBlocked } = useMemo(() => {
+    // Never derive blocked / expired-banner state from a failed or
+    // in-flight subscriptions probe — that would show the "renew now"
+    // experience to a paying user during a transient network error.
+    if (subjectSubs.loading || subjectSubs.error || legacyProbe.loading || legacyProbe.error) {
+      return { usableSubs: [] as SubjectSub[], expiredSubs: [] as SubjectSub[], expiringSoonSubs: [] as SubjectSub[], isBlocked: false };
+    }
     const now = new Date();
     const subs = subjectSubs.data;
     const active = subs.filter(s => new Date(s.expiresAt) > now);
@@ -231,7 +258,11 @@ export default function Dashboard() {
       expiringSoonSubs: expiringSoon,
       isBlocked: blocked,
     };
-  }, [subjectSubs.data, user?.nukhbaPlan, user?.subscriptionExpiresAt, user?.messagesUsed, user?.messagesLimit, user?.firstLessonComplete, legacyProbe.data]);
+  }, [
+    subjectSubs.data, subjectSubs.loading, subjectSubs.error,
+    legacyProbe.data, legacyProbe.loading, legacyProbe.error,
+    user?.nukhbaPlan, user?.subscriptionExpiresAt, user?.messagesUsed, user?.messagesLimit, user?.firstLessonComplete,
+  ]);
 
   return (
     <AppLayout>
@@ -286,11 +317,31 @@ export default function Dashboard() {
               <SectionHeading accent="gold" icon={<BookOpen className="w-5 h-5" />}>
                 الدروس الأخيرة
               </SectionHeading>
-              <RecentLessonsList views={recentViews} locked={isBlocked} />
+              <SectionState
+                loading={viewsLoading}
+                error={viewsIsError ? "تعذّر تحميل سجل الدروس. حاول مجدداً." : null}
+                empty={false}
+                emptyMessage=""
+                onRetry={() => { void refetchViews(); }}
+              >
+                <RecentLessonsList views={recentViews} locked={isBlocked} />
+              </SectionState>
             </div>
             <div>
               <SectionHeading accent="gold">حالة الاشتراك</SectionHeading>
-              <SubscriptionSummaryCard usableSubs={usableSubs} locked={isBlocked} />
+              <SectionState
+                loading={subjectSubs.loading || legacyProbe.loading}
+                error={
+                  subjectSubs.error || legacyProbe.error
+                    ? "تعذّر تحميل حالة اشتراكك. حاول مجدداً."
+                    : null
+                }
+                empty={false}
+                emptyMessage=""
+                onRetry={() => { subjectSubs.refetch(); legacyProbe.refetch(); }}
+              >
+                <SubscriptionSummaryCard usableSubs={usableSubs} locked={isBlocked} />
+              </SectionState>
             </div>
           </div>
 
