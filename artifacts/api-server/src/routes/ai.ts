@@ -2887,9 +2887,14 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
       claudeMessages.push({ role: "user" as const, content: mutatedUserMessage });
     }
   } else if (claudeMessages.length === 0) {
+    // For professor mode (no custom plan, teaching directly from material),
+    // use a material-oriented opener so the AI greets the student in context.
+    const hasMaterial = !!(req as any).materialCtx;
     const initPrompt = isDiagnosticPhase
       ? `ابدأ جلسة التشخيص`
-      : `ابدأ تدريسي في مرحلة: ${currentStageName}`;
+      : hasMaterial
+        ? `ابدأ تدريسي من المادة المرفقة`
+        : `ابدأ تدريسي في مرحلة: ${currentStageName}`;
     claudeMessages.push({ role: "user" as const, content: initPrompt });
   }
   // Guarantee the conversation we ship to Anthropic actually starts with a
@@ -2898,9 +2903,14 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     claudeMessages.shift();
   }
   if (claudeMessages.length === 0) {
+    const hasMaterial = !!(req as any).materialCtx;
     claudeMessages.push({
       role: "user" as const,
-      content: isDiagnosticPhase ? `ابدأ جلسة التشخيص` : `ابدأ تدريسي في مرحلة: ${currentStageName}`,
+      content: isDiagnosticPhase
+        ? `ابدأ جلسة التشخيص`
+        : hasMaterial
+          ? `ابدأ تدريسي من المادة المرفقة`
+          : `ابدأ تدريسي في مرحلة: ${currentStageName}`,
     });
   }
 
