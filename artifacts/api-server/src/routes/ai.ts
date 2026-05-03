@@ -3834,7 +3834,14 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           const prompt = __imagePromptsById.get(id) || "";
           const altText = prompt.slice(0, 200) || "بطاقة توضيحية";
           if (url) {
-            return `<figure class="teach-image-fig"><img src="${escapeAttr(url)}" alt="${escapeAttr(altText)}" loading="lazy" class="teach-image" /></figure>`;
+            // Match the exact class contract used by the live render path
+            // (`renderImageMarkers` + frontend CSS in index.css):
+            //   <figure class="teach-image teach-image-ready" data-image-id="…">
+            //     <img src="…" alt="…" loading="lazy" />
+            //   </figure>
+            // so historical images get the same hover/zoom/lightbox styling
+            // and behavior as freshly generated ones.
+            return `<figure class="teach-image teach-image-ready" data-image-id="${escapeAttr(id)}"><img src="${escapeAttr(url)}" alt="${escapeAttr(altText)}" loading="lazy" /></figure>`;
           }
           const preview = prompt.slice(0, 120);
           return `<p class="image-historical">[صورة توضيحية${preview ? `: ${preview}` : ""}]</p>`;
