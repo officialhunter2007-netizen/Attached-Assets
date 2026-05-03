@@ -153,6 +153,19 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ── Meta / OpenRouter free-tier ──
+  // ── Google Gemini via OpenRouter (prefix: "google/") ──
+  // Mirrors the direct-API entries above so cost lookups work with either id.
+  "google/gemini-2.0-flash": {
+    input: 0.1,
+    output: 0.4,
+    label: "Gemini 2.0 Flash (OpenRouter)",
+  },
+  "google/gemini-2.0-flash-lite": {
+    input: 0.075,
+    output: 0.3,
+    label: "Gemini 2.0 Flash Lite (OpenRouter)",
+  },
+
   "meta-llama/llama-3.3-70b-instruct": {
     input: 0.13,
     output: 0.4,

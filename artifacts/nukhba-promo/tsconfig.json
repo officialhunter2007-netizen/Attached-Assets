@@ -8,6 +8,10 @@
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "moduleResolution": "bundler",
+    // The base tsconfig only enables `es2022` so the type-checker doesn't
+    // know about `window`/`document` for headless workspaces. This is a
+    // browser-side Vite app, so we need the DOM lib here explicitly.
+    "lib": ["es2022", "dom", "dom.iterable"],
     "types": ["node", "vite/client"],
     "paths": {
       "@/*": ["./src/*"]

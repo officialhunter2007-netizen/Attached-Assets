@@ -1,15 +1,37 @@
-import { useState, useEffect, useRef, memo, useCallback } from "react";
+import { useState, useEffect, useRef, memo, useCallback, useMemo } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { writeUserJson, readUserJson, removeUserKey } from "@/lib/user-storage";
+import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@/lib/teacher-render";
+import { loadDraft, makeDebouncedDraftSaver, clearDraft } from "@/lib/draft-storage";
+import { isSpeechRecognitionSupported, isSpeechSynthesisSupported, startRecognition, speakText, stopSpeaking, isSpeaking } from "@/lib/web-speech";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+  DrawerClose,
+} from "@/components/ui/drawer";
 import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import { getSubjectById } from "@/lib/curriculum";
 import { Button } from "@/components/ui/button";
-import { ChatMessage } from "@workspace/api-client-react/generated/api.schemas";
+import type { ChatMessage } from "@workspace/api-client-react";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical, MoreHorizontal, BookMarked, GraduationCap, Lightbulb, Copy, Check, Volume2, VolumeX, ThumbsUp, ThumbsDown, Share2, Mic, MicOff, ImagePlus, Pause, Play, RotateCcw, Download, ZoomIn, ZoomOut, Map as MapIcon, Gauge } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from "@/components/ui/dropdown-menu";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { FoodLabPanel } from "@/components/food-lab-panel";
@@ -264,116 +286,564 @@ function SubscriptionExpiredWall({
   );
 }
 
-function parsePlanStages(planHtml: string | null): { title: string; descHtml: string; duration: string }[] {
+interface PlanStage {
+  title: string;
+  descHtml: string;
+  duration: string;
+  objectives: string[];
+  microSteps: string[];
+  deliverable: string;
+  masteryCriterion: string;
+  reasonForStudent: string;
+  prerequisite: string;
+}
+
+// ── Depth-aware HTML helpers ─────────────────────────────────────────────────
+// Regex with non-greedy `[\s\S]*?` stops at the FIRST closing tag it sees —
+// which is always a nested inner tag, not the intended outer one. These helpers
+// walk the string tracking open/close depth instead.
+
+function getOutermostOlContent(html: string): string | null {
+  const start = html.indexOf('<ol');
+  if (start === -1) return null;
+  const tagEnd = html.indexOf('>', start);
+  if (tagEnd === -1) return null;
+  let depth = 1;
+  let pos = tagEnd + 1;
+  while (depth > 0 && pos < html.length) {
+    const nextOpen = html.indexOf('<ol', pos);
+    const nextClose = html.indexOf('</ol>', pos);
+    if (nextClose === -1) break;
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      depth++;
+      pos = nextOpen + 3;
+    } else {
+      depth--;
+      if (depth === 0) return html.slice(tagEnd + 1, nextClose);
+      pos = nextClose + 5;
+    }
+  }
+  return null;
+}
+
+function getTopLevelLiItems(olContent: string): string[] {
+  const items: string[] = [];
+  let i = 0;
+  while (i < olContent.length) {
+    const liStart = olContent.indexOf('<li', i);
+    if (liStart === -1) break;
+    const tagEnd = olContent.indexOf('>', liStart);
+    if (tagEnd === -1) break;
+    let depth = 1;
+    let pos = tagEnd + 1;
+    let found = false;
+    while (pos < olContent.length) {
+      const nextOpen = olContent.indexOf('<li', pos);
+      const nextClose = olContent.indexOf('</li>', pos);
+      if (nextClose === -1) break;
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        depth++;
+        pos = nextOpen + 3;
+      } else {
+        depth--;
+        if (depth === 0) {
+          items.push(olContent.slice(tagEnd + 1, nextClose));
+          i = nextClose + 5;
+          found = true;
+          break;
+        }
+        pos = nextClose + 5;
+      }
+    }
+    if (!found) break;
+  }
+  return items;
+}
+
+// extractClassedList and extractClassedText operate on a single stage's inner
+// HTML, where sub-lists (stage-objectives, stage-microsteps) don't contain
+// further nested <ul>/<ol>. The regex is safe at this level.
+function extractClassedList(html: string, cls: string): string[] {
+  const re = new RegExp(`class=["'][^"']*${cls}[^"']*["'][^>]*>([\\s\\S]*?)<\\/(?:ul|ol)>`, 'i');
+  const m = html.match(re);
+  if (!m) return [];
+  const items: string[] = [];
+  const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+  let lm: RegExpExecArray | null;
+  while ((lm = liRe.exec(m[1])) !== null) {
+    items.push(lm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+  }
+  return items;
+}
+
+function extractClassedText(html: string, cls: string): string {
+  const re = new RegExp(`class=["'][^"']*${cls}[^"']*["'][^>]*>([\\s\\S]*?)<\\/(?:p|div|span)>`, 'i');
+  const m = html.match(re);
+  if (!m) return '';
+  return m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function parsePlanStages(planHtml: string | null): PlanStage[] {
   if (!planHtml) return [];
   try {
-    const match = planHtml.match(/<ol[^>]*>([\s\S]*?)<\/ol>/i);
-    if (!match) return [];
-    const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
-    const items: { title: string; descHtml: string; duration: string }[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = liRegex.exec(match[1])) !== null) {
-      const inner = m[1];
-      const strong = inner.match(/<strong[^>]*>([\s\S]*?)<\/strong>/i)?.[1] ?? "";
-      const em = inner.match(/<em[^>]*>([\s\S]*?)<\/em>/i)?.[1] ?? "";
-      const cleanTitle = strong.replace(/<[^>]+>/g, "").trim().replace(/^المرحلة\s*\d+\s*[—\-:]\s*/, "");
-      const cleanDuration = em.replace(/<[^>]+>/g, "").replace(/^المدة[:\s]*/i, "").trim();
+    const olContent = getOutermostOlContent(planHtml);
+    if (!olContent) return [];
+    const liItems = getTopLevelLiItems(olContent);
+    const items: PlanStage[] = [];
+    for (const inner of liItems) {
+      const strong = inner.match(/<strong[^>]*>([\s\S]*?)<\/strong>/i)?.[1] ?? '';
+      const em = inner.match(/<em[^>]*>([\s\S]*?)<\/em>/i)?.[1] ?? '';
+      const cleanTitle = strong.replace(/<[^>]+>/g, '').trim().replace(/^المرحلة\s*\d+\s*[—\-:]\s*/, '');
+      const cleanDuration = em.replace(/<[^>]+>/g, '').replace(/^المدة[:\s]*/i, '').trim();
+      const objectives = extractClassedList(inner, 'stage-objectives');
+      const microSteps = extractClassedList(inner, 'stage-microsteps');
+      const deliverable = extractClassedText(inner, 'stage-deliverable');
+      const masteryCriterion = extractClassedText(inner, 'stage-mastery');
+      const reasonForStudent = extractClassedText(inner, 'stage-reason');
+      const prerequisite = extractClassedText(inner, 'stage-prerequisite');
       const descHtml = inner
-        .replace(/<strong[^>]*>[\s\S]*?<\/strong>/i, "")
-        .replace(/<em[^>]*>[\s\S]*?<\/em>/i, "")
+        .replace(/<strong[^>]*>[\s\S]*?<\/strong>/gi, '')
+        .replace(/<em[^>]*>[\s\S]*?<\/em>/gi, '')
         .trim();
-      items.push({ title: cleanTitle || "مرحلة", descHtml, duration: cleanDuration });
+      if (!cleanTitle && objectives.length === 0 && microSteps.length === 0) continue;
+      items.push({
+        title: cleanTitle || `مرحلة ${items.length + 1}`,
+        descHtml,
+        duration: cleanDuration,
+        objectives,
+        microSteps,
+        deliverable,
+        masteryCriterion,
+        reasonForStudent,
+        prerequisite,
+      });
     }
     return items;
   } catch { return []; }
 }
 
-function LearningPathPanel({ planHtml, currentStage, totalStages }: { planHtml: string | null; currentStage: number; totalStages: number }) {
-  const [expanded, setExpanded] = useState(false);
+// ── LearningContractCard ──────────────────────────────────────────────────────
+// Shown after [PLAN_READY] fires so the student can review and accept (or ask
+// to revise) the personalised plan before the teacher auto-starts Phase 1.
+const REVISION_OPTIONS = [
+  {
+    key: "easier",
+    label: "الخطة صعبة — أريدها أبسط",
+    msg: "الخطة المقترحة صعبة جداً بالنسبة لمستواي الحالي. أريد إعادة بنائها بمستوى أبسط يتدرج بشكل تدريجي، مع تقليل عدد الخطوات الفرعية في كل مرحلة وإضافة وقت أكبر لكل مرحلة.",
+  },
+  {
+    key: "harder",
+    label: "الخطة سهلة — أريدها أعمق وأشمل",
+    msg: "أريد خطة أعمق وأكثر تحدياً تناسب مستواي. زد من الأهداف في كل مرحلة وأضف موضوعات متقدمة وقلل المدة الزمنية لكل مرحلة.",
+  },
+  {
+    key: "fewer_stages",
+    label: "المراحل كثيرة — أريد خطة أقصر",
+    msg: "عدد المراحل كبير. أريد دمج المراحل المتشابهة للوصول إلى الهدف بشكل أسرع — حافظ على 5–6 مراحل.",
+  },
+  {
+    key: "add_topic",
+    label: "أريد التأكد من تغطية موضوع بعينه",
+    msg: "هناك موضوع خاص أريد التأكد من تغطيته في الخطة. ناقشني أولاً لتحديد المواضيع المطلوبة وبناءً على إجاباتي أعد الخطة من جديد.",
+  },
+];
+
+function LearningContractCard({
+  planHtml,
+  onAccept,
+  onRequestRevision,
+}: {
+  planHtml: string;
+  onAccept: () => void;
+  onRequestRevision: (msg: string) => void;
+}) {
+  const [showRevision, setShowRevision] = useState(false);
+  const [expandedContractStage, setExpandedContractStage] = useState<number>(-1);
+  const stages = parsePlanStages(planHtml);
+
+  if (showRevision) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)", direction: "rtl" }}>
+        <div className="rounded-2xl border border-amber-500/30 bg-[#16120e] shadow-2xl max-w-md w-full p-5 space-y-3">
+          <div className="font-bold text-white text-[15px] mb-0.5">ما نوع التعديل المطلوب؟</div>
+          <div className="text-[12px] text-white/45 mb-2">اختر البُعد الذي تريد تعديله وسيعيد المعلم بناء الخطة بناءً على إجاباتك التشخيصية</div>
+          {REVISION_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => onRequestRevision(opt.msg)}
+              className="w-full text-right px-3.5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.09] border border-white/10 text-[13px] text-white transition-colors"
+            >
+              {opt.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setShowRevision(false)}
+            className="w-full text-center pt-1 pb-0.5 text-[12px] text-white/35 hover:text-white/60 transition-colors"
+          >
+            رجوع
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.80)", direction: "rtl" }}>
+      <div className="rounded-2xl border border-amber-500/30 bg-[#16120e] shadow-2xl max-w-md w-full p-5 space-y-4 max-h-[90dvh] overflow-y-auto">
+        <div className="text-center space-y-1">
+          <div className="text-2xl font-black text-white">خطتك الشخصية جاهزة 🎯</div>
+          <div className="text-[12px] text-white/55">راجع المراحل بالتفصيل وأعلمنا موافقتك لنبدأ التعليم فوراً</div>
+        </div>
+        {stages.length > 0 && (
+          <ol className="space-y-1.5">
+            {stages.map((s, idx) => {
+              const open = expandedContractStage === idx;
+              return (
+                <li key={idx} className="rounded-xl border border-white/10 bg-white/[0.025] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedContractStage(open ? -1 : idx)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-right"
+                  >
+                    <span className="shrink-0 w-6 h-6 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-[11px] font-bold text-amber-200">{idx + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-[13px] text-white leading-tight">{s.title}</div>
+                      {s.duration && <div className="text-[10px] text-white/35 mt-0.5">{s.duration}</div>}
+                    </div>
+                    <span className="shrink-0 text-[10px] text-white/30">{open ? "▲" : "▼"}</span>
+                  </button>
+                  {open && (
+                    <div className="px-3 pb-3 pt-0.5 space-y-2 border-t border-white/[0.06]">
+                      {s.objectives.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">الأهداف</div>
+                          <ul className="space-y-0.5">
+                            {s.objectives.map((o, oi) => (
+                              <li key={oi} className="text-[11px] text-white/65 flex gap-1.5">
+                                <span className="text-amber-400/50 shrink-0">•</span>{o}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {s.microSteps.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">الخطوات الفرعية</div>
+                          <ol className="space-y-0.5">
+                            {s.microSteps.map((step, si) => (
+                              <li key={si} className="text-[11px] text-white/60 flex gap-1.5">
+                                <span className="shrink-0 w-3.5 h-3.5 rounded-full bg-white/8 flex items-center justify-center text-[8px] font-bold text-white/40 mt-0.5">{si + 1}</span>
+                                {step}
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      )}
+                      {s.masteryCriterion && (
+                        <div className="rounded-lg bg-amber-500/8 border border-amber-500/20 px-2 py-1.5">
+                          <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">معيار الإتقان</div>
+                          <div className="text-[11px] text-amber-100/75">{s.masteryCriterion}</div>
+                        </div>
+                      )}
+                      {s.deliverable && (
+                        <div className="text-[10px] text-white/45">
+                          <span className="font-bold text-white/55">المُخرَج: </span>{s.deliverable}
+                        </div>
+                      )}
+                      {s.reasonForStudent && (
+                        <div className="rounded-lg bg-purple-500/8 border border-purple-500/20 px-2 py-1.5">
+                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">لماذا هذه المرحلة لك</div>
+                          <div className="text-[11px] text-purple-100/70">{s.reasonForStudent}</div>
+                        </div>
+                      )}
+                      {s.prerequisite && (
+                        <div className="text-[10px] text-white/35">
+                          <span className="font-bold text-white/45">المتطلب القبلي: </span>{s.prerequisite}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        <div className="flex gap-2.5 pt-1">
+          <button
+            type="button"
+            onClick={onAccept}
+            className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-[14px] transition-colors"
+          >
+            أعتمد الخطة وأبدأ ✓
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowRevision(true)}
+            className="flex-1 py-3 rounded-xl bg-white/8 hover:bg-white/12 border border-white/10 text-white font-bold text-[14px] transition-colors"
+          >
+            أريد تعديلاً
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LearningPathPanel({
+  planHtml,
+  currentStage,
+  totalStages,
+  completedMicroSteps,
+  growthReflections,
+  onJumpToStage,
+}: {
+  planHtml: string | null;
+  currentStage: number;
+  totalStages: number;
+  completedMicroSteps?: number[];
+  growthReflections?: Array<{ stageIndex: number; text: string; date: string }>;
+  onJumpToStage?: (stageIndex: number, stageTitle: string) => void;
+}) {
+  const [expandedStage, setExpandedStage] = useState<number>(currentStage);
+  useEffect(() => { setExpandedStage(currentStage); }, [currentStage]);
+
+  const activeStageRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    activeStageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   if (!planHtml) return null;
   const stages = parsePlanStages(planHtml);
   if (stages.length === 0) return null;
   const effectiveTotal = totalStages || stages.length;
   const progressPct = Math.min(100, Math.round((currentStage / Math.max(effectiveTotal, 1)) * 100));
-  const active = stages[currentStage] ?? stages[0];
+
+  // Circular progress ring — pure SVG. r=28 → C ≈ 175.93.
+  const r = 28;
+  const c = 2 * Math.PI * r;
+  const dash = (progressPct / 100) * c;
 
   return (
-    <div className="shrink-0 border-b border-amber-500/15" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.07), rgba(139,92,246,0.05))" }}>
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-white/5 transition-colors"
-        style={{ direction: "rtl" }}
-      >
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
-            <Trophy className="w-4 h-4 text-black" />
-          </div>
-          <div className="min-w-0 flex-1 text-right">
-            <div className="text-[12px] font-bold text-amber-200 flex items-center gap-2">
-              <span>المرحلة {Math.min(currentStage + 1, stages.length)} من {stages.length}</span>
-              <span className="text-amber-300/70 font-normal">·</span>
-              <span className="text-white/85 truncate">{active.title}</span>
-            </div>
-            <div className="mt-1 h-1.5 w-full bg-white/8 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-l from-amber-400 to-amber-600 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
-            </div>
+    <div className="px-4 py-4 space-y-4" style={{ direction: "rtl" }}>
+      {/* Overall progress: ring + headline */}
+      <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-br from-amber-500/10 to-purple-500/8 border border-amber-500/20">
+        <div className="relative w-16 h-16 shrink-0">
+          <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
+            <circle cx="32" cy="32" r={r} stroke="rgba(255,255,255,0.08)" strokeWidth="5" fill="none" />
+            <circle
+              cx="32" cy="32" r={r}
+              stroke="url(#pathGrad)"
+              strokeWidth="5"
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray={`${dash} ${c}`}
+              style={{ transition: "stroke-dasharray 0.4s ease-out" }}
+            />
+            <defs>
+              <linearGradient id="pathGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#f59e0b" />
+                <stop offset="100%" stopColor="#d97706" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center text-[13px] font-black text-amber-200 tabular-nums">
+            {progressPct}%
           </div>
         </div>
-        {expanded ? <ChevronUp className="w-4 h-4 text-amber-300 shrink-0" /> : <ChevronDown className="w-4 h-4 text-amber-300 shrink-0" />}
-      </button>
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-3 pt-1" style={{ direction: "rtl" }}>
-              <ol className="space-y-1.5">
-                {stages.map((s, idx) => {
-                  const isActive = idx === currentStage;
-                  const isDone = idx < currentStage;
-                  return (
-                    <li
-                      key={idx}
-                      className={`flex items-start gap-2.5 rounded-lg px-2.5 py-2 border text-[12px] leading-relaxed ${
-                        isActive
-                          ? "path-panel-stage-active"
-                          : isDone
-                            ? "bg-emerald-500/8 border-emerald-500/25 text-emerald-100/85"
-                            : "bg-white/[0.03] border-white/8 text-white/65"
-                      }`}
-                    >
-                      <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-black ${
-                        isActive
-                          ? "bg-amber-500 text-black"
-                          : isDone
-                            ? "bg-emerald-500/30 text-emerald-200"
-                            : "bg-white/8 text-white/60"
-                      }`}>
-                        {isDone ? "✓" : idx + 1}
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] text-amber-300/80 font-bold mb-0.5">التقدّم العام</div>
+          <div className="text-[13px] font-bold text-white truncate">
+            {stages[Math.min(currentStage, stages.length - 1)]?.title || ''}
+          </div>
+          <div className="text-[10px] text-white/50 mt-0.5">
+            المرحلة {Math.min(currentStage + 1, stages.length)} من {stages.length}
+          </div>
+        </div>
+      </div>
+
+      {/* Per-stage list: expandable rows */}
+      <ol className="space-y-2">
+        {stages.map((s, idx) => {
+          const isActive = idx === currentStage;
+          const isDone = idx < currentStage;
+          const isLocked = idx > currentStage;
+          const isExpanded = expandedStage === idx;
+          const status = isDone ? "مكتملة" : isActive ? "الحالية" : "مقفلة";
+          const microTotal = s.microSteps.length;
+          const completedCount = isActive
+            ? (completedMicroSteps?.length ?? 0)
+            : (isDone ? microTotal : 0);
+          return (
+            <li
+              key={idx}
+              ref={isActive ? activeStageRef : undefined}
+              className={`rounded-xl border transition-all ${
+                isActive
+                  ? "bg-amber-500/10 border-amber-500/40 shadow-md shadow-amber-500/10"
+                  : isDone
+                    ? "bg-emerald-500/[0.06] border-emerald-500/25"
+                    : "bg-white/[0.03] border-white/10"
+              }`}
+            >
+              {/* Stage header row — click to expand/collapse */}
+              <button
+                type="button"
+                onClick={() => setExpandedStage(isExpanded ? -1 : idx)}
+                className="w-full text-right px-3 py-2.5"
+              >
+                <div className="flex items-start gap-2.5">
+                  <span className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-black ${
+                    isActive
+                      ? "bg-amber-500 text-black"
+                      : isDone
+                        ? "bg-emerald-500/30 text-emerald-200 border border-emerald-500/40"
+                        : "bg-white/8 text-white/50 border border-white/10"
+                  }`}>
+                    {isDone ? "✓" : isLocked ? "🔒" : idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`font-bold text-[13px] ${isActive ? "text-white" : isDone ? "text-emerald-100" : "text-white/70"}`}>
+                        {s.title}
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold">{s.title}</div>
-                        {s.duration && (
-                          <div className="text-[10px] mt-0.5 inline-block bg-purple-500/15 border border-purple-400/25 text-purple-200 rounded-full px-2 py-0.5">
-                            ⏱ {s.duration}
-                          </div>
-                        )}
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
+                        isActive
+                          ? "bg-amber-500/30 text-amber-100 border border-amber-400/40"
+                          : isDone
+                            ? "bg-emerald-500/20 text-emerald-200 border border-emerald-500/30"
+                            : "bg-white/5 text-white/40 border border-white/10"
+                      }`}>{status}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {s.duration && (
+                        <span className="text-[10px] inline-block bg-purple-500/15 border border-purple-400/25 text-purple-200 rounded-full px-2 py-0.5">
+                          ⏱ {s.duration}
+                        </span>
+                      )}
+                      {microTotal > 0 && (
+                        <span className="text-[10px] text-white/40 tabular-nums">
+                          {completedCount}/{microTotal} خطوة
+                        </span>
+                      )}
+                    </div>
+                    {/* Micro-step progress bar */}
+                    {microTotal > 0 && (isActive || isDone) && (
+                      <div className="mt-1.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${isActive ? "bg-amber-400" : "bg-emerald-400"}`}
+                          style={{ width: `${Math.round((completedCount / microTotal) * 100)}%` }}
+                        />
                       </div>
-                    </li>
-                  );
-                })}
-              </ol>
+                    )}
+                  </div>
+                  <span className={`shrink-0 self-center text-[10px] ml-1 ${isExpanded ? "text-amber-300" : "text-white/25"}`}>
+                    {isExpanded ? "▲" : "▼"}
+                  </span>
+                </div>
+              </button>
+
+              {/* Expanded detail: all 6 contract fields — visible for every stage */}
+              {isExpanded && (
+                <div className="px-3 pb-3 space-y-2.5 border-t border-white/[0.06] pt-2.5">
+                  {s.objectives.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-bold text-amber-300/70 mb-1">الأهداف القابلة للقياس</div>
+                      <ul className="space-y-1">
+                        {s.objectives.map((obj, oi) => (
+                          <li key={oi} className="text-[11px] text-white/70 flex gap-1.5">
+                            <span className="text-amber-400/60 shrink-0">•</span>{obj}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {s.microSteps.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-bold text-purple-300/70 mb-1">الخطوات التفصيلية</div>
+                      <ol className="space-y-1">
+                        {s.microSteps.map((step, si) => {
+                          const done = isDone || (isActive && (completedMicroSteps ?? []).includes(si));
+                          return (
+                            <li key={si} className={`text-[11px] flex gap-1.5 ${done ? "text-emerald-300/80" : isLocked ? "text-white/40" : "text-white/60"}`}>
+                              <span className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold mt-0.5 ${
+                                done ? "bg-emerald-500/30 text-emerald-200" : "bg-white/8 text-white/40"
+                              }`}>{done ? "✓" : si + 1}</span>
+                              {step}
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </div>
+                  )}
+                  {s.masteryCriterion && (
+                    <div className="rounded-lg bg-amber-500/8 border border-amber-500/20 px-2.5 py-2">
+                      <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">معيار الإتقان</div>
+                      <div className={`text-[11px] ${isLocked ? "text-amber-100/50" : "text-amber-100/80"}`}>{s.masteryCriterion}</div>
+                    </div>
+                  )}
+                  {s.deliverable && (
+                    <div className="text-[10px] text-white/50">
+                      <span className="font-bold text-white/60">المُخرَج: </span>{s.deliverable}
+                    </div>
+                  )}
+                  {s.reasonForStudent && (
+                    <div className="rounded-lg bg-purple-500/8 border border-purple-500/20 px-2.5 py-2">
+                      <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">لماذا هذه المرحلة لك</div>
+                      <div className={`text-[11px] ${isLocked ? "text-purple-100/40" : "text-purple-100/70"}`}>{s.reasonForStudent}</div>
+                    </div>
+                  )}
+                  {s.prerequisite && (
+                    <div className="text-[10px] text-white/40">
+                      <span className="font-bold text-white/50">المتطلب القبلي: </span>{s.prerequisite}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Jump-to-stage button */}
+              {!isActive && onJumpToStage && (
+                <div className="px-3 pb-2.5">
+                  <button
+                    type="button"
+                    onClick={() => onJumpToStage(idx, s.title)}
+                    className={`w-full text-[11px] font-bold py-1.5 rounded-lg border transition-all ${
+                      isDone
+                        ? "bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-100"
+                        : "bg-amber-500/10 hover:bg-amber-500/25 border-amber-500/30 text-amber-200"
+                    }`}
+                  >
+                    {isDone ? "↻ راجع هذه المرحلة" : "اقفز هنا ←"}
+                  </button>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+
+      {/* Growth reflections: what the student demonstrated at stage-complete moments */}
+      {growthReflections && growthReflections.length > 0 && (
+        <div className="px-4 pt-2 pb-4 space-y-2">
+          <div className="text-[10px] font-bold text-emerald-300/70 mb-1.5">🌱 نمو المهارات</div>
+          {growthReflections.slice(-5).map((g, i) => (
+            <div key={i} className="rounded-lg bg-emerald-500/[0.06] border border-emerald-500/20 px-2.5 py-2">
+              <div className="text-[9px] text-emerald-300/50 mb-0.5">المرحلة {g.stageIndex + 1} — {new Date(g.date).toLocaleDateString("ar-SA", { month: "short", day: "numeric" })}</div>
+              <div className="text-[11px] text-emerald-100/75 leading-relaxed">{g.text}</div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
+// Client-side mirror of the server's LAB_ENV_INTENT_RE. Used to detect
+// natural-language lab-environment requests typed into the chat input so we
+// can set labIntakeActiveRef before the model responds — matching the same
+// detection the server uses so [[LAB_INTAKE_DONE]] is never silently ignored.
+const LAB_INTENT_RE = /(?:أريد|اريد|ابن[ِيه]?|اعمل|انشئ|أنشئ|ابدأ)\s*(?:لي\s*)?(?:بيئة|محاكاة|مختبر|سيناريو|تطبيق)\s*(?:تطبيقي[ةه]?|عملي[ةه]?|تفاعلي[ةه]?|تدريبي[ةه]?|مخصص[ةه]?)?/u;
 
 const ENV_BUILD_PHRASES = [
   { icon: "🧠", text: "نُحلّل مستواك ونصمّم بيئة تطبيقية تناسبك تماماً..." },
@@ -494,14 +964,17 @@ export default function Subject() {
   const setPendingDynamicEnv = useCallback((env: any | null) => {
     setPendingDynamicEnvState(env);
     if (!user?.id || !dynamicEnvStorageSuffix) return;
-    if (env) writeUserJson(user.id, dynamicEnvStorageSuffix, env);
-    else removeUserKey(user.id, dynamicEnvStorageSuffix);
+    // user.id is a numeric DB row id; the user-storage helpers expect the
+    // stringified form (so the same code path also works for guest sessions
+    // that store IDs as strings). Cast at every boundary call.
+    if (env) writeUserJson(String(user.id), dynamicEnvStorageSuffix, env);
+    else removeUserKey(String(user.id), dynamicEnvStorageSuffix);
   }, [user?.id, dynamicEnvStorageSuffix]);
   // On mount / when user or subject changes, restore any saved env so a
   // page reload or accidental close still finds the previous lab.
   useEffect(() => {
     if (!user?.id || !dynamicEnvStorageSuffix) return;
-    const saved = readUserJson<any | null>(user.id, dynamicEnvStorageSuffix, null);
+    const saved = readUserJson<any | null>(String(user.id), dynamicEnvStorageSuffix, null);
     if (saved && typeof saved === "object") setPendingDynamicEnvState(saved);
   }, [user?.id, dynamicEnvStorageSuffix]);
   const [chatStarter, setChatStarter] = useState<string | null>(null);
@@ -515,11 +988,46 @@ export default function Subject() {
   const [labReports, setLabReports] = useState<LabReport[]>([]);
   const [labReportsLoading, setLabReportsLoading] = useState(true);
 
-  const isSubscriptionExpired = !!(
-    user?.nukhbaPlan &&
-    user?.subscriptionExpiresAt &&
-    new Date(user.subscriptionExpiresAt) < new Date()
-  );
+  type SubjectAccessInfo = {
+    hasAccess: boolean;
+    isFirstLesson: boolean;
+    hasSubjectSubscription: boolean;
+    subjectSubExpired: boolean;
+    expiredRecently: boolean;
+    gemsBalance: number;
+    dailyRemaining: number;
+    gemsExpiresAt: string | null;
+  };
+  const [subjectAccessInfo, setSubjectAccessInfo] = useState<SubjectAccessInfo | null>(null);
+
+  const refetchSubjectAccess = async () => {
+    if (!subject?.id) return;
+    try {
+      const r = await fetch(`/api/subscriptions/subject-access?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" });
+      if (!r.ok) { setSubjectAccessInfo(null); return; }
+      setSubjectAccessInfo(await r.json());
+    } catch {
+      setSubjectAccessInfo(null);
+    }
+  };
+
+  useEffect(() => {
+    refetchSubjectAccess();
+    const onGems = () => refetchSubjectAccess();
+    window.addEventListener("nukhba:gems-changed", onGems);
+    return () => window.removeEventListener("nukhba:gems-changed", onGems);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject?.id]);
+
+  // Server verdict drives the renew wall; legacy inline check is the
+  // fallback while the access fetch is still in flight.
+  const isSubscriptionExpired = subjectAccessInfo
+    ? (subjectAccessInfo.subjectSubExpired && !subjectAccessInfo.hasAccess)
+    : !!(
+        user?.nukhbaPlan &&
+        user?.subscriptionExpiresAt &&
+        new Date(user.subscriptionExpiresAt) < new Date()
+      );
 
   const loadSummaries = () => {
     if (!subject) return;
@@ -553,6 +1061,14 @@ export default function Subject() {
         .then(r => r.json())
         .then(data => setAllSummaries(Array.isArray(data) ? data : []))
         .catch(() => {});
+      // Force-close every interactive panel so the renew wall is the only
+      // surface the student can interact with.
+      setIsChatOpen(false);
+      setIsIDEOpen(false);
+      setIsLabOpen(false);
+      setIsYemenSoftOpen(false);
+      setIsAccountingLabOpen(false);
+      setIsDynamicEnvOpen(false);
     }
   }, [isSubscriptionExpired]);
 
@@ -908,44 +1424,72 @@ export default function Subject() {
               chatStarter={chatStarter}
               onConsumeChatStarter={() => setChatStarter(null)}
               initialSourcesMaterialId={initialSourcesMaterialId}
-              onCreateLabEnv={async (description: string) => {
-                console.log("[create-lab-env] click; isCreatingEnv=", isCreatingEnv, "description=", description);
+              onCreateLabEnv={async (description: string, spec?: object) => {
+                console.log("[create-lab-env] click; isCreatingEnv=", isCreatingEnv, "spec=", !!spec);
                 if (isCreatingEnv) return;
                 setCreateEnvError(null);
                 setIsCreatingEnv(true);
-                try {
-                  // Universal AI-built dynamic env — works for ANY subject.
-                  const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/build-env`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    credentials: "include",
-                    body: JSON.stringify({ subjectId: subject!.id, description }),
-                  });
-                  console.log("[create-lab-env] dynamic response:", r.status);
-                  if (!r.ok) {
-                    const errText = await r.text().catch(() => "");
-                    throw new Error(`فشل بناء البيئة (${r.status}): ${errText.slice(0, 200)}`);
+                // Spec builds get a silent automatic retry (up to 2 total attempts)
+                // before surfacing any error to the student. Legacy description builds
+                // (no spec) only get one attempt since they already have their own
+                // internal retry chain inside build-env.
+                const maxAttempts = spec ? 2 : 1;
+                let lastErr: Error | null = null;
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                  try {
+                    const body = spec
+                      ? { subjectId: subject!.id, spec }
+                      : { subjectId: subject!.id, description };
+                    const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/build-env`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      credentials: "include",
+                      body: JSON.stringify(body),
+                    });
+                    console.log(`[create-lab-env] response attempt ${attempt}:`, r.status);
+                    if (!r.ok) {
+                      const errText = await r.text().catch(() => "");
+                      lastErr = new Error(`فشل بناء البيئة (${r.status}): ${errText.slice(0, 200)}`);
+                      if (attempt < maxAttempts) {
+                        console.warn("[create-lab-env] retrying after failure on attempt", attempt);
+                        await new Promise((res) => setTimeout(res, 1500));
+                        continue;
+                      }
+                      break;
+                    }
+                    const data = await r.json();
+                    if (data.env) {
+                      setPendingDynamicEnv(data.env);
+                      setIsDynamicEnvOpen(true);
+                      setIsLabOpen(false);
+                      setIsYemenSoftOpen(false);
+                      setIsAccountingLabOpen(false);
+                      lastErr = null;
+                      break; // success
+                    } else {
+                      lastErr = new Error("الاستجابة لا تحتوي على بيئة صالحة");
+                      if (attempt < maxAttempts) {
+                        await new Promise((res) => setTimeout(res, 1500));
+                        continue;
+                      }
+                      break;
+                    }
+                  } catch (e: unknown) {
+                    lastErr = e instanceof Error ? e : new Error(String(e));
+                    console.error(`[create-lab-env] attempt ${attempt} threw:`, lastErr.message);
+                    if (attempt < maxAttempts) {
+                      await new Promise((res) => setTimeout(res, 1500));
+                    }
                   }
-                  const data = await r.json();
-                  console.log("[create-lab-env] dynamic data:", data);
-                  if (data.env) {
-                    setPendingDynamicEnv(data.env);
-                    setIsDynamicEnvOpen(true);
-                    setIsLabOpen(false);
-                    setIsYemenSoftOpen(false);
-                    setIsAccountingLabOpen(false);
-                  } else {
-                    throw new Error("الاستجابة لا تحتوي على بيئة صالحة");
-                  }
-                } catch (e: any) {
-                  console.error("[create-lab-env] failed:", e);
-                  setCreateEnvError(e?.message || "حدث خطأ غير متوقع أثناء بناء البيئة");
-                } finally {
-                  setIsCreatingEnv(false);
                 }
+                if (lastErr) {
+                  console.error("[create-lab-env] all attempts failed:", lastErr.message);
+                  setCreateEnvError(lastErr.message || "حدث خطأ غير متوقع أثناء بناء البيئة");
+                }
+                setIsCreatingEnv(false);
               }}
               isCreatingEnv={isCreatingEnv}
-              onStartLabEnvIntent={() => setPendingLabStarter("أريد بناء بيئة تطبيقية تفاعلية مخصصة لي في هذه المادة. اطرح عليّ ٢-٤ أسئلة متعددة الخيارات (مع خيار «غير ذلك») لتحديد ما أريد التدرب عليه ومستواي الحالي، ثم ابنِ البيئة المناسبة.")}
+              onStartLabEnvIntent={() => setPendingLabStarter("[LAB_INTAKE_START]")}
               attackSimEnabled={isSecuritySubject}
               attackSimOpen={isAttackSimOpen}
               pendingAttackScenario={pendingAttackScenario}
@@ -998,7 +1542,7 @@ export default function Subject() {
           }}
         />
 
-        {/* Recommendation modal before opening custom-env chat starter */}
+        {/* Lab intake start confirmation modal */}
         {pendingLabStarter && (
           <div
             className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4"
@@ -1010,32 +1554,32 @@ export default function Subject() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center text-xl shrink-0">💡</div>
+                <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center text-xl shrink-0">🧪</div>
                 <div className="flex-1">
-                  <h3 className="text-white font-extrabold text-lg mb-1">قبل أن تبدأ بناء بيئتك بنفسك</h3>
+                  <h3 className="text-white font-extrabold text-lg mb-1">بناء بيئة تطبيقية مخصصة</h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    يُفضّل أن تتبع المعلم الذكي في مسارك التعليمي — فهو سيُنشئ لك البيئة التطبيقية تلقائياً وفق المفاهيم التي تتعلمها في كل مرحلة، فيكون التطبيق العملي مرتبطاً مباشرة بما درسته.
+                    سيطرح عليك المعلم الذكي ٥ أسئلة سريعة لفهم ما تريد التدرّب عليه، ثم يُجهّز لك بيئة تطبيقية مصمّمة خصيصاً لك.
                   </p>
                 </div>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3 mb-4 text-xs text-muted-foreground leading-relaxed">
-                إن أصرّيت على فتح بيئة مخصّصة الآن، سيطرح عليك المعلم سؤالاً متعدد الخيارات لتحديد ما تريد التدرّب عليه، ثم يبني لك البيئة من الصفر.
+                ⏱️ تستغرق الأسئلة أقل من دقيقة — ستكون البيئة جاهزة بعدها مباشرة.
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setPendingLabStarter(null)}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-slate-900 font-bold hover:bg-gold/90 transition-colors text-sm"
-                >
-                  حسناً، سأتابع مع المعلم
-                </button>
-                <button
                   onClick={() => {
-                    setChatStarter(pendingLabStarter);
+                    setChatStarter(pendingLabStarter!);
                     setPendingLabStarter(null);
                   }}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-slate-900 font-bold hover:bg-gold/90 transition-colors text-sm"
+                >
+                  ابدأ الأسئلة
+                </button>
+                <button
+                  onClick={() => setPendingLabStarter(null)}
                   className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-colors text-sm"
                 >
-                  أريدها الآن
+                  إلغاء
                 </button>
               </div>
             </div>
@@ -1065,31 +1609,52 @@ export default function Subject() {
 
 function Countdown({ until, onExpired }: { until: string; onExpired?: () => void }) {
   const [timeLeft, setTimeLeft] = useState(() => Math.max(0, new Date(until).getTime() - Date.now()));
+  const firedRef = useRef(false);
 
   useEffect(() => {
-    const id = setInterval(() => {
+    // Reset the "already fired" latch when the deadline changes (e.g. a
+    // new per-subject session sets a different `until`), so onExpired can
+    // fire again for the new countdown.
+    firedRef.current = false;
+    const tick = () => {
       const remaining = Math.max(0, new Date(until).getTime() - Date.now());
       setTimeLeft(remaining);
-      if (remaining === 0) onExpired?.();
-    }, 1000);
+      if (remaining === 0 && !firedRef.current) {
+        firedRef.current = true;
+        // Nudge the rest of the app to re-fetch the gems wallet — the
+        // overlay should only clear once the server has actually rolled
+        // over the daily allowance for the new Yemen day.
+        try { window.dispatchEvent(new Event("nukhba:gems-changed")); } catch {}
+        onExpired?.();
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [until]);
 
-  const hours = Math.floor(timeLeft / 3600000);
+  // Cap hours at 23 — `dailyLimitUntil` is always the next Yemen midnight,
+  // so we should never display "47:00:00" even if a clock skew or stale
+  // `until` value temporarily produces a larger raw delta.
+  const hoursRaw = Math.floor(timeLeft / 3600000);
+  const hours = Math.min(23, hoursRaw);
   const minutes = Math.floor((timeLeft % 3600000) / 60000);
   const seconds = Math.floor((timeLeft % 60000) / 1000);
 
   return (
-    <div className="flex items-center justify-center gap-2 md:gap-3" dir="ltr">
-      {[{ v: hours, l: "ساعة" }, { v: minutes, l: "دقيقة" }, { v: seconds, l: "ثانية" }].map((item, i, arr) => (
-        <div key={item.l} className="flex items-center gap-2 md:gap-3">
-          <div className="bg-black/40 border border-gold/20 rounded-xl md:rounded-2xl px-3 py-2 md:px-5 md:py-3 text-center min-w-[52px] md:min-w-[72px]">
-            <div className="text-2xl md:text-4xl font-black text-gold font-mono">{String(item.v).padStart(2, '0')}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">{item.l}</div>
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center justify-center gap-2 md:gap-3" dir="ltr">
+        {[{ v: hours, l: "ساعة" }, { v: minutes, l: "دقيقة" }, { v: seconds, l: "ثانية" }].map((item, i, arr) => (
+          <div key={item.l} className="flex items-center gap-2 md:gap-3">
+            <div className="bg-black/40 border border-gold/20 rounded-xl md:rounded-2xl px-3 py-2 md:px-5 md:py-3 text-center min-w-[52px] md:min-w-[72px]">
+              <div className="text-2xl md:text-4xl font-black text-gold font-mono">{String(item.v).padStart(2, '0')}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{item.l}</div>
+            </div>
+            {i < arr.length - 1 && <span className="text-xl md:text-2xl font-bold text-gold/50">:</span>}
           </div>
-          {i < arr.length - 1 && <span className="text-xl md:text-2xl font-bold text-gold/50">:</span>}
-        </div>
-      ))}
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground/70">بتوقيت اليمن (UTC+3)</p>
     </div>
   );
 }
@@ -1250,12 +1815,17 @@ function renderAssistantHtml(raw: string): string {
   // marked is synchronous when no async extensions are registered, but the
   // type signature is `string | Promise<string>` — `as string` is safe here.
   const withImages = renderImageMarkers(raw);
-  const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(withImages))) as string;
+  // Math is extracted as plain ASCII placeholders BEFORE marked + DOMPurify,
+  // then restored AFTER sanitization with pre-rendered KaTeX HTML. This keeps
+  // KaTeX's inline styles (vertical-align, padding, etc.) intact since they
+  // bypass `stripInlineStyles` and DOMPurify's attribute filter.
+  const { text: withMathStripped, blocks } = extractMathBlocks(withImages);
+  const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(withMathStripped))) as string;
   const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target', 'data-image-id', 'loading'],
     ADD_TAGS: ['button', 'figure', 'figcaption'],
   });
-  return stripBrokenButtonCodeSpans(sanitized);
+  return restoreMathPlaceholders(stripBrokenButtonCodeSpans(sanitized), blocks);
 }
 
 // Streaming variant: same conversion, but we must tolerate half-finished
@@ -1279,12 +1849,18 @@ function renderStreamingHtml(raw: string): string {
   // imageReady SSE event resolves. Renders BEFORE marked so the raw HTML
   // block survives markdown parsing intact.
   const withImages = renderImageMarkers(normalized);
-  const cleaned = unwrapHtmlCodeFences(withImages);
+  // Math extraction runs mid-stream too: only complete `$$..$$` and `$..$`
+  // blocks match the regex, so partial spans never get rendered. The user
+  // sees raw `$...` until the closing `$` arrives — better than rendering
+  // half-formed TeX or stalling the stream.
+  const { text: withMathStripped, blocks } = extractMathBlocks(withImages);
+  const cleaned = unwrapHtmlCodeFences(withMathStripped);
   const html = marked.parse(stripInlineStyles(cleaned)) as string;
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target', 'data-image-id', 'loading'],
     ADD_TAGS: ['button', 'figure', 'figcaption'],
   });
+  return restoreMathPlaceholders(sanitized, blocks);
 }
 
 
@@ -1361,6 +1937,307 @@ function extractAskOptions(content: string): { stripped: string; ask: { question
   return { stripped: cleanStripped(content), ask: { question, options, allowOther } };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Session-UI helpers: elapsed timer hook, per-message action toolbar,
+// welcome empty-state, and unified error state. Purely presentational —
+// streaming, [[CREATE_LAB_ENV]], [[IMAGE:id]], gem accounting and stage
+// flow remain in the parent component.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function formatElapsed(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
+
+// Ticks once per second whenever `running && !paused`. We accumulate elapsed
+// on a ref so pause/resume don't lose progress; the state mirrors the ref
+// for re-render. `reset()` clears both ref + state.
+function useElapsedTimer(running: boolean, paused: boolean) {
+  const [elapsed, setElapsed] = useState(0);
+  const accRef = useRef(0);
+  const startedAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!running || paused) {
+      if (startedAtRef.current !== null) {
+        accRef.current += (Date.now() - startedAtRef.current) / 1000;
+        startedAtRef.current = null;
+        setElapsed(accRef.current);
+      }
+      return;
+    }
+    startedAtRef.current = Date.now();
+    const id = setInterval(() => {
+      if (startedAtRef.current === null) return;
+      const live = accRef.current + (Date.now() - startedAtRef.current) / 1000;
+      setElapsed(live);
+    }, 1000);
+    return () => {
+      clearInterval(id);
+      if (startedAtRef.current !== null) {
+        accRef.current += (Date.now() - startedAtRef.current) / 1000;
+        startedAtRef.current = null;
+      }
+    };
+  }, [running, paused]);
+
+  const reset = useCallback(() => {
+    accRef.current = 0;
+    startedAtRef.current = running && !paused ? Date.now() : null;
+    setElapsed(0);
+  }, [running, paused]);
+
+  return { elapsed, reset };
+}
+
+// Strips HTML tags and KaTeX/code artifacts from a teacher message so the
+// browser TTS engine doesn't read out "less-than slash p greater-than".
+function plainTextFromHtmlContent(raw: string): string {
+  if (!raw) return "";
+  // Drop fenced code blocks entirely (TTS would mangle them).
+  let s = raw.replace(/```[\s\S]*?```/g, " ");
+  // Drop our internal markers so they don't get spoken.
+  s = s.replace(/\[\[(?:CREATE_LAB_ENV|ASK_OPTIONS|IMAGE|PLAN_READY)[^\]]*\]\]/gi, " ");
+  // Strip raw HTML tags.
+  if (typeof document !== "undefined") {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = s;
+    s = tmp.textContent || tmp.innerText || "";
+  } else {
+    s = s.replace(/<[^>]*>/g, " ");
+  }
+  return s.replace(/\s+/g, " ").trim();
+}
+
+const MessageToolbar = memo(function MessageToolbar({
+  content,
+  onRegenerate,
+  onShare,
+  onRate,
+  canRegenerate,
+  ratingKey,
+}: {
+  content: string;
+  onRegenerate?: () => void;
+  onShare?: () => void;
+  onRate?: (value: "up" | "down") => void;
+  canRegenerate: boolean;
+  ratingKey?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
+  const [ttsState, setTtsState] = useState<"idle" | "loading" | "playing">("idle");
+  // Ratings are persisted to localStorage under `nukhba.feedback.<key>` so
+  // a thumbs-up/down survives reload, remount, and tab close. The backend
+  // POST is best-effort/admin-side; the local cache is what the UI shows.
+  const [rated, setRated] = useState<null | "up" | "down">(() => {
+    if (typeof window === "undefined" || !ratingKey) return null;
+    try {
+      const v = window.localStorage.getItem(`nukhba.feedback.${ratingKey}`);
+      return v === "up" || v === "down" ? v : null;
+    } catch { return null; }
+  });
+
+  const ttsAvailable = isSpeechSynthesisSupported();
+
+  // Stop any in-flight TTS only on component unmount (not on each state
+  // change — otherwise the cleanup from the `loading` render would abort
+  // playback the moment `onPlay` flips state to `playing`).
+  const ttsStateRef = useRef<"idle" | "loading" | "playing">("idle");
+  useEffect(() => { ttsStateRef.current = ttsState; }, [ttsState]);
+  useEffect(() => () => { if (ttsStateRef.current !== "idle") stopSpeaking(); }, []);
+
+  const handleCopy = useCallback(async () => {
+    const txt = plainTextFromHtmlContent(content);
+    try {
+      await navigator.clipboard.writeText(txt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }, [content]);
+
+  const handleShare = useCallback(async () => {
+    const txt = plainTextFromHtmlContent(content);
+    const payload = `${txt}\n\n— من جلسة نُخبة\n${typeof window !== "undefined" ? window.location.href : ""}`;
+    try {
+      const nav = navigator as Navigator & { share?: (data: { text: string }) => Promise<void> };
+      if (typeof nav.share === "function") {
+        await nav.share({ text: payload });
+      } else {
+        await navigator.clipboard.writeText(payload);
+        setShared(true);
+        setTimeout(() => setShared(false), 1400);
+      }
+    } catch { /* user cancelled */ }
+    onShare?.();
+  }, [content, onShare]);
+
+  const handleTTS = useCallback(() => {
+    if (!ttsAvailable) return;
+    if (ttsState !== "idle") {
+      stopSpeaking();
+      setTtsState("idle");
+      return;
+    }
+    setTtsState("loading");
+    const started = speakText(plainTextFromHtmlContent(content), {
+      onPlay: () => setTtsState("playing"),
+      onEnd: () => setTtsState("idle"),
+      onError: () => setTtsState("idle"),
+    });
+    if (!started) setTtsState("idle");
+  }, [content, ttsState, ttsAvailable]);
+
+  const handleRateClick = useCallback((value: "up" | "down") => {
+    setRated((prev) => {
+      const next = prev === value ? null : value;
+      if (typeof window !== "undefined" && ratingKey) {
+        try {
+          if (next === null) window.localStorage.removeItem(`nukhba.feedback.${ratingKey}`);
+          else window.localStorage.setItem(`nukhba.feedback.${ratingKey}`, next);
+        } catch {}
+      }
+      return next;
+    });
+    onRate?.(value);
+  }, [onRate, ratingKey]);
+
+  return (
+    <div className="msg-toolbar mt-1.5 flex flex-wrap items-center gap-1" style={{ direction: "rtl" }}>
+      <button type="button" className="msg-toolbar-btn" title="نسخ النص" aria-label="نسخ النص" onClick={handleCopy}>
+        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+        <span className="msg-toolbar-label">{copied ? "نُسِخ" : "نسخ"}</span>
+      </button>
+      {canRegenerate && onRegenerate && (
+        <button type="button" className="msg-toolbar-btn" title="أعد توليد الإجابة" aria-label="أعد توليد الإجابة" onClick={onRegenerate}>
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span className="msg-toolbar-label">أعد التوليد</span>
+        </button>
+      )}
+      {ttsAvailable && (
+        <button
+          type="button"
+          className={`msg-toolbar-btn ${ttsState !== "idle" ? "msg-toolbar-btn-active" : ""}`}
+          title={
+            ttsState === "loading" ? "جارٍ تجهيز الصوت..."
+            : ttsState === "playing" ? "إيقاف القراءة"
+            : "اقرأها بصوت عربي"
+          }
+          aria-label={ttsState === "playing" ? "إيقاف القراءة" : "اقرأها بصوت عربي"}
+          onClick={handleTTS}
+        >
+          {ttsState === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : ttsState === "playing" ? <VolumeX className="w-3.5 h-3.5" />
+            : <Volume2 className="w-3.5 h-3.5" />}
+          <span className="msg-toolbar-label">
+            {ttsState === "loading" ? "جارٍ التجهيز..." : ttsState === "playing" ? "أوقف" : "اقرأها"}
+          </span>
+        </button>
+      )}
+      <button
+        type="button"
+        className={`msg-toolbar-btn ${rated === "up" ? "msg-toolbar-btn-up" : ""}`}
+        title="إجابة مفيدة"
+        aria-label="إجابة مفيدة"
+        onClick={() => handleRateClick("up")}
+      >
+        <ThumbsUp className="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        className={`msg-toolbar-btn ${rated === "down" ? "msg-toolbar-btn-down" : ""}`}
+        title="إجابة بحاجة لتحسين"
+        aria-label="إجابة بحاجة لتحسين"
+        onClick={() => handleRateClick("down")}
+      >
+        <ThumbsDown className="w-3.5 h-3.5" />
+      </button>
+      <button type="button" className="msg-toolbar-btn" title="مشاركة" aria-label="مشاركة" onClick={handleShare}>
+        <Share2 className="w-3.5 h-3.5" />
+        <span className="msg-toolbar-label">{shared ? "نُسِخ ✓" : "شارك"}</span>
+      </button>
+    </div>
+  );
+});
+
+function WelcomeEmptyState({
+  subjectName,
+  modeBadge,
+  starters,
+  onPick,
+}: {
+  subjectName: string;
+  modeBadge: string;
+  starters: string[];
+  onPick: (text: string) => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center px-4 py-10 text-center" style={{ direction: "rtl" }}>
+      <div className="w-16 h-16 mb-4 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
+        <Sparkles className="w-8 h-8 text-black" />
+      </div>
+      <span className="text-[11px] font-bold text-amber-300 mb-1">{modeBadge}</span>
+      <h3 className="text-xl font-black text-white mb-1.5">أهلاً بك في {subjectName}</h3>
+      <p className="text-sm text-white/55 leading-relaxed max-w-md mb-5">
+        ابدأ بسؤال، أو اختر اقتراحاً للأسفل. يستطيع المعلم شرح المفاهيم وحل التمارين وبناء بيئات تطبيقية تفاعلية لك.
+      </p>
+      <div className="flex flex-wrap gap-2 justify-center max-w-xl">
+        {starters.map((s, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onPick(s)}
+            className="text-[12px] sm:text-sm px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-amber-500/15 border border-white/10 hover:border-amber-500/40 text-white/75 hover:text-amber-100 transition-all"
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TeacherErrorState({
+  title,
+  description,
+  actionLabel,
+  onAction,
+  tone = "warning",
+}: {
+  title: string;
+  description: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  tone?: "warning" | "danger" | "info";
+}) {
+  const palette = tone === "danger"
+    ? { bg: "bg-rose-500/15", border: "border-rose-500/40", text: "text-rose-200", body: "text-rose-100/90", btnBg: "bg-rose-500/40 hover:bg-rose-500/60", btnBorder: "border-rose-400/50", btnText: "text-rose-100 hover:text-white" }
+    : tone === "info"
+    ? { bg: "bg-cyan-500/12", border: "border-cyan-500/35", text: "text-cyan-200", body: "text-cyan-100/90", btnBg: "bg-cyan-500/40 hover:bg-cyan-500/60", btnBorder: "border-cyan-400/50", btnText: "text-cyan-100 hover:text-white" }
+    : { bg: "bg-amber-500/15", border: "border-amber-500/40", text: "text-amber-200", body: "text-amber-100/90", btnBg: "bg-amber-500/40 hover:bg-amber-500/60", btnBorder: "border-amber-400/50", btnText: "text-amber-100 hover:text-white" };
+  return (
+    <div className={`max-w-2xl mx-auto mb-3 p-4 rounded-xl ${palette.bg} ${palette.border} border shadow-lg`} style={{ direction: "rtl" }}>
+      <div className={`text-sm font-bold mb-2 ${palette.text}`}>⚠️ {title}</div>
+      <div className={`text-sm mb-3 leading-relaxed ${palette.body}`}>{description}</div>
+      {actionLabel && onAction && (
+        <button
+          type="button"
+          onClick={onAction}
+          className={`text-sm font-bold transition-all px-4 py-2 rounded-lg ${palette.btnBg} ${palette.btnBorder} border ${palette.btnText}`}
+        >
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // In-flight teacher-image state shared with AIMessage. `loading` shows the
 // spinner placeholder; `ready` swaps in <img>; `error` shows a friendly
 // retry hint. URLs from fal.ai are short-lived (≈1h CDN cache) so we don't
@@ -1369,10 +2246,13 @@ function extractAskOptions(content: string): { stripped: string; ask: { question
 type TeacherImageState = { status: 'loading' | 'ready' | 'error'; url?: string };
 type TeacherImageMap = Map<string, TeacherImageState>;
 
-const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap }) {
+const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onImageTimeout, onReExplainImage, subjectId }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onImageTimeout?: (id: string) => void; onReExplainImage?: (url: string) => void; subjectId?: string }) {
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxAlt, setLightboxAlt] = useState<string>("");
+  const [lightboxZoom, setLightboxZoom] = useState<number>(1);
+  const [lightboxPan, setLightboxPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const { stripped, ask } = !isStreaming ? extractAskOptions(content) : { stripped: content, ask: null };
 
@@ -1433,40 +2313,157 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
 
   // ── Teacher-image figure updater ──────────────────────────────────────────
   // dangerouslySetInnerHTML rebuilds the figure markup on every chunk during
-  // streaming, blowing away any <img> we previously injected. So we re-walk
-  // the DOM after every render and reconcile each figure's contents with
-  // the latest `imageMap` state. Cheap (≤2 figures per message in practice).
+  // streaming and once more when the message stops streaming (the
+  // `safeRef.current` switchover). Each rebuild blows away whatever <img>
+  // or error UI we previously injected. So we re-walk the DOM after every
+  // render and reconcile each figure's contents with the latest `imageMap`
+  // state — which is the persistent source of truth. Cheap (≤3 figures
+  // per message in practice).
+  //
+  // The 10-second local timeout (safety net for the stuck-spinner bug
+  // reported in task #15) calls `onImageTimeout(id)` so the parent flips
+  // imageMap[id] to {status:'error'}. This is critical: mutating the DOM
+  // alone would be undone on the very next render. By updating React
+  // state, the error survives all subsequent re-renders (including the
+  // streaming → final swap) because every render of the effect sees
+  // `state.status === 'error'` and re-applies the error UI.
+  const localTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
   useEffect(() => {
-    if (!containerRef.current || !imageMap || imageMap.size === 0) return;
+    if (!containerRef.current) return;
     const root = containerRef.current;
+
+    // ── Step 1: adopt sibling <figcaption class="image-caption"> ─────────
+    // The teacher emits `[[IMAGE:hex]]` followed by a sibling `<figcaption
+    // class="image-caption">…</figcaption>`. After our renderImageMarkers
+    // + marked + DOMPurify pipeline, the caption ends up as a *sibling*
+    // of the <figure>, not a child. We move it inside so:
+    //   (a) `.teach-image figcaption.image-caption` CSS rules apply.
+    //   (b) Two consecutive image+caption pairs become directly adjacent
+    //       <figure>+<figure>, which lets the `.teach-image + .teach-image`
+    //       desktop side-by-side rule fire for Compare/Contrast.
+    // marked sometimes wraps the figcaption in a stray <p> when it sits
+    // alone on a line; we unwrap that case.
+    const figuresForAdoption = root.querySelectorAll<HTMLElement>('figure[data-image-id]');
+    figuresForAdoption.forEach((fig) => {
+      // Already has its own caption? Done.
+      if (fig.querySelector(':scope > figcaption.image-caption')) return;
+      let next = fig.nextElementSibling as HTMLElement | null;
+      let captionEl: HTMLElement | null = null;
+      let wrapperToCleanup: HTMLElement | null = null;
+      if (next) {
+        if (next.tagName === 'FIGCAPTION' && next.classList.contains('image-caption')) {
+          captionEl = next;
+        } else if (
+          next.tagName === 'P' &&
+          next.children.length === 1 &&
+          next.firstElementChild instanceof HTMLElement &&
+          next.firstElementChild.tagName === 'FIGCAPTION' &&
+          next.firstElementChild.classList.contains('image-caption')
+        ) {
+          captionEl = next.firstElementChild as HTMLElement;
+          wrapperToCleanup = next;
+        }
+      }
+      if (captionEl) {
+        fig.appendChild(captionEl);
+        if (wrapperToCleanup && wrapperToCleanup.children.length === 0 && !wrapperToCleanup.textContent?.trim()) {
+          wrapperToCleanup.remove();
+        }
+      }
+    });
+
+    // ── Step 2: reconcile each figure with imageMap state ────────────────
     const figures = root.querySelectorAll<HTMLElement>('figure[data-image-id]');
     figures.forEach((fig) => {
       const id = fig.getAttribute('data-image-id') || '';
-      const state = imageMap.get(id);
-      if (!state) return;
+      if (!id) return;
+      const state = imageMap?.get(id);
+
+      // Helper: clear figure body but preserve any adopted caption.
+      const clearBodyKeepCaption = (): HTMLElement | null => {
+        const cap = fig.querySelector(':scope > figcaption.image-caption') as HTMLElement | null;
+        while (fig.firstChild) fig.removeChild(fig.firstChild);
+        return cap;
+      };
+
+      if (!state || state.status === 'loading') {
+        // Absolute safety-net timer (60s) — only fires if neither
+        // imageReady nor imageError SSE events arrived. The server's
+        // own FAL_TIMEOUT_MS (default 25s) is the real ceiling; this
+        // is purely a defence against a dropped SSE connection so the
+        // spinner never spins forever.
+        if (!localTimersRef.current.has(id)) {
+          const timer = setTimeout(() => {
+            console.debug('[teach-image] local timeout fired', { id });
+            localTimersRef.current.delete(id);
+            onImageTimeout?.(id);
+          }, 60_000);
+          localTimersRef.current.set(id, timer);
+        }
+        return;
+      }
+
       if (state.status === 'ready' && state.url) {
-        // Skip if the same URL is already rendered (avoids a flicker on
-        // every chunk during streaming).
-        const existing = fig.querySelector('img') as HTMLImageElement | null;
-        if (existing && existing.src === state.url) return;
-        fig.classList.remove('teach-image-loading');
-        fig.classList.add('teach-image-ready');
-        // Use textContent reset + appendChild instead of innerHTML to keep
-        // attribute escaping consistent with the rest of the React tree.
-        fig.innerHTML = '';
+        // Cancel any pending timer.
+        const t = localTimersRef.current.get(id);
+        if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
+        // Skip if the same URL is already rendered.
+        const existingImg = fig.querySelector(':scope > img') as HTMLImageElement | null;
+        if (existingImg && existingImg.src === state.url && fig.classList.contains('teach-image-ready')) return;
+
+        console.debug('[teach-image] figure upgraded to ready', { id });
+        const cap = clearBodyKeepCaption();
         const img = document.createElement('img');
         img.src = state.url;
         img.alt = 'صورة توضيحية';
         img.loading = 'lazy';
+        img.onerror = () => {
+          console.debug('[teach-image] img onerror fallback', { id, src: img.src.slice(0, 80) });
+          const cap2 = clearBodyKeepCaption();
+          const fail = document.createElement('div');
+          fail.className = 'teach-image-fail';
+          fail.textContent = '⚠️ انتهت صلاحية رابط الصورة — أعد فتح الجلسة.';
+          fig.appendChild(fail);
+          if (cap2) fig.appendChild(cap2);
+          fig.classList.remove('teach-image-ready', 'teach-image-loading');
+          fig.classList.add('teach-image-error');
+        };
         fig.appendChild(img);
-      } else if (state.status === 'error') {
-        if (fig.classList.contains('teach-image-error')) return;
-        fig.classList.remove('teach-image-loading');
+        if (cap) fig.appendChild(cap);
+        fig.classList.remove('teach-image-loading', 'teach-image-error');
+        fig.classList.add('teach-image-ready');
+        return;
+      }
+
+      if (state.status === 'error') {
+        const t = localTimersRef.current.get(id);
+        if (t) { clearTimeout(t); localTimersRef.current.delete(id); }
+        // Skip if already showing error (and no spinner remains).
+        if (fig.classList.contains('teach-image-error') && !fig.querySelector(':scope > .teach-image-spinner')) return;
+
+        console.debug('[teach-image] figure upgraded to error', { id });
+        const cap = clearBodyKeepCaption();
+        const fail = document.createElement('div');
+        fail.className = 'teach-image-fail';
+        fail.textContent = '⚠️ تعذّر توليد الصورة — أكمل القراءة.';
+        fig.appendChild(fail);
+        if (cap) fig.appendChild(cap);
+        fig.classList.remove('teach-image-loading', 'teach-image-ready');
         fig.classList.add('teach-image-error');
-        fig.innerHTML = '<div class="teach-image-fail">⚠️ تعذّر توليد الصورة — أكمل القراءة.</div>';
       }
     });
-  }, [displayHtml, imageMap]);
+  }, [displayHtml, imageMap, onImageTimeout]);
+
+  // Cleanup local timers on unmount so timers don't fire after the user
+  // navigates away from the session.
+  useEffect(() => {
+    const timers = localTimersRef.current;
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
 
   // ── Teacher-image click-to-zoom (lightbox) ────────────────────────────────
   // Delegated click handler on the message container. Opens any ready
@@ -1482,11 +2479,23 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
       const img = fig.querySelector('img') as HTMLImageElement | null;
       if (!img || !img.src) return;
       e.preventDefault();
+      const cap = fig.querySelector('figcaption.image-caption');
+      setLightboxAlt((cap?.textContent || img.alt || "").trim());
+      setLightboxZoom(1);
+      setLightboxPan({ x: 0, y: 0 });
       setLightboxUrl(img.src);
     };
     root.addEventListener('click', handler);
     return () => root.removeEventListener('click', handler);
   }, []);
+
+  // Apply highlight.js + decorate code blocks (copy button) after every
+  // render. KaTeX HTML is already pre-rendered by `restoreMathPlaceholders`
+  // so this effect only deals with code styling. Idempotent — guards via
+  // dataset.hljsApplied prevent double-highlighting on streaming chunks.
+  useEffect(() => {
+    enhanceTeacherDom(containerRef.current);
+  }, [displayHtml]);
 
   // While the lightbox is open: close on Escape (desktop convenience), lock
   // body scroll so mobile browsers don't scroll the chat behind the modal,
@@ -1516,7 +2525,7 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
   }, [lightboxUrl]);
 
   return (
-    <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] sm:max-w-[92%] max-sm:max-w-[calc(100vw-60px)] shadow-md"
+    <div className="relative rounded-2xl rounded-tr-none min-w-0 max-w-[92%] sm:max-w-[92%] max-sm:max-w-[calc(100vw-50px)] shadow-md"
       style={{ background: "linear-gradient(135deg, #131726 0%, #0f1220 100%)", borderLeft: "2px solid rgba(245,158,11,0.35)", overflow: "hidden" }}>
       <div className="px-3 sm:px-4 py-3 sm:py-3.5 overflow-x-hidden">
         <div ref={containerRef} className="ai-msg overflow-x-hidden" dangerouslySetInnerHTML={{ __html: displayHtml }} />
@@ -1553,11 +2562,107 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
           >
             ×
           </button>
+          <div className="teach-image-lightbox-toolbar" onClick={(e) => e.stopPropagation()} style={{ direction: "rtl" }}>
+            <button
+              type="button"
+              className="lightbox-tool-btn"
+              aria-label="تصغير"
+              title="تصغير"
+              onClick={() => { setLightboxZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2))); setLightboxPan({ x: 0, y: 0 }); }}
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <span className="lightbox-zoom-label">{Math.round(lightboxZoom * 100)}%</span>
+            <button
+              type="button"
+              className="lightbox-tool-btn"
+              aria-label="تكبير"
+              title="تكبير"
+              onClick={() => { setLightboxZoom(z => Math.min(4, +(z + 0.25).toFixed(2))); }}
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              className="lightbox-tool-btn"
+              aria-label="تنزيل الصورة"
+              title="تنزيل"
+              onClick={async () => {
+                try {
+                  const r = await fetch(lightboxUrl);
+                  const blob = await r.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = subjectId ? `nukhba-${subjectId}-${Date.now()}.png` : `nukhba-${Date.now()}.png`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  setTimeout(() => URL.revokeObjectURL(url), 1500);
+                } catch {
+                  window.open(lightboxUrl, '_blank', 'noopener');
+                }
+              }}
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            {onReExplainImage && (
+              <button
+                type="button"
+                className="lightbox-tool-btn lightbox-tool-btn-primary"
+                onClick={() => {
+                  onReExplainImage(lightboxUrl);
+                  setLightboxUrl(null);
+                }}
+              >
+                <span className="text-xs">اشرحها لي مرة أخرى</span>
+              </button>
+            )}
+          </div>
           <img
             src={lightboxUrl}
-            alt="صورة توضيحية مكبّرة"
+            alt={lightboxAlt || "صورة توضيحية مكبّرة"}
+            draggable={false}
             onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => {
+              if (lightboxZoom <= 1) return;
+              e.stopPropagation();
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const startPan = lightboxPan;
+              const target = e.currentTarget as HTMLImageElement;
+              try { target.setPointerCapture(e.pointerId); } catch {}
+              target.style.cursor = 'grabbing';
+              const move = (ev: PointerEvent) => {
+                setLightboxPan({
+                  x: startPan.x + (ev.clientX - startX) / lightboxZoom,
+                  y: startPan.y + (ev.clientY - startY) / lightboxZoom,
+                });
+              };
+              const up = (ev: PointerEvent) => {
+                target.style.cursor = lightboxZoom > 1 ? 'grab' : 'zoom-in';
+                target.removeEventListener('pointermove', move);
+                target.removeEventListener('pointerup', up);
+                target.removeEventListener('pointercancel', up);
+                try { target.releasePointerCapture(ev.pointerId); } catch {}
+              };
+              target.addEventListener('pointermove', move);
+              target.addEventListener('pointerup', up);
+              target.addEventListener('pointercancel', up);
+            }}
+            style={{
+              transform: `scale(${lightboxZoom}) translate(${lightboxPan.x}px, ${lightboxPan.y}px)`,
+              transition: 'transform 0.15s ease-out',
+              cursor: lightboxZoom > 1 ? 'grab' : 'zoom-in',
+              touchAction: 'none',
+              userSelect: 'none',
+            }}
           />
+          {lightboxAlt && (
+            <div className="teach-image-lightbox-caption" onClick={(e) => e.stopPropagation()} style={{ direction: "rtl" }}>
+              {lightboxAlt}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1630,7 +2735,7 @@ function SubjectPathChat({
   chatStarter?: string | null;
   onConsumeChatStarter?: () => void;
   initialSourcesMaterialId?: number | null;
-  onCreateLabEnv?: (description: string) => void;
+  onCreateLabEnv?: (description: string, spec?: object) => void;
   isCreatingEnv?: boolean;
   onStartLabEnvIntent?: () => void;
   attackSimEnabled?: boolean;
@@ -1645,21 +2750,64 @@ function SubjectPathChat({
   // never see each other's messages. If user is not yet loaded, we start
   // empty and only persist once we have a verified user.
   const CHAT_STORAGE_KEY = user?.id ? `nukhba::u:${user.id}::chat::${subject.id}` : null;
-  const loadInitialChat = (): { messages: ChatMessage[]; currentStage: number } => {
-    if (!CHAT_STORAGE_KEY) return { messages: [], currentStage: 0 };
+  const loadInitialChat = (): { messages: ChatMessage[]; currentStage: number; chatPhase: 'diagnostic' | 'teaching' | null } => {
+    if (!CHAT_STORAGE_KEY) return { messages: [], currentStage: 0, chatPhase: null };
     try {
       const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-      if (!raw) return { messages: [], currentStage: 0 };
+      if (!raw) return { messages: [], currentStage: 0, chatPhase: null };
       const parsed = JSON.parse(raw);
+      const persistedPhase = parsed.chatPhase === 'diagnostic' || parsed.chatPhase === 'teaching' ? parsed.chatPhase : null;
       return {
         messages: Array.isArray(parsed.messages) ? parsed.messages : [],
         currentStage: typeof parsed.currentStage === "number" ? parsed.currentStage : 0,
+        chatPhase: persistedPhase,
       };
-    } catch { return { messages: [], currentStage: 0 }; }
+    } catch { return { messages: [], currentStage: 0, chatPhase: null }; }
   };
   const initial = loadInitialChat();
   const [messages, setMessages] = useState<ChatMessage[]>(initial.messages);
-  const [input, setInput] = useState("");
+  // ── Pro-input + session-UX state ──────────────────────────────────────────
+  // Draft is restored from localStorage on mount (per subjectId), autosaved
+  // on every keystroke (debounced 500ms), and cleared on successful send.
+  const [input, setInput] = useState(() => {
+    try { return loadDraft(subject.id); } catch { return ""; }
+  });
+  // Inline image preview (data URL). Sent once via sendPayloadOverride; persisted history holds a short placeholder.
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Mic handle: stop() = upload + transcribe, cancel() = drop without
+  // sending. See `lib/web-speech.ts`.
+  const [recordingHandle, setRecordingHandle] = useState<{ stop: () => void; cancel: () => void } | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  // True while the audio is being uploaded/transcribed (after stop()).
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
+  // Session control state.
+  const [sessionPaused, setSessionPaused] = useState(false);
+  const [pathDrawerOpen, setPathDrawerOpen] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  // Difficulty hint sent on every /ai/teach request — the server reads it
+  // and appends a difficulty-specific addendum to the teaching system
+  // prompt (see routes/ai.ts). Persisted per-subject so the choice
+  // survives reloads.
+  const [difficulty, setDifficulty] = useState<"easy" | "normal" | "advanced">(() => {
+    try {
+      const stored = localStorage.getItem(`nukhba.difficulty.${subject.id}`);
+      if (stored === "easy" || stored === "advanced" || stored === "normal") return stored;
+    } catch {}
+    return "normal";
+  });
+  // Persist difficulty per-subject so it survives reloads.
+  useEffect(() => {
+    try { localStorage.setItem(`nukhba.difficulty.${subject.id}`, difficulty); } catch {}
+  }, [difficulty, subject.id]);
+  const difficultyRef = useRef(difficulty);
+  useEffect(() => { difficultyRef.current = difficulty; }, [difficulty]);
+  // Stable debounced draft saver — a fresh closure each render would
+  // re-create the timer and we'd never coalesce keystrokes.
+  const draftSaverRef = useRef<(value: string) => void>(() => {});
+  useEffect(() => { draftSaverRef.current = makeDebouncedDraftSaver(subject.id, 500); }, [subject.id]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [stages] = useState<string[]>(subject.defaultStages);
   const [currentStage, setCurrentStage] = useState(initial.currentStage);
@@ -1676,14 +2824,58 @@ function SubjectPathChat({
   // arrive. Not persisted — fal.ai URLs expire and historical messages
   // already store a `<p class="image-historical">` stub (server side).
   const [imageMap, setImageMap] = useState<TeacherImageMap>(() => new Map());
+  // Local 10s safety-net timeout fires from inside AIMessage when neither
+  // imageReady nor imageError SSE events arrived in time. Flipping
+  // imageMap to `error` here (rather than mutating the DOM inside the
+  // child) is what makes the error survive every subsequent render —
+  // including the streaming → final `safeRef.current` swap that rebuilds
+  // the figure markup from scratch.
+  const handleImageTimeout = useCallback((id: string) => {
+    setImageMap(prev => {
+      const cur = prev.get(id);
+      // Don't clobber a successful resolution that raced and won.
+      if (cur && cur.status === 'ready') return prev;
+      // Idempotent — already error, no change.
+      if (cur && cur.status === 'error') return prev;
+      console.debug('[teach-image] state → error (local timeout)', { id });
+      const next = new Map(prev);
+      next.set(id, { status: 'error' });
+      return next;
+    });
+  }, []);
   const [dailyLimitUntil, setDailyLimitUntil] = useState<string | null>(null);
   const [countdownExpired, setCountdownExpired] = useState(false);
   // Bumped every time the student clicks "ابدأ الجلسة التالية الآن" so the
   // bootstrap effect re-fires (its other deps don't change after restart).
   const [sessionRestartKey, setSessionRestartKey] = useState(0);
-  const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(isFirstSession ? 'diagnostic' : 'teaching');
+  // Phase priority: persisted (refresh-safe) → first-session default → teaching.
+  // Without restoring from localStorage, refreshing mid-diagnostic would
+  // bounce the student into 'teaching' even though no plan was built yet.
+  const [chatPhase, setChatPhase] = useState<'diagnostic' | 'teaching'>(
+    initial.chatPhase ?? (isFirstSession ? 'diagnostic' : 'teaching'),
+  );
   const [customPlan, setCustomPlan] = useState<string | null>(null);
   const [planLoaded, setPlanLoaded] = useState(false);
+  // Indices of micro-steps the student has completed in the current stage.
+  // Reset to [] whenever currentStage advances. Persisted to DB via
+  // PATCH /api/user-plan/micro-step each time the server emits microStepsDone.
+  const [completedMicroSteps, setCompletedMicroSteps] = useState<number[]>([]);
+  const completedMicroStepsRef = useRef<number[]>([]);
+  useEffect(() => { completedMicroStepsRef.current = completedMicroSteps; }, [completedMicroSteps]);
+  const [growthReflections, setGrowthReflections] = useState<Array<{ stageIndex: number; text: string; date: string }>>([]);
+  // Set when server detects [STAGE_COMPLETE] without the mastery criterion
+  // being mentioned (drift guard). Holds criterion text + target nextStage
+  // so the student can confirm or reject stage advancement.
+  const [masteryDriftWarning, setMasteryDriftWarning] = useState<{
+    masteryCriterion: string;
+    nextStage: number;
+  } | null>(null);
+  // Shown after [PLAN_READY] so the student can review and accept (or revise)
+  // the personalised plan before Phase 1 auto-starts.
+  const [showContractCard, setShowContractCard] = useState(false);
+  // Tracks whether the last completed turn ended with a stage transition so
+  // the next sendTeachMessage can signal isNewStage to the server prompt.
+  const justAdvancedStageRef = useRef(false);
   // Set to `true` the moment the diagnostic stream finishes with [PLAN_READY].
   // A dedicated effect watches this + isStreaming so the very next teacher
   // message (Phase 1, kicked off automatically) starts immediately after the
@@ -1696,10 +2888,72 @@ function SubjectPathChat({
   // the student didn't manually send a message during the 700ms delay window.
   const isStreamingRef = useRef(false);
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
+  // Mirror of `messages` for closures that fire BEFORE React commits a
+  // setMessages update. Used by sendTeachMessage's empty-text branch
+  // (auto-start / restart) so the bootstrap orphan-clear path can sync
+  // the ref to [] *immediately* after queueing setMessages([]) — without
+  // this, the immediate sendTeachMessage("") call below would still see
+  // the stale orphan messages from the previous render's closure.
+  const messagesRef = useRef<ChatMessage[]>(initial.messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // Additional state mirrors so the bootstrap / starter / pendingTeachStart
+  // effects can read CURRENT values without listing them as deps (which
+  // would cause a re-fire on every keystroke / message). The intent of those
+  // effects is "fire on the trigger — read everything else fresh", which is
+  // exactly what refs encode. Replaces the previous eslint-disable comments.
+  const stagesRef = useRef<string[]>(stages);
+  useEffect(() => { stagesRef.current = stages; }, [stages]);
+  // Keep stagesRef in sync with the custom plan whenever it changes.
+  // The server derives stageCount, currentStageName, nextStageName, and
+  // completion bounds from this array — defaultStages is a fallback only.
+  useEffect(() => {
+    if (!customPlan) return;
+    const parsed = parsePlanStages(customPlan);
+    if (parsed.length > 0) {
+      stagesRef.current = parsed.map((s) => s.title);
+    }
+  }, [customPlan]);
+  const currentStageRef = useRef<number>(initial.currentStage);
+  useEffect(() => { currentStageRef.current = currentStage; }, [currentStage]);
+  const chatPhaseRef = useRef<'diagnostic' | 'teaching'>(chatPhase);
+  useEffect(() => { chatPhaseRef.current = chatPhase; }, [chatPhase]);
+  // One-shot guard so the bootstrap effect never fires the diagnostic opener
+  // twice within a single session. Without it, a flip in `chatGated` (e.g. the
+  // teaching-mode fetch resolving after `planLoaded`) or React Strict Mode in
+  // dev would re-enter the effect mid-stream, before any assistant content has
+  // landed in `messages`, and dispatch a second sendTeachMessage("") — the
+  // student then sees the same diagnostic question twice. The guard is reset
+  // only when the student explicitly restarts the session via
+  // `sessionRestartKey` (see `startNextSession`).
+  const diagnosticBootstrapFiredRef = useRef(false);
+  // sendTeachMessage is re-created each render. Effects that fire it from a
+  // stale closure (auto-start / chatStarter / pendingTeachStart) must call
+  // through this ref so they always invoke the latest version, even though
+  // we never list the function itself as an effect dep.
+  const sendTeachMessageRef = useRef<(text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }) => Promise<void>>(async () => {});
+  // The "اقتراحات ✨" chip rail used to occupy ~50px above the input on
+  // every render — visual clutter the user explicitly asked us to remove.
+  // Now collapsed by default; the student taps a small toggle to open it.
+  // Persisted so the choice survives a page refresh per browser.
+  const SUGGESTIONS_KEY = `nukhba.suggestionsOpen.${subject.id}`;
+  const [suggestionsOpen, setSuggestionsOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem(SUGGESTIONS_KEY) === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(SUGGESTIONS_KEY, suggestionsOpen ? '1' : '0'); } catch {}
+  }, [SUGGESTIONS_KEY, suggestionsOpen]);
   // Set to `true` if the diagnostic stream ended without [PLAN_READY] (e.g.
   // truncation past max_tokens, network blip, model refusal). We surface a
   // visible retry button so the student never gets silently stranded.
   const [diagnosticIncomplete, setDiagnosticIncomplete] = useState(false);
+  // Lab intake interview state
+  const [labIntakeActive, setLabIntakeActive] = useState(false);
+  const labIntakeActiveRef = useRef(false);
+  const labIntakeStartIdxRef = useRef<number>(0);
+  const [compiledSpec, setCompiledSpec] = useState<Record<string, unknown> | null>(null);
+  const [isCompilingSpec, setIsCompilingSpec] = useState(false);
+  const [specCompileError, setSpecCompileError] = useState<string | null>(null);
+  useEffect(() => { labIntakeActiveRef.current = labIntakeActive; }, [labIntakeActive]);
   // Set when a regular teaching reply ended without the server's terminating
   // `done` event — almost always a network/proxy truncation. Holds the user's
   // last message so the retry button can re-send it without making the
@@ -1713,6 +2967,23 @@ function SubjectPathChat({
   );
   const [activeMaterialStarters, setActiveMaterialStarters] = useState<string | null>(null);
   const [activeMaterialWeakAreas, setActiveMaterialWeakAreas] = useState<{ topic: string; missed: number }[]>([]);
+  // Curriculum sidebar data + drawer toggle. Pulled together
+  // with starters from /api/materials/:id so we don't make a second round-trip
+  // every time the drawer opens.
+  type CurriculumChapter = {
+    idx: number;
+    title: string;
+    startPage: number;
+    endPage: number;
+    summary?: string;
+    keyPoints?: string[];
+    confidence?: number;
+  };
+  const [curriculumChapters, setCurriculumChapters] = useState<CurriculumChapter[]>([]);
+  const [coveredPointsByChapter, setCoveredPointsByChapter] = useState<Record<string, number[]>>({});
+  const [activeMaterialCoverage, setActiveMaterialCoverage] = useState<"ok" | "partial" | "failed" | null>(null);
+  const [activeMaterialFileName, setActiveMaterialFileName] = useState<string | null>(null);
+  const [showCurriculumDrawer, setShowCurriculumDrawer] = useState(false);
   const [quizPanel, setQuizPanel] = useState<{ open: boolean; kind: QuizKind }>({ open: false, kind: "chapter" });
   const [showSourcesPanel, setShowSourcesPanel] = useState(initialSourcesMaterialId != null);
   const consumedSourcesParamRef = useRef(false);
@@ -1751,15 +3022,18 @@ function SubjectPathChat({
     }
   }, [messageCount]);
 
-  // Persist chat messages + stage so they survive close/reopen and refresh.
+  // Persist chat messages + stage + phase so they survive close/reopen and refresh.
   // Only persists when CHAT_STORAGE_KEY is non-null (i.e. user is loaded).
+  // chatPhase MUST be persisted: without it, refreshing mid-diagnostic would
+  // restore the messages but reset the phase to 'teaching', stranding the
+  // student with a half-finished diagnostic and no way to complete the plan.
   useEffect(() => {
     if (!CHAT_STORAGE_KEY) return;
     if (messages.length === 0 && currentStage === 0) return;
     try {
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, currentStage }));
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, currentStage, chatPhase }));
     } catch {}
-  }, [messages, currentStage, CHAT_STORAGE_KEY]);
+  }, [messages, currentStage, chatPhase, CHAT_STORAGE_KEY]);
 
   // Clear persisted chat once the session is finalized
   useEffect(() => {
@@ -1782,10 +3056,14 @@ function SubjectPathChat({
             if (data.plan.currentStageIndex > 0) {
               setCurrentStage(data.plan.currentStageIndex);
             }
-            // A persisted plan means diagnostic phase already completed — switch to teaching
+            if (Array.isArray(data.plan.completedMicroSteps) && data.plan.completedMicroSteps.length > 0) {
+              setCompletedMicroSteps(data.plan.completedMicroSteps);
+            }
+            if (Array.isArray(data.plan.growthReflections) && data.plan.growthReflections.length > 0) {
+              setGrowthReflections(data.plan.growthReflections);
+            }
             setChatPhase('teaching');
           } else {
-            // No saved plan yet → diagnostic phase MUST run for first session of this subject
             setChatPhase('diagnostic');
           }
         }
@@ -1819,9 +3097,19 @@ function SubjectPathChat({
     return () => { cancelled = true; };
   }, [subject.id]);
 
-  // When active material changes, fetch its starters for the chip row
+  // When active material changes, fetch its starters for the chip row PLUS
+  // the structured chapters / covered-points map / coverage_status so the
+  // curriculum sidebar can render without a second round-trip.
   useEffect(() => {
-    if (!activeMaterialId) { setActiveMaterialStarters(null); setActiveMaterialWeakAreas([]); return; }
+    if (!activeMaterialId) {
+      setActiveMaterialStarters(null);
+      setActiveMaterialWeakAreas([]);
+      setCurriculumChapters([]);
+      setCoveredPointsByChapter({});
+      setActiveMaterialCoverage(null);
+      setActiveMaterialFileName(null);
+      return;
+    }
     let cancelled = false;
     fetch(`/api/materials/${activeMaterialId}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
@@ -1829,6 +3117,10 @@ function SubjectPathChat({
         if (cancelled || !d) return;
         setActiveMaterialStarters(d.starters || null);
         setActiveMaterialWeakAreas(Array.isArray(d.recentWeakAreas) ? d.recentWeakAreas : []);
+        setCurriculumChapters(Array.isArray(d.chapters) ? d.chapters : []);
+        setCoveredPointsByChapter(d.coveredPointsByChapter && typeof d.coveredPointsByChapter === "object" ? d.coveredPointsByChapter : {});
+        setActiveMaterialCoverage(d.coverageStatus === "ok" || d.coverageStatus === "partial" || d.coverageStatus === "failed" ? d.coverageStatus : null);
+        setActiveMaterialFileName(typeof d.fileName === "string" ? d.fileName : null);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -1886,6 +3178,11 @@ function SubjectPathChat({
     // student has explicitly chosen a mode. This closes the race window where
     // teachingMode is still `null` and would otherwise let the diagnostic fire.
     if (chatGated) return;
+    // One-shot per session. If we've already fired the opener for this
+    // session, skip — even if `chatGated` flips back to false or the effect
+    // re-runs under React Strict Mode. The guard is reset only when
+    // `sessionRestartKey` changes (see effect below).
+    if (diagnosticBootstrapFiredRef.current) return;
     // Kick off the first teacher message if the chat has no assistant reply yet
     // (covers fresh sessions AND stale localStorage where only a user message was cached).
     const hasAssistant = messages.some((m) => m.role === "assistant" && (m.content || "").trim().length > 0);
@@ -1893,11 +3190,30 @@ function SubjectPathChat({
       // If the cache only has orphan user messages, clear them so the teacher can start cleanly.
       if (messages.length > 0) {
         setMessages([]);
-        try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+        // Sync the ref RIGHT NOW so sendTeachMessage("")'s history snapshot
+        // — taken from messagesRef.current — sees the cleared array and
+        // doesn't leak the orphan turn into the first server request.
+        // Without this, React's async setMessages would only commit on the
+        // next render, and the immediate call below would close over the
+        // stale orphans.
+        messagesRef.current = [];
+        if (CHAT_STORAGE_KEY) {
+          try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+        }
       }
-      sendTeachMessage("", stages, currentStage, chatPhase === 'diagnostic');
+      // Mark fired BEFORE dispatching so any synchronous re-entry (Strict
+      // Mode double-invoke, immediate state flip in sendTeachMessage) hits
+      // the guard above on its next pass.
+      diagnosticBootstrapFiredRef.current = true;
+      // Read everything else through refs so this effect doesn't re-fire
+      // on every keystroke / phase flip / stage change. Triggers stay
+      // intentional: planLoaded, chatGated, sessionRestartKey.
+      sendTeachMessageRef.current("", stagesRef.current, currentStageRef.current, chatPhaseRef.current === 'diagnostic');
+    } else {
+      // Already have an assistant reply (returning student) — count this as
+      // "opener handled" so we don't re-fire if chatGated flips later.
+      diagnosticBootstrapFiredRef.current = true;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planLoaded, chatGated, sessionRestartKey]);
 
   const triggerSummary = async (allMessages: ChatMessage[]) => {
@@ -1929,10 +3245,11 @@ function SubjectPathChat({
   useEffect(() => {
     if (!chatStarter) return;
     if (!planLoaded || isStreaming) return;
-    sendTeachMessage(chatStarter);
+    // Use the ref so we always invoke the *latest* sendTeachMessage closure
+    // without listing the function as a dep (it's recreated every render).
+    sendTeachMessageRef.current(chatStarter);
     onConsumeChatStarter?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatStarter, planLoaded, isStreaming]);
+  }, [chatStarter, planLoaded, isStreaming, onConsumeChatStarter]);
 
   // After the diagnostic finishes with [PLAN_READY], chatPhase flips to
   // 'teaching' and pendingTeachStart is set. We then fire the *first* teaching
@@ -1952,14 +3269,71 @@ function SubjectPathChat({
       // the student's message takes precedence over our auto-trigger.
       if (isStreamingRef.current) return;
       // Empty text + explicit isDiagnostic=false starts Phase 1 cleanly.
-      sendTeachMessage("", stages, 0, false);
+      // Latest stages from ref so a plan generated mid-effect uses the
+      // up-to-date list, not the closure's empty initial.
+      justAdvancedStageRef.current = true;
+      sendTeachMessageRef.current("", stagesRef.current, 0, false);
     }, 700);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingTeachStart, isStreaming, chatPhase]);
 
-  const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }) => {
+  const compileLabSpec = async (pairs: {q: string; a: string}[]) => {
+    setIsCompilingSpec(true);
+    setSpecCompileError(null);
+    setCompiledSpec(null);
+    try {
+      const r = await fetch(`${import.meta.env.BASE_URL}api/ai/lab/compile-spec`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          subjectId: subject.id,
+          subjectName: subject.name,
+          intakeAnswers: pairs,
+        }),
+      });
+      if (!r.ok) {
+        const t = await r.text().catch(() => "");
+        throw new Error(`فشل تجميع المواصفة (${r.status}): ${t.slice(0, 200)}`);
+      }
+      const data = await r.json();
+      if (data.spec) {
+        setCompiledSpec(data.spec);
+      } else {
+        throw new Error("الاستجابة لا تحتوي على مواصفة صالحة");
+      }
+    } catch (e: any) {
+      setSpecCompileError(e?.message || "حدث خطأ أثناء تجميع مواصفة البيئة");
+    } finally {
+      setIsCompilingSpec(false);
+    }
+  };
+
+  // sendPayloadOverride: server-only payload for this turn (e.g. image data URL); messages state stores `text`.
+  const sendTeachMessage = async (text: string, stagesParam?: string[], stageParam?: number, isDiagnostic?: boolean, labReportMeta?: { envTitle: string; envBriefing: string; reportText: string }, sendPayloadOverride?: string) => {
+    // Tracks whether the network/abort path threw so the `finally` block
+    // can branch on it without re-inspecting the error. Declared at function
+    // scope so both the `catch` (sets it) and `finally` (reads it) blocks
+    // share the same binding — without this, TypeScript flags
+    // `networkErrored = true` and `void networkErrored` as undeclared.
+    let networkErrored = false;
+    // Capture the message-array length before any new messages are pushed.
+    // Used as the intake start index for both the explicit-button path and
+    // the natural-language fallback so Q&A pair collection is always anchored
+    // to the right position in the conversation history.
+    const preMessageCount = messagesRef.current.length;
     setIsStreaming(true);
+    // Track when the intake interview starts so we can collect Q&A pairs later.
+    // Two detection paths:
+    //   1. Hidden [LAB_INTAKE_START] token — injected by the floating button.
+    //   2. Natural-language lab request matching LAB_INTENT_RE — mirrors the
+    //      server-side LAB_ENV_INTENT_RE so the client never misses an intake
+    //      triggered by a typed message like "ابنِ لي بيئة تطبيقية".
+    if (text.includes("[LAB_INTAKE_START]") || LAB_INTENT_RE.test(text.trim())) {
+      setLabIntakeActive(true);
+      labIntakeActiveRef.current = true;
+      labIntakeStartIdxRef.current = preMessageCount;
+    }
     // A new turn supersedes any prior truncation banner — either the retry
     // button is what fired this call, or the student has decided to move
     // on with a fresh question. Either way the stale banners shouldn't
@@ -1991,13 +3365,52 @@ function SubjectPathChat({
         body: JSON.stringify({
           subjectId: subject.id,
           subjectName: subject.name,
-          userMessage: text,
-          history: messages,
+          // For attachments, the data URL goes ONCE here; the same blob must NOT
+          // also appear in the appended history row, otherwise the JSON request
+          // body doubles in size and can blow past express.json's 10MB cap.
+          userMessage: sendPayloadOverride ?? text,
+          // History reads from messagesRef (always latest committed) so regenerate's
+          // synchronous trim sticks. The appended last user row always carries the
+          // slim `text` (placeholder for attachments), never the override.
+          history: text
+            ? [...messagesRef.current, { role: "user", content: text }]
+            : messagesRef.current,
           planContext: customPlan,
           stages: usedStages,
           currentStage: usedStage,
           isDiagnosticPhase: diagMode,
           hasCoding: subject.hasCoding,
+          // Difficulty hint — server appends a difficulty-specific addendum
+          // to the teaching system prompt. See routes/ai.ts.
+          difficultyHint: difficultyRef.current,
+          // Stage contract: the 6 structured fields for the active plan stage.
+          // Injected verbatim into the teachingSystemPrompt so the model is
+          // bound to the student's agreed objectives, micro-steps, deliverable,
+          // mastery criterion, reason-for-student, and prerequisite.
+          currentStageContract: (() => {
+            if (diagMode || !customPlan) return undefined;
+            const richStages = parsePlanStages(customPlan);
+            const s = richStages[usedStage];
+            if (!s) return undefined;
+            return {
+              stageIndex: usedStage,
+              stageTitle: s.title,
+              currentMicroStepIndex: completedMicroStepsRef.current?.length ?? 0,
+              objectives: s.objectives,
+              microSteps: s.microSteps,
+              deliverable: s.deliverable,
+              masteryCriterion: s.masteryCriterion,
+              reasonForStudent: s.reasonForStudent,
+              prerequisite: s.prerequisite,
+            };
+          })(),
+          // Flag so the teacher draws a full stage roadmap on the opening turn
+          // of a new stage rather than diving straight into content.
+          isNewStage: (() => {
+            const was = justAdvancedStageRef.current;
+            justAdvancedStageRef.current = false;
+            return was;
+          })(),
         })
       });
 
@@ -2128,24 +3541,75 @@ function SubjectPathChat({
               }
               if (data.planReady) {
                 gotPlanReady = true;
-                setCustomPlan(assistantMsg);
+                // Flip phase BEFORE the await so React commits and the purple
+                // "diagnostic" bar disappears the moment the plan is ready.
                 setChatPhase('teaching');
-                // Persist plan to DB
-                fetch('/api/user-plan', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
-                  body: JSON.stringify({
-                    subjectId: subject.id,
-                    planHtml: assistantMsg,
-                    currentStageIndex: 0,
-                  }),
-                }).catch(() => {});
-                // Trigger automatic start of Phase 1: a watcher effect picks
-                // this up once the current stream has fully ended (so we don't
-                // race with isStreaming === true). Without this, the student
-                // sees the plan and then nothing happens.
-                setPendingTeachStart(true);
+                chatPhaseRef.current = 'teaching';
+                // Persist `chatPhase: 'teaching'` to localStorage synchronously
+                // so a refresh during the slow await window (POST below) does
+                // NOT restore the bar — the persistence effect won't fire
+                // until React's next commit, which the await may delay.
+                if (CHAT_STORAGE_KEY) {
+                  try {
+                    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+                    const prev = raw ? JSON.parse(raw) : {};
+                    localStorage.setItem(
+                      CHAT_STORAGE_KEY,
+                      JSON.stringify({ ...prev, chatPhase: 'teaching' }),
+                    );
+                  } catch {}
+                }
+                // Persist plan to DB and gate the contract card on the quality
+                // check. A 422 means the AI ignored the structured format prompt;
+                // show an in-chat error and let the student ask for regeneration
+                // rather than loading a shallow plan into the teaching flow.
+                try {
+                  const saveRes = await fetch('/api/user-plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                      subjectId: subject.id,
+                      planHtml: assistantMsg,
+                      currentStageIndex: 0,
+                    }),
+                  });
+                  if (saveRes.status === 422) {
+                    const errData = await saveRes.json().catch(() => ({}));
+                    const errMsg = errData.message ?? 'الخطة لم تجتز فحص الجودة. اطلب من المعلم إعادة توليد الخطة بالنقر على أيقونة الإعادة.';
+                    setMessages((prev) => {
+                      const updated = [...prev];
+                      updated[updated.length - 1] = { role: 'assistant', content: assistantMsg };
+                      return [...updated, { role: 'assistant', content: `⚠️ **تنبيه:** ${errMsg}` }];
+                    });
+                    // Plan rejected (real 422 only) — revert to diagnostic so
+                    // the student can request a regeneration. We deliberately
+                    // do NOT revert in any other failure path (network errors
+                    // fall into the catch below and proceed optimistically),
+                    // because a successfully-shown plan must never bring the
+                    // purple "diagnostic" bar back.
+                    setChatPhase('diagnostic');
+                    chatPhaseRef.current = 'diagnostic';
+                    if (CHAT_STORAGE_KEY) {
+                      try {
+                        const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+                        const prev = raw ? JSON.parse(raw) : {};
+                        localStorage.setItem(
+                          CHAT_STORAGE_KEY,
+                          JSON.stringify({ ...prev, chatPhase: 'diagnostic' }),
+                        );
+                      } catch {}
+                    }
+                  } else {
+                    setCustomPlan(assistantMsg);
+                    setShowContractCard(true);
+                  }
+                } catch {
+                  // Network error — proceed optimistically so the student
+                  // is not blocked by a transient failure.
+                  setCustomPlan(assistantMsg);
+                  setShowContractCard(true);
+                }
               }
               // Quota exhausted — disable input, trigger summary, show exhausted screen
               if (data.quotaExhausted || data.messagesRemaining === 0) {
@@ -2169,6 +3633,8 @@ function SubjectPathChat({
                     return updated;
                   });
                 } else {
+                  setCompletedMicroSteps([]);
+                  justAdvancedStageRef.current = true;
                   setCurrentStage(data.nextStage);
                   // Persist updated stage to DB
                   fetch('/api/user-plan/stage', {
@@ -2178,6 +3644,39 @@ function SubjectPathChat({
                     body: JSON.stringify({ subjectId: subject.id, currentStageIndex: data.nextStage }),
                   }).catch(() => {});
                 }
+              }
+              // ── Growth reflection ─────────────────────────────────────────
+              if (!diagMode && data.growthReflection && typeof data.growthReflection === "string") {
+                const entry = { stageIndex: data.nextStage !== undefined ? Math.max(0, (data.nextStage as number) - 1) : 0, text: data.growthReflection as string, date: new Date().toISOString() };
+                setGrowthReflections((prev) => [...prev, entry]);
+              }
+              // ── Micro-step completions ────────────────────────────────────
+              if (!diagMode && data.microStepsDone && Array.isArray(data.microStepsDone)) {
+                const indices: number[] = (data.microStepsDone as number[])
+                  .map(Number)
+                  .filter((n) => !isNaN(n) && n >= 0);
+                if (indices.length > 0) {
+                  setCompletedMicroSteps((prev) => {
+                    const next = [...prev, ...indices].filter((v, i, arr) => arr.indexOf(v) === i);
+                    return next;
+                  });
+                  const lastIdx = indices[indices.length - 1];
+                  fetch('/api/user-plan/micro-step', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ subjectId: subject.id, microStepIndex: lastIdx }),
+                  }).catch(() => {});
+                }
+              }
+              // ── Mastery drift guard ───────────────────────────────────────
+              // Server detected [STAGE_COMPLETE] but the mastery criterion was
+              // not mentioned — show a confirmation dialog instead of auto-advancing.
+              if (!diagMode && data.masteryDriftDetected && data.masteryCriterion) {
+                setMasteryDriftWarning({
+                  masteryCriterion: data.masteryCriterion as string,
+                  nextStage: typeof data.intendedNextStage === 'number' ? data.intendedNextStage : (usedStage + 1),
+                });
               }
               break;
             }
@@ -2193,6 +3692,7 @@ function SubjectPathChat({
             // the stream, never as part of the terminal done event.
             if (data.imagePlaceholder?.id) {
               const id = String(data.imagePlaceholder.id);
+              console.debug('[teach-image] placeholder received', { id });
               setImageMap(prev => {
                 if (prev.has(id)) return prev;
                 const next = new Map(prev);
@@ -2204,7 +3704,12 @@ function SubjectPathChat({
             if (data.imageReady?.id && data.imageReady.url) {
               const id = String(data.imageReady.id);
               const url = String(data.imageReady.url);
+              console.debug('[teach-image] ready received', { id, url: url.slice(0, 80) });
               setImageMap(prev => {
+                // Late-arriving `ready` after the 60s safety-net flipped to
+                // `error` is a genuine fal.ai response — adopt it so the
+                // student gets the image even if the dropped-SSE fallback
+                // fired first.
                 const next = new Map(prev);
                 next.set(id, { status: 'ready', url });
                 return next;
@@ -2213,6 +3718,8 @@ function SubjectPathChat({
             }
             if (data.imageError?.id) {
               const id = String(data.imageError.id);
+              const reason = data.imageError.reason || 'unknown';
+              console.debug('[teach-image] error received', { id, reason });
               setImageMap(prev => {
                 const next = new Map(prev);
                 next.set(id, { status: 'error' });
@@ -2222,6 +3729,16 @@ function SubjectPathChat({
             }
             if (data.content) {
               assistantMsg += data.content;
+              // Streaming fallback intake detection: if the model starts
+              // emitting [[ASK_OPTIONS:]] questions but labIntakeActiveRef was
+              // never set (e.g. typed request not caught by LAB_INTENT_RE),
+              // retroactively mark the session as an intake anchored at the
+              // pre-stream message position.
+              if (!labIntakeActiveRef.current && assistantMsg.includes("[[ASK_OPTIONS:]]")) {
+                setLabIntakeActive(true);
+                labIntakeActiveRef.current = true;
+                labIntakeStartIdxRef.current = preMessageCount;
+              }
               // Update the ref BEFORE scheduling so when the timer fires it
               // paints the latest accumulated text — fixes the stale-closure
               // bug where only the first chunk of each 50ms window survived.
@@ -2277,6 +3794,49 @@ function SubjectPathChat({
           nm[nm.length - 1] = { role: "assistant", content: assistantMsg };
           return nm;
         });
+      }
+
+      // ── Lab intake completion detection ─────────────────────────────────
+      // When the teacher emits [[LAB_INTAKE_DONE]] and we were in intake mode,
+      // collect the Q&A pairs from the intake conversation and compile the spec.
+      if (!emptyStream && assistantMsg.includes("[[LAB_INTAKE_DONE]]") && labIntakeActiveRef.current) {
+        setLabIntakeActive(false);
+        labIntakeActiveRef.current = false;
+        const startIdx = labIntakeStartIdxRef.current;
+        // Read from messagesRef — the state update above is async and may not
+        // have committed yet, but the ref we maintain is always current.
+        const snapshot = messagesRef.current.slice(startIdx);
+        const pairs: { q: string; a: string }[] = [];
+        for (let i = 0; i < snapshot.length - 1; i++) {
+          const m = snapshot[i];
+          const next = snapshot[i + 1];
+          if (m.role === "assistant" && next?.role === "user" && next.content?.trim()) {
+            const q = m.content
+              .replace(/\[\[LAB_INTAKE_DONE\]\]/g, "")
+              .replace(/\[\[ASK_OPTIONS:\s*([\s\S]+?)\]\]/g, (_: string, inner: string) => inner.split("|||")[0]?.trim() || "")
+              .replace(/<[^>]+>/g, " ")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 400);
+            pairs.push({ q, a: next.content.trim() });
+          }
+        }
+        // Require all 5 Q&A pairs before compiling. If fewer are found,
+        // the model emitted [[LAB_INTAKE_DONE]] prematurely — treat as
+        // an error rather than silently producing an incomplete spec.
+        if (pairs.length >= 5) {
+          console.log("[lab-intake] detected [[LAB_INTAKE_DONE]] with", pairs.length, "Q&A pairs — compiling spec");
+          setTimeout(() => compileLabSpec(pairs), 300);
+        } else if (pairs.length >= 1) {
+          // Partial completion (2-4 pairs) — surface an error so the student
+          // can restart rather than getting a spec built on incomplete input.
+          setSpecCompileError(`لم تكتمل المقابلة (وُجدت ${pairs.length} إجابات من 5). يرجى إعادة المحاولة.`);
+          setLabIntakeActive(false);
+          labIntakeActiveRef.current = false;
+          console.warn("[lab-intake] [[LAB_INTAKE_DONE]] with only", pairs.length, "pairs — aborting compile");
+        } else {
+          console.warn("[lab-intake] [[LAB_INTAKE_DONE]] but no Q&A pairs found — skipping compile");
+        }
       }
 
       // ── Diagnostic completeness check ──────────────────────────────────
@@ -2361,13 +3921,307 @@ function SubjectPathChat({
     }
   };
 
+  // Sync sendTeachMessageRef every render so the bootstrap / starter /
+  // pendingTeachStart effects always invoke the freshest closure.
+  // Runs after commit but BEFORE those effects' callbacks execute on this
+  // commit (effects fire in source order — this hook is declared before
+  // any effect that calls sendTeachMessageRef.current).
+  useEffect(() => {
+    sendTeachMessageRef.current = sendTeachMessage;
+  });
+
   const handleSend = () => {
-    if (!input.trim() || isStreaming) return;
-    sendTeachMessage(input);
-    if (inputRef.current) {
-      inputRef.current.style.height = "56px";
+    const trimmed = input.trim();
+    if ((!trimmed && !attachedImage) || isStreaming || sessionPaused) return;
+    if (attachedImage) {
+      const visibleText = trimmed ? `📎 [صورة مرفقة]\n\n${trimmed}` : "📎 [صورة مرفقة]";
+      const outgoingText = trimmed
+        ? `![صورة مرفقة من الطالب](${attachedImage})\n\n${trimmed}`
+        : `![صورة مرفقة من الطالب](${attachedImage})`;
+      sendTeachMessage(visibleText, undefined, undefined, undefined, undefined, outgoingText);
+    } else {
+      sendTeachMessage(trimmed);
     }
+    setAttachedImage(null);
+    try { clearDraft(subject.id); } catch {}
+    if (inputRef.current) inputRef.current.style.height = "56px";
   };
+
+  // Trim the trailing assistant + user pair from the latest committed messagesRef, then re-send.
+  const handleRegenerateLast = useCallback(() => {
+    if (isStreaming || sessionPaused) return;
+    const cur = messagesRef.current;
+    if (cur.length === 0) return;
+    let cut = cur.length;
+    if (cur[cut - 1]?.role === "assistant") cut -= 1;
+    if (cut > 0 && cur[cut - 1]?.role === "user") cut -= 1;
+    const lastUserText = cur[cut]?.role === "user" ? (cur[cut].content || "") : "";
+    if (!lastUserText) return;
+    // Image-attachment turns persist only the "📎 [صورة مرفقة]" placeholder
+    // in history (the real data URL is sent ONCE inline to avoid history
+    // bloat / 10MB body overflow). Regenerating from the placeholder would
+    // ship a meaningless prompt to the model, so we refuse and tell the
+    // student to re-attach.
+    if (lastUserText.includes("📎 [صورة مرفقة]")) {
+      alert("لا يمكن إعادة توليد رسالة تحتوي على صورة مرفقة. أرفق الصورة مرة أخرى وأرسلها من جديد.");
+      return;
+    }
+    const trimmed = cur.slice(0, cut);
+    messagesRef.current = trimmed;
+    setMessages(trimmed);
+    sendTeachMessage(lastUserText);
+  }, [isStreaming, sessionPaused]);
+
+  // ── Restart current stage ────────────────────────────────────────────────
+  // We don't truncate the message history (that would lose context). Instead
+  // we synthesize a user request asking the teacher to restart the current
+  // stage — keeping all the state-machine invariants intact.
+  const handleRestartStage = useCallback(() => {
+    if (isStreaming || sessionPaused) return;
+    if (!confirm("سيُعيد المعلم شرح هذه المرحلة من البداية. هل تريد المتابعة؟")) return;
+    sendTeachMessage("أعد لي شرح هذه المرحلة من البداية بطريقة مختلفة وأبسط، وكأنني أبدأها لأول مرة.");
+  }, [isStreaming, sessionPaused]);
+
+  // ── Re-explain image ──────────────────────────────────────────────────────
+  // Triggered from the lightbox toolbar — sends a synthesized user message
+  // referencing the image so the teacher knows which figure to elaborate on.
+  const handleReExplainImage = useCallback((imageUrl: string) => {
+    if (isStreaming || sessionPaused) return;
+    sendTeachMessage(`اشرح لي الصورة التوضيحية التالية مرة أخرى بتفصيل أكبر، واذكر العناصر المرقمة فيها واحداً تلو الآخر:\n\n![صورة من جلستك](${imageUrl})`);
+  }, [isStreaming, sessionPaused]);
+
+  // ── Copy share link ──────────────────────────────────────────────────────
+  const handleCopyShareLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1600);
+    } catch { /* clipboard denied */ }
+  }, []);
+
+  // ── PDF export ───────────────────────────────────────────────────────────
+  // Captures the messages-scroll container as a high-resolution canvas, then
+  // tiles it across A4 pages so long conversations export cleanly. Loaded
+  // dynamically to keep the initial bundle slim — neither library is needed
+  // until the student actually clicks "تصدير المحادثة (PDF)".
+  const handleExportPDF = useCallback(async () => {
+    if (exportingPdf) return;
+    const target = scrollRef.current;
+    if (!target) return;
+    setExportingPdf(true);
+    // Save and restore the scrollable container's overflow + height so
+    // html2canvas snapshots the FULL conversation (including off-screen
+    // messages), not just the visible viewport. Without this the export
+    // truncates long sessions to whatever the user happened to be
+    // looking at when they clicked.
+    const prevOverflow = target.style.overflow;
+    const prevHeight = target.style.height;
+    const prevMaxHeight = target.style.maxHeight;
+    const fullHeight = target.scrollHeight;
+    try {
+      target.style.overflow = "visible";
+      target.style.height = `${fullHeight}px`;
+      target.style.maxHeight = "none";
+      const html2canvas = (await import("html2canvas")).default;
+      const { jsPDF } = await import("jspdf");
+      const canvas = await html2canvas(target, {
+        backgroundColor: "#0b0d17",
+        scale: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+        useCORS: true,
+        logging: false,
+        height: fullHeight,
+        windowHeight: fullHeight,
+        scrollY: -window.scrollY,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      let heightLeft = imgH;
+      let position = 0;
+      pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
+      heightLeft -= pageH;
+      while (heightLeft > 0) {
+        position = heightLeft - imgH;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
+        heightLeft -= pageH;
+      }
+      const safeName = (subject.name || "session").replace(/[^\p{L}\p{N}\-_ ]/gu, "").trim() || "session";
+      pdf.save(`nukhba-${safeName}-${Date.now()}.pdf`);
+    } catch (err) {
+      console.error("[pdf-export] failed:", err);
+      alert("تعذّر تصدير المحادثة كـ PDF. حاول مرة أخرى.");
+    } finally {
+      target.style.overflow = prevOverflow;
+      target.style.height = prevHeight;
+      target.style.maxHeight = prevMaxHeight;
+      setExportingPdf(false);
+    }
+  }, [exportingPdf, subject.name]);
+
+  // 3-state mic toggle: idle → recording → uploading (transcribing) → idle.
+  const handleToggleMic = useCallback(() => {
+    if (isTranscribing) return;
+    if (recordingHandle) {
+      recordingHandle.stop();
+      setRecordingHandle(null);
+      setIsTranscribing(true);
+      return;
+    }
+    setRecordingError(null);
+    setRecordingElapsedMs(0);
+    const handle = startRecognition({
+      maxDurationMs: 60_000,
+      onProgress: (ms) => setRecordingElapsedMs(ms),
+      onResult: (transcript) => {
+        setInput(prev => {
+          const sep = prev && !prev.endsWith(" ") ? " " : "";
+          const next = `${prev}${sep}${transcript}`.trim() + " ";
+          draftSaverRef.current(next);
+          return next;
+        });
+      },
+      onUploading: () => setIsTranscribing(true),
+      onError: (err) => {
+        setRecordingError(err);
+        setRecordingHandle(null);
+        setIsTranscribing(false);
+      },
+      onEnd: () => {
+        setRecordingHandle(null);
+        setIsTranscribing(false);
+        setRecordingElapsedMs(0);
+      },
+    });
+    if (handle) setRecordingHandle(handle);
+  }, [recordingHandle, isTranscribing]);
+
+  // Drop the recording on unmount — don't trigger an upload nobody'll see.
+  useEffect(() => () => { recordingHandle?.cancel(); stopSpeaking(); }, [recordingHandle]);
+
+  // ── File attach (image OR text, plus paste) ──────────────────────────────
+  // Images become an inline preview chip + are sent ONCE via the data URL
+  // override path. Text files have their content extracted client-side and
+  // appended to the textarea so the student can edit before sending —
+  // avoids backend changes and keeps the existing /ai/teach contract.
+  const TEXT_EXTENSIONS = useMemo(
+    () => /\.(txt|md|markdown|csv|tsv|json|log|xml|yaml|yml|ini|conf|sql|html?|css|js|jsx|ts|tsx|py|java|c|h|cpp|cs|go|rb|rs|php|sh|bat)$/i,
+    [],
+  );
+  const handleAttachFile = useCallback((file: File) => {
+    if (!file) return;
+    const isImage = file.type.startsWith("image/");
+    const isText = file.type.startsWith("text/")
+      || file.type === "application/json"
+      || TEXT_EXTENSIONS.test(file.name);
+    if (isImage) {
+      if (file.size > 4 * 1024 * 1024) {
+        alert("حجم الصورة أكبر من 4MB. اختر صورة أصغر.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = typeof reader.result === "string" ? reader.result : "";
+        if (url) setAttachedImage(url);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+    if (isText) {
+      if (file.size > 256 * 1024) {
+        alert("الملف النصي أكبر من 256KB. الصق المقتطف الذي تريد سؤال المعلم عنه.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const txt = typeof reader.result === "string" ? reader.result : "";
+        if (!txt) return;
+        const truncated = txt.length > 12000 ? txt.slice(0, 12000) + "\n... [اقتُطع الباقي]" : txt;
+        const block = `📄 محتوى الملف ${file.name}:\n\`\`\`\n${truncated}\n\`\`\`\n\n`;
+        setInput((prev) => (prev ? `${block}${prev}` : `${block}سؤالي عن هذا الملف: `));
+      };
+      reader.readAsText(file);
+      return;
+    }
+    alert("نوع الملف غير مدعوم. ارفع صورة أو ملف نصي (txt, md, json, csv, code...).");
+  }, [TEXT_EXTENSIONS]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!e.clipboardData) return;
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          handleAttachFile(file);
+          return;
+        }
+      }
+    }
+  }, [handleAttachFile]);
+
+  // ── Elapsed session timer ─────────────────────────────────────────────────
+  // Starts ticking once the student has at least one user message in the
+  // chat — i.e. the session is "live". Pauses on session-pause toggle.
+  const hasUserActivity = messages.some(m => m.role === "user");
+  const { elapsed: elapsedSeconds } = useElapsedTimer(hasUserActivity, sessionPaused);
+
+  // ── Gem balance for the in-session header ────────────────────────────────
+  // Kept local to subject.tsx so the chat bar can show a low-balance neon
+  // warning without depending on the AppLayout chrome (which is hidden in
+  // mobile fullscreen sessions). Refetches on the same `nukhba:gems-changed`
+  // event the global header listens to, so a successful /ai/teach turn
+  // updates both badges in lockstep.
+  const [gemState, setGemState] = useState<{ balance: number; daily: number; remaining: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchGems = () => {
+      fetch(`/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(subject.id)}`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (cancelled || !d) return;
+          setGemState({
+            balance: typeof d.gemsBalance === "number" ? d.gemsBalance : 0,
+            daily: typeof d.gemsDailyLimit === "number" ? d.gemsDailyLimit : 0,
+            remaining: typeof d.dailyRemaining === "number" ? d.dailyRemaining : 0,
+          });
+        })
+        .catch(() => {});
+    };
+    fetchGems();
+    const handler = () => fetchGems();
+    window.addEventListener("nukhba:gems-changed", handler);
+    return () => { cancelled = true; window.removeEventListener("nukhba:gems-changed", handler); };
+  }, [subject.id]);
+  // Low-balance threshold: <70 daily-remaining gems is roughly one short
+  // turn left before the daily allowance is exhausted on a typical Gemini
+  // teach call.
+  const gemLowBalance = !!gemState && gemState.remaining > 0 && gemState.remaining < 70;
+  const gemEmpty = !!gemState && gemState.remaining <= 0;
+
+  // ── Welcome empty-state starters ──────────────────────────────────────────
+  // Same heuristics as the inline suggestion chips, exposed here so the
+  // empty-state card can show them too.
+  const welcomeStarters = useMemo(() => {
+    const text = `${String(subject?.id || "")} ${String(subject?.name || "")}`.toLowerCase();
+    const has = (re: RegExp) => re.test(text);
+    if (has(/cyber|سيبران|أمن.*معلومات|اختراق/)) return ["ابنِ لي بيئة تطبيقية لمحاكاة هجوم تعليمي", "اشرح لي مفهوم XSS بمثال", "أعطني تمرين تشخيص ثغرة"];
+    if (has(/network|شبكات|tcp|ip|router/)) return ["ابنِ لي بيئة لتحليل حزم شبكة", "اشرح TCP handshake خطوة بخطوة", "كيف أصمم شبكة صغيرة؟"];
+    if (has(/program|برمج|code|python|java|javascript|c\+\+/)) return ["ابنِ لي بيئة برمجة لحل مسألة", "اشرح الفرق بين stack و heap", "أعطني تمرين خوارزميات"];
+    if (has(/account|محاسب|مالي/)) return ["ابنِ لي بيئة تدريب على القيود اليومية", "اشرح الميزانية العمومية", "أعطني تمرين ميزان مراجعة"];
+    if (has(/physic|فيزياء/)) return ["ابنِ لي محاكاة لقانون نيوتن الثاني", "اشرح الفرق بين السرعة والتسارع", "أعطني تمرين على الطاقة"];
+    return ["ابنِ لي بيئة تطبيقية تفاعلية", "اشرح لي أهم مفهوم في هذه المادة", "أعطني تمريناً يناسب مستواي"];
+  }, [subject?.id, subject?.name]);
+
+  const modeBadgeText = teachingMode === "professor" ? "📚 منهج الأستاذ" : teachingMode === "custom" ? "🧭 مسار مخصّص" : "جلسة تعليمية";
+
+  const pickStarter = useCallback((s: string) => {
+    setInput(s);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
 
   const handleEndSession = () => {
     if (messages.length < 2 || isStreaming) return;
@@ -2393,22 +4247,123 @@ function SubjectPathChat({
     setSummaryError(false);
     setIsSummarizing(false);
     try { if (CHAT_STORAGE_KEY) localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+    // Reset the one-shot bootstrap guard SYNCHRONOUSLY before bumping the
+    // restart key, so when the bootstrap effect re-runs (triggered by the
+    // key change) it sees the guard cleared and dispatches the opener for
+    // the new session. Doing this in a separate post-commit effect would
+    // race the bootstrap effect on the same render.
+    diagnosticBootstrapFiredRef.current = false;
     setSessionRestartKey((k) => k + 1);
   };
 
   // Auto-restart: if the page renders with `dailyLimitUntil` already in the
   // past (e.g. student returned the morning after hitting the cap), kick off
-  // the next session immediately instead of forcing them to click the
-  // countdown CTA. This is intentionally separate from the Countdown's
-  // `onExpired` callback, which only fires for sessions that were live when
-  // the timer reached zero.
+  // the next session — but ONLY after we've confirmed the server has
+  // actually rolled over today's gem allowance. Without this confirmation,
+  // a clock-skewed client (or a stale `until`) would auto-restart, fire a
+  // /ai/teach call, and immediately get 429'd back into the same overlay.
   useEffect(() => {
     if (!dailyLimitUntil) return;
-    if (new Date(dailyLimitUntil).getTime() <= Date.now()) {
-      startNextSession();
-    }
+    // Trigger when EITHER the wall-clock deadline has already passed (page
+    // mounted post-midnight) OR the live timer just hit zero in this
+    // session (`countdownExpired` set by Countdown.onExpired). Without the
+    // latter, a session that watches the timer tick to 00:00:00 would
+    // show the green "ابدأ الجلسة التالية" CTA without us ever calling
+    // /subscriptions/gems-balance to confirm the server actually rolled.
+    const deadlineReached = new Date(dailyLimitUntil).getTime() <= Date.now();
+    if (!deadlineReached && !countdownExpired) return;
+    let cancelled = false;
+    let attempt = 0;
+    const verifyAndStart = async () => {
+      if (cancelled) return;
+      attempt += 1;
+      try {
+        const sid = subject?.id;
+        if (sid) {
+          const r = await fetch(`/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(sid)}`, { credentials: "include" });
+          if (r.ok) {
+            const d = await r.json();
+            // Restart only when the server confirms the user can spend
+            // gems again — covers daily-cap rollover AND total balance.
+            if (d.canUseGems === true) {
+              if (!cancelled) startNextSession();
+              return;
+            }
+          }
+        } else {
+          // No subject scope — fall back to the original behavior.
+          if (!cancelled) startNextSession();
+          return;
+        }
+      } catch {/* network — retry */}
+      // Server hasn't rolled over yet (clock skew or job lag). Retry with
+      // exponential-ish backoff capped at 30s, but give up after ~3 minutes
+      // and let the user click the explicit CTA.
+      if (attempt < 12 && !cancelled) {
+        const delayMs = Math.min(30_000, 2_000 * Math.pow(1.5, attempt));
+        setTimeout(verifyAndStart, delayMs);
+      }
+    };
+    verifyAndStart();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dailyLimitUntil, countdownExpired]);
+
+  // ── Overlay cascade-clearing ─────────────────────────────────────────────
+  // The four overlays (accessDenied, dailyLimitUntil, quotaExhausted,
+  // sessionComplete) used to be able to coexist in state, with the render
+  // order arbitrarily picking which one to show. Worse, hitting the daily
+  // cap and then losing access (e.g. the per-subject sub also expiring)
+  // would leave the daily-cap countdown visible behind a now-broken
+  // "renew" call to action.
+  //
+  // Precedence is fixed at: accessDenied > dailyLimitUntil > quotaExhausted
+  // > sessionComplete. Whenever a higher-priority flag fires, we clear all
+  // lower-priority ones so the cascade has a single, deterministic owner.
+  useEffect(() => {
+    if (accessDenied) {
+      setDailyLimitUntil(null);
+      setQuotaExhausted(false);
+      setSessionComplete(false);
+    }
+  }, [accessDenied]);
+  useEffect(() => {
+    if (dailyLimitUntil) {
+      setQuotaExhausted(false);
+      setSessionComplete(false);
+    }
   }, [dailyLimitUntil]);
+  useEffect(() => {
+    if (quotaExhausted) {
+      setSessionComplete(false);
+    }
+  }, [quotaExhausted]);
+
+  // Overlay precedence: accessDenied → dailyLimitUntil → quotaExhausted →
+  // sessionComplete. Matches the cascade-clearing effects above.
+  if (accessDenied) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <div className="w-20 h-20 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
+          <Lock className="w-10 h-10 text-gold" />
+        </div>
+        <h3 className="text-2xl font-bold mb-3">انتهت جواهرك 💎</h3>
+        <p className="text-muted-foreground mb-4 max-w-sm">
+          لقد استنفدت رصيد جواهرك. اشترك في خطة جديدة للاستمرار في التعلم مع جميع التخصصات.
+        </p>
+        <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground">
+          <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+          الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية
+        </div>
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
+            <Sparkles className="w-5 h-5 ml-2" />
+            اشترك الآن
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (dailyLimitUntil) {
     const expired = countdownExpired || new Date(dailyLimitUntil).getTime() <= Date.now();
@@ -2461,30 +4416,6 @@ function SubjectPathChat({
     );
   }
 
-  if (accessDenied) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-        <div className="w-20 h-20 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
-          <Lock className="w-10 h-10 text-gold" />
-        </div>
-        <h3 className="text-2xl font-bold mb-3">انتهت جواهرك 💎</h3>
-        <p className="text-muted-foreground mb-4 max-w-sm">
-          لقد استنفدت رصيد جواهرك. اشترك في خطة جديدة للاستمرار في التعلم مع جميع التخصصات.
-        </p>
-        <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground">
-          <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
-          الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية
-        </div>
-        <div className="flex flex-col gap-3 w-full max-w-xs">
-          <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
-            <Sparkles className="w-5 h-5 ml-2" />
-            اشترك الآن
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   if (quotaExhausted) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
@@ -2494,7 +4425,8 @@ function SubjectPathChat({
           </div>
           <h3 className="text-2xl font-bold mb-3">جواهرك نفدت 💎</h3>
           <p className="text-muted-foreground mb-2 max-w-sm text-sm leading-relaxed">
-            لقد استنفدت رصيد جواهرك لهذا الاشتراك.
+            استنفدت كامل رصيد جواهرك لهذا الاشتراك في هذه المادة. يمكنك متابعة
+            آخر العمليات في صفحة <a href="/usage" className="text-gold underline">استهلاك الجواهر</a>.
           </p>
           <p className="text-muted-foreground mb-6 max-w-sm text-sm leading-relaxed">
             {isSummarizing
@@ -2605,7 +4537,7 @@ function SubjectPathChat({
     {showReopenEnv && (
       <button
         onClick={() => onReopenDynamicEnv?.()}
-        className="fixed bottom-20 md:bottom-6 right-4 z-[70] bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-cyan-300/50"
+        className="fixed bottom-24 md:bottom-6 right-4 z-[70] bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-cyan-300/50"
         style={{ direction: "rtl" }}
         title={pendingDynamicEnv?.title || "العودة لبيئتك"}
       >
@@ -2613,40 +4545,141 @@ function SubjectPathChat({
         <span className="max-w-[160px] truncate">العودة لبيئتك: {pendingDynamicEnv?.title || "البيئة التطبيقية"}</span>
       </button>
     )}
+    {/* ── Spec compiling overlay — shown while compile-spec is running ─────── */}
+    {isCompilingSpec && (
+      <div className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-4" style={{ direction: "rtl" }}>
+        <div className="bg-slate-900 border border-gold/30 rounded-2xl shadow-2xl max-w-sm w-full p-8 text-center">
+          <div className="w-16 h-16 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center mx-auto mb-4">
+            <Loader2 className="w-8 h-8 text-gold animate-spin" />
+          </div>
+          <h3 className="text-white font-bold text-lg mb-2">جاري تجهيز مواصفة بيئتك...</h3>
+          <p className="text-muted-foreground text-sm leading-relaxed">
+            يحلّل المعلم الذكي إجاباتك ويُصمّم بيئة تطبيقية مخصصة لك
+          </p>
+        </div>
+      </div>
+    )}
+
+    {/* ── Compiled spec preview card ─────────────────────────────────────── */}
+    {compiledSpec && !isCompilingSpec && !isCreatingEnv && (
+      <div className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-4" style={{ direction: "rtl" }}>
+        <div className="bg-slate-900 border border-gold/30 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden">
+          <div className="bg-gradient-to-l from-amber-500/20 to-transparent border-b border-gold/20 px-6 py-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center text-xl shrink-0">🧪</div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-white font-extrabold text-base leading-tight">مواصفة بيئتك التطبيقية جاهزة</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">راجع التفاصيل ثم اضغط «ابنِ الآن»</p>
+            </div>
+          </div>
+          <div className="p-5 space-y-3 max-h-[50vh] overflow-y-auto">
+            {!!compiledSpec.goal && (
+              <div className="bg-white/5 rounded-xl p-3">
+                <p className="text-xs text-gold font-bold mb-1">الهدف</p>
+                <p className="text-sm text-white leading-relaxed">{String(compiledSpec.goal)}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {!!compiledSpec.difficulty && (
+                <div className="bg-white/5 rounded-xl p-3">
+                  <p className="text-xs text-muted-foreground mb-0.5">الصعوبة</p>
+                  <p className="text-sm font-bold text-white">{String(compiledSpec.difficulty)}</p>
+                </div>
+              )}
+              {!!compiledSpec.estimatedMinutes && (
+                <div className="bg-white/5 rounded-xl p-3">
+                  <p className="text-xs text-muted-foreground mb-0.5">الوقت المتوقع</p>
+                  <p className="text-sm font-bold text-white">{String(compiledSpec.estimatedMinutes)} دقيقة</p>
+                </div>
+              )}
+            </div>
+            {Array.isArray(compiledSpec.screens) && compiledSpec.screens.length > 0 && (
+              <div className="bg-white/5 rounded-xl p-3">
+                <p className="text-xs text-gold font-bold mb-2">الشاشات ({compiledSpec.screens.length})</p>
+                <div className="space-y-1">
+                  {(compiledSpec.screens as Record<string, unknown>[]).map((sc, i: number) => (
+                    <div key={i} className="flex items-start gap-2 text-xs">
+                      <span className="text-gold shrink-0">{i + 1}.</span>
+                      <span className="text-white">{String(sc.title ?? "")}</span>
+                      {!!sc.purpose && <span className="text-muted-foreground">— {String(sc.purpose)}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {Array.isArray(compiledSpec.successCriteria) && compiledSpec.successCriteria.length > 0 && (
+              <div className="bg-white/5 rounded-xl p-3">
+                <p className="text-xs text-gold font-bold mb-2">معايير النجاح</p>
+                <ul className="space-y-1">
+                  {(compiledSpec.successCriteria as string[]).map((c, i: number) => (
+                    <li key={i} className="text-xs text-white flex items-start gap-1.5">
+                      <span className="text-emerald-400 shrink-0 mt-0.5">✓</span>
+                      <span>{String(c)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+          {specCompileError && (
+            <div className="px-5 pb-3">
+              <p className="text-xs text-red-400 bg-red-950/50 rounded-lg p-2">{specCompileError}</p>
+            </div>
+          )}
+          <div className="px-5 pb-5 pt-2 flex gap-2">
+            <button
+              onClick={() => {
+                const spec = compiledSpec;
+                setCompiledSpec(null);
+                onCreateLabEnv?.("", spec);
+              }}
+              className="flex-1 px-4 py-3 rounded-xl bg-gold text-slate-900 font-extrabold hover:bg-gold/90 transition-colors text-sm"
+            >
+              🚀 ابنِ الآن
+            </button>
+            <button
+              onClick={() => {
+                // Dismiss the spec preview and restart the intake interview from
+                // the beginning so the student can re-answer all 5 questions.
+                setCompiledSpec(null);
+                setSpecCompileError(null);
+                setLabIntakeActive(false);
+                labIntakeActiveRef.current = false;
+                // Re-trigger the intake via the parent's onStartLabEnvIntent callback,
+                // which goes through the same pendingLabStarter confirmation modal
+                // flow so the student intentionally confirms the restart.
+                onStartLabEnvIntent?.();
+              }}
+              className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-colors text-sm"
+            >
+              عدِّل إجاباتي
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Spec compile error toast (when spec card is dismissed but error remains) */}
+    {specCompileError && !compiledSpec && !isCompilingSpec && (
+      <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[70] max-w-sm w-[92%]">
+        <div className="bg-red-950/95 border border-red-500/40 rounded-xl px-4 py-3 shadow-xl flex items-start gap-3" style={{ direction: "rtl" }}>
+          <span className="text-xl shrink-0">⚠️</span>
+          <div className="flex-1 text-sm text-red-100">{specCompileError}</div>
+          <button onClick={() => setSpecCompileError(null)} className="text-red-300 hover:text-white text-lg leading-none shrink-0">×</button>
+        </div>
+      </div>
+    )}
+
     {/* Universal floating "build env" button — available across ALL subjects.
         Hidden when an env already exists (the "return" button takes over),
         when a panel is open, or while the build is in flight.
         IMPORTANT: this does NOT call /ai/lab/build-env directly. It triggers
-        the teacher-orchestrated dialog (ASK_OPTIONS in /ai/teach), which
-        emits [[CREATE_LAB_ENV]] only after the student picks specifics. */}
-    {!pendingDynamicEnv && !anyPanelOpen && !isCreatingEnv && onStartLabEnvIntent && chatVisible && (
-      <button
-        onClick={() => onStartLabEnvIntent()}
-        className="fixed bottom-20 md:bottom-6 right-4 z-[70] bg-gradient-to-l from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-amber-300/50"
-        style={{ direction: "rtl" }}
-        title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
-      >
-        <span className="text-lg">🧪</span>
-        <span>ابنِ بيئة تطبيقية</span>
-      </button>
-    )}
-    {/* Attack Simulation: floating "build" button (security/networking only). */}
-    {attackSimEnabled && !pendingAttackScenario && !anyPanelOpen && chatVisible && onOpenAttackIntake && (
-      <button
-        onClick={() => onOpenAttackIntake()}
-        className="fixed bottom-36 md:bottom-20 right-4 z-[70] bg-gradient-to-l from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
-        style={{ direction: "rtl" }}
-        title="ابدأ محاكاة هجمة تعليمية"
-      >
-        <span className="text-lg">🎯</span>
-        <span>محاكاة هجمة</span>
-      </button>
-    )}
+        the teacher-orchestrated intake interview, which emits
+        [[LAB_INTAKE_DONE]] only after all 5 questions complete. */}
     {/* Attack Simulation: re-open button when scenario exists but panel closed. */}
     {showReopenAttack && (
       <button
         onClick={() => onReopenAttackSim?.()}
-        className="fixed bottom-36 md:bottom-20 right-4 z-[70] bg-red-600 hover:bg-red-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
+        className="fixed bottom-40 md:bottom-20 right-4 z-[70] bg-red-600 hover:bg-red-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
         style={{ direction: "rtl" }}
         title={pendingAttackScenario?.title || "العودة لمحاكاة الهجمة"}
       >
@@ -2807,45 +4840,257 @@ function SubjectPathChat({
           material-required gate, and the chat never share the screen. */}
       {!needsModeChoice && !needsMaterial && (<>
 
-      {/* Mode/sources mini-bar (visible whenever mode is set) */}
+      {/* Session header: subject name + elapsed timer + drawer toggle + difficulty badge. */}
       {teachingMode && teachingMode !== 'unset' && (
-        <div className="shrink-0 px-3 py-2 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "rgba(245,158,11,0.04)" }}>
-          <div className="flex items-center gap-2 min-w-0" style={{ direction: "rtl" }}>
-            {teachingMode === 'professor' ? (
-              <>
-                <span className="text-[11px] font-bold text-amber-300">📚 منهج الأستاذ</span>
-                <span className="text-[10px] text-white/40 truncate">{activeMaterialId ? "ملف نشط" : "لم تختر ملفاً بعد"}</span>
-              </>
-            ) : (
-              <span className="text-[11px] font-bold text-purple-300">🧭 مسار مخصّص</span>
+        <div className="shrink-0 px-2.5 sm:px-3 py-1.5 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "linear-gradient(180deg, rgba(245,158,11,0.05), rgba(245,158,11,0.02))", direction: "rtl" }}>
+          <div className="min-w-0 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPathDrawerOpen(true)}
+              className="path-drawer-trigger session-action-btn"
+              title="مسار التعلّم"
+              aria-label="عرض مسار التعلّم"
+              disabled={!customPlan}
+            >
+              <MapIcon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">المسار</span>
+            </button>
+            <div className="hidden xs:flex items-center gap-1 text-[11px] text-white/55">
+              <Clock className="w-3 h-3" />
+              <span className="tabular-nums">{formatElapsed(elapsedSeconds)}</span>
+            </div>
+            {gemState && (
+              <div
+                className={`hidden sm:flex items-center gap-1 text-[11px] tabular-nums px-1.5 py-0.5 rounded-md border transition-all ${
+                  gemEmpty
+                    ? "gem-badge-empty text-rose-200 bg-rose-500/15 border-rose-500/40"
+                    : gemLowBalance
+                      ? "gem-badge-low text-amber-100 bg-amber-500/15 border-amber-500/45"
+                      : "text-amber-200/90 bg-amber-500/8 border-amber-500/25"
+                }`}
+                title={`المتبقي اليوم: ${gemState.remaining.toLocaleString("ar-EG")} / ${gemState.daily.toLocaleString("ar-EG")} 💎 — الرصيد الكلي: ${gemState.balance.toLocaleString("ar-EG")}`}
+                aria-label={`الجواهر المتبقية اليوم ${gemState.remaining}`}
+              >
+                <span aria-hidden>💎</span>
+                <span>{gemState.remaining.toLocaleString("ar-EG")}</span>
+              </div>
             )}
           </div>
-          <div className="shrink-0 flex items-center gap-1.5">
-            {teachingMode === 'professor' && activeMaterialId && (
+          <div className="min-w-0 flex items-center gap-2 truncate">
+            <span className="text-[12px] font-bold text-white/85 truncate">{subject.name}</span>
+            <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border ${
+              difficulty === "easy" ? "bg-emerald-500/12 border-emerald-500/30 text-emerald-200"
+              : difficulty === "advanced" ? "bg-rose-500/12 border-rose-500/30 text-rose-200"
+              : "bg-amber-500/12 border-amber-500/30 text-amber-200"
+            }`}>
+              <Gauge className="w-3 h-3" />
+              {difficulty === "easy" ? "مبسّط" : difficulty === "advanced" ? "متقدّم" : "عادي"}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Inline compact path bar — a thin horizontal stage-dot strip directly
+          under the session header. Renders alongside (not instead of) the
+          side drawer so accustomed users keep their familiar inline path
+          view, while new users still get the richer drawer with progress
+          ring + per-stage controls. Hidden until a custom plan exists. */}
+      {teachingMode && teachingMode !== 'unset' && customPlan && (() => {
+        const compactStages = parsePlanStages(customPlan);
+        if (compactStages.length === 0) return null;
+        const total = compactStages.length;
+        const currentIdx = Math.min(currentStage, total - 1);
+        return (
+          <button
+            type="button"
+            onClick={() => setPathDrawerOpen(true)}
+            className="shrink-0 px-2.5 sm:px-3 py-1 border-b border-white/5 hover:bg-white/[0.03] transition-colors text-right w-full"
+            style={{ direction: "rtl" }}
+            title={`المرحلة ${Math.min(currentStage + 1, total)} من ${total} — اضغط لفتح المسار الكامل`}
+            aria-label="عرض شريط المراحل المضغوط — اضغط لفتح المسار الكامل"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-amber-300/80 shrink-0 tabular-nums">
+                {Math.min(currentStage + 1, total)}/{total}
+              </span>
+              <div className="compact-path-bar flex-1">
+                {compactStages.map((_, idx) => {
+                  const cls = idx < currentStage ? "is-done" : idx === currentStage ? "is-active" : "is-locked";
+                  return <span key={idx} className={`compact-path-dot ${cls}`} />;
+                })}
+              </div>
+              <span className="text-[10px] text-white/45 truncate hidden sm:inline max-w-[100px]">
+                {compactStages[currentIdx]?.title || ""}
+              </span>
+              {(() => {
+                const curStageData = compactStages[currentIdx];
+                const totalMicro = curStageData?.microSteps?.length ?? 0;
+                const doneMicro = completedMicroSteps.length;
+                const nextMicro = totalMicro > 0 ? curStageData?.microSteps?.[doneMicro] : undefined;
+                if (!nextMicro && totalMicro === 0) return null;
+                return (
+                  <span className="text-[10px] text-amber-300/55 truncate hidden sm:inline max-w-[120px]">
+                    {totalMicro > 0 ? `· خطوة ${Math.min(doneMicro + 1, totalMicro)} من ${totalMicro}${nextMicro ? `: ${nextMicro}` : ""}` : null}
+                  </span>
+                );
+              })()}
+            </div>
+          </button>
+        );
+      })()}
+
+      {/* Mode/sources mini-bar (visible whenever mode is set).
+          REDESIGN (May 2026): the previous row had 3 separate visible
+          buttons (مصادري + اختبرني + الامتحان) that crowded the bar on
+          phones and forced text↔icon collapse logic. We replaced them with
+          a single dropdown trigger that holds all secondary actions —
+          including the new "إنهاء الجلسة" item moved up from the bottom
+          of the input area. The mode label stays on the right for context. */}
+      {teachingMode && teachingMode !== 'unset' && (
+        <div className="shrink-0 px-2.5 sm:px-3 py-1.5 border-b border-white/5 flex items-center justify-between gap-2" style={{ background: "rgba(245,158,11,0.04)" }}>
+          <div className="flex items-center gap-1.5 min-w-0" style={{ direction: "rtl" }}>
+            {teachingMode === 'professor' ? (
               <>
-                <button
-                  onClick={() => setQuizPanel({ open: true, kind: 'chapter' })}
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 text-amber-200 transition-all flex items-center gap-1.5"
-                  title="اختبر نفسك على الفصل الحالي"
-                >
-                  📘 اختبرني على هذا الفصل
-                </button>
-                <button
-                  onClick={() => setQuizPanel({ open: true, kind: 'exam' })}
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-purple-200 transition-all flex items-center gap-1.5"
-                  title="امتحان شامل من 30 سؤالاً يغطّي كامل الملف"
-                >
-                  🏆 الامتحان النهائي
-                </button>
+                <span className="text-[11px] font-bold text-amber-300 shrink-0">📚 منهج الأستاذ</span>
+                <span className="text-[10px] text-white/40 truncate">{activeMaterialId ? "ملف نشط" : "اختر ملفاً"}</span>
+                {activeMaterialId && activeMaterialCoverage === "partial" && (
+                  <span
+                    className="shrink-0 text-[9px] font-bold text-amber-200 bg-amber-500/20 border border-amber-500/40 rounded px-1.5 py-0.5"
+                    title="بعض صفحات هذا الملف لم يُستخرج نصها بدقة — يمكن إعادة المحاولة من نافذة المصادر"
+                  >
+                    تغطية جزئية
+                  </span>
+                )}
+                {activeMaterialId && activeMaterialCoverage === "failed" && (
+                  <span
+                    className="shrink-0 text-[9px] font-bold text-rose-200 bg-rose-500/20 border border-rose-500/40 rounded px-1.5 py-0.5"
+                    title="تعذّر استخراج نص هذا الملف — افتح نافذة المصادر لإعادة المحاولة"
+                  >
+                    فشل التغطية
+                  </span>
+                )}
               </>
+            ) : (
+              <span className="text-[11px] font-bold text-purple-300 shrink-0">🧭 مسار مخصّص</span>
             )}
-            <button
-              onClick={() => setShowSourcesPanel(true)}
-              className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-amber-200 transition-all flex items-center gap-1.5"
-            >
-              <BookOpen className="w-3 h-3" />
-              مصادري
-            </button>
+          </div>
+          <div className="shrink-0 flex items-center gap-1">
+            {messages.length >= 2 && (
+              <button
+                type="button"
+                onClick={handleEndSession}
+                disabled={isStreaming}
+                className="session-action-btn flex items-center gap-1 text-[11px] font-bold text-amber-100 bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                title="إنهاء الجلسة وحفظ ملخص لها في لوحتي"
+                aria-label="إنهاء الجلسة وحفظ الملخص"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span className="hidden xs:inline sm:inline">إنهاء الجلسة</span>
+              </button>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="session-action-btn flex items-center gap-1 text-[11px] font-bold text-white/80 hover:text-amber-200 bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 transition-all"
+                  title="إجراءات الجلسة"
+                  aria-label="إجراءات الجلسة"
+                >
+                  <MoreHorizontal className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">الإجراءات</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6} className="w-56" style={{ direction: "rtl" }}>
+                <DropdownMenuLabel className="text-[11px] text-white/50 font-normal">إجراءات الجلسة</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => setShowSourcesPanel(true)}
+                  className="cursor-pointer gap-2 text-sm"
+                >
+                  <BookMarked className="w-4 h-4 text-white/60" />
+                  <span>مصادري</span>
+                </DropdownMenuItem>
+                {teachingMode === 'professor' && activeMaterialId && (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={() => setShowCurriculumDrawer(true)}
+                      disabled={curriculumChapters.length === 0}
+                      className="cursor-pointer gap-2 text-sm"
+                    >
+                      <MapIcon className="w-4 h-4 text-amber-300" />
+                      <span>خريطة المنهج</span>
+                      {curriculumChapters.length > 0 && (
+                        <span className="me-auto text-[10px] text-white/40">{curriculumChapters.length} فصل</span>
+                      )}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => setQuizPanel({ open: true, kind: 'chapter' })}
+                      className="cursor-pointer gap-2 text-sm"
+                    >
+                      <GraduationCap className="w-4 h-4 text-amber-400" />
+                      <span>اختبرني على هذا الفصل</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => setQuizPanel({ open: true, kind: 'exam' })}
+                      className="cursor-pointer gap-2 text-sm"
+                    >
+                      <Trophy className="w-4 h-4 text-purple-400" />
+                      <span>الامتحان النهائي</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-[11px] text-white/50 font-normal">التحكم بالجلسة</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={() => setSessionPaused(p => !p)}
+                  className="cursor-pointer gap-2 text-sm"
+                >
+                  {sessionPaused ? <Play className="w-4 h-4 text-emerald-400" /> : <Pause className="w-4 h-4 text-white/60" />}
+                  <span>{sessionPaused ? "استئناف الجلسة" : "إيقاف مؤقت"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={handleRestartStage}
+                  disabled={isStreaming || sessionPaused || stages.length === 0}
+                  className="cursor-pointer gap-2 text-sm"
+                >
+                  <RotateCcw className="w-4 h-4 text-white/60" />
+                  <span>إعادة شرح هذه المرحلة</span>
+                </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="cursor-pointer gap-2 text-sm">
+                    <Gauge className="w-4 h-4 text-white/60" />
+                    <span>مستوى الصعوبة</span>
+                    <span className="me-auto text-[10px] text-white/40">{difficulty === "easy" ? "مبسّط" : difficulty === "advanced" ? "متقدّم" : "عادي"}</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent style={{ direction: "rtl" }}>
+                    <DropdownMenuItem onSelect={() => setDifficulty("easy")} className="cursor-pointer gap-2 text-sm">
+                      <span className="text-emerald-400">●</span><span>مبسّط</span>{difficulty === "easy" && <Check className="w-4 h-4 me-auto text-emerald-400" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setDifficulty("normal")} className="cursor-pointer gap-2 text-sm">
+                      <span className="text-amber-400">●</span><span>عادي</span>{difficulty === "normal" && <Check className="w-4 h-4 me-auto text-amber-400" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setDifficulty("advanced")} className="cursor-pointer gap-2 text-sm">
+                      <span className="text-rose-400">●</span><span>متقدّم</span>{difficulty === "advanced" && <Check className="w-4 h-4 me-auto text-rose-400" />}
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={handleExportPDF}
+                  disabled={exportingPdf || messages.length === 0}
+                  className="cursor-pointer gap-2 text-sm"
+                >
+                  {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin text-white/60" /> : <Download className="w-4 h-4 text-white/60" />}
+                  <span>{exportingPdf ? "جاري التصدير..." : "تصدير المحادثة (PDF)"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={handleCopyShareLink}
+                  className="cursor-pointer gap-2 text-sm"
+                >
+                  {shareCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4 text-white/60" />}
+                  <span>{shareCopied ? "تم نسخ الرابط ✓" : "نسخ رابط المشاركة"}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       )}
@@ -2858,45 +5103,218 @@ function SubjectPathChat({
         kind={quizPanel.kind}
       />
 
-      {/* Stage progress bar */}
-      {chatPhase === 'teaching' && stages.length > 0 && (
-        <div className="shrink-0 px-4 py-2.5 border-b border-white/5 flex items-center gap-3" style={{ background: "#0b0d17" }}>
-          <div className="flex items-center gap-1.5 flex-1">
-            {stages.map((s, idx) => {
-              const done = idx < currentStage;
-              const active = idx === currentStage;
-              return (
-                <div key={idx} className="flex items-center gap-1.5 flex-1 min-w-0">
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 transition-all ${
-                    done ? "bg-emerald-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.5)]"
-                    : active ? "bg-gold text-black shadow-[0_0_8px_rgba(245,158,11,0.5)]"
-                    : "bg-white/10 text-white/30"
-                  }`}>
-                    {done ? "✓" : idx + 1}
-                  </div>
-                  <div className="flex-1 hidden sm:block truncate">
-                    <span className={`text-[11px] truncate ${active ? "text-gold font-semibold" : done ? "text-emerald-400/70" : "text-white/25"}`}>{s}</span>
-                  </div>
-                  {idx < stages.length - 1 && (
-                    <div className={`h-px flex-1 mx-1 transition-all ${done ? "bg-emerald-500/50" : "bg-white/8"}`} />
-                  )}
+      {/* Curriculum sidebar — bottom drawer (matches the existing
+          mobile design language). Lists every chapter from the structured
+          outline with a status icon (✓ covered, ▶ active, ○ upcoming), a
+          page range, and a coverage bar (covered keyPoints / total). The
+          "راجع" button injects "راجع الفصل N" into the composer so the
+          existing chapter-review intent regex on the server picks it up. */}
+      {teachingMode === 'professor' && (
+        <Drawer open={showCurriculumDrawer} onOpenChange={setShowCurriculumDrawer}>
+          <DrawerContent style={{ direction: "rtl" }} className="max-h-[85vh]">
+            <DrawerHeader className="text-right">
+              <DrawerTitle className="flex items-center gap-2">
+                <MapIcon className="w-5 h-5 text-amber-300" />
+                <span>خريطة المنهج</span>
+                {activeMaterialFileName && (
+                  <span className="text-xs font-normal text-white/50 truncate">— {activeMaterialFileName}</span>
+                )}
+              </DrawerTitle>
+              <DrawerDescription className="text-right text-xs">
+                ✓ مُكتمل · ▶ نشط · ○ قادم — اضغط "راجع" للعودة لأي فصل سابق.
+              </DrawerDescription>
+            </DrawerHeader>
+            <div className="overflow-y-auto px-4 pb-6 space-y-2" style={{ direction: "rtl" }}>
+              {curriculumChapters.length === 0 ? (
+                <div className="text-center text-sm text-white/50 py-8">
+                  لا يوجد فهرس مُولَّد لهذا الملف بعد.
                 </div>
-              );
-            })}
-          </div>
+              ) : (
+                curriculumChapters.map((c) => {
+                  const totalPts = Array.isArray(c.keyPoints) ? c.keyPoints.length : 0;
+                  const coveredArr = coveredPointsByChapter[String(c.idx)] ?? [];
+                  const coveredCount = Math.min(coveredArr.length, totalPts);
+                  const ratio = totalPts > 0 ? coveredCount / totalPts : 0;
+                  const fullyCovered = totalPts > 0 && coveredCount >= totalPts;
+                  // "Active" = the first chapter that isn't fully covered.
+                  // We compute this by walking forward and marking the first
+                  // not-fully-covered chapter as the active one.
+                  const isActive = (() => {
+                    for (const ch of curriculumChapters) {
+                      const total = Array.isArray(ch.keyPoints) ? ch.keyPoints.length : 0;
+                      const got = (coveredPointsByChapter[String(ch.idx)] ?? []).length;
+                      if (total === 0 || got < total) return ch.idx === c.idx;
+                    }
+                    return false;
+                  })();
+                  const icon = fullyCovered ? "✓" : isActive ? "▶" : "○";
+                  const iconColor = fullyCovered
+                    ? "text-emerald-400"
+                    : isActive
+                      ? "text-amber-300"
+                      : "text-white/30";
+                  return (
+                    <div
+                      key={c.idx}
+                      className={`rounded-lg border p-3 transition-colors ${
+                        isActive
+                          ? "border-amber-500/40 bg-amber-500/5"
+                          : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className={`text-lg font-bold shrink-0 ${iconColor}`} aria-hidden>
+                          {icon}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-white/90 truncate">
+                              {c.idx + 1}. {c.title}
+                            </span>
+                            {c.startPage > 0 && c.endPage > 0 && (
+                              <span className="text-[10px] text-white/40 shrink-0">
+                                صفحات {c.startPage}–{c.endPage}
+                              </span>
+                            )}
+                          </div>
+                          {totalPts > 0 && (
+                            <div className="mt-1.5 flex items-center gap-2">
+                              <div className="flex-1 h-1 bg-white/10 rounded overflow-hidden">
+                                <div
+                                  className={`h-full ${fullyCovered ? "bg-emerald-400" : isActive ? "bg-amber-400" : "bg-white/30"}`}
+                                  style={{ width: `${Math.round(ratio * 100)}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-white/50 shrink-0 tabular-nums">
+                                {coveredCount}/{totalPts}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="shrink-0 text-[11px] font-bold px-2 py-1 rounded border border-amber-500/40 text-amber-200 hover:bg-amber-500/15 transition-colors"
+                          title={`أرسل "راجع الفصل ${c.idx + 1}" للمعلّم`}
+                          onClick={() => {
+                            const text = `راجع الفصل ${c.idx + 1}`;
+                            setInput((prev) => (prev && prev.trim().length > 0 ? `${prev}\n${text}` : text));
+                            setShowCurriculumDrawer(false);
+                            setTimeout(() => inputRef.current?.focus(), 80);
+                          }}
+                        >
+                          راجع
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </DrawerContent>
+        </Drawer>
+      )}
+
+      {/* Stage progress bar.
+          Two layouts based on stage count to keep things legible on 360px:
+          • ≤5 stages → original step-by-step bullets with labels.
+          • >5 stages → compact mode: single linear progress bar +
+            "المرحلة X من Y" text + current stage name. The dotted UI
+            collapses awkwardly when there are 6+ stages on a phone. */}
+      {chatPhase === 'teaching' && stages.length > 0 && (
+        <div className="shrink-0 px-3 sm:px-4 py-2 border-b border-white/5 flex items-center gap-2 sm:gap-3" style={{ background: "#0b0d17" }}>
+          {stages.length <= 5 ? (
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              {stages.map((s, idx) => {
+                const done = idx < currentStage;
+                const active = idx === currentStage;
+                return (
+                  <div key={idx} className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 transition-all ${
+                      done ? "bg-emerald-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                      : active ? "bg-gold text-black shadow-[0_0_8px_rgba(245,158,11,0.5)]"
+                      : "bg-white/10 text-white/30"
+                    }`}>
+                      {done ? "✓" : idx + 1}
+                    </div>
+                    <div className="flex-1 hidden sm:block truncate">
+                      <span className={`text-[11px] truncate ${active ? "text-gold font-semibold" : done ? "text-emerald-400/70" : "text-white/25"}`}>{s}</span>
+                    </div>
+                    {idx < stages.length - 1 && (
+                      <div className={`h-px flex-1 mx-1 transition-all ${done ? "bg-emerald-500/50" : "bg-white/8"}`} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="w-5 h-5 rounded-full bg-gold text-black flex items-center justify-center text-[10px] font-black shrink-0 shadow-[0_0_8px_rgba(245,158,11,0.5)]">
+                    {Math.min(currentStage + 1, stages.length)}
+                  </div>
+                  <span className="text-[11px] text-gold font-semibold truncate">
+                    {stages[Math.min(currentStage, stages.length - 1)]}
+                  </span>
+                </div>
+                <span className="text-[10px] text-white/40 shrink-0 tabular-nums">
+                  {Math.min(currentStage + 1, stages.length)} / {stages.length}
+                </span>
+              </div>
+              <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-l from-emerald-500 to-gold transition-all duration-500"
+                  style={{ width: `${Math.min(100, ((currentStage) / Math.max(1, stages.length)) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
           {gemsRemaining !== null && gemsRemaining > 0 && (
-            <div className={`shrink-0 flex items-center gap-1 rounded-lg px-2.5 py-1 ${gemsRemaining < 50 ? 'bg-red-500/15 border border-red-500/30 animate-pulse' : gemsRemaining < 150 ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5 border border-white/10'}`}>
+            <div className={`shrink-0 flex items-center gap-1 rounded-lg px-2 py-1 ${gemsRemaining < 50 ? 'bg-red-500/15 border border-red-500/30 animate-pulse' : gemsRemaining < 150 ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5 border border-white/10'}`}>
               <span className="text-[11px]">💎</span>
-              <span className={`text-[11px] font-bold ${gemsRemaining < 50 ? 'text-red-400' : gemsRemaining < 150 ? 'text-amber-400' : 'text-muted-foreground'}`}>{gemsRemaining}</span>
-              <span className={`text-[10px] hidden sm:inline ${gemsRemaining < 50 ? 'text-red-400/70' : gemsRemaining < 150 ? 'text-amber-400/70' : 'text-muted-foreground/70'}`}>جوهرة اليوم</span>
+              <span className={`text-[11px] font-bold tabular-nums ${gemsRemaining < 50 ? 'text-red-400' : gemsRemaining < 150 ? 'text-amber-400' : 'text-muted-foreground'}`}>{gemsRemaining}</span>
             </div>
           )}
         </div>
       )}
 
-      {/* Personalized learning path — sticky panel above messages once plan is built */}
+      {/* Personalized learning path — side drawer (RTL right edge) opened from the header path icon. */}
       {chatPhase === 'teaching' && customPlan && (
-        <LearningPathPanel planHtml={customPlan} currentStage={currentStage} totalStages={stages.length} />
+        <Drawer open={pathDrawerOpen} onOpenChange={setPathDrawerOpen} direction="right">
+          <DrawerContent
+            className="!inset-x-auto !right-0 !left-auto !bottom-0 !top-0 !mt-0 !h-full !rounded-none !rounded-l-2xl border-l border-white/10 border-r-0 bg-[#0b0d17] w-full sm:!w-[440px] md:!w-[480px]"
+            style={{ direction: "rtl" }}
+          >
+            <DrawerHeader className="border-b border-white/10 flex-row items-center justify-between gap-2">
+              <div>
+                <DrawerTitle className="text-white text-base">مسار التعلّم</DrawerTitle>
+                <DrawerDescription className="text-[11px] text-white/50">المرحلة {Math.min(currentStage + 1, stages.length || 1)} من {stages.length || 1}</DrawerDescription>
+              </div>
+              <DrawerClose asChild>
+                <button type="button" className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white" aria-label="إغلاق">
+                  <X className="w-4 h-4" />
+                </button>
+              </DrawerClose>
+            </DrawerHeader>
+            <div className="overflow-y-auto flex-1">
+              <LearningPathPanel
+                planHtml={customPlan}
+                currentStage={currentStage}
+                totalStages={stages.length}
+                completedMicroSteps={completedMicroSteps}
+                growthReflections={growthReflections}
+                onJumpToStage={(idx, title) => {
+                  if (isStreaming || sessionPaused) return;
+                  setPathDrawerOpen(false);
+                  const text = idx < currentStage
+                    ? `أريد مراجعة المرحلة ${idx + 1}: ${title}. ابدأ الشرح من بدايتها.`
+                    : `أريد الانتقال إلى المرحلة ${idx + 1}: ${title}. ابدأ شرحها الآن.`;
+                  sendTeachMessage(text);
+                }}
+              />
+            </div>
+          </DrawerContent>
+        </Drawer>
       )}
 
       {/* Diagnostic phase banner */}
@@ -2911,7 +5329,37 @@ function SubjectPathChat({
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-5 py-4 sm:py-5" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-5 py-4 sm:py-5 relative" ref={scrollRef}>
+        {/* Welcome empty-state — shown when no messages, plan ready, chat ungated. */}
+        {messages.length === 0 && !isStreaming && planLoaded && !chatGated && chatPhase !== 'diagnostic' && (
+          <WelcomeEmptyState
+            subjectName={subject.name}
+            modeBadge={modeBadgeText}
+            starters={welcomeStarters}
+            onPick={pickStarter}
+          />
+        )}
+        {/* Paused overlay — blocks the chat surface so the student can't keep
+            typing while a pause is in effect. Click "استئناف" to resume. */}
+        {sessionPaused && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center backdrop-blur-sm" style={{ background: "rgba(11,13,23,0.78)" }}>
+            <div className="text-center max-w-sm mx-auto p-6 rounded-2xl bg-[#131726] border border-amber-500/30 shadow-2xl shadow-amber-500/10" style={{ direction: "rtl" }}>
+              <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
+                <Pause className="w-6 h-6 text-amber-300" />
+              </div>
+              <h4 className="text-lg font-bold text-white mb-1">الجلسة متوقّفة مؤقتاً</h4>
+              <p className="text-[12px] text-white/60 leading-relaxed mb-4">المؤقّت متوقّف وحقل الإدخال معطّل. اضغط "استئناف" للعودة للتعلّم.</p>
+              <button
+                type="button"
+                onClick={() => setSessionPaused(false)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 text-black font-bold text-sm hover:from-amber-300 hover:to-amber-500 transition-all"
+              >
+                <Play className="w-4 h-4" />
+                استئناف
+              </button>
+            </div>
+          </div>
+        )}
         <div className="max-w-2xl mx-auto space-y-4 sm:space-y-5 pb-4">
           {messages.map((msg, i) => {
             const isLastMsg = i === messages.length - 1;
@@ -2935,9 +5383,13 @@ function SubjectPathChat({
                 {/* Bubble */}
                 <div style={{ direction: 'rtl' }} className={`min-w-0 ${msg.role === 'user' ? 'flex justify-start' : 'flex-1'}`}>
                   {msg.role === 'user' ? (
-                    <div className="max-w-[80%] max-sm:max-w-[calc(100vw-70px)] rounded-2xl rounded-br-none px-3 sm:px-4 py-3 text-[14px] sm:text-[15px] leading-relaxed"
+                    <div className="max-w-[80%] max-sm:max-w-[calc(100vw-60px)] rounded-2xl rounded-br-none px-3 sm:px-4 py-3 text-[14px] sm:text-[15px] leading-relaxed"
                       style={{ background: "linear-gradient(135deg, #1e2235 0%, #191c2a 100%)", border: "1px solid rgba(255,255,255,0.1)", overflowWrap: "break-word", wordBreak: "break-word", whiteSpace: "pre-wrap", width: "fit-content" }}>
-                      {msg.content}
+                      {/* Strip internal control tokens from the visible chat bubble.
+                          [LAB_INTAKE_START] is kept in message storage so server-side
+                          history scanning can detect the intake session, but should
+                          never be shown to the student as raw text. */}
+                      {msg.content.replace(/\[LAB_INTAKE_START\]/g, "").trim() || "ابنِ بيئة تطبيقية"}
                     </div>
                   ) : (
                     <>
@@ -2947,7 +5399,35 @@ function SubjectPathChat({
                         onCreateLabEnv={onCreateLabEnv}
                         onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
                         imageMap={imageMap}
+                        onImageTimeout={handleImageTimeout}
+                        onReExplainImage={handleReExplainImage}
+                        subjectId={subject.id}
                       />
+                      {/* Per-message toolbar (copy/regen/TTS/rate/share) — hidden while streaming. */}
+                      {!(isStreaming && isLastMsg) && msg.role === 'assistant' && (msg.content || '').length > 0 && (
+                        <MessageToolbar
+                          content={msg.content}
+                          ratingKey={`${subject.id}:${i}`}
+                          onRegenerate={handleRegenerateLast}
+                          canRegenerate={isLastMsg && !isStreaming && !sessionPaused}
+                          onRate={(value) => {
+                            try {
+                              fetch('/api/ai/feedback', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({
+                                  rating: value,
+                                  subjectId: subject.id,
+                                  stageIndex: currentStage,
+                                  difficulty,
+                                  sample: plainTextFromHtmlContent(msg.content || '').slice(0, 280),
+                                }),
+                              }).catch(() => {});
+                            } catch {}
+                          }}
+                        />
+                      )}
                       {/* Quick-action buttons under the latest AI message — let
                           the student ask for help in one tap. Only on the last
                           AI message, when not streaming, and only if the
@@ -2998,11 +5478,93 @@ function SubjectPathChat({
 
       {/* Input area */}
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
+        {chatVisible && !anyPanelOpen && (
+          (onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec) ||
+          (attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario)
+        ) && (
+          <div className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
+            {onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec && (
+              <button
+                type="button"
+                onClick={() => onStartLabEnvIntent()}
+                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+                className="quick-launch-chip text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 text-amber-100 hover:text-amber-50 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
+              >
+                <span>🧪</span>
+                <span>ابنِ بيئة تطبيقية</span>
+              </button>
+            )}
+            {attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario && (
+              <button
+                type="button"
+                onClick={() => onOpenAttackIntake()}
+                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+                className="quick-launch-chip text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-400/70 text-rose-100 hover:text-rose-50 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="ابدأ محاكاة هجمة تعليمية"
+              >
+                <span>🎯</span>
+                <span>محاكاة هجمة</span>
+              </button>
+            )}
+          </div>
+        )}
+        {(recordingHandle || isTranscribing) && (
+          <div className="max-w-2xl mx-auto mb-2 flex items-center justify-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/40 text-rose-100 text-[11px] sm:text-xs font-bold" style={{ direction: "rtl" }}>
+            {isTranscribing ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>جارٍ تفريغ الصوت إلى نص...</span>
+              </>
+            ) : (
+              <>
+                <span className="relative inline-flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+                </span>
+                <span className="inline-flex items-end gap-0.5 h-3" aria-hidden="true">
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "60%", animationDelay: "0ms" }} />
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "100%", animationDelay: "120ms" }} />
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "40%", animationDelay: "240ms" }} />
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "80%", animationDelay: "360ms" }} />
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "50%", animationDelay: "480ms" }} />
+                </span>
+                <span>تسجيل... {Math.floor(recordingElapsedMs / 1000)}/60 ث</span>
+                <button
+                  type="button"
+                  onClick={handleToggleMic}
+                  className="ml-1 px-2 py-0.5 rounded-full bg-rose-500/30 hover:bg-rose-500/50 border border-rose-400/60 text-white text-[10px]"
+                >
+                  إيقاف
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {/* Universal subject-specific suggested-prompt chips. Detected from
             the subject name/id so each domain gets relevant kick-off prompts.
-            Always available (also when chat has progressed) so the student
-            can pivot quickly. Generic fallback covers anything unknown. */}
-        {!isStreaming && !chatGated && !quotaExhausted && (() => {
+            REDESIGN (May 2026): chips used to ALWAYS render above the input
+            (~50px of permanent visual clutter on every screen). They now
+            collapse behind a small "اقتراحات ✨" toggle so the student opens
+            them only when stuck. Choice persisted per subject in localStorage.
+            Generic fallback covers anything unknown. */}
+        {!isStreaming && !chatGated && !quotaExhausted && (
+          <div className="max-w-2xl mx-auto mb-2 flex justify-center" style={{ direction: "rtl" }}>
+            <button
+              type="button"
+              onClick={() => setSuggestionsOpen((v) => !v)}
+              className="session-toggle-btn inline-flex items-center gap-1.5 text-[11px] text-white/60 hover:text-amber-200 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all"
+              aria-expanded={suggestionsOpen}
+              aria-controls="suggestion-chips"
+              title={suggestionsOpen ? "إخفاء الاقتراحات" : "إظهار اقتراحات للأسئلة"}
+            >
+              <Lightbulb className="w-3 h-3" />
+              <span>{suggestionsOpen ? "إخفاء الاقتراحات" : "اقتراحات ✨"}</span>
+              {suggestionsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          </div>
+        )}
+        {!isStreaming && !chatGated && !quotaExhausted && suggestionsOpen && (() => {
           const text = `${String(subject?.id || "")} ${String(subject?.name || "")}`.toLowerCase();
           const has = (re: RegExp) => re.test(text);
           let kind: string = "generic";
@@ -3037,12 +5599,12 @@ function SubjectPathChat({
           };
           const items = SUGGESTIONS[kind] || SUGGESTIONS.generic;
           return (
-            <div className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
+            <div id="suggestion-chips" className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl", animation: 'msg-in 0.18s ease-out' }}>
               {items.map((q, i) => (
                 <button
                   key={i}
                   type="button"
-                  onClick={() => sendTeachMessage(q)}
+                  onClick={() => { sendTeachMessage(q); setSuggestionsOpen(false); }}
                   className="text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/25 border border-cyan-400/30 hover:border-cyan-400/60 text-cyan-200 hover:text-cyan-100 transition-all"
                 >
                   {q}
@@ -3079,120 +5641,248 @@ function SubjectPathChat({
               ))}
           </div>
         )}
-        {messages.length >= 2 && !isStreaming && (
-          <div className="max-w-2xl mx-auto mb-2.5 flex justify-center">
-            <button
-              onClick={handleEndSession}
-              className="text-sm font-bold text-amber-300 hover:text-amber-200 transition-all flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20"
-            >
-              <FileText className="w-4 h-4" />
-              إنهاء الجلسة وحفظ الملخص
-            </button>
-          </div>
-        )}
+        {/* "إنهاء الجلسة وحفظ الملخص" was a 56-px-tall block above every
+            input render (with messages.length >= 2). Moved to the header
+            "الإجراءات" dropdown menu in May 2026 to reclaim vertical space
+            and keep all secondary actions in one place. */}
         {streamTruncated && !isStreaming && !diagnosticIncomplete && (
-          <div className="max-w-2xl mx-auto mb-3 p-4 rounded-xl bg-amber-500/15 border border-amber-500/40 shadow-lg shadow-amber-500/10">
-            <div className="text-amber-200 text-sm font-bold mb-2">
-              ⚠️ يبدو أن ردّ المعلّم انقطع قبل أن يكتمل
-            </div>
-            <div className="text-amber-100/90 text-sm mb-3 leading-relaxed">
-              قد يكون السبب ضعفاً مؤقّتاً في الاتصال. اضغط الزر أدناه لإعادة إرسال آخر رسالة وإكمال الفكرة.
-            </div>
-            <button
-              onClick={() => {
-                // Pop the truncated assistant bubble and the user message
-                // that produced it, then re-send so the model starts the
-                // reply over from a clean slate. We capture the message
-                // text first because clearing state is async.
-                const lastMsg = streamTruncated.lastUserMessage;
-                setStreamTruncated(null);
-                setMessages(prev => {
-                  const nm = [...prev];
-                  // Drop trailing assistant bubble if present.
-                  if (nm.length > 0 && nm[nm.length - 1].role === 'assistant') nm.pop();
-                  // Drop the matching user bubble so sendTeachMessage can
-                  // re-add it cleanly without producing a duplicate.
-                  if (nm.length > 0 && nm[nm.length - 1].role === 'user') nm.pop();
-                  return nm;
-                });
-                setTimeout(() => sendTeachMessage(lastMsg, stages, currentStage, false), 100);
-              }}
-              className="text-sm font-bold text-amber-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-amber-500/40 hover:bg-amber-500/60 border border-amber-400/50"
-            >
-              أعد إرسال آخر رسالة
-            </button>
-          </div>
+          <TeacherErrorState
+            tone="warning"
+            title="يبدو أن ردّ المعلّم انقطع قبل أن يكتمل"
+            description="قد يكون السبب ضعفاً مؤقّتاً في الاتصال. اضغط الزر أدناه لإعادة إرسال آخر رسالة وإكمال الفكرة."
+            actionLabel="أعد إرسال آخر رسالة"
+            onAction={() => {
+              if (isStreaming) return;
+              const lastMsg = streamTruncated.lastUserMessage;
+              setStreamTruncated(null);
+              setMessages(prev => {
+                const nm = [...prev];
+                if (nm.length > 0 && nm[nm.length - 1].role === 'assistant') nm.pop();
+                if (nm.length > 0 && nm[nm.length - 1].role === 'user') nm.pop();
+                return nm;
+              });
+              setTimeout(() => sendTeachMessage(lastMsg, stages, currentStage, false), 100);
+            }}
+          />
         )}
         {diagnosticIncomplete && !isStreaming && (
-          <div className="max-w-2xl mx-auto mb-3 p-4 rounded-xl bg-rose-500/15 border border-rose-500/40 shadow-lg shadow-rose-500/10">
-            <div className="text-rose-200 text-sm font-bold mb-2">
-              ⚠️ يبدو أن الخطة لم تكتمل
-            </div>
-            <div className="text-rose-100/90 text-sm mb-3 leading-relaxed">
-              لم تصل علامة نهاية الخطة من المعلم — قد تكون انقطعت أثناء التوليد. اضغط الزر أدناه لإعادة بناء الخطة من جديد.
-            </div>
-            <button
-              onClick={() => {
-                setDiagnosticIncomplete(false);
-                setMessages([]);
-                setCustomPlan(null);
-                setChatPhase('diagnostic');
-                setPendingTeachStart(false);
-                // Re-run the diagnostic from a clean slate. The higher
-                // max_tokens ceiling on the backend now makes truncation
-                // very unlikely on the second pass.
-                setTimeout(() => sendTeachMessage("", stages, 0, true), 200);
-              }}
-              className="text-sm font-bold text-rose-100 hover:text-white transition-all px-4 py-2 rounded-lg bg-rose-500/40 hover:bg-rose-500/60 border border-rose-400/50"
-            >
-              أعد بناء الخطة
-            </button>
-          </div>
+          <TeacherErrorState
+            tone="danger"
+            title="يبدو أن الخطة لم تكتمل"
+            description="لم تصل علامة نهاية الخطة من المعلم — قد تكون انقطعت أثناء التوليد. اضغط الزر أدناه لإعادة بناء الخطة من جديد."
+            actionLabel="أعد بناء الخطة"
+            onAction={() => {
+              if (isStreaming) return;
+              setDiagnosticIncomplete(false);
+              setMessages([]);
+              setCustomPlan(null);
+              setChatPhase('diagnostic');
+              setPendingTeachStart(false);
+              setTimeout(() => sendTeachMessage("", stages, 0, true), 200);
+            }}
+          />
         )}
+        {recordingError && (
+          <TeacherErrorState
+            tone="info"
+            title="تعذّر استخدام الإدخال الصوتي"
+            description={recordingError === "غير مدعوم في هذا المتصفح" ? "متصفّحك لا يدعم الإدخال الصوتي. جرّب Chrome أو Edge على الجوال." : `حدث خطأ: ${recordingError}. تأكد من السماح بالميكروفون.`}
+            actionLabel="إخفاء"
+            onAction={() => setRecordingError(null)}
+          />
+        )}
+        {/* Pro input: mic / file attach / char counter / paste / draft autosave. Ctrl+Enter sends. */}
         <form
-          className="max-w-2xl mx-auto flex items-end gap-2.5"
+          className="max-w-2xl mx-auto flex flex-col gap-1.5"
           onSubmit={(e) => { e.preventDefault(); handleSend(); }}
         >
-          <textarea
-            ref={inputRef}
-            value={input}
-            rows={1}
-            onChange={(e) => {
-              setInput(e.target.value);
-              e.target.style.height = "auto";
-              e.target.style.height = Math.min(e.target.scrollHeight, 144) + "px";
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                handleSend();
+          {/* Attached image preview chip */}
+          {attachedImage && (
+            <div className="self-end flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-amber-500/10 border border-amber-500/30" style={{ direction: "rtl" }}>
+              <img src={attachedImage} alt="معاينة" className="w-12 h-12 rounded-lg object-cover" />
+              <span className="text-[11px] text-amber-200">صورة مرفقة جاهزة للإرسال</span>
+              <button
+                type="button"
+                onClick={() => setAttachedImage(null)}
+                className="w-6 h-6 rounded-full bg-rose-500/20 hover:bg-rose-500/40 border border-rose-400/30 flex items-center justify-center text-rose-200 hover:text-white transition-all"
+                aria-label="إزالة الصورة"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-2 sm:gap-2.5 input-pro-shell" style={{ direction: "rtl" }}>
+            {/* Hidden file input — triggered by the attach button */}
+            <input
+              type="file"
+              accept="image/*,text/*,.txt,.md,.markdown,.csv,.tsv,.json,.log,.xml,.yaml,.yml,.ini,.conf,.sql,.html,.htm,.css,.js,.jsx,.ts,.tsx,.py,.java,.c,.h,.cpp,.cs,.go,.rb,.rs,.php,.sh,.bat"
+              className="sr-only"
+              ref={fileInputRef}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleAttachFile(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+              className="input-pro-icon-btn"
+              title="إرفاق صورة أو ملف نصي"
+              aria-label="إرفاق ملف"
+            >
+              <ImagePlus className="w-4 h-4" />
+            </button>
+            {isSpeechRecognitionSupported() && (
+              <button
+                type="button"
+                onClick={handleToggleMic}
+                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused || isTranscribing}
+                className={`input-pro-icon-btn ${recordingHandle ? "input-pro-icon-btn-recording" : ""}`}
+                title={
+                  isTranscribing ? "جارٍ تفريغ الصوت..."
+                  : recordingHandle ? `إيقاف التسجيل (${Math.floor(recordingElapsedMs / 1000)} ث)`
+                  : "إدخال صوتي (تفريغ سحابي عالي الدقّة)"
+                }
+                aria-label={recordingHandle ? "إيقاف التسجيل" : isTranscribing ? "جارٍ تفريغ الصوت" : "إدخال صوتي"}
+              >
+                {isTranscribing ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : recordingHandle ? <MicOff className="w-4 h-4" />
+                  : <Mic className="w-4 h-4" />}
+              </button>
+            )}
+            <textarea
+              ref={inputRef}
+              value={input}
+              rows={1}
+              maxLength={4200}
+              onChange={(e) => {
+                const v = e.target.value;
+                setInput(v);
+                draftSaverRef.current(v);
+                e.target.style.height = "auto";
+                e.target.style.height = Math.min(e.target.scrollHeight, 144) + "px";
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              onPaste={handlePaste}
+              placeholder={
+                sessionPaused ? "الجلسة متوقّفة — اضغط استئناف للمتابعة..." :
+                chatGated ? "اختر طريقة التعلّم أولاً..." :
+                quotaExhausted ? "انتهى رصيدك — يرجى تجديد الاشتراك" :
+                isTranscribing ? "جارٍ تفريغ الصوت إلى نص..." :
+                recordingHandle ? `🎙️ تحدّث الآن... ${Math.floor(recordingElapsedMs / 1000)} ث (60 ث كحدّ أقصى)` :
+                "اكتب رسالتك للمعلم... (Ctrl+V للصق صورة)"
               }
-            }}
-            placeholder={chatGated ? "اختر طريقة التعلّم أولاً..." : quotaExhausted ? "انتهى رصيدك — يرجى تجديد الاشتراك" : "اكتب رسالتك للمعلم..."}
-            disabled={isStreaming || quotaExhausted || chatGated}
-            style={{
-              minHeight: "48px",
-              maxHeight: "144px",
-              resize: "none",
-              direction: "rtl",
-              background: "#131726",
-              border: "1px solid rgba(255,255,255,0.1)",
-            }}
-            className="flex-1 px-4 py-3 rounded-2xl text-[15px] leading-relaxed outline-none focus:border-gold/50 focus:shadow-[0_0_0_3px_rgba(245,158,11,0.1)] disabled:opacity-40 text-white placeholder:text-white/25 overflow-y-auto transition-all"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || isStreaming || quotaExhausted || chatGated}
-            className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ background: input.trim() && !isStreaming && !quotaExhausted ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(245,158,11,0.15)", boxShadow: input.trim() && !isStreaming && !quotaExhausted ? "0 4px 15px rgba(245,158,11,0.3)" : "none" }}
-          >
-            <Send className="w-4.5 h-4.5 text-black" style={{ width: "18px", height: "18px" }} />
-          </button>
+              disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+              style={{
+                minHeight: "48px",
+                maxHeight: "144px",
+                resize: "none",
+                direction: "rtl",
+                background: "#131726",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}
+              className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-[15px] leading-relaxed outline-none focus:border-gold/50 focus:shadow-[0_0_0_3px_rgba(245,158,11,0.1)] disabled:opacity-40 text-white placeholder:text-white/25 overflow-y-auto transition-all"
+            />
+            <button
+              type="submit"
+              disabled={(!input.trim() && !attachedImage) || isStreaming || quotaExhausted || chatGated || sessionPaused}
+              className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ background: ((input.trim() || attachedImage) && !isStreaming && !quotaExhausted && !sessionPaused) ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(245,158,11,0.15)", boxShadow: ((input.trim() || attachedImage) && !isStreaming && !quotaExhausted && !sessionPaused) ? "0 4px 15px rgba(245,158,11,0.3)" : "none" }}
+            >
+              <Send className="w-4.5 h-4.5 text-black" style={{ width: "18px", height: "18px" }} />
+            </button>
+          </div>
+          <div className="flex items-center justify-between text-[10px] max-w-2xl mx-auto w-full" style={{ direction: "rtl" }}>
+            <span className="text-white/15">Ctrl+Enter للإرسال السريع</span>
+            <span className={`tabular-nums ${input.length > 3800 ? "text-rose-400 font-bold" : input.length > 3000 ? "text-amber-300" : "text-white/25"}`}>
+              {input.length} / 4000
+            </span>
+          </div>
         </form>
-        <p className="text-center text-[10px] text-white/15 mt-1.5 max-w-2xl mx-auto" style={{ direction: "rtl" }}>
-          Ctrl+Enter للإرسال السريع
-        </p>
       </div>
+
+      {/* ── Plan contract card ────────────────────────────────────────────
+          Shown after [PLAN_READY] so the student can review and accept
+          (or ask to revise) the personalised plan before Phase 1 starts. */}
+      {showContractCard && customPlan && (
+        <LearningContractCard
+          planHtml={customPlan}
+          onAccept={() => {
+            setShowContractCard(false);
+            setPendingTeachStart(true);
+          }}
+          onRequestRevision={(msg) => {
+            setShowContractCard(false);
+            // Switch back to diagnostic mode so the server generates a fresh plan.
+            // When [PLAN_READY] fires in the new response the contract card
+            // will appear again with the revised plan.
+            setChatPhase('diagnostic');
+            sendTeachMessageRef.current(msg, subject.defaultStages, 0, true);
+          }}
+        />
+      )}
+
+      {/* ── Mastery drift guard dialog ────────────────────────────────────
+          Shown when the server detected [STAGE_COMPLETE] but the mastery
+          criterion was not explicitly mentioned in the AI response. The
+          student confirms they truly mastered the stage before advancing,
+          or stays in the current stage. */}
+      {masteryDriftWarning && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.75)", direction: "rtl" }}
+        >
+          <div className="rounded-2xl border border-amber-500/30 bg-[#1a1510] shadow-2xl max-w-sm w-full p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl shrink-0">🎯</span>
+              <div>
+                <div className="font-bold text-white text-[15px] mb-1">هل أتقنتَ هذه المرحلة فعلاً؟</div>
+                <div className="text-[12px] text-white/60 leading-relaxed">
+                  المعيار المتفق عليه كان:
+                </div>
+                <div className="mt-1.5 rounded-lg bg-amber-500/10 border border-amber-500/25 px-3 py-2 text-[12px] text-amber-100/90 font-medium leading-relaxed">
+                  {masteryDriftWarning.masteryCriterion}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const nextIdx = masteryDriftWarning.nextStage;
+                  setCompletedMicroSteps([]);
+                  justAdvancedStageRef.current = true;
+                  setCurrentStage(nextIdx);
+                  fetch('/api/user-plan/stage', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ subjectId: subject.id, currentStageIndex: nextIdx }),
+                  }).catch(() => {});
+                  setMasteryDriftWarning(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-[13px] transition-colors"
+              >
+                نعم، انتقل للمرحلة التالية
+              </button>
+              <button
+                type="button"
+                onClick={() => setMasteryDriftWarning(null)}
+                className="flex-1 py-2.5 rounded-xl bg-white/8 hover:bg-white/12 border border-white/15 text-white font-bold text-[13px] transition-colors"
+              >
+                ابقَ في هذه المرحلة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       </>)}
     </div>

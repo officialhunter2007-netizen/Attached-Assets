@@ -2,7 +2,8 @@ import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider, useAuth } from "./lib/auth-context";
+import { AuthProvider } from "./lib/auth-context";
+import { useAuth } from "./lib/use-auth";
 import { useEffect } from "react";
 import NotFound from "@/pages/not-found";
 
@@ -15,6 +16,7 @@ import Subject from "@/pages/subject";
 import Lesson from "@/pages/lesson";
 import Dashboard from "@/pages/dashboard";
 import Subscription from "@/pages/subscription";
+import Usage from "@/pages/usage";
 import { WelcomeOfferModal } from "@/components/welcome-offer-modal";
 import Admin from "@/pages/admin";
 import Support from "@/pages/support";
@@ -79,6 +81,7 @@ function Router() {
       <Route path="/lesson/:subjectId/:unitId/:lessonId" component={() => <ProtectedRoute component={Lesson} />} />
       <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
       <Route path="/subscription" component={() => <ProtectedRoute component={Subscription} />} />
+      <Route path="/usage" component={() => <ProtectedRoute component={Usage} />} />
       <Route path="/admin" component={() => <ProtectedRoute component={Admin} />} />
       <Route path="/support" component={() => <ProtectedRoute component={Support} />} />
       <Route component={NotFound} />

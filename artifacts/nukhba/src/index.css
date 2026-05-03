@@ -79,6 +79,19 @@
   --gold: 43 90% 54%;
   --emerald: 158 62% 38%;
 
+  /* Session-page button tokens (May 2026 redesign).
+     Single source of truth so the header dropdown trigger, the
+     "اقتراحات ✨" toggle, the input send button and the FABs all
+     share consistent height / radius / horizontal padding instead
+     of each declaring their own px values inline. */
+  --btn-h-sm: 28px;
+  --btn-h-md: 36px;
+  --btn-h-lg: 44px;
+  --btn-r: 12px;
+  --btn-px-sm: 10px;
+  --btn-px-md: 14px;
+  --btn-px-lg: 18px;
+
   --neon-gold: #F59E0B;
   --neon-emerald: #10B981;
   --neon-blue: #3B82F6;
@@ -571,21 +584,33 @@
 ═══════════════════════════════════════════════ */
 .teach-image {
   display: block;
-  margin: 14px auto;
-  padding: 10px;
-  max-width: min(420px, 100%);
-  background: linear-gradient(135deg, rgba(245,158,11,0.06) 0%, rgba(15,18,32,0.4) 100%);
-  border: 1px solid rgba(245,158,11,0.18);
-  border-radius: 14px;
+  margin: 18px auto;
+  padding: 0;
+  max-width: min(460px, 100%);
+  background: linear-gradient(180deg, #1a1f33 0%, #11142a 100%);
+  border: 1px solid rgba(245,158,11,0.22);
+  border-radius: 16px;
   text-align: center;
   direction: rtl;
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.45);
 }
 .teach-image img {
   display: block;
   width: 100%;
+  /* Reserve a 1:1 box BEFORE the image loads so layout doesn't jump
+     when the network swaps the placeholder for the real <img>. FLUX
+     schnell renders square_hd (1024×1024) so a 1:1 box matches the
+     intrinsic ratio exactly; object-fit:cover guarantees the image
+     fills the card edge-to-edge as a unified infographic poster. */
+  aspect-ratio: 1 / 1;
   height: auto;
-  border-radius: 10px;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  max-height: 60vh;
+  object-fit: cover;
+  background: #f8fafc;
+  border-radius: 0;
+  box-shadow: none;
+  border-bottom: 1px solid rgba(245,158,11,0.18);
 }
 /* Click-to-zoom affordance: only ready images are interactive. */
 .teach-image-ready { cursor: zoom-in; }
@@ -596,17 +621,21 @@
 }
 .teach-image-ready:hover img { transform: scale(1.015); }
 .teach-image figcaption {
-  margin-top: 8px;
-  font-size: 0.82em;
-  color: #cbd5e1 !important;
-  font-style: italic;
-  line-height: 1.55;
+  margin: 0;
+  padding: 12px 14px 14px;
+  font-size: 0.86em;
+  color: #e2e8f0 !important;
+  font-style: normal;
+  line-height: 1.7;
+  text-align: right;
+  background: linear-gradient(180deg, rgba(245,158,11,0.05) 0%, rgba(15,18,32,0) 100%);
 }
 .teach-image-loading {
-  min-height: 160px;
+  min-height: 220px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #f8fafc;
 }
 .teach-image-spinner {
   display: flex;
@@ -696,6 +725,106 @@
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+/* Compare/Contrast pattern: when the teacher emits two consecutive
+   <figure class="teach-image"> + <figcaption> blocks (e.g. before/after,
+   correct/incorrect), they should sit side-by-side on desktop and stack
+   vertically on mobile. We achieve this by selecting any teach-image
+   that has another teach-image as its immediate previous or next
+   sibling and capping the width so both fit on a single row at ≥640px.
+   The aspect-ratio on `.teach-image img` keeps both panels aligned
+   even before the second image loads.
+
+   On mobile (<640px) the natural block flow already stacks them,
+   and we let max-width: 100% take over so each fills the bubble. */
+.teach-image + .teach-image,
+.teach-image:has(+ .teach-image) {
+  display: inline-block;
+  vertical-align: top;
+  max-width: calc(50% - 8px);
+  margin-left: 4px;
+  margin-right: 4px;
+}
+@media (max-width: 640px) {
+  .teach-image + .teach-image,
+  .teach-image:has(+ .teach-image) {
+    display: block;
+    max-width: min(420px, 100%);
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* Infographic-card caption: title + colored-numbered legend.
+   The teacher emits:
+     <figcaption class="image-caption">
+       <strong class="caption-title">المفتاح: ...</strong>
+       <ol class="caption-legend">
+         <li><span class="num n1">1</span> ...</li>
+         ...
+       </ol>
+     </figcaption>
+   The card renders as a single unified poster: image flush on top,
+   title band, then the colored numbered legend that matches the
+   1/2/3/4 circles drawn inside the FLUX illustration. */
+.teach-image figcaption.image-caption {
+  font-style: normal;
+  color: #e2e8f0 !important;
+  font-size: 0.88em;
+  line-height: 1.7;
+}
+.teach-image figcaption.image-caption .caption-title,
+.teach-image figcaption.image-caption > strong {
+  display: block;
+  color: #fbbf24 !important;
+  font-weight: 800;
+  font-size: 0.98em;
+  margin: 0 0 8px;
+  letter-spacing: 0.01em;
+  border-bottom: 1px dashed rgba(245,158,11,0.25);
+  padding-bottom: 6px;
+}
+.teach-image figcaption.image-caption .caption-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: right;
+}
+.teach-image figcaption.image-caption .caption-legend li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  color: #e2e8f0 !important;
+  line-height: 1.65;
+}
+/* Inline numbered-circle markers (matches the colored 1 2 3 4 inside the
+   image so the caption legend can reference them). Color-coded to mirror
+   the FLUX prompt vocabulary: 1=blue, 2=green, 3=orange, 4=lavender. */
+.teach-image figcaption .num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: rgba(245,158,11,0.22);
+  color: #fbbf24 !important;
+  font-weight: 800;
+  font-size: 0.82em;
+  font-style: normal;
+  line-height: 1;
+}
+.teach-image figcaption .num.n1 { background: rgba(96,165,250,0.22); color: #93c5fd !important; }
+.teach-image figcaption .num.n2 { background: rgba(74,222,128,0.20); color: #86efac !important; }
+.teach-image figcaption .num.n3 { background: rgba(251,146,60,0.22); color: #fdba74 !important; }
+.teach-image figcaption .num.n4 { background: rgba(196,181,253,0.22); color: #c4b5fd !important; }
+
 /* Historical placeholder rendered server-side after stream ends */
 .image-historical {
   margin: 10px 0;
@@ -951,6 +1080,117 @@
 }
 
 /* ═══════════════════════════════════════════════
+   NUKHBA CODE EDITOR — NEON FRAME & STATUS BAR
+═══════════════════════════════════════════════ */
+.editor-frame-neon {
+  border: 1px solid rgba(245,158,11,0.18);
+  box-shadow:
+    0 0 0 1px rgba(245,158,11,0.06),
+    0 4px 32px rgba(0,0,0,0.6),
+    0 0 48px rgba(245,158,11,0.04) inset;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.editor-frame-neon:focus-within {
+  border-color: rgba(245,158,11,0.35);
+  box-shadow:
+    0 0 0 1px rgba(245,158,11,0.12),
+    0 8px 48px rgba(0,0,0,0.7),
+    0 0 60px rgba(245,158,11,0.06) inset;
+}
+
+.editor-status-bar {
+  background: linear-gradient(90deg, #090b14 0%, #0d1017 100%);
+  border-top: 1px solid rgba(245,158,11,0.10);
+  color: rgba(255,255,255,0.4);
+  min-height: 22px;
+  user-select: none;
+}
+
+.editor-tab-glow {
+  position: relative;
+}
+.editor-tab-glow::after {
+  content: "";
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #F59E0B, transparent);
+  animation: editor-tab-glow-pulse 2s ease-in-out infinite;
+}
+@keyframes editor-tab-glow-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.editor-caret-glow .cm-cursor,
+.editor-caret-glow .cm-cursor-primary {
+  border-left-color: #F59E0B !important;
+  border-left-width: 2px !important;
+  filter: drop-shadow(0 0 4px rgba(245,158,11,0.6));
+}
+
+/* ── RUN & PREVIEW BUTTON PULSE ── */
+.run-btn-pulse {
+  position: relative;
+  overflow: visible;
+}
+.run-btn-pulse::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  background: transparent;
+  border: 1px solid rgba(245,158,11,0.35);
+  animation: run-btn-ring 2.4s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes run-btn-ring {
+  0%   { opacity: 0; transform: scale(0.9); }
+  40%  { opacity: 0.8; }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+
+.preview-btn-pulse {
+  position: relative;
+  overflow: visible;
+}
+.preview-btn-pulse::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  background: transparent;
+  border: 1px solid rgba(16,185,129,0.4);
+  animation: preview-btn-ring 2.4s ease-out infinite 0.8s;
+  pointer-events: none;
+}
+@keyframes preview-btn-ring {
+  0%   { opacity: 0; transform: scale(0.9); }
+  40%  { opacity: 0.8; }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+
+/* ── EDITOR LOADING SHIMMER ── */
+@keyframes editor-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.editor-loading-shimmer {
+  background: linear-gradient(90deg, #0b0d17 25%, rgba(245,158,11,0.05) 50%, #0b0d17 75%);
+  background-size: 800px 100%;
+  animation: editor-shimmer 1.6s infinite;
+}
+
+/* ── CONSOLE LOG ENTRY ANIMATION ── */
+@keyframes console-entry {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.console-log-entry {
+  animation: console-entry 0.15s ease-out;
+}
+
+/* ═══════════════════════════════════════════════
    REDUCED MOTION
 ═══════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
@@ -961,9 +1201,358 @@
   .nk-glow-pulse::after, .nk-neon-pulse, .nk-border-neon,
   .nk-spin-slow, .nk-spin-reverse,
   .holographic, .aurora-bg::before, .aurora-bg::after,
-  .neon-card-border::before {
+  .neon-card-border::before,
+  .editor-tab-glow::after, .run-btn-pulse::before, .preview-btn-pulse::before,
+  .console-log-entry {
     animation: none !important;
   }
   .nk-hover-lift:hover { transform: none; }
   .card-3d:hover, .card-3d-sm:hover { transform: none; }
 }
+
+/* ═══════════════════════════════════════════════
+   TASK #19 — TEACHER SESSION UI (May 2026)
+   Per-message toolbar, pro-input, path-drawer trigger,
+   enhanced lightbox toolbar, KaTeX fallback styling.
+═══════════════════════════════════════════════ */
+
+/* Per-message action toolbar (copy/regen/TTS/rate/share). Sits under
+   each completed AI bubble, hugs the right side (RTL) and stays out of
+   the way of the message bubble's natural padding. */
+.msg-toolbar {
+  margin-top: 6px;
+}
+.msg-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.6);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.msg-toolbar-btn:hover {
+  background: rgba(245,158,11,0.12);
+  border-color: rgba(245,158,11,0.35);
+  color: rgba(254,243,199,0.95);
+}
+.msg-toolbar-btn:focus-visible {
+  outline: 2px solid rgba(245,158,11,0.5);
+  outline-offset: 2px;
+}
+.msg-toolbar-btn-active {
+  background: rgba(245,158,11,0.2);
+  border-color: rgba(245,158,11,0.55);
+  color: #fef3c7;
+}
+.msg-toolbar-btn-up {
+  background: rgba(16,185,129,0.18);
+  border-color: rgba(16,185,129,0.5);
+  color: #a7f3d0;
+}
+.msg-toolbar-btn-down {
+  background: rgba(244,63,94,0.18);
+  border-color: rgba(244,63,94,0.5);
+  color: #fecdd3;
+}
+.msg-toolbar-label {
+  font-size: 10.5px;
+  font-weight: 700;
+}
+@media (max-width: 480px) {
+  /* Tighter on phones — labels get hidden, icons-only is fine. */
+  .msg-toolbar-label { display: none; }
+  .msg-toolbar-btn { padding: 5px 6px; }
+}
+
+/* Pro-input shell (textarea + image attach + mic + send). The
+   icon buttons sit at the bottom edge of the textarea so they
+   visually belong to the same control. */
+.input-pro-shell {
+  /* Component is laid out by Tailwind; this hook is for future tweaks. */
+}
+.input-pro-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.65);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  margin-bottom: 5px;
+}
+.input-pro-icon-btn:hover:not(:disabled) {
+  background: rgba(245,158,11,0.14);
+  border-color: rgba(245,158,11,0.4);
+  color: #fef3c7;
+}
+.input-pro-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.input-pro-icon-btn:focus-visible {
+  outline: 2px solid rgba(245,158,11,0.5);
+  outline-offset: 2px;
+}
+/* Recording — pulse ring + red tint so the user knows the mic is hot. */
+.input-pro-icon-btn-recording {
+  background: rgba(244,63,94,0.22) !important;
+  border-color: rgba(244,63,94,0.6) !important;
+  color: #fecdd3 !important;
+  box-shadow: 0 0 0 0 rgba(244,63,94,0.5);
+  animation: nukhba-mic-pulse 1.4s ease-out infinite;
+}
+@keyframes nukhba-mic-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(244,63,94,0.55); }
+  70%  { box-shadow: 0 0 0 10px rgba(244,63,94,0);    }
+  100% { box-shadow: 0 0 0 0   rgba(244,63,94,0);    }
+}
+
+/* Path-drawer trigger button (header). Looks like a pill with a map
+   icon — when no plan exists yet it's disabled (subdued). */
+.path-drawer-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(139,92,246,0.18), rgba(245,158,11,0.14));
+  border: 1px solid rgba(245,158,11,0.32);
+  color: #fde68a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.path-drawer-trigger:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(139,92,246,0.28), rgba(245,158,11,0.22));
+  border-color: rgba(245,158,11,0.55);
+  transform: translateY(-1px);
+}
+.path-drawer-trigger:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Lightbox toolbar (zoom in/out, download, "explain again"). Floats
+   along the bottom of the lightbox, on top of the dark backdrop. */
+.teach-image-lightbox-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(11,13,23,0.85);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2147483646;
+  direction: rtl;
+  max-width: calc(100vw - 32px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.lightbox-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.85);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.lightbox-tool-btn:hover:not(:disabled) {
+  background: rgba(245,158,11,0.18);
+  border-color: rgba(245,158,11,0.45);
+  color: #fef3c7;
+}
+.lightbox-tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.lightbox-tool-btn-primary {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border-color: rgba(245,158,11,0.7);
+  color: #0b0d17;
+}
+.lightbox-tool-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #000;
+}
+.lightbox-zoom-label {
+  display: inline-block;
+  min-width: 38px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255,255,255,0.6);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.teach-image-lightbox-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 18px;
+  margin: 0 auto;
+  padding: 8px 14px;
+  max-width: min(90%, 640px);
+  background: rgba(11,13,23,0.85);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  color: rgba(255,255,255,0.92);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+  direction: rtl;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2147483646;
+}
+
+/* KaTeX fallback — when the math couldn't be rendered (bad LaTeX, etc),
+   we surface the raw expression in a muted box so the student still
+   sees the formula instead of a silent failure. */
+.katex-fallback {
+  display: inline-block;
+  padding: 2px 6px;
+  margin: 0 2px;
+  background: rgba(244,63,94,0.10);
+  border: 1px dashed rgba(244,63,94,0.35);
+  border-radius: 5px;
+  color: #fecaca;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  direction: ltr;
+}
+/* KaTeX displays inside RTL content — keep the equations LTR for
+   correct rendering, and add a touch of breathing room above/below. */
+.ai-msg .katex-display { direction: ltr; margin: 12px 0; overflow-x: auto; overflow-y: hidden; }
+.ai-msg .katex { direction: ltr; font-size: 1.05em; }
+
+/* hljs token colours sit on top of the dark theme imported in main.tsx;
+   these tweaks just add a subtle "language pill" + a per-line gutter
+   feel via a top-border so multi-block answers are easy to skim. */
+.ai-msg pre code.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+}
+.ai-msg pre[data-lang]::before {
+  content: attr(data-lang);
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(245,158,11,0.85);
+  margin-bottom: 6px;
+}
+
+/* "Copy code" button injected by enhanceTeacherDom — one per <pre>. Sits
+   at the top-left so it doesn't fight the language pill on the right. */
+.ai-msg pre {
+  position: relative;
+}
+.copy-code-btn {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.75);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.ai-msg pre:hover .copy-code-btn,
+.ai-msg pre:focus-within .copy-code-btn {
+  opacity: 1;
+}
+.copy-code-btn:hover {
+  background: rgba(245,158,11,0.2);
+  color: #fef3c7;
+  border-color: rgba(245,158,11,0.45);
+}
+.copy-code-btn-copied {
+  background: rgba(16,185,129,0.22);
+  border-color: rgba(16,185,129,0.5);
+  color: #a7f3d0 !important;
+  opacity: 1 !important;
+}
+@media (max-width: 480px) {
+  /* On phones we always show the copy button — there's no hover. */
+  .copy-code-btn { opacity: 0.85; }
+}
+
+/* xs breakpoint helper used in the new session header (Tailwind doesn't
+   ship xs by default — this matches the project's earlier conventions). */
+@media (min-width: 480px) {
+  .xs\:flex { display: flex; }
+  .xs\:hidden { display: none; }
+  .xs\:inline { display: inline; }
+}
+
+/* Low / empty gem-balance neon glow shown in the in-session header
+   (subject.tsx). Mirrors the global header's badge so the warning is
+   recognisable across the app, but pulses faster when truly empty. */
+@keyframes gem-low-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45), 0 0 8px rgba(245, 158, 11, 0.30); }
+  50%      { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.0),  0 0 14px rgba(245, 158, 11, 0.55); }
+}
+@keyframes gem-empty-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.55), 0 0 10px rgba(244, 63, 94, 0.40); }
+  50%      { box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.0),  0 0 18px rgba(244, 63, 94, 0.70); }
+}
+.gem-badge-low   { animation: gem-low-pulse   1.6s ease-in-out infinite; }
+.gem-badge-empty { animation: gem-empty-pulse 1.1s ease-in-out infinite; }
+
+/* Inline compact path bar — a thin, horizontal stage-dot strip rendered
+   directly under the session header alongside the side drawer. Lets
+   accustomed users see "where am I in the plan?" without opening the
+   drawer. The active dot pulses; completed dots fill amber; locked
+   dots stay subtle. */
+.compact-path-bar { display: flex; align-items: center; gap: 4px; }
+.compact-path-dot {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  transition: background 0.2s ease, transform 0.2s ease;
+  min-width: 8px;
+}
+.compact-path-dot.is-done    { background: rgba(245, 158, 11, 0.65); }
+.compact-path-dot.is-active  {
+  background: linear-gradient(90deg, rgba(245,158,11,0.95), rgba(251,191,36,0.95));
+  transform: scaleY(1.4);
+  box-shadow: 0 0 8px rgba(245,158,11,0.55);
+}
+.compact-path-dot.is-locked  { background: rgba(255,255,255,0.06); }

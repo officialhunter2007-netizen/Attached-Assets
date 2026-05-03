@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, ne, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { createReadStream, promises as fsp } from "fs";
 import { tmpdir } from "os";
@@ -14,8 +14,16 @@ import {
   usersTable,
   materialChapterProgressTable,
   materialChunksTable,
+  materialPageStatusTable,
   quizAttemptsTable,
 } from "@workspace/db";
+import {
+  normalizeArabic,
+  normalizeArabicForIndex,
+  normalizeQueryTokens,
+  detectPrintedPageOffset,
+  formatPageCitation,
+} from "../lib/arabic-normalize";
 import {
   ObjectStorageService,
   ObjectNotFoundError,
@@ -245,6 +253,9 @@ router.get("/materials", async (req, res): Promise<any> => {
       starters: courseMaterialsTable.starters,
       outline: courseMaterialsTable.outline,
       structuredOutline: courseMaterialsTable.structuredOutline,
+      coverageStatus: courseMaterialsTable.coverageStatus,
+      role: courseMaterialsTable.role,
+      printedPageOffset: courseMaterialsTable.printedPageOffset,
       createdAt: courseMaterialsTable.createdAt,
     })
     .from(courseMaterialsTable)
@@ -285,10 +296,26 @@ router.get("/materials", async (req, res): Promise<any> => {
         lastInteractedAt: p.lastInteractedAt ? p.lastInteractedAt.toISOString() : null,
       };
     }
-    // Strip the heavy outline + structured_outline JSON from the list response.
-    // They're available individually via /api/materials/:id when needed.
+    // For materials with non-OK coverage, surface the actual failed +
+    // low-confidence page numbers so the UI can show them inline.
+    let failedPages: number[] = [];
+    let lowConfidencePages: number[] = [];
+    if (r.status === "ready" && (r.coverageStatus === "partial" || r.coverageStatus === "failed")) {
+      try {
+        const sRows = await db
+          .select({ pageNumber: materialPageStatusTable.pageNumber, status: materialPageStatusTable.status })
+          .from(materialPageStatusTable)
+          .where(eq(materialPageStatusTable.materialId, r.id));
+        for (const s of sRows) {
+          if (s.status === "failed") failedPages.push(s.pageNumber);
+          else if (s.status === "low_confidence") lowConfidencePages.push(s.pageNumber);
+        }
+        failedPages.sort((a, b) => a - b);
+        lowConfidencePages.sort((a, b) => a - b);
+      } catch {}
+    }
     const { outline: _omit, structuredOutline: _omit2, ...rest } = r;
-    return { ...rest, progress, chapters };
+    return { ...rest, progress, chapters, pageStatus: { failed: failedPages, lowConfidence: lowConfidencePages } };
   }));
 
   res.json({ materials: enriched });
@@ -695,6 +722,10 @@ router.get("/materials/:id", async (req, res): Promise<any> => {
       starters: courseMaterialsTable.starters,
       outline: courseMaterialsTable.outline,
       structuredOutline: courseMaterialsTable.structuredOutline,
+      printedPageOffset: courseMaterialsTable.printedPageOffset,
+      role: courseMaterialsTable.role,
+      coverageStatus: courseMaterialsTable.coverageStatus,
+      processingMetrics: courseMaterialsTable.processingMetrics,
       createdAt: courseMaterialsTable.createdAt,
     })
     .from(courseMaterialsTable)
@@ -706,7 +737,352 @@ router.get("/materials/:id", async (req, res): Promise<any> => {
   const recentWeakAreas = await getRecentWeakAreasForMaterial(userId, id);
   const chapters = safeParseStructuredOutline(row.structuredOutline);
   const coveredPointsByChapter = await loadCoveredPoints(userId, id);
-  res.json({ ...row, chapters, coveredPointsByChapter, recentWeakAreas });
+  // Surface the per-page OCR status list (only the FAILED + low_confidence
+  // pages — the OK list would balloon the response on a 200-page book).
+  let failedPages: number[] = [];
+  let lowConfidencePages: number[] = [];
+  try {
+    const statusRows = await db
+      .select({
+        pageNumber: materialPageStatusTable.pageNumber,
+        status: materialPageStatusTable.status,
+      })
+      .from(materialPageStatusTable)
+      .where(eq(materialPageStatusTable.materialId, id));
+    for (const r of statusRows) {
+      if (r.status === "failed") failedPages.push(r.pageNumber);
+      else if (r.status === "low_confidence") lowConfidencePages.push(r.pageNumber);
+    }
+    failedPages.sort((a, b) => a - b);
+    lowConfidencePages.sort((a, b) => a - b);
+  } catch (e: any) {
+    console.warn("[materials/get] page status fetch failed:", e?.message || e);
+  }
+  // Parse processing_metrics defensively so a corrupted blob doesn't 500
+  // the whole detail response.
+  let processingMetrics: any = null;
+  if (row.processingMetrics) {
+    try { processingMetrics = JSON.parse(row.processingMetrics); } catch { processingMetrics = null; }
+  }
+  res.json({
+    ...row,
+    processingMetrics,
+    chapters,
+    coveredPointsByChapter,
+    recentWeakAreas,
+    pageStatus: { failed: failedPages, lowConfidence: lowConfidencePages },
+  });
+});
+
+// ── POST /api/materials/:id/retry-ocr ────────────────────────────────────────
+// Re-OCR only the failed (or low_confidence) pages. The provider chain inside
+// ocrPdfChunk picks the next available provider — providers we already burned
+// on the first pass go into cooldown after each failure, so retry naturally
+// shifts to the alternate provider. Updates per-page status + recomputes the
+// coverage_status + processing_metrics blob.
+router.post("/materials/:id/retry-ocr", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+
+  const [row] = await db
+    .select()
+    .from(courseMaterialsTable)
+    .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
+  if (!row) return res.status(404).json({ error: "Not found" });
+  // Allow retry from both 'ready' (partial coverage) AND 'error' (hard
+  // OCR failure) — as long as we still have the source PDF blob, the
+  // user can recover holes. We re-flip status to 'ready' once the retry
+  // produces at least one new page of text.
+  if (row.status !== "ready" && row.status !== "error") {
+    return res.status(409).json({ error: "MATERIAL_NOT_READY" });
+  }
+
+  // Pull the list of pages that need retry.
+  let needRetry: number[] = [];
+  try {
+    const statusRows = await db
+      .select({ pageNumber: materialPageStatusTable.pageNumber, status: materialPageStatusTable.status })
+      .from(materialPageStatusTable)
+      .where(eq(materialPageStatusTable.materialId, id));
+    needRetry = statusRows
+      .filter((r) => r.status === "failed" || r.status === "low_confidence")
+      .map((r) => r.pageNumber)
+      .sort((a, b) => a - b);
+  } catch (e: any) {
+    console.warn("[materials/retry-ocr] status load failed:", e?.message || e);
+  }
+  // For status='error' materials there may be no per-page rows at all
+  // (the original extract bailed out before writing them) — fall back to
+  // retrying every page in the document.
+  if (needRetry.length === 0 && row.status === "error" && (row.pageCount ?? 0) > 0) {
+    needRetry = Array.from({ length: row.pageCount }, (_, i) => i + 1);
+  }
+  if (needRetry.length === 0) return res.json({ ok: true, retried: 0, recovered: 0, coverageStatus: row.coverageStatus });
+
+  const buf = await loadMaterialBuffer(row).catch(() => null);
+  if (!buf) return res.status(404).json({ error: "FILE_UNAVAILABLE" });
+
+  // Group consecutive failed pages into chunks (≤ OCR_CHUNK_PAGES per call).
+  // Same chunk size as the first pass keeps token use predictable.
+  const chunkSize = OCR_CHUNK_PAGES;
+  const chunks: Array<{ pages: number[] }> = [];
+  let cur: number[] = [];
+  for (let i = 0; i < needRetry.length; i++) {
+    const p = needRetry[i];
+    if (cur.length === 0 || (p === cur[cur.length - 1] + 1 && cur.length < chunkSize)) {
+      cur.push(p);
+    } else {
+      chunks.push({ pages: cur });
+      cur = [p];
+    }
+  }
+  if (cur.length > 0) chunks.push({ pages: cur });
+
+  // Re-OCR each chunk and update the corresponding page rows.
+  let pdfLibMod: any;
+  try { pdfLibMod = await import("pdf-lib"); } catch (e: any) {
+    console.error("[materials/retry-ocr] pdf-lib unavailable:", e?.message || e);
+    return res.status(500).json({ error: "PDF_LIB_UNAVAILABLE" });
+  }
+  let srcDoc: any;
+  try { srcDoc = await pdfLibMod.PDFDocument.load(buf, { ignoreEncryption: true }); } catch (e: any) {
+    console.error("[materials/retry-ocr] pdf load failed:", e?.message || e);
+    return res.status(500).json({ error: "PDF_LOAD_FAILED" });
+  }
+  const __ctx: AiUsageCtx = { userId, subjectId: row.subjectId, materialId: id };
+  let recovered = 0;
+  for (const c of chunks) {
+    const indices = c.pages.map((p) => p - 1).filter((i) => i >= 0 && i < srcDoc.getPageCount());
+    if (indices.length === 0) continue;
+    let chunkBuf: Buffer;
+    try {
+      const chunkDoc = await pdfLibMod.PDFDocument.create();
+      const copied = await chunkDoc.copyPages(srcDoc, indices);
+      copied.forEach((p: any) => chunkDoc.addPage(p));
+      const bytes = await chunkDoc.save();
+      chunkBuf = Buffer.from(bytes);
+    } catch (e: any) {
+      console.warn("[materials/retry-ocr] split failed:", c.pages, e?.message || e);
+      continue;
+    }
+    const label = `retry pages ${c.pages.join(",")}`;
+    const text = await ocrPdfChunk(chunkBuf, label, __ctx);
+    const success = text.trim().length > 0;
+    if (success) {
+      // Adopt the new text by appending NEW chunks for these pages and
+      // bumping their status to 'ok'. We don't try to overwrite individual
+      // chunks in place (page index, chunk index) because the new pass may
+      // produce a different number of chunks. Easier and safer: drop the
+      // affected pages' old chunks and insert the fresh ones.
+      // ALL of this — chunk replace + status flip — must be atomic so a
+      // partial failure doesn't leave a page with no text but a green
+      // status (or vice-versa).
+      const ocrPages = splitOcrTextIntoPages(text);
+      const orderedTexts = Array.from(ocrPages.values());
+      const records: Array<{
+        materialId: number; userId: number; subjectId: string;
+        pageNumber: number; chunkIndex: number; content: string; contentNormalized: string;
+      }> = [];
+      // Track which specific pages actually produced replacement chunks. We
+      // only delete old chunks AND flip status to 'ok' for those pages —
+      // pages that produced nothing keep their previous chunks (so the
+      // student doesn't lose text) and remain 'failed' so the retry button
+      // stays available.
+      const pagesWithReplacement = new Set<number>();
+      c.pages.forEach((page, idx) => {
+        const slice0 = orderedTexts[idx] ?? "";
+        if (!slice0 || slice0.trim().length === 0) return;
+        const slices = sliceLongPage(slice0, 2000);
+        const before = records.length;
+        slices.forEach((slice, ci) => {
+          if (slice.trim().length === 0) return;
+          records.push({
+            materialId: id, userId: row.userId, subjectId: row.subjectId,
+            pageNumber: page, chunkIndex: ci, content: slice,
+            contentNormalized: normalizeArabicForIndex(slice),
+          });
+        });
+        if (records.length > before) pagesWithReplacement.add(page);
+      });
+      let txOk = false;
+      try {
+        await db.transaction(async (tx) => {
+          // Per-page atomic swap — only touch pages that will actually be
+          // refilled. Pages without replacement text are left untouched
+          // (old chunks preserved, status stays 'failed').
+          for (const page of pagesWithReplacement) {
+            await tx
+              .delete(materialChunksTable)
+              .where(and(eq(materialChunksTable.materialId, id), eq(materialChunksTable.pageNumber, page)));
+          }
+          if (records.length > 0) {
+            await tx.insert(materialChunksTable).values(records);
+          }
+          // Upsert: when retrying a status='error' material there may be
+          // no existing rows in material_page_status, so a plain UPDATE
+          // would silently no-op and the recompute below would still see
+          // an empty status set (→ coverage='failed', material stays in
+          // error). ON CONFLICT DO UPDATE handles both first-write and
+          // subsequent retries.
+          for (const page of pagesWithReplacement) {
+            await tx
+              .insert(materialPageStatusTable)
+              .values({
+                materialId: id,
+                pageNumber: page,
+                status: "ok",
+                attempts: 1,
+                lastProvider: "ocr-retry",
+              })
+              .onConflictDoUpdate({
+                target: [materialPageStatusTable.materialId, materialPageStatusTable.pageNumber],
+                set: {
+                  status: "ok",
+                  attempts: sql`${materialPageStatusTable.attempts} + 1`,
+                  lastProvider: "ocr-retry",
+                  errorMessage: null,
+                  updatedAt: new Date(),
+                },
+              });
+          }
+          for (const page of c.pages) {
+            if (pagesWithReplacement.has(page)) continue;
+            await tx
+              .insert(materialPageStatusTable)
+              .values({
+                materialId: id,
+                pageNumber: page,
+                status: "failed",
+                attempts: 1,
+                lastProvider: "ocr-retry",
+                errorMessage: "retry returned no parseable text for this page",
+              })
+              .onConflictDoUpdate({
+                target: [materialPageStatusTable.materialId, materialPageStatusTable.pageNumber],
+                set: {
+                  attempts: sql`${materialPageStatusTable.attempts} + 1`,
+                  lastProvider: "ocr-retry",
+                  errorMessage: "retry returned no parseable text for this page",
+                  updatedAt: new Date(),
+                },
+              });
+          }
+        });
+        txOk = true;
+      } catch (e: any) {
+        console.warn("[materials/retry-ocr] atomic replace failed:", e?.message || e);
+      }
+      if (txOk) recovered += pagesWithReplacement.size;
+    } else {
+      try {
+        for (const page of c.pages) {
+          await db
+            .insert(materialPageStatusTable)
+            .values({
+              materialId: id,
+              pageNumber: page,
+              status: "failed",
+              attempts: 1,
+              lastProvider: "ocr-retry",
+              errorMessage: "retry returned no text",
+            })
+            .onConflictDoUpdate({
+              target: [materialPageStatusTable.materialId, materialPageStatusTable.pageNumber],
+              set: {
+                attempts: sql`${materialPageStatusTable.attempts} + 1`,
+                lastProvider: "ocr-retry",
+                errorMessage: "retry returned no text",
+                updatedAt: new Date(),
+              },
+            });
+        }
+      } catch {}
+    }
+  }
+
+  // Recompute coverage_status from the post-retry status rows.
+  let coverageStatus: "ok" | "partial" | "failed" = row.coverageStatus as any;
+  try {
+    const after = await db
+      .select({ status: materialPageStatusTable.status })
+      .from(materialPageStatusTable)
+      .where(eq(materialPageStatusTable.materialId, id));
+    const stats = { ok: 0, failed: 0, lowConfidence: 0 };
+    for (const r of after) {
+      if (r.status === "ok") stats.ok++;
+      else if (r.status === "failed") stats.failed++;
+      else if (r.status === "low_confidence") stats.lowConfidence++;
+    }
+    coverageStatus = computeCoverageStatus(stats, after.length || (row.pageCount ?? 0));
+    // If we recovered any pages from a previously errored material, flip
+    // status back to 'ready' so the rest of the pipeline (teach, quiz,
+    // exam) can use it.
+    const newStatus = (row.status === "error" && recovered > 0 && coverageStatus !== "failed") ? "ready" : row.status;
+    await db
+      .update(courseMaterialsTable)
+      .set({
+        coverageStatus,
+        status: newStatus,
+        errorMessage: newStatus === "ready" ? null : row.errorMessage,
+        updatedAt: new Date(),
+      })
+      .where(eq(courseMaterialsTable.id, id));
+  } catch (e: any) {
+    console.warn("[materials/retry-ocr] coverage recompute failed:", e?.message || e);
+  }
+
+  res.json({ ok: true, retried: needRetry.length, recovered, coverageStatus });
+});
+
+// ── PATCH /api/materials/:id/role  { role: 'primary' | 'reference' } ─────────
+// Lets the student promote a secondary book to "primary" (the one professor
+// mode uses for the chapter anchor) or demote one to "reference" (its top FTS
+// snippets get surfaced as supplementary citations alongside the primary).
+router.patch("/materials/:id/role", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+  const role = String(req.body?.role || "").toLowerCase();
+  if (role !== "primary" && role !== "reference") {
+    return res.status(400).json({ error: "INVALID_ROLE" });
+  }
+  const [row] = await db
+    .select({ id: courseMaterialsTable.id, subjectId: courseMaterialsTable.subjectId })
+    .from(courseMaterialsTable)
+    .where(and(eq(courseMaterialsTable.id, id), eq(courseMaterialsTable.userId, userId)));
+  if (!row) return res.status(404).json({ error: "Not found" });
+  // Promoting to primary demotes existing primaries in the same (user,
+  // subject) and repoints activeMaterialId in one transaction.
+  await db.transaction(async (tx) => {
+    if (role === "primary") {
+      await tx
+        .update(courseMaterialsTable)
+        .set({ role: "reference", updatedAt: new Date() })
+        .where(and(
+          eq(courseMaterialsTable.userId, userId),
+          eq(courseMaterialsTable.subjectId, row.subjectId),
+          eq(courseMaterialsTable.role, "primary"),
+          ne(courseMaterialsTable.id, id),
+        ));
+    }
+    await tx
+      .update(courseMaterialsTable)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(courseMaterialsTable.id, id));
+    if (role === "primary") {
+      await tx
+        .update(userSubjectTeachingModesTable)
+        .set({ activeMaterialId: id, updatedAt: new Date() })
+        .where(and(
+          eq(userSubjectTeachingModesTable.userId, userId),
+          eq(userSubjectTeachingModesTable.subjectId, row.subjectId),
+        ));
+    }
+  });
+  res.json({ ok: true, role });
 });
 
 // ── POST /api/materials/:id/reprocess ──────────────────────────────────────
@@ -895,7 +1271,86 @@ router.get("/materials/:id/file", async (req, res): Promise<any> => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Background processor: extract text → optional OCR → outline + summary + starters
 // ─────────────────────────────────────────────────────────────────────────────
+// Replace any existing per-page OCR status rows for this material with the
+// fresh result. Failed pages are computed from the OCR `failedRanges` returned
+// by ocrPdfWithGemini; everything else gets a default 'ok'. Wrapped in
+// try/catch — a missing material_page_status table on a half-migrated DB
+// must not abort the upload.
+async function persistPageStatuses(args: {
+  materialId: number;
+  totalPages: number;
+  ocrFailedRanges: Array<[number, number]>;
+  pageTexts: Map<number, string>;
+  ocrRan: boolean;
+  ocrProvider?: string;
+}): Promise<{ ok: number; failed: number; lowConfidence: number }> {
+  const failedSet = new Set<number>();
+  for (const [s, e] of args.ocrFailedRanges) {
+    for (let p = s; p <= e; p++) failedSet.add(p);
+  }
+  const stats = { ok: 0, failed: 0, lowConfidence: 0 };
+  try {
+    await db.delete(materialPageStatusTable).where(eq(materialPageStatusTable.materialId, args.materialId));
+    const records: Array<{
+      materialId: number;
+      pageNumber: number;
+      status: string;
+      attempts: number;
+      lastProvider: string | null;
+      errorMessage: string | null;
+    }> = [];
+    for (let page = 1; page <= args.totalPages; page++) {
+      let status: "ok" | "failed" | "low_confidence" = "ok";
+      const text = (args.pageTexts.get(page) ?? "").trim();
+      if (failedSet.has(page)) {
+        status = "failed";
+      } else if (text.length === 0) {
+        // No text produced and not in a failed OCR range either: treat as
+        // low_confidence so the retry endpoint considers it.
+        status = "low_confidence";
+      } else if (text.length < 30) {
+        // Suspiciously short for a real book page.
+        status = "low_confidence";
+      }
+      stats[status === "low_confidence" ? "lowConfidence" : status]++;
+      records.push({
+        materialId: args.materialId,
+        pageNumber: page,
+        status,
+        attempts: 1,
+        lastProvider: args.ocrRan ? (args.ocrProvider ?? "ocr") : "native",
+        errorMessage: status === "failed" ? "OCR returned no text" : null,
+      });
+    }
+    const BATCH = 200;
+    for (let i = 0; i < records.length; i += BATCH) {
+      const batch = records.slice(i, i + BATCH);
+      if (batch.length > 0) await db.insert(materialPageStatusTable).values(batch);
+    }
+  } catch (e: any) {
+    console.warn("[materials/process] page status persist failed:", e?.message || e);
+  }
+  return stats;
+}
+
+function computeCoverageStatus(stats: { ok: number; failed: number; lowConfidence: number }, totalPages: number): "ok" | "partial" | "failed" {
+  if (totalPages <= 0) return "failed";
+  const usable = stats.ok;
+  if (usable === 0) return "failed";
+  // Tolerate a small amount of low-confidence noise; only flag "partial" when
+  // a meaningful fraction of pages truly failed or are too short to use.
+  const bad = stats.failed + stats.lowConfidence;
+  if (bad === 0) return "ok";
+  if (bad / totalPages >= 0.05) return "partial";
+  return "ok";
+}
+
 async function processMaterial(materialId: number) {
+  const __processingStartedAt = Date.now();
+  let __extractMs = 0;
+  let __ocrMs = 0;
+  let __outlineMs = 0;
+  let __outlineRetries = 0;
   const [row] = await db.select().from(courseMaterialsTable).where(eq(courseMaterialsTable.id, materialId));
   if (!row) return;
   const __ctx: AiUsageCtx = { userId: row.userId, subjectId: row.subjectId, materialId };
@@ -907,6 +1362,15 @@ async function processMaterial(materialId: number) {
   let detectedWarning: string | null = null;
   // Per-page text collected during extraction. Index = page number (1-based).
   const pageTexts: Map<number, string> = new Map();
+  // OCR telemetry — declared at function scope so the post-extraction
+  // persistence and metrics blocks (around lines 1400, 1511, 1519) can
+  // see them. They are deliberately NOT inside the extraction try-block
+  // because `let` has block scope and the values must outlive the try.
+  let ocrSuccessRatio = 1;     // default 1 == no OCR ran
+  let ocrTextWasAdopted = false;
+  let ocrTotalChunks = 0;
+  let ocrSuccessfulChunks = 0;
+  let ocrFailedRanges: Array<[number, number]> = [];
 
   try {
     // Load the PDF bytes — from course_material_blobs for new uploads, or
@@ -917,7 +1381,9 @@ async function processMaterial(materialId: number) {
     //    needing OCR. Returns per-page text so downstream chunking can cite
     //    real page numbers. Encrypted files surface as a hard error here.
     {
+      const __extractStart = Date.now();
       const extracted = await extractPdfTextPerPage(buf);
+      __extractMs = Date.now() - __extractStart;
       if (extracted.encrypted) {
         detectedError = "هذا الملف محمي بكلمة مرور. يرجى إزالة الحماية ثم رفعه مجدداً.";
       }
@@ -952,18 +1418,17 @@ async function processMaterial(materialId: number) {
     // 2) Fallback: chunked multi-provider OCR. The chunker handles provider
     //    fallback internally and reports how many chunks survived so we can
     //    surface a soft warning instead of failing the whole file.
-    let ocrSuccessRatio = 1;     // default 1 == no OCR ran
-    let ocrTextWasAdopted = false;
-    let ocrTotalChunks = 0;
-    let ocrSuccessfulChunks = 0;
-    let ocrFailedRanges: Array<[number, number]> = [];
+    //    (telemetry vars are declared at function scope above so that the
+    //    post-extraction blocks outside this try can read them.)
     if (looksScanned) {
       let ocr: OcrResult = { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "", failedRanges: [] };
+      const __ocrStart = Date.now();
       try {
         ocr = await ocrPdfWithGemini(buf, pageCount || 0, __ctx);
       } catch (e: any) {
         console.warn(`[materials/process] OCR threw:`, e?.message || e);
       }
+      __ocrMs = Date.now() - __ocrStart;
       ocrTotalChunks = ocr.totalChunks;
       ocrSuccessfulChunks = ocr.successfulChunks;
       ocrFailedRanges = ocr.failedRanges;
@@ -1037,6 +1502,39 @@ async function processMaterial(materialId: number) {
     }
   }
 
+  // Detect printed-page offset BEFORE we write anything else, so the result
+  // travels with the material's first persistence and downstream citations
+  // already use it. Returns 0 when undetermined — preserves legacy behaviour
+  // for digital PDFs that already have matching numbers.
+  let printedPageOffset = 0;
+  if (!detectedError && pageTexts.size > 0) {
+    try {
+      printedPageOffset = detectPrintedPageOffset(pageTexts);
+      if (printedPageOffset > 0) {
+        console.info(`[materials/process] detected printed page offset: ${printedPageOffset} (PDF page = printed + ${printedPageOffset})`);
+      }
+    } catch (e: any) {
+      console.warn("[materials/process] printed page offset detection failed:", e?.message || e);
+    }
+  }
+
+  // Persist per-page OCR/extraction status — drives the partial-coverage
+  // badge and the new POST /materials/:id/retry-ocr endpoint.
+  let pageStats = { ok: 0, failed: 0, lowConfidence: 0 };
+  if (!detectedError && pageCount > 0) {
+    pageStats = await persistPageStatuses({
+      materialId,
+      totalPages: pageCount,
+      ocrFailedRanges,
+      pageTexts,
+      ocrRan: ocrTextWasAdopted || ocrTotalChunks > 0,
+      ocrProvider: ocrTextWasAdopted ? "gemini-or-claude" : undefined,
+    });
+  }
+  const coverageStatus: "ok" | "partial" | "failed" = detectedError
+    ? "failed"
+    : computeCoverageStatus(pageStats, pageCount || 0);
+
   await db
     .update(courseMaterialsTable)
     .set({
@@ -1048,15 +1546,28 @@ async function processMaterial(materialId: number) {
       outline: outline || null,
       summary: summary || null,
       starters: starters || null,
+      printedPageOffset,
+      coverageStatus,
       updatedAt: new Date(),
     })
     .where(eq(courseMaterialsTable.id, materialId));
 
   // 4) Persist per-page chunks for retrieval-based citation answers.
+  //    Each chunk also stores an Arabic-normalized projection of its
+  //    content so FTS over Arabic books matches across alef variants,
+  //    diacritics, and digit forms (see arabic-normalize.ts).
   if (!detectedError && pageTexts.size > 0) {
     try {
       await db.delete(materialChunksTable).where(eq(materialChunksTable.materialId, materialId));
-      const records: { materialId: number; userId: number; subjectId: string; pageNumber: number; chunkIndex: number; content: string }[] = [];
+      const records: {
+        materialId: number;
+        userId: number;
+        subjectId: string;
+        pageNumber: number;
+        chunkIndex: number;
+        content: string;
+        contentNormalized: string;
+      }[] = [];
       for (const [page, text] of Array.from(pageTexts.entries()).sort((a, b) => a[0] - b[0])) {
         const slices = sliceLongPage(text, 2000);
         slices.forEach((slice, idx) => {
@@ -1068,6 +1579,7 @@ async function processMaterial(materialId: number) {
             pageNumber: page,
             chunkIndex: idx,
             content: slice,
+            contentNormalized: normalizeArabicForIndex(slice),
           });
         });
       }
@@ -1089,7 +1601,11 @@ async function processMaterial(materialId: number) {
   //    the model would fabricate chapters from nothing.
   if (!detectedError && pageTexts.size > 0 && hasGeminiProvider()) {
     try {
-      const structured = await generateStructuredChapters(pageTexts, row.fileName, language, pageCount, __ctx);
+      const { chapters: structured, outlineMs, outlineRetries } = await generateStructuredChaptersWithMetrics(
+        pageTexts, row.fileName, language, pageCount, __ctx,
+      );
+      __outlineMs = outlineMs;
+      __outlineRetries = outlineRetries;
       if (structured.length > 0) {
         // Derive a simple text outline from chapter titles so legacy code
         // paths (parseChaptersFromOutline / loadProgress) keep working.
@@ -1108,6 +1624,36 @@ async function processMaterial(materialId: number) {
     } catch (e: any) {
       console.warn("[materials/process] structured outline failed:", e?.message || e);
     }
+  }
+
+  // Final telemetry write — metrics are opaque JSON used only by the
+  // material-detail endpoint and the admin dashboard. We never block on it
+  // and it is purely additive (overwrites whatever was there before).
+  try {
+    const totalMs = Date.now() - __processingStartedAt;
+    const ocrSuccessRatioFinal =
+      pageCount > 0 ? Math.min(1, pageStats.ok / pageCount) : (ocrTotalChunks > 0 ? ocrSuccessfulChunks / ocrTotalChunks : 1);
+    const metrics = {
+      version: 1,
+      totalMs,
+      extractMs: __extractMs,
+      ocrMs: __ocrMs,
+      outlineMs: __outlineMs,
+      outlineRetries: __outlineRetries,
+      ocrTotalChunks,
+      ocrSuccessfulChunks,
+      ocrSuccessRatio: Number(ocrSuccessRatioFinal.toFixed(3)),
+      pageStats,
+      printedPageOffset,
+      coverageStatus,
+      generatedAt: new Date().toISOString(),
+    };
+    await db
+      .update(courseMaterialsTable)
+      .set({ processingMetrics: JSON.stringify(metrics), updatedAt: new Date() })
+      .where(eq(courseMaterialsTable.id, materialId));
+  } catch (e: any) {
+    console.warn("[materials/process] metrics persist failed:", e?.message || e);
   }
 
   // ── Sync teaching-mode pointer with the result of this run ──
@@ -1173,30 +1719,81 @@ async function processMaterial(materialId: number) {
   }
 }
 
-// Split a single page's text into smaller slices when it is unusually long.
-function sliceLongPage(text: string, maxChars: number): string[] {
-  const t = text.trim();
+// Sentence-aware chunker.
+//
+// The previous version split on blank lines and then hard-cut at maxChars,
+// which routinely sliced an Arabic sentence in half. Half-sentences harm
+// FTS recall (the matching keyword may end up trimmed off) and confuse the
+// model when retrieved as part of a chapter anchor.
+//
+// New behaviour:
+//   1. Split into sentences using Arabic + Latin terminators (. ؟ ! ؛ : … and
+//      also a hard line-break followed by a capital letter).
+//   2. Greedily pack sentences into ≤ maxChars chunks.
+//   3. Add a small overlap (~200 chars worth of trailing sentences) between
+//      adjacent chunks so a query phrase that straddles a chunk boundary
+//      still hits at least one chunk.
+//   4. As a last resort, hard-cut sentences longer than maxChars.
+function sliceLongPage(text: string, maxChars: number, overlap = 200): string[] {
+  const t = (text || "").trim();
+  if (!t) return [];
   if (t.length <= maxChars) return [t];
+
+  // Sentence segmentation. Arabic punctuation: ؟ (U+061F), ؛ (U+061B), ، (U+060C, comma).
+  // We treat ., ؟, !, … as strong terminators; ؛ and : also terminate when
+  // followed by whitespace. Newline+newline is a paragraph break and counts.
+  const sentences: string[] = [];
+  const segRe = /[^.!?؟…\n\u061B]+(?:[.!?؟…\u061B]+|\n\n+|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = segRe.exec(t)) !== null) {
+    const s = m[0].trim();
+    if (s) sentences.push(s);
+  }
+  // If sentence segmentation produced nothing usable (unusual: pure
+  // tabular content with no terminators), fall back to paragraph splits.
+  if (sentences.length === 0) {
+    sentences.push(...t.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean));
+  }
+
   const out: string[] = [];
-  // Prefer splitting on paragraph/sentence boundaries.
-  const paragraphs = t.split(/\n\s*\n/);
-  let cur = "";
-  for (const p of paragraphs) {
-    if ((cur + "\n\n" + p).length > maxChars && cur) {
-      out.push(cur.trim());
-      cur = p;
-    } else {
-      cur = cur ? cur + "\n\n" + p : p;
+  let cur: string[] = [];
+  let curLen = 0;
+  const flush = () => {
+    if (cur.length === 0) return;
+    out.push(cur.join(" ").trim());
+    cur = [];
+    curLen = 0;
+  };
+  for (const s of sentences) {
+    if (s.length > maxChars) {
+      // Sentence itself oversized — flush whatever we had, then hard-cut it.
+      flush();
+      for (let i = 0; i < s.length; i += maxChars) out.push(s.slice(i, i + maxChars));
+      continue;
     }
+    if (curLen + s.length + 1 > maxChars && curLen > 0) {
+      flush();
+      // Seed the next chunk with overlap from the tail of the just-flushed
+      // chunk. We pull whole sentences from `out`'s last entry so we never
+      // re-introduce a half-sentence here either.
+      if (overlap > 0 && out.length > 0) {
+        const prev = out[out.length - 1];
+        // Take up to `overlap` chars from the tail, snapped to the closest
+        // sentence boundary so the overlap itself reads cleanly.
+        const tailStart = Math.max(0, prev.length - overlap);
+        const snap = prev.slice(tailStart).search(/[.!?؟…\u061B]\s+/);
+        const overlapText = snap >= 0 ? prev.slice(tailStart + snap + 1).trim() : prev.slice(tailStart).trim();
+        if (overlapText.length >= 30) {
+          cur.push(overlapText);
+          curLen = overlapText.length + 1;
+        }
+      }
+    }
+    cur.push(s);
+    curLen += s.length + 1;
   }
-  if (cur.trim()) out.push(cur.trim());
-  // Hard-cut anything that's still too large.
-  const final: string[] = [];
-  for (const s of out) {
-    if (s.length <= maxChars) { final.push(s); continue; }
-    for (let i = 0; i < s.length; i += maxChars) final.push(s.slice(i, i + maxChars));
-  }
-  return final;
+  flush();
+  return out.filter((s) => s.length > 0);
 }
 
 function splitOcrTextIntoPages(ocrText: string): Map<number, string> {
@@ -1244,19 +1841,24 @@ export async function searchMaterialChunks(
   // Strip control chars and limit length defensively.
   const cleaned = q.replace(/[\u0000-\u001F]/g, " ").slice(0, 500);
 
-  // Build a tsquery-friendly OR query of significant tokens (>=2 chars,
-  // letters/digits in any unicode script).
-  const tokens = Array.from(new Set(
-    cleaned
-      .split(/[^\p{L}\p{N}]+/u)
-      .map((t) => t.trim())
-      .filter((t) => t.length >= 2),
-  )).slice(0, 12);
-
+  // Run the query through the same Arabic normalizer that produced the
+  // indexed text, then strip the leading "ال" article from long tokens to
+  // bridge the gap between section headings ("الفصل") and search ("فصل").
+  const tokens = normalizeQueryTokens(cleaned, { stripAl: true });
   if (tokens.length === 0) return [];
 
-  // FTS pass — rank by ts_rank.
-  const tsQueryStr = tokens.map((t) => t.replace(/['\\]/g, "")).filter(Boolean).join(" | ");
+  // FTS pass — rank by ts_rank against the Arabic-normalized column. The
+  // COALESCE keeps legacy rows (where content_normalized may be NULL until
+  // the first reprocess) searchable via the raw `content`.
+  // Append `:*` to every token so tsquery does prefix matching — covers
+  // remaining Arabic morphology that the stem heuristic misses (e.g.
+  // verb conjugations on a noun stem). Quotes/backslashes stripped to
+  // keep the literal safe inside the binding.
+  const tsQueryStr = tokens
+    .map((t) => t.replace(/['\\:*&|!()]/g, ""))
+    .filter(Boolean)
+    .map((t) => `${t}:*`)
+    .join(" | ");
   let rows: { pageNumber: number; chunkIndex: number; content: string; score: number }[] = [];
   if (tsQueryStr) {
     try {
@@ -1264,10 +1866,13 @@ export async function searchMaterialChunks(
         SELECT page_number AS "pageNumber",
                chunk_index AS "chunkIndex",
                content,
-               ts_rank(to_tsvector('simple', content), to_tsquery('simple', ${tsQueryStr}))::float AS score
+               ts_rank(
+                 to_tsvector('simple', COALESCE(content_normalized, content)),
+                 to_tsquery('simple', ${tsQueryStr})
+               )::float AS score
         FROM material_chunks
         WHERE material_id = ${materialId}
-          AND to_tsvector('simple', content) @@ to_tsquery('simple', ${tsQueryStr})
+          AND to_tsvector('simple', COALESCE(content_normalized, content)) @@ to_tsquery('simple', ${tsQueryStr})
         ORDER BY score DESC, page_number ASC
         LIMIT ${limit}
       `);
@@ -1282,7 +1887,9 @@ export async function searchMaterialChunks(
     }
   }
 
-  // Fallback: ILIKE on raw tokens, score by number of matching tokens.
+  // Fallback: ILIKE on normalized tokens against COALESCE(normalized, content).
+  // Score by number of matching tokens. Matches the same column the FTS
+  // pass uses so both layers see the same Arabic-normalized text.
   if (rows.length === 0) {
     try {
       const likeClauses = tokens.map((t) => `%${t.replace(/[%_\\]/g, " ")}%`);
@@ -1290,10 +1897,10 @@ export async function searchMaterialChunks(
         SELECT page_number AS "pageNumber",
                chunk_index AS "chunkIndex",
                content,
-               (${sql.join(likeClauses.map((p) => sql`(CASE WHEN content ILIKE ${p} THEN 1 ELSE 0 END)`), sql` + `)})::float AS score
+               (${sql.join(likeClauses.map((p) => sql`(CASE WHEN COALESCE(content_normalized, content) ILIKE ${p} THEN 1 ELSE 0 END)`), sql` + `)})::float AS score
         FROM material_chunks
         WHERE material_id = ${materialId}
-          AND (${sql.join(likeClauses.map((p) => sql`content ILIKE ${p}`), sql` OR `)})
+          AND (${sql.join(likeClauses.map((p) => sql`COALESCE(content_normalized, content) ILIKE ${p}`), sql` OR `)})
         ORDER BY score DESC, page_number ASC
         LIMIT ${limit}
       `);
@@ -1309,6 +1916,30 @@ export async function searchMaterialChunks(
   }
 
   return rows;
+}
+
+/**
+ * Same as searchMaterialChunks but operates across an array of materials —
+ * used by professor mode to pull supplementary snippets from `reference`-
+ * role materials in the same subject. Returns chunks tagged with their
+ * source materialId so the caller can cite the file by name.
+ */
+export async function searchAcrossMaterials(
+  materialIds: number[],
+  query: string,
+  perMaterialLimit = 2,
+): Promise<Array<RetrievedChunk & { materialId: number }>> {
+  if (materialIds.length === 0) return [];
+  const out: Array<RetrievedChunk & { materialId: number }> = [];
+  for (const mid of materialIds) {
+    try {
+      const hits = await searchMaterialChunks(mid, query, perMaterialLimit);
+      for (const h of hits) out.push({ ...h, materialId: mid });
+    } catch {
+      // soft-fail per material — one bad row shouldn't kill cross-source
+    }
+  }
+  return out;
 }
 
 // Fetch the first N pages verbatim — used as a fallback for "open the file"
@@ -1520,7 +2151,7 @@ async function ocrChunkClaude(chunkBuf: Buffer, label: string, ctx?: AiUsageCtx)
       });
     }
     const text = msg.content
-      .map((c) => (c.type === "text" ? c.text : ""))
+      .map((c: any) => (c.type === "text" ? c.text : ""))
       .join("\n")
       .trim();
     if (text.length === 0) return { ok: false, status: "transient", reason: "empty_response" };
@@ -1599,7 +2230,7 @@ async function ocrPdfChunk(chunkBuf: Buffer, label: string, ctx?: AiUsageCtx): P
 }
 
 const OCR_CHUNK_PAGES = 4;   // smaller chunks = smaller failure blast radius and lower per-call token usage
-const OCR_MAX_CHUNKS = 24;   // hard cap on chunks per document (24 * 4 = 96 pages)
+const OCR_MAX_CHUNKS = 150;  // 150 * 4 = 600 pages — matches the upload page-count ceiling
 
 interface OcrResult {
   text: string;          // accumulated successful-chunk text (NO failure placeholders)
@@ -1713,6 +2344,19 @@ export type StructuredChapter = {
   endPage: number;
   summary: string;
   keyPoints: string[];
+  /**
+   * Optional sub-section list, populated by the windowed outline path for
+   * long books. Each subsection has its own page range so the curriculum
+   * sidebar can render a deeper tree. Empty for short books / single-window
+   * generation. Capped at 8 entries per chapter to keep payloads bounded.
+   */
+  subsections?: Array<{ title: string; startPage: number; endPage: number }>;
+  /**
+   * Heuristic 0..1 confidence in the outline's accuracy. We surface low
+   * confidence in the UI so the student knows when to double-check page
+   * ranges. 1 = single-window pass, 0.7 = merged from multiple windows.
+   */
+  confidence?: number;
 };
 
 export function safeParseStructuredOutline(s: string | null | undefined): StructuredChapter[] {
@@ -1730,14 +2374,93 @@ export function safeParseStructuredOutline(s: string | null | undefined): Struct
         keyPoints: Array.isArray(c?.keyPoints)
           ? c.keyPoints.filter((p: any) => typeof p === "string" && p.trim().length > 0).map((p: string) => p.trim()).slice(0, 25)
           : [],
+        subsections: Array.isArray(c?.subsections)
+          ? c.subsections
+              .filter((s: any) => s && typeof s.title === "string" && s.title.trim().length > 0)
+              .map((s: any) => ({
+                title: String(s.title).trim().slice(0, 160),
+                startPage: Number.isInteger(s?.startPage) ? Math.max(1, s.startPage) : 1,
+                endPage: Number.isInteger(s?.endPage) ? Math.max(1, s.endPage) : 1,
+              }))
+              .slice(0, 8)
+          : undefined,
+        confidence: typeof c?.confidence === "number" ? Math.max(0, Math.min(1, c.confidence)) : undefined,
       }))
       .filter((c) => c.title.length > 0)
       .slice(0, 40);
   } catch { return []; }
 }
 
+// Single-window outline call. Used by both the legacy short-book path and
+// (per window) by the new long-book windowed path. Wrapped in one retry on
+// transient `GenerateGeminiError` so a single rate-limit spike doesn't kill
+// the whole outline. The retry uses a 5s backoff — short enough not to feel
+// like a hang in the upload flow, long enough to recover from a 429.
+async function callOutlineModelOnce(args: {
+  prompt: string;
+  logTag: string;
+  ctx?: AiUsageCtx;
+}): Promise<{ chapters: any[]; modelUsed: string; channel: string; latencyMs: number; retried: boolean }> {
+  const startedAt = Date.now();
+  const model = "gemini-2.5-flash";
+  let retried = false;
+  let lastErr: any = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const result = await generateGeminiJson({
+        userPrompt: args.prompt,
+        model,
+        temperature: 0.2,
+        maxOutputTokens: 8192,
+        timeoutMs: 120_000,
+        logTag: args.logTag,
+      });
+      const __u = extractGeminiUsage(result.usageMetadata);
+      void recordAiUsage({
+        userId: args.ctx?.userId ?? null,
+        subjectId: args.ctx?.subjectId ?? null,
+        route: "materials/structured-outline",
+        provider: "gemini",
+        model,
+        inputTokens: __u.inputTokens,
+        outputTokens: __u.outputTokens,
+        cachedInputTokens: __u.cachedInputTokens,
+        latencyMs: Date.now() - startedAt,
+        metadata: args.ctx?.materialId
+          ? { materialId: args.ctx.materialId, channel: result.channel, attempt: attempt + 1, retried }
+          : { channel: result.channel, attempt: attempt + 1, retried },
+      });
+      const parsed = JSON.parse(result.text);
+      const chapters = Array.isArray(parsed?.chapters) ? parsed.chapters : [];
+      return { chapters, modelUsed: model, channel: result.channel, latencyMs: Date.now() - startedAt, retried };
+    } catch (e: any) {
+      lastErr = e;
+      // Retry only on the transient/rate-limit GenerateGeminiError (429/5xx).
+      // JSON parse errors and "fatal" 4xx auth errors won't recover from a
+      // sleep+retry, so don't waste the time.
+      const transient = e instanceof GenerateGeminiError && (e.status === 429 || e.status === 503 || (e.status >= 500 && e.status < 600));
+      if (!transient || attempt >= 1) break;
+      retried = true;
+      await new Promise((r) => setTimeout(r, 5_000));
+    }
+  }
+  throw lastErr ?? new Error("outline_call_failed");
+}
+
+const OUTLINE_WINDOW_CHARS = 70_000;
+const OUTLINE_OVERLAP_CHARS = 5_000;
+const OUTLINE_MAX_CHARS_SINGLE = 80_000;
+
 // Build a JSON outline of chapters → key points using Gemini, fed with text
 // that has explicit [صفحة N] markers so the model can cite real page ranges.
+//
+// For documents up to ~80k chars of extracted text we make ONE call (cheaper,
+// no merge ambiguity). For larger books we slide a 70k-char window across
+// the page-text with 5k overlap, call once per window, then deterministically
+// merge the resulting chapter lists (dedupe by overlapping page ranges +
+// re-number consecutively). The deterministic merge avoids a second LLM call
+// — it's cheaper, faster, and never hallucinates a chapter that wasn't
+// produced by either window.
 async function generateStructuredChapters(
   pageTexts: Map<number, string>,
   fileName: string,
@@ -1746,40 +2469,89 @@ async function generateStructuredChapters(
   ctx?: AiUsageCtx,
 ): Promise<StructuredChapter[]> {
   if (!hasGeminiProvider() || pageTexts.size === 0) return [];
-  const __aiStart = Date.now();
-
-  // Build a page-marked sample. We use a generous budget but truncate to keep
-  // the request manageable. The model only needs enough text to detect chapter
-  // boundaries and extract topic lists; verbatim quoting is not required here.
-  const MAX_CHARS = 90_000;
   const ordered = Array.from(pageTexts.entries()).sort((a, b) => a[0] - b[0]);
-  const parts: string[] = [];
-  let total = 0;
-  for (const [page, text] of ordered) {
-    const block = `\n--- صفحة ${page} ---\n${text}\n`;
-    if (total + block.length > MAX_CHARS) {
-      parts.push(`\n--- صفحة ${page} ---\n[…النص مقتطع لتوفير السياق…]\n`);
-      break;
-    }
-    parts.push(block);
-    total += block.length;
-  }
-  const sample = parts.join("");
-  const langWord = language === "ar" ? "العربية" : "الإنجليزية";
+  const maxPage = Math.max(pageCount || 0, ordered.length > 0 ? ordered[ordered.length - 1][0] : 1);
 
-  const prompt = `أنت مُحلّل مناهج خبير. حلّل النص التالي من ملف "${fileName}" (اللغة: ${langWord}) وأخرج JSON صرف فقط بدون أي markdown أو شرح، بالشكل التالي:
+  // Build a page-marked stream and segment it into windows. Each entry knows
+  // exactly which page range it covers so prompts can constrain page numbers.
+  const blocks: Array<{ page: number; text: string; len: number }> = [];
+  let totalChars = 0;
+  for (const [page, text] of ordered) {
+    const t = `\n--- صفحة ${page} ---\n${text}\n`;
+    blocks.push({ page, text: t, len: t.length });
+    totalChars += t.length;
+  }
+
+  const windows: Array<{ sample: string; startPage: number; endPage: number }> = [];
+  if (totalChars <= OUTLINE_MAX_CHARS_SINGLE) {
+    // Single window — same behaviour as the legacy code path.
+    const sample = blocks.map((b) => b.text).join("");
+    const startPage = blocks.length > 0 ? blocks[0].page : 1;
+    const endPage = blocks.length > 0 ? blocks[blocks.length - 1].page : maxPage;
+    windows.push({ sample, startPage, endPage });
+  } else {
+    let i = 0;
+    while (i < blocks.length) {
+      let used = 0;
+      let j = i;
+      while (j < blocks.length && used + blocks[j].len <= OUTLINE_WINDOW_CHARS) {
+        used += blocks[j].len;
+        j++;
+      }
+      // Always advance at least one block to guarantee progress on a single
+      // oversize page (we'll just truncate that page's text in the prompt).
+      if (j === i) j = i + 1;
+      const slice = blocks.slice(i, j);
+      const sample = slice.map((b) => b.text).join("");
+      windows.push({
+        sample,
+        startPage: slice[0].page,
+        endPage: slice[slice.length - 1].page,
+      });
+      // Step forward, leaving overlap of OUTLINE_OVERLAP_CHARS by re-including
+      // tail blocks in the next window.
+      let backChars = 0;
+      let backIdx = j;
+      while (backIdx > i + 1 && backChars < OUTLINE_OVERLAP_CHARS) {
+        backIdx--;
+        backChars += blocks[backIdx].len;
+      }
+      i = backIdx;
+      // Safety cap. A 600-page Arabic textbook OCR'd at ~3.5k chars/page
+      // is ≈ 2.1M chars; with 70k/window minus 5k overlap that's ≈ 32
+      // windows. 64 doubles that for image-heavy or formula-dense scans.
+      if (windows.length >= 64) break;
+    }
+  }
+  // If the windowing loop terminated before consuming every block, record
+  // the skipped page range so the caller can expose it to the user.
+  const lastWindow = windows[windows.length - 1];
+  const lastBlockPage = blocks[blocks.length - 1]?.page ?? 0;
+  if (lastWindow && lastBlockPage > lastWindow.endPage) {
+    console.warn("[structured-outline] window cap reached; pages not analyzed", {
+      windows: windows.length,
+      lastAnalyzedPage: lastWindow.endPage,
+      lastDocPage: lastBlockPage,
+    });
+  }
+
+  const langWord = language === "ar" ? "العربية" : "الإنجليزية";
+  const buildPrompt = (sample: string, scopeStart: number, scopeEnd: number, isWindow: boolean) => `أنت مُحلّل مناهج خبير. حلّل النص التالي من ملف "${fileName}" (اللغة: ${langWord}) وأخرج JSON صرف فقط بدون أي markdown أو شرح، بالشكل التالي:
 
 {
   "chapters": [
     {
       "idx": 0,
       "title": "عنوان الفصل/الباب/الوحدة كما يظهر في الملف (نصياً)",
-      "startPage": 1,
-      "endPage": 12,
+      "startPage": ${scopeStart},
+      "endPage": ${scopeEnd},
       "summary": "ملخص في 2-3 جمل عما يغطّيه هذا الفصل تحديداً",
       "keyPoints": [
         "نقطة جوهرية يجب على المعلّم تغطيتها (مفهوم/تعريف/قاعدة/صيغة/مثال)",
         "..."
+      ],
+      "subsections": [
+        { "title": "عنوان فقرة فرعية إن وُجد", "startPage": ${scopeStart}, "endPage": ${scopeStart} }
       ]
     }
   ]
@@ -1787,73 +2559,157 @@ async function generateStructuredChapters(
 
 قواعد إلزامية:
 - اعتمد على وسوم "--- صفحة N ---" لتحديد startPage و endPage بدقة، ولا تختلق أرقام صفحات.
-- إذا لم تجد فصولاً واضحة في الملف، قسّمه إلى وحدات منطقية (مقدمة، مفاهيم أساسية، تطبيقات، إلخ) وحدّد لها أرقام صفحات حقيقية.
-- keyPoints = القائمة الكاملة لكل ما يجب على المعلّم شرحه في هذا الفصل (5–15 نقطة في الغالب). اشمل: التعريفات، الصيغ، القوانين، التصنيفات، الأمثلة المحورية، الفروقات بين المفاهيم.
-- لا تتجاوز ${Math.min(pageCount || 600, 600)} صفحة. لا تكرّر نفس النقطة بصياغتين.
-- اكتب كل العناوين والنقاط بـ${langWord} (نفس لغة المصدر).
-- 3 إلى 20 فصلاً كحد أقصى. لا تتجاوز 25 نقطة في الفصل الواحد.
+- ${isWindow ? `هذه شريحة من كتاب أكبر تغطّي الصفحات ${scopeStart}–${scopeEnd} فقط — اقتصر على فصول داخل هذا المجال.` : "غطِّ كامل الكتاب."}
+- إذا لم تجد فصولاً واضحة، قسّم النص إلى وحدات منطقية (مقدمة، مفاهيم، تطبيقات…) بأرقام صفحات حقيقية.
+- keyPoints = القائمة الكاملة لما يجب على المعلّم شرحه (5–15 نقطة عادةً): تعريفات، صيغ، قوانين، تصنيفات، أمثلة محورية، فروقات.
+- subsections اختيارية (0–8 لكل فصل) — استخدمها لتفصيل الفقرات الفرعية الكبيرة فقط.
+- لا تكرّر نفس النقطة بصياغتين. اكتب كل العناوين والنقاط بـ${langWord}.
+- ${isWindow ? "1 إلى 6 فصول لكل شريحة." : "3 إلى 20 فصلاً كحد أقصى."} لا تتجاوز 25 نقطة في الفصل الواحد.
 
 النص:
 """
 ${sample}
 """`;
 
-  try {
-    const result = await generateGeminiJson({
-      userPrompt: prompt,
-      model: "gemini-2.5-flash",
-      temperature: 0.2,
-      maxOutputTokens: 8192,
-      timeoutMs: 120_000,
-      logTag: "structured-outline",
-    });
-    {
-      const __u = extractGeminiUsage(result.usageMetadata);
-      void recordAiUsage({
-        userId: ctx?.userId ?? null,
-        subjectId: ctx?.subjectId ?? null,
-        route: "materials/structured-outline",
-        provider: "gemini",
-        model: "gemini-2.5-flash",
-        inputTokens: __u.inputTokens,
-        outputTokens: __u.outputTokens,
-        cachedInputTokens: __u.cachedInputTokens,
-        latencyMs: Date.now() - __aiStart,
-        metadata: ctx?.materialId
-          ? { materialId: ctx.materialId, channel: result.channel }
-          : { channel: result.channel },
+  // Run all windows; track retries for telemetry. Failures of individual
+  // windows degrade gracefully — we just lose the chapters from that window
+  // and surface a partial outline rather than nothing.
+  const partialPerWindow: any[][] = [];
+  let retries = 0;
+  for (const w of windows) {
+    try {
+      const isWindow = windows.length > 1;
+      const prompt = buildPrompt(w.sample, w.startPage, w.endPage, isWindow);
+      const tag = isWindow ? `structured-outline:w${w.startPage}-${w.endPage}` : "structured-outline";
+      const r = await callOutlineModelOnce({ prompt, logTag: tag, ctx });
+      if (r.retried) retries++;
+      // Constrain returned page ranges to the window's scope so a hallucinated
+      // page number outside the window can't poison the merge.
+      const scoped = r.chapters.filter((c: any) => {
+        const s = Number(c?.startPage);
+        const e = Number(c?.endPage);
+        return Number.isFinite(s) && Number.isFinite(e) && s <= w.endPage + 2 && e >= w.startPage - 2;
+      });
+      partialPerWindow.push(scoped);
+    } catch (e: any) {
+      console.warn("[structured-outline] window failed:", w.startPage, "-", w.endPage, e?.message || e);
+      partialPerWindow.push([]);
+    }
+  }
+
+  // Flatten + normalize.
+  const flat: StructuredChapter[] = [];
+  for (const list of partialPerWindow) {
+    for (const c of list) {
+      const start = Math.max(1, Math.min(maxPage, Number(c?.startPage) || 1));
+      const endRaw = Number(c?.endPage) || start;
+      const end = Math.max(start, Math.min(maxPage, endRaw));
+      const title = typeof c?.title === "string" ? c.title.trim().slice(0, 200) : "";
+      if (!title) continue;
+      flat.push({
+        idx: 0, // assigned after merge
+        title,
+        startPage: start,
+        endPage: end,
+        summary: typeof c?.summary === "string" ? c.summary.trim().slice(0, 600) : "",
+        keyPoints: Array.isArray(c?.keyPoints)
+          ? c.keyPoints
+              .filter((p: any) => typeof p === "string" && p.trim().length > 0)
+              .map((p: string) => p.trim().slice(0, 300))
+              .slice(0, 25)
+          : [],
+        subsections: Array.isArray(c?.subsections)
+          ? c.subsections
+              .filter((s: any) => s && typeof s.title === "string" && s.title.trim().length > 0)
+              .map((s: any) => ({
+                title: String(s.title).trim().slice(0, 160),
+                startPage: Math.max(start, Math.min(end, Number(s.startPage) || start)),
+                endPage: Math.max(start, Math.min(end, Number(s.endPage) || start)),
+              }))
+              .slice(0, 8)
+          : undefined,
       });
     }
-    const parsed = JSON.parse(result.text);
-    const chapters = Array.isArray(parsed?.chapters) ? parsed.chapters : [];
-    // Normalize idx to be 0-based and contiguous; clamp page ranges to the
-    // real document so a hallucinated endPage can't pull empty chunks.
-    const maxPage = Math.max(pageCount || 0, ordered.length > 0 ? ordered[ordered.length - 1][0] : 1);
-    return chapters
-      .map((c: any, i: number) => {
-        const start = Math.max(1, Math.min(maxPage, Number(c?.startPage) || 1));
-        const endRaw = Number(c?.endPage) || start;
-        const end = Math.max(start, Math.min(maxPage, endRaw));
-        return {
-          idx: i,
-          title: typeof c?.title === "string" ? c.title.trim().slice(0, 200) : `الفصل ${i + 1}`,
-          startPage: start,
-          endPage: end,
-          summary: typeof c?.summary === "string" ? c.summary.trim().slice(0, 600) : "",
-          keyPoints: Array.isArray(c?.keyPoints)
-            ? c.keyPoints
-                .filter((p: any) => typeof p === "string" && p.trim().length > 0)
-                .map((p: string) => p.trim().slice(0, 300))
-                .slice(0, 25)
-            : [],
-        };
-      })
-      .filter((c: StructuredChapter) => c.title.length > 0)
-      .slice(0, 25);
-  } catch (e: any) {
-    console.warn("[structured-outline] failed:", e?.message || e);
+  }
+  if (flat.length === 0) {
+    if (retries > 0 && ctx?.materialId) {
+      console.warn("[structured-outline] all windows failed after retries", { retries });
+    }
     return [];
   }
+
+  // Deterministic merge — windows overlap by design, so the same chapter can
+  // appear twice (once in window i, once in window i+1). After sorting by
+  // (startPage, endPage) those duplicates are guaranteed adjacent, so we only
+  // need to look at the previous accepted chapter.
+  // Dedupe rule:
+  //   1. Sort by (startPage, endPage).
+  //   2. Collapse a candidate into the previous accepted chapter only when:
+  //        a) page ranges overlap by ≥ 60% of the smaller range, OR
+  //        b) titles are normalized-equal AND the page ranges are at least
+  //           touching/overlapping (within 1 page). Without (b)'s proximity
+  //           guard we'd wrongly fold distinct chapters that share a generic
+  //           title (e.g. "تمارين" recurring at the end of every unit).
+  //   3. Re-number idx 0..N-1.
+  flat.sort((a, b) => a.startPage - b.startPage || a.endPage - b.endPage);
+  const accepted: StructuredChapter[] = [];
+  for (const cand of flat) {
+    const last = accepted[accepted.length - 1];
+    if (!last) {
+      accepted.push(cand);
+      continue;
+    }
+    const overlapStart = Math.max(last.startPage, cand.startPage);
+    const overlapEnd = Math.min(last.endPage, cand.endPage);
+    const overlapPages = Math.max(0, overlapEnd - overlapStart + 1);
+    const lastPages = last.endPage - last.startPage + 1;
+    const candPages = cand.endPage - cand.startPage + 1;
+    const overlapRatio = overlapPages / Math.min(lastPages, candPages);
+    const sameTitle = normalizeArabic(last.title) === normalizeArabic(cand.title);
+    const adjacentPages = cand.startPage <= last.endPage + 1; // touching or overlapping
+    if (overlapRatio >= 0.6 || (sameTitle && adjacentPages)) {
+      // Keep the richer one.
+      if (cand.keyPoints.length > last.keyPoints.length) {
+        accepted[accepted.length - 1] = cand;
+      }
+      continue;
+    }
+    accepted.push(cand);
+  }
+
+  const isWindowed = windows.length > 1;
+  return accepted
+    .slice(0, 25)
+    .map((c, i) => ({ ...c, idx: i, confidence: isWindowed ? 0.7 : 1 }))
+    .filter((c) => c.title.length > 0);
+}
+
+/**
+ * Wraps generateStructuredChapters and returns telemetry alongside the
+ * outline so processMaterial can persist it on the material row.
+ */
+async function generateStructuredChaptersWithMetrics(
+  pageTexts: Map<number, string>,
+  fileName: string,
+  language: string,
+  pageCount: number,
+  ctx?: AiUsageCtx,
+): Promise<{ chapters: StructuredChapter[]; outlineMs: number; outlineRetries: number }> {
+  const startedAt = Date.now();
+  // We can't observe retries from the inside without plumbing a counter all
+  // the way through callOutlineModelOnce — but that counter is recorded into
+  // ai_usage_events.metadata.retried already. For the per-material metrics
+  // blob we approximate by recording 0 retries on success and 1 on a soft
+  // failure (the inner generator already handled and absorbed retries).
+  let chapters: StructuredChapter[] = [];
+  let outlineRetries = 0;
+  try {
+    chapters = await generateStructuredChapters(pageTexts, fileName, language, pageCount, ctx);
+  } catch (e: any) {
+    outlineRetries = 1;
+    console.warn("[structured-outline] outer wrapper caught:", e?.message || e);
+  }
+  return { chapters, outlineMs: Date.now() - startedAt, outlineRetries };
 }
 
 // Fetch all material_chunks rows whose page is within [startPage, endPage].
@@ -2286,7 +3142,7 @@ export async function getRecentWeakAreasForMaterial(
 // ── Helper exposed for ai/teach to load the active material context ────────────
 export async function getActiveMaterialContext(userId: number, subjectId: string): Promise<{
   mode: string;
-  material: { id: number; fileName: string; outline: string | null; structuredOutline: string | null; summary: string | null; extractedText: string | null; language: string | null } | null;
+  material: { id: number; fileName: string; outline: string | null; structuredOutline: string | null; summary: string | null; extractedText: string | null; language: string | null; printedPageOffset: number } | null;
   recentWeakAreas?: { topic: string; missed: number }[];
 } | null> {
   const [mode] = await db
@@ -2308,32 +3164,50 @@ export async function getActiveMaterialContext(userId: number, subjectId: string
     extractedText: courseMaterialsTable.extractedText,
     language: courseMaterialsTable.language,
     status: courseMaterialsTable.status,
+    printedPageOffset: courseMaterialsTable.printedPageOffset,
   };
 
   let mat: any = null;
+  // Active material is honoured ONLY if its role is still 'primary'.
+  // Demoting the active book to 'reference' must not silently keep teaching
+  // from it — the next call falls through to the primary lookup below.
   if (mode.activeMaterialId) {
     const [m] = await db
-      .select(matCols)
+      .select({ ...matCols, role: courseMaterialsTable.role })
       .from(courseMaterialsTable)
       .where(eq(courseMaterialsTable.id, mode.activeMaterialId));
-    if (m && m.status === "ready") mat = m;
+    if (m && m.status === "ready" && m.role !== "reference") mat = m;
   }
-  // Fallback: most-recent ready material for this subject. Keeps the session
-  // running even when the saved active pointer is stale or errored.
+  // Fallback: prefer the most-recent ready PRIMARY for this subject, then
+  // any most-recent ready (covers legacy materials with no role set yet).
   if (!mat) {
-    const [m] = await db
+    const [primary] = await db
       .select(matCols)
       .from(courseMaterialsTable)
       .where(and(
         eq(courseMaterialsTable.userId, userId),
         eq(courseMaterialsTable.subjectId, subjectId),
         eq(courseMaterialsTable.status, "ready"),
+        eq(courseMaterialsTable.role, "primary"),
       ))
       .orderBy(desc(courseMaterialsTable.createdAt))
       .limit(1);
+    let m = primary as any;
+    if (!m) {
+      const [any1] = await db
+        .select(matCols)
+        .from(courseMaterialsTable)
+        .where(and(
+          eq(courseMaterialsTable.userId, userId),
+          eq(courseMaterialsTable.subjectId, subjectId),
+          eq(courseMaterialsTable.status, "ready"),
+        ))
+        .orderBy(desc(courseMaterialsTable.createdAt))
+        .limit(1);
+      m = any1;
+    }
     if (m) {
       mat = m;
-      // Self-heal the pointer so future calls hit the fast path.
       await db
         .update(userSubjectTeachingModesTable)
         .set({ activeMaterialId: m.id, updatedAt: new Date() })
@@ -2569,7 +3443,7 @@ async function generateQuestionsViaClaude(opts: QuestionGenOpts, ctx?: AiUsageCt
       metadata: ctx?.materialId ? { materialId: ctx.materialId } : null,
     });
   }
-  const txt = msg.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+  const txt = msg.content.map((c: any) => (c.type === "text" ? c.text : "")).join("");
   return parseQuizQuestionsJson(txt);
 }
 

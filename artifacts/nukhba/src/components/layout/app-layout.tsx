@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import { LogOut, LogIn, Menu, User, MessageCircle, Home, BookOpen, CreditCard, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -14,27 +14,84 @@ type GemsState = {
   dailyRemaining: number;
   gemsDailyLimit: number;
   hasActiveSub: boolean;
+  isFirstLesson?: boolean;
   activeSubjectCount?: number;
   label?: string | null;
+  // Nearest-expiry warning. ≤ 7 days flips the badge into a warning state;
+  // 0–1 days reuses the existing red alert visuals so the user can't miss it.
+  expiresInDays?: number | null;
 } | null;
 
 function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boolean }) {
-  if (!gems || !gems.hasActiveSub) return null;
+  if (!gems) return null;
+  // First-lesson grace path: render a distinct "free" badge so a brand-new
+  // student sees their 80-gem allowance instead of an empty header. When the
+  // 80 are spent the badge stays visible and turns into a "subscribe" CTA.
+  if (gems.isFirstLesson && !gems.hasActiveSub) {
+    const remaining = Math.max(0, gems.gemsBalance);
+    const limit = gems.gemsDailyLimit > 0 ? gems.gemsDailyLimit : 80;
+    const exhausted = remaining <= 0;
+    const label = gems.label ? ` — ${gems.label}` : "";
+    const tooltip = exhausted
+      ? `انتهت جواهر الجلسة المجانية${label} — اشترك لمواصلة التعلم`
+      : `لديك ${remaining.toLocaleString("ar-EG")} من ${limit.toLocaleString("ar-EG")} جوهرة مجانية في هذه الجلسة${label}`;
+    return (
+      <Link href="/subscription">
+        <motion.span
+          whileHover={{ scale: 1.05 }}
+          className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-all whitespace-nowrap max-w-[260px] ${compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1.5 text-xs"}`}
+          style={exhausted ? {
+            background: "rgba(239,68,68,0.15)",
+            border: "1px solid rgba(239,68,68,0.4)",
+            color: "#F87171",
+            boxShadow: "0 0 12px rgba(239,68,68,0.2)",
+          } : {
+            background: "rgba(16,185,129,0.12)",
+            border: "1px solid rgba(16,185,129,0.4)",
+            color: "#34D399",
+            boxShadow: "0 0 10px rgba(16,185,129,0.18)",
+          }}
+          title={tooltip}
+        >
+          💎
+          {exhausted ? (
+            <span>اشترك للمتابعة</span>
+          ) : (
+            <>
+              <span>{remaining.toLocaleString("ar-EG")}</span>
+              {!compact && (
+                <span className="opacity-70 font-normal">
+                  / {limit.toLocaleString("ar-EG")} مجانية
+                </span>
+              )}
+            </>
+          )}
+        </motion.span>
+      </Link>
+    );
+  }
+  if (!gems.hasActiveSub) return null;
 
   const balanceEmpty = gems.gemsBalance <= 0;
   const dailyExhausted = gems.dailyRemaining <= 0 && gems.gemsDailyLimit > 0;
   const lowDaily = gems.dailyRemaining < 20;
   const lowBalance = gems.gemsBalance < 200;
-  const alert = balanceEmpty || dailyExhausted || lowDaily || lowBalance;
+  // Sub-window expiry warning. < 2 days = red alert, < 7 days = orange warn.
+  const days = gems.expiresInDays;
+  const expiringCritical = days != null && days >= 0 && days < 2;
+  const expiringSoon = days != null && days >= 0 && days < 7;
+  const alert = balanceEmpty || dailyExhausted || lowDaily || lowBalance || expiringCritical;
+  const warn = !alert && expiringSoon;
 
   const multiSub = (gems.activeSubjectCount ?? 1) > 1;
   const subjectsPart = multiSub
     ? ` — لديك ${gems.activeSubjectCount} مادة نشطة`
     : (gems.label ? ` (${gems.label})` : "");
   const baseTooltip = `المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${subjectsPart} — الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")}`;
+  const expiryPart = expiringSoon ? ` — ينتهي ${days === 0 ? "اليوم" : `خلال ${days} يوم`}` : "";
   const tooltip = balanceEmpty
-    ? `${baseTooltip} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
-    : baseTooltip;
+    ? `${baseTooltip}${expiryPart} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
+    : `${baseTooltip}${expiryPart}`;
 
   const scopeLabel = multiSub
     ? `${gems.activeSubjectCount} مواد`
@@ -51,6 +108,11 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
           color: "#F87171",
           boxShadow: "0 0 12px rgba(239,68,68,0.2)",
           animation: "neon-border-pulse 2s ease-in-out infinite",
+        } : warn ? {
+          background: "rgba(249,115,22,0.12)",
+          border: "1px solid rgba(249,115,22,0.4)",
+          color: "#FB923C",
+          boxShadow: "0 0 10px rgba(249,115,22,0.18)",
         } : {
           background: "rgba(245,158,11,0.1)",
           border: "1px solid rgba(245,158,11,0.3)",
@@ -64,9 +126,16 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
         {!compact && (
           <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
         )}
+        {warn && !compact && (
+          <span className="opacity-90 font-bold border-r pr-1 mr-0.5"
+            style={{ borderColor: "rgba(249,115,22,0.4)" }}
+          >
+            ⏰ {days === 0 ? "آخر يوم" : `${days}ي`}
+          </span>
+        )}
         {scopeLabel && (
           <span className="opacity-80 font-normal truncate max-w-[120px] border-r pr-1 mr-0.5"
-            style={{ borderColor: alert ? "rgba(239,68,68,0.4)" : "rgba(245,158,11,0.3)" }}
+            style={{ borderColor: alert ? "rgba(239,68,68,0.4)" : warn ? "rgba(249,115,22,0.4)" : "rgba(245,158,11,0.3)" }}
           >
             {scopeLabel}
           </span>
@@ -124,8 +193,12 @@ function sendBrowserNotification(title: string, body: string, url?: string) {
       icon: "/favicon.svg",
       badge: "/favicon.svg",
       tag: "nukhba-support",
+      // `renotify` is a real Chrome/Edge field that re-fires the alert sound
+      // even when an existing notification with the same `tag` is replaced,
+      // but it isn't in the standard NotificationOptions lib type. Cast the
+      // options bag to skip the type-check while preserving runtime behavior.
       renotify: true,
-    });
+    } as NotificationOptions);
     if (url) {
       notif.onclick = () => {
         window.focus();
@@ -203,8 +276,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [user, location]);
 
+  // Pull subjectId from any subject-scoped learning route so the header
+  // calls /gems-balance?subjectId=… (subject-specific truth) instead of
+  // falling back to the cross-subject summary endpoint. Covers /subject/:id
+  // and /lesson/:id/:unit/:lesson today; extend the alternation if new
+  // subject-scoped routes are added.
   const currentSubjectId = (() => {
-    const m = location.match(/^\/subject\/([^/?#]+)/);
+    const m = location.match(/^\/(?:subject|lesson)\/([^/?#]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   })();
 
@@ -222,13 +300,27 @@ export function AppLayout({ children }: { children: ReactNode }) {
               (typeof d.subjectId === "string" && d.subjectId.trim() && d.subjectId !== "all" ? d.subjectId : null) ||
               currentSubjectId ||
               "اشتراكي";
+            // Compute days-until-expiry from the per-subject endpoint's
+            // gemsExpiresAt so the badge can show the warning state even
+            // when the user is inside a single subject view. The endpoint
+            // historically returned the field as `expiresAt` in some
+            // responses; keep the fallback to avoid breaking when the
+            // server is rolled forward but the page is cached.
+            let expiresInDays: number | null = null;
+            const expiryRaw = d.gemsExpiresAt ?? d.expiresAt;
+            if (expiryRaw) {
+              const ms = new Date(expiryRaw).getTime() - Date.now();
+              if (Number.isFinite(ms)) expiresInDays = Math.max(0, Math.ceil(ms / 86_400_000));
+            }
             setGems({
               gemsBalance: d.gemsBalance ?? 0,
               dailyRemaining: d.dailyRemaining ?? 0,
               gemsDailyLimit: d.gemsDailyLimit ?? 0,
               hasActiveSub: d.hasActiveSub ?? false,
+              isFirstLesson: d.isFirstLesson ?? d.source === "first-lesson",
               activeSubjectCount: 1,
               label,
+              expiresInDays,
             });
           })
           .catch(() => {});
@@ -236,7 +328,21 @@ export function AppLayout({ children }: { children: ReactNode }) {
         fetch("/api/subscriptions/gems-balance-summary", { credentials: "include" })
           .then(r => r.ok ? r.json() : null)
           .then(d => {
-            if (!d || !d.hasActiveSub) { setGems(null); return; }
+            if (!d) { setGems(null); return; }
+            if (!d.hasActiveSub && d.isFirstLesson) {
+              setGems({
+                gemsBalance: d.totalBalance ?? 0,
+                dailyRemaining: d.totalDailyRemaining ?? 0,
+                gemsDailyLimit: d.totalDailyLimit ?? 0,
+                hasActiveSub: false,
+                isFirstLesson: true,
+                activeSubjectCount: 0,
+                label: null,
+                expiresInDays: null,
+              });
+              return;
+            }
+            if (!d.hasActiveSub) { setGems(null); return; }
             let label: string | null = null;
             if (d.activeSubjectCount === 1) {
               const w = d.worstSubject;
@@ -256,6 +362,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               hasActiveSub: true,
               activeSubjectCount: d.activeSubjectCount ?? 1,
               label,
+              expiresInDays: typeof d.nearestExpiresInDays === "number" ? d.nearestExpiresInDays : null,
             });
           })
           .catch(() => {});

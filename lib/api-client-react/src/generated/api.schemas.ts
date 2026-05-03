@@ -35,6 +35,19 @@ export interface UserProfile {
   nukhbaPlan?: string | null;
   /** @nullable */
   referralCode?: string | null;
+  // The fields below exist on the live backend (see lib/db/src/schema/users.ts)
+  // and are returned by GET /api/auth/me, but the upstream OpenAPI doc is
+  // missing them. They were added here manually to keep the type-checker
+  // honest until the API spec is regenerated. Do NOT remove without first
+  // updating the spec and re-running orval.
+  /** @nullable */
+  messagesUsed?: number | null;
+  /** @nullable */
+  messagesLimit?: number | null;
+  /** @nullable */
+  subscriptionExpiresAt?: string | null;
+  /** @nullable */
+  firstLessonComplete?: boolean | null;
 }
 
 export interface UpdateProfileBody {
@@ -52,6 +65,8 @@ export interface UpdateProfileBody {
   badges?: string[] | null;
   /** @nullable */
   nukhbaPlan?: string | null;
+  /** @nullable */
+  region?: "north" | "south" | null;
 }
 
 export interface RegisterBody {

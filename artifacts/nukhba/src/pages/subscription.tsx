@@ -8,7 +8,7 @@ import {
   useGetMySubscriptionRequests,
   getGetMySubscriptionRequestsQueryKey,
 } from "@workspace/api-client-react";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -261,6 +261,23 @@ export default function Subscription() {
   })();
 
   // Discount code state
+  // Public payment settings (Kuraimi numbers + account name). Fetched once
+  // and revalidated on focus — they change rarely but admins update them
+  // through /api/admin/payment-settings, so we don't want to require a
+  // hard reload to surface a new number.
+  const { data: paymentSettings } = useQuery<Record<string, string>>({
+    queryKey: ["payment-settings-public"],
+    queryFn: async () => {
+      const r = await fetch("/api/payment-settings/public", { credentials: "include" });
+      if (!r.ok) return {};
+      const j = await r.json();
+      // Server may return either { settings: {...} } or a flat dict; accept both.
+      if (j && typeof j === "object" && j.settings && typeof j.settings === "object") return j.settings;
+      return j ?? {};
+    },
+    staleTime: 60 * 1000,
+  });
+
   const [discountInput, setDiscountInput] = useState("");
   const [discountInfo, setDiscountInfo] = useState<{
     code: string;
@@ -1109,21 +1126,29 @@ export default function Subscription() {
                   )}
 
                   <p className="text-sm font-bold mb-2">رقم حساب الكريمي:</p>
-                  {region === 'north' ? (
-                    <>
-                      <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-4 rounded-xl border border-gold/20" dir="ltr">
-                        3165778412
-                      </div>
-                      <p className="text-center text-sm mt-2 font-medium">باسم: <span className="text-gold">عمرو خالد عبد المولى</span></p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-4 rounded-xl border border-gold/20" dir="ltr">
-                        3167076083
-                      </div>
-                      <p className="text-center text-sm mt-2 font-medium">باسم: <span className="text-gold">عمرو خالد عبد المولى</span></p>
-                    </>
-                  )}
+                  {(() => {
+                    // Pull live numbers from /api/payment-settings/public; fall
+                    // back to the historical hard-coded values so the page is
+                    // never blank when the API hasn't responded yet.
+                    // Backend stores keys with dot-separators (kuraimi.north.number etc)
+                    // — see auto-migrate.ts seeds. Each region carries its own account
+                    // name so admins can route Northern vs Southern transfers to different
+                    // recipients later without a code change.
+                    const northNum = paymentSettings?.["kuraimi.north.number"] || "3165778412";
+                    const southNum = paymentSettings?.["kuraimi.south.number"] || "3167076083";
+                    const northName = paymentSettings?.["kuraimi.north.name"] || "عمرو خالد عبد المولى";
+                    const southName = paymentSettings?.["kuraimi.south.name"] || "عمرو خالد عبد المولى";
+                    const num = region === "north" ? northNum : southNum;
+                    const accountName = region === "north" ? northName : southName;
+                    return (
+                      <>
+                        <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-4 rounded-xl border border-gold/20" dir="ltr">
+                          {num}
+                        </div>
+                        <p className="text-center text-sm mt-2 font-medium">باسم: <span className="text-gold">{accountName}</span></p>
+                      </>
+                    );
+                  })()}
                   <div className="mt-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <p className="text-xs text-amber-300 text-center font-medium">
                       تأكد من تحويل المبلغ كاملاً — أي نقص سيؤخر التفعيل

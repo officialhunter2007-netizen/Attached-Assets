@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Sparkles, Send, Loader2, MessageSquarePlus, Brain, User as UserIcon, Download } from "lucide-react";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 
 type CourseRow = { subjectId: string; subjectName: string | null; students: number; messages: number; lastAt: string };
 
@@ -58,6 +58,7 @@ export function AdminInsightsChat() {
   const [focusQuery, setFocusQuery] = useState<string>("");
   const [focusInfo, setFocusInfo] = useState<{ id: number; name: string | null; email: string } | null>(null);
   const [focusNote, setFocusNote] = useState<string | null>(null);
+  const [contextTrimmed, setContextTrimmed] = useState<boolean>(false);
   const [courses, setCourses] = useState<CourseRow[]>([]);
   const [exportSubjectId, setExportSubjectId] = useState<string>("");
   const [exporting, setExporting] = useState(false);
@@ -137,6 +138,9 @@ export function AdminInsightsChat() {
     setInput("");
     setStreaming(true);
     setStreamBuf("");
+    // Clear stale context-trimmed warning from a prior turn so it can never
+    // hang under an unrelated error message or a fresh full-context answer.
+    setContextTrimmed(false);
 
     const ac = new AbortController();
     abortRef.current = ac;
@@ -157,9 +161,20 @@ export function AdminInsightsChat() {
       });
 
       if (!res.ok || !res.body) {
-        const errText = res.status === 403 ? "هذا المساعد مخصّص للمشرفين فقط." : "تعذّر الاتصال بالمساعد.";
+        let errText = res.status === 403 ? "هذا المساعد مخصّص للمشرفين فقط." : "تعذّر الاتصال بالمساعد.";
+        // Surface the real server-supplied error JSON when present (only for
+        // non-403 responses — the 403 message stays user-friendly and stable).
+        if (res.status !== 403) {
+          try {
+            const j = await res.json();
+            if (j && typeof j.error === "string" && j.error.trim()) {
+              errText = j.error;
+            }
+          } catch {}
+        }
         setMessages((p) => [...p, { role: "assistant", content: errText }]);
         setStreaming(false);
+        setContextTrimmed(false);
         return;
       }
 
@@ -168,40 +183,59 @@ export function AdminInsightsChat() {
       let buffer = "";
       let acc = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.error) {
-              acc += `\n\n_${data.error}_`;
-              setStreamBuf(acc);
-            } else if (data.content) {
-              acc += data.content;
-              setStreamBuf(acc);
-            } else if (data.done) {
-              if (acc.trim()) setMessages((p) => [...p, { role: "assistant", content: acc }]);
-              setStreamBuf("");
-              setStreaming(false);
-              abortRef.current = null;
-              const fu = data?.contextStats?.focusUser;
-              setFocusInfo(fu ? { id: fu.id, name: fu.name ?? null, email: fu.email } : null);
-              setFocusNote(data?.contextStats?.focusResolutionNote ?? null);
-              return;
-            }
-          } catch {}
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.error) {
+                // The server already follows an error payload with a
+                // `done` event, but treat the error as terminal here too
+                // so a malformed stream cannot leave the UI stuck in
+                // "…" forever. We pin the assistant message, close the
+                // reader, and bail out cleanly.
+                const finalText = acc.trim()
+                  ? `${acc}\n\n_${data.error}_`
+                  : data.error;
+                setMessages((p) => [...p, { role: "assistant", content: finalText }]);
+                setStreamBuf("");
+                setStreaming(false);
+                setContextTrimmed(false);
+                abortRef.current = null;
+                try { await reader.cancel(); } catch {}
+                return;
+              } else if (data.content) {
+                acc += data.content;
+                setStreamBuf(acc);
+              } else if (data.done) {
+                if (acc.trim()) setMessages((p) => [...p, { role: "assistant", content: acc }]);
+                setStreamBuf("");
+                setStreaming(false);
+                abortRef.current = null;
+                const fu = data?.contextStats?.focusUser;
+                setFocusInfo(fu ? { id: fu.id, name: fu.name ?? null, email: fu.email } : null);
+                setFocusNote(data?.contextStats?.focusResolutionNote ?? null);
+                setContextTrimmed(!!data?.contextStats?.contextTrimmed);
+                return;
+              }
+            } catch {}
+          }
         }
+      } finally {
+        try { reader.releaseLock(); } catch {}
       }
       if (acc.trim()) setMessages((p) => [...p, { role: "assistant", content: acc }]);
       setStreamBuf("");
     } catch (e: any) {
       if (e?.name !== "AbortError") {
         setMessages((p) => [...p, { role: "assistant", content: "حدث خطأ غير متوقّع." }]);
+        setContextTrimmed(false);
       }
     } finally {
       setStreaming(false);
@@ -214,9 +248,16 @@ export function AdminInsightsChat() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
   };
   const clearChat = () => {
+    // Abort first so any in-flight fetch's reader unwinds before we wipe
+    // state — otherwise a late chunk could re-populate the cleared chat.
     abortRef.current?.abort();
-    setMessages([]); setStreamBuf(""); setStreaming(false);
-    setFocusInfo(null); setFocusNote(null);
+    abortRef.current = null;
+    setStreaming(false);
+    setStreamBuf("");
+    setMessages([]);
+    setFocusInfo(null);
+    setFocusNote(null);
+    setContextTrimmed(false);
     if (storageKey) { try { localStorage.removeItem(storageKey); } catch {} }
   };
 
@@ -342,6 +383,13 @@ export function AdminInsightsChat() {
 
         {messages.map((m, i) => <Bubble key={i} role={m.role} content={m.content} />)}
         {streaming && <Bubble role="assistant" content={streamBuf || "···"} streaming={!streamBuf} />}
+        {!streaming && contextTrimmed && messages.length > 0 && messages[messages.length - 1].role === "assistant" && (
+          <div className="flex justify-end">
+            <div className="max-w-[88%] -mt-1 text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-400/25 rounded-lg px-2.5 py-1.5">
+              ⚠ السياق مُختصر — اطلب تركيزًا على مستخدم/فترة محددة لإجابة أدقّ.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Input */}

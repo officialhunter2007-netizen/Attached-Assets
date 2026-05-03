@@ -7,7 +7,8 @@
  * URL to the frontend via a separate SSE event so the placeholder swaps in
  * the actual image.
  *
- * Cost: ~$0.003 per image. Latency: ~1-3s typical, 8s hard timeout.
+ * Cost: ~$0.003 per image. Latency: ~1-3s typical; hard timeout
+ * configurable via FAL_TIMEOUT_MS (default 25s, see TIMEOUT_MS below).
  *
  * Arabic text inside images is impossible — FLUX (and every current diffusion
  * model) garbles non-Latin scripts. The teacher's prompt MUST contain
@@ -37,12 +38,22 @@ function ensureFalConfigured(): boolean {
 }
 
 // ── Per-user rate limit ─────────────────────────────────────────────────────
-// In-memory sliding window. Caps each user at 5 image generations per minute
+// In-memory sliding window. Caps each user at 8 image generations per minute
 // to prevent runaway cost if the model hallucinates the IMAGE tag in every
 // reply during a hot loop. This is a soft safety net on top of the per-reply
-// MAX_IMAGES_PER_REPLY cap and the system-prompt usage policy.
+// MAX_IMAGES_PER_REPLY cap (3) and the system-prompt usage policy.
+//
+// COST POLICY DECISION (task #15, May 2026): cap raised from 5 → 8/min.
+// Rationale: with the new 8-pattern library (Compare/Contrast = 2 images
+// in one turn, Curiosity Hook + Reveal across consecutive turns) a normal
+// active student can hit the 5/min ceiling within two consecutive replies
+// and silently lose images mid-lesson. 8/min preserves headroom for the
+// new patterns while still hard-capping worst-case spend at
+// 8 × $0.003 × 60 = $1.44/hour/user — well under any single user's
+// monthly subscription value. Per-reply cap stays at 3 (showcase = 1).
+// If observed cost in production exceeds projection, lower this back to 5.
 const RATE_WINDOW_MS = 60_000;
-const RATE_MAX_PER_WINDOW = 5;
+const RATE_MAX_PER_WINDOW = 8;
 const userImageTimestamps = new Map<number, number[]>();
 
 function checkRateLimit(userId: number): { allowed: boolean; retryAfterMs: number } {
@@ -78,8 +89,14 @@ export type GenerateTeacherImageParams = {
   prompt: string;
 };
 
-/** Hard upper bound on generation wall-clock (ms). */
-const TIMEOUT_MS = 8_000;
+/** Hard upper bound on generation wall-clock (ms). Tunable via FAL_TIMEOUT_MS
+ *  (default 25s). FLUX schnell normally returns in 1-3s but cold queues
+ *  occasionally take 10-15s; the previous 8s ceiling cut off legitimate
+ *  generations and showed the student a "تعذّر" error for no good reason. */
+const TIMEOUT_MS = (() => {
+  const raw = parseInt(process.env.FAL_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(raw) && raw >= 5_000 && raw <= 120_000 ? raw : 25_000;
+})();
 
 /** USD cost per FLUX.1 schnell image (fal.ai pricing as of 2025-2026). */
 export const FLUX_SCHNELL_USD_PER_IMAGE = 0.003;
@@ -124,15 +141,16 @@ export async function generateTeacherImage(
     return {
       ok: false,
       reason: "rate-limited",
-      errorMessage: `image rate limit (5/min) exceeded; retry in ${Math.ceil(rate.retryAfterMs / 1000)}s`,
+      errorMessage: `image rate limit (${RATE_MAX_PER_WINDOW}/min) exceeded; retry in ${Math.ceil(rate.retryAfterMs / 1000)}s`,
       latencyMs: 0,
     };
   }
 
   // ── fal.subscribe with a hard timeout ────────────────────────────────────
   // fal.subscribe waits for the queued job to finish and resolves with the
-  // final result payload. We race it against a hard 8s timer so a stuck
-  // fal.ai queue can't stall the teaching reply for half a minute.
+  // final result payload. We race it against a hard timer (TIMEOUT_MS,
+  // FAL_TIMEOUT_MS-tunable, default 25s) so a stuck fal.ai queue can't
+  // stall the teaching reply.
   let timeoutHandle: NodeJS.Timeout | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(

@@ -12,6 +12,117 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 - **No daily carry-over**: at every Yemen midnight, the unused portion of yesterday's daily allowance is forfeited from `gemsBalance` (platform retains the value). For each fully-skipped day within the subscription window, the entire daily limit is forfeited. Forfeit stops at `gemsExpiresAt`. Implemented atomically in `lib/gems.ts::applyDailyGemsRollover` (legacy/usersTable) and `applyDailyGemsRolloverForSubjectSub` (per-subject) via conditional UPDATE — race-safe with concurrent gem deductions.
 - **Free first session** per subject = 80 gems; tracks via `userSubjectFirstLessonsTable.freeMessagesUsed`. Bumped from 50 → 80 to give the AI's "first-lesson showcase" mode enough headroom to build a hands-on lab env, optionally invite the student to the code editor, and still leave room for the first real teaching message — without cutting the student off mid-tour.
 - **First-lesson showcase mode** (`buildFirstLessonShowcaseAddendum` in `ai.ts`): when `isFirstLesson && !isDiagnosticPhase`, the teaching system prompt gains an addendum that redirects the AI from "lecture-mode" into a 90-second hands-on tour — proactively using `[[CREATE_LAB_ENV: ...]]` to demonstrate a practical environment matching the subject, mentioning the in-chat code editor for coding subjects, and surfacing mistake/stage tracking through actual use rather than description. Goal: the student's *first* impression of the platform is power, not chat.
+
+## Teacher session UI polish (Task #19, May 2026)
+
+The `/subject/:subjectId` chat got an end-to-end UX upgrade without changing
+streaming, `[[CREATE_LAB_ENV]]`, `[[IMAGE:id]]`, gem accounting, summary or
+stage flow:
+
+- **Rich rendering inside teacher bubbles**: `highlight.js` (github-dark) for
+  every `<pre><code class="language-…">` block, KaTeX for `$…$` and `$$…$$`
+  expressions. Math is extracted from the markdown source BEFORE
+  `marked()` + DOMPurify (placeholders `XNUKHBAMATHX…XENDMATHX`) and
+  re-injected as KaTeX HTML AFTER sanitization, so neither the parser nor
+  the sanitizer can corrupt LaTeX. A "نسخ" button is auto-injected over each
+  code block (visible on hover desktop, always on mobile). All this lives
+  in `src/lib/teacher-render.ts` (`extractMathBlocks` /
+  `restoreMathPlaceholders` / `enhanceTeacherDom`); the global imports are
+  in `main.tsx` (`highlight.js/styles/github-dark.css`, `katex/dist/katex.min.css`).
+- **Per-message toolbar**: copy / regenerate / TTS toggle / 👍👎 / share
+  under every completed AI bubble (hidden during streaming). Regenerate
+  reads the latest committed history from `messagesRef` (no stale
+  closure) and re-sends. TTS uses `speechSynthesis` (`ar-SA`). Ratings
+  POST to `POST /api/ai/feedback` (best-effort, never throws back) which
+  inserts into `teacher_feedback` (`user_id`, `subject_id`, `rating`,
+  `stage_index`, `difficulty`, `message_sample` ≤280 chars) — auto-
+  created by `auto-migrate.ts` on boot, indexed on `(subject_id,
+  created_at)` and `(rating, created_at)` for the future "تقييمات
+  الطلاب" admin tab. Implemented as `<MessageToolbar>` in `subject.tsx`.
+- **Pro input box**: image attach (file or paste) + mic (SpeechRecognition,
+  `ar-SA`) + 4000-char counter + 500ms-debounced draft autosave per
+  subjectId. Drafts restore on remount. **Attachments do NOT bloat
+  history**: the persisted user message is a slim `📎 [صورة مرفقة]`
+  placeholder, while the data URL is sent ONCE inline with that turn's
+  outgoing `userMessage` + last `history` row (via the new
+  `sendPayloadOverride` 6th param of `sendTeachMessage`). Subsequent
+  turns therefore never re-transmit the multi-megabyte base64 blob.
+  File input uses a typed `useRef<HTMLInputElement>` (no `window` global).
+  Helpers in `src/lib/draft-storage.ts` and `src/lib/web-speech.ts`.
+- **Session header (above the mode mini-bar)**: subject name on the right,
+  elapsed-time tab + map icon + difficulty badge in the middle. The map
+  icon opens the **LearningPath as a side `Drawer`** (vaul, RTL right side,
+  full-page on phones) instead of stealing vertical space inline. Timer
+  hook = `useElapsedTimer(running, paused)` — accumulates on a ref so
+  pause/resume don't lose progress.
+- **Expanded session-actions menu** (existing dropdown got a "التحكم بالجلسة"
+  section): Pause (overlay blocks input + timer freezes), Restart current
+  stage (synthesizes a "أعد لي شرح هذه المرحلة من البداية…" user message —
+  doesn't touch `messages` so we don't desync the state machine),
+  Difficulty submenu (مبسّط / عادي / متقدّم, persisted to localStorage,
+  sent on every `/ai/teach` POST as `difficultyHint`. The backend
+  validates it (collapses unknown values to `"normal"`) and, when the
+  phase is *not* diagnostic, appends a difficulty-specific Arabic
+  addendum to the teaching system prompt — `easy` slows the pace and
+  uses Yemeni daily-life analogies, `advanced` raises challenge density
+  and assumes prior knowledge), Export PDF (dynamic `import('jspdf')` +
+  `import('html2canvas')`, multi-page A4 tile of the messages container —
+  zero bundle cost until clicked), Copy share link (`navigator.clipboard`),
+  End & save summary (existing handler).
+- **Lightbox enhancements**: zoom in/out (0.5–4x with %label), download
+  (fetch + blob → `nukhba-{subjectId}-{ts}.png` — `subjectId` is threaded
+  through `<AIMessage>` so different subjects produce distinguishable
+  filenames), drag-to-pan when zoomed (PointerEvent capture on the
+  `<img>`, scaled by current zoom level so the panning feels 1:1
+  regardless of zoom), caption from `<figcaption>`, and "اشرحها لي مرة
+  أخرى" — sends a synthesized user message embedding the image so the
+  teacher can elaborate on the figure. The new toolbar floats inside the
+  existing lightbox overlay (`.teach-image-lightbox-toolbar`).
+- **LearningPath drawer body**: the side-drawer panel now leads with a
+  pure-SVG circular progress ring (gold gradient stroke, % label inside)
+  + active-stage headline. Each stage row carries a status pill
+  (مكتملة / الحالية / مقفلة 🔒) and a "اقفز هنا ←" / "↻ راجع هذه
+  المرحلة" button. Jumping doesn't desync the state machine — it
+  synthesizes a stage-request user message and lets the server's
+  next-stage protocol drive `currentStage`.
+- **Welcome empty-state**: centered card with subject name + mode badge +
+  3-4 keyword-aware starter chips (cyber / network / programming /
+  accounting / physics fallbacks). Visible only when
+  `messages.length === 0 && !isStreaming && planLoaded && !chatGated &&
+  chatPhase !== 'diagnostic'` — replaced by the bootstrap teacher reply
+  within ~50ms of mount, so it primarily helps returning users with a
+  cleared history.
+- **Unified `<TeacherErrorState>`**: one component now renders the
+  stream-truncated, diagnostic-incomplete and recording-error banners
+  with a tone prop (`warning` / `danger` / `info`).
+- **Mobile polish**: toolbar labels collapse to icons-only under 480px;
+  Drawer becomes full-width on phones; `xs:` breakpoint helper added.
+
+CSS additions (~310 lines) appended at end of `src/index.css` under the
+"TASK #19 — TEACHER SESSION UI" banner. New deps: `highlight.js`, `katex`,
+`@types/katex`, `jspdf`, `html2canvas`. Streaming, `[[IMAGE:id]]`,
+`[[CREATE_LAB_ENV]]`, gem deduction, `[STAGE_COMPLETE]` flow, summary
+endpoint and the per-stage study-card side-effect were not touched.
+
+## Teacher content-policy guardrails (May 2026)
+
+The teaching system prompt is the AI teacher's only mouth. Anything it promises must be a real, working platform feature — empty promises are worse than missing features. The `/subject/:id` audit (Task #9) found and fixed three classes of "lying":
+
+- **No fake UI references.** The teacher must never say "اضغط الزر في الأسفل" or "افتح قائمة الميزات" or anything else that requires a UI element the platform doesn't render. The IDE is in the chat **header** (gold IDE button), not under the message — the prompt now says so explicitly. The lab/material/quiz buttons are in the mode mini-bar at the top of the chat, not in floating action sheets.
+- **No fake feature names.** Earlier copies of the prompt told the student to "open the 'My Mistakes' list" — that page does **not** exist. The mistake bank is internal: the model uses `[MISTAKE: ...]` tags to remember errors and weave them back into future explanations. The prompt now describes the feature accurately ("سأذكّرك به وأربطه بالشرح في الجلسات القادمة").
+- **No tags without a frontend handler.** `[[MINI_PROJECT: title | desc]]` was being emitted by the model but had **no parser** in `subject.tsx`, so it rendered as raw bracketed text in the bubble. Removed from the allowed-tags list and from the rules in `buildSystemPromptForTeach`. Mini-projects are now plain HTML inside `<div class="question-box">…</div>` — they render natively and look like every other call-to-action box.
+- **No external-app suggestions for unsupported languages.** The "language not in our IDE" branch used to recommend VS Code / replit.com / Dcoder. The platform has no such partnership and pointing students off-platform during a paid session is a leak. The prompt now offers an in-chat walkthrough only.
+
+The matching audit also fixed three frontend bugs in `pages/subject.tsx`:
+
+- **Stale chat history.** `sendTeachMessage` was sending `history: messages` with the just-typed user turn missing (because `setMessages` is async). Replaced with `[...messages, { role: "user", content: text }]` so the server always sees the full exchange.
+- **`chatPhase` not persisted.** Refreshing the page mid-diagnostic restored messages but reset `chatPhase` from `'diagnostic'` to `'teaching'`, stranding the student with no plan and no way to continue. `chatPhase` is now persisted alongside `messages` and `currentStage` in localStorage.
+- **Retry buttons spammable mid-stream.** The "أعد إرسال" and "أعد بناء الخطة" buttons had no `disabled={isStreaming}` guard, so a fast double-click could fork the stream. Both buttons now disable themselves while a stream is in flight and show the standard 40% opacity treatment.
+
+Plus three UI tightenings:
+- Stage progress bar auto-switches to a compact "X / Y + current stage name" layout when there are more than 5 stages — the dotted bullets crammed badly on 360px phones.
+- Mode mini-bar collapses quiz/exam/sources buttons to icons-only on `<sm` viewports (text labels return at `sm:` and up); `aria-label`s preserve accessibility.
+- AI message bubble width on mobile widened to `calc(100vw - 50px)` (user bubble: `calc(100vw - 60px)`) to reclaim the awkward dead-space between bubble and screen edge.
 - **Gem deduction** = `ceil(costUsd * 1000)` per AI turn, applied post-response.
 - **Gems badge** 💎 in header shows `dailyRemaining / gemsDailyLimit` (red when < 20 daily or < 200 balance). **Subject-aware**: only renders inside `/subject/:subjectId/...` routes — derives the current subject from the URL and queries `/api/subscriptions/gems-balance?subjectId=X`. On every other page (dashboard, subscription, learn, etc.) the badge is hidden because there is no single "current" wallet in the per-subject world. Polls every 10s and listens for `nukhba:gems-changed` window event for instant refresh after each AI turn.
 - **Payment flow**: subject picker → plan picker → manual Kuraimi transfer → admin approves in admin panel → gems credited to **that subject's wallet only**.
@@ -30,7 +141,7 @@ AI-powered Yemeni educational platform with personalized learning paths, gamific
 - **Build**: esbuild (bundle)
 - **Frontend**: React + Vite + Tailwind CSS + Framer Motion
 - **AI (Teaching)**: Gemini 2.0 Flash via **OpenRouter (the only billable channel)** — ONLY model for students, with **no exceptions** (including admin/unlimited accounts and the per-stage study-card side-effect that lives inside `/ai/teach`). The Google-direct fallback was removed in May 2026 because the user's Google AI Studio key is hard-capped on the free tier and cannot be billed. When OpenRouter is unreachable, students see "خدمة المعلّم متوقفة مؤقتاً للصيانة" and the operator gets a critical alert in the admin panel (see Admin Alerts below). The previous Sonnet-for-admin and Haiku-safety-net paths inside `/ai/teach` were removed in May 2026 per the explicit directive "احصر استخدام المعلم الذكي على Gemini 2.0 Flash فقط لا غير".
-- **AI (Teacher Illustrations)**: **FLUX.1 [schnell] via fal.ai** (`@fal-ai/serverless-client`) — generates inline diagrams during `/ai/teach` streams. Pure-visual constraint (NO text in image; teacher writes Arabic `<figcaption>` in HTML) keeps Arabic typography off the model. Cost: **$0.003/image** (1 token in `lib/ai-pricing.ts` as `flux-schnell`, output=3000 to map ceil(0.003*1000)=3 gems via the existing turn-cost path). Capped at **2 images per turn**, **5 images per minute per user** (in-memory sliding window in `lib/image-generation.ts`), 8s hard timeout. Triggered when the model emits `[[IMAGE: prompt]]`; the streaming detector in `routes/ai.ts` rewrites it to `[[IMAGE:hexid]]`, fires SSE `imagePlaceholder` immediately, kicks off `falSubscribe("fal-ai/flux/schnell")` in the background, and emits `imageReady`/`imageError` when settled. **Mandatory in first-lesson showcase** (1 image), **sparing in normal turns** (only when truly explanatory). Frontend (`pages/subject.tsx`) tracks an `imageMap` keyed by hex id; `AIMessage` swaps placeholder `<figure data-image-id>` for real `<img>` reactively. Persisted messages get the URL replaced with `<p class="image-historical">[صورة توضيحية: prompt]</p>` because fal.ai CDN URLs expire (~1h). Gated entirely on `FAL_KEY` env var — no key ⇒ feature silently disabled, addendum text not added to prompt. Provider tag in `recordAiUsage` is `"fal-ai"`.
+- **AI (Teacher Illustrations)**: **FLUX.1 [schnell] via fal.ai** (`@fal-ai/serverless-client`) — generates inline diagrams during `/ai/teach` streams. Pure-visual constraint (NO text in image; teacher writes Arabic `<figcaption>` in HTML) keeps Arabic typography off the model. Cost: **$0.003/image** (1 token in `lib/ai-pricing.ts` as `flux-schnell`, output=3000 to map ceil(0.003*1000)=3 gems via the existing turn-cost path). Capped at **3 images per turn** (1 in the first-lesson showcase opener), **8 images per minute per user** (in-memory sliding window in `lib/image-generation.ts`), 8s hard timeout. Triggered when the model emits `[[IMAGE: prompt]]`; the streaming detector in `routes/ai.ts` rewrites it to `[[IMAGE:hexid]]`, fires SSE `imagePlaceholder` immediately, kicks off `falSubscribe("fal-ai/flux/schnell")` in the background, and emits `imageReady`/`imageError` when settled. **Task #15 (May 2026) — Pedagogical pattern library:** the `imageTagDoc` block in `buildGeminiTeachingAddendum` now teaches the model 8 patterns (Curiosity Hook, Visual Riddle, Compare/Contrast, Visual Metaphor, Scenario, Process Step, Reveal, Memory Anchor) with concrete English `[[IMAGE:…]]` examples and Arabic `<figcaption class="image-caption"><strong>…</strong></figcaption>` companion sentences. The old "70% of replies need no image" + "only naturally-visual concepts" restrictions were lifted — images are now used whenever they add real pedagogical value. Compare/Contrast emits two consecutive figures that lay out side-by-side ≥640px (`.teach-image + .teach-image` rule in `index.css`) and stack vertically on mobile. **Stuck-spinner bug fix:** the server emits exactly one terminal SSE event (`imageReady`/`imageError`) on every code path including the unexpected-throw branch, every event is `console.log`-tagged with `[ai/teach/image] placeholder/ready/error sent id=…`. The frontend `AIMessage` schedules a 10s **local timeout** per loading figure that flips to error if no terminal SSE event arrived; tracks `localTimedOutRef` so a late `imageReady` after timeout doesn't undo the error message; logs every transition under `console.debug('[teach-image]', …)`; and adds `img.onerror` fallback for expired-CDN historical figures. Frontend (`pages/subject.tsx`) tracks an `imageMap` keyed by hex id; `AIMessage` swaps placeholder `<figure data-image-id>` for real `<img>` reactively. Persisted messages get the URL replaced with `<p class="image-historical">[صورة توضيحية: prompt]</p>` because fal.ai CDN URLs expire (~1h). Gated entirely on `FAL_KEY` env var — no key ⇒ feature silently disabled, addendum text not added to prompt. Provider tag in `recordAiUsage` is `"fal-ai"`.
 - **AI (Lesson/Interview/Plan)**: GPT-4o via OpenRouter
 - **AI (Summaries)**: Claude Sonnet 4.6 via OpenRouter
 - **AI (PDF OCR)**: Gemini 2.5 Flash/Pro via **OpenRouter only** (uses `lib/openrouter-generate.ts`), then Claude Sonnet 4.5 for scanned PDFs
@@ -150,7 +261,7 @@ Three red lines, all enforced server-side in `artifacts/api-server/src/routes/ai
 Other teaching-depth pieces in the same file:
 - **Mistakes bank**: top 10 unresolved `student_mistakes` rows are loaded and injected into the teaching system prompt. The teacher emits `[MISTAKE: topic ||| text]` to add new ones and `[MISTAKE_RESOLVED: <id>]` to mark them resolved; both tags are parsed off the streamed output and persisted.
 - **Per-stage study card**: when the teacher emits `[STAGE_COMPLETE]`, a fire-and-forget **Gemini 2.0 Flash** call (via OpenRouter, `lib/openrouter-generate.ts:generateGemini`) generates a compact HTML "what you mastered today" card and saves it to `study_cards` (gated by `!forceCheapModel` to protect tight-budget subscriptions). Switched off Haiku in May 2026 so `/ai/teach` contains zero Anthropic SDK calls — the entire teaching surface, including this side-effect, is now strictly Gemini-only.
-- **Teach-back gate + mini-project**: prompt-level rules require a teach-back before `[STAGE_COMPLETE]`, and ask the teacher to propose one applied `[[MINI_PROJECT: ...]]` per stage.
+- **Teach-back gate + mini-project**: prompt-level rules require a teach-back before `[STAGE_COMPLETE]`, and ask the teacher to propose one applied mini-project per stage. **(May 2026)** the mini-project is now plain HTML inside `<div class="question-box">…</div>` — the `[[MINI_PROJECT: title | description]]` tag was deprecated because it had no frontend renderer and rendered as raw bracketed text in the bubble. See "Teacher content-policy guardrails" above.
 - **Smart-Teacher prompt v3 (May 2026 — Socratic + human-tone upgrade)**: `teachingSystemPrompt` in `routes/ai.ts` now ships four reinforcing layers on top of the prior structure: (a) **🎭 Mandatory openings** — 10 opening patterns (curiosity-shock question, scene, paradox, link-to-student-words, warm acknowledgement, genuine excitement, personal anecdote, mini-challenge, life-hook, visual hook), max 15 words, **no consecutive repeats**, banning all "المفهوم هو..." / "سنتحدث عن..." textbook starts; (b) **🚫 Banned machine phrases** — explicit ban list ("سأشرح لك" / "دعني أُوضّح" / "يُلاحَظ أن" / "يمكن القول إن" / "تجدر الإشارة" / "في هذا السياق" / "بشكل عام" / "بشكل أساسي" / "من الجدير بالذكر" / "وفقاً لما سبق") with everyday Yemeni alternatives ("خلّيني أوريك" / "شف هنا" / "ببساطة" / "خلاصة الموضوع"), plus a no-back-to-back-praise rule (no "ممتاز" / "رائع" / "أحسنت" twice in a row — must vary); (c) **🧠 Thinking-provocation protocol (7 sub-laws)**: curiosity-hook before every new concept, predict-then-reveal before any new result (rhetorical mini-prediction inside the body), "كيف وصلت؟ → ليش هذي وليس [بديل]؟" chain on correct answers (max 2 hops), proactive misconception-bait every 3-4 turns, cross-domain linking, "explain in your own words" instead of "did you understand?", and Socratic contradiction on wrong answers (agree-then-show-where-it-breaks instead of correcting); (d) Reordered teaching-reply structure (now 7 steps starting with `Curiosity Hook → Bridge to prior → Example-then-definition → Predict-then-reveal → Triple representation → Thinking-provocation close → Scaffolding`) and rewritten "التعامل مع الإجابات" section that forbids bare "ممتاز" replies on correct answers, mandates "كيف وصلت؟" follow-up, and forbids direct correction on wrong answers in favor of Socratic contradiction first. Self-check checklist gained 5 new bullets covering all of the above. Word caps unchanged (220 default / 350 for new dense concept). Out of scope: `diagnosticSystemPrompt`, `formattingRules`, `codingRules`, `teaching-router.ts`, lab-report / MASTERY handling, all UI tag formats. Verified build via `pnpm --filter @workspace/api-server run build`.
 
 **All other student-facing Gemini fallbacks also use Gemini 2.0 Flash (May 2026)**: `/ai/platform-help` (the in-app assistant), `/ai/lab/generate-variant`, `/ai/lab/build-env`, and `/ai/attack-sim/build` were previously pinned to the 2.5-Flash variant as a Sonnet fallback path. They are now uniformly locked to `gemini-2.0-flash` so the entire student-facing surface bills at the cheaper input/output rate ($0.10 / $0.40 per 1M tok vs $0.30 / $2.50). The 2.5-Flash and 2.5-Pro pricing entries remain in `lib/ai-pricing.ts` and the Gemini OpenRouter map (used by admin OCR in `routes/materials.ts`) so admin-side accuracy work is unchanged.
@@ -166,6 +277,49 @@ Every student-facing AI route in `artifacts/api-server/src/routes/ai.ts` is hard
 - **`/ai/lesson`, `/ai/lab/exam/start`, `/ai/lab/generate-variant`**: the pre-route DB calls (`getUser`, `getSubjectAccess`, `getCostCapStatus`) are individually wrapped — same Arabic 503 surface, no bare 500s reach the student.
 - **Cost-cap fails CLOSED on `/ai/lab/generate-variant`**: this endpoint invokes Sonnet 4.6 with 24k max-tokens, so a `getCostCapStatus` DB error returns 503 instead of allowing the call (the in-memory burst limit is only ~6/min/user, not a daily budget guard — fail-open would let prolonged DB instability translate into uncapped spend).
 - The student is **never charged** when these catches fire: the gem-deduction block is gated by `chargeable` (which requires the model produced content), so pre-stream throws never reach it. Mid-stream throws happen after the student already received their answer.
+
+## Gems / Payments / Subscriptions audit (Task #21, May 2026)
+
+End-to-end audit & hardening of the gems-and-payments stack. Three new tables, two new admin tabs, full audit trail on every gem movement, and graceful boot behavior so the api-server starts even when no AI provider key is configured.
+
+- **`gem_ledger` table**: append-only journal of every gem movement (`grant`, `debit`, `refund`, `adjust`, `forfeit`, `extend`). Each row records `delta` / `balanceAfter` / `reason` / `source` / `note` / `adminUserId`. Helper at `artifacts/api-server/src/lib/gem-ledger.ts::writeGemLedger` is **best-effort** — it swallows DB errors and logs them so a ledger-write failure NEVER blocks an AI stream or a payment approval. Sources used today: `approve_request`, `activate_card`, `admin_grant`, `admin_refund`, `admin_adjust`, `ai_teach`, `daily_rollover`, `subscription_extend`, `subscription_revoke`. Reasons used: `grant`, `debit`, `refund`, `adjust`, `forfeit`, `extend`. Read-only filterable view at `GET /api/admin/gem-ledger?userId=&subjectSubId=&reason=&from=&to=&limit=` powers the new "سجل الجواهر" admin tab.
+- **`discount_code_redemptions` table** + four new columns on `discount_codes` (`max_uses`, `per_user_limit`, `starts_at`, `ends_at`): hardens discount validation. Validate (`/subscriptions/discount/validate`) and apply (inside the approve transaction) now reject codes that are exhausted (`usage_count >= max_uses`), not yet active (`starts_at > now`), expired (`ends_at < now`), or where the requesting user has already used the code `per_user_limit` times. The redemption row is inserted in the same transaction as the approval so the per-user counter can never drift from `usage_count`. Admin form (rewritten `admin-discount-codes.tsx`) accepts the four new fields on create and edit, shows status badges (`نفد` / `منتهي` / `لم يبدأ` / `متوقف` / `مفعّل`), and lists subscribers per code.
+- **`payment_settings` table** + `GET/PUT /api/admin/payment-settings` + public `GET /api/payment-settings/public`: Kuraimi numbers and account names are now admin-editable instead of hard-coded constants. Seeds use **dot-separated keys** (`kuraimi.north.number`, `kuraimi.north.name`, `kuraimi.south.number`, `kuraimi.south.name`) — north and south carry separate names so future routing to different recipients per region is a config change, not a deploy. The subscription page (`subscription.tsx`) reads from `/api/payment-settings/public` and falls back to the historical hard-coded values so the page is never blank during a brief API hiccup.
+- **Refund / grant gems with mandatory reason** (`POST /api/admin/subject-subscriptions/:subId/refund-gems`): `delta` is signed (positive grants, negative refunds), capped at ±100k per call, clamped to `[0, messagesLimit]` server-side. `reason` is REQUIRED (≥3 chars) and frontend-enforced + backend-enforced — every adjustment is recorded in the gem ledger for audit, so it must be impossible to submit without one. Surfaced from the per-subject row in the "اشتراكات المواد" admin tab via a yellow "جواهر" button → dialog with quick-amount chips (±100/±500/+1000), reason textarea, and live count.
+- **Pre-turn gem-balance gate in `ai.ts`**: every `/ai/teach` turn now checks the live balance before any AI call (not only on `isNewSession` — the previous behavior let students rack up zero-balance turns within an existing session). Per-turn debits write a `debit` row to the gem ledger with `source="ai_teach"` and the model/tokens in `note`.
+- **Subscription expiry warning** in the header `GemsBadge` (`app-layout.tsx`): `nearestExpiresInDays` is returned by both `/api/subscriptions/gems-balance` and `/api/subscriptions/gems-balance-summary`, surfaced as orange-warn (`<7d`) and red-alert (`<2d`) tints around the badge. Lets the student see "your access ends in 3 days" without opening a separate page.
+- **New admin tabs**: `gem-ledger` (filterable journal — user/subject/reason/date with totals row) and `payment-settings` (per-key edit form). Plus a per-subject "جواهر" button on every row of "اشتراكات المواد".
+- **Boot-resilience side-fix** (`lib/integrations-{openai-ai-server,anthropic-ai}/src/**/client.ts`): the OpenAI/Anthropic integration clients used to throw at module-import time when `OPENROUTER_API_KEY` was unset, killing the entire api-server boot — even when nothing on the request path needed AI. They now use a lazy `Proxy` that defers the missing-key error to the first real call, matching the documented "graceful degradation" policy from the Teaching section above. Unrelated routes (admin, payments, gem ledger) now boot cleanly in dev environments without any AI provider key.
+- **Schema files**: tables live in `lib/db/src/schema/subscriptions.ts` and are auto-migrated on boot via `artifacts/api-server/src/lib/auto-migrate.ts` (CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS + idempotent seeds for the four `payment_settings` rows).
+
+## Personalized Learning Path Strengthening (Task #37, May 2026)
+
+Three layered upgrades that enforce the AI teacher's commitment to each student's custom plan:
+
+### 1 — Rich diagnostic plan (6-field stages)
+- `diagnosticSystemPrompt` (ai.ts ≈ line 1363) now outputs a structured HTML template per stage with CSS classes: `stage-objectives`, `stage-microsteps`, `stage-deliverable`, `stage-mastery`, `stage-reason`, `stage-prerequisite`. Three worked examples (محاسبة / شبكات / رياضيات) anchor the format.
+- `POST /api/user-plan` runs `validatePlanQuality()` (plans.ts) before saving — rejects (422) plans missing any of the 6 fields or with fewer than 5 stages. Also adds `PATCH /api/user-plan/micro-step` endpoint to persist micro-step completions.
+- `auto-migrate.ts` adds `current_micro_step_index` (integer DEFAULT 0) and `completed_micro_steps` (text DEFAULT '[]') to `user_subject_plans`.
+
+### 2 — Stage contract in every teaching turn
+- `sendTeachMessage` (subject.tsx) now extracts the active stage's rich object from `parsePlanStages(customPlan)` and sends it as `currentStageContract` + `isNewStage` in the `/api/ai/teach` request body.
+- `teachingSystemPrompt` (ai.ts ≈ line 1705) injects a `━━━ 📋 عقد المرحلة الحالية` block with all 6 contract fields so the model is bound to the student's agreed objectives and micro-steps, not generic defaults.
+- When `isNewStage = true`, the prompt requires the teacher to open with a stage roadmap and an ASK_OPTIONS check of prior knowledge.
+- Growth reflection paragraph (3–4 sentences comparing now vs. diagnostic baseline) is required before `[STAGE_COMPLETE]`.
+
+### 3 — Micro-step progress + mastery drift guard
+- Server parses `[MICRO_STEP_DONE: N]` tags after stream ends; indices forwarded in the done SSE event as `microStepsDone`.
+- Client `setCompletedMicroSteps` tracks completed indices per stage; each time the done event fires they're persisted via `PATCH /api/user-plan/micro-step`.
+- **Mastery drift guard**: if `[STAGE_COMPLETE]` fires but the agreed mastery criterion has <25% word overlap with the response, server sets `stageComplete=false` and emits `masteryDriftDetected: true` + `intendedNextStage: stageIdx+1`. Client shows a confirm dialog — student can advance (using `intendedNextStage`, not the suppressed `nextStage`) or stay.
+- Drift events logged as `[AUDIT][ai/teach] mastery_drift_suppressed` (structured JSON) instead of console.warn.
+- `LearningPathPanel` redesigned with expandable stages (click to expand), micro-step checklist with ✓ per completed step, and a live progress bar.
+- `parsePlanStages` / `validatePlanQuality` both use depth-aware `getOutermostOlContent()` + `getTopLevelLiItems()` helpers instead of non-greedy regex (old regex stopped at the first nested `</ol>` inside `stage-microsteps`, returning garbage stage data).
+- `validatePlanQuality` also checks: ≥3 micro-steps per stage, ≥2 objectives per stage, mastery criterion ≥15 chars, reason ≥20 chars.
+- **Drizzle schema updated**: `userSubjectPlansTable` now declares `currentMicroStepIndex` and `completedMicroSteps` columns. Removes all `as any` casts in plans.ts update paths.
+- `GET /api/user-plan` returns `completedMicroSteps` as a parsed `number[]`; frontend initialises from it on mount.
+- **`LearningContractCard`**: shown after `[PLAN_READY]` as a fixed overlay — student sees all stage titles + mastery criteria, clicks "أعتمد الخطة وأبدأ" (fires `pendingTeachStart`) or "أريد تعديلاً" (sends revision message to teacher).
+- Compact path badge now shows the name of the next incomplete micro-step as a secondary subtitle.
+- Manual quality check scenarios: `.local/checks/personalized-path-quality.md`.
 
 ## Design System
 

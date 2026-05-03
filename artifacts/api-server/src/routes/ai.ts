@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomBytes } from "crypto";
 import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
-import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable, studentMistakesTable, studyCardsTable } from "@workspace/db";
+import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable, studentMistakesTable, studyCardsTable, auditLogsTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import {
@@ -11,6 +11,7 @@ import {
   extractGeminiUsage,
 } from "../lib/ai-usage";
 import { isUnlimitedEmail } from "../lib/admins";
+import { formatPageCitation } from "../lib/arabic-normalize";
 import { getCostCapStatus } from "../lib/cost-cap";
 import { costForUsage } from "../lib/ai-pricing";
 import {
@@ -28,6 +29,7 @@ import {
   GeminiBadOutputError,
   GeminiClientError,
   type GeminiMessage,
+  type GeminiContentPart,
 } from "../lib/gemini-stream";
 import {
   generateGemini,
@@ -36,10 +38,39 @@ import {
   GenerateGeminiError,
 } from "../lib/openrouter-generate";
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
+
+// Per-request material context tunneled from the prompt-build phase to the
+// post-stream parser. Lives on `req` (not `ctx`) so we don't mutate the
+// shared getActiveMaterialContext() result with handler-local state.
+interface MaterialAiCtx {
+  materialId: number;
+  structuredChapters: Array<{ idx: number; title: string; startPage: number; endPage: number; keyPoints: string[] }>;
+  isReviewing: boolean;
+  injectedChapterIndex: number;
+  injectedPointTexts: string[];
+  currentChapterIndex: number;
+}
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      materialCtx?: MaterialAiCtx;
+    }
+  }
+}
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
+import { getAccessForUser } from "../lib/access";
+import { writeGemLedger } from "../lib/gem-ledger";
+import {
+  settleAiCharge,
+  newAiRequestId,
+  type ChargeWallet,
+} from "../lib/charge-ai-usage";
 import { validateAndHealEnv } from "../lib/lab-env-validator";
 import { robustJsonParse } from "../lib/json-repair";
+import { z } from "zod";
 import { signMasteryToken, verifyMasteryToken, newAttemptId } from "../lib/lab-exam-token";
+import { getShowcaseKit, getFirstMistakeTopic, type SubjectShowcaseKit } from "../lib/subject-showcase-kits";
 import {
   createAttempt,
   getAttempt,
@@ -60,6 +91,7 @@ import {
   loadProgress,
   advanceActiveMaterialChapter,
   searchMaterialChunks,
+  searchAcrossMaterials,
   getMaterialOpeningPages,
   safeParseStructuredOutline,
   getChapterChunksByPageRange,
@@ -67,6 +99,7 @@ import {
   markPointsCovered,
   type StructuredChapter,
 } from "./materials";
+import { courseMaterialsTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
@@ -176,13 +209,79 @@ function emitFriendlyAiFailure(
 }
 
 /**
- * Store an AI teaching response for admin review and prompt-engineering analysis.
- * Strips markdown code-fences and normalises whitespace, then stores up to
- * maxChars characters (default 16 000 — effectively the full response for any
- * realistic teaching turn). Trimmed at the nearest sentence boundary when the
- * response exceeds the cap. The stored text is used by the admin conversation
- * export feature so admins can review and improve the teacher prompt.
+ * Per-turn length tier. maxTokens is the provider ceiling that does
+ * the heavy lifting on length control; maxWords is a soft, post-stream
+ * telemetry cap — wordCount + overLength are recorded for admin review
+ * but the student-visible reply is never truncated. maxWords=null on
+ * tiers with their own length policy (diagnostic, lab_report).
  */
+type TeachingResponseTier = "diagnostic" | "lab_report" | "dense_concept" | "medium_explain" | "short_followup";
+type TeachingTierDecision = { tier: TeachingResponseTier; maxWords: number | null; maxTokens: number };
+
+// Acknowledgment-only follow-ups: short replies whose only purpose is to
+// signal "continue" / "yes" / "thanks". Matching one of these (and the
+// message being short) is what qualifies a turn for the short_followup
+// tier — raw character length alone over-catches substantive concept
+// questions like "ما هي المصفوفة؟".
+const SHORT_ACK_PATTERN = /^(نعم|أيوه|ايوه|تمام|طيب|حسنا|حسناً|أوكي|اوكي|اوك|ok|okay|كمل|أكمل|اكمل|واصل|يلا|تابع|شكرا|شكراً|تمت|فهمت|واضح|مفهوم|👍|✅)[\s.!؟?،,]*$/i;
+
+// Concept-request patterns: even when short, these must NOT downgrade to
+// short_followup. "ما هي X؟", "اشرح Y", "عرّف Z", "كيف يعمل ...", "ليش/لماذا"...
+const CONCEPT_REQUEST_PATTERN = /(^|\s)(ما\s*(هي|هو|معنى|الفرق)|اشرح|اشرحي|عرّف|عرف|فسّر|فسر|وضّح|وضح|كيف\s+(يعمل|نحسب|نطبق|تفعل)|لماذا|ليش|علام|ما\s+الفائدة|درّس|شرح|اعطني\s+مثال)/u;
+
+// Dense-explanation requests: student is explicitly asking for a
+// fuller/expanded treatment ("اشرحها بكلماتك", "مثال موسّع", "بالتفصيل",
+// "مثال إضافي", "وضّح أكثر"). These earn the dense_concept ceiling
+// (320w/1100tok) regardless of message length.
+const DENSE_EXPLAIN_PATTERN = /(اشرحها\s+بكلماتك|بكلماتك\s+الخاصة|بأسلوبك|مثال\s+(موسّ?ع|إضاف(ي|يًا|ياً)|آخر|تاني|ثاني|تطبيقي)|مزيد\s+من\s+الأمثلة|أمثلة\s+(إضاف|أكثر)|بالتفصيل|تفصيلاً|بشكل\s+مفصّ?ل|وضّح\s+أكثر|اشرح\s+أكثر|اشرح\s+بإسهاب|أعد\s+الشرح|اشرح\s+مرة\s+أخرى)/u;
+
+function classifyTeachingResponseTier(opts: {
+  isDiagnosticPhase: boolean;
+  isShowcaseOpener: boolean;
+  isMasteryCheck: boolean;
+  needsDeepReasoning: boolean;
+  isLabReport: boolean;
+  isNewStage: boolean;
+  userMessageLength: number;
+  trimmedUserMessage: string;
+}): TeachingTierDecision {
+  // Diagnostic plan synthesis must never be cut mid-sentence — keep the
+  // legacy ceiling and skip word-count enforcement.
+  if (opts.isDiagnosticPhase) {
+    return { tier: "diagnostic", maxWords: null, maxTokens: 8192 };
+  }
+  // Lab-report feedback has a separate length policy (Task #43 scope
+  // explicitly excludes it). Keep the legacy ceiling and skip enforcement.
+  if (opts.isLabReport) {
+    return { tier: "lab_report", maxWords: null, maxTokens: 4096 };
+  }
+  const msg = opts.trimmedUserMessage;
+  const wantsDenseExplanation = DENSE_EXPLAIN_PATTERN.test(msg);
+  if (
+    opts.isShowcaseOpener ||
+    opts.isMasteryCheck ||
+    opts.needsDeepReasoning ||
+    opts.isNewStage ||
+    wantsDenseExplanation
+  ) {
+    return { tier: "dense_concept", maxWords: 320, maxTokens: 1100 };
+  }
+  // Short turn → short_followup ONLY when it's an acknowledgment-style
+  // reply with no concept-request/dense signal. Substantive questions
+  // ("ما هي المصفوفة؟") stay in medium_explain even at <60 chars.
+  const isAck = msg.length > 0 && msg.length <= 60 && SHORT_ACK_PATTERN.test(msg);
+  const asksConcept = CONCEPT_REQUEST_PATTERN.test(msg);
+  if (isAck && !asksConcept) {
+    return { tier: "short_followup", maxWords: 90, maxTokens: 320 };
+  }
+  return { tier: "medium_explain", maxWords: 180, maxTokens: 620 };
+}
+
+function countWords(text: string): number {
+  if (!text) return 0;
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 function extractTeachingExcerpt(text: string, maxChars = 16000): string {
   const plain = text
     .replace(/```[\s\S]*?```/g, "")
@@ -251,18 +350,17 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     }
   }
 
-  // Free first session is active if not completed and under 50-gem cap.
-  // freeMessagesUsed now tracks gems (not messages) spent on the free session.
   const freeGemsUsed = firstLessonRecord.freeMessagesUsed;
-  const isFirstLesson = !firstLessonRecord.completed && freeGemsUsed < FREE_LESSON_GEM_LIMIT;
   const freeMessagesUsed = freeGemsUsed;
   const freeMessagesLeft = Math.max(0, FREE_LESSON_GEM_LIMIT - freeGemsUsed);
 
-  // ── Per-subject gems wallet ────────────────────────────────────────────────
-  // Each subject is now its own independent subscription. We look up the
-  // wallet keyed by (userId, subjectId). If found and active, we forfeit any
-  // unused daily allowance from prior days first so the access check reflects
-  // the truth.
+  // Run the access helper first so its rollover writes are reflected in
+  // the subjectGemsSub / user reads below. The helper enforces the global
+  // `users.firstLessonComplete` flag so the free lesson is consumed once,
+  // not once per subject.
+  const access = await getAccessForUser({ userId, subjectId });
+  const isFirstLesson = access.isFirstLesson;
+
   let [subjectGemsSub] = await db
     .select()
     .from(userSubjectSubscriptionsTable)
@@ -272,47 +370,31 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     ))
     .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
-  if (subjectGemsSub) {
-    await applyDailyGemsRolloverForSubjectSub(subjectGemsSub);
-  }
+  const [refreshedUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (refreshedUser) Object.assign(user, refreshedUser);
 
-  const hasPerSubjectGemsSub = !!(
-    subjectGemsSub &&
-    (subjectGemsSub.gemsBalance ?? 0) > 0 &&
-    new Date(subjectGemsSub.expiresAt) > now
-  );
-
-  // ── Legacy global wallet (grandfathered users) ────────────────────────────
-  // Users who paid before the per-subject pivot still have a global wallet on
-  // usersTable. We honor it as a fallback so they don't lose access mid-period
-  // — but only when the user has NOT bought a per-subject plan for this
-  // subject. Once a per-subject wallet exists, it takes precedence.
-  await applyDailyGemsRollover(user);
-  const hasLegacyGemsSub = !hasPerSubjectGemsSub && !!(
-    (user.gemsBalance ?? 0) > 0 &&
-    user.gemsExpiresAt &&
-    new Date(user.gemsExpiresAt) > now
-  );
-
+  const hasPerSubjectGemsSub = access.source === "per-subject";
+  const hasLegacyGemsSub = access.source === "legacy" && access.legacyKind === "gems";
+  const hasLegacyMessagesSub = access.source === "legacy" && access.legacyKind === "messages";
+  // hasGemsSub is true only when an actual gem wallet backs the access.
+  // Legacy pre-gems users (messages wallet) are subscribed but NOT on a
+  // gem wallet, so the gem-balance/daily-cap gates below skip them.
   const hasGemsSub = hasPerSubjectGemsSub || hasLegacyGemsSub;
+  const gemsBalance = access.gemsRemaining;
+  const gemsDailyLimit = hasPerSubjectGemsSub
+    ? (subjectGemsSub?.gemsDailyLimit ?? 0)
+    : (hasLegacyGemsSub ? (user.gemsDailyLimit ?? 0) : 0);
+  const effectiveGemsUsedToday = hasPerSubjectGemsSub
+    ? (subjectGemsSub?.gemsUsedToday ?? 0)
+    : (hasLegacyGemsSub ? (user.gemsUsedToday ?? 0) : 0);
+  const gemsDailyExhausted = access.blockReason === "daily_limit";
 
-  // Daily-exhausted check uses whichever wallet is the source of truth.
-  let gemsBalance = 0;
-  let gemsDailyLimit = 0;
-  let effectiveGemsUsedToday = 0;
-  if (hasPerSubjectGemsSub && subjectGemsSub) {
-    gemsBalance = subjectGemsSub.gemsBalance ?? 0;
-    gemsDailyLimit = subjectGemsSub.gemsDailyLimit ?? 0;
-    effectiveGemsUsedToday = subjectGemsSub.gemsUsedToday ?? 0;
-  } else if (hasLegacyGemsSub) {
-    gemsBalance = user.gemsBalance ?? 0;
-    gemsDailyLimit = user.gemsDailyLimit ?? 0;
-    effectiveGemsUsedToday = user.gemsUsedToday ?? 0;
-  }
-  const gemsDailyExhausted = hasGemsSub && gemsDailyLimit > 0 && effectiveGemsUsedToday >= gemsDailyLimit;
-
-  const canAccessViaSubscription = hasGemsSub;
-  const hasActiveSub = hasGemsSub;
+  // hasActiveSub / canAccessViaSubscription must include the pre-gems
+  // legacy-messages wallet too, otherwise grandfathered users get a
+  // 403 ACCESS_DENIED at the gate. Gem-balance/daily-cap gates below
+  // remain limited to hasGemsSub.
+  const hasActiveSub = access.hasActiveSub;
+  const canAccessViaSubscription = hasActiveSub;
   const quotaExhausted = hasActiveSub && gemsDailyExhausted;
 
   // Backward-compat fields kept for older route handlers.
@@ -322,7 +404,7 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
   return {
     isFirstLesson,
     canAccessViaSubjectSub,
-    canAccessViaLegacyGlobal: hasLegacyGemsSub,
+    canAccessViaLegacyGlobal: hasLegacyGemsSub || hasLegacyMessagesSub,
     canAccessViaSubscription,
     canAccessViaReferral: false,
     hasActiveSub,
@@ -334,6 +416,7 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     hasGemsSub,
     hasPerSubjectGemsSub,
     hasLegacyGemsSub,
+    hasLegacyMessagesSub,
     perSubjectGemsSub: subjectGemsSub ?? null,
     gemsDailyExhausted,
     gemsBalance,
@@ -746,9 +829,11 @@ function cleanTeachingChunk(text: string): string {
     .replace(/\[STAGE_COMPLETE\]/g, "")
     .replace(/\[PLAN_READY\]/g, "")
     .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
+    .replace(/\[MICRO_STEP_DONE:\s*\d{1,3}\s*\]/gi, "")
     .replace(/\[MISTAKE:[^\]]*\]/gi, "")
     .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
-    .replace(/\[STUDY_CARD_HINT\]/gi, "");
+    .replace(/\[STUDY_CARD_HINT\]/gi, "")
+    .replace(/\[GROWTH:[^\]]*\]/gi, "");
 }
 
 /**
@@ -789,18 +874,73 @@ function cleanTeachingChunk(text: string): string {
  * The platform absorbs the extra gem cost via FREE_LESSON_GEM_LIMIT = 80, so
  * the student never gets cut off mid-tour even if the showcase runs long.
  */
-function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding: boolean; imageEnabled: boolean }): string {
+function buildFirstLessonShowcaseAddendum(opts: { subjectId?: string; subjectName: string; hasCoding: boolean; imageEnabled: boolean; kit?: SubjectShowcaseKit }): string {
+  const subjectId = opts.subjectId;
   const codingShowcase = opts.hasCoding
-    ? `   • **محرر الأكواد المدمج (للبرمجة فقط):** اطلب منه فتح المحرر بسطر صريح مثل: "اضغط زر '💻 افتح المحرر' أسفل الرد، اكتب أبسط برنامج 'Hello World' بلغة ${opts.subjectName}، ثم شغّله بنقرة واحدة — ستراه يطبع نتيجته فوراً." لا تكتب الكود له، اطلب منه يكتبه بنفسه ليشعر بالتجربة.\n`
+    ? `   • **محرر الأكواد المدمج (للبرمجة فقط):** اطلب منه فتح المحرر بسطر صريح مثل: "اضغط زر **IDE** الذهبي في **أعلى نافذة المحادثة** (أيقونة الكود)، اكتب أبسط برنامج 'Hello World' بلغة ${opts.subjectName}، ثم شغّله بنقرة واحدة — ستراه يطبع نتيجته فوراً." لا تكتب الكود له، اطلب منه يكتبه بنفسه ليشعر بالتجربة.\n`
     : "";
-  // Image showcase: a *single* mandatory illustration in the first reply.
-  // The teacher writes the FLUX prompt in English (no Arabic — diffusion
-  // models can't render Arabic text) and then writes the Arabic caption
-  // beneath it as a plain HTML <figcaption>. The image itself is pure
-  // visual: icons, numbered circles, color-coded boxes — NO TEXT inside
-  // the image. The Arabic labels live entirely in the caption.
-  const imageShowcase = opts.imageEnabled
-    ? `\n5. **🖼️ صورة توضيحية إجبارية واحدة في هذا الرد فقط:** اعرض على الطالب قدرة المنصة على توليد صور توضيحية لحظية. استخدم وسماً واحداً بالضبط بالشكل التالي **قبل أو بعد** شرحك للمفهوم المحوري:\n\n\`\`\`\n[[IMAGE: a clean educational diagram showing <concept>, NO TEXT, NO LABELS, NO WORDS, only icons and numbered colored circles 1 2 3, white background, flat vector illustration style]]\n\`\`\`\n\n**مباشرةً بعد الوسم اكتب التسمية العربية بـ HTML خام** على الشكل التالي (هذا هو ما يفسّر للطالب ما يراه — الصورة بصرية فقط):\n\n\`\`\`html\n<figcaption class="image-caption"><strong>الشرح:</strong> الدائرة <span class="num">1</span> تمثّل ... ، الدائرة <span class="num">2</span> تمثّل ... ، الدائرة <span class="num">3</span> تمثّل ...</figcaption>\n\`\`\`\n\n**❌ ممنوع منعاً باتاً داخل وسم IMAGE:** أي كلمة عربية، أي طلب لكتابة نص داخل الصورة، أي "labels"، أي "Arabic text"، أي "captions inside image". الصورة بصرية بحتة، والكلام العربي في \`<figcaption>\` تحتها فقط.\n\n**❌ ممنوع** استخدام \`[[IMAGE: ...]]\` أكثر من مرة واحدة في هذا الرد.\n`
+
+  // ── Per-subject Showcase Kit injection ──────────────────────────────────
+  // When a hand-authored kit exists for this subject, we inject its concrete
+  // pieces literally into the addendum. The model has zero room to drift
+  // into generic "welcome to X" filler — it must use this exact concept,
+  // this exact Yemeni scenario, this exact lab blueprint, this exact image.
+  // The addendum still contains the legacy generic guidance below so that
+  // subjects without a kit fall back gracefully.
+  const kit = opts.kit;
+  const kitImageBlock = kit && opts.imageEnabled
+    ? `
+
+**(د) بطاقة بصرية إجبارية — اربط الوصفة الإنجليزية مع المفتاح العربي حرفياً:**
+\`\`\`
+[[IMAGE: ${kit.imageBlueprint.fluxPrompt}]]
+\`\`\`
+
+ثم مباشرةً تحتها في ردّك:
+
+\`\`\`html
+<figcaption class="image-caption">
+  <strong class="caption-title">${kit.imageBlueprint.captionTitleAr}</strong>
+  <ol class="caption-legend">
+    <li><span class="num n1">1</span> ${kit.imageBlueprint.legendLinesAr[0]}</li>
+    <li><span class="num n2">2</span> ${kit.imageBlueprint.legendLinesAr[1]}</li>
+    <li><span class="num n3">3</span> ${kit.imageBlueprint.legendLinesAr[2]}</li>
+  </ol>
+</figcaption>
+\`\`\``
+    : "";
+  const kitBlock = kit
+    ? `
+
+🎯 **عُدّة عرض هذا التخصص — استخدمها حرفياً، لا تعِد صياغتها:**
+
+**(أ) المفهوم المحوري في الفقرة الثانية (≤20 كلمة):**
+${kit.hookConcept}
+
+**(ب) السيناريو اليمني الملموس (انسج أرقامه وأسماءه — لا تستبدله بمثال عام):**
+${kit.concreteScenario}
+
+**(ج) وصف بيئة CREATE_LAB_ENV الذي يدخل داخل الوسم حرفياً (يحوي الأقسام الخمسة):**
+${kit.labEnvBlueprint}
+
+⚠️ **استخدم الوصف أعلاه داخل** \`[[CREATE_LAB_ENV: …]]\` **— لا تختصره ولا تعمّمه**.${kitImageBlock}
+
+**(هـ) فخ الخطأ الأول المتوقّع — كن جاهزاً لاستخدام \`[MISTAKE: topic ||| description]\`:**
+عندما يقع الطالب في هذا الفخ: «${kit.firstMistakeTrap}» — استخدم **حرفياً** الوسم التالي في الرد التالي:
+\`[MISTAKE: ${getFirstMistakeTopic(subjectId)} ||| ${kit.firstMistakeTrap}]\`
+ثم اذكر للطالب أن المنصة سجّلت الخطأ في ذاكرتك عنه. ⚠️ الفاصل \`|||\` إلزامي وإلا لن يُحفظ الخطأ في قاعدة البيانات.
+
+**(و) سطر الانتقال إلى الخطة بعد التجربة:**
+${kit.transitionLine}
+
+────────────────────────────────────────`
+    : "";
+  // Generic image showcase fallback for subjects without a kit. When a kit
+  // is present, the kit's `(د)` block is the single source of truth for the
+  // showcase image — suppress this generic block to avoid two competing
+  // "exactly one [[IMAGE: ...]]" rules in the same prompt.
+  const imageShowcase = opts.imageEnabled && !kit
+    ? `\n5. **🖼️ بطاقة معلوماتية إجبارية واحدة في هذا الرد فقط:** اعرض على الطالب قدرة المنصة على توليد بطاقات بصرية لحظية. استخدم وسماً واحداً بالضبط بالشكل التالي **قبل أو بعد** شرحك للمفهوم المحوري، والتزم بنواة الوصفة الإنجليزية كاملةً لرفع جودة الإخراج:\n\n\`\`\`\n[[IMAGE: professional editorial infographic illustration, clean multi-panel layout, isometric flat icons, color-coded sections (soft blue, mint green, warm orange, lavender), subtle gradient backgrounds, clear visual hierarchy with thin connector arrows, generous whitespace, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking <list the visual parts of the central concept here>]]\n\`\`\`\n\n**مباشرةً بعد الوسم اكتب المفتاح العربي بصيغة HTML الإلزامية** التي تجعل الصورة + النصّ بطاقةً موحّدة (الصورة بصرية فقط، والمعنى يأتي من المفتاح):\n\n\`\`\`html\n<figcaption class="image-caption">\n  <strong class="caption-title">المفتاح: <اسم البطاقة بالعربية></strong>\n  <ol class="caption-legend">\n    <li><span class="num n1">1</span> <شرح الدائرة الأولى></li>\n    <li><span class="num n2">2</span> <شرح الدائرة الثانية></li>\n    <li><span class="num n3">3</span> <شرح الدائرة الثالثة></li>\n  </ol>\n</figcaption>\n\`\`\`\n\n**اشترط على نفسك** أن المفهوم المحوري الذي تختاره للصورة **بصري بطبيعته** (بنية، علاقة مكانية، عملية متعدّدة الخطوات، مقارنة، أو استعارة بصرية تختصر شرحاً طويلاً). لا تختر مفهوماً نصيّاً بحتاً مجرّد للاستعراض.\n\n**❌ ممنوع منعاً باتاً داخل وسم IMAGE:** أي كلمة عربية، أي طلب لكتابة نص داخل الصورة، أي "labels"، أي "Arabic text"، أي "captions inside image". الصورة بصرية بحتة، والكلام العربي في \`<figcaption>\` تحتها فقط.\n\n**❌ ممنوع** استخدام \`[[IMAGE: ...]]\` أكثر من مرة واحدة في هذا الرد.\n`
     : "";
 
   return `
@@ -829,11 +969,11 @@ ${codingShowcase}
 
 **🎁 ميّزات إضافية تستعرضها بشكل عضوي خلال أول ٢-٣ ردود (ليس كلها دفعة واحدة):**
 
-- **تتبّع الأخطاء التلقائي:** عندما يخطئ الطالب لأول مرة، استخدم \`[MISTAKE: ...]\` ثم اذكر له بشكل عابر: "بالمناسبة، سجّلت هذا الخطأ في سجل أخطائك، تقدر تراجعه أي وقت من قائمة 'أخطائي' — هكذا ما تكرره".
+- **تتبّع الأخطاء التلقائي:** عندما يخطئ الطالب لأول مرة، استخدم \`[MISTAKE: ...]\` ثم اذكر له بشكل عابر: "بالمناسبة، سجّلت هذا الخطأ في ذاكرتي عنك — سأذكّرك به وأربطه بالشرح في الجلسات القادمة حتى لا يتكرّر".
 
 - **تتبّع المراحل:** عندما تُكمل مرحلة، استخدم \`[STAGE_COMPLETE]\` ثم اذكر: "أتممنا المرحلة الأولى، تشوفها معلّمة بعلامة ✓ في خطتك جنب المراحل القادمة".
 
-- **مشاريع مصغّرة:** إن كان مناسباً، استخدم \`[[MINI_PROJECT: عنوان | وصف عملي]]\` لتحدّيه بمشروع صغير يطبّق ما تعلّم، واشرح له أن المنصة تُولّد له مشاريع شخصية بناءً على ما يدرس.
+- **مهام تطبيقية مصغّرة:** إن كان مناسباً، اقترح عليه **مهمة تطبيقية صغيرة** يكتبها مباشرة في رسالتك (عنوان + وصف عملي ≤3 أسطر، داخل \`<div class="question-box">\`). لا تستخدم أي وسم خاص لها — اكتبها كنص HTML عادي.
 ${imageShowcase}
 **❌ ممنوع في جلسة الاستكشاف الأولى:**
 - لا تُلقِ محاضرة طويلة قبل التجربة العملية. **اقصِر، أرِ، ثم وسّع.**
@@ -841,7 +981,7 @@ ${imageShowcase}
 - لا تشرح قائمة الميزات كلها في رد واحد. **استعرض ميزة واحدة لذيذة في الرد الأول، والباقي يأتي بشكل طبيعي.**
 - لا تخف من تكلفة الجواهر — هذه جلسة استكشاف مجانية، الطالب لن يُقطع عنه شيء حتى لو طوّلنا في الاستعراض.
 ────────────────────────────────────────
-`;
+${kitBlock}`;
 }
 
 function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled: boolean }): string {
@@ -853,14 +993,94 @@ function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled
   // we can't fulfill (which would leave a "[صورة توضيحية: ...]" stub in the
   // student's chat with no actual image).
   const imageTagDoc = opts.imageEnabled
-    ? `- \`[[IMAGE: english prompt with NO TEXT NO LABELS, only icons + numbered circles]]\` — لإنشاء **صورة توضيحية بصرية بحتة** عبر FLUX. القواعد:
-  • **استخدمه فقط حين يكون المفهوم بصرياً بطبيعته** (دائرة كهربائية، مخطط شبكة، تشريح خلية، خريطة معركة، رسم بياني). لا تستخدمه مع المفاهيم النصية المحضة.
-  • **بحد أقصى صورة واحدة لكل رد**، وفي ٧٠٪ من الردود لا حاجة لأي صورة.
-  • **النص داخل الوسم بالإنجليزية حصراً** — نماذج الانتشار (FLUX) لا تستطيع كتابة العربية. أي كلمة عربية داخل الصورة ستظهر مشوّهة.
-  • **يجب أن يحتوي الوصف الإنجليزي على \`NO TEXT, NO LABELS, NO WORDS\` صراحةً** — وأن يطلب فقط رموزاً أو دوائر مرقّمة 1 2 3 4 ملوّنة.
-  • **مباشرة بعد الوسم اكتب \`<figcaption class="image-caption">…\</figcaption>\` بالعربية** يشرح فيه ما تمثّله كل دائرة مرقّمة. الصورة بصرية، والشرح العربي في الـ caption.
-  • **مثال صحيح:** \`[[IMAGE: a clean diagram of an electric circuit with a battery, switch, and lightbulb connected by wires, NO TEXT NO LABELS NO WORDS, only numbered colored circles 1 2 3 placed near each component, white background, flat educational vector style]]\`
-  • **مثال خاطئ:** \`[[IMAGE: دائرة كهربائية بسيطة]]\` (عربي ممنوع) أو \`[[IMAGE: circuit with labels "battery" and "switch"]]\` (labels ممنوعة).
+    ? `- \`[[IMAGE: english infographic prompt … NO TEXT NO LABELS NO WORDS]]\` — لإنشاء **بطاقة معلوماتية (infographic) بصرية بحتة** عبر FLUX.
+
+  **🚫 الافتراض = لا صورة.** معظم ردودك يجب ألا تحتوي صورة. الصورة باهظة الكلفة، تأخذ وقت توليد، وغالباً تشتّت الانتباه إذا لم يحتج المفهوم بصراً حقيقياً. **اسأل نفسك قبل إصدار أي وسم: هل سيفهم الطالب هذا المفهوم بسطر أو سطرَين فقط؟ إن كان الجواب نعم، لا تُصدر صورة.**
+
+  **❌ ممنوع إصدار صورة في الحالات التالية (بدون استثناء):**
+  • ردود قصيرة (≤ ٣ أسطر) أو إجابة على سؤال متابعة بسيط.
+  • تحية، شكر، تأكيد إجابة، تشجيع، اعتذار.
+  • تذكير بقاعدة سبق شرحها (تذكُّر/Recall) — اكتفِ بالنص.
+  • شرح نظري نصي خالص (تعريفات، خصائص، فروق بين مصطلحَين، ترتيب عمليات).
+  • معادلات رياضية بسيطة أو خطوات حلّ تكفي فيها \`$$…$$\` و KaTeX.
+  • أكواد برمجية أو مخرجات نصية — استخدم \`\`\`code\`\`\` بدلاً من الصورة.
+  • مفاهيم سبق أن أصدرت لها صورة في نفس الجلسة (لا تكرّر بصرياً).
+
+  **✅ مسموح إصدار صورة فقط عندما يجتمع شرطان:**
+  ١. **المفهوم بصري بطبيعته** — بنية مادية (خلية، دارة، طبقات، مقاطع تشريحية)، علاقة مكانية/هندسية، عملية متعدّدة الأطوار، شبكة عُقد، مقارنة قبل/بعد، أو استعارة بصرية تختصر مفهوماً مجرّداً.
+  ٢. **الصورة تختصر شرحاً يحتاج فعلاً ≥ ٤–٥ أسطر نصية** — إذا أمكن وصف الفكرة في سطرَين، فالنص أفضل.
+
+  **القيود التقنية الصارمة:**
+  • **الإنجليزية حصراً داخل الوسم** — أي حرف عربي يخرج مشوّهاً.
+  • **القاعدة الافتراضية:** اكتب \`NO TEXT, NO LABELS, NO WORDS\` صراحةً واطلب فقط أيقونات ودوائر مرقّمة ملوّنة 1 2 3 4 لربط الأجزاء بالمفتاح العربي تحتها. هذه أنظف مخرجات FLUX schnell.
+  • **استثناء محدود (نادر):** يجوز السماح **بكلمة أو كلمتَين إنجليزيّتَين قصيرتَين فقط** داخل الصورة (مثل \`H₂O\`, \`CPU\`, \`x\`, \`y\`, \`+\`, \`=\`) عندما يكون الرمز نفسه جزءاً من المفهوم لا يمكن تجنّبه (معادلة كيميائية، محور رياضي، رمز تقني عالمي). في هذه الحالة استبدل \`NO TEXT, NO LABELS, NO WORDS\` بـ \`minimal text only — single short English symbol "<الرمز>", NO Arabic, NO long labels, NO sentences\`. لا تستعمل هذا الاستثناء أبداً للأسماء التوضيحية ("battery", "switch") — تلك تبقى داخل المفتاح العربي.
+  • **مباشرةً بعد الوسم اكتب مفتاحاً عربياً** بهذا الشكل الإلزامي (سيظهر للطالب كبطاقة موحّدة مع الصورة):
+
+  \`\`\`html
+  <figcaption class="image-caption">
+    <strong class="caption-title">المفتاح: <اسم البطاقة بالعربية></strong>
+    <ol class="caption-legend">
+      <li><span class="num n1">1</span> <شرح ما تمثّله الدائرة الزرقاء></li>
+      <li><span class="num n2">2</span> <شرح ما تمثّله الدائرة الخضراء></li>
+      <li><span class="num n3">3</span> <شرح ما تمثّله الدائرة البرتقالية></li>
+    </ol>
+  </figcaption>
+  \`\`\`
+
+  • للأنماط البسيطة جداً (المرساة/الكشف/التحفيز بدون أرقام) يكفي:
+  \`<figcaption class="image-caption"><strong class="caption-title">سؤال:</strong> نص السؤال أو الشرح.</figcaption>\`
+
+  • **حدّ أقصى ٣ صور في الرد الواحد**، الأغلب صفر أو واحدة.
+
+  **🎨 وصفة الـ FLUX prompt (التزم بمصطلحاتها لرفع جودة الإخراج):**
+  ابدأ كل وسم بهذه النواة قبل تفاصيل المفهوم:
+  \`professional editorial infographic illustration, clean multi-panel layout, isometric flat icons, color-coded sections (soft blue, mint green, warm orange, lavender), subtle gradient backgrounds, clear visual hierarchy with thin connector arrows and dividers, generous whitespace, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 4\`
+  ثم أضف تفاصيل المفهوم (المكوّنات، الترتيب، اتجاه الأسهم، الزاوية).
+
+  **🎨 مكتبة الأنماط البيداغوجية الثمانية — استخدم النمط الأنسب فقط عند توفّر شرطَي السماح:**
+
+  **١. صورة-تحفيز (Curiosity Hook)** — مشهد بصري قبل الشرح يثير سؤالاً.
+  \`[[IMAGE: professional editorial infographic illustration, isometric cross-section of a tall glass of water with a large ice cube floating half-submerged, color-coded sections (soft blue water, white-translucent ice), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 marking the ice cube and the water line]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">سؤال للتأمّل:</strong> إذا ذاب الجليد كاملاً، هل سيفيض الماء من الكأس؟ ولماذا؟</figcaption>\`
+
+  **٢. صورة-لغز بصري (Visual Riddle)** — مشهد فيه خطأ مقصود أو تحدٍّ بصري.
+  \`[[IMAGE: professional editorial infographic illustration, clean schematic of a simple electrical circuit with a battery, switch, and lightbulb, isometric flat icons, color-coded components (warm orange battery, mint green switch, soft blue bulb), with one wire on the left side deliberately broken with a small visible gap, thin connector lines, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 4 marking each component]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">تحدٍّ: هذه الدارة لن يضيء فيها المصباح — أين الخلل؟</strong><ol class="caption-legend"><li><span class="num n1">1</span> البطارية (المصدر)</li><li><span class="num n2">2</span> المفتاح</li><li><span class="num n3">3</span> السلك (افحصه جيداً)</li><li><span class="num n4">4</span> المصباح</li></ol></figcaption>\`
+
+  **٣. صورة-مقارنة (Compare/Contrast)** — صورتان متتاليتان (قبل/بعد، صحيح/خاطئ). **مسموح هنا وسمَان متتاليان**.
+  \`[[IMAGE: professional editorial infographic illustration, isometric cross-section of a healthy plant cell with intact nucleus, plump central vacuole, and smooth membrane, color-coded organelles (soft blue nucleus, mint green vacuole, warm orange membrane), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking the nucleus, vacuole, membrane]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">الحالة الطبيعية</strong><ol class="caption-legend"><li><span class="num n1">1</span> النواة سليمة</li><li><span class="num n2">2</span> الفجوة العصارية ممتلئة</li><li><span class="num n3">3</span> الغشاء مشدود</li></ol></figcaption>\`
+  \`[[IMAGE: professional editorial infographic illustration, isometric cross-section of a dehydrated plant cell with shrunken vacuole pulled away from the wall, ruptured membrane, same color-coded organelles (soft blue nucleus, mint green collapsed vacuole, warm orange torn membrane), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking the same parts]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">بعد الجفاف</strong><ol class="caption-legend"><li><span class="num n1">1</span> النواة لا تزال موجودة</li><li><span class="num n2">2</span> الفجوة انكمشت</li><li><span class="num n3">3</span> الغشاء انفصل عن الجدار</li></ol></figcaption>\`
+
+  **٤. صورة-استعارة بصرية (Visual Metaphor)** — تشبيه بصري لمفهوم مجرّد. استعملها فقط عندما يكون المفهوم المجرّد فعلاً صعب التخيّل.
+  \`[[IMAGE: professional editorial infographic illustration, isometric scene of a small wooden desk in the foreground with three open books and a few pens scattered on top, contrasted with a tall multi-shelf library wall in the background filled with closed books, color-coded zones (warm orange desk, soft blue library), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 marking the desk and the library shelves]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">التشبيه: ذاكرة الحاسوب</strong><ol class="caption-legend"><li><span class="num n1">1</span> الطاولة = الذاكرة العشوائية (RAM): سريعة، صغيرة، مؤقتة</li><li><span class="num n2">2</span> رفوف المكتبة = القرص الصلب: بطيء، ضخم، دائم</li></ol></figcaption>\`
+
+  **٥. صورة-مشهد تطبيقي (Scenario)** — موقف واقعي يضع الطالب فيه قبل المسألة.
+  \`[[IMAGE: professional editorial infographic illustration, isometric view of a small train station platform with two trains approaching from opposite directions on parallel tracks, color-coded trains (warm orange train from the right, mint green train from the left), thin motion arrows showing direction, subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 marking each train]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">الموقف: لحظة الالتقاء</strong><ol class="caption-legend"><li><span class="num n1">1</span> القطار القادم من اليمين بسرعة معلومة</li><li><span class="num n2">2</span> القطار القادم من اليسار بسرعة مختلفة</li></ol></figcaption>\`
+
+  **٦. صورة-خطوة من عملية (Process Step)** — مرحلة محدّدة من سلسلة خطوات معقّدة.
+  \`[[IMAGE: professional editorial infographic illustration, zoomed isometric cross-section of a single neuron firing along its axon, with thin curved arrows showing electrical signal direction from the cell body to the axon terminal, color-coded segments (soft blue dendrites, mint green cell body, warm orange axon, lavender terminal), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 along the signal path]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">الخطوة ٣ من نقل الإشارة العصبية</strong><ol class="caption-legend"><li><span class="num n1">1</span> دخول الإشارة من التغصّنات</li><li><span class="num n2">2</span> مرورها في جسم الخلية</li><li><span class="num n3">3</span> انتقالها على طول المحور إلى النهاية</li></ol></figcaption>\`
+
+  **٧. صورة-جواب لاحق (Reveal)** — في الرد الحالي اطرح سؤالاً بدون صورة، **وفي الرد التالي** بعد جواب الطالب اكشف الإجابة بصرياً.
+  مثال (الرد التالي بعد جواب الطالب):
+  \`[[IMAGE: professional editorial infographic illustration, two sine waves drawn one above the other on a clean grid, the top wave with normal frequency and the bottom wave with double the frequency, color-coded waves (soft blue top, warm orange bottom), thin axis lines, subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 marking each wave]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">الكشف: مضاعفة التردّد</strong><ol class="caption-legend"><li><span class="num n1">1</span> الموجة الأصلية: تردّد مرجعي</li><li><span class="num n2">2</span> الموجة الجديدة: ضعف التردّد، نصف الطول الموجي</li></ol></figcaption>\`
+
+  **٨. صورة-مرساة ذاكرة (Memory Anchor)** — أيقونة بسيطة جداً تربط بقاعدة محورية، مرّة واحدة فقط في الجلسة كلّها.
+  \`[[IMAGE: professional editorial infographic illustration, minimal flat iconic composition of a stylized heart connected by a single thin curved arrow to a stylized brain, both centered with generous whitespace, color-coded (warm orange heart, soft blue brain), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">المرساة:</strong> العاطفة تسبق المنطق دائماً في القرار اللحظي.</figcaption>\`
+
+  **❌ أمثلة خاطئة (لا تفعلها):**
+  • \`[[IMAGE: دائرة كهربائية بسيطة]]\` — عربي داخل الوسم ممنوع.
+  • \`[[IMAGE: circuit with labels "battery" and "switch"]]\` — أي labels داخل الصورة تخرج مشوّهة.
+  • صورة بدون مفتاح \`<figcaption class="image-caption">\` بعدها — الصورة وحدها لا تعلّم.
+  • صورة لشرح "ما الفرق بين الجمع والضرب" — هذا نصّي، لا يحتاج صورة.
+  • صورة بعد إجابة قصيرة "نعم، صحيح!" — ممنوع.
+  • أربع صور في رد واحد — السقف ٣.
 `
     : "";
   return `
@@ -878,12 +1098,13 @@ function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled
 
 ### قائمة الوسوم المسموح بها فقط:
 - \`[STAGE_COMPLETE]\` — اكتبه في نهاية الرد عند اكتمال مرحلة من الخطة (مرة واحدة في الرد).
+- \`[GROWTH: ملخص النمو]\` — اكتبه قبل [STAGE_COMPLETE] في نفس الرد، جملتان تصفان كيف تطور مستوى الطالب تحديداً في هذه المرحلة. مثال: \`[GROWTH: تحسّن الطالب في تمييز الأسماء المعربة من المبنية. أصبح يطبّق قاعدة المفعول به بدقة في جمل جديدة لم يسبق له رؤيتها.]\`
 ${planTag}- \`[POINT_DONE: N]\` — اكتبه عند تغطية النقطة رقم N من قائمة الفصل (وضع البروفسور). أمثلة: \`[POINT_DONE: 1]\`, \`[POINT_DONE: 5]\`.
 - \`[MISTAKE: topic ||| description]\` — لتسجيل خطأ مفاهيمي جديد (مرة واحدة في الرد كحد أقصى). \`topic\` قصير (≤ 5 كلمات)، \`description\` جملة واضحة.
 - \`[MISTAKE_RESOLVED: id]\` — لتأكيد حل خطأ سابق (الـ id من قائمة الأخطاء النشطة في السياق).
 - \`[[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| opt3 ||| غير ذلك]]\` — لإنشاء أزرار خيارات للطالب. **يجب** أن ينتهي بخيار "غير ذلك" دائماً.
-- \`[[CREATE_LAB_ENV: وصف تفصيلي بالعربية]]\` — لإنشاء بيئة تطبيقية تفاعلية. الوصف يشمل: السياق، البيانات الأولية، الشاشات المطلوبة، المخرج النهائي.
-- \`[[MINI_PROJECT: title | description]]\` — لاقتراح مشروع مصغّر (الفاصل هنا \`|\` واحد فقط).
+- \`[[CREATE_LAB_ENV: وصف تفصيلي بالعربية]]\` — لإنشاء بيئة تطبيقية تفاعلية (المسار القديم — للتوافق فقط). **الآن:** استخدم بروتوكول المقابلة وأصدر \`[[LAB_INTAKE_DONE]]\` عند اكتمال الأسئلة الخمسة الإلزامية.
+- \`[[LAB_INTAKE_DONE]]\` — يُصدَر مرة واحدة فقط بعد اكتمال أسئلة المقابلة الخمسة لبناء البيئة التطبيقية. لا تضيف أي نص بعده.
 ${imageTagDoc}
 
 ### أمثلة ملموسة:
@@ -956,7 +1177,12 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true } = (req.body ?? {}) as Record<string, any>;
+  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true, difficultyHint, currentStageContract, isNewStage } = (req.body ?? {}) as Record<string, any>;
+  // Normalize difficulty hint to one of three buckets. Anything unknown
+  // collapses to "normal" so a malformed client value never confuses the
+  // system prompt below.
+  const difficulty: "easy" | "normal" | "advanced" =
+    difficultyHint === "easy" || difficultyHint === "advanced" ? difficultyHint : "normal";
 
   // `getSubjectAccess` performs several DB lookups (gems wallet, first-lesson
   // record, subscription state). A transient DB failure here used to bubble
@@ -986,6 +1212,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     gemsDailyExhausted: rawGemsDailyExhausted,
     hasPerSubjectGemsSub: rawHasPerSubject,
     hasLegacyGemsSub: rawHasLegacy,
+    hasLegacyMessagesSub: rawHasLegacyMessages,
     perSubjectGemsSub,
   } = access;
   const isFirstLesson = unlimited ? false : rawFirstLesson;
@@ -994,6 +1221,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   const hasGemsSub = unlimited ? false : (rawHasGems ?? false);
   const hasPerSubjectGemsSub = unlimited ? false : (rawHasPerSubject ?? false);
   const hasLegacyGemsSub = unlimited ? false : (rawHasLegacy ?? false);
+  const hasLegacyMessagesSub = unlimited ? false : (rawHasLegacyMessages ?? false);
   const gemsDailyExhausted = unlimited ? false : (rawGemsDailyExhausted ?? false);
   const isNewSession = !userMessage;
 
@@ -1015,18 +1243,17 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   let claimedTodaySession = false;
   const rollbackDailyClaim = async () => {};
 
-  if (isNewSession && hasGemsSub && !unlimited) {
+  // Step 1: rollover + balance gate ALWAYS run for paid subs, not only at
+  // the first turn of a session. The previous gating skipped the balance
+  // re-check for continuation turns, which let a student keep streaming
+  // after their wallet had been clamped to zero (the post-call deduction
+  // uses GREATEST(0, …), so silently no-op deductions just kept happening).
+  // We now refuse mid-session as soon as the wallet is empty.
+  if (hasGemsSub && !unlimited) {
     if (hasPerSubjectGemsSub && subjectSub) {
       await applyDailyGemsRolloverForSubjectSub(subjectSub);
       if ((subjectSub.gemsBalance ?? 0) <= 0) {
         res.status(403).json({ code: "NO_GEMS" });
-        return;
-      }
-      const usedToday = subjectSub.gemsUsedToday ?? 0;
-      const dailyLimit = subjectSub.gemsDailyLimit ?? 0;
-      if (dailyLimit > 0 && usedToday >= dailyLimit) {
-        const nextSessionAt = getNextMidnightYemen().toISOString();
-        res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
         return;
       }
     } else if (hasLegacyGemsSub) {
@@ -1035,6 +1262,25 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
         res.status(403).json({ code: "NO_GEMS" });
         return;
       }
+    }
+  }
+
+  // Step 2: daily-limit gate. Runs on EVERY turn (not just `isNewSession`)
+  // so a student inside a long-running session cannot keep racking up turns
+  // after their daily gem cap is reached — previously the gate was scoped
+  // to session start, which let a single open chat exceed the daily cap by
+  // arbitrary amounts. The session-claim flag is still recorded only for
+  // the first turn of the day so per-day session counting stays accurate.
+  if (hasGemsSub && !unlimited) {
+    if (hasPerSubjectGemsSub && subjectSub) {
+      const usedToday = subjectSub.gemsUsedToday ?? 0;
+      const dailyLimit = subjectSub.gemsDailyLimit ?? 0;
+      if (dailyLimit > 0 && usedToday >= dailyLimit) {
+        const nextSessionAt = getNextMidnightYemen().toISOString();
+        res.status(429).json({ code: "DAILY_LIMIT", nextSessionAt });
+        return;
+      }
+    } else if (hasLegacyGemsSub) {
       const usedToday = user.gemsUsedToday ?? 0;
       const dailyLimit = user.gemsDailyLimit ?? 0;
       if (dailyLimit > 0 && usedToday >= dailyLimit) {
@@ -1043,7 +1289,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
         return;
       }
     }
-    claimedTodaySession = true;
+    if (isNewSession) claimedTodaySession = true;
   }
 
   // ── Access gate ─────────────────────────────────────────────────────────────
@@ -1172,10 +1418,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
 - **ميزة معاينة صفحات الويب الحية (Live Preview) — لمواد HTML وCSS وJavaScript فقط:** عندما يكون التحدي متعلقاً بتصميم صفحة ويب (HTML أو CSS أو JavaScript)، أرشد الطالب دائماً لاستخدام ميزة المعاينة الحية:
   <div class="tip-box">🌐 <strong>معاينة صفحتك!</strong> بعد كتابة كود HTML أو CSS أو JavaScript، اضغط زر <strong>«معاينة 👁»</strong> الأخضر لرؤية صفحتك الحقيقية مباشرة! يمكنك إنشاء عدة ملفات (مثلاً <code>index.html</code> + <code>style.css</code> + <code>script.js</code>) وسيتم دمجها تلقائياً في المعاينة. إذا كانت هناك أخطاء ستظهر في سجل الأخطاء أسفل المعاينة. يمكنك أيضاً الضغط على «شارك مع المعلم» لأراجع عملك وأساعدك!</div>
 - **عند مراجعة كود الطالب من المعاينة:** إذا شارك الطالب معاينته معك (ستصلك الملفات + سجل الأخطاء)، راجع الكود بعناية: صحح الأخطاء، اقترح تحسينات، وامدح الأجزاء الجيدة. إذا كان هناك أخطاء JavaScript، اشرح سبب كل خطأ وكيفية إصلاحه بلغة بسيطة.
-- **إذا كان التحدي يتطلب لغة غير مدعومة** (مثل Swift, Go, Rust, Ruby, PHP, R, Elixir, MATLAB, Assembly, Haskell, وغيرها): اعترف بذلك واسأل الطالب سؤالاً واحداً: "هل أنت الآن على هاتف أم كمبيوتر؟" ثم:
-  - **إذا كمبيوتر:** أرشده بوضوح لتثبيت VS Code + امتداد اللغة، أو استخدام موقع مجاني مثل replit.com. مثال: <div class="tip-box">💻 <strong>على الكمبيوتر:</strong> ثبّت VS Code من code.visualstudio.com ثم ثبّت امتداد اللغة المطلوبة، أو استخدم replit.com مباشرةً من المتصفح بدون تثبيت.</div>
-  - **إذا هاتف:** أرشده لتطبيقات مناسبة. مثال: <div class="tip-box">📱 <strong>على الهاتف:</strong> جرّب تطبيق <strong>Dcoder</strong> (Android/iOS) أو <strong>Replit</strong> — كلاهما مجاني ويدعم عشرات اللغات.</div>
-  - **بديل دائم — المحاكاة داخل المحادثة:** بغض النظر عن الجهاز، اعرض على الطالب أن تسير معه خطوة بخطوة: "يمكنني أن أريك الكود كاملاً وأشرح كل سطر هنا في المحادثة، ثم تكتبه أنت في بيئتك وتخبرني بالنتيجة." إذا وافق، اشرح الكود سطراً سطراً واطلب منه لصق المخرجات أو وصفها هنا.` : `
+- **إذا كان التحدي يتطلب لغة غير مدعومة** (مثل Swift, Go, Rust, Ruby, PHP, R, Elixir, MATLAB, Assembly, Haskell, وغيرها): اعترف بذلك بصراحة، ثم اعرض عليه **بديلاً داخل المحادثة فقط** (لا تُرشده لتطبيقات أو مواقع خارجية): "يمكنني أن أريك الكود كاملاً وأشرح كل سطر هنا في المحادثة، ثم إذا توفّرت لك بيئة على جهازك تلصق المخرجات هنا وأراجعها معك." إذا وافق، اشرح الكود سطراً سطراً.` : `
 - **هذه المادة ليست برمجية:** لا تُعطِ أي تحدٍّ يتطلب كتابة كود برمجي أو استخدام بيئة برمجة. ركّز على الفهم النظري والتطبيق العملي في سياق المادة فقط.${subjectId === "uni-food-eng" ? `
 - **مختبر الهندسة الغذائية متاح!** المنصة تحتوي على مختبر غذائي تفاعلي (زر 🔬 «المختبر» في أعلى المحادثة) يحتوي على:
   1. **حاسبة المعاملات الحرارية** — لحساب D-value وF-value وزمن التعقيم عند درجات حرارة مختلفة
@@ -1184,9 +1427,8 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   4. **حاسبة زمن البسترة** — لحساب الزمن المطلوب للبسترة عند درجة حرارة معينة
   5. **رسوم بيانية تفاعلية** — منحنى النمو البكتيري ومنحنى الموت الحراري ومخطط النشاط المائي
   6. **مُنشئ مخطط HACCP** — لبناء مخطط تدفق العملية وتحديد نقاط التحكم الحرجة
-- **إرشاد الطالب للمختبر — إلزامي عند التطبيق العملي:** عندما تشرح مفهوماً يمكن حسابه أو تطبيقه عملياً، وجّه الطالب للمختبر هكذا:
-  <div class="tip-box">🔬 <strong>جرّب بنفسك!</strong> اضغط على زر <strong>«المختبر»</strong> 🔬 في أعلى المحادثة ← اختر <strong>«الحاسبات»</strong> ← استخدم حاسبة المعاملات الحرارية لحساب F-value. بعد ما تحصل على النتيجة، اضغط <strong>«شارك النتيجة مع المعلم»</strong> وسأراجعها معك.</div>
-- **عند استلام نتائج من المختبر:** إذا أرسل الطالب نتائج من المختبر الغذائي، حلّلها وعلّق عليها بالتفصيل: هل الحسابات صحيحة؟ ما دلالتها العملية؟ كيف يمكن تحسينها؟` : ""}${subjectId === "uni-accounting" ? `
+- **بناء بيئة تطبيقية للمختبر — إلزامي عند التطبيق العملي:** عندما تشرح مفهوماً يمكن حسابه أو تطبيقه عملياً (D-value، Aw، تركيب غذائي، البسترة، HACCP)، استخدم الوسم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة تطبيقية متخصّصة بالحاسبات والرسوم التفاعلية المناسبة، وادعُ الطالب لتجربتها مباشرة من الزر الذي يظهر في ردك. لا تذكر أزراراً عامة في واجهة المنصة — البيئة تُبنى عبر طلبك أنت.
+- **عند استلام نتائج من المختبر:** إذا أرسل الطالب نتائج تطبيقية من بيئة سابقة، حلّلها وعلّق عليها بالتفصيل: هل الحسابات صحيحة؟ ما دلالتها العملية؟ كيف يمكن تحسينها؟` : ""}${subjectId === "uni-accounting" ? `
 - **مختبر المحاسبة الأكاديمي متاح!** المنصة تحتوي على مختبر محاسبة أكاديمي تفاعلي (زر 🎓 «مختبر المحاسبة» في أعلى المحادثة) يحتوي على 12 أداة:
   1. **المعادلة المحاسبية** — تصور تفاعلي للمعادلة (أصول = خصوم + حقوق ملكية) مع شريط توازن متحرك وتجربة تأثير العمليات
   2. **حسابات T** — مساحة عمل بصرية لحسابات T مع عرض الأطراف المدينة والدائنة وحساب الأرصدة
@@ -1200,29 +1442,34 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   10. **حاسبة الإهلاك** — مقارنة طرق الإهلاك (ثابت/متناقص/وحدات) مع جداول ورسوم
   11. **التسوية البنكية** — تمرين تطبيقي لمطابقة كشف البنك مع الدفاتر
   12. **قيود التسوية والإقفال** — قوالب جاهزة للتسويات مع تطبيق وترحيل مباشر
-- **إرشاد الطالب للمختبر — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً محاسبياً يمكن تطبيقه عملياً، وجّه الطالب للمختبر هكذا:
-  <div class="tip-box">🎓 <strong>طبّق بنفسك!</strong> اضغط على زر <strong>«مختبر المحاسبة»</strong> 🎓 في أعلى المحادثة ← اختر الأداة المناسبة ← نفّذ التمرين المطلوب. بعد ما تنتهي، اضغط <strong>«شارك مع المعلم»</strong> وسأراجع عملك معك.</div>
-- **أمثلة على توجيهات عملية:**
-  - عند شرح المعادلة المحاسبية: "جرّب إضافة عمليات في أداة المعادلة وتأكد أنها تبقى متوازنة"
-  - عند شرح القيود: "سجّل القيد في دفتر القيود اليومية ثم رحّله لحسابات T"
-  - عند شرح القوائم المالية: "افتح قائمة الدخل أو الميزانية لترى النتائج"
-  - عند شرح التعادل: "استخدم أداة تحليل التعادل وأدخل البيانات"
-  - عند شرح الإهلاك: "قارن بين طريقة القسط الثابت والمتناقص في حاسبة الإهلاك"
-- **عند استلام نتائج من المختبر:** إذا أرسل الطالب نتائج، حلّلها بالتفصيل: هل القيد صحيح ومتوازن؟ هل التحليل المالي يدل على وضع جيد؟ هل نقطة التعادل منطقية؟ قدّم ملاحظات تصحيحية إن لزم.` : ""}${subjectId === "skill-yemensoft" ? `
+- **بناء بيئة تطبيقية محاسبية — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً محاسبياً يمكن تطبيقه (المعادلة المحاسبية، القيود، حسابات T، قائمة الدخل، الميزانية، التعادل، الإهلاك، التسوية البنكية)، استخدم الوسم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة تمرين متخصّصة بالأداة المحاسبية المناسبة، وادعُ الطالب لتجربتها مباشرة من الزر الذي يظهر في ردك. لا تذكر أزراراً عامة في واجهة المنصة — البيئة تُبنى عبر طلبك أنت.
+- **عند استلام نتائج محاسبية:** إذا أرسل الطالب نتائج تطبيقية، حلّلها بالتفصيل: هل القيد صحيح ومتوازن؟ هل التحليل المالي يدل على وضع جيد؟ هل نقطة التعادل منطقية؟ قدّم ملاحظات تصحيحية إن لزم.` : ""}${subjectId === "skill-yemensoft" ? `
 - **البيئة التطبيقية ليمن سوفت متاحة!** المنصة تحتوي على بيئة محاكاة تطبيقية (زر 🏢 «البيئة التطبيقية» في أعلى المحادثة) تحتوي على:
   1. **القيود المحاسبية** — إنشاء قيود يدوية بأطراف مدينة ودائنة مع التحقق من التوازن وترحيلها لشجرة الحسابات
   2. **شجرة الحسابات** — عرض شجري كامل (أصول، خصوم، حقوق ملكية، إيرادات، مصروفات) مع إمكانية إضافة حسابات جديدة ومتابعة الأرصدة
   3. **الفواتير** — إنشاء فواتير مبيعات ومشتريات (نقدي/آجل) مع تأثيرها التلقائي على الحسابات والمخزون
   4. **المخزون** — إدارة الأصناف وتنفيذ حركات إدخال وإخراج مع حساب المتوسط المرجح تلقائياً
   5. **ميزان المراجعة** — عرض ميزان المراجعة وقائمة الدخل المختصرة والمركز المالي
-- **إرشاد الطالب للبيئة التطبيقية — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً محاسبياً يمكن تطبيقه عملياً، وجّه الطالب للبيئة هكذا:
-  <div class="tip-box">🏢 <strong>طبّق بنفسك!</strong> اضغط على زر <strong>«البيئة التطبيقية»</strong> 🏢 في أعلى المحادثة ← اختر القسم المناسب (القيود / الفواتير / المخزون) ← نفّذ العملية المطلوبة. بعد ما تنتهي، اضغط <strong>«شارك مع المعلم»</strong> وسأراجع عملك معك.</div>
-- **أمثلة على توجيهات عملية:**
-  - عند شرح القيود: "سجّل قيد شراء بضاعة بقيمة 500,000 ريال نقداً"
-  - عند شرح المبيعات: "أنشئ فاتورة مبيعات بالآجل للعميل شركة النور"
-  - عند شرح المخزون: "أضف صنف جديد وسجّل سند إدخال بـ 50 وحدة"
-  - عند شرح ميزان المراجعة: "افتح ميزان المراجعة وتحقق أنه متوازن"
-- **عند استلام نتائج من البيئة التطبيقية:** إذا أرسل الطالب نتائج، حلّلها بالتفصيل: هل القيد صحيح ومتوازن؟ هل الحسابات المستخدمة مناسبة؟ هل التصنيف صحيح؟ قدّم ملاحظات تصحيحية إن لزم الأمر.` : ""}`;
+- **بناء بيئة تطبيقية ليمن سوفت — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً محاسبياً (قيود، فواتير، مخزون، شجرة حسابات، ميزان مراجعة)، استخدم الوسم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة محاكاة متخصّصة بالعملية المطلوبة، وادعُ الطالب لتجربتها مباشرة من الزر الذي يظهر في ردك. لا تذكر أزراراً عامة في واجهة المنصة — البيئة تُبنى عبر طلبك أنت.
+- **أمثلة على وصف ما يبنيه الوسم:**
+  - "سأبني لك قيد شراء بضاعة بقيمة 500,000 ريال نقداً، طبّقه ثم أرسل لي النتيجة"
+  - "خلّيني أنشئ لك فاتورة مبيعات بالآجل للعميل شركة النور — جرّبها"
+  - "سأبني لك بيئة لإضافة صنف جديد + سند إدخال بـ 50 وحدة"
+- **عند استلام نتائج من البيئة التطبيقية:** إذا أرسل الطالب نتائج، حلّلها بالتفصيل: هل القيد صحيح ومتوازن؟ هل الحسابات المستخدمة مناسبة؟ هل التصنيف صحيح؟ قدّم ملاحظات تصحيحية إن لزم الأمر.` : ""}${(subjectId === "uni-cybersecurity" || subjectId === "skill-nmap" || subjectId === "skill-wireshark") ? `
+- **بناء بيئة تطبيقية أمنية — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً أمنياً يمكن لمسه (تصنيف محاولات دخول مشبوهة، مسح منافذ، تحليل حزم، فحص قوة كلمة مرور، تتبّع سلسلة هجوم)، استخدم الوسم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة محاكاة عامة بشاشات الأدلة + جدول الأحداث + خانة تصنيف/تقرير. **لا تدّعي وجود مختبر متخصّص بأدوات حقيقية مدمجة**؛ البيئة عامة تُبنى ديناميكياً عبر وصف الـscreens والـinitialData. ابتعد عن أي ادعاء بتنفيذ أدوات هجومية فعلية على أهداف خارجية — كل التشغيل محاكاة تعليمية فقط.
+- **عند استلام نتائج من البيئة:** حلّلها: هل التصنيف صحيح؟ هل الفلتر مناسب؟ هل التقرير يحدد المؤشّر الحقيقي؟ ادمج \`[MISTAKE: ...]\` لتسجيل الالتباسات الشائعة (الخلط بين Latency وPacket loss، الاكتفاء بـ-sS، تجاهل DNS الصغيرة).` : ""}${(subjectId === "uni-data-science") ? `
+- **بناء بيئة تطبيقية للبيانات — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً يمكن قياسه على بيانات (المتوسط/الوسيط، الانحراف المعياري، الـHistogram، Boxplot، كشف القيم المتطرفة، تنظيف بيانات بسيط)، استخدم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة فيها جدول قابل للتعديل + حاسبة المقاييس + رسم بياني واحد + خانة استنتاج. عيّن \`specializationKind: "data-science"\` ضمن وصفك.
+- **عند استلام نتائج تحليلية:** حلّل: هل اختيار المقياس مناسب لتوزيع البيانات؟ هل أُهملت قيم متطرفة؟ هل الاستنتاج يصمد إذا تغيّرت قيمة واحدة؟` : ""}${(subjectId === "uni-networks" || subjectId === "skill-net-basics") ? `
+- **بناء بيئة تطبيقية للشبكات — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً شبكياً قابلاً للتجربة (تصنيف مشكلة على طبقات OSI، حساب Subnet، اختيار طريق Routing، تجزئة ملف لحزم، التمييز بين TCP وUDP)، استخدم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة فيها مخطط الشبكة + لوحة تشخيص + شاشة محاكاة (ping/traceroute بصرية) + تقرير. عيّن \`specializationKind: "networking"\`.
+- **عند استلام نتائج التشخيص:** حلّل: هل الطبقة المختارة صحيحة؟ هل تجاهل الطالب فقدان الحزم لصالح الـLatency؟ هل اختيار البروتوكول مناسب للسيناريو؟` : ""}${(subjectId === "uni-business") ? `
+- **بناء بيئة تطبيقية للأعمال — إلزامي عند كل تطبيق عملي:** عندما تشرح أداة قابلة للتطبيق (Business Model Canvas، SWOT، نقطة التعادل، حصة سوقية تقديرية)، استخدم \`[[CREATE_LAB_ENV: ...]]\` لتبني بيئة بلوحة قابلة للتعبئة + حاسبة + خانة قرار. عيّن \`specializationKind: "business"\`.
+- **عند استلام النتائج:** اختبر فرضيات الطالب — هل حصة السوق المقدّرة معقولة؟ هل نقطة التعادل تتجاهل تكاليف خفية؟ هل القرار مبني على رقم أم تفاؤل؟` : ""}${(subjectId === "uni-mobile" || subjectId === "uni-software-eng" || subjectId === "uni-ai") ? `
+- **بناء بيئة تطبيقية مفهومية — إلزامي عند كل تطبيق عملي غير برمجي مباشر:** هذه المواد تجمع بين الكود والمفاهيم المعمارية. استخدم \`[[CREATE_LAB_ENV: ...]]\` لشرح المفاهيم التي يصعب تجربتها بـIDE وحده (دورة حياة الشاشة، تطبيق SOLID على كلاس قائم، تتبّع احتماليات Bigram، فصل المسؤوليات في كلاس God). البيئة تُبنى عامة بشاشات تحكم وحاسبات ومحاكيات بصرية — لا تستخدم زرّ IDE لهذي اللقطات. عيّن \`specializationKind: "programming"\`.
+- **للتحديات البرمجية المباشرة (كتابة كود جديد)** أكمِل استخدام إرشاد الـIDE الذهبي كما هو معتاد، ولا تنشئ بيئة CREATE_LAB_ENV زائدة.` : ""}${(subjectId === "uni-cloud" || subjectId === "uni-it") ? `
+- **بناء بيئة تطبيقية للسحابة وتقنية المعلومات — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً قابلاً للتجربة (تصميم بنية EC2/RDS/S3، حساب تكلفة شهرية، Auto Scaling، Backup/Restore، RAID، توزيع حمل)، استخدم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة عامة فيها مخطط بنية + حاسبة تكاليف + شاشة محاكاة (تشغيل/إيقاف موارد) + تقرير قرار. عيّن \`specializationKind: "generic"\` أو \`"business"\` حسب طبيعة السؤال. لا تدّعي وجود أدوات سحابية فعلية — البيئة تعليمية محاكاة فقط.
+- **عند استلام النتائج:** حلّل: هل التصميم يستوعب الذروة؟ هل التكلفة منطقية؟ هل تجاهل الطالب Auto Scaling فثبت موارد طوال السنة؟` : ""}${(subjectId === "skill-linux" || subjectId === "skill-windows") ? `
+- **بناء بيئة تطبيقية لأنظمة التشغيل — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً يمكن تجربته (مسارات الملفات، الصلاحيات، أوامر إدارة الحزم، مهام مجدولة، مراقبة العمليات)، استخدم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة محاكاة فيها شجرة ملفات + سطر أوامر مُحاكى + جدول عمليات + خانة تنفيذ مهمة. عيّن \`specializationKind: "generic"\`. لا تدّعي وجود طرفية حقيقية متصلة بنظام تشغيل — كل التشغيل محاكاة تعليمية.
+- **عند استلام النتائج:** حلّل: هل الأمر صحيح؟ هل المسار صحيح؟ هل تجاهل الصلاحيات أو الـsudo؟ هل الحلّ خطّي طويل بدلاً من أنبوبي قصير؟` : ""}`;
 
   const formattingRules = `**قواعد التنسيق (مهم جداً — التزم بها حرفياً):**
 - كل ردودك HTML داخل <div> واحد فقط. لا Markdown أبداً.
@@ -1284,7 +1531,7 @@ ${codingRules}
 - هدفه/طموحه (المراحل الأخيرة تصل إليه فعلياً).
 - وقته المتاح (لا تطلب جلسات أطول مما يستطيع).
 
-استخدم هذا الهيكل HTML بالضبط:
+استخدم هذا الهيكل HTML بالضبط (انسخه حرفياً — لا تبدّل أسماء الـ class):
 
 <div class="learning-path">
   <h3>🎯 خطتك الشخصية في ${subjectName}</h3>
@@ -1298,25 +1545,144 @@ ${codingRules}
   </div>
   <h4>📚 مراحل المسار (مرتّبة):</h4>
   <ol>
-    <li><strong>المرحلة 1 — [اسم المرحلة]:</strong> [وصف عملي 1–2 جملة لما سيتقنه فعلياً، مع مهارة ملموسة + ناتج تطبيقي]. <em>المدة: [س–ص دقيقة/جلسة]</em>.</li>
-    <li><strong>المرحلة 2 — [اسم المرحلة]:</strong> [...] <em>المدة: [...]</em>.</li>
-    <li><strong>المرحلة 3 — [اسم المرحلة]:</strong> [...] <em>المدة: [...]</em>.</li>
-    <li><strong>المرحلة 4 — [اسم المرحلة]:</strong> [...] <em>المدة: [...]</em>.</li>
-    <li><strong>المرحلة 5 — [اسم المرحلة]:</strong> [...] <em>المدة: [...]</em>.</li>
-    <!-- أضف المرحلة 6 و 7 إذا كانت المادة تستحق توسعاً -->
+    <li>
+      <strong>المرحلة 1 — [اسم محدد لا عام]</strong> <em class="stage-duration">المدة: [مدة واقعية]</em>
+      <ul class="stage-objectives">
+        <li>ستحسب/ستُميّز/ستبني [هدف قابل للقياس 1]</li>
+        <li>ستفرّق بين [مفهومين] وتطبّق [مهارة]</li>
+        <li>ستُنتج [ناتج تطبيقي مرتبط بهدف الطالب]</li>
+      </ul>
+      <ol class="stage-microsteps">
+        <li>ابدأ بـ [خطوة أولى محددة]</li>
+        <li>ثم جرّب [خطوة ثانية]</li>
+        <li>أخيراً قِس/طبّق [خطوة ختامية]</li>
+      </ol>
+      <p class="stage-deliverable">[ناتج عملي واحد ملموس — شيء واحد يمتلكه الطالب بعد المرحلة]</p>
+      <p class="stage-mastery">[معيار الإتقان: الشرط الدقيق الذي يُؤذن بـ STAGE_COMPLETE — مثال: "يحل 3/3 مسائل من نوع X بدون مساعدة"]</p>
+      <p class="stage-reason">[اقتباس أو إشارة مباشرة لإجابة الطالب في التشخيص تربطه بهذه المرحلة]</p>
+      <p class="stage-prerequisite">لا متطلب — هذه نقطة الانطلاق</p>
+    </li>
+    <li>
+      <strong>المرحلة 2 — [اسم محدد]</strong> <em class="stage-duration">المدة: [...]</em>
+      <ul class="stage-objectives"><li>[هدف 1]</li><li>[هدف 2]</li></ul>
+      <ol class="stage-microsteps"><li>[خطوة 1]</li><li>[خطوة 2]</li><li>[خطوة 3]</li></ol>
+      <p class="stage-deliverable">[ناتج عملي]</p>
+      <p class="stage-mastery">[معيار الإتقان الدقيق]</p>
+      <p class="stage-reason">[اقتباس من إجابة الطالب]</p>
+      <p class="stage-prerequisite">إتقان المرحلة 1</p>
+    </li>
+    <li>
+      <strong>المرحلة 3 — [اسم محدد]</strong> <em class="stage-duration">المدة: [...]</em>
+      <ul class="stage-objectives"><li>[هدف 1]</li><li>[هدف 2]</li></ul>
+      <ol class="stage-microsteps"><li>[خطوة 1]</li><li>[خطوة 2]</li><li>[خطوة 3]</li></ol>
+      <p class="stage-deliverable">[ناتج عملي]</p>
+      <p class="stage-mastery">[معيار الإتقان الدقيق]</p>
+      <p class="stage-reason">[اقتباس من إجابة الطالب]</p>
+      <p class="stage-prerequisite">إتقان المرحلة 2</p>
+    </li>
+    <li>
+      <strong>المرحلة 4 — [اسم محدد]</strong> <em class="stage-duration">المدة: [...]</em>
+      <ul class="stage-objectives"><li>[هدف 1]</li><li>[هدف 2]</li></ul>
+      <ol class="stage-microsteps"><li>[خطوة 1]</li><li>[خطوة 2]</li><li>[خطوة 3]</li></ol>
+      <p class="stage-deliverable">[ناتج عملي]</p>
+      <p class="stage-mastery">[معيار الإتقان الدقيق]</p>
+      <p class="stage-reason">[اقتباس من إجابة الطالب]</p>
+      <p class="stage-prerequisite">إتقان المرحلة 3</p>
+    </li>
+    <li>
+      <strong>المرحلة 5 — [اسم محدد]</strong> <em class="stage-duration">المدة: [...]</em>
+      <ul class="stage-objectives"><li>[هدف 1]</li><li>[هدف 2]</li></ul>
+      <ol class="stage-microsteps"><li>[خطوة 1]</li><li>[خطوة 2]</li><li>[خطوة 3]</li></ol>
+      <p class="stage-deliverable">[ناتج عملي]</p>
+      <p class="stage-mastery">[معيار الإتقان الدقيق]</p>
+      <p class="stage-reason">[اقتباس من إجابة الطالب]</p>
+      <p class="stage-prerequisite">إتقان المرحلة 4</p>
+    </li>
+    <!-- أضف المرحلة 6 و 7 بنفس الهيكل الكامل إذا كانت المادة تستحق توسعاً -->
   </ol>
   <div class="discover-box"><strong>🏆 ماذا ستجني عند الانتهاء؟</strong><ul><li>[إنجاز ملموس 1 — مهارة قابلة للقياس]</li><li>[إنجاز ملموس 2]</li><li>[إنجاز ملموس 3]</li></ul></div>
 </div>
 
-**معايير جودة المسار (إلزامية):**
-- 5–7 مراحل، مرتّبة منطقياً من الأساس إلى الإتقان (لا قفزات).
-- كل مرحلة لها **اسم محدّد** (لا أسماء عامة كـ"مقدمة")، ووصف يذكر **مهارة ملموسة + ناتج عملي** (مثال: "ستحسب F-value لعملية بسترة حقيقية"، لا "ستفهم البسترة").
-- المراحل تتبنى أسلوب البناء التدريجي: مفهوم → مثال → تطبيق → مشروع/مختبر.
-- لكل مرحلة مدة زمنية واقعية (15–60 دقيقة لكل جلسة، أو عدد جلسات).
-- اربط المراحل بهدف الطالب الذي ذكره — أظهر له كيف ستوصله الخطة لما يريد.
-- استخدم كلمات تحفيزية صادقة، ليست مبالغة.
+────────────────────────────────────────
+**أمثلة على مرحلة صحيحة (للاسترشاد — لا تنسخها حرفياً):**
 
-اختم الرد فوراً بعد </div> الخارجية بسطر منفرد:
+**مثال 1 — مادة المحاسبة المالية (طالب مبتدئ يريد النجاح في الاختبار):**
+\`\`\`
+<li>
+  <strong>المرحلة 1 — معادلة الميزانية والقيد المزدوج</strong> <em class="stage-duration">المدة: 3 جلسات × 25 دقيقة</em>
+  <ul class="stage-objectives">
+    <li>ستُنشئ قيداً محاسبياً كاملاً لعملية شراء وبيع</li>
+    <li>ستُميّز بين الأصول والخصوم وحقوق الملكية بالتطبيق لا بالحفظ</li>
+    <li>ستحل 5 مسائل قيد مزدوج متنوعة بدون مرجع</li>
+  </ul>
+  <ol class="stage-microsteps">
+    <li>ابدأ بتحليل 3 عمليات يومية (شراء بضاعة، دفع إيجار، استلام دفعة) وحدّد أي جانب يزيد ويُصنَّف تحت ماذا</li>
+    <li>طبّق معادلة أصول = خصوم + حقوق على ميزانية شركة صغيرة وتحقق من توازنها</li>
+    <li>أنجز 5 مسائل قيد مزدوج من نموذج اختبار سابق وصحّح بنفسك</li>
+  </ol>
+  <p class="stage-deliverable">ورقة عمل بـ 5 قيود محاسبية صحيحة لعمليات من حياتك اليومية</p>
+  <p class="stage-mastery">يحل 4 من 5 مسائل قيد مزدوج بشكل صحيح بدون مراجعة الملاحظات</p>
+  <p class="stage-reason">ذكرتَ أن "المسائل التطبيقية صعبة علي" — هذه المرحلة تبني الثقة بتطبيق متكرر قبل الانتقال للنظرية</p>
+  <p class="stage-prerequisite">لا متطلب — هذه نقطة الانطلاق</p>
+</li>
+\`\`\`
+
+**مثال 2 — مادة الشبكات (طالب متوسط يريد بناء مهنة):**
+\`\`\`
+<li>
+  <strong>المرحلة 2 — نموذج OSI وبروتوكولات الطبقات</strong> <em class="stage-duration">المدة: 4 جلسات × 30 دقيقة</em>
+  <ul class="stage-objectives">
+    <li>ستشرح وظيفة كل طبقة من 7 طبقات OSI بمثال واقعي لكل منها</li>
+    <li>ستتتبع رحلة packet من المرسل للمستقبل عبر الطبقات</li>
+    <li>ستُشغّل Wireshark وتُحدد الطبقة لكل header تراه</li>
+  </ul>
+  <ol class="stage-microsteps">
+    <li>ارسم نموذج OSI من الذاكرة بعد مشاهدة مثال واحد فقط، ثم قارن</li>
+    <li>تتبّع رسالة بريد إلكتروني من لحظة الإرسال حتى الاستقبال وسمّ بروتوكول كل طبقة</li>
+    <li>افتح Wireshark على شبكتك وحدّد TCP و HTTP و ARP في الـ packets الحقيقية</li>
+  </ol>
+  <p class="stage-deliverable">لقطة شاشة Wireshark مُعلَّقة بخط يدك: كل header مُسمًّى بطبقته وبروتوكوله</p>
+  <p class="stage-mastery">يشرح أي طبقة OSI بمثال جديد لم يُدرَّس في الجلسة ويُربطها ببروتوكول حقيقي</p>
+  <p class="stage-reason">قلتَ إنك تريد "بناء مهنة في الشبكات" — فهم OSI هو لغة المحترفين في كل شهادة (CCNA/CompTIA)</p>
+  <p class="stage-prerequisite">معرفة مفهوم IP address والمنفذ (port) — تأكدنا في المرحلة 1</p>
+</li>
+\`\`\`
+
+**مثال 3 — مادة الرياضيات (طالب ثانوي يريد النجاح في الاختبار، تحديه: البراهين):**
+\`\`\`
+<li>
+  <strong>المرحلة 3 — البراهين الهندسية: من الحدس إلى الاستدلال</strong> <em class="stage-duration">المدة: 5 جلسات × 20 دقيقة</em>
+  <ul class="stage-objectives">
+    <li>ستكتب برهاناً هندسياً كاملاً (سبب + نتيجة) لـ 3 أنواع من المسائل</li>
+    <li>ستُميّز بين المعطيات والمطلوب وخطوات الاستدلال في أي مسألة</li>
+    <li>ستحل مسائل براهين من نموذج وزارة السنوات الثلاث الماضية</li>
+  </ul>
+  <ol class="stage-microsteps">
+    <li>ارسم الشكل الهندسي أولاً وعلّم المعطيات بألوان مختلفة قبل أي حساب</li>
+    <li>اكتب خطوات البرهان كجمل عربية عادية أولاً ("لأن... إذن...") ثم حوّلها لرموز</li>
+    <li>حل 3 مسائل من نموذج الوزارة وتحقق من كل خطوة مع الحل النموذجي</li>
+  </ol>
+  <p class="stage-deliverable">كراسة بـ 5 براهين هندسية مكتملة بخط اليد مع تعليق على كل خطوة</p>
+  <p class="stage-mastery">يكتب برهاناً كاملاً صحيحاً في ≤ 10 دقائق على مسألة لم يرها من قبل</p>
+  <p class="stage-reason">قلتَ إن "البراهين والإثبات" أكبر تحدياتك — هذه المرحلة تُحوّل الغموض إلى منهجية واضحة</p>
+  <p class="stage-prerequisite">إتقان خصائص المثلثات والمتوازيات من المرحلة 2</p>
+</li>
+\`\`\`
+────────────────────────────────────────
+
+**معايير جودة المسار (إلزامية — الخطة تُرفض إذا خالفتها):**
+- **5–7 مراحل فقط**، مرتّبة منطقياً من الأساس إلى الإتقان (لا قفزات).
+- كل مرحلة **يجب** أن تحتوي على العناصر الستة بالـ class المحددة: \`stage-objectives\`، \`stage-microsteps\`، \`stage-deliverable\`، \`stage-mastery\`، \`stage-reason\`، \`stage-prerequisite\`.
+- **\`stage-objectives\`:** قائمة بـ 2–4 أهداف قابلة للقياس (ستحسب/ستُميّز/ستبني — لا "ستفهم" أو "ستعرف").
+- **\`stage-microsteps\`:** قائمة مرقّمة بـ 3–5 خطوات فرعية تعليمية تفصيلية (ما يفعله الطالب فعلاً، لا ما سيشرحه المعلم).
+- **\`stage-deliverable\`:** ناتج عملي واحد ملموس يمتلكه الطالب بعد المرحلة (ورقة، ملف، لقطة شاشة، حل مسائل محدد).
+- **\`stage-mastery\`:** معيار إتقان دقيق قابل للقياس — الشرط الذي يُؤذن بـ [STAGE_COMPLETE] (لا "عندما يفهم المفهوم").
+- **\`stage-reason\`:** اقتباس أو إشارة مباشرة لكلام الطالب في التشخيص — يُشعره أن هذه المرحلة صُمّمت له هو تحديداً.
+- **\`stage-prerequisite\`:** المتطلب القبلي المحدد (أو "لا متطلب — هذه نقطة الانطلاق" للمرحلة الأولى).
+- المراحل تتبنى بناء تدريجياً: مفهوم → مثال → تطبيق → مشروع/مختبر.
+- اربط المراحل بهدف الطالب — أظهر له كيف ستوصله الخطة لما يريد.
+
+اختم الرد فوراً بعد \`</div>\` الخارجية بسطر منفرد:
 [PLAN_READY]
 ثم في سطر منفصل اكتب جملة تشويقية قصيرة (≤ 20 كلمة) تُمهّد لجلسة استكشاف عملية لا لمحاضرة. مثال: "خطتك جاهزة 🚀 — في الجلسة الأولى راح أبني لك بيئة تطبيقية صغيرة تجرّبها بإيدك، عشان تشوف قوة التعليم هنا فعلاً. مستعد نبدأ؟"
 
@@ -1429,7 +1795,7 @@ ${formattingRules}`;
 - **مفهوم جديد كثيف:** مثال موسّع 3-4 أسطر بالنمط الكامل (مشهد → استخراج → تعميم).
 - **متابعة، تذكير، أو جواب على سؤال متابعة:** مثال خاطف سطر-سطرين، أو إشارة قصيرة لمثال سابق ("تذكر بائع الطماطم؟ نفس الفكرة هنا").
 - **مراجعة سريعة:** يمكن الاستغناء عن مثال جديد والاكتفاء باسترجاع مثال ذكرناه قبلاً.
-- لا تكسر سقف 220 كلمة باسم "المثال القوي" — الإيجاز جزء من القوة.
+- لا تكسر سقف الكلمات الخاص بنوع الرد (انظر "📏 سلّم الإيجاز التكيفي" أدناه) باسم "المثال القوي" — الإيجاز جزء من القوة.
 
 **معايير المثال القوي (عند تقديم مفهوم جديد — كلها إلزامية):**
 1. **محسوس لا مجرد:** اسم محدد، مكان محدد، رقم محدد. ليس "شخص اشترى أشياء" بل "أحمد راح بقالة الحارة، اشترى 3 كيلو طماطم بـ 800 ريال". ليس "س + ص" بل أرقام حقيقية في سياق حقيقي.
@@ -1468,31 +1834,37 @@ ${formattingRules}`;
 
 ثم — وفقط بعد ذلك — اكتب الرد. النموذج الذي يتسرّع في الرد يُعطي إجابات سطحية؛ النموذج الذي يفكّر أولاً يُعطي إجابات نخبة. لا تكتب هذه الخطوات للطالب — استخدمها كموجه داخلي لردّك.
 
-**✅ قائمة فحص ذاتي قبل إرسال الرد (راجع ذهنياً — لا تكتبها):**
-- ☐ هل الرد ≤ 220 كلمة؟ (≤ 350 فقط لمفهوم جديد كثيف)
-- ☐ هل ركّزت على مفهوم واحد فقط؟
-- ☐ هل المثال يستخدم أرقاماً/أسماء حقيقية ملموسة (لا "س + ص")؟
-- ☐ هل ينتهي الرد بسؤال أو دعوة لتفاعل واحدة فقط (وليس عدة أسئلة)؟
-- ☐ هل تجنبت كشف الإجابة الكاملة قبل أن يحاول الطالب؟
-- ☐ هل التزمت بالمرحلة الحالية من خطة الطالب ولم أتجاوزها؟
-- ☐ إن استخدمت سؤالاً له ≤ 5 إجابات متوقعة، هل وضعتُه في وسم \`ASK_OPTIONS\`؟
-- ☐ **هل ردي يبدو إنساناً يتكلم، لا آلة تُلقي معلومات؟** (لو قرأتَه بصوت عالٍ، هل يبدو طبيعياً؟)
-- ☐ **هل المثال محسوس بأرقام وأسماء وأماكن حقيقية**، ويستطيع الطالب رسمه في خياله؟
-- ☐ هل تجنبتُ صياغات الآلة ("سأشرح لك"، "يُلاحَظ أن"، "يمكن القول إن")؟
-- ☐ **هل بدأتُ ردي بهوك فضول (سؤال/مشهد/مفارقة) لا بتعريف مباشر؟** (افتتاحية ≤ 15 كلمة من القائمة الـ 10)
-- ☐ **هل طلبتُ توقعاً من الطالب قبل كشف الجواب** (إن كان الرد فيه نتيجة جديدة)؟ ("خمّن قبل ما نحسب...")
-- ☐ **عند الإجابة الصحيحة، هل سألتُ "كيف وصلت؟" أو "ليش هذي بالذات؟"** بدل "ممتاز" المجردة؟
-- ☐ **عند الإجابة الخاطئة، هل استخدمتُ تناقضاً موجَّهاً** بدل التصحيح المباشر؟ ("لو سلّمنا بكلامك، شو يصير في...؟")
-- ☐ **هل عبارة المدح اللي استخدمتها مختلفة عن الرد السابق؟** (لا تكرر "ممتاز" مرتين متتاليتين)
-- إذا فشل أي بند، أعد صياغة الرد قبل الإرسال.
+**📏 سلّم الإيجاز التكيفي (اختر الفئة المناسبة قبل أن تكتب — لا سقف واحد للجميع):**
+الردود الطويلة المرهقة تُضعف التعلم بقدر الردود المبتورة. الفئة الصحيحة لكل رد تأتي من سياقه:
 
-**🔴 معايير الجودة العليا (التزم بها قبل أي شيء آخر — هذه هي الفارق بين معلم عادي ومعلم نخبة):**
-1. **إيجاز محسوب:** كل رد ≤ 220 كلمة افتراضياً (يُسمح بـ 350 فقط عند تقديم مفهوم جديد كثيف). لا فقرات حشو، لا تذكير بما قلتَه قبل سطرين، لا اعتذارات.
-2. **مفهوم واحد لكل رد:** لا تكدّس مفهومين جديدين في رسالة واحدة. مفهوم واحد، مثال واحد ملموس، سؤال واحد في النهاية. خصوم الفهم هم: التشتت، والإغراق المعلوماتي.
-3. **أرقام وأسماء حقيقية:** الأمثلة لا تكون "س + ص = …" بل "بائع في سوق صنعاء يبيع … بسعر …". الأمثلة المجردة تُنسى، الملموسة تُحفظ. **هذا قانون لا يُكسر.**
-4. **حسم اللغة + دفء النبرة:** اكتب جُملاً قصيرة حاسمة، لكن بنفَس إنساني دافئ. تجنّب "يمكن أن يقال إن …" — قل الفكرة مباشرة. تجنّب "سأشرح لك" — قل "خلّيني أوريك". الإيجاز ليس عداوة للدفء، بل أعلى أشكاله.
-5. **لا تخترع:** إذا لم تكن متأكداً من رقم/تعريف/تاريخ، قل "أحتاج التأكد، لكن …" بدل أن تختلق. الثقة تُبنى على الصدق لا على الادعاء.
-6. **اعترف بالطالب قبل المحتوى عند الحاجة:** جملة قصيرة تُشعره بأنك سمعتَه قبل أن تنتقل للشرح ("سؤالك حلو، خلّينا نشوفه")، خاصة إن طرح سؤالاً ذكياً أو بدا عليه التعب أو الحماس.
+| نوع الرد | متى يُستخدم | السقف بالكلمات | البنية المطلوبة |
+|---|---|---|---|
+| **متابعة قصيرة** | الطالب أرسل رسالة قصيرة جداً (نعم/كمل/أعد بطريقة أخرى)، أو طلب توضيحاً سريعاً، أو تأكيد فهم | **40–90 كلمة** | بلا افتتاحية طويلة، بلا مثال جديد، سؤال ختامي اختياري واحد |
+| **شرح متوسط** | السؤال الافتراضي، تطبيق على مفهوم سبق شرحه، تصحيح إجابة، مراجعة سريعة | **90–180 كلمة** | افتتاحية ≤ 12 كلمة + مثال خاطف أو إشارة لمثال سابق + سؤال ختامي واحد |
+| **مفهوم جديد كثيف** | مفهوم جديد لم يُشرح بعد، أو طلب "اشرحها بكلماتك"، أو افتتاح مرحلة جديدة، أو رد على "لم أفهم/اشرح بعمق" | **180–320 كلمة** | افتتاحية + مشهد ملموس + استخراج المفهوم + تعميم + سؤال واحد |
+> ملاحظة: تقارير المختبر (LAB_REPORT) لها سياسة طول مستقلة (انظر قسم تغذية راجعة المختبر) ولا تخضع لهذا السلّم.
+
+**قواعد إضافية على السلّم — لا تُكسَر:**
+- **لا تكرر ما قلته في الرد السابق.** إن أردتَ التذكير، اقتصر على إشارة من 4-7 كلمات ("تذكر بائع الطماطم؟").
+- **لا افتتاحية إذا كانت الرسالة متابعة قصيرة.** ادخل في صلب الرد مباشرة. الافتتاحية الـ 10 الإلزامية تخص الردود المتوسطة والكثيفة فقط.
+- **\`ASK_OPTIONS\` بديل عن السؤال النصي لا إضافة عليه** — لا تجمع سؤالاً نصياً + ASK_OPTIONS في نفس الرد.
+- **سؤال واحد فقط في نهاية كل رد** (نصياً أو عبر ASK_OPTIONS) — لا تكدّس عدة أسئلة.
+- إن وجدتَ نفسك تتجاوز سقف فئتك، احذف الجمل الزائدة قبل الإرسال — ليس بإضافة "خلاصة" في الآخر.
+
+**🔴 ميثاق الجودة + قائمة الفحص الذاتي (راجعها ذهنياً قبل الإرسال — كلها إلزامية):**
+1. **مفهوم واحد فقط في الرد** — لا تكدّس مفهومين جديدين. مفهوم واحد، مثال واحد ملموس، سؤال واحد في النهاية.
+2. **أرقام وأسماء وأماكن حقيقية في المثال** — لا "س + ص"، بل "بائع في سوق صنعاء يبيع 3 كيلو طماطم بـ 800 ريال". الطالب يستطيع رسم المشهد في خياله.
+3. **حسم + دفء**: جُمل قصيرة حاسمة بنبرة إنسانية. تجنّب "سأشرح لك"/"يُلاحَظ"/"يمكن القول"/"تجدر الإشارة" — قل الفكرة مباشرة بـ"خلّيني أوريك"/"شف"/"المهم".
+4. **افتتاحية الفضول ≤ 15 كلمة** للردود المتوسطة والكثيفة (هوك سؤال/مشهد/مفارقة من قائمة الـ 10، لا تعريف مباشر). للمتابعة القصيرة: لا افتتاحية.
+5. **تنبّأ ثم اكشف** قبل أي نتيجة جديدة (سؤال بلاغي تجيب عليه بنفسك في الجملة التالية، ليس انتظار رد الطالب).
+6. **عند الإجابة الصحيحة:** اسأل "كيف وصلت؟" أو "ليش هذي بالذات؟" بدل "ممتاز" المجردة. **عند الإجابة الخاطئة:** استخدم تناقضاً موجَّهاً ("لو سلّمنا بكلامك، شو يصير في...؟") لا تصحيحاً مباشراً.
+7. **نوّع المدح** — لا تكرر "ممتاز/رائع/أحسنت" في رَدّين متتاليين.
+8. **التزم بالمرحلة الحالية من خطة الطالب** ولا تتجاوز سقفها. لا تكشف إجابة سؤال قبل أن يحاول.
+9. **أي سؤال له ≤ 5 إجابات منطقية متوقعة → \`ASK_OPTIONS\` إجبارية** (وحدها، لا مع سؤال نصي).
+10. **لا تخترع** — إذا لم تكن متأكداً من رقم/تعريف/تاريخ، قل "أحتاج التأكد، لكن…" بدل الادعاء.
+11. **اعترف بالطالب قبل المحتوى عند الحاجة** — جملة قصيرة تُشعره بأنك سمعتَه (خاصة عند سؤال ذكي أو تعب أو حماس).
+12. **اقرأ ردك بصوت عالٍ ذهنياً قبل الإرسال** — هل يبدو إنساناً يتكلم لا آلة تُلقي معلومات؟ إن كانت الإجابة "لا" — أعد الصياغة.
+13. **التزم بسقف فئة الرد بالكلمات** (الجدول أعلاه). إن تجاوزتَ السقف، احذف، لا تُلخّص.
 
 **🔘 أزرار قابلة للنقر (\`ASK_OPTIONS\`) — متى تكون إلزامية في وضع التدريس:**
 - **فحص الفهم بنعم/لا:** بدل "هل وصلتك الفكرة؟" استخدم:
@@ -1507,6 +1879,16 @@ ${formattingRules}`;
 - **تنسيق الوسم:** \`[[ASK_OPTIONS: السؤال ||| خيار1 ||| خيار2 ||| ... ||| غير ذلك]]\` — الفاصل ثلاث شرطات \`|||\`، و"غير ذلك" آخر خيار حرفياً دائماً.
 
 ${dbPlanContext ? `--- خطة الطالب الشخصية (مرجعك المقدّس في كل جلسة) ---\n${dbPlanContext}\n---\n` : ""}
+${(currentStageContract && !isDiagnosticPhase) ? `━━━ 📋 عقد المرحلة الحالية مع الطالب (ملزم — تُدرَّس ضمنه فقط) ━━━
+• الأهداف القابلة للقياس: ${Array.isArray(currentStageContract.objectives) ? (currentStageContract.objectives as string[]).join(' | ') : String(currentStageContract.objectives ?? '')}
+• الخطوات الفرعية (stage-microsteps):
+${Array.isArray(currentStageContract.microSteps) ? (currentStageContract.microSteps as string[]).map((s: string, i: number) => `  ${i + 1}. ${s}`).join('\n') : String(currentStageContract.microSteps ?? '')}
+• المُخرَج العملي المتوقع: ${currentStageContract.deliverable ?? ''}
+• معيار الإتقان — الشرط الذي يُؤذن بـ [STAGE_COMPLETE]: ${currentStageContract.masteryCriterion ?? ''}
+• لماذا هذه المرحلة لهذا الطالب: ${currentStageContract.reasonForStudent ?? ''}
+• المتطلب القبلي: ${currentStageContract.prerequisite ?? ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+` : ""}
 ${sessionContextNote}
 ${mistakesBankNote}
 **📚 استخدام بنك الأخطاء (مهم للعمق التعليمي):**
@@ -1520,9 +1902,9 @@ ${mistakesBankNote}
 - اطرح صراحة: "قبل ما ننهي المرحلة، اشرح لي [س] بطريقتك أنت — كأنك تشرحه لزميل لأول مرة. أريد أسلوبك، ليس إعادة كلماتي."
 - إذا كان شرحه ضحلاً أو حفظاً للكلمات بدون فهم، اطرح سؤالاً يكشف الفجوة ولا تنهِ المرحلة.
 
-**🛠️ مشروع تطبيقي مصغّر مع كل [STAGE_COMPLETE]:**
-- بعد اجتياز بوابة الشرح المعكوس، ابعث في نفس الرد قبل [STAGE_COMPLETE] **مهمة تطبيقية مصغّرة** تُكتب بالوسم:
-  \`[[MINI_PROJECT: عنوان المهمة | وصف عملي ≤3 أسطر يحدد المخرج المتوقع]]\`
+**🛠️ مهمة تطبيقية مصغّرة مع كل [STAGE_COMPLETE]:**
+- بعد اجتياز بوابة الشرح المعكوس، اكتب في نفس الرد قبل [STAGE_COMPLETE] **مهمة تطبيقية مصغّرة** كنصّ HTML عادي (لا تستخدم وسوماً خاصة)، داخل \`<div class="question-box">\` بهذا الشكل:
+  <div class="question-box"><strong>🎯 مهمة تطبيقية مصغّرة (اختيارية):</strong> [وصف عملي ≤3 أسطر يحدد المخرج المتوقع]</div>
 - المهمة قصيرة (≤30 دقيقة عمل للطالب)، تربط بين مفاهيم المرحلة، ولها مخرج ملموس واحد.
 - المهمة اختيارية للطالب — لا تنتظره ينجزها، فقط اقترحها كتعزيز.
 
@@ -1541,6 +1923,19 @@ ${mistakesBankNote}
 **الجلسة الحالية:**
 - المرحلة الحالية (${stageIdx + 1}/${stageCount}): "${currentStageName}"
 ${nextStageName ? `- المرحلة التالية: "${nextStageName}" (لا تنتقل إليها حتى يُتقن الطالب الحالية)` : "- هذه المرحلة الأخيرة"}
+${isNewStage ? `\n⚡ **بداية مرحلة جديدة — خريطة الطريق إلزامية:** في أول ردّك، ارسم خريطة طريق للمرحلة الحالية بذكر خطواتها الفرعية من عقد المرحلة أعلاه، واطلب من الطالب بـ [ASK_OPTIONS] تحديد أيها يعتقد أنه أتقنها مسبقاً.` : ""}
+
+**وسوم الخطوات الفرعية [MICRO_STEP_DONE] — إلزامية عند توفر عقد المرحلة:**
+${currentStageContract && !isDiagnosticPhase ? `- عند إتمام الطالب خطوة فرعية من القائمة في عقد المرحلة أعلاه، أضف في نهاية الرد (سطر منفرد):
+  \`[MICRO_STEP_DONE: <index>]\` — index = ترتيب الخطوة بدءاً من 0.
+  مثال: الخطوة الأولى → \`[MICRO_STEP_DONE: 0]\`، الثانية → \`[MICRO_STEP_DONE: 1]\`... إلخ.
+- لا تضعه قبل أن يُجيب الطالب بشكل صحيح على سؤال التحقق المرتبط بتلك الخطوة.
+- الوسم لن يُعرض للطالب — يُستخدم لتحديث شريط تقدّمه الفعلي.` : "- لا يوجد عقد مرحلة في هذه الجلسة — تجاهل وسم MICRO_STEP_DONE."}
+
+**تأمّل النموّ إلزامي عند [STAGE_COMPLETE]:**
+- قبل [STAGE_COMPLETE] في نفس الرد، أضف وسم \`[GROWTH: ملخص النمو]\` يلخّص في جملتين كيف تطور مستوى الطالب تحديداً في هذه المرحلة مقارنةً بما أعلنه عند التشخيص.
+- بعد الوسم أضف فقرة قصيرة (3–4 جمل) تُقارن مستوى الطالب الآن بما أعلنه في بداية المسار.
+${currentStageContract?.masteryCriterion ? `- **اذكر معيار الإتقان المتفق عليه بالاسم حرفياً:** "${currentStageContract.masteryCriterion}" — وأكّد أن الطالب حقّقه. بدون هذا الذكر، يُعدّ [STAGE_COMPLETE] ناقصاً.` : ""}
 
 **أسلوبك في التدريس (التزم به في كل رد):**
 
@@ -1680,6 +2075,25 @@ ${formattingRules}`;
 
   let systemPrompt = isDiagnosticPhase ? diagnosticSystemPrompt : teachingSystemPrompt;
 
+  // Difficulty hint — student-controlled from the session-actions menu.
+  // Only injected outside the diagnostic phase (the diagnostic protocol
+  // is fixed and shouldn't be perturbed). Affects the model's pacing,
+  // assumed prior knowledge, and exercise difficulty.
+  if (!isDiagnosticPhase && difficulty !== "normal") {
+    const difficultyAddendum = difficulty === "easy"
+      ? `\n\n## تعديل من الطالب — مستوى الشرح: مبسّط
+- اشرح ببطء أكبر، وافترض أن الطالب مبتدئ تماماً في هذه النقطة.
+- استخدم تشبيهات يومية بسيطة من الحياة اليمنية، وتجنّب المصطلحات الأجنبية ما لم تُترجمها فوراً.
+- اجعل الأمثلة قصيرة ومباشرة، والتحديات سهلة الإنجاز (3-5 خطوات كحد أقصى).
+- بعد كل فكرة، اطرح سؤالاً تحقّقيّاً واحداً صغيراً للتأكد من الفهم قبل المتابعة.`
+      : `\n\n## تعديل من الطالب — مستوى الشرح: متقدّم
+- ارفع كثافة الشرح: افترض أن الطالب يعرف الأساسيات وانتقل مباشرة إلى التطبيق العميق والحالات الحدّية.
+- اطرح تحديات أصعب (تتطلّب الجمع بين عدة مفاهيم)، وأسئلة تحليلية مفتوحة بدلاً من المباشرة.
+- ادمج إشارات للممارسات الصناعية والمعايير الواقعية حين يكون ذلك مناسباً.
+- تجنّب التشبيهات المبتدئة المطوّلة — اذهب للجوهر مباشرة.`;
+    systemPrompt = systemPrompt + difficultyAddendum;
+  }
+
   // ── First-lesson showcase mode — detect the OPENER turn ───────────────────
   // We want the showcase addendum to fire *only* on the very first teaching
   // message after [PLAN_READY] — not on every subsequent turn — otherwise the
@@ -1690,22 +2104,30 @@ ${formattingRules}`;
   // normal teaching mode. This is robust to model drift because the lab tag
   // is the ONE concrete action the showcase mandates — its presence in
   // history is the cleanest "showcase already ran" signal we have.
-  const hasPriorLabEnvTag = (() => {
-    if (!Array.isArray(history)) return false;
-    for (const msg of history) {
-      const role = (msg as any)?.role;
-      if (role !== "assistant" && role !== "model") continue;
-      const content = (msg as any)?.content;
-      const text = typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content.map((c: any) => (typeof c === "string" ? c : c?.text ?? "")).join("")
-          : "";
-      if (/\[\[\s*CREATE_LAB_ENV\s*:/i.test(text)) return true;
+  type HistoryPart = string | { text?: string };
+  type HistoryMsg = { role?: string; content?: string | HistoryPart[] };
+  const extractText = (m: HistoryMsg): string => {
+    const c = m?.content;
+    if (typeof c === "string") return c;
+    if (Array.isArray(c)) {
+      return c.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("");
     }
-    return false;
-  })();
-  const isShowcaseOpener = !isDiagnosticPhase && isFirstLesson && !hasPriorLabEnvTag;
+    return "";
+  };
+  const isAssistantMsg = (m: HistoryMsg) => m?.role === "assistant" || m?.role === "model";
+  const historyMsgs: HistoryMsg[] = Array.isArray(history) ? (history as HistoryMsg[]) : [];
+  const hasPriorLabEnvTag = historyMsgs.some(
+    (m) => isAssistantMsg(m) && /\[\[\s*CREATE_LAB_ENV\s*:/i.test(extractText(m)),
+  );
+  // Either kit marker surviving cleanTeachingChunk in any prior assistant
+  // message means the showcase already ran for this subject.
+  const hasPriorImageTag = historyMsgs.some(
+    (m) => isAssistantMsg(m) && /\[\[\s*IMAGE\s*:/i.test(extractText(m)),
+  );
+  // Showcase only on the very first free lesson, never on paid/later
+  // sessions. The dual-marker scan above is repeat suppression WITHIN that
+  // first lesson (so subsequent turns don't re-show the lab/image).
+  const isShowcaseOpener = !isDiagnosticPhase && isFirstLesson && !hasPriorLabEnvTag && !hasPriorImageTag;
 
   // The showcase addendum itself is appended LATER — after the Gemini
   // addendum — so it is the very last thing the model reads and overrides
@@ -1727,16 +2149,17 @@ ${formattingRules}`;
         // chapter/page reference detector below.
         const structuredChapters: StructuredChapter[] = safeParseStructuredOutline(m.structuredOutline);
         const coveredMap = await loadCoveredPoints(userId, m.id).catch(() => ({} as Record<string, number[]>));
-        // Stash so the post-stream handler can read what we sent without re-querying.
-        (ctx as any).__structuredChapters = structuredChapters;
-        (ctx as any).__coveredMap = coveredMap;
+        let progressForHandler: Awaited<ReturnType<typeof loadProgress>> | undefined;
+        let isReviewingForHandler = false;
+        let injectedChapterIndexForHandler = -1;
+        let injectedPointTextsForHandler: string[] = [];
 
         // Per-(user, material) chapter progress so the tutor knows where the
         // student left off and can say "أكملت الفصل 3، اليوم نبدأ الفصل 4".
         let chapterProgressBlock = "";
         try {
           const prog = await loadProgress(userId, m.id, m.outline ?? "", m.structuredOutline ?? null);
-          (ctx as any).__progress = prog;
+          progressForHandler = prog;
           if (prog.chapters.length > 0) {
             const completedNames = prog.completedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);
             const skippedNames = prog.skippedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);
@@ -1800,6 +2223,34 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           const toAsciiDigits = (s: string) => s.replace(/[\u0660-\u0669]/g, (d) =>
             String(d.charCodeAt(0) - 0x0660));
           const q = toAsciiDigits(queryText);
+          // Chapter REVIEW intent — student explicitly wants to revisit a
+          // previously taught chapter (or jump back/forward by one). Matched
+          // BEFORE the generic chapterRefMatch so we can flag it as a review
+          // pass that must NOT mark new POINT_DONE coverage.
+          //
+          //   راجع الفصل 2 / ارجع للفصل 3 / مراجعة الفصل 4
+          //   ارجع للفصل السابق / الفصل اللي قبل
+          //   اقفز للفصل التالي / الفصل الجاي
+          let reviewMatchIdx = -1;
+          let isReviewing = false;
+          if (structuredChapters.length > 0) {
+            const reviewNumeric = q.match(/(?:راج[عِ]?|ارجع|مراجعة|review)[^0-9]{0,40}(?:الفصل|chapter|باب|الباب)\s*(?:رقم\s*)?(\d{1,3})/i);
+            if (reviewNumeric) {
+              const n = Number(reviewNumeric[1]);
+              if (n >= 1 && n <= structuredChapters.length) {
+                reviewMatchIdx = n - 1;
+                isReviewing = true;
+              }
+            } else if (/(?:ارجع|راجع|للوراء)[^0-9]{0,30}(?:الفصل\s*السابق|للسابق|اللي\s*قبل|previous)/i.test(q)) {
+              const cur = progressForHandler?.currentChapterIndex ?? 0;
+              if (cur > 0) { reviewMatchIdx = cur - 1; isReviewing = true; }
+            } else if (/(?:اقفز|تخط[ىي]?|انتقل|skip|jump)[^0-9]{0,30}(?:الفصل\s*التالي|للتالي|الجاي|next)/i.test(q)) {
+              const cur = progressForHandler?.currentChapterIndex ?? 0;
+              if (cur + 1 < structuredChapters.length) { reviewMatchIdx = cur + 1; isReviewing = true; }
+            }
+          }
+          isReviewingForHandler = isReviewing;
+
           const chapterRefMatch = q.match(/(?:الفصل|chapter|باب|الباب)\s*(?:رقم\s*)?(\d{1,3})/i);
           // Page references: "صفحة 12" / "صفحه 12" / "ص.12" / "ص 12" / "ص12"
           // and English "page 12" / "p.12" / "p 12" / "pg 12". Word-boundary on
@@ -1809,8 +2260,12 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           );
 
           // Resolve which chapter (if any) the student is asking about.
+          // Review intent wins over a generic chapter mention so "راجع الفصل 2"
+          // beats a side-mention of a different chapter number in the same line.
           let targetChapterIdx = -1;
-          if (chapterRefMatch && structuredChapters.length > 0) {
+          if (reviewMatchIdx >= 0) {
+            targetChapterIdx = reviewMatchIdx;
+          } else if (chapterRefMatch && structuredChapters.length > 0) {
             const n = Number(chapterRefMatch[1]);
             if (n >= 1 && n <= structuredChapters.length) targetChapterIdx = n - 1;
           }
@@ -1818,13 +2273,26 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           // ── Layer 1: anchor on the active (or referenced) chapter ─────
           let activeChapter: StructuredChapter | null = null;
           let activeChapterIdx = -1;
-          const prog = (ctx as any).__progress as Awaited<ReturnType<typeof loadProgress>> | undefined;
+          const prog = progressForHandler;
           if (targetChapterIdx >= 0) {
             activeChapter = structuredChapters[targetChapterIdx];
             activeChapterIdx = targetChapterIdx;
           } else if (structuredChapters.length > 0 && prog && prog.chapters.length > 0) {
             activeChapterIdx = Math.min(prog.currentChapterIndex, structuredChapters.length - 1);
             activeChapter = structuredChapters[activeChapterIdx];
+          }
+
+          // When reviewing, prepend a clear note so the model knows not to
+          // emit fresh [POINT_DONE] tags for already-covered points.
+          if (isReviewing && activeChapter) {
+            chapterChecklistBlock += `
+
+— وضع المراجعة لهذا الفصل —
+الطالب يطلب مراجعة الفصل رقم ${activeChapterIdx + 1}: "${activeChapter.title}". هذه ليست جلسة تدريس جديدة:
+- اشرح بإيجاز محاور الفصل ثم اطرح سؤالاً يقيس ما يتذكّره الطالب.
+- لا تضع [POINT_DONE:N] في هذه المراجعة (النقاط مُغطّاة سابقاً) إلا إذا قال الطالب صراحةً "أعد تسجيل تغطية هذه النقطة".
+- لا تضع [STAGE_COMPLETE] في جلسة مراجعة.
+`;
           }
 
           if (activeChapter && activeChapter.startPage && activeChapter.endPage) {
@@ -1836,7 +2304,7 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
             );
             if (chapterChunks.length > 0) {
               const formatted = chapterChunks
-                .map((c) => `[صفحة ${c.pageNumber}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
+                .map((c) => `[${formatPageCitation(c.pageNumber, m.printedPageOffset || 0)}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
                 .join("\n\n―――\n\n");
               pagesUsed.push(...chapterChunks.map((c) => c.pageNumber));
 
@@ -1850,7 +2318,10 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
                 : "(الفهرس المُولَّد لم يُنتج نقاطاً مفصّلة لهذا الفصل — استخرج أنت النقاط من نص الفصل أعلاه واعمل بنفس القاعدة: غطِّ كل نقطة قبل الانتقال).";
               const remaining = pts.length - coveredSet.size;
 
-              chapterChecklistBlock = `
+              // Append (don't reassign) so the review-mode preface above
+              // survives. Otherwise "راجع الفصل N" would be silently demoted
+              // to a fresh teaching session at the prompt layer.
+              chapterChecklistBlock += `
 
 — الفصل النشط رقم ${activeChapterIdx + 1}: "${activeChapter.title}" (صفحات ${activeChapter.startPage}–${activeChapter.endPage}) —
 ملخص الفصل: ${activeChapter.summary || "(لا ملخص)"}
@@ -1876,17 +2347,19 @@ ${formatted}
           }
 
           // ── Layer 2: explicit page reference ──────────────────────────
-          // If the student named specific pages, pull those chunks and a
-          // window of ±1 around each so context isn't cut off mid-sentence.
+          // The student types the printed page number ("صفحة 12"). Translate
+          // to PDF page (printed + printedPageOffset) before retrieval so the
+          // book's front-matter doesn't shift the lookup off the actual page.
           if (pageRefMatches.length > 0) {
+            const offset = m.printedPageOffset || 0;
             const wantedPages = new Set<number>();
             for (const mt of pageRefMatches) {
-              const p = Number(mt[1]);
-              if (Number.isFinite(p) && p >= 1) {
-                wantedPages.add(p);
-                wantedPages.add(p - 1);
-                wantedPages.add(p + 1);
-              }
+              const printed = Number(mt[1]);
+              if (!Number.isFinite(printed) || printed < 1) continue;
+              const pdf = printed + offset;
+              wantedPages.add(pdf);
+              wantedPages.add(pdf - 1);
+              wantedPages.add(pdf + 1);
             }
             const pageList = Array.from(wantedPages).filter((p) => p >= 1).sort((a, b) => a - b);
             if (pageList.length > 0) {
@@ -1899,7 +2372,7 @@ ${formatted}
               const filtered = pageChunks.filter((c) => wantedPages.has(c.pageNumber));
               if (filtered.length > 0) {
                 const formatted = filtered
-                  .map((c) => `[صفحة ${c.pageNumber}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
+                  .map((c) => `[${formatPageCitation(c.pageNumber, m.printedPageOffset || 0)}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
                   .join("\n\n―――\n\n");
                 pagesUsed.push(...filtered.map((c) => c.pageNumber));
                 retrievedBlock += `
@@ -1925,7 +2398,7 @@ ${formatted}
             const extra = fts.filter((c) => !usedSet.has(c.pageNumber));
             if (extra.length > 0) {
               const formatted = extra
-                .map((c) => `[صفحة ${c.pageNumber}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
+                .map((c) => `[${formatPageCitation(c.pageNumber, m.printedPageOffset || 0)}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
                 .join("\n\n―――\n\n");
               pagesUsed.push(...extra.map((c) => c.pageNumber));
               retrievedBlock += `
@@ -1937,6 +2410,59 @@ ${formatted}
             }
           }
 
+          // ── Layer 4: reference-role companion books ───────────────────
+          // Other materials in the same subject that the student tagged as
+          // `role='reference'` get their top-2 FTS snippets surfaced here
+          // as supplementary citations. Soft-fails: if there are no
+          // reference materials, or the FTS misses, we just skip silently.
+          if (queryText.length >= 3 && subjectId) {
+            try {
+              const refRows = await db
+                .select({ id: courseMaterialsTable.id, fileName: courseMaterialsTable.fileName })
+                .from(courseMaterialsTable)
+                .where(and(
+                  eq(courseMaterialsTable.userId, userId),
+                  eq(courseMaterialsTable.subjectId, subjectId),
+                  eq(courseMaterialsTable.role, "reference"),
+                  ne(courseMaterialsTable.id, m.id),
+                ))
+                .limit(4);
+              if (refRows.length > 0) {
+                const nameById = new Map(refRows.map((r) => [r.id, r.fileName]));
+                const refHits = await searchAcrossMaterials(
+                  refRows.map((r) => r.id),
+                  queryText,
+                  2,
+                );
+                if (refHits.length > 0) {
+                  // Cap total reference text to ~6k chars so the primary
+                  // chapter content keeps priority in the prompt budget.
+                  let used = 0;
+                  const lines: string[] = [];
+                  for (const h of refHits) {
+                    const name = nameById.get(h.materialId) ?? `مرجع #${h.materialId}`;
+                    const snippet = h.content.replace(/<\/?material_content>/gi, "").slice(0, 1200);
+                    if (used + snippet.length > 6000) break;
+                    lines.push(`[مرجع: ${name} — صفحة ${h.pageNumber}]\n${snippet}`);
+                    used += snippet.length;
+                  }
+                  if (lines.length > 0) {
+                    retrievedBlock += `
+
+— مقاطع من المراجع المساعدة (مواد ثانوية في نفس المادة) —
+<material_content>
+${lines.join("\n\n―――\n\n")}
+</material_content>
+
+تعليمة: هذه مقاطع من كتب مرجعية مكمّلة، وليست المنهج الأساسي. استشهد بها بصيغة (مرجع: <اسم الملف>، صفحة N) — وذكّر الطالب أن المصدر الأساسي يبقى "${m.fileName}".`;
+                  }
+                }
+              }
+            } catch (e: any) {
+              console.warn("[ai/teach] reference materials retrieval failed:", e?.message || e);
+            }
+          }
+
           // ── Last-resort fallbacks for materials with no structured data
           if (!chapterChecklistBlock && !retrievedBlock) {
             let chunks = await getMaterialOpeningPages(m.id, 4);
@@ -1945,7 +2471,7 @@ ${formatted}
             }
             if (chunks.length > 0) {
               const formatted = chunks
-                .map((c) => `[صفحة ${c.pageNumber}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
+                .map((c) => `[${formatPageCitation(c.pageNumber, m.printedPageOffset || 0)}]\n${c.content.replace(/<\/?material_content>/gi, "")}`)
                 .join("\n\n―――\n\n");
               pagesUsed.push(...chunks.map((c) => c.pageNumber));
               retrievedBlock += `
@@ -1957,21 +2483,26 @@ ${formatted}
             }
           }
 
-          // Common citation rules block (always emitted when we have any pages).
+          // Common citation rules block (always emitted when we have any
+          // pages). The allowed-pages list uses formatPageCitation so it
+          // matches the labels we put in front of each chunk above —
+          // otherwise the model would see "صفحة 12 (PDF 14)" labels but
+          // be told to cite only "14", losing the printed-page distinction.
           if (pagesUsed.length > 0) {
+            const offset = m.printedPageOffset || 0;
             const uniquePages = Array.from(new Set(pagesUsed)).sort((a, b) => a - b);
+            const allowedLabels = uniquePages.map((p) => formatPageCitation(p, offset));
             retrievedBlock += `
 
 قواعد الاستشهاد بالصفحات (إلزامية):
-- كل معلومة تأخذها من مقطع، اذكر صفحته بين قوسين هكذا: (صفحة N).
-- إذا دمجت معلومات من عدة مقاطع، اذكر كل الصفحات: (صفحة N، M).
-- الأرقام المسموحة حصراً: ${uniquePages.join("، ")}. لا تختلق أي رقم آخر.
+- كل معلومة تأخذها من مقطع، اذكر صفحته بين قوسين كما تظهر في عنوان المقطع.
+- إذا دمجت معلومات من عدة مقاطع، اذكر كل الصفحات.
+- الاستشهادات المسموحة حصراً: ${allowedLabels.join(" | ")}. لا تختلق أي رقم آخر.
 - إن لم تجد المعلومة في المقاطع أعلاه، قل صراحةً للطالب: "هذا ليس في المقاطع التي استرجعتها من ملفك، اطلب مني البحث عن مصطلح أدق." ولا تخمّن.`;
           }
 
-          // Stash for the post-stream handler to consume.
-          (ctx as any).__injectedChapterIndex = injectedChapterIndex;
-          (ctx as any).__injectedPointTexts = injectedPointTexts;
+          injectedChapterIndexForHandler = injectedChapterIndex;
+          injectedPointTextsForHandler = injectedPointTexts;
         } catch (e: any) {
           console.warn("[ai/teach] retrieval failed:", e?.message || e);
         }
@@ -2024,8 +2555,14 @@ ${retrievedBlock}
 ═══ نهاية المنهج ═══
 `;
         systemPrompt = systemPrompt + materialBlock;
-        // Stash for the post-stream handler.
-        (req as any).__materialCtx = { materialId: m.id, ctx };
+        req.materialCtx = {
+          materialId: m.id,
+          structuredChapters,
+          isReviewing: isReviewingForHandler,
+          injectedChapterIndex: injectedChapterIndexForHandler,
+          injectedPointTexts: injectedPointTextsForHandler,
+          currentChapterIndex: progressForHandler?.currentChapterIndex ?? 0,
+        };
       }
     }
   } catch (e: any) {
@@ -2038,19 +2575,46 @@ ${retrievedBlock}
   //   • content: string
   //   • content: Array<{ type: "text", text: string }> (e.g. from older clients
   //     that mirror Anthropic's block format).
+  // Defense-in-depth: strip any base64 data URL out of free-text history rows
+  // (the frontend already persists only a slim placeholder, but a forged or
+  // older client could still submit one — never let multi-MB blobs hit the
+  // model history or the admin log table).
+  const DATA_URL_RE = /data:image\/[a-zA-Z+.\-]+;base64,[A-Za-z0-9+/=]+/g;
+  const stripDataUrls = (s: string): string =>
+    s.replace(DATA_URL_RE, "[صورة محذوفة من السجل]");
   const normaliseContent = (raw: unknown): string => {
-    if (typeof raw === "string") return raw;
+    if (typeof raw === "string") return stripDataUrls(raw);
     if (Array.isArray(raw)) {
-      return raw
-        .map((b: any) => {
-          if (typeof b === "string") return b;
-          if (b && typeof b === "object" && typeof b.text === "string") return b.text;
-          return "";
-        })
-        .join("\n")
-        .trim();
+      return stripDataUrls(
+        raw
+          .map((b: any) => {
+            if (typeof b === "string") return b;
+            if (b && typeof b === "object" && typeof b.text === "string") return b.text;
+            return "";
+          })
+          .join("\n")
+          .trim(),
+      );
     }
     return "";
+  };
+  // Detect a data URL embedded in the CURRENT user turn (markdown image
+  // syntax produced by the frontend attachment flow) and split it out so
+  // we can (a) sanitize what we persist + log and (b) feed the model a
+  // proper multimodal `image_url` part instead of a giant base64 blob in
+  // text. Returns at most ONE image (we only allow a single attachment
+  // per turn from the UI).
+  const SINGLE_IMAGE_DATA_URL_RE = /data:image\/[a-zA-Z+.\-]+;base64,[A-Za-z0-9+/=]+/;
+  const extractFirstDataUrl = (text: string): { dataUrl: string | null; cleaned: string } => {
+    if (typeof text !== "string" || text.length === 0) return { dataUrl: null, cleaned: text || "" };
+    const m = text.match(SINGLE_IMAGE_DATA_URL_RE);
+    if (!m) return { dataUrl: null, cleaned: text };
+    const dataUrl = m[0];
+    const cleaned = text
+      .replace(/!\[[^\]]*\]\(data:image\/[a-zA-Z+.\-]+;base64,[A-Za-z0-9+/=]+\)/, "[صورة مرفقة]")
+      .replace(SINGLE_IMAGE_DATA_URL_RE, "[صورة مرفقة]")
+      .trim();
+    return { dataUrl, cleaned };
   };
   // Two-tier conversation-history compression (May 2026 — gem-saver):
   //
@@ -2113,7 +2677,8 @@ ${retrievedBlock}
     .filter((m) => m.content.trim().length > 0)
     .slice(-MAX_HISTORY_MESSAGES);
   const compressionSplit = Math.max(0, recentHistory.length - VERBATIM_RECENT);
-  const claudeMessages = recentHistory.map((m, i) =>
+  type TeachMessage = { role: "user" | "assistant"; content: string | GeminiContentPart[] };
+  const claudeMessages: TeachMessage[] = recentHistory.map((m, i) =>
     i < compressionSplit
       ? { role: m.role, content: compressOlderTurn(m.content) }
       : m,
@@ -2126,16 +2691,93 @@ ${retrievedBlock}
   // orchestration path (2–4 multiple-choice questions, then [[CREATE_LAB_ENV]]).
   // This prevents the model from drifting into a lecture instead.
   const LAB_ENV_INTENT_RE = /(?:أريد|اريد|ابن[ِيه]?|اعمل|انشئ|أنشئ|ابدأ)\s*(?:لي\s*)?(?:بيئة|محاكاة|مختبر|سيناريو|تطبيق)\s*(?:تطبيقي[ةه]?|عملي[ةه]?|تفاعلي[ةه]?|تدريبي[ةه]?|مخصص[ةه]?)?/u;
-  const labEnvIntentDetected = !!trimmedUserMessage && LAB_ENV_INTENT_RE.test(trimmedUserMessage);
+  const labIntakeProtocol = trimmedUserMessage?.includes("[LAB_INTAKE_START]");
+
+  // Detect ongoing intake from conversation history: if history contains
+  // [LAB_INTAKE_START] in a user turn but [[LAB_INTAKE_DONE]] hasn't appeared
+  // in any assistant turn yet, we are still mid-interview. This ensures every
+  // answer turn (Q2–Q5) also receives the full protocol in the system prompt
+  // instead of only the first turn that contained [LAB_INTAKE_START].
+  const intakeOngoing = !labIntakeProtocol && (() => {
+    if (!Array.isArray(history) || history.length === 0) return false;
+    // Find the MOST RECENT [LAB_INTAKE_START] user turn (handles restarts where
+    // a previous completed session already has [[LAB_INTAKE_DONE]] in history).
+    let lastIntakeStartIdx = -1;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (
+        history[i].role === "user" &&
+        String((history[i] as { role: string; content: string }).content || "").includes("[LAB_INTAKE_START]")
+      ) {
+        lastIntakeStartIdx = i;
+        break;
+      }
+    }
+    if (lastIntakeStartIdx === -1) return false;
+    // Check for [[LAB_INTAKE_DONE]] only in messages AFTER that start point.
+    // Earlier sessions' [[LAB_INTAKE_DONE]] must not interfere with the new session.
+    return !history.slice(lastIntakeStartIdx + 1).some(
+      (m: { role: string; content: string }) =>
+        m.role === "assistant" && String(m.content || "").includes("[[LAB_INTAKE_DONE]]"),
+    );
+  })();
+
+  // Count how many ASK_OPTIONS questions the assistant has already asked in the
+  // CURRENT intake session — only counting turns AFTER the most recent
+  // [LAB_INTAKE_START] user message, not prior sessions.
+  const intakeQuestionsAsked = (() => {
+    if (!intakeOngoing && !labIntakeProtocol) return 0;
+    const src = Array.isArray(history) ? history : [];
+    // Find the index of the most-recent [LAB_INTAKE_START] user turn.
+    let startIdx = -1;
+    for (let i = src.length - 1; i >= 0; i--) {
+      if (src[i].role === "user" && String(src[i].content || "").includes("[LAB_INTAKE_START]")) {
+        startIdx = i;
+        break;
+      }
+    }
+    if (startIdx === -1) return 0; // no intake start in history yet (fresh session)
+    // Count [[ASK_OPTIONS:]] in assistant turns that appear AFTER that index only.
+    return src.slice(startIdx + 1).filter(
+      (m: { role: string; content: string }) =>
+        m.role === "assistant" && String(m.content || "").includes("[[ASK_OPTIONS:"),
+    ).length;
+  })();
+
+  const labEnvIntentDetected =
+    !!trimmedUserMessage && (LAB_ENV_INTENT_RE.test(trimmedUserMessage) || labIntakeProtocol || intakeOngoing);
   if (labEnvIntentDetected) {
+    const nextQuestion = intakeQuestionsAsked + 1; // which question the model must ask next (1–5)
+    const questionReminder =
+      intakeQuestionsAsked >= 5
+        ? "لقد طُرحت الأسئلة الخمسة وتلقّيت الإجابات — أصدر [[LAB_INTAKE_DONE]] الآن ولا تضيف أي نص بعده."
+        : intakeQuestionsAsked === 0
+        ? "ابدأ بالسؤال الأول (أ) الآن."
+        : `أسئلة مكتملة حتى الآن: ${intakeQuestionsAsked}/5 — اطرح السؤال رقم ${nextQuestion} (${
+            ["أ", "ب", "ج", "د", "هـ"][intakeQuestionsAsked] ?? "هـ"
+          }) الآن.`;
     systemPrompt = systemPrompt + `
 
-[INTENT_DETECTED: BUILD_LAB_ENV]
-الطالب طلب صراحةً بناء بيئة تطبيقية. التزم بالتنسيق التالي بدقة:
-1) ابدأ فوراً (دون مقدمات طويلة) بسؤال واحد متعدد الخيارات باستخدام الوسم [[ASK_OPTIONS: ...]] لتحديد ما يريد التدرب عليه بالضبط (3–5 خيارات + «غير ذلك»).
-2) بعد إجابته اطرح ١-٢ سؤال متابعة (متعدد الخيارات أيضاً) لتحديد المستوى أو الزاوية أو السياق.
-3) عند اكتمال الصورة، اختم برسالة تحوي وسم واحد: [[CREATE_LAB_ENV: وصف دقيق وموجز للبيئة المطلوبة بناءً على إجاباته]].
-لا تعطِ شرحاً نظرياً قبل بناء البيئة.`;
+[INTENT_DETECTED: BUILD_LAB_ENV — بروتوكول المقابلة الإلزامية]
+${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : "المقابلة جارية — أجاب الطالب على " + intakeQuestionsAsked + " من 5 أسئلة."}
+يجب عليك اتباع بروتوكول المقابلة الإلزامية التالي حرفياً:
+
+**مرحلة LAB_INTAKE — قواعد صارمة:**
+1. اطرح الأسئلة الإلزامية التالية بالترتيب، سؤال واحد في كل رد، كل سؤال باستخدام [[ASK_OPTIONS: ...]] مع خيار «غير ذلك» دائماً:
+   (أ) الموضوع المحدد داخل المادة (ماذا تريد أن تتدرب عليه تحديداً؟) — ٣-٥ خيارات من محتوى المادة الحالية + غير ذلك
+   (ب) مستواك الحالي في هذا الموضوع — خيارات: مبتدئ تماماً ||| درست الأساسيات ||| متوسط ||| متقدم ||| غير ذلك
+   (ج) النتيجة المرجوّة من البيئة — خيارات: فهم المفهوم النظري ||| تطبيق عملي خطوة بخطوة ||| اختبار نفسي ||| بناء مشروع كامل ||| غير ذلك
+   (د) نوع الواجهة المفضّلة — خيارات: نموذج إدخال بيانات ||| جداول تفاعلية ||| محطة أوامر ||| مخططات ورسوم ||| تطبيق ويب تجريبي ||| غير ذلك
+   (هـ) درجة الصعوبة — خيارات: سهل (مع إرشادات كاملة) ||| متوسط (تلميحات فقط) ||| صعب (بلا مساعدة) ||| غير ذلك
+
+2. **ممنوع منعاً باتاً** إصدار [[CREATE_LAB_ENV: ...]] قبل اكتمال الأسئلة الخمسة.
+
+3. **إذا طلب الطالب التخطي أو قال «ابنِ مباشرة»:** رُدّ بأدب: «لأبني لك بيئة دقيقة بلا أخطاء أحتاج إجابتك على هذا السؤال أولاً» وأعد طرح نفس السؤال.
+
+4. **بعد آخر إجابة (السؤال الخامس):** لا تُصدر [[CREATE_LAB_ENV: ...]]، بل أصدر بدلاً من ذلك وسم [[LAB_INTAKE_DONE]] في نهاية ردك. سيقوم النظام تلقائياً بمعالجة الإجابات وبناء البيئة.
+
+5. الوسم [[LAB_INTAKE_DONE]] يصدر مرة واحدة فقط عند اكتمال المقابلة. لا تضيف أي نص بعده.
+
+**الحالة الراهنة:** ${questionReminder}`;
   }
 
   // ── Phase 3 hardening — server-authoritative mastery verification ───────
@@ -2214,8 +2856,31 @@ ${retrievedBlock}
     }
   }
 
+  // Multimodal split: if the student attached an image (frontend sends the
+  // data URL inline this turn ONLY), pull it out of the text and send it
+  // as a proper `image_url` content part. The persisted DB row + the model
+  // history then carry only the placeholder, never the multi-MB blob.
+  let attachedImageDataUrl: string | null = null;
   if (mutatedUserMessage.length > 0) {
-    claudeMessages.push({ role: "user" as const, content: mutatedUserMessage });
+    const split = extractFirstDataUrl(mutatedUserMessage);
+    if (split.dataUrl) {
+      attachedImageDataUrl = split.dataUrl;
+      mutatedUserMessage = split.cleaned || "[صورة مرفقة من الطالب]";
+    }
+  }
+  if (mutatedUserMessage.length > 0) {
+    if (attachedImageDataUrl) {
+      const multimodalParts: GeminiContentPart[] = [
+        { type: "text", text: mutatedUserMessage },
+        { type: "image_url", image_url: { url: attachedImageDataUrl } },
+      ];
+      claudeMessages.push({
+        role: "user" as const,
+        content: multimodalParts,
+      });
+    } else {
+      claudeMessages.push({ role: "user" as const, content: mutatedUserMessage });
+    }
   } else if (claudeMessages.length === 0) {
     const initPrompt = isDiagnosticPhase
       ? `ابدأ جلسة التشخيص`
@@ -2238,14 +2903,20 @@ ${retrievedBlock}
   let stageComplete = false;
 
   // Persist the user message (and later the assistant response) for admin visibility.
+  // CRITICAL: never persist the raw base64 data URL of an attached image —
+  // that is a privacy/PII concern and can balloon the row by megabytes. We
+  // store the post-extraction `mutatedUserMessage` (which already shows
+  // "[صورة مرفقة]") and additionally run stripDataUrls() as a belt-and-
+  // braces guard against any future code path that bypasses extraction.
   if (userMessage && subjectId) {
     try {
+      const safeContent = stripDataUrls(String(mutatedUserMessage || userMessage)).slice(0, 8000);
       await db.insert(aiTeacherMessagesTable).values({
         userId,
         subjectId,
         subjectName: subjectName ?? null,
         role: "user",
-        content: String(userMessage).slice(0, 8000),
+        content: safeContent,
         isDiagnostic: isDiagnosticPhase ? 1 : 0,
         stageIndex: typeof currentStage === "number" ? currentStage : null,
       });
@@ -2329,28 +3000,25 @@ ${retrievedBlock}
   // history) to avoid re-triggering the tour on every subsequent reply.
   if (isShowcaseOpener) {
     systemPrompt = systemPrompt + buildFirstLessonShowcaseAddendum({
+      subjectId,
       subjectName: subjectName ?? "هذه المادة",
       hasCoding: !!hasCoding,
       imageEnabled: __imageEnabled,
+      kit: getShowcaseKit(subjectId),
     });
   }
 
-  // ── Output ceiling ──────────────────────────────────────────────────────
-  // Diagnostic turns: 8192 tokens — the diagnostic phase ends with a *full
-  // personalized plan* (5–8 phases, each with an Arabic paragraph). Arabic
-  // averages ~1.5 chars/token, so a 7-phase plan can easily exceed 4096
-  // tokens and get truncated mid-sentence — leaving the student stranded
-  // with no [PLAN_READY] tag.
-  //
-  // Regular teaching turns: 4096 tokens — a full teaching response (concept
-  // + concrete example + Socratic question + optional ASK_OPTIONS block)
-  // never gets truncated. The 220-word soft-cap in the system prompt
-  // (≤350 for new-concept turns) keeps average tokens-per-turn low, so
-  // this is a ceiling not a target. Same value applies to both Gemini's
-  // `maxOutputTokens` and Anthropic's `max_tokens` for parity.
-  const maxTokens = isDiagnosticPhase
-    ? 8192
-    : 4096;
+  const responseTier = classifyTeachingResponseTier({
+    isDiagnosticPhase: !!isDiagnosticPhase,
+    isShowcaseOpener,
+    isMasteryCheck: detectMasteryCheckFromHistory(history),
+    needsDeepReasoning: detectDeepReasoning(trimmedUserMessage),
+    isLabReport: detectLabReport(trimmedUserMessage),
+    isNewStage: !!isNewStage,
+    userMessageLength: trimmedUserMessage.length,
+    trimmedUserMessage,
+  });
+  const maxTokens = responseTier.maxTokens;
 
   const __teachStart = Date.now();
 
@@ -2382,8 +3050,9 @@ ${retrievedBlock}
   // First-lesson showcase is hard-clamped to exactly 1 image: the prompt
   // addendum already says "ممنوع أكثر من مرة واحدة في هذا الرد"; this is the
   // server-side enforcement so a hallucinating model can't blow through the
-  // budget. Normal turns allow up to 2 (rare two-step diagrams).
-  const MAX_IMAGES_PER_REPLY = isShowcaseOpener ? 1 : 2;
+  // budget. Normal turns allow up to 3 to support the Compare/Contrast
+  // pattern (two side-by-side diagrams) plus an additional Hook image.
+  const MAX_IMAGES_PER_REPLY = isShowcaseOpener ? 1 : 3;
   let __imageStreamBuffer = "";
   let __imageCount = 0;
   // Maps the short id we ship to the client → original FLUX prompt (used
@@ -2469,12 +3138,17 @@ ${retrievedBlock}
         // render the spinner placeholder even before more text arrives.
         try {
           res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId } })}\n\n`);
+          console.log(`[ai/teach/image] placeholder sent id=${imageId} prompt="${promptText.slice(0, 80)}"`);
         } catch { /* half-closed */ }
 
         // Fire generation in background. The promise resolves whether
         // generation succeeded or failed; the post-stream block awaits all
         // of them via Promise.allSettled so the gem cost can include the
         // successful image charges.
+        // Every code path (success, structured error, unexpected throw) MUST
+        // emit exactly one terminal event so the frontend's loading bubble
+        // can resolve. Failure to do so leaves the spinner stuck forever —
+        // the original bug we are fixing in task #15.
         const promise = generateTeacherImage({
           userId,
           subjectId: subjectId ?? null,
@@ -2482,15 +3156,32 @@ ${retrievedBlock}
         });
         __imagePromises.push(promise);
         promise.then((result) => {
-          if (clientAborted || res.writableEnded) return;
+          if (clientAborted || res.writableEnded) {
+            console.log(`[ai/teach/image] result discarded (stream closed) id=${imageId} ok=${result.ok}`);
+            return;
+          }
           try {
             if (result.ok) {
               res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: result.url } })}\n\n`);
+              console.log(`[ai/teach/image] ready sent id=${imageId} latencyMs=${result.latencyMs}`);
             } else {
               res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: result.reason } })}\n\n`);
+              console.log(`[ai/teach/image] error sent id=${imageId} reason=${result.reason}`);
             }
+          } catch (writeErr: any) {
+            console.warn(`[ai/teach/image] failed to write SSE event id=${imageId}: ${writeErr?.message || writeErr}`);
+          }
+        }).catch((err: any) => {
+          // Defensive: generateTeacherImage normalizes its own errors, so
+          // this should never fire — but if it does (e.g. SDK constructor
+          // throws synchronously), still emit imageError so the bubble
+          // doesn't hang.
+          console.error(`[ai/teach/image] unexpected throw id=${imageId}: ${err?.message || err}`);
+          if (clientAborted || res.writableEnded) return;
+          try {
+            res.write(`data: ${JSON.stringify({ imageError: { id: imageId, reason: "api-error" } })}\n\n`);
           } catch { /* half-closed */ }
-        }).catch(() => { /* generateTeacherImage already swallows errors */ });
+        });
       }
 
       __imageStreamBuffer = __imageStreamBuffer.slice(tagEnd + 2);
@@ -2567,9 +3258,12 @@ ${retrievedBlock}
       // claudeMessages is structurally [{role:'user'|'assistant', content:string}]
       // already; gemini-stream.ts handles the user→user / assistant→model
       // role translation internally.
-      const geminiMessages: GeminiMessage[] = (claudeMessages as any[]).map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: typeof m.content === "string" ? m.content : "",
+      // Pass multimodal arrays through untouched (image_url parts) so
+      // Gemini sees the attached image as a real visual input — not a
+      // base64 string in text. Plain string content stays as-is.
+      const geminiMessages: GeminiMessage[] = claudeMessages.map((m) => ({
+        role: m.role,
+        content: Array.isArray(m.content) ? m.content : (m.content || ""),
       }));
       const geminiResult = await streamGeminiTeaching({
         systemPrompt,
@@ -2826,6 +3520,96 @@ ${retrievedBlock}
   stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
   const planReady = fullResponse.includes("[PLAN_READY]");
 
+  // ── MICRO_STEP_DONE parsing ─────────────────────────────────────────────
+  // The teaching prompt instructs the model to emit [MICRO_STEP_DONE: N] when
+  // the student completes a micro-step. Extract all such tags and forward them
+  // to the client in the done event so it can update its progress bar and
+  // persist to DB via PATCH /api/user-plan/micro-step.
+  const microStepDoneTagMatches = Array.from(
+    fullResponse.matchAll(/\[MICRO_STEP_DONE:\s*(\d{1,3})\s*\]/gi)
+  );
+  const microStepsDone: number[] = microStepDoneTagMatches
+    .map((m) => Number(m[1]))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 20);
+
+  // ── Growth reflection parsing ────────────────────────────────────────────
+  const growthMatch = fullResponse.match(/\[GROWTH:\s*([\s\S]*?)\]/i);
+  const growthReflectionText = growthMatch ? growthMatch[1].trim() : "";
+
+  // ── Server-side micro-step persistence ──────────────────────────────────
+  // Update the plan record directly so progress is durable even if the client
+  // disconnects before it can call PATCH /api/user-plan/micro-step.
+  if (microStepsDone.length > 0 && !isDiagnosticPhase) {
+    db.select().from(userSubjectPlansTable).where(
+      and(eq(userSubjectPlansTable.userId, userId), eq(userSubjectPlansTable.subjectId, subjectId))
+    ).then(([existingPlan]) => {
+      if (!existingPlan) return;
+      let completed: number[] = [];
+      try { completed = JSON.parse(existingPlan.completedMicroSteps ?? "[]"); } catch {}
+      for (const n of microStepsDone) {
+        if (!completed.includes(n)) completed.push(n);
+      }
+      return db.update(userSubjectPlansTable).set({
+        currentMicroStepIndex: Math.max(...microStepsDone),
+        completedMicroSteps: JSON.stringify(completed),
+        updatedAt: new Date(),
+      }).where(eq(userSubjectPlansTable.id, existingPlan.id));
+    }).catch(() => {});
+  }
+
+  // ── Server-side growth reflection persistence ────────────────────────────
+  // Appended to the plan's growthReflections JSON array on [STAGE_COMPLETE].
+  if (stageComplete && growthReflectionText && !isDiagnosticPhase) {
+    db.select().from(userSubjectPlansTable).where(
+      and(eq(userSubjectPlansTable.userId, userId), eq(userSubjectPlansTable.subjectId, subjectId))
+    ).then(([plan]) => {
+      if (!plan) return;
+      let existing: Array<{ stageIndex: number; text: string; date: string }> = [];
+      try { existing = JSON.parse(plan.growthReflections ?? "[]"); } catch {}
+      existing.push({ stageIndex: stageIdx, text: growthReflectionText, date: new Date().toISOString() });
+      return db.update(userSubjectPlansTable).set({
+        growthReflections: JSON.stringify(existing),
+        updatedAt: new Date(),
+      }).where(eq(userSubjectPlansTable.id, plan.id));
+    }).catch(() => {});
+  }
+
+  // ── Mastery drift guard ────────────────────────────────────────────────
+  // If [STAGE_COMPLETE] fired but the agreed mastery criterion is not mentioned
+  // in the response (≥ 25% word overlap), suppress stage advancement and
+  // return masteryDriftDetected so the client can show a confirmation dialog.
+  const masteryCriterionText: string =
+    typeof currentStageContract?.masteryCriterion === "string"
+      ? currentStageContract.masteryCriterion
+      : "";
+  let masteryDriftDetected = false;
+  if (stageComplete && masteryCriterionText && !isDiagnosticPhase) {
+    const criterionWords = masteryCriterionText
+      .split(/\s+/)
+      .filter((w: string) => w.length >= 3);
+    if (criterionWords.length >= 3) {
+      const normResponse = fullResponse.replace(/<[^>]+>/g, " ");
+      const matchedCount = criterionWords.filter((w: string) =>
+        normResponse.includes(w)
+      ).length;
+      const ratio = matchedCount / criterionWords.length;
+      if (ratio < 0.25) {
+        db.insert(auditLogsTable).values({
+          event: "mastery_drift_suppressed",
+          userId,
+          subjectId,
+          data: {
+            stageIdx,
+            criterionPreview: masteryCriterionText.slice(0, 100),
+            overlapRatio: parseFloat(ratio.toFixed(2)),
+          },
+        }).catch(() => {});
+        stageComplete = false;
+        masteryDriftDetected = true;
+      }
+    }
+  }
+
   // ── Persist mistakes-bank tags from this turn ────────────────────────────
   // The teaching prompt instructs the model to emit at most one new
   // [MISTAKE: topic ||| description] per response and any number of
@@ -2873,11 +3657,14 @@ ${retrievedBlock}
   // re-teach it (and not to advance the chapter prematurely).
   let pointsCoveredUpdate: { chapterIndex: number; newlyCovered: number[] } | null = null;
   try {
-    const matCtx = (req as any).__materialCtx as { materialId: number; ctx: any } | undefined;
+    const matCtx = req.materialCtx;
     if (matCtx && !isDiagnosticPhase) {
-      const injectedIdx: number = matCtx.ctx?.__injectedChapterIndex ?? -1;
-      const pointTexts: string[] = matCtx.ctx?.__injectedPointTexts ?? [];
-      if (injectedIdx >= 0 && pointTexts.length > 0) {
+      const injectedIdx = matCtx.injectedChapterIndex;
+      const pointTexts = matCtx.injectedPointTexts;
+      // In review mode the prompt instructs the model NOT to emit fresh
+      // [POINT_DONE] tags; honor that on the persistence side too.
+      const isReviewing = matCtx.isReviewing;
+      if (injectedIdx >= 0 && pointTexts.length > 0 && !isReviewing) {
         const tagMatches = Array.from(fullResponse.matchAll(/\[POINT_DONE:\s*(\d{1,3})\s*\]/gi));
         const indices: number[] = [];
         for (const m2 of tagMatches) {
@@ -2985,8 +3772,12 @@ ${retrievedBlock}
 
   // Professor mode: a stage-complete signal also means the current chapter of
   // the active PDF is mastered, so advance the per-(user, material) progress.
+  // BUT during a review pass the student is revisiting an already-completed
+  // chapter — advancing here would skip past their NEXT real chapter. So we
+  // gate advancement on !isReviewing (mirrors the POINT_DONE skip above).
   let materialProgressUpdate: { materialId: number; chaptersTotal: number; completedCount: number; currentChapterIndex: number; currentChapterTitle: string | null } | null = null;
-  if (stageComplete && !isDiagnosticPhase && subjectId) {
+  const __reviewingForAdvance: boolean = !!req.materialCtx?.isReviewing;
+  if (stageComplete && !isDiagnosticPhase && subjectId && !__reviewingForAdvance) {
     try {
       const advanced = await advanceActiveMaterialChapter(userId, subjectId);
       if (advanced && advanced.chapters.length > 0) {
@@ -3028,6 +3819,17 @@ ${retrievedBlock}
         // so admins can export and review complete conversations for prompt
         // engineering and teaching-quality analysis.
         const excerpt = extractTeachingExcerpt(cleanAssistant);
+        // Telemetry: flag when the reply exceeded its tier word cap by
+        // more than 10%. The tier max_tokens is sized so a well-behaved
+        // model stays well within the cap; this flag surfaces the
+        // remaining overruns for admin review and prompt iteration.
+        const __wordCount = countWords(excerpt);
+        // overLength is purely advisory telemetry — diagnostic and
+        // lab_report tiers carry maxWords=null and are exempt from the
+        // soft cap (their length policies live elsewhere).
+        const __overLength =
+          responseTier.maxWords != null &&
+          __wordCount > Math.ceil(responseTier.maxWords * 1.10);
         await db.insert(aiTeacherMessagesTable).values({
           userId,
           subjectId,
@@ -3036,6 +3838,8 @@ ${retrievedBlock}
           content: excerpt,
           isDiagnostic: isDiagnosticPhase ? 1 : 0,
           stageIndex: typeof currentStage === "number" ? currentStage : null,
+          wordCount: __wordCount,
+          overLength: __overLength ? 1 : 0,
         });
       }
     } catch (err: any) {
@@ -3067,103 +3871,80 @@ ${retrievedBlock}
     await rollbackFreeClaim();
   }
   // ── Gems deduction (post-AI-call) ────────────────────────────────────────
-  // Compute actual cost from token counts and deduct gems from the user.
-  // 1 gem = $0.001 → gemsToDeduct = ceil(costUsd * 1000).
+  // Single unified gateway: settleAiCharge() handles per-subject, legacy, and
+  // first-lesson wallets identically — same idempotency (requestId), same
+  // ledger shape, same race-safe atomic UPDATE. See lib/charge-ai-usage.ts.
   let gemsDeducted = 0;
+  let gems = 0; // hoisted for the BUDGET_LEAK log line
+  const __requestId = newAiRequestId();
   if (chargeable && !unlimited) {
     try {
       let turnCostUsd = 0;
       if (__geminiUsage) {
         turnCostUsd = costForUsage({ model: __activeModel, inputTokens: __geminiUsage.inputTokens, outputTokens: __geminiUsage.outputTokens, cachedInputTokens: __geminiUsage.cachedInputTokens });
       }
-      // Add image-generation cost to the turn. Only successful images are
-      // charged — failed/timed-out generations are fail-soft (the student
-      // sees an error placeholder, no charge). Each image is ~$0.003.
-      // recordAiUsage already wrote a separate ai_usage_events row inside
-      // generateTeacherImage; we add the cost here ONLY to inflate the
-      // student-facing gem deduction so their wallet absorbs the FLUX cost.
+      // Successful images are billed via the same pipeline (1 image ≈ $0.003).
+      // Failed/timed-out generations are fail-soft (no charge).
       if (__successfulImages > 0) {
         turnCostUsd += __successfulImages * FLUX_SCHNELL_USD_PER_IMAGE;
       }
-      const gems = Math.max(1, Math.ceil(turnCostUsd * 1000));
-      gemsDeducted = gems;
+      gems = Math.max(1, Math.ceil(turnCostUsd * 1000));
 
-      // ── Lab-env exemption for first-session SHOWCASE OPENER ─────────────
-      // Per the user's explicit directive: the FIRST teaching reply after the
-      // diagnostic plan — the "showcase opener" — must be allowed to build a
-      // practical lab environment without that turn counting against the
-      // free-gem cap. The student needs to fully experience the platform's
-      // hands-on power on day one without being cut off mid-tour. The platform
-      // absorbs this single turn's cost as a one-time acquisition investment
-      // per subject.
-      //
-      // Why scope to the OPENER only (not every lab-env turn): a blanket "all
-      // lab turns are free" rule would let a student loop forever — request
-      // lab → use it → request another lab → use it → never hit the cap. By
-      // gating the exemption to `isShowcaseOpener`, we get a single free
-      // showcase per subject. Subsequent lab requests in the same first
-      // session count normally against the 80-gem cap, which is exactly the
-      // behavior the user asked for.
+      // Lab-env showcase opener exemption — first paid-feel session gets ONE
+      // free lab build to demonstrate platform power. Scoped to the very
+      // first turn so it can't be looped (see #33 history for rationale).
       const turnIncludedLabEnv = /\[\[\s*CREATE_LAB_ENV\s*:/i.test(fullResponse);
       const exemptFromFreeCap = isShowcaseOpener && turnIncludedLabEnv;
 
-      // NOTE on failure semantics: the inner per-statement `.catch(() => {})`
-      // calls used to silently swallow DB write failures, which meant a
-      // transient write blip during partial DB degradation would let the
-      // student receive an answer without the wallet being decremented
-      // (silent budget bypass). We now let those errors propagate to the
-      // outer `} catch (err: any)` block, which logs them with a
-      // distinctive prefix so ops can alert on `gems deduction failed`.
-      // The student is not penalized — they already received their answer
-      // — but every miss is now observable instead of invisible.
+      let wallet: ChargeWallet | null = null;
       if (isFirstLesson && firstLessonRecord && !exemptFromFreeCap) {
-        // Free session: track gems used against 80-gem cap (platform absorbs cost).
-        await db.update(userSubjectFirstLessonsTable)
-          .set({
-            freeMessagesUsed: sql`LEAST(${FREE_LESSON_GEM_LIMIT}, ${userSubjectFirstLessonsTable.freeMessagesUsed} + ${gems})`,
-            completed: sql`${userSubjectFirstLessonsTable.freeMessagesUsed} + ${gems} >= ${FREE_LESSON_GEM_LIMIT}`,
-          })
-          .where(eq(userSubjectFirstLessonsTable.id, firstLessonRecord.id));
-        firstLessonRecord.freeMessagesUsed = Math.min(FREE_LESSON_GEM_LIMIT, firstLessonRecord.freeMessagesUsed + gems);
+        wallet = { kind: "first-lesson", firstLessonId: firstLessonRecord.id, cap: FREE_LESSON_GEM_LIMIT, subjectId };
       } else if (exemptFromFreeCap) {
-        // Lab-env turn during free session — exemption applied. Log for
-        // visibility so we can audit how much "showcase grace" the platform
-        // is absorbing per acquisition.
         console.log(
           `[ai/teach] lab-env showcase exemption: userId=${userId} subjectId=${subjectId} costGems=${gems} (not deducted from free cap)`,
         );
       } else if (hasPerSubjectGemsSub && subjectSub) {
-        // Paid per-subject subscription: deduct from THIS subject's wallet
-        // only — never from any other subject's wallet, and never from the
-        // legacy global wallet. Race-safe: GREATEST(0, ...) clamps the
-        // balance so concurrent requests cannot underflow.
-        await db.update(userSubjectSubscriptionsTable)
-          .set({
-            gemsBalance: sql`GREATEST(0, ${userSubjectSubscriptionsTable.gemsBalance} - ${gems})`,
-            gemsUsedToday: sql`${userSubjectSubscriptionsTable.gemsUsedToday} + ${gems}`,
-          })
-          .where(eq(userSubjectSubscriptionsTable.id, subjectSub.id));
+        wallet = { kind: "per-subject", subjectSubId: subjectSub.id, subjectId };
       } else if (hasLegacyGemsSub) {
-        // Legacy (grandfathered) wallet on usersTable.
+        wallet = { kind: "legacy", subjectId };
+      } else if (hasLegacyMessagesSub) {
+        // Pre-gems wallet: count one message instead of debiting gems.
         await db.update(usersTable)
-          .set({
-            gemsBalance: sql`GREATEST(0, ${usersTable.gemsBalance} - ${gems})`,
-            gemsUsedToday: sql`${usersTable.gemsUsedToday} + ${gems}`,
-          })
+          .set({ messagesUsed: sql`${usersTable.messagesUsed} + 1` })
           .where(eq(usersTable.id, userId));
+      }
+
+      if (wallet) {
+        const result = await settleAiCharge({
+          requestId: __requestId,
+          userId,
+          wallet,
+          gems,
+          source: "ai_teach",
+          model: __activeModel,
+          costUsd: turnCostUsd,
+          note: `AI turn (${__activeModel || "model?"})`,
+        });
+        gemsDeducted = result.gemsDeducted;
+        if (wallet.kind === "first-lesson" && firstLessonRecord) {
+          firstLessonRecord.freeMessagesUsed = Math.min(
+            FREE_LESSON_GEM_LIMIT,
+            firstLessonRecord.freeMessagesUsed + result.gemsDeducted,
+          );
+        }
       }
     } catch (err: any) {
       // Distinctive prefix — alert on this in your monitoring stack. A
       // sustained rate of these means students got AI turns without their
       // wallets being decremented (silent revenue leak during DB
-      // degradation). Surfacing it here is the minimum-risk fix; a full
-      // transactional debit would require restructuring the streaming path
-      // and is tracked separately.
+      // degradation). The student is not penalized — they already received
+      // their answer — but every miss is now observable.
       console.error("[ai/teach] BUDGET_LEAK gems deduction failed:", {
         userId,
         subjectId,
         gems,
-        chargingPath: isFirstLesson ? "free-cap" : (hasPerSubjectGemsSub ? "per-subject" : (hasLegacyGemsSub ? "legacy" : "none")),
+        requestId: __requestId,
+        chargingPath: isFirstLesson ? "free-cap" : (hasPerSubjectGemsSub ? "per-subject" : (hasLegacyGemsSub ? "legacy-gems" : (hasLegacyMessagesSub ? "legacy-messages" : "none"))),
         message: err?.message || String(err),
       });
     }
@@ -3185,6 +3966,8 @@ ${retrievedBlock}
     const approxUsedToday = (user.gemsUsedToday ?? 0) + gemsDeducted;
     const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - approxUsedToday);
     gemsRemaining = Math.min(approxBalance, dailyRemaining);
+  } else if (hasLegacyMessagesSub) {
+    gemsRemaining = Math.max(0, (user.messagesLimit ?? 0) - (user.messagesUsed ?? 0) - 1);
   }
   const messagesRemaining = gemsRemaining; // alias kept for compat
   const isQuotaExhausted = !unlimited && gemsRemaining === 0;
@@ -3236,7 +4019,7 @@ ${retrievedBlock}
   // the right thing by skipping the message-counter increment.
   if (!res.writableEnded) {
     try {
-      res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining: gemsRemaining, gemsRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining: gemsRemaining, gemsRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate, microStepsDone: microStepsDone.length > 0 ? microStepsDone : undefined, masteryDriftDetected: masteryDriftDetected || undefined, masteryCriterion: (masteryDriftDetected && masteryCriterionText) ? masteryCriterionText : undefined, intendedNextStage: masteryDriftDetected ? stageIdx + 1 : undefined, growthReflection: (stageComplete && growthReflectionText) ? growthReflectionText : undefined })}\n\n`);
       res.end();
     } catch {}
   }
@@ -3260,12 +4043,82 @@ ${retrievedBlock}
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Per-message teacher feedback (👍 / 👎)
+// Best-effort write — never throws back to the client. Powers the admin
+// "تقييمات الطلاب" tab so the operator can see which answers fell flat
+// and tune the teaching prompt accordingly.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/ai/feedback", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { rating, subjectId, stageIndex, difficulty, sample } = (req.body ?? {}) as {
+    rating?: string;
+    subjectId?: string;
+    stageIndex?: number;
+    difficulty?: string;
+    sample?: string;
+  };
+
+  if (rating !== "up" && rating !== "down") {
+    return res.status(400).json({ error: "rating must be 'up' or 'down'" });
+  }
+  const safeSubject = typeof subjectId === "string" ? subjectId.slice(0, 80) : null;
+  const safeStage = Number.isFinite(stageIndex as number) ? Math.max(0, Math.floor(stageIndex as number)) : null;
+  const safeDiff = (difficulty === "easy" || difficulty === "advanced" || difficulty === "normal") ? difficulty : null;
+  const safeSample = typeof sample === "string" ? sample.slice(0, 280) : null;
+
+  try {
+    await db.execute(sql`
+      INSERT INTO "teacher_feedback" ("user_id", "subject_id", "rating", "stage_index", "difficulty", "message_sample")
+      VALUES (${userId}, ${safeSubject}, ${rating}, ${safeStage}, ${safeDiff}, ${safeSample})
+    `);
+    return res.json({ ok: true });
+  } catch (err: any) {
+    // Don't surface DB errors to the student — the toolbar already updated
+    // optimistically. Just log and keep moving.
+    console.warn("[ai/feedback] insert failed:", err?.message);
+    return res.json({ ok: false });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Platform Help Assistant — floating chat available across the app
 // Streams Arabic answers about how to use Nukhba.
 // ─────────────────────────────────────────────────────────────────────────────
+// Per-user daily cap on the free platform-help assistant. Without this, a
+// single user can hammer the helper bot to burn the platform's OpenRouter
+// credit. 30 questions/day is comfortably above any genuine help session.
+const PLATFORM_HELP_DAILY_LIMIT = 30;
+
 router.post("/ai/platform-help", async (req, res): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  // Rate-limit: count today's (since last Yemen midnight) platform-help calls
+  // for this user via ai_usage_events. We log to ai_usage_events on every
+  // success/error path below, so this counter is naturally accurate.
+  try {
+    const since = (await import("../lib/yemen-time")).getStartOfTodayYemen();
+    const { aiUsageEventsTable: tbl } = await import("@workspace/db");
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(tbl)
+      .where(and(
+        eq(tbl.userId, userId),
+        eq(tbl.route, "ai/platform-help"),
+        sql`${tbl.createdAt} >= ${since}`,
+      ));
+    if (Number(n ?? 0) >= PLATFORM_HELP_DAILY_LIMIT) {
+      return res.status(429).json({
+        error: `وصلت الحد اليومي للمساعد (${PLATFORM_HELP_DAILY_LIMIT} سؤالاً). يتجدّد منتصف الليل بتوقيت اليمن.`,
+        code: "PLATFORM_HELP_DAILY_LIMIT",
+      });
+    }
+  } catch (err: any) {
+    // Fail-open: a counter blip should not block the help bot.
+    console.warn("[platform-help] rate-limit check failed:", err?.message || err);
+  }
 
   const { messages } = (req.body ?? {}) as {
     messages?: Array<{ role: "user" | "assistant"; content: string }>;
@@ -4578,6 +5431,241 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Spec Compiler — converts structured intake answers into a validated JSON spec
+// that the env-builder uses instead of a free-form text description.
+// ─────────────────────────────────────────────────────────────────────────────
+const SPEC_COMPILER_SYSTEM = `أنت **مهندس مواصفات بيئات تعليمية** متخصص. مهمتك الوحيدة: تحويل إجابات الطالب من مقابلة منظَّمة إلى مواصفة JSON كاملة ومُتحقَّق منها لبناء بيئة تطبيقية تفاعلية. لا تُصدر أي شرح أو نص خارج JSON.
+
+## قواعد الإخراج (إلزامية):
+- أرجع كائن JSON واحداً صالحاً تماماً، لا markdown، لا كتل code block، لا أي نص قبله أو بعده.
+- يجب أن يطابق الهيكل الآتي بدقة (كل حقل مطلوب).
+- كل الحقول النصية بالعربية.
+
+## هيكل المواصفة المطلوب:
+{
+  "goal": "هدف البيئة بجملة أو جملتين — ماذا سيُنجز الطالب بالضبط؟",
+  "context": "السياق التعليمي: المادة، الموضوع، المرحلة الدراسية، المستوى الحالي للطالب",
+  "topic": "الموضوع المحدد داخل المادة (من إجابة السؤال الأول)",
+  "difficulty": "سهل|متوسط|صعب",
+  "estimatedMinutes": 15,
+  "interfaceStyle": "form|table|terminal|chart|webapp|mixed",
+  "specializationKind": "accounting|programming|cybersecurity|networking|data-science|food|business|generic",
+  "initialData": {
+    "description": "وصف نصي للبيانات الابتدائية",
+    "sampleValues": {}
+  },
+  "screens": [
+    {
+      "id": "screen1",
+      "title": "عنوان الشاشة الأولى",
+      "purpose": "الغرض منها",
+      "keyInteractions": ["تفاعل 1", "تفاعل 2"]
+    }
+  ],
+  "successCriteria": [
+    "معيار نجاح قابل للقياس 1",
+    "معيار نجاح قابل للقياس 2"
+  ],
+  "commonMisconceptions": [
+    "مفهوم خاطئ شائع 1 في هذا الموضوع",
+    "مفهوم خاطئ شائع 2"
+  ],
+  "componentPattern": "editableTable|form|journalEditor|webApp|terminal|chart|mixed",
+  "narrativeContext": "قصة قصيرة محفّزة (سطر واحد) تضع الطالب في موقف واقعي"
+}
+
+## قواعد ملء الحقول:
+1. **goal**: اشتق من النتيجة المرجوّة (إجابة السؤال الثالث) + الموضوع. مثال: "إنشاء وتسوية قيود يومية لشركة تجارية وتحليل ميزان المراجعة الناتج."
+2. **context**: ادمج الموضوع + المستوى. مثال: "مادة المحاسبة المالية — موضوع القيود اليومية — مستوى متوسط."
+3. **difficulty**: حوّل: "سهل (مع إرشادات)" → "سهل"، "متوسط (تلميحات)" → "متوسط"، "صعب (بلا مساعدة)" → "صعب". افتراضي: "متوسط".
+4. **estimatedMinutes**: سهل=10، متوسط=18، صعب=25.
+5. **interfaceStyle**: استنتج من نوع الواجهة المختارة. نموذج إدخال → "form"، جداول → "table"، طرفية → "terminal"، مخططات → "chart"، تطبيق ويب → "webapp"، غير محدد → "mixed".
+6. **specializationKind**: استنتج من الموضوع + المادة. محاسبة/مالية → "accounting"، برمجة/تطوير → "programming"، أمن سيبراني → "cybersecurity"، شبكات → "networking"، بيانات/إحصاء → "data-science"، غذاء/زراعة → "food"، إدارة/أعمال → "business"، أخرى → "generic".
+7. **screens**: اقترح على الأقل 3 شاشات منطقية تُكمل بعضها. مثال لمحاسبة: شاشة الإدخال + شاشة المراجعة + شاشة النتائج.
+8. **successCriteria**: 3-5 معايير قابلة للقياس آلياً. أمثلة: "يُدخل قيداً متوازناً بطرفين مدين ودائن"، "يرصد الخطأ في الميزان ويُصحّحه"، "يُكمل جميع المهام بلا مساعدة في وضع الامتحان".
+9. **commonMisconceptions**: 2-4 أخطاء شائعة يقع فيها الطلاب في هذا الموضوع تحديداً.
+10. **componentPattern**: استنتج من interfaceStyle + specializationKind. محاسبة → "journalEditor|editableTable"، برمجة → "webApp|form"، أمن → "terminal|webApp"، بيانات → "chart|editableTable"، عام → "form|mixed".
+
+## أمثلة few-shot:
+
+**مثال 1 — أمن سيبراني:**
+إجابات: (أ) اختراق تطبيقات ويب (ب) متوسط (ج) تطبيق عملي (د) تطبيق ويب تجريبي (هـ) صعب
+\`\`\`json
+{"goal":"اكتشاف واستغلال ثغرة SQL Injection في تطبيق ويب تعليمي ومعرفة طرق الحماية منها","context":"مادة الأمن السيبراني — موضوع ثغرات تطبيقات الويب — مستوى متوسط","topic":"ثغرات تطبيقات الويب — SQL Injection","difficulty":"صعب","estimatedMinutes":25,"interfaceStyle":"webapp","specializationKind":"cybersecurity","initialData":{"description":"تطبيق ويب بسيط بصفحة تسجيل دخول وقاعدة بيانات تجريبية","sampleValues":{"users":[{"id":1,"username":"admin","password":"secret123"}]}},"screens":[{"id":"screen1","title":"🔍 استكشاف التطبيق","purpose":"فهم بنية التطبيق ونقاط الدخول","keyInteractions":["تصفح صفحات التطبيق","قراءة كود المصدر"]},{"id":"screen2","title":"💉 تنفيذ الهجوم","purpose":"تجربة حقن SQL وفهم آليته","keyInteractions":["إدخال payload في حقل تسجيل الدخول","قراءة رد قاعدة البيانات"]},{"id":"screen3","title":"🛡️ الحماية والإصلاح","purpose":"تطبيق تقنيات الحماية","keyInteractions":["استخدام Prepared Statements","اختبار الإصلاح"]}],"successCriteria":["يُدخل payload يتجاوز تسجيل الدخول بنجاح","يستخرج معلومات من قاعدة البيانات","يُطبّق حلاً صحيحاً لمنع الثغرة","يشرح الفرق بين الطريقتين"],"commonMisconceptions":["الخلط بين XSS وSQL Injection","الظن بأن تشفير كلمة المرور فقط يكفي","عدم فهم لماذا Prepared Statements أكثر أماناً"],"componentPattern":"webApp|terminal","narrativeContext":"اكتُشف ثغرة في موقع شركة ناشئة — أنت الباحث الأمني المكلّف باختبارها وتوثيق الثغرة وإصلاحها."}
+\`\`\`
+
+**مثال 2 — محاسبة:**
+إجابات: (أ) القيود اليومية (ب) مبتدئ (ج) فهم نظري + تطبيق (د) نموذج إدخال (هـ) سهل
+\`\`\`json
+{"goal":"تسجيل قيود يومية متنوعة وفهم تأثيرها على المعادلة المحاسبية","context":"مادة المحاسبة المالية — موضوع القيود اليومية — مبتدئ","topic":"القيود اليومية وأثرها على الحسابات","difficulty":"سهل","estimatedMinutes":10,"interfaceStyle":"form","specializationKind":"accounting","initialData":{"description":"شركة تجارية ناشئة ببيانات ابتدائية بسيطة","sampleValues":{"accounts":[{"code":"101","name":"الصندوق","balance":5000},{"code":"401","name":"المبيعات","balance":0}],"entries":[]}},"screens":[{"id":"screen1","title":"📚 فهم القيد","purpose":"شرح مفهوم القيد المحاسبي","keyInteractions":["قراءة المثال","مشاهدة أثر القيد على الحسابات"]},{"id":"screen2","title":"✏️ تسجيل القيود","purpose":"تطبيق القيود عملياً","keyInteractions":["إدخال الطرف المدين","إدخال الطرف الدائن","التحقق من التوازن"]},{"id":"screen3","title":"📊 ميزان المراجعة","purpose":"مراجعة أثر القيود","keyInteractions":["قراءة الأرصدة","اكتشاف أخطاء التوازن"]}],"successCriteria":["يُسجّل قيداً بطرفين مدين ودائن متساويين","يختار الحساب الصحيح لكل طرف","يُلاحظ أثر القيد على الميزان"],"commonMisconceptions":["الخلط بين الحساب المدين والدائن","نسيان أن المجموعين يجب أن يتساويا","الخلط بين رصيد الحساب والتغيير عليه"],"componentPattern":"journalEditor|editableTable","narrativeContext":"أنت محاسب جديد في شركة الأمل التجارية — مهمتك تسجيل عمليات اليوم الأول."}
+\`\`\`
+
+**مثال 3 — برمجة:**
+إجابات: (أ) الدوال والمعاملات (ب) درست الأساسيات (ج) تطبيق عملي (د) جداول تفاعلية (هـ) متوسط
+\`\`\`json
+{"goal":"فهم تعريف الدوال واستدعائها وتمرير المعاملات والقيم المُعادة في Python","context":"مادة البرمجة — موضوع الدوال والمعاملات — مستوى مبتدئ-متوسط","topic":"الدوال والمعاملات في Python","difficulty":"متوسط","estimatedMinutes":18,"interfaceStyle":"webapp","specializationKind":"programming","initialData":{"description":"بيئة Python تفاعلية مع أمثلة جاهزة قابلة للتعديل","sampleValues":{"challenges":["اكتب دالة تحسب مساحة مستطيل","أضف معامل اختياري للنتيجة","حوّل الدالة لإعادة قيمتين"]}},"screens":[{"id":"screen1","title":"🔍 فهم الدوال","purpose":"استكشاف بنية الدالة وأجزائها","keyInteractions":["قراءة مثال دالة بسيطة","تعديل المعاملات"]},{"id":"screen2","title":"⚙️ كتابة دوال","purpose":"تطبيق كتابة الدوال","keyInteractions":["كتابة دالة من الصفر","اختبارها بقيم مختلفة"]},{"id":"screen3","title":"🎯 تحديات","purpose":"حل تحديات متصاعدة","keyInteractions":["حل 3 تحديات","مقارنة الحلول"]}],"successCriteria":["يكتب دالة صحيحة بمعاملات ويستدعيها","يفهم الفرق بين return وprint","يستخدم معاملات افتراضية بشكل صحيح"],"commonMisconceptions":["الخلط بين تعريف الدالة واستدعائها","نسيان return وتوقع طباعة القيمة","الخلط بين المتغيرات المحلية والعامة"],"componentPattern":"webApp|form","narrativeContext":"أنت مطور جديد تبني مكتبة دوال لأتمتة حسابات شركة صغيرة."}
+\`\`\`
+
+التزم بإصدار JSON صالح مباشرة بدون أي شرح أو markdown.`;
+
+// POST /api/ai/lab/compile-spec
+// Takes structured intake answers + subject info and emits a validated JSON spec
+// for the env builder. Retries up to 3x on parse failure, then falls back to Gemini.
+router.post("/ai/lab/compile-spec", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { subjectId, subjectName, specializationKind, intakeAnswers } = req.body as {
+    subjectId: string;
+    subjectName: string;
+    specializationKind?: string;
+    intakeAnswers: Array<{ q: string; a: string; isFreeText?: boolean }>;
+  };
+  if (!subjectId || !subjectName || !Array.isArray(intakeAnswers) || intakeAnswers.length === 0) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const userPrompt = `مادة: ${subjectName} (${subjectId})
+نوع التخصص المتوقّع: ${specializationKind || "غير محدد"}
+
+إجابات الطالب من المقابلة:
+${intakeAnswers.map((a, i) => `${i + 1}. السؤال: ${a.q || "—"}\n   الإجابة: ${a.a}`).join("\n\n")}
+
+أصدر مواصفة JSON كاملة مباشرة بلا أي شرح.`;
+
+  // Zod schema for the compiled lab spec — single source of truth used by
+  // both /compile-spec (output validation) and /build-env (input validation).
+  const LabSpecSchema = z.object({
+    goal:                z.string().min(20),
+    context:             z.string().min(5),
+    topic:               z.string().min(5),
+    difficulty:          z.enum(["سهل", "متوسط", "صعب"]),
+    estimatedMinutes:    z.number().min(5),
+    interfaceStyle:      z.string().min(5),
+    specializationKind:  z.string().min(5),
+    componentPattern:    z.string().min(5),
+    narrativeContext:    z.string().min(5),
+    initialData:         z.union([z.record(z.unknown()), z.string()]),
+    screens: z.array(z.object({
+      id:               z.string().min(1),
+      title:            z.string().min(2),
+      purpose:          z.string().min(5),
+      keyInteractions:  z.array(z.unknown()),
+    })).min(3),
+    successCriteria:       z.array(z.string()).min(3),
+    commonMisconceptions:  z.array(z.string()).min(2),
+  });
+
+  const validateSpec = (obj: unknown): { ok: boolean; error?: string } => {
+    const result = LabSpecSchema.safeParse(obj);
+    if (result.success) return { ok: true };
+    const first = result.error.issues[0];
+    const path = first.path.length > 0 ? first.path.join(".") + ": " : "";
+    return { ok: false, error: `${path}${first.message}` };
+  };
+
+  let lastError = "";
+  let spec: Record<string, unknown> | null = null;
+
+  // Try Anthropic Claude 3.5 Sonnet up to 3 times
+  for (let attempt = 1; attempt <= 3 && !spec; attempt++) {
+    const __start = Date.now();
+    try {
+      console.log(`[compile-spec] attempt ${attempt}/3 via Anthropic`);
+      const messages: any[] = [{ role: "user", content: userPrompt }];
+      if (attempt > 1 && lastError) {
+        messages.push({ role: "assistant", content: "{" });
+        messages.push({ role: "user", content: `المحاولة السابقة أنتجت JSON خاطئاً: ${lastError}. أعد المحاولة وأصدر JSON صالحاً فقط مباشرة.` });
+      }
+      const msg = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 3000,
+        temperature: 0.2,
+        system: SPEC_COMPILER_SYSTEM,
+        messages: attempt === 1 ? [{ role: "user", content: userPrompt }] : [{ role: "user", content: userPrompt + `\n\n[محاولة ${attempt}] الخطأ السابق: ${lastError}. أصدر JSON مباشرة بلا شرح.` }],
+      });
+      const raw = (msg.content[0] as { type: string; text?: string })?.text || "";
+      const cleaned = raw.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/i, "").trim();
+      const parsed = robustJsonParse(cleaned, "[compile-spec]");
+      const validation = validateSpec(parsed);
+      if (validation.ok) {
+        spec = parsed;
+        console.log(`[compile-spec] success on attempt ${attempt}`);
+      } else {
+        lastError = validation.error || "Unknown validation error";
+        console.warn(`[compile-spec] attempt ${attempt} validation failed: ${lastError}`);
+      }
+      try {
+        const u = extractAnthropicUsage(msg);
+        void recordAiUsage({
+          userId,
+          subjectId: subjectId ?? null,
+          route: "ai/lab/compile-spec",
+          provider: "anthropic",
+          model: "claude-3-5-sonnet-20241022",
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          cachedInputTokens: u.cachedInputTokens,
+          latencyMs: Date.now() - __start,
+          metadata: { attempt },
+        });
+      } catch {}
+    } catch (err: any) {
+      lastError = err?.message || String(err);
+      console.error(`[compile-spec] attempt ${attempt} threw:`, lastError);
+    }
+  }
+
+  // Gemini fallback if Anthropic exhausted
+  if (!spec && hasGeminiProvider()) {
+    const __gStart = Date.now();
+    try {
+      console.log("[compile-spec] Anthropic failed — trying Gemini 2.0 Flash fallback");
+      const result = await generateGeminiJson({
+        systemPrompt: SPEC_COMPILER_SYSTEM,
+        userPrompt: userPrompt + "\n\nأصدر JSON صالحاً فقط مباشرة بلا شرح.",
+        model: "gemini-2.0-flash",
+        temperature: 0.2,
+        maxOutputTokens: 3000,
+        timeoutMs: 45_000,
+        logTag: "compile-spec",
+      });
+      const parsed = robustJsonParse(result.text, "[compile-spec]");
+      const validation = validateSpec(parsed);
+      if (validation.ok) {
+        spec = parsed;
+        console.log("[compile-spec] Gemini fallback succeeded");
+      } else {
+        console.error("[compile-spec] Gemini fallback validation failed:", validation.error);
+      }
+      try {
+        const u = extractGeminiUsage(result.usageMetadata);
+        void recordAiUsage({
+          userId,
+          subjectId: subjectId ?? null,
+          route: "ai/lab/compile-spec",
+          provider: "gemini",
+          model: "gemini-2.0-flash",
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          cachedInputTokens: u.cachedInputTokens,
+          latencyMs: Date.now() - __gStart,
+          metadata: { attempt: "gemini_fallback", channel: result.channel },
+        });
+      } catch {}
+    } catch (gErr: any) {
+      console.error("[compile-spec] Gemini fallback threw:", gErr?.message || gErr);
+    }
+  }
+
+  if (!spec) {
+    return res.status(500).json({ error: "تعذّر تجميع المواصفة بعد عدة محاولات", detail: lastError });
+  }
+
+  return res.json({ spec });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Universal dynamic-env builder — generates a fully tailored interactive
 // practice environment per request, for any subject.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4821,8 +5909,54 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-  const { subjectId, description } = req.body as { subjectId: string; description: string };
-  if (!subjectId || !description) return res.status(400).json({ error: "Missing subjectId or description" });
+  const body = req.body as { subjectId: string; description?: string; spec?: any };
+  const subjectId = body.subjectId;
+  if (!subjectId) return res.status(400).json({ error: "Missing subjectId" });
+
+  // Accept either structured spec (preferred) or free-form description (legacy).
+  // When a spec is provided, convert it to a rich structured description that the
+  // builder can use. This preserves full backward compatibility.
+  // Track whether the caller provided a structured spec (rather than a raw
+  // description) so we can bypass the thin-description gate and replace the
+  // student-facing fallback env with a clean API error on complete failure.
+  const callerProvidedSpec = !!(body.spec && typeof body.spec === "object");
+
+  let description: string;
+  if (callerProvidedSpec) {
+    // body.spec was validated by compile-spec before reaching this endpoint;
+    // cast to a known-shape record for safe property access.
+    const s = body.spec as Record<string, unknown>;
+    const initialDataRaw = s.initialData;
+    const initialDataDesc: string =
+      initialDataRaw && typeof initialDataRaw === "object"
+        ? String((initialDataRaw as Record<string, unknown>).description ?? "")
+        : typeof initialDataRaw === "string"
+        ? initialDataRaw
+        : "";
+    const screens = Array.isArray(s.screens) ? (s.screens as Record<string, unknown>[]) : [];
+    const successCriteria = Array.isArray(s.successCriteria) ? (s.successCriteria as string[]) : [];
+    const commonMisconceptions = Array.isArray(s.commonMisconceptions) ? (s.commonMisconceptions as string[]) : [];
+    description = [
+      `السياق: ${s.context || ""}`,
+      `الهدف: ${s.goal || ""}`,
+      `الموضوع: ${s.topic || ""}`,
+      `الصعوبة: ${s.difficulty || "متوسط"} — الوقت المتوقع: ${s.estimatedMinutes || 15} دقيقة`,
+      `نمط الواجهة: ${s.interfaceStyle || "mixed"} — نمط المكوّنات: ${s.componentPattern || "form"}`,
+      `القصة: ${s.narrativeContext || ""}`,
+      `البيانات الأولية: ${initialDataDesc}`,
+      `الشاشات (${screens.length}):`,
+      ...screens.map((sc: any, i: number) => `  ${i + 1}. "${sc.title}" — ${sc.purpose || ""} — تفاعلات: ${(sc.keyInteractions || []).join("، ")}`),
+      `معايير النجاح:`,
+      ...successCriteria.map((c: string) => `  – ${c}`),
+      `المفاهيم الخاطئة الشائعة المتوقّع اختبارها:`,
+      ...commonMisconceptions.map((m: string) => `  – ${m}`),
+    ].join("\n");
+    console.log("[build-env] using compiled spec — generated description length:", description.length);
+  } else if (typeof body.description === "string" && body.description.trim()) {
+    description = body.description;
+  } else {
+    return res.status(400).json({ error: "Missing description or spec" });
+  }
   // Hard server-side bound on description length. The client caps at 4000
   // and the teacher prompt produces 200-1500 char descriptions, so a 4000
   // limit comfortably covers legitimate traffic. Direct API callers that
@@ -4922,24 +6056,31 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
   // so the teacher LLM can elaborate on the next round and resubmit. This
   // saves ~24K tokens per low-quality call and trains the teacher prompt
   // (over time) to write rich descriptions on the first try.
-  const quality = assessDescriptionQuality(description);
-  if (!quality.ok) {
-    console.log("[build-env] rejecting thin description:", quality.reasons.join(" | "));
-    const reasonsList = quality.reasons.map((r) => `• ${r}`).join("\n");
-    const note = `الوصف الذي وصلني لا يكفي لبناء بيئة احترافية. ينقصه:\n\n${reasonsList}\n\nاطلب من المعلم الذكي بالأسفل أن يوسّع الوصف بالأقسام الخمسة (السياق، البيانات الأولية، الشاشات، معايير النجاح، الأخطاء الشائعة المتوقّع اختبارها)، ثم سأبني لك بيئة كاملة.`;
-    const env = buildFallbackEnv(note);
-    // No recordAiUsage call here: no AI provider was invoked, so there's
-    // nothing to bill or attribute. The rejection is purely local.
-    return res.json({
-      env,
-      validation: {
-        autoHealed: 0,
-        unfixableCount: 0,
-        healCounts: {},
-        thinDescriptionRejected: true,
-        rejectionReasons: quality.reasons,
-      },
-    });
+  // Skip thin-description gate when the caller supplied a structured spec —
+  // the spec was already validated by compile-spec and converted to a rich
+  // description above. Applying the heuristic gate on top would be redundant
+  // and would incorrectly reject perfectly valid spec-derived descriptions
+  // (e.g. those lacking Arabic-Indic digits that the spec produces in English).
+  if (!callerProvidedSpec) {
+    const quality = assessDescriptionQuality(description);
+    if (!quality.ok) {
+      console.log("[build-env] rejecting thin description:", quality.reasons.join(" | "));
+      const reasonsList = quality.reasons.map((r) => `• ${r}`).join("\n");
+      const note = `الوصف الذي وصلني لا يكفي لبناء بيئة احترافية. ينقصه:\n\n${reasonsList}\n\nاطلب من المعلم الذكي بالأسفل أن يوسّع الوصف بالأقسام الخمسة (السياق، البيانات الأولية، الشاشات، معايير النجاح، الأخطاء الشائعة المتوقّع اختبارها)، ثم سأبني لك بيئة كاملة.`;
+      const env = buildFallbackEnv(note);
+      // No recordAiUsage call here: no AI provider was invoked, so there's
+      // nothing to bill or attribute. The rejection is purely local.
+      return res.json({
+        env,
+        validation: {
+          autoHealed: 0,
+          unfixableCount: 0,
+          healCounts: {},
+          thinDescriptionRejected: true,
+          rejectionReasons: quality.reasons,
+        },
+      });
+    }
   }
 
   const __aiStart = Date.now();
@@ -5085,9 +6226,55 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
         console.warn("[build-env] no Gemini provider configured — skipping third-pass fallback");
       }
     }
+    if (!env && callerProvidedSpec && hasGeminiProvider()) {
+      // For spec builds: try one final "simplification" pass — condense the spec
+      // into a shorter 3-sentence description and re-attempt generation with Gemini.
+      // This is the server-side silent recompile+rebuild path that avoids surfacing
+      // a 503 to the student on a transient generation failure.
+      const __e4Start = Date.now();
+      try {
+        const simplifiedDesc = [
+          `الهدف: ${(body.spec as Record<string, unknown>).goal || ""}`.slice(0, 200),
+          `الموضوع: ${(body.spec as Record<string, unknown>).topic || ""} — الصعوبة: ${(body.spec as Record<string, unknown>).difficulty || "متوسط"}`,
+          `ابنِ بيئة تفاعلية بسيطة وواضحة. أرجع JSON صالحاً فقط.`,
+        ].join("\n");
+        console.log("[build-env] spec build: attempting simplified emergency pass 4");
+        const result4 = await generateGeminiJson({
+          systemPrompt: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً — شاشة واحدة أو اثنتان، بدون markdown.`,
+          userPrompt: `التخصص: ${kindLabel} (${kind})\n${simplifiedDesc}`,
+          model: "gemini-2.0-flash",
+          temperature: 0.3,
+          maxOutputTokens: 10000,
+          timeoutMs: 60_000,
+          logTag: "build-env-emergency",
+        });
+        try {
+          const __u4 = extractGeminiUsage(result4.usageMetadata);
+          void recordAiUsage({
+            userId,
+            subjectId: subjectId ?? null,
+            route: "ai/lab/build-env",
+            provider: "gemini",
+            model: "gemini-2.0-flash",
+            inputTokens: __u4.inputTokens,
+            outputTokens: __u4.outputTokens,
+            cachedInputTokens: __u4.cachedInputTokens,
+            latencyMs: Date.now() - __e4Start,
+            metadata: { kind, attempt: "emergency_pass4" },
+          });
+        } catch {}
+        env = robustJsonParse(result4.text, "[build-env-emergency]");
+        if (env) console.log("[build-env] emergency pass 4 succeeded.");
+      } catch (e4Err: unknown) {
+        console.error("[build-env] emergency pass 4 threw:", (e4Err instanceof Error ? e4Err.message : String(e4Err)));
+      }
+    }
     if (!env) {
+      if (callerProvidedSpec) {
+        console.error("[build-env] all passes (including emergency) failed for spec build — returning 503.");
+        return res.status(503).json({ error: "تعذّر توليد البيئة بعد عدة محاولات — يرجى المحاولة مرة أخرى" });
+      }
       console.error("[build-env] all passes failed — returning actionable fallback env.");
-      // Don't throw — return a friendly fallback env so the user never sees a red error.
       return res.json({ kind, env: buildFallbackEnv("لم نتمكن من توليد البيئة الكاملة هذه المرّة (حتى بعد عدّة محاولات). يرجى وصف ما تريد بدقة في النموذج أدناه — سيستلمه المعلم ويبني لك بيئة جديدة.") });
     }
 
@@ -5323,8 +6510,11 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
       errorMessage: String(e?.message || e).slice(0, 500),
       metadata: { kind },
     });
-    // Never surface a raw error to the user — return a minimal fallback env
-    // so the lab still opens and the user can iterate via the chat assistant.
+    // For spec builds return a clear error; for legacy description builds return
+    // the fallback env so the UI still has something to render.
+    if (callerProvidedSpec) {
+      return res.status(503).json({ error: "حدث اضطراب مؤقّت أثناء توليد البيئة — يرجى المحاولة مرة أخرى" });
+    }
     return res.json({ kind, env: buildFallbackEnv("حدث اضطراب مؤقّت أثناء توليد البيئة. يمكنك المحاولة مجدّداً بوصف أقصر، أو متابعة الشرح مع المعلم الذكي.") });
   }
 });

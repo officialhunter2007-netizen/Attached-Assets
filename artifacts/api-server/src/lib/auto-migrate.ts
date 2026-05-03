@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./logger";
+import { setYerToUsdRates, YER_PER_USD_FALLBACK } from "./pricing-formula";
 
 type ColumnSpec = {
   name: string;
@@ -103,6 +104,82 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    table: "exchange_rates",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "exchange_rates" (
+        "id" serial PRIMARY KEY,
+        "region" text NOT NULL UNIQUE,
+        "yer_per_usd" integer NOT NULL,
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_by_user_id" integer
+      )
+    `,
+    indexes: [],
+  },
+  {
+    // Gem ledger — append-only history of every balance change. Powers the
+    // admin "ledger" tab and refund flow. Indexed on (user_id, created_at)
+    // for fast per-user history queries.
+    table: "gem_ledger",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "gem_ledger" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "subject_sub_id" integer,
+        "subject_id" text,
+        "delta" integer NOT NULL,
+        "balance_after" integer NOT NULL,
+        "reason" text NOT NULL,
+        "source" text,
+        "admin_user_id" integer,
+        "note" text,
+        "metadata" jsonb,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_gem_ledger_user_created" ON "gem_ledger" ("user_id", "created_at")`,
+      `CREATE INDEX IF NOT EXISTS "idx_gem_ledger_subject_sub" ON "gem_ledger" ("subject_sub_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_gem_ledger_reason" ON "gem_ledger" ("reason")`,
+    ],
+  },
+  {
+    // Per-user discount-code redemption ledger. Inserted inside the approve
+    // transaction so a row only exists for an actually-granted subscription.
+    table: "discount_code_redemptions",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "discount_code_redemptions" (
+        "id" serial PRIMARY KEY,
+        "code_id" integer NOT NULL,
+        "user_id" integer NOT NULL,
+        "subscription_request_id" integer,
+        "redeemed_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_discount_code_redemptions_code_user" ON "discount_code_redemptions" ("code_id", "user_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_discount_code_redemptions_user" ON "discount_code_redemptions" ("user_id")`,
+    ],
+  },
+  {
+    // Admin-editable payment settings (Kuraimi account numbers, names, etc.).
+    // Key/value so new keys can be added from the admin UI without a
+    // schema migration.
+    table: "payment_settings",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "payment_settings" (
+        "id" serial PRIMARY KEY,
+        "key" text NOT NULL UNIQUE,
+        "value" text NOT NULL DEFAULT '',
+        "label" text,
+        "category" text NOT NULL DEFAULT 'payment',
+        "updated_by_user_id" integer,
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [],
+  },
+  {
     // Operational alerts surfaced to the admin panel (OpenRouter credit
     // exhausted, auth failures, repeated transient errors, etc.). The
     // helper recordAdminAlert() de-dupes by `type` over a 30-min window.
@@ -134,7 +211,93 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE UNIQUE INDEX IF NOT EXISTS "uq_admin_alerts_type_unresolved" ON "admin_alerts" ("type") WHERE resolved = false`,
     ],
   },
+  {
+    // Per-message student feedback on the AI teacher's answers (👍 / 👎).
+    // The MessageToolbar in the chat UI POSTs to /api/ai/feedback after
+    // the student rates an assistant turn; rows here power the "تقييمات
+    // الطلاب" admin tab that surfaces low-rated answers for prompt tuning.
+    // `message_sample` is a short head-snippet of the assistant content
+    // (server-truncated to 280 chars) — enough to recognize the answer
+    // without inflating the row.
+    table: "teacher_feedback",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "teacher_feedback" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer,
+        "subject_id" text,
+        "rating" text NOT NULL,
+        "stage_index" integer,
+        "difficulty" text,
+        "message_sample" text,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "teacher_feedback_subject_created_idx" ON "teacher_feedback" ("subject_id", "created_at")`,
+      `CREATE INDEX IF NOT EXISTS "teacher_feedback_rating_idx" ON "teacher_feedback" ("rating", "created_at")`,
+    ],
+  },
+  {
+    table: "audit_logs",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "audit_logs" (
+        "id" serial PRIMARY KEY,
+        "event" text NOT NULL,
+        "user_id" integer,
+        "subject_id" text,
+        "data" jsonb,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "audit_logs_event_created_idx" ON "audit_logs" ("event", "created_at")`,
+      `CREATE INDEX IF NOT EXISTS "audit_logs_user_id_idx" ON "audit_logs" ("user_id", "created_at")`,
+    ],
+  },
+  {
+    // Per-page OCR / extraction status for the professor-mode "where did the
+    // text go?" debugger and the new retry endpoint. One row per
+    // (material_id, page_number); status is one of 'ok' / 'failed' /
+    // 'low_confidence'. The unique index lets the OCR pipeline upsert by
+    // (material_id, page_number) without a select-then-insert race.
+    table: "material_page_status",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "material_page_status" (
+        "id" serial PRIMARY KEY,
+        "material_id" integer NOT NULL,
+        "page_number" integer NOT NULL,
+        "status" text NOT NULL DEFAULT 'ok',
+        "attempts" integer NOT NULL DEFAULT 1,
+        "last_provider" text,
+        "error_message" text,
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "material_page_status_material_page_idx" ON "material_page_status" ("material_id", "page_number")`,
+      `CREATE INDEX IF NOT EXISTS "material_page_status_status_idx" ON "material_page_status" ("material_id", "status")`,
+    ],
+  },
 ];
+
+// Best-effort: ensure the FTS index over `material_chunks.content_normalized`
+// exists. We don't gate on the column existing — auto-migrate adds the
+// column first via REQUIRED_COLUMNS, and the GIN index creation below uses
+// IF NOT EXISTS so re-runs are idempotent. Wrapped in a try/catch so a stale
+// schema (column missing on a half-migrated DB) doesn't crash startup.
+async function ensureNormalizedFtsIndex(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "material_chunks_normalized_fts_idx"
+      ON "material_chunks" USING GIN (to_tsvector('simple', COALESCE("content_normalized", "content")))
+    `);
+  } catch (err: any) {
+    logger.warn(
+      { err: err?.message },
+      "auto-migrate: failed to create material_chunks_normalized_fts_idx (will be retried next boot)",
+    );
+  }
+}
 
 // Default prices used to seed `plan_prices` on first boot only. Subsequent
 // boots NEVER overwrite admin edits — we use ON CONFLICT DO NOTHING so the
@@ -166,17 +329,134 @@ async function seedPlanPrices(): Promise<void> {
   }
 }
 
+// Default Kuraimi payment numbers (mirrors the values previously hardcoded in
+// admin.tsx and subscription.tsx). Seeded ON CONFLICT DO NOTHING so admin
+// edits persist across restarts.
+const DEFAULT_PAYMENT_SETTINGS: Array<{
+  key: string;
+  value: string;
+  label: string;
+  category: string;
+}> = [
+  { key: "kuraimi.north.number", value: "3165778412",            label: "رقم حساب كريمي — الشمال", category: "payment" },
+  { key: "kuraimi.north.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الشمال", category: "payment" },
+  { key: "kuraimi.south.number", value: "3167076083",            label: "رقم حساب كريمي — الجنوب", category: "payment" },
+  { key: "kuraimi.south.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الجنوب", category: "payment" },
+];
+
+// Default YER→USD divisors used to seed `exchange_rates` on first boot only.
+// Subsequent boots NEVER overwrite admin edits — we use ON CONFLICT DO NOTHING
+// so the stored values are the source of truth. Mirrors the static fallback
+// constants in pricing-formula.ts.
+const DEFAULT_EXCHANGE_RATES: Array<{ region: "north" | "south"; yerPerUsd: number }> = [
+  { region: "north", yerPerUsd: YER_PER_USD_FALLBACK.north },
+  { region: "south", yerPerUsd: YER_PER_USD_FALLBACK.south },
+];
+
+async function seedExchangeRates(): Promise<void> {
+  try {
+    for (const r of DEFAULT_EXCHANGE_RATES) {
+      await db.execute(sql`
+        INSERT INTO "exchange_rates" ("region", "yer_per_usd")
+        VALUES (${r.region}, ${r.yerPerUsd})
+        ON CONFLICT ("region") DO NOTHING
+      `);
+    }
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message },
+      "auto-migrate: failed to seed exchange_rates defaults",
+    );
+  }
+}
+
+// Load the live divisors from the DB and push them into the in-memory cache
+// in pricing-formula.ts. Called once after the seed step at startup so the
+// formula sees admin-edited values immediately without waiting for the first
+// admin PATCH.
+async function loadExchangeRatesIntoFormula(): Promise<void> {
+  try {
+    const rows = await db.execute<{ region: string; yer_per_usd: number }>(sql`
+      SELECT "region", "yer_per_usd" FROM "exchange_rates"
+    `);
+    const map: Record<string, number> = {};
+    for (const r of rows.rows) {
+      const divisor = Number(r.yer_per_usd);
+      if (Number.isFinite(divisor) && divisor > 0) {
+        map[r.region] = divisor;
+      }
+    }
+    setYerToUsdRates(map);
+  } catch (err: any) {
+    logger.warn(
+      { err: err?.message },
+      "auto-migrate: failed to load exchange_rates; pricing-formula will use static fallback",
+    );
+  }
+}
+
+async function seedPaymentSettings(): Promise<void> {
+  try {
+    for (const s of DEFAULT_PAYMENT_SETTINGS) {
+      await db.execute(sql`
+        INSERT INTO "payment_settings" ("key", "value", "label", "category")
+        VALUES (${s.key}, ${s.value}, ${s.label}, ${s.category})
+        ON CONFLICT ("key") DO NOTHING
+      `);
+    }
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message },
+      "auto-migrate: failed to seed payment_settings defaults",
+    );
+  }
+}
+
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
     table: "course_materials",
     columns: [
       { name: "structured_outline", ddl: "text" },
+      // Professor-mode columns.
+      { name: "printed_page_offset", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "role", ddl: "text NOT NULL DEFAULT 'primary'" },
+      { name: "coverage_status", ddl: "text NOT NULL DEFAULT 'ok'" },
+      { name: "processing_metrics", ddl: "text" },
+    ],
+  },
+  {
+    table: "material_chunks",
+    columns: [
+      // Arabic-normalized search column.
+      { name: "content_normalized", ddl: "text" },
     ],
   },
   {
     table: "material_chapter_progress",
     columns: [
       { name: "covered_points", ddl: "text NOT NULL DEFAULT '{}'" },
+    ],
+  },
+  {
+    table: "ai_teacher_messages",
+    columns: [
+      { name: "subject_name", ddl: "text" },
+      { name: "is_diagnostic", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "stage_index", ddl: "integer" },
+      { name: "word_count", ddl: "integer" },
+      { name: "over_length", ddl: "integer" },
+    ],
+  },
+  {
+    // Micro-step progress within the current learning plan stage.
+    // currentMicroStepIndex: the last micro-step the student completed (0-based).
+    // completedMicroSteps: JSON array of all completed micro-step indices,
+    //   e.g. "[0, 1, 2]". Persisted so progress survives session reloads.
+    table: "user_subject_plans",
+    columns: [
+      { name: "current_micro_step_index", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "completed_micro_steps", ddl: "text NOT NULL DEFAULT '[]'" },
+      { name: "growth_reflections", ddl: "text NOT NULL DEFAULT '[]'" },
     ],
   },
   {
@@ -246,6 +526,27 @@ const REQUIRED_COLUMNS: TableSpec[] = [
       { name: "used_by_user_id", ddl: "integer" },
       { name: "used_at", ddl: "timestamp with time zone" },
       { name: "expires_at", ddl: "timestamp with time zone" },
+    ],
+  },
+  {
+    // Discount-code hardening: max-uses, per-user limit, optional active
+    // window. Existing rows get NULL (= unlimited / always active) so the
+    // behaviour is unchanged for legacy codes.
+    table: "discount_codes",
+    columns: [
+      { name: "max_uses", ddl: "integer" },
+      { name: "per_user_limit", ddl: "integer" },
+      { name: "starts_at", ddl: "timestamp with time zone" },
+      { name: "ends_at", ddl: "timestamp with time zone" },
+    ],
+  },
+  {
+    // gem_ledger: request_id column powers idempotent settle/refund. The
+    // accompanying unique partial index is created in ensureGemLedgerRequestIdIndex
+    // because REQUIRED_COLUMNS only handles ADD COLUMN, not CREATE INDEX.
+    table: "gem_ledger",
+    columns: [
+      { name: "request_id", ddl: "text" },
     ],
   },
   {
@@ -358,7 +659,35 @@ export async function runStartupMigrations(): Promise<void> {
   try {
     await ensureRequiredTables();
     await seedPlanPrices();
+    await seedExchangeRates();
+    await loadExchangeRatesIntoFormula();
+    await seedPaymentSettings();
     const { added, errors } = await ensureRequiredColumns();
+    // FTS index depends on `content_normalized` column existing — order matters.
+    await ensureNormalizedFtsIndex();
+    // gem_ledger.request_id unique partial index — prerequisite for the
+    // INSERT-first idempotency pattern in lib/charge-ai-usage.ts. Partial so
+    // legacy ledger rows (where request_id IS NULL) don't collide.
+    // Plain (non-partial) unique index — Postgres treats NULL as distinct, so
+    // legacy ledger rows (where request_id IS NULL) coexist freely. The plain
+    // index lets us use a simple `ON CONFLICT (user_id, request_id)` target;
+    // partial-index conflict targets require a matching WHERE predicate that
+    // Drizzle's onConflictDoNothing() cannot express, which would silently
+    // break all settles in production.
+    try {
+      // Drop any older partial variant from earlier dev runs to avoid two
+      // overlapping uniques.
+      await db.execute(sql.raw(`DROP INDEX IF EXISTS "uq_gem_ledger_user_request_partial"`));
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_gem_ledger_user_request" ` +
+        `ON "gem_ledger" ("user_id", "request_id")`,
+      ));
+    } catch (err: any) {
+      logger.error(
+        { err: err?.message },
+        "auto-migrate: failed to create uq_gem_ledger_user_request index",
+      );
+    }
     const ms = Date.now() - start;
     if (added.length === 0 && errors.length === 0) {
       logger.info({ ms }, "auto-migrate: schema is up to date");

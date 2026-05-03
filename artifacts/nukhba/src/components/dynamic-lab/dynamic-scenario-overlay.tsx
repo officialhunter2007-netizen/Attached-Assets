@@ -5,7 +5,7 @@ import {
   MessageCircle, Send, X, ChevronDown, ChevronUp, GripVertical, Bot, Loader2,
 } from "lucide-react";
 import type { DynamicScenario, LabAssistMessage, LabKind } from "./types";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 
 interface Props {
   scenario: DynamicScenario;

@@ -143,15 +143,15 @@ function FormBlock({ comp, ctx }: { comp: Extract<DynComponent, { type: "form" }
     // Surface a clear error rather than silently doing nothing for malformed
     // generator output (missing/empty submit, ops, or prompt).
     if (!comp.submit || typeof (comp.submit as any).type !== "string") {
-      setFeedback({ ok: false, msg: "هذا الزر غير مكتمل التهيئة من المعلم الذكي. اطلب منه إعادة بناء البيئة أو وضّح طلبك." });
+      setFeedback({ ok: false, msg: "هذا الزر غير جاهز بعد — جرّب الإجراء من شاشة أخرى." });
       return;
     }
     if (comp.submit.type === "mutate" && (!Array.isArray(comp.submit.ops) || comp.submit.ops.length === 0)) {
-      setFeedback({ ok: false, msg: "هذا الزر معطّل: لا يحتوي على أي عملية فعلية. اطلب من المعلم الذكي إعادة بناء البيئة." });
+      setFeedback({ ok: false, msg: "لم تكتمل هذه العملية — تحقّق من إدخالاتك وأعد المحاولة." });
       return;
     }
     if (comp.submit.type === "ask-ai" && !String((comp.submit as any).prompt || "").trim()) {
-      setFeedback({ ok: false, msg: "هذا الزر يرسل سؤالاً للمعلم لكن السؤال مفقود. أعد بناء البيئة." });
+      setFeedback({ ok: false, msg: "تعذّر إرسال السؤال — حاول مرة أخرى." });
       return;
     }
     if (comp.submit.type === "check") {

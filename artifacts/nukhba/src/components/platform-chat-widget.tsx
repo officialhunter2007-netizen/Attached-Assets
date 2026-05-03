@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Sparkles, X, Send, Loader2, MessageSquarePlus } from "lucide-react";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
 

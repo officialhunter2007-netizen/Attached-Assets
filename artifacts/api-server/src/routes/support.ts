@@ -19,7 +19,7 @@ const HEARTBEAT_TIMEOUT = 60000;
 
 router.get("/support/my-messages", async (req, res) => {
   const userId = getUserId(req);
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const msgs = await db
     .select()
@@ -32,11 +32,11 @@ router.get("/support/my-messages", async (req, res) => {
 
 router.post("/support/send", async (req, res) => {
   const userId = getUserId(req);
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const { subject, message, threadId } = req.body;
   if (!subject?.trim() || !message?.trim()) {
-    return res.status(400).json({ error: "الموضوع والرسالة مطلوبان" });
+    res.status(400).json({ error: "الموضوع والرسالة مطلوبان" }); return;
   }
 
   const user = await db.select().from(usersTable).where(eq(usersTable.id, userId)).then(r => r[0]);
@@ -57,7 +57,7 @@ router.post("/support/send", async (req, res) => {
 
 router.post("/support/mark-read", async (req, res) => {
   const userId = getUserId(req);
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   await db.update(supportMessagesTable)
     .set({ isRead: true })
@@ -72,7 +72,7 @@ router.post("/support/mark-read", async (req, res) => {
 
 router.get("/support/unread-count", async (req, res) => {
   const userId = getUserId(req);
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const [result] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -87,7 +87,7 @@ router.get("/support/unread-count", async (req, res) => {
 });
 
 router.get("/admin/support/threads", async (req, res) => {
-  if (!(await isAdmin(req))) return res.status(403).json({ error: "Forbidden" });
+  if (!(await isAdmin(req))) { res.status(403).json({ error: "Forbidden" }); return; }
 
   const allMessages = await db
     .select()
@@ -133,11 +133,11 @@ router.get("/admin/support/threads", async (req, res) => {
 });
 
 router.post("/admin/support/reply", async (req, res) => {
-  if (!(await isAdmin(req))) return res.status(403).json({ error: "Forbidden" });
+  if (!(await isAdmin(req))) { res.status(403).json({ error: "Forbidden" }); return; }
 
   const { userId, subject, message } = req.body;
   if (!userId || !message?.trim()) {
-    return res.status(400).json({ error: "Missing fields" });
+    res.status(400).json({ error: "Missing fields" }); return;
   }
 
   const [msg] = await db.insert(supportMessagesTable).values({
@@ -163,7 +163,7 @@ router.post("/admin/support/reply", async (req, res) => {
 });
 
 router.get("/admin/support/unread-count", async (req, res) => {
-  if (!(await isAdmin(req))) return res.status(403).json({ error: "Forbidden" });
+  if (!(await isAdmin(req))) { res.status(403).json({ error: "Forbidden" }); return; }
 
   const [result] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -178,7 +178,7 @@ router.get("/admin/support/unread-count", async (req, res) => {
 
 router.post("/heartbeat", async (req, res) => {
   const userId = getUserId(req);
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
   const { page } = req.body;
   const existing = liveUsers.get(userId);
   if (existing) {
@@ -198,7 +198,7 @@ router.post("/heartbeat", async (req, res) => {
 });
 
 router.get("/admin/live-users", async (req, res) => {
-  if (!(await isAdmin(req))) return res.status(403).json({ error: "Forbidden" });
+  if (!(await isAdmin(req))) { res.status(403).json({ error: "Forbidden" }); return; }
   const now = Date.now();
   const active: any[] = [];
   for (const [uid, data] of liveUsers.entries()) {

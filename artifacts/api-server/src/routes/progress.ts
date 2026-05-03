@@ -2,27 +2,12 @@ import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, userProgressTable, learningPathsTable, usersTable } from "@workspace/db";
 import { UpsertUserProgressBody, SaveLearningPathBody } from "@workspace/api-zod";
+import { getAccessForUser } from "../lib/access";
 
 const router: IRouter = Router();
 
 function getUserId(req: any): number | null {
   return req.session?.userId ?? null;
-}
-
-async function checkAccess(userId: number): Promise<boolean> {
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-  if (!user) return false;
-
-  if (!user.firstLessonComplete) return true;
-
-  const hasSubscriptionAccess = !!user.nukhbaPlan &&
-    !!user.subscriptionExpiresAt &&
-    new Date(user.subscriptionExpiresAt) > new Date() &&
-    (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0);
-
-  const hasReferralAccess = (user.referralSessionsLeft ?? 0) > 0;
-
-  return hasSubscriptionAccess || hasReferralAccess;
 }
 
 router.get("/progress", async (req, res): Promise<void> => {
@@ -47,15 +32,19 @@ router.post("/progress", async (req, res): Promise<void> => {
     return;
   }
 
-  const canAccess = await checkAccess(userId);
-  if (!canAccess) {
-    res.status(403).json({ error: "ACCESS_DENIED" });
-    return;
-  }
-
   const parsed = UpsertUserProgressBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const subjectId = parsed.data.subjectOrSpecialization || null;
+  const access = await getAccessForUser({ userId, subjectId });
+  const [progressUser] = await db.select({ referralSessionsLeft: usersTable.referralSessionsLeft })
+    .from(usersTable).where(eq(usersTable.id, userId));
+  const hasReferral = (progressUser?.referralSessionsLeft ?? 0) > 0;
+  if (!access.hasActiveSub && !access.isFirstLesson && !hasReferral) {
+    res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }
 
@@ -112,6 +101,17 @@ router.post("/learning-paths", async (req, res): Promise<void> => {
   const parsed = SaveLearningPathBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  // Strictly subject-scoped: access to subject A must not authorise a
+  // learning path for subject B. Referral grants global access.
+  const access = await getAccessForUser({ userId, subjectId: parsed.data.subjectId });
+  const [pathUser] = await db.select({ referralSessionsLeft: usersTable.referralSessionsLeft })
+    .from(usersTable).where(eq(usersTable.id, userId));
+  const hasReferral = (pathUser?.referralSessionsLeft ?? 0) > 0;
+  if (!access.hasActiveSub && !access.isFirstLesson && !hasReferral) {
+    res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }
 

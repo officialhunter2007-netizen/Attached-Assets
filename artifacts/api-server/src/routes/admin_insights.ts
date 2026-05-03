@@ -23,6 +23,15 @@ import { recordAiUsage, extractOpenAIUsage } from "../lib/ai-usage";
 
 const router: IRouter = Router();
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin assistant model — Gemini 2.0 Flash Lite via OpenRouter ($0.075/$0.30
+// per 1M tokens). Cheaper than Llama 3.3 70B and unifies the platform on one
+// provider. Defined ONCE here so usage-tracking and the model selector can
+// never drift apart.
+// ─────────────────────────────────────────────────────────────────────────────
+const ADMIN_AI_MODEL = "google/gemini-2.0-flash-lite";
+const ADMIN_AI_PROVIDER = "google" as const;
+
 function getUserId(req: any): number | null {
   return (req.session as any)?.userId ?? null;
 }
@@ -472,6 +481,10 @@ async function buildAdminContext(focusUser: any | null) {
           pageCount: courseMaterialsTable.pageCount,
           language: courseMaterialsTable.language,
           summary: sql<string>`left(coalesce(${courseMaterialsTable.summary}, ''), 250)`,
+          coverageStatus: courseMaterialsTable.coverageStatus,
+          role: courseMaterialsTable.role,
+          printedPageOffset: courseMaterialsTable.printedPageOffset,
+          processingMetrics: courseMaterialsTable.processingMetrics,
           createdAt: courseMaterialsTable.createdAt,
         })
         .from(courseMaterialsTable)
@@ -607,10 +620,13 @@ async function buildAdminContext(focusUser: any | null) {
 
 // Robust JSON.stringify with size cap that never produces invalid JSON.
 // If the full snapshot is too large, progressively trim the heavy arrays.
-function safeStringifyContext(ctx: any, maxBytes = 80_000): string {
+// Returns the JSON string + a `trimmed` flag so the caller can warn the
+// admin in the UI when the answer is being formed against a reduced view.
+function safeStringifyContext(ctx: any, maxBytes = 80_000): { json: string; trimmed: boolean } {
   let snapshot = ctx;
   let json = JSON.stringify(snapshot, null, 2);
-  if (json.length <= maxBytes) return json;
+  if (json.length <= maxBytes) return { json, trimmed: false };
+  let trimmed = false;
 
   // Progressively trim arrays from largest to smallest
   const trims: Array<[string, number[]]> = [
@@ -641,8 +657,9 @@ function safeStringifyContext(ctx: any, maxBytes = 80_000): string {
     for (const size of sizes) {
       if (Array.isArray(snapshot[key]) && snapshot[key].length > size) {
         snapshot = { ...snapshot, [key]: snapshot[key].slice(0, size) };
+        trimmed = true;
         json = JSON.stringify(snapshot, null, 2);
-        if (json.length <= maxBytes) return json;
+        if (json.length <= maxBytes) return { json, trimmed };
       }
     }
   }
@@ -654,12 +671,13 @@ function safeStringifyContext(ctx: any, maxBytes = 80_000): string {
           ...snapshot,
           focusUser: { ...fu, [key]: fu[key].slice(0, size) },
         };
+        trimmed = true;
         json = JSON.stringify(snapshot, null, 2);
-        if (json.length <= maxBytes) return json;
+        if (json.length <= maxBytes) return { json, trimmed };
       }
     }
   }
-  return json; // best effort — always valid JSON
+  return { json, trimmed }; // best effort — always valid JSON
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -688,7 +706,9 @@ router.get("/admin/diagnostics/storage", async (req, res): Promise<any> => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/admin/ai/insights — Gemini-powered admin assistant (SSE)
+// POST /api/admin/ai/insights — Gemini 2.0 Flash Lite admin assistant (SSE)
+// Routed via OpenRouter using the shared `openai` client. Model id is
+// defined in the ADMIN_AI_MODEL constant at the top of this file.
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/admin/ai/insights", async (req, res): Promise<any> => {
   const adminId = getUserId(req);
@@ -808,7 +828,8 @@ router.post("/admin/ai/insights", async (req, res): Promise<any> => {
     };
   }
 
-  const contextJson = safeStringifyContext(context, 80_000)
+  const { json: rawJson, trimmed: contextTrimmed } = safeStringifyContext(context, 80_000);
+  const contextJson = rawJson
     // Defensive: keep student-supplied text from breaking out of the ```json fence
     // or injecting new instructions into the admin AI prompt.
     .replace(/```/g, "ʼʼʼ");
@@ -864,7 +885,7 @@ ${contextJson}
   try {
     const stream = await openai.chat.completions.create(
       {
-        model: "meta-llama/llama-3.3-70b-instruct",
+        model: ADMIN_AI_MODEL,
         max_tokens: 2048,
         temperature: 0,
         messages: [
@@ -892,8 +913,8 @@ ${contextJson}
         userId: adminId,
         subjectId: null,
         route: "admin/ai/insights",
-        provider: "openai",
-        model: "meta-llama/llama-3.3-70b-instruct",
+        provider: ADMIN_AI_PROVIDER,
+        model: ADMIN_AI_MODEL,
         inputTokens: u.inputTokens,
         outputTokens: u.outputTokens,
         cachedInputTokens: u.cachedInputTokens,
@@ -911,6 +932,7 @@ ${contextJson}
         focusResolutionNote: focusResolutionNote || null,
         focusAutoDetected,
         usersDirectorySize: context.usersDirectory?.length ?? 0,
+        contextTrimmed,
       },
     })}\n\n`);
     res.end();
@@ -924,8 +946,8 @@ ${contextJson}
       userId: adminId,
       subjectId: null,
       route: "admin/ai/insights",
-      provider: "openai",
-      model: "meta-llama/llama-3.3-70b-instruct",
+      provider: ADMIN_AI_PROVIDER,
+      model: ADMIN_AI_MODEL,
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __aiStart,
@@ -1015,6 +1037,8 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
   const adminId = getUserId(req);
   if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
 
+  try {
+
   const subjectId = String(req.query.subjectId ?? "").trim();
   if (!subjectId) return res.status(400).json({ error: "subjectId required" });
 
@@ -1059,6 +1083,8 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
       content: aiTeacherMessagesTable.content,
       isDiagnostic: aiTeacherMessagesTable.isDiagnostic,
       stageIndex: aiTeacherMessagesTable.stageIndex,
+      wordCount: aiTeacherMessagesTable.wordCount,
+      overLength: aiTeacherMessagesTable.overLength,
       createdAt: aiTeacherMessagesTable.createdAt,
     })
     .from(aiTeacherMessagesTable)
@@ -1124,6 +1150,10 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
         const tags: string[] = [];
         if (m.isDiagnostic) tags.push("تشخيصي");
         if (m.stageIndex !== null && m.stageIndex !== undefined) tags.push(`مرحلة ${m.stageIndex}`);
+        if (m.role === "assistant" && m.wordCount != null) {
+          tags.push(`${m.wordCount} كلمة`);
+          if (m.overLength === 1) tags.push("⚠️ تجاوز السقف");
+        }
         const tagPart = tags.length ? ` (${tags.join(" · ")})` : "";
         lines.push(h3(`${who} — ${fmtDate(m.createdAt as any)}${tagPart}`));
         lines.push("");
@@ -1144,6 +1174,75 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
   res.setHeader("Cache-Control", "no-store");
   res.send(lines.join("\n"));
+  } catch (err: any) {
+    console.error("[admin/insights/course-conversations-export] error:", err?.message || err, err?.stack);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: `تعذّر تصدير المحادثات: ${err?.message || "خطأ غير معروف"}`,
+      });
+    }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/insights/teacher-length-stats
+// Aggregate length-tier telemetry on assistant teacher messages: counts,
+// averages, p95, and over-length rate over the past N days, optionally
+// filtered by subject.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/insights/teacher-length-stats", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 365);
+  const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  try {
+    const subjectFilter = subjectId
+      ? sql`AND subject_id = ${subjectId}`
+      : sql``;
+    const result = await db.execute<{
+      total: string;
+      with_count: string;
+      over_count: string;
+      avg_words: string | null;
+      max_words: string | null;
+      p95_words: string | null;
+    }>(sql`
+      SELECT
+        count(*)::text                                                AS total,
+        count(word_count)::text                                       AS with_count,
+        count(*) FILTER (WHERE over_length = 1)::text                 AS over_count,
+        round(avg(word_count)::numeric, 1)::text                      AS avg_words,
+        max(word_count)::text                                         AS max_words,
+        percentile_cont(0.95) WITHIN GROUP (ORDER BY word_count)::text AS p95_words
+      FROM ai_teacher_messages
+      WHERE role = 'assistant'
+        AND is_diagnostic = 0
+        AND created_at >= ${since}
+        ${subjectFilter}
+    `);
+    const row = (result.rows[0] ?? {}) as any;
+    res.json({
+      ok: true,
+      windowDays: days,
+      subjectId: subjectId || null,
+      total: Number(row.total ?? 0),
+      withWordCount: Number(row.with_count ?? 0),
+      overLengthCount: Number(row.over_count ?? 0),
+      overLengthRate:
+        Number(row.with_count ?? 0) > 0
+          ? Number(row.over_count ?? 0) / Number(row.with_count ?? 0)
+          : 0,
+      avgWords: row.avg_words != null ? Number(row.avg_words) : null,
+      maxWords: row.max_words != null ? Number(row.max_words) : null,
+      p95Words: row.p95_words != null ? Number(row.p95_words) : null,
+    });
+  } catch (err: any) {
+    console.error("[admin/insights/teacher-length-stats] error:", err?.message || err);
+    res.status(500).json({ error: "STATS_FAILED" });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

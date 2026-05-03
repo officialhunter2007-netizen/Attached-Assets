@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, sql, gt } from "drizzle-orm";
+import { eq, and, desc, sql, gt, gte, lte, count } from "drizzle-orm";
 import {
   db,
   subscriptionRequestsTable,
@@ -8,7 +8,11 @@ import {
   userSubjectSubscriptionsTable,
   userSubjectFirstLessonsTable,
   discountCodesTable,
+  discountCodeRedemptionsTable,
   planPricesTable,
+  exchangeRatesTable,
+  gemLedgerTable,
+  paymentSettingsTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import {
@@ -22,30 +26,37 @@ import {
 } from "@workspace/api-zod";
 import { generateActivationCode } from "../lib/auth";
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
+import { writeGemLedger } from "../lib/gem-ledger";
+import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
+import {
+  computeGemsForPrice,
+  computePricingBreakdown,
+  SUB_DURATION_DAYS as PRICING_SUB_DURATION_DAYS,
+  BASE_PRICES_FALLBACK as PRICING_BASE_PRICES_FALLBACK,
+  YER_PER_USD_FALLBACK,
+  setYerToUsdRates,
+  getYerPerUsdMap,
+} from "../lib/pricing-formula";
 
 const router: IRouter = Router();
 
-// Gems granted per plan for the full 14-day period.
-// Daily cap = Math.floor(total / 14). Each subject is its own subscription
-// — these gems are scoped to the subject the user paid for.
-const PLAN_GEM_LIMITS: Record<string, { total: number; daily: number }> = {
-  bronze: { total: 1000, daily: 71 },
-  silver: { total: 2000, daily: 142 },
-  gold:   { total: 3000, daily: 214 },
-};
+// NOTE: Gem amounts are no longer hardcoded. They are computed dynamically from
+// the price paid (YER) and region via `computeGemsForPrice` in pricing-formula.ts.
+// Do NOT reintroduce a PLAN_GEM_LIMITS constant — it silently decouples gem grants
+// from admin-configured prices. See pricing-formula.ts for the formula.
 
-// Static fallback ONLY — actual prices live in the `plan_prices` DB table and
-// are admin-editable from the dashboard. Used only if the DB read fails (network
-// blip / table missing pre-migration). Mirrors the seed in auto-migrate.ts.
-const BASE_PRICES_FALLBACK: Record<"north" | "south", Record<string, number>> = {
-  north: { bronze: 1000, silver: 2000, gold: 3000 },
-  south: { bronze: 2000, silver: 4000, gold: 6000 },
-};
+// Fallback plan prices — imported from pricing-formula.ts (single source of truth).
+// Used only when the DB read fails; live prices always come from `plan_prices` table.
+const BASE_PRICES_FALLBACK = PRICING_BASE_PRICES_FALLBACK as Record<"north" | "south", Record<string, number>>;
 
 const VALID_REGIONS = ["north", "south"] as const;
 const VALID_PLAN_TYPES = ["bronze", "silver", "gold"] as const;
 type PlanRegion = typeof VALID_REGIONS[number];
 type PlanType = typeof VALID_PLAN_TYPES[number];
+
+function isPlanType(value: string): value is PlanType {
+  return (VALID_PLAN_TYPES as readonly string[]).includes(value);
+}
 
 // In-memory cache of all plan prices, refreshed at most every PRICE_CACHE_TTL_MS.
 // Admin edits invalidate the cache immediately via `invalidatePlanPriceCache()`
@@ -112,8 +123,9 @@ const WELCOME_OFFER_PERCENT = 20;
 const WELCOME_OFFER_DURATION_MS = 24 * 60 * 60 * 1000;
 const WELCOME_OFFER_LABEL = "WELCOME20";
 
-// 14-day subscription window for plans approved here.
-const SUB_DURATION_DAYS = 14;
+// 14-day subscription window — imported from pricing-formula.ts so the
+// daily gem limit calculation uses the same constant.
+const SUB_DURATION_DAYS = PRICING_SUB_DURATION_DAYS;
 
 function getYemenDateLabel(): string {
   return new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -126,7 +138,7 @@ function getYemenDateLabel(): string {
  * `usersTable.gems*` columns are NOT touched — those exist only for backward
  * compatibility with grandfathered users.
  */
-async function grantSubjectSubscription(opts: {
+type GrantSubjectSubscriptionOpts = {
   userId: number;
   subjectId: string;
   subjectName: string | null;
@@ -135,41 +147,125 @@ async function grantSubjectSubscription(opts: {
   paidPriceYer: number;
   activationCode: string | null;
   subscriptionRequestId: number | null;
-}): Promise<typeof userSubjectSubscriptionsTable.$inferSelect> {
-  const planGems = PLAN_GEM_LIMITS[opts.planType];
-  if (!planGems) throw new Error(`Unknown plan type: ${opts.planType}`);
+  // For ledger attribution. Optional so legacy callers compile unchanged.
+  source?: "approve_request" | "activate_card" | "admin_grant";
+  adminUserId?: number | null;
+  note?: string | null;
+};
+
+/**
+ * Tx-bound core of `grantSubjectSubscription` — does the wallet replace
+ * (delete prior row + insert fresh row) inside the supplied transaction
+ * handle. Callers that already hold a transaction (notably the approve
+ * endpoint, which must commit the request status, the activation card,
+ * the discount bookkeeping AND the wallet grant atomically) use this
+ * directly. Callers without a transaction use `grantSubjectSubscription`
+ * which wraps this in `db.transaction(...)` and writes the audit row.
+ */
+async function grantSubjectSubscriptionInTx(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  opts: GrantSubjectSubscriptionOpts,
+): Promise<typeof userSubjectSubscriptionsTable.$inferSelect> {
+  // Validate plan type without relying on a hardcoded gem table.
+  if (!isPlanType(opts.planType)) {
+    throw new Error(`Unknown plan type: ${opts.planType}`);
+  }
+
+  // Gem totals are derived dynamically from the price paid, so admin changes
+  // to plan prices take effect on the next approved subscription automatically.
+  const { gemsGranted, dailyGemLimit } = computeGemsForPrice({
+    priceYer: opts.paidPriceYer,
+    region: opts.region,
+  });
 
   const expiresAt = new Date(Date.now() + SUB_DURATION_DAYS * 24 * 60 * 60 * 1000);
   const yemenDate = getYemenDateLabel();
 
-  return await db.transaction(async (tx) => {
-    // Drop any prior row for this (userId, subjectId) — the new payment buys
-    // a fresh 14-day window and gem wallet for that subject.
-    await tx.delete(userSubjectSubscriptionsTable).where(and(
-      eq(userSubjectSubscriptionsTable.userId, opts.userId),
-      eq(userSubjectSubscriptionsTable.subjectId, opts.subjectId),
-    ));
+  // Drop any prior row for this (userId, subjectId) — the new payment buys
+  // a fresh 14-day window and gem wallet for that subject.
+  await tx.delete(userSubjectSubscriptionsTable).where(and(
+    eq(userSubjectSubscriptionsTable.userId, opts.userId),
+    eq(userSubjectSubscriptionsTable.subjectId, opts.subjectId),
+  ));
 
-    const [row] = await tx.insert(userSubjectSubscriptionsTable).values({
-      userId: opts.userId,
-      subjectId: opts.subjectId,
-      subjectName: opts.subjectName,
-      plan: opts.planType,
-      messagesUsed: 0,
-      messagesLimit: planGems.total, // legacy column kept = total gems
-      expiresAt,
+  const [inserted] = await tx.insert(userSubjectSubscriptionsTable).values({
+    userId: opts.userId,
+    subjectId: opts.subjectId,
+    subjectName: opts.subjectName,
+    plan: opts.planType,
+    messagesUsed: 0,
+    messagesLimit: gemsGranted, // legacy column kept = total gems
+    expiresAt,
+    activationCode: opts.activationCode,
+    subscriptionRequestId: opts.subscriptionRequestId,
+    paidPriceYer: opts.paidPriceYer,
+    region: opts.region,
+    gemsBalance: gemsGranted,
+    gemsDailyLimit: dailyGemLimit,
+    gemsUsedToday: 0,
+    gemsResetDate: yemenDate,
+  }).returning();
+
+  return inserted;
+}
+
+/**
+ * Atomically grant a per-subject subscription. Replaces any existing row for
+ * the same (userId, subjectId): if the user already has gems left for that
+ * subject, we reset the wallet for the freshly-paid 14 days. The legacy global
+ * `usersTable.gems*` columns are NOT touched — those exist only for backward
+ * compatibility with grandfathered users.
+ *
+ * Use this overload when there is no outer transaction in play. Callers
+ * already inside a transaction should call `grantSubjectSubscriptionInTx`
+ * directly with their `tx` handle and write the ledger row themselves
+ * after the transaction commits, so that "request approved" and
+ * "wallet granted" happen in a single atomic unit.
+ */
+async function grantSubjectSubscription(
+  opts: GrantSubjectSubscriptionOpts,
+): Promise<typeof userSubjectSubscriptionsTable.$inferSelect> {
+  if (!isPlanType(opts.planType)) {
+    throw new Error(`Unknown plan type: ${opts.planType}`);
+  }
+  const source = opts.source ?? "admin_grant";
+
+  const row = await db.transaction((tx) => grantSubjectSubscriptionInTx(tx, opts));
+
+  // Full accounting breakdown for the ledger — enables transparent auditing
+  // of how gems were calculated from the price paid.
+  const breakdown = computePricingBreakdown({
+    priceYer: opts.paidPriceYer,
+    region: opts.region,
+  });
+
+  // Audit row — best-effort, errors are swallowed inside writeGemLedger so
+  // a transient ledger failure cannot undo a paid subscription.
+  await writeGemLedger({
+    userId: opts.userId,
+    subjectSubId: row.id,
+    subjectId: row.subjectId,
+    delta: breakdown.gemsGranted,
+    balanceAfter: breakdown.gemsGranted,
+    reason: "grant",
+    source,
+    adminUserId: opts.adminUserId ?? null,
+    note: opts.note ?? null,
+    metadata: {
+      planType: opts.planType,
+      region: opts.region,
+      paidPriceYer: opts.paidPriceYer,
+      gemsGranted: breakdown.gemsGranted,
       activationCode: opts.activationCode,
       subscriptionRequestId: opts.subscriptionRequestId,
-      paidPriceYer: opts.paidPriceYer,
-      region: opts.region,
-      gemsBalance: planGems.total,
-      gemsDailyLimit: planGems.daily,
-      gemsUsedToday: 0,
-      gemsResetDate: yemenDate,
-    }).returning();
-
-    return row;
+      yerToUsdRate: breakdown.yerToUsdRate,
+      priceUsd: breakdown.priceUsd,
+      platformShareUsd: breakdown.platformShareUsd,
+      studentShareUsd: breakdown.studentShareUsd,
+    },
   });
+
+  return row;
 }
 
 function computeFinalPrice(basePrice: number, percent: number): number {
@@ -184,6 +280,70 @@ function normalizeDiscountCode(raw: unknown): string | null {
   if (!trimmed) return null;
   if (!/^[A-Z0-9_-]{2,32}$/.test(trimmed)) return null;
   return trimmed;
+}
+
+/**
+ * Centralised discount-code validation. Used by both the public
+ * `/discount-codes/validate` preview endpoint and the request-creation
+ * endpoint, so a code that previews as valid is guaranteed to also be
+ * accepted at submit time. Returns a tagged result instead of throwing
+ * so callers can surface a friendly Arabic message.
+ *
+ * Enforces, in addition to the legacy `active` flag:
+ *   - `startsAt` / `endsAt` active window
+ *   - `maxUses` global cap (compared against `usageCount`)
+ *   - `perUserLimit` per-user cap (counted from `discount_code_redemptions`)
+ *
+ * Per-user enforcement uses redemptions (= approved subscriptions), not
+ * pending requests. This is intentional: a student who submits two requests
+ * with the same code but only one gets approved should still get the
+ * second redemption if `perUserLimit > 1`.
+ */
+type DiscountCheckOk = {
+  ok: true;
+  row: typeof discountCodesTable.$inferSelect;
+};
+type DiscountCheckErr = { ok: false; status: number; message: string };
+type DiscountCheck = DiscountCheckOk | DiscountCheckErr;
+
+async function checkDiscountCodeForUser(
+  code: string,
+  userId: number,
+): Promise<DiscountCheck> {
+  const [row] = await db
+    .select()
+    .from(discountCodesTable)
+    .where(eq(discountCodesTable.code, code));
+  if (!row) return { ok: false, status: 404, message: "كود الخصم غير موجود" };
+  if (!row.active) return { ok: false, status: 400, message: "كود الخصم متوقف حالياً" };
+
+  const now = Date.now();
+  if (row.startsAt && new Date(row.startsAt).getTime() > now) {
+    return { ok: false, status: 400, message: "هذا الكود لم يبدأ سريانه بعد" };
+  }
+  if (row.endsAt && new Date(row.endsAt).getTime() < now) {
+    return { ok: false, status: 400, message: "انتهت صلاحية هذا الكود" };
+  }
+  if (row.maxUses != null && row.usageCount >= row.maxUses) {
+    return { ok: false, status: 409, message: "تم استنفاد هذا الكود — لا يمكن استخدامه أكثر" };
+  }
+  if (row.perUserLimit != null) {
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(discountCodeRedemptionsTable)
+      .where(and(
+        eq(discountCodeRedemptionsTable.codeId, row.id),
+        eq(discountCodeRedemptionsTable.userId, userId),
+      ));
+    if (Number(value) >= row.perUserLimit) {
+      return {
+        ok: false,
+        status: 409,
+        message: `لقد استخدمت هذا الكود ${row.perUserLimit} مرة بالفعل`,
+      };
+    }
+  }
+  return { ok: true, row };
 }
 
 function getUserId(req: any): number | null {
@@ -227,6 +387,17 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
   const basePrice = await getPlanPriceFromDb(parsed.data.planType, parsed.data.region);
   if (basePrice == null) {
     res.status(400).json({ error: "خطة أو منطقة غير صالحة" });
+    return;
+  }
+  // Defence-in-depth: a misconfigured plan_prices row (priceYer = 0) would
+  // otherwise let students submit a "paid" request for free. Prefer to
+  // refuse with a clear error so the admin notices and fixes pricing.
+  if (basePrice <= 0) {
+    logger.error(
+      { planType: parsed.data.planType, region: parsed.data.region, basePrice },
+      "subscriptions/request: plan_prices row is zero/negative — refusing request",
+    );
+    res.status(500).json({ error: "تعذّر تحديد سعر هذه الباقة. يرجى التواصل مع الدعم." });
     return;
   }
 
@@ -278,14 +449,21 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
         // If the conditional update did not match (race / expired), fall
         // through to the normal flow without any discount.
       } else if (codeNorm) {
-        const [row] = await tx
-          .select()
-          .from(discountCodesTable)
-          .where(eq(discountCodesTable.code, codeNorm));
-        if (!row) throw new Error("INVALID_CODE");
-        if (!row.active) throw new Error("INACTIVE_CODE");
-        discountCodeRow = row;
-        percent = row.percent;
+        // Use the shared validator (window / maxUses / perUserLimit) so the
+        // request-creation path can never accept a code the validate
+        // endpoint would have rejected. The check is intentionally outside
+        // the transaction read above — usageCount/redemptions are racy by
+        // nature; the approve transaction performs the *binding* check
+        // when it inserts the redemption row.
+        const check = await checkDiscountCodeForUser(codeNorm, userId);
+        if (!check.ok) {
+          // Tunnel through the transaction error machinery using the
+          // existing INVALID_CODE/INACTIVE_CODE convention plus a fresh
+          // CODE_REJECTED:<message> tag for the new failure modes.
+          throw new Error(`CODE_REJECTED:${check.message}`);
+        }
+        discountCodeRow = check.row;
+        percent = check.row.percent;
       }
 
       const finalPrice = computeFinalPrice(basePrice, percent);
@@ -321,6 +499,10 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
       res.status(400).json({ error: "كود الخصم متوقف حالياً" });
       return;
     }
+    if (typeof e?.message === "string" && e.message.startsWith("CODE_REJECTED:")) {
+      res.status(400).json({ error: e.message.slice("CODE_REJECTED:".length) });
+      return;
+    }
     throw e;
   }
 });
@@ -345,15 +527,12 @@ router.post("/subscriptions/discount-codes/validate", async (req, res): Promise<
     return;
   }
 
-  const [row] = await db.select().from(discountCodesTable).where(eq(discountCodesTable.code, code));
-  if (!row) {
-    res.json({ valid: false, message: "كود الخصم غير موجود" });
+  const check = await checkDiscountCodeForUser(code, userId);
+  if (!check.ok) {
+    res.json({ valid: false, message: check.message });
     return;
   }
-  if (!row.active) {
-    res.json({ valid: false, message: "كود الخصم متوقف حالياً" });
-    return;
-  }
+  const row = check.row;
 
   const finalPrice = computeFinalPrice(basePrice, row.percent);
   res.json({
@@ -363,6 +542,10 @@ router.post("/subscriptions/discount-codes/validate", async (req, res): Promise<
     basePrice,
     finalPrice,
     discountAmount: basePrice - finalPrice,
+    maxUses: row.maxUses,
+    usageCount: row.usageCount,
+    perUserLimit: row.perUserLimit,
+    endsAt: row.endsAt,
   });
 });
 
@@ -607,7 +790,26 @@ router.get("/subscriptions/my-subjects", async (req, res): Promise<void> => {
     .where(eq(userSubjectSubscriptionsTable.userId, userId))
     .orderBy(desc(userSubjectSubscriptionsTable.createdAt));
 
-  res.json(subs);
+  // Apply daily rollover for every active row so `gemsUsedToday` and
+  // `gemsResetDate` reflect today's truth — the dashboard's "active sub"
+  // filter and the per-row gems-remaining display both depend on this.
+  const now = new Date();
+  const enriched = await Promise.all(
+    subs.map(async (s) => {
+      if (new Date(s.expiresAt) > now) {
+        await applyDailyGemsRolloverForSubjectSub(s);
+      }
+      const dailyLimit = s.gemsDailyLimit ?? 0;
+      const usedToday = s.gemsUsedToday ?? 0;
+      const balance = s.gemsBalance ?? 0;
+      // Cap dailyRemaining by total balance so an exhausted-but-active
+      // sub never appears usable.
+      const dailyRemaining = Math.min(balance, Math.max(0, dailyLimit - usedToday));
+      return { ...s, dailyRemaining };
+    }),
+  );
+
+  res.json(enriched);
 });
 
 // ── User: get access info for a specific subject ───────────────────────────────
@@ -630,60 +832,48 @@ router.get("/subscriptions/subject-access", async (req, res): Promise<void> => {
     return;
   }
 
-  // Per-subject first lesson
-  const [firstLesson] = await db
-    .select()
-    .from(userSubjectFirstLessonsTable)
-    .where(and(
-      eq(userSubjectFirstLessonsTable.userId, userId),
-      eq(userSubjectFirstLessonsTable.subjectId, subjectId)
-    ));
+  const access = await getAccessForUser({ userId, subjectId });
 
-  const isFirstLesson = !firstLesson || (!firstLesson.completed && firstLesson.freeMessagesUsed < 15);
-
-  // Per-subject subscription
   const [subjectSub] = await db
     .select()
     .from(userSubjectSubscriptionsTable)
     .where(and(
       eq(userSubjectSubscriptionsTable.userId, userId),
-      eq(userSubjectSubscriptionsTable.subjectId, subjectId)
+      eq(userSubjectSubscriptionsTable.subjectId, subjectId),
     ))
     .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
 
-  const now = new Date();
-  // messagesLimit is now a *daily* cap that resets when the user claims a new
-  // daily session. If the user hasn't claimed a session today (lastSessionDate
-  // != today in Yemen TZ), then the persisted messagesUsed is from a previous
-  // day and will be reset on the next /ai/teach call, so we should treat their
-  // effective remaining-for-today as the full limit.
-  const todayYemen = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const isStaleCounter = (user.lastSessionDate ?? null) !== todayYemen;
-  const effectiveMessagesUsed = subjectSub
-    ? (isStaleCounter ? 0 : subjectSub.messagesUsed)
-    : 0;
-  const hasSubjectSub = !!(subjectSub && new Date(subjectSub.expiresAt) > now && effectiveMessagesUsed < subjectSub.messagesLimit);
+  const hasSubjectSub = access.hasActiveSub && access.source === "per-subject";
+  // Renew wall fires only when the user previously had a subscription
+  // (per-subject row OR legacy wallet) and now has none. A user who
+  // never subscribed must not be shown the "renew" wall — they get
+  // the regular subscribe flow instead.
+  const hadPreviousSub =
+    !!subjectSub ||
+    !!user.gemsExpiresAt ||
+    !!(user.nukhbaPlan && user.subscriptionExpiresAt);
+  const subjectSubExpired =
+    hadPreviousSub && !access.hasActiveSub && !access.isFirstLesson;
 
-  const hasAccess = isFirstLesson || hasSubjectSub;
-
-  let messagesRemaining: number | null = null;
-  let expiresAt: string | null = null;
-  let planType: string | null = null;
-
-  if (hasSubjectSub && subjectSub) {
-    messagesRemaining = subjectSub.messagesLimit - effectiveMessagesUsed;
-    expiresAt = subjectSub.expiresAt.toISOString();
-    planType = subjectSub.plan;
-  }
-
+  // hasAccess covers lesson viewing and the renew wall. Daily-cap state
+  // is surfaced separately via blockReason and handled by the chat overlay.
   res.json({
-    hasAccess,
-    isFirstLesson,
+    hasAccess: access.hasActiveSub || access.isFirstLesson,
+    isFirstLesson: access.isFirstLesson,
     hasSubjectSubscription: hasSubjectSub,
-    hasLegacyGlobalSubscription: false,
-    messagesRemaining,
-    expiresAt,
-    planType,
+    hasLegacyGlobalSubscription: access.source === "legacy",
+    subjectSubExpired,
+    expiredRecently: access.expiredRecently,
+    gemsBalance: access.gemsRemaining,
+    dailyRemaining: access.dailyRemaining,
+    gemsExpiresAt: access.expiresAt ? access.expiresAt.toISOString() : null,
+    blockReason: access.blockReason,
+    // ── Legacy fields kept for back-compat with existing client code.
+    messagesRemaining: hasSubjectSub && subjectSub
+      ? Math.max(0, subjectSub.messagesLimit - subjectSub.messagesUsed)
+      : null,
+    expiresAt: access.expiresAt ? access.expiresAt.toISOString() : null,
+    planType: subjectSub?.plan ?? null,
     subjectSubscription: subjectSub ?? null,
   });
 });
@@ -736,8 +926,7 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     return;
   }
 
-  const planGems = PLAN_GEM_LIMITS[card.planType];
-  if (!planGems) {
+  if (!isPlanType(card.planType)) {
     res.status(400).json({ success: false, message: `نوع الباقة غير معروف: ${card.planType}` });
     return;
   }
@@ -825,6 +1014,8 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     paidPriceYer: resolvedPaidYer,
     activationCode: code,
     subscriptionRequestId: card.subscriptionRequestId ?? null,
+    source: "activate_card",
+    adminUserId: null,
   });
 
   res.json({
@@ -832,9 +1023,9 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     planType: card.planType,
     subjectId: sub.subjectId,
     subjectName: sub.subjectName,
-    gemsGranted: planGems.total,
+    gemsGranted: sub.gemsBalance,
     expiresAt: sub.expiresAt,
-    message: `تم تفعيل باقة ${card.planType} (${planGems.total}💎) لمادة "${sub.subjectName ?? sub.subjectId}" بنجاح!`,
+    message: `تم تفعيل باقة ${card.planType} (${sub.gemsBalance}💎) لمادة "${sub.subjectName ?? sub.subjectId}" بنجاح!`,
   });
 });
 
@@ -907,8 +1098,7 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
   const code = generateActivationCode();
   const expiresAt = new Date(Date.now() + SUB_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
-  const planGems = PLAN_GEM_LIMITS[request.planType];
-  if (!planGems) {
+  if (!isPlanType(request.planType)) {
     res.status(400).json({ error: `نوع الباقة غير معروف في الطلب: ${request.planType}` });
     return;
   }
@@ -924,8 +1114,16 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
 
   // Race-safe approval: conditional update on status. Only the first concurrent
   // call wins; subsequent calls find updatedRows = 0 and bail out.
+  //
+  // EVERYTHING that mutates persistent state for this approval — request
+  // status, activation card, discount bump + redemption row, AND the
+  // per-subject wallet grant — runs inside ONE transaction. This closes
+  // the "approved-without-wallet" integrity hole: if the wallet insert
+  // fails for any reason (transient DB error, schema drift, FK violation),
+  // the whole approval rolls back, the discount usage is restored, and
+  // the admin can safely retry the same request.
   try {
-    const card = await db.transaction(async (tx) => {
+    const { card, subscription } = await db.transaction(async (tx) => {
       const updatedRows = await tx
         .update(subscriptionRequestsTable)
         .set({
@@ -944,12 +1142,48 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
       }
 
       // If this request used a discount code, increment its usage counter
-      // atomically here (only after the request is officially approved).
+      // AND insert a per-user redemption row (used to enforce perUserLimit).
+      // Done atomically with race-safe guards so a code's `usageCount` can
+      // never exceed `maxUses` and a user's redemptions can never exceed
+      // `perUserLimit`, even under simultaneous approvals from multiple
+      // admin tabs.
       if (request.discountCodeId) {
-        await tx
+        // 1) Atomic conditional bump: only increment if there is still
+        //    headroom under maxUses. Returning rows let us detect the
+        //    exhausted-mid-flight case and abort the transaction.
+        const bumped = await tx
           .update(discountCodesTable)
           .set({ usageCount: sql`${discountCodesTable.usageCount} + 1` })
-          .where(eq(discountCodesTable.id, request.discountCodeId));
+          .where(and(
+            eq(discountCodesTable.id, request.discountCodeId),
+            sql`(${discountCodesTable.maxUses} IS NULL OR ${discountCodesTable.usageCount} < ${discountCodesTable.maxUses})`,
+          ))
+          .returning({ id: discountCodesTable.id, perUserLimit: discountCodesTable.perUserLimit });
+        if (bumped.length === 0) {
+          throw new Error("DISCOUNT_EXHAUSTED");
+        }
+        // 2) Race-safe perUserLimit re-check inside the same tx — counts
+        //    redemption rows for this (code, user) and aborts if the
+        //    user already used the code up to its perUserLimit. Done
+        //    after the bump so we hold the row's implicit lock.
+        const perUserLimit = bumped[0].perUserLimit;
+        if (perUserLimit != null) {
+          const [countRow] = await tx
+            .select({ c: sql<number>`count(*)::int` })
+            .from(discountCodeRedemptionsTable)
+            .where(and(
+              eq(discountCodeRedemptionsTable.codeId, request.discountCodeId),
+              eq(discountCodeRedemptionsTable.userId, request.userId),
+            ));
+          if ((countRow?.c ?? 0) >= perUserLimit) {
+            throw new Error("DISCOUNT_PER_USER_EXHAUSTED");
+          }
+        }
+        await tx.insert(discountCodeRedemptionsTable).values({
+          codeId: request.discountCodeId,
+          userId: request.userId,
+          subscriptionRequestId: id,
+        });
       }
 
       const [insertedCard] = await tx.insert(activationCardsTable).values({
@@ -965,37 +1199,66 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         subscriptionRequestId: id,
       }).returning();
 
-      // Per-subject grant — wipes any prior wallet for this (user, subject)
-      // so a re-approved subject starts fresh for the new 14-day window.
-      await tx.delete(userSubjectSubscriptionsTable).where(and(
-        eq(userSubjectSubscriptionsTable.userId, request.userId),
-        eq(userSubjectSubscriptionsTable.subjectId, requestSubjectId),
-      ));
-
-      const yemenDate = getYemenDateLabel();
-      await tx.insert(userSubjectSubscriptionsTable).values({
+      // Wallet grant happens INSIDE the same tx via the shared helper —
+      // any failure rolls back the request status flip, the activation
+      // card, and the discount bookkeeping in one go.
+      const insertedSub = await grantSubjectSubscriptionInTx(tx, {
         userId: request.userId,
         subjectId: requestSubjectId,
         subjectName: request.subjectName ?? null,
-        plan: request.planType,
-        messagesUsed: 0,
-        messagesLimit: planGems.total,
-        expiresAt,
+        planType: request.planType,
+        region: request.region,
+        paidPriceYer: request.finalPrice ?? request.basePrice ?? 0,
         activationCode: code,
         subscriptionRequestId: id,
-        paidPriceYer: request.finalPrice ?? 0,
-        region: request.region,
-        gemsBalance: planGems.total,
-        gemsDailyLimit: planGems.daily,
-        gemsUsedToday: 0,
-        gemsResetDate: yemenDate,
       });
 
-      return insertedCard;
+      return { card: insertedCard, subscription: insertedSub };
+    });
+
+    // Audit row — best-effort, AFTER the transaction commits so a
+    // transient ledger failure cannot undo a paid subscription.
+    // Use finalPrice (post-discount) if set; fall back to basePrice for legacy
+    // or pending rows where finalPrice was not yet computed.
+    const approvedPriceYer = request.finalPrice ?? request.basePrice ?? 0;
+    const approvalBreakdown = computePricingBreakdown({
+      priceYer: approvedPriceYer,
+      region: request.region,
+    });
+    await writeGemLedger({
+      userId: request.userId,
+      subjectSubId: subscription.id,
+      subjectId: subscription.subjectId,
+      delta: approvalBreakdown.gemsGranted,
+      balanceAfter: approvalBreakdown.gemsGranted,
+      reason: "grant",
+      source: "approve_request",
+      adminUserId: userId,
+      note: request.discountCode ? `Approved with code ${request.discountCode}` : null,
+      metadata: {
+        planType: request.planType,
+        region: request.region,
+        paidPriceYer: approvedPriceYer,
+        gemsGranted: approvalBreakdown.gemsGranted,
+        activationCode: code,
+        subscriptionRequestId: id,
+        yerToUsdRate: approvalBreakdown.yerToUsdRate,
+        priceUsd: approvalBreakdown.priceUsd,
+        platformShareUsd: approvalBreakdown.platformShareUsd,
+        studentShareUsd: approvalBreakdown.studentShareUsd,
+      },
     });
 
     res.json(card);
   } catch (e: any) {
+    if (e?.message === "DISCOUNT_EXHAUSTED") {
+      res.status(409).json({ error: "كود الخصم نَفِد قبل اعتماد هذا الطلب — أعِد المراجعة بعد إزالة الكود أو رفع الحد الأقصى" });
+      return;
+    }
+    if (e?.message === "DISCOUNT_PER_USER_EXHAUSTED") {
+      res.status(409).json({ error: "هذا المستخدم استنفد عدد المرات المسموح بها لهذا الكود" });
+      return;
+    }
     if (e?.message === "ALREADY_PROCESSED") {
       res.status(409).json({ error: "تمت معالجة هذا الطلب بالفعل" });
       return;
@@ -1121,7 +1384,7 @@ router.post("/admin/cards/create", async (req, res): Promise<void> => {
   }
 
   const { planType } = req.body;
-  if (!planType || !PLAN_GEM_LIMITS[planType]) {
+  if (!planType || !VALID_PLAN_TYPES.includes(planType)) {
     res.status(400).json({ error: "Invalid plan type" });
     return;
   }
@@ -1243,6 +1506,117 @@ router.patch("/admin/plan-prices", async (req, res): Promise<void> => {
   }
 });
 
+// ── Admin: exchange rates (read + update) ────────────────────────────────────
+// One row per region (north / south) holding the YER-per-USD divisor.
+// Stored as an integer divisor so the admin UI is intuitive ("1 دولار = 600
+// ريال") rather than asking them to type a tiny float. The pricing formula
+// uses 1 / divisor.
+//
+// PATCH updates a single region with strict validation (positive integer,
+// capped at 100,000 to keep the cost-cap math sane) and immediately pushes
+// the new value into the in-memory cache in pricing-formula.ts so subsequent
+// gem grants and AI cost caps reflect the change without a server restart.
+router.get("/admin/exchange-rates", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const user = await getUser(userId);
+  if (user?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  try {
+    const rows = await db.select().from(exchangeRatesTable);
+    const byRegion = new Map<string, typeof rows[number]>();
+    for (const r of rows) byRegion.set(r.region, r);
+
+    const grid = VALID_REGIONS.map((region) => {
+      const r = byRegion.get(region);
+      return {
+        region,
+        yerPerUsd: r?.yerPerUsd ?? YER_PER_USD_FALLBACK[region],
+        updatedAt: r?.updatedAt ?? null,
+        updatedByUserId: r?.updatedByUserId ?? null,
+        seeded: !r,
+      };
+    });
+
+    res.json({ rates: grid, defaults: YER_PER_USD_FALLBACK });
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "admin/exchange-rates: read failed");
+    res.status(500).json({ error: "تعذّر قراءة أسعار الصرف من قاعدة البيانات." });
+  }
+});
+
+router.patch("/admin/exchange-rates", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const user = await getUser(userId);
+  if (user?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const rawRegion = req.body?.region;
+  const rawDivisor = req.body?.yerPerUsd;
+
+  const region: PlanRegion | null =
+    rawRegion === "north" || rawRegion === "south" ? rawRegion : null;
+  if (!region) {
+    res.status(400).json({ error: "المنطقة غير صحيحة. اختر north أو south." });
+    return;
+  }
+  const yerPerUsd = typeof rawDivisor === "number" ? rawDivisor : Number(rawDivisor);
+  if (!Number.isFinite(yerPerUsd) || !Number.isInteger(yerPerUsd) || yerPerUsd < 1 || yerPerUsd > 100_000) {
+    res.status(400).json({ error: "سعر الصرف يجب أن يكون عدداً صحيحاً بين 1 و 100,000 ريال للدولار." });
+    return;
+  }
+
+  try {
+    const [row] = await db
+      .insert(exchangeRatesTable)
+      .values({
+        region,
+        yerPerUsd,
+        updatedByUserId: userId,
+      })
+      .onConflictDoUpdate({
+        target: exchangeRatesTable.region,
+        set: {
+          yerPerUsd,
+          updatedAt: new Date(),
+          updatedByUserId: userId,
+        },
+      })
+      .returning();
+
+    // Update the cache for the just-edited region IMMEDIATELY using the
+    // current snapshot, so a transient failure of the full DB refresh below
+    // cannot leave the formula stale in this process.
+    setYerToUsdRates({ ...getYerPerUsdMap(), [region]: yerPerUsd });
+
+    // Then refresh the cache from the DB so all regions stay consistent
+    // with whatever else may have been updated concurrently.
+    try {
+      const all = await db.select().from(exchangeRatesTable);
+      const map: Record<string, number> = {};
+      for (const r of all) {
+        if (Number.isFinite(r.yerPerUsd) && r.yerPerUsd > 0) {
+          map[r.region] = r.yerPerUsd;
+        }
+      }
+      setYerToUsdRates(map);
+    } catch (cacheErr: any) {
+      logger.warn(
+        { err: cacheErr?.message },
+        "admin/exchange-rates: full cache refresh failed; the just-edited region was applied directly",
+      );
+    }
+
+    res.json({ ok: true, rate: row });
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message, region, yerPerUsd },
+      "admin/exchange-rates: update failed",
+    );
+    res.status(500).json({ error: "تعذّر حفظ سعر الصرف. حاول مرة أخرى." });
+  }
+});
+
 // ── Admin: stats ───────────────────────────────────────────────────────────────
 router.get("/admin/stats", async (req, res): Promise<void> => {
   const userId = getUserId(req);
@@ -1306,11 +1680,21 @@ router.get("/admin/users", async (req, res): Promise<void> => {
     )[0] ?? null;
 
     const userSubjectSubs = allSubjectSubs.filter(s => s.userId === u.id);
-    const activeSubjectSubs = userSubjectSubs.filter(s => new Date(s.expiresAt) > now && s.messagesUsed < s.messagesLimit);
+    // "Active" now means the wallet still has gems AND the time window is
+    // open. The legacy `messagesUsed < messagesLimit` filter was wrong under
+    // the gems model — daily forfeit can drain `gemsBalance` without ever
+    // touching `messagesUsed`, so subs that should appear exhausted were
+    // still counted as active in the admin user list.
+    const activeSubjectSubs = userSubjectSubs.filter(s =>
+      new Date(s.expiresAt) > now && (s.gemsBalance ?? 0) > 0
+    );
 
-    const totalMessagesUsed = userSubjectSubs.reduce((sum, s) => sum + s.messagesUsed, 0);
-    const totalMessagesLimit = userSubjectSubs.reduce((sum, s) => sum + s.messagesLimit, 0);
-    const messagesLeft = activeSubjectSubs.reduce((sum, s) => sum + (s.messagesLimit - s.messagesUsed), 0);
+    const totalGemsGranted = userSubjectSubs.reduce(
+      (sum, s) => sum + (s.messagesLimit ?? 0), 0,
+    );
+    const totalGemsRemaining = activeSubjectSubs.reduce(
+      (sum, s) => sum + (s.gemsBalance ?? 0), 0,
+    );
 
     return {
       ...safe,
@@ -1322,9 +1706,11 @@ router.get("/admin/users", async (req, res): Promise<void> => {
       lastRequestDate: lastRequest?.createdAt ?? null,
       subjectSubscriptions: userSubjectSubs,
       activeSubjectSubscriptionsCount: activeSubjectSubs.length,
-      messagesUsed: totalMessagesUsed,
-      messagesLimit: totalMessagesLimit,
-      messagesLeft,
+      messagesUsed: totalGemsGranted - totalGemsRemaining,
+      messagesLimit: totalGemsGranted,
+      messagesLeft: totalGemsRemaining,
+      gemsRemaining: totalGemsRemaining,
+      gemsGranted: totalGemsGranted,
     };
   });
 
@@ -1368,7 +1754,28 @@ router.delete("/admin/users/:userId/subject-subscriptions/:subId", async (req, r
   const subId = parseInt(req.params.subId, 10);
   if (isNaN(subId)) { res.status(400).json({ error: "Invalid subscription id" }); return; }
 
+  // Fetch first so we can write a ledger entry capturing the burned balance.
+  const [sub] = await db
+    .select()
+    .from(userSubjectSubscriptionsTable)
+    .where(eq(userSubjectSubscriptionsTable.id, subId));
+
   await db.delete(userSubjectSubscriptionsTable).where(eq(userSubjectSubscriptionsTable.id, subId));
+
+  if (sub) {
+    await writeGemLedger({
+      userId: sub.userId,
+      subjectSubId: sub.id,
+      subjectId: sub.subjectId,
+      delta: -(sub.gemsBalance ?? 0),
+      balanceAfter: 0,
+      reason: "adjust",
+      source: "subscription_revoke",
+      adminUserId: adminId,
+      note: "Admin revoked subscription",
+      metadata: { plan: sub.plan, region: sub.region, expiresAt: sub.expiresAt },
+    });
+  }
   res.json({ success: true });
 });
 
@@ -1425,7 +1832,9 @@ router.post("/admin/grant-subject-subscription", async (_req, res): Promise<void
   });
 });
 
-// ── Admin: revoke subject subscription (simplified path) ─────────────────────
+// Admin revoke — delete + ledger insert in one transaction so a ledger
+// failure rolls back the delete and the audit trail can never diverge from
+// the actual subscription state.
 router.delete("/admin/revoke-subject-subscription/:subId", async (req, res): Promise<void> => {
   const adminId = getUserId(req);
   if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -1435,8 +1844,38 @@ router.delete("/admin/revoke-subject-subscription/:subId", async (req, res): Pro
   const subId = parseInt(req.params.subId, 10);
   if (isNaN(subId)) { res.status(400).json({ error: "Invalid subscription id" }); return; }
 
-  await db.delete(userSubjectSubscriptionsTable).where(eq(userSubjectSubscriptionsTable.id, subId));
-  res.json({ success: true });
+  try {
+    await db.transaction(async (tx) => {
+      const [sub] = await tx
+        .select()
+        .from(userSubjectSubscriptionsTable)
+        .where(eq(userSubjectSubscriptionsTable.id, subId));
+      if (!sub) {
+        const err = new Error("not_found") as Error & { httpStatus?: number };
+        err.httpStatus = 404;
+        throw err;
+      }
+      await tx.delete(userSubjectSubscriptionsTable).where(eq(userSubjectSubscriptionsTable.id, subId));
+      await tx.insert(gemLedgerTable).values({
+        userId: sub.userId,
+        subjectSubId: sub.id,
+        subjectId: sub.subjectId,
+        delta: -(sub.gemsBalance ?? 0),
+        balanceAfter: 0,
+        reason: "adjust",
+        source: "subscription_revoke",
+        adminUserId: adminId,
+        note: "Admin revoked subscription",
+        metadata: { plan: sub.plan, region: sub.region, expiresAt: sub.expiresAt },
+      } as typeof gemLedgerTable.$inferInsert);
+    });
+    res.json({ success: true });
+  } catch (e) {
+    const err = e as Error & { httpStatus?: number };
+    if (err.httpStatus === 404) { res.status(404).json({ error: "الاشتراك غير موجود" }); return; }
+    logger.error({ err: err.message, subId, adminId }, "admin_revoke: transaction failed");
+    res.status(500).json({ error: "تعذّر إلغاء الاشتراك" });
+  }
 });
 
 // ── Admin: get ALL subject subscriptions (with user info) ─────────────────────
@@ -1452,16 +1891,26 @@ router.get("/admin/all-subject-subscriptions", async (req, res): Promise<void> =
   for (const u of users) userMap[u.id] = u;
 
   const now = new Date();
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
   const result = subs.map(s => {
     const u = userMap[s.userId];
-    const isExpired = new Date(s.expiresAt) < now;
-    const isExhausted = s.messagesUsed >= s.messagesLimit;
+    const expiresMs = new Date(s.expiresAt).getTime();
+    const isExpired = expiresMs < now.getTime();
+    // Wallet is exhausted when balance hits zero. messagesUsed is a stale
+    // legacy column that the gems system never updates — using it here
+    // caused the admin "all subscriptions" view to mis-classify subs that
+    // had been drained by daily forfeit.
+    const isExhausted = (s.gemsBalance ?? 0) <= 0;
     const status = isExpired ? "expired" : isExhausted ? "exhausted" : "active";
+    const expiresInDays = Math.max(0, Math.ceil((expiresMs - now.getTime()) / (24 * 60 * 60 * 1000)));
+    const isExpiringSoon = !isExpired && (expiresMs - now.getTime()) < sevenDaysMs;
     return {
       ...s,
       userEmail: u?.email ?? "",
       userName: u?.displayName ?? null,
       status,
+      expiresInDays,
+      isExpiringSoon,
     };
   });
 
@@ -1489,7 +1938,218 @@ router.patch("/admin/subject-subscriptions/:subId/extend", async (req, res): Pro
     .where(eq(userSubjectSubscriptionsTable.id, subId))
     .returning();
 
+  // Log the time-only change in the gem ledger so the audit history is
+  // complete (delta=0 since balance is untouched).
+  await writeGemLedger({
+    userId: sub.userId,
+    subjectSubId: sub.id,
+    subjectId: sub.subjectId,
+    delta: 0,
+    balanceAfter: sub.gemsBalance ?? 0,
+    reason: "extend",
+    source: "subscription_extend",
+    adminUserId: adminId,
+    note: `Extended by ${days} day(s)`,
+    metadata: { previousExpiresAt: sub.expiresAt, newExpiresAt: newExpiry, days },
+  });
+
   res.json({ success: true, subscription: updated });
+});
+
+// ── Admin: refund / adjust gems on a specific subject subscription ───────────
+// Body: { delta: integer (signed), reason: string (≥3 chars) }
+// Positive delta = refund (clamped so balance never exceeds messagesLimit so
+// the wallet stays consistent with the original plan grant). Negative delta =
+// punitive deduction. A non-empty reason is mandatory — it's stored in the
+// ledger for the audit trail.
+router.post("/admin/subject-subscriptions/:subId/refund-gems", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const subId = parseInt(req.params.subId, 10);
+  if (isNaN(subId)) { res.status(400).json({ error: "معرف الاشتراك غير صالح" }); return; }
+
+  const rawDelta = Number(req.body?.delta);
+  if (!Number.isInteger(rawDelta) || rawDelta === 0) {
+    res.status(400).json({ error: "أدخل عدداً صحيحاً غير صفر للتعديل" });
+    return;
+  }
+  // Hard cap to prevent typos that would flood the ledger with massive
+  // unintended adjustments.
+  if (Math.abs(rawDelta) > 100_000) {
+    res.status(400).json({ error: "أقصى تعديل مسموح هو ١٠٠,٠٠٠ جوهرة في المرة الواحدة" });
+    return;
+  }
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (reason.length < 3) {
+    res.status(400).json({ error: "يجب كتابة سبب مفصّل (٣ أحرف على الأقل)" });
+    return;
+  }
+
+  const [sub] = await db
+    .select()
+    .from(userSubjectSubscriptionsTable)
+    .where(eq(userSubjectSubscriptionsTable.id, subId));
+  if (!sub) { res.status(404).json({ error: "الاشتراك غير موجود" }); return; }
+
+  // Race-safe atomic adjustment. CLAMP at 0 (no negative balances) and at
+  // the original total grant (`messagesLimit` is the legacy column that
+  // holds the plan's full gem total) so refunds can never inflate a wallet
+  // beyond its original cap.
+  const cap = sub.messagesLimit ?? 999_999;
+  const [updated] = await db
+    .update(userSubjectSubscriptionsTable)
+    .set({
+      gemsBalance: sql`LEAST(${cap}::int, GREATEST(0, ${userSubjectSubscriptionsTable.gemsBalance} + ${rawDelta}))`,
+    })
+    .where(eq(userSubjectSubscriptionsTable.id, subId))
+    .returning();
+
+  if (!updated) { res.status(500).json({ error: "تعذّر تطبيق التعديل" }); return; }
+
+  await writeGemLedger({
+    userId: sub.userId,
+    subjectSubId: sub.id,
+    subjectId: sub.subjectId,
+    delta: rawDelta,
+    balanceAfter: updated.gemsBalance ?? 0,
+    reason: rawDelta > 0 ? "refund" : "adjust",
+    source: rawDelta > 0 ? "admin_refund" : "admin_adjust",
+    adminUserId: adminId,
+    note: reason,
+    metadata: { previousBalance: sub.gemsBalance, requestedDelta: rawDelta, cap },
+  });
+
+  res.json({
+    ok: true,
+    subscription: updated,
+    appliedDelta: (updated.gemsBalance ?? 0) - (sub.gemsBalance ?? 0),
+  });
+});
+
+// ── Admin: gem-ledger feed ────────────────────────────────────────────────────
+// Query params:
+//   userId      → filter to one user
+//   subjectSubId → filter to one wallet
+//   reason      → grant|debit|refund|adjust|forfeit|extend
+//   from / to   → ISO timestamps
+//   limit       → default 100, max 500
+// Returns rows newest-first with the user's email/displayName joined for the
+// admin UI.
+router.get("/admin/gem-ledger", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const conditions = [] as Array<ReturnType<typeof eq>>;
+  const userIdQ = req.query.userId ? parseInt(String(req.query.userId), 10) : NaN;
+  if (!isNaN(userIdQ)) conditions.push(eq(gemLedgerTable.userId, userIdQ));
+  const subQ = req.query.subjectSubId ? parseInt(String(req.query.subjectSubId), 10) : NaN;
+  if (!isNaN(subQ)) conditions.push(eq(gemLedgerTable.subjectSubId, subQ));
+  const reasonQ = typeof req.query.reason === "string" ? req.query.reason.trim() : "";
+  if (reasonQ) conditions.push(eq(gemLedgerTable.reason, reasonQ));
+  const sourceQ = typeof req.query.source === "string" ? req.query.source.trim() : "";
+  if (sourceQ) conditions.push(eq(gemLedgerTable.source, sourceQ));
+  const requestIdQ = typeof req.query.requestId === "string" ? req.query.requestId.trim() : "";
+  if (requestIdQ) {
+    // requestId lives inside metadata jsonb. Use ->> to compare as text.
+    conditions.push(sql`${gemLedgerTable.metadata}->>'requestId' = ${requestIdQ}` as any);
+  }
+  if (typeof req.query.from === "string") {
+    const d = new Date(req.query.from);
+    if (!isNaN(d.getTime())) conditions.push(gte(gemLedgerTable.createdAt, d) as any);
+  }
+  if (typeof req.query.to === "string") {
+    const d = new Date(req.query.to);
+    if (!isNaN(d.getTime())) conditions.push(lte(gemLedgerTable.createdAt, d) as any);
+  }
+
+  const limitRaw = parseInt(String(req.query.limit ?? "100"), 10);
+  const limit = Math.min(500, Math.max(1, isNaN(limitRaw) ? 100 : limitRaw));
+
+  const baseQuery = db.select().from(gemLedgerTable);
+  const rows = conditions.length > 0
+    ? await baseQuery.where(and(...conditions)).orderBy(desc(gemLedgerTable.createdAt)).limit(limit)
+    : await baseQuery.orderBy(desc(gemLedgerTable.createdAt)).limit(limit);
+
+  // Join user email/name in JS (small N — admin UI capped at 500 rows).
+  const userIds = Array.from(new Set(rows.map(r => r.userId).concat(rows.map(r => r.adminUserId).filter((x): x is number => x != null))));
+  const users = userIds.length > 0
+    ? await db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName }).from(usersTable)
+    : [];
+  const userMap = new Map(users.map(u => [u.id, u]));
+
+  res.json(rows.map(r => ({
+    ...r,
+    userEmail: userMap.get(r.userId)?.email ?? "",
+    userName: userMap.get(r.userId)?.displayName ?? null,
+    adminEmail: r.adminUserId ? userMap.get(r.adminUserId)?.email ?? null : null,
+  })));
+});
+
+// ── Public: payment settings (Kuraimi numbers etc.) ──────────────────────────
+// No auth — the subscription page needs to render these for guests too. Only
+// keys with category='payment' are exposed (admin-private keys can be added
+// later under a different category without changing this endpoint).
+router.get("/payment-settings/public", async (_req, res): Promise<void> => {
+  try {
+    const rows = await db
+      .select()
+      .from(paymentSettingsTable)
+      .where(eq(paymentSettingsTable.category, "payment"));
+    const map: Record<string, string> = {};
+    for (const r of rows) map[r.key] = r.value;
+    res.json(map);
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "payment-settings/public: read failed");
+    res.json({}); // never block the subscription page on a transient DB blip
+  }
+});
+
+// ── Admin: payment settings GET / PUT ────────────────────────────────────────
+router.get("/admin/payment-settings", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const rows = await db.select().from(paymentSettingsTable).orderBy(paymentSettingsTable.id);
+  res.json(rows);
+});
+
+router.put("/admin/payment-settings/:key", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const key = String(req.params.key || "").trim();
+  if (!key || key.length > 80 || !/^[a-z0-9._-]+$/i.test(key)) {
+    res.status(400).json({ error: "مفتاح غير صالح" });
+    return;
+  }
+  const value = typeof req.body?.value === "string" ? req.body.value.trim() : "";
+  if (value.length > 200) {
+    res.status(400).json({ error: "القيمة طويلة جداً (الحد الأقصى ٢٠٠ حرفاً)" });
+    return;
+  }
+  const label = typeof req.body?.label === "string" ? req.body.label.trim() : null;
+  const category = typeof req.body?.category === "string" && req.body.category.trim()
+    ? req.body.category.trim()
+    : "payment";
+
+  const [row] = await db
+    .insert(paymentSettingsTable)
+    .values({ key, value, label, category, updatedByUserId: adminId, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: paymentSettingsTable.key,
+      set: { value, label, category, updatedByUserId: adminId, updatedAt: new Date() },
+    })
+    .returning();
+  res.json(row);
 });
 
 // ── Admin: list discount codes (with usage counts) ────────────────────────────
@@ -1520,6 +2180,23 @@ router.post("/admin/discount-codes", async (req, res): Promise<void> => {
     return;
   }
 
+  // Optional new limits. All four are nullable in the schema; we treat
+  // empty / non-positive / unparseable as "unset" so an admin can clear any
+  // of them by sending null.
+  const maxUses = parseNullableInt(req.body?.maxUses);
+  const perUserLimit = parseNullableInt(req.body?.perUserLimit);
+  if (maxUses != null && maxUses < 1) {
+    res.status(400).json({ error: "أقصى عدد استخدامات يجب أن يكون رقماً موجباً" }); return;
+  }
+  if (perUserLimit != null && perUserLimit < 1) {
+    res.status(400).json({ error: "حد الاستخدام لكل مستخدم يجب أن يكون رقماً موجباً" }); return;
+  }
+  const startsAt = parseNullableDate(req.body?.startsAt);
+  const endsAt = parseNullableDate(req.body?.endsAt);
+  if (startsAt && endsAt && endsAt.getTime() <= startsAt.getTime()) {
+    res.status(400).json({ error: "تاريخ الانتهاء يجب أن يكون بعد تاريخ البداية" }); return;
+  }
+
   const [existing] = await db.select().from(discountCodesTable).where(eq(discountCodesTable.code, code));
   if (existing) { res.status(409).json({ error: "هذا الكود موجود مسبقاً" }); return; }
 
@@ -1529,11 +2206,31 @@ router.post("/admin/discount-codes", async (req, res): Promise<void> => {
     note: note || null,
     active: true,
     usageCount: 0,
+    maxUses,
+    perUserLimit,
+    startsAt,
+    endsAt,
     createdByUserId: adminId,
   }).returning();
 
   res.status(201).json(row);
 });
+
+// ── Helpers for parsing optional discount code fields ────────────────────────
+// Tolerant: accepts numbers, numeric strings, "" or null. Returns null for
+// any value that is not a positive integer so admins can blank a field by
+// sending an empty string or null.
+function parseNullableInt(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : parseInt(String(v), 10);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
+  return n;
+}
+function parseNullableDate(v: unknown): Date | null {
+  if (v == null || v === "") return null;
+  const d = new Date(String(v));
+  return isNaN(d.getTime()) ? null : d;
+}
 
 // ── Admin: update discount code (toggle active; edit percent only if unused) ──
 router.patch("/admin/discount-codes/:id", async (req, res): Promise<void> => {
@@ -1571,6 +2268,31 @@ router.patch("/admin/discount-codes/:id", async (req, res): Promise<void> => {
 
   if (typeof req.body?.note === "string") {
     updates.note = req.body.note.trim() || null;
+  }
+
+  // New limits are mutable at any time — they only restrict *future*
+  // usage, so unlike `percent` they don't need the usage-count guard.
+  if (req.body?.maxUses !== undefined) {
+    const v = parseNullableInt(req.body.maxUses);
+    if (v != null && v < row.usageCount) {
+      res.status(400).json({ error: `لا يمكن خفض أقصى عدد استخدامات أقل من المستخدم حالياً (${row.usageCount})` });
+      return;
+    }
+    updates.maxUses = v;
+  }
+  if (req.body?.perUserLimit !== undefined) {
+    const v = parseNullableInt(req.body.perUserLimit);
+    if (v != null && v < 1) {
+      res.status(400).json({ error: "حد الاستخدام لكل مستخدم يجب أن يكون رقماً موجباً" });
+      return;
+    }
+    updates.perUserLimit = v;
+  }
+  if (req.body?.startsAt !== undefined) {
+    updates.startsAt = parseNullableDate(req.body.startsAt);
+  }
+  if (req.body?.endsAt !== undefined) {
+    updates.endsAt = parseNullableDate(req.body.endsAt);
   }
 
   if (Object.keys(updates).length === 0) {
@@ -1618,109 +2340,154 @@ router.get("/admin/discount-codes/:id/subscribers", async (req, res): Promise<vo
 });
 
 // ── User: get current gems balance ────────────────────────────────────────────
-// Takes ?subjectId=X — gem wallets are per-subject. If a subject has an active
-// per-subject subscription, we report that wallet. Otherwise we fall back to
-// the legacy global wallet on usersTable (for grandfathered users from before
-// the per-subject pivot) so they don't lose access mid-period.
 router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
-  try {
-    const userId = getUserId(req);
-    if (!userId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-
-    const user = await getUser(userId);
-    if (!user) {
-      res.status(401).json({ error: "User not found" });
-      return;
-    }
-
-    const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
-    const now = new Date();
-
-    if (subjectId) {
-      const [sub] = await db
-        .select()
-        .from(userSubjectSubscriptionsTable)
-        .where(and(
-          eq(userSubjectSubscriptionsTable.userId, userId),
-          eq(userSubjectSubscriptionsTable.subjectId, subjectId),
-        ))
-        .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
-
-      if (sub && new Date(sub.expiresAt) > now) {
-        await applyDailyGemsRolloverForSubjectSub(sub).catch(() => {});
-        const usedToday = sub.gemsUsedToday ?? 0;
-        const dailyRemaining = Math.max(0, (sub.gemsDailyLimit ?? 0) - usedToday);
-        // ── API contract ────────────────────────────────────────────────
-        // hasActiveSub  = subscription window is open (time-active). The
-        //                 header badge uses this so it can stay visible
-        //                 (in alert mode) when the student has burned
-        //                 through their gems and needs to renew.
-        // canUseGems    = the user can actually spend gems right now
-        //                 (time-active AND balance > 0). Use this for any
-        //                 access/permission gating.
-        // AI gating itself does NOT depend on either flag — it re-checks
-        // expiry+balance at the call site (see ai.ts).
-        const canUseGems = (sub.gemsBalance ?? 0) > 0;
-        res.json({
-          subjectId,
-          subjectName: sub.subjectName ?? null,
-          gemsBalance: sub.gemsBalance ?? 0,
-          gemsDailyLimit: sub.gemsDailyLimit ?? 0,
-          gemsUsedToday: usedToday,
-          dailyRemaining,
-          gemsExpiresAt: sub.expiresAt,
-          hasActiveSub: true,
-          canUseGems,
-          plan: sub.plan,
-          source: "per-subject" as const,
-        });
-        return;
-      }
-    }
-
-    // Legacy fallback: pre-pivot users still have a global wallet.
-    await applyDailyGemsRollover(user).catch(() => {});
-    // Legacy wallet is considered active whenever it has a future expiry,
-    // regardless of remaining balance (mirrors the per-subject behaviour).
-    const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now);
-    const usedToday = user.gemsUsedToday ?? 0;
-    const dailyRemaining = Math.max(0, (user.gemsDailyLimit ?? 0) - usedToday);
-    const legacyCanUseGems = hasLegacyActive && (user.gemsBalance ?? 0) > 0;
-
-    res.json({
-      subjectId: subjectId || null,
-      subjectName: null,
-      gemsBalance: hasLegacyActive ? (user.gemsBalance ?? 0) : 0,
-      gemsDailyLimit: hasLegacyActive ? (user.gemsDailyLimit ?? 0) : 0,
-      gemsUsedToday: hasLegacyActive ? usedToday : 0,
-      dailyRemaining: hasLegacyActive ? dailyRemaining : 0,
-      gemsExpiresAt: hasLegacyActive ? user.gemsExpiresAt : null,
-      hasActiveSub: hasLegacyActive,
-      canUseGems: legacyCanUseGems,
-      plan: hasLegacyActive ? (user.nukhbaPlan ?? null) : null,
-      source: hasLegacyActive ? ("legacy" as const) : ("none" as const),
-    });
-  } catch (err) {
-    console.error("[gems-balance] failed:", err);
-    // Defensive fallback so the polling header endpoint never spams the
-    // client with 500s. Server-side error is still logged above.
-    res.json({
-      subjectId: null,
-      subjectName: null,
-      gemsBalance: 0,
-      gemsDailyLimit: 0,
-      gemsUsedToday: 0,
-      dailyRemaining: 0,
-      gemsExpiresAt: null,
-      hasActiveSub: false,
-      canUseGems: false,
-      plan: null,
-      source: "none" as const,
-    });
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
   }
+
+  const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
+  const access = await getAccessForUser({ userId, subjectId: subjectId || undefined });
+
+  let subjectName: string | null = null;
+  let plan: string | null = null;
+  let gemsDailyLimit = 0;
+  let gemsUsedToday = 0;
+
+  // First-lesson detection (per-subject / per-skill). The free 80-gem grace
+  // applies to each new تخصص/مهارة the user opens — independent of the
+  // global `users.firstLessonComplete` one-shot flag — as long as there is
+  // no active paid wallet for that subject. We derive eligibility purely
+  // from the per-subject row (or its absence) so:
+  //   • a brand-new subject with no row  → 80/80 free
+  //   • partially used (< 80)            → (80 - used) free
+  //   • exhausted (= 80) or row.completed → 0/80 with red CTA
+  //   • any active paid sub for subject  → not first-lesson (paid path)
+  let firstLessonGemsRemaining = 0;
+  let firstLessonGemsUsed = 0;
+  const userRow = await getUser(userId);
+  let perSubjectFirstLesson:
+    | typeof userSubjectFirstLessonsTable.$inferSelect
+    | undefined;
+  if (subjectId && access.source !== "per-subject" && access.source !== "legacy") {
+    [perSubjectFirstLesson] = await db
+      .select()
+      .from(userSubjectFirstLessonsTable)
+      .where(and(
+        eq(userSubjectFirstLessonsTable.userId, userId),
+        eq(userSubjectFirstLessonsTable.subjectId, subjectId),
+      ));
+  }
+  // Per-subject view: any non-paid path (no active per-subject sub, no
+  // legacy global wallet) is treated as the free-lesson display path —
+  // even when the row is completed/exhausted. That keeps the badge
+  // visible as a red "اشترك للمتابعة" CTA after the 80-gem cap is hit
+  // (settleAiCharge flips `completed = true` at that boundary).
+  const onFirstLessonGrace = subjectId
+    ? (access.source !== "per-subject" && access.source !== "legacy")
+    : (access.source === "first-lesson");
+
+  if (access.source === "per-subject" && subjectId) {
+    const [sub] = await db
+      .select()
+      .from(userSubjectSubscriptionsTable)
+      .where(and(
+        eq(userSubjectSubscriptionsTable.userId, userId),
+        eq(userSubjectSubscriptionsTable.subjectId, subjectId),
+      ))
+      .orderBy(desc(userSubjectSubscriptionsTable.expiresAt));
+    subjectName = sub?.subjectName ?? null;
+    plan = sub?.plan ?? null;
+    gemsDailyLimit = sub?.gemsDailyLimit ?? 0;
+    gemsUsedToday = sub?.gemsUsedToday ?? 0;
+  } else if (access.source === "legacy") {
+    plan = userRow?.nukhbaPlan ?? null;
+    gemsDailyLimit = userRow?.gemsDailyLimit ?? 0;
+    gemsUsedToday = userRow?.gemsUsedToday ?? 0;
+  } else if (onFirstLessonGrace && subjectId) {
+    firstLessonGemsUsed = perSubjectFirstLesson?.freeMessagesUsed ?? 0;
+    firstLessonGemsRemaining = Math.max(0, FREE_LESSON_GEM_LIMIT - firstLessonGemsUsed);
+    gemsDailyLimit = FREE_LESSON_GEM_LIMIT;
+    gemsUsedToday = firstLessonGemsUsed;
+  } else if (onFirstLessonGrace) {
+    // Subject-less call — defend the shape so the summary endpoint can still
+    // surface a meaningful badge.
+    gemsDailyLimit = FREE_LESSON_GEM_LIMIT;
+    firstLessonGemsRemaining = FREE_LESSON_GEM_LIMIT;
+  }
+
+  // Cross-subject summary: same shape as the `subjects` array on
+  // /gems-balance-summary so a single fetch can power both the subject view
+  // and the unified Usage screen. Computed only when the caller didn't pin a
+  // specific subject; on subject-scoped reads we leave it empty to keep the
+  // payload tight.
+  const { getNextMidnightYemen } = await import("../lib/yemen-time");
+  const dailyResetAtUtc = getNextMidnightYemen();
+
+  const isFirstLesson = onFirstLessonGrace;
+  const gemsBalance = isFirstLesson ? firstLessonGemsRemaining : access.gemsRemaining;
+  const dailyRemaining = isFirstLesson ? firstLessonGemsRemaining : access.dailyRemaining;
+  // Surface the exhausted-grace state explicitly so the badge can flip to a
+  // red "اشترك للمتابعة" CTA instead of disappearing when freeMessagesUsed
+  // hits the 80 cap (access.source flips to "none" at that boundary).
+  const isFirstLessonExhausted = isFirstLesson && gemsBalance <= 0;
+
+  res.json({
+    subjectId: subjectId || null,
+    subjectName,
+    gemsBalance,
+    gemsDailyLimit,
+    gemsUsedToday,
+    dailyRemaining,
+    gemsExpiresAt: access.expiresAt,
+    hasActiveSub: access.hasActiveSub,
+    isFirstLesson,
+    isFirstLessonExhausted,
+    canUseGems: isFirstLesson ? gemsBalance > 0 : (access.canAccess && access.gemsRemaining > 0),
+    plan,
+    source: isFirstLesson ? ("first-lesson" as const) : access.source,
+    dailyResetAtUtc,
+  });
+});
+
+// ── Per-user gems history (subject-scoped or all) ────────────────────────────
+// Powers the /usage page (recent activity feed) and any per-subject "where did
+// my gems go?" drill-down. Returns the latest N ledger rows for the caller —
+// debits, refunds, grants, daily forfeits — so the student can audit their own
+// account without admin help. Strictly user-scoped: we never serve another
+// user's rows even if a userId param were passed (we ignore it).
+router.get("/subscriptions/gems-history", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const subjectIdQ = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
+  const limitRaw = parseInt(String(req.query.limit ?? "50"), 10);
+  const limit = Math.min(200, Math.max(1, isNaN(limitRaw) ? 50 : limitRaw));
+
+  const conditions = [eq(gemLedgerTable.userId, userId)] as Array<ReturnType<typeof eq>>;
+  if (subjectIdQ) {
+    conditions.push(eq(gemLedgerTable.subjectId, subjectIdQ));
+  }
+
+  const rows = await db
+    .select()
+    .from(gemLedgerTable)
+    .where(and(...conditions))
+    .orderBy(desc(gemLedgerTable.createdAt))
+    .limit(limit);
+
+  res.json(rows.map(r => ({
+    id: r.id,
+    createdAt: r.createdAt,
+    delta: r.delta,
+    balanceAfter: r.balanceAfter,
+    reason: r.reason,
+    source: r.source,
+    note: r.note,
+    subjectId: r.subjectId,
+    subjectSubId: r.subjectSubId,
+  })));
 });
 
 // ── Aggregate gems summary: all active subscriptions for the header badge ────
@@ -1762,7 +2529,7 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
     }> = [];
 
     for (const sub of allSubs) {
-      await applyDailyGemsRolloverForSubjectSub(sub).catch(() => {});
+      await applyDailyGemsRolloverForSubjectSub(sub);
       // Re-read the updated row to get post-rollover values.
       const [fresh] = await db
         .select()
@@ -1787,6 +2554,14 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
       const totalBalance = activeSubs.reduce((s, x) => s + x.gemsBalance, 0);
       // "Worst" subject = the one with the least daily remaining (most constrained).
       const worst = activeSubs.reduce((a, b) => a.dailyRemaining <= b.dailyRemaining ? a : b);
+      // Nearest expiry = the soonest-to-expire subject. Used by the header
+      // badge to surface a warning when ANY of the user's subjects is about
+      // to expire (≤ 7 days). Without this, students lose access mid-study
+      // session because nothing in the UI hints at the upcoming expiry.
+      const nearest = activeSubs.reduce((a, b) =>
+        new Date(a.gemsExpiresAt).getTime() <= new Date(b.gemsExpiresAt).getTime() ? a : b);
+      const nearestMs = new Date(nearest.gemsExpiresAt).getTime() - now.getTime();
+      const nearestDays = Math.max(0, Math.ceil(nearestMs / (24 * 60 * 60 * 1000)));
       res.json({
         // hasActiveSub: time-active window exists (badge stays visible).
         // canUseGems: at least one wallet still has spendable gems.
@@ -1797,6 +2572,9 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
         totalBalance,
         activeSubjectCount: activeSubs.length,
         worstSubject: worst,
+        nearestExpiresAt: nearest.gemsExpiresAt,
+        nearestExpiresInDays: nearestDays,
+        nearestSubject: { subjectId: nearest.subjectId, subjectName: nearest.subjectName },
         subjects: activeSubs,
         source: "per-subject" as const,
       });
@@ -1805,13 +2583,17 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
 
     // Fallback: legacy global wallet — also keep visible while time-active,
     // even if the balance is zero, so the user knows they've run out.
-    await applyDailyGemsRollover(user).catch(() => {});
+    await applyDailyGemsRollover(user);
     const hasLegacyActive = !!(user.gemsExpiresAt && new Date(user.gemsExpiresAt) > now);
     if (hasLegacyActive) {
       const usedLeg = user.gemsUsedToday ?? 0;
       const limitLeg = user.gemsDailyLimit ?? 0;
       const remaining = Math.max(0, limitLeg - usedLeg);
       const legacyBalance = user.gemsBalance ?? 0;
+      const legExp = user.gemsExpiresAt ? new Date(user.gemsExpiresAt) : null;
+      const legExpInDays = legExp
+        ? Math.max(0, Math.ceil((legExp.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+        : null;
       res.json({
         hasActiveSub: true,
         canUseGems: legacyBalance > 0,
@@ -1820,8 +2602,48 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
         totalBalance: legacyBalance,
         activeSubjectCount: 1,
         worstSubject: null,
+        nearestExpiresAt: legExp,
+        nearestExpiresInDays: legExpInDays,
+        nearestSubject: null,
         subjects: [],
         source: "legacy" as const,
+      });
+      return;
+    }
+
+    // No active paid wallet — surface first-lesson grace as a badge-eligible
+    // state so the header never goes dark for a logged-in user on
+    // non-subject pages (dashboard, learn, etc.). The free grace is
+    // per-subject: each new تخصص/مهارة gets a fresh 80, so we look across
+    // all rows and pick the best (most-remaining) non-completed one.
+    // No rows → user hasn't opened any subject yet → assume the full 80
+    // are still available. Only when every existing row is exhausted or
+    // completed do we surface the red "اشترك للمتابعة" CTA.
+    {
+      const rows = await db
+        .select()
+        .from(userSubjectFirstLessonsTable)
+        .where(eq(userSubjectFirstLessonsTable.userId, userId));
+      let bestRemaining = rows.length === 0 ? FREE_LESSON_GEM_LIMIT : 0;
+      for (const r of rows) {
+        if (r.completed) continue;
+        const used = r.freeMessagesUsed ?? 0;
+        const remaining = Math.max(0, FREE_LESSON_GEM_LIMIT - used);
+        if (remaining > bestRemaining) bestRemaining = remaining;
+      }
+      const exhausted = bestRemaining <= 0;
+      res.json({
+        hasActiveSub: false,
+        canUseGems: !exhausted,
+        isFirstLesson: true,
+        isFirstLessonExhausted: exhausted,
+        totalDailyRemaining: bestRemaining,
+        totalDailyLimit: FREE_LESSON_GEM_LIMIT,
+        totalBalance: bestRemaining,
+        activeSubjectCount: 0,
+        worstSubject: null,
+        subjects: [],
+        source: "first-lesson" as const,
       });
       return;
     }
@@ -1874,7 +2696,7 @@ router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
   const region: "north" | "south" | null =
     rawRegion === "north" ? "north" : rawRegion === "south" ? "south" : null;
 
-  if (!PLAN_GEM_LIMITS[planType]) {
+  if (!isPlanType(planType)) {
     res.status(400).json({ error: "نوع الباقة غير صحيح" });
     return;
   }
@@ -1892,6 +2714,7 @@ router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
   // admin-granted subs. Falls back to the static constant on DB failure.
   const paidPriceYer = (await getPlanPriceFromDb(planType, region)) ?? 0;
 
+  const adminNote = typeof req.body?.note === "string" ? req.body.note.trim() : "";
   const sub = await grantSubjectSubscription({
     userId: targetId,
     subjectId,
@@ -1901,6 +2724,9 @@ router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
     paidPriceYer,
     activationCode: null,
     subscriptionRequestId: null,
+    source: "admin_grant",
+    adminUserId: adminId,
+    note: adminNote || null,
   });
 
   res.json({

@@ -11,6 +11,10 @@ export const aiTeacherMessagesTable = pgTable("ai_teacher_messages", {
   content: text("content").notNull(),
   isDiagnostic: integer("is_diagnostic").notNull().default(0),
   stageIndex: integer("stage_index"),
+  // Length telemetry (assistant rows only). overLength=1 when wordCount
+  // exceeded the response tier's word cap by >10%.
+  wordCount: integer("word_count"),
+  overLength: integer("over_length"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("ai_teacher_messages_user_subject_idx").on(t.userId, t.subjectId, t.createdAt),

@@ -2,24 +2,18 @@ import { and, eq, gte, sum } from "drizzle-orm";
 import { db, aiUsageEventsTable, type UserSubjectSubscription } from "@workspace/db";
 import { logger } from "./logger";
 import { getStartOfTodayYemen } from "./yemen-time";
+import {
+  getYerToUsdRate,
+  computeAiCostCapUsd,
+  inferPaidYerFromPlan,
+} from "./pricing-formula";
 
-// Conservative YER → USD conversion. North Yemen Rial trades ≈ 530/USD;
-// South Yemen Rial ≈ 2700/USD. We prefer slightly favorable (lower) rates so
-// the cap is more protective for the student (we under-estimate what they
-// paid in USD → cap kicks in earlier → student stays safely under 50%).
-const YER_TO_USD: Record<string, number> = {
-  north: 1 / 600,
-  south: 1 / 2800,
-};
-
-// Default falls back to the south rate (more conservative — yields a smaller
-// USD value, which means a lower cap and earlier protection).
-const DEFAULT_RATE = YER_TO_USD.south;
+// Re-export for call sites that import these from cost-cap.ts directly.
+export { inferPaidYerFromPlan };
 
 /** Convert a paid YER amount to USD using the region's rate. */
 export function yerToUsd(paidYer: number, region: string | null | undefined): number {
-  const rate = (region && YER_TO_USD[region]) || DEFAULT_RATE;
-  return paidYer * rate;
+  return paidYer * getYerToUsdRate(region);
 }
 
 /**
@@ -39,35 +33,6 @@ export function yerToUsd(paidYer: number, region: string | null | undefined): nu
  * are in flight at once and bill only after they complete.
  */
 const MAX_PREMIUM_TURN_USD = 0.05;
-
-/** Authoritative server-side base prices (YER) — mirror of subscriptions.ts. */
-const BASE_PRICES_YER: Record<string, Record<string, number>> = {
-  north: { bronze: 2000, silver: 4000, gold: 6000 },
-  south: { bronze: 6000, silver: 12000, gold: 18000 },
-};
-
-/**
- * LEGACY price table — used ONLY as the cost-cap fallback for old
- * `user_subject_subscriptions` rows that pre-date `paid_price_yer` AND were
- * created before the 2026-04-26 price doubling. Using the *old* (lower)
- * prices here keeps the AI cost cap honest for legacy students who actually
- * paid the old rates — using the new doubled prices would silently double
- * their AI budget and violate the "AI cost ≤ 50% of what they paid" red line.
- *
- * NOTE: Brand-new subscriptions never hit this fallback because
- * `paid_price_yer` is populated from `finalPrice` at approval time
- * (see `subscriptions.ts` approve handler), so they always use the actual
- * amount paid (post-discount).
- */
-const LEGACY_BASE_PRICES_YER: Record<string, Record<string, number>> = {
-  north: { bronze: 1000, silver: 2000, gold: 3000 },
-  south: { bronze: 3000, silver: 6000, gold: 9000 },
-};
-
-export function inferPaidYerFromPlan(planType: string, region: string | null | undefined): number {
-  const r = (region && LEGACY_BASE_PRICES_YER[region]) || LEGACY_BASE_PRICES_YER.south;
-  return r[planType] ?? 0;
-}
 
 export type CostCapStatus = {
   /** Total USD spent on this subscription's AI calls since createdAt. */
@@ -151,8 +116,11 @@ export async function getCostCapStatus(
   const paidYer = sub.paidPriceYer && sub.paidPriceYer > 0
     ? sub.paidPriceYer
     : inferPaidYerFromPlan(sub.plan, sub.region);
-  const paidUsd = yerToUsd(paidYer, sub.region);
-  const capUsd = paidUsd * 0.5;
+
+  // AI cost cap = 50% of what the student paid (in USD).
+  // computeAiCostCapUsd is the single definition of this rule — changing it
+  // in pricing-formula.ts propagates everywhere automatically.
+  const capUsd = computeAiCostCapUsd({ priceYer: paidYer, region: sub.region });
 
   if (capUsd <= 0) {
     // Misconfigured / promotional / unknown plan — refuse to spend on Sonnet.

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/use-auth";
 import { useLocation } from "wouter";
 import {
   useGetAdminStats,
@@ -29,15 +29,18 @@ import {
   Copy, Plus, Filter, RefreshCw, AlertTriangle, Ban,
   Zap, Star, Gem, MessageCircle, Activity, Search,
   BookOpen, Gift, Trash2, Clock, CalendarDays, ChevronDown, Brain,
-  Percent, Eye, Power,
+  Percent, Eye, Power, Loader2,
 } from "lucide-react";
 import { AdminInsightsChat } from "@/components/admin-insights-chat";
 import { AdminDiscountCodes } from "@/components/admin-discount-codes";
 import { AdminAiUsage } from "@/components/admin-ai-usage";
 import { AdminDbMonitor } from "@/components/admin-db-monitor";
 import { AdminPlanPrices } from "@/components/admin-plan-prices";
+import { AdminExchangeRates } from "@/components/admin-exchange-rates";
 import { AdminConversations } from "@/components/admin-conversations";
 import { AdminAlerts } from "@/components/admin-alerts";
+import { AdminGemLedger } from "@/components/admin-gem-ledger";
+import { AdminPaymentSettings } from "@/components/admin-payment-settings";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -45,6 +48,100 @@ const allSubjectsFlat = [
   ...university.map(s => ({ id: s.id, name: s.name, emoji: s.emoji })),
   ...skills.flatMap(cat => cat.subjects.map(s => ({ id: s.id, name: s.name, emoji: s.emoji }))),
 ];
+
+// ── Local types for admin-only fetches ───────────────────────────────────────
+// The admin page hits a handful of bespoke admin-only endpoints that are NOT
+// in the auto-generated client. Typing these explicitly (instead of `any`)
+// keeps the JSX safe from typos and lets TS catch shape changes server-side.
+type SupportMessage = {
+  id: number;
+  isFromAdmin: boolean;
+  userName?: string | null;
+  subject: string;
+  message: string;
+  createdAt: string;
+};
+type SupportThread = {
+  userId: number;
+  userName?: string | null;
+  userEmail: string;
+  unreadCount: number;
+  lastSubject: string;
+  lastAt: string;
+  totalMessages: number;
+  messages: SupportMessage[];
+};
+type LiveUser = {
+  userId: number;
+  email: string;
+  name?: string | null;
+  page: string;
+  profileImage?: string | null;
+};
+type SubjectSub = {
+  id: number;
+  userId: number;
+  userEmail?: string;
+  userName?: string | null;
+  subjectId: string;
+  subjectName?: string | null;
+  plan: string;
+  region?: string;
+  expiresAt: string;
+  gemsBalance?: number | null;
+  gemsDailyLimit?: number | null;
+  messagesLimit: number;
+  messagesUsed: number;
+  status?: string;
+};
+// Local extensions for fields the server returns that aren't in the generated schema yet.
+type AdminUserRow = import("@workspace/api-client-react").AdminUser & {
+  messagesLimit?: number | null;
+  activeSubjectSubscriptionsCount?: number | null;
+};
+type AdminRequestRow = import("@workspace/api-client-react").SubscriptionRequest & {
+  userName?: string | null;
+  userEmail?: string;
+  subjectId?: string | null;
+  subjectName?: string | null;
+  accountName?: string | null;
+  notes?: string | null;
+  adminNote?: string | null;
+  discountCode?: string | null;
+  discountPercent?: number | null;
+  basePrice?: number | null;
+  finalPrice?: number | null;
+};
+type AdminStatsRow = import("@workspace/api-client-react").AdminStats & {
+  recentlyExpiredSubscriptions?: number;
+};
+
+// Format a server-supplied date safely; returns fallback for null/Invalid Date.
+// Avoids the literal "Invalid Date" string the UI used to render when the server returned an
+// unexpected timestamp shape.
+const formatDateSafe = (
+  value: unknown,
+  options?: { fallback?: string; locale?: string; mode?: "date" | "datetime" },
+): string => {
+  const fallback = options?.fallback ?? "—";
+  const locale = options?.locale ?? "ar-YE";
+  if (value === null || value === undefined || value === "") return fallback;
+  const d = new Date(value as string | number | Date);
+  if (Number.isNaN(d.getTime())) return fallback;
+  if (options?.mode === "datetime") {
+    return d.toLocaleString(locale, { dateStyle: "short", timeStyle: "short" });
+  }
+  return d.toLocaleDateString(locale);
+};
+
+// Returns true only if `value` parses to a real Date — used to gate
+// arithmetic comparisons (e.g. expiresAt > now) so a bad timestamp doesn't
+// silently flip rows into "expired" / "active" by accident.
+const parseDateOrNull = (value: unknown): Date | null => {
+  if (value === null || value === undefined || value === "") return null;
+  const d = new Date(value as string | number | Date);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 
 export default function Admin() {
   const { user } = useAuth();
@@ -72,16 +169,34 @@ export default function Admin() {
   const [grantSubjectName, setGrantSubjectName] = useState("");
   const [grantRegion, setGrantRegion] = useState<"north" | "south">("north");
   const [isGranting, setIsGranting] = useState(false);
-  const [userSubjectSubs, setUserSubjectSubs] = useState<Record<number, any[]>>({});
+  const [userSubjectSubs, setUserSubjectSubs] = useState<Record<number, SubjectSub[]>>({});
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
 
   // All subject subscriptions tab
-  const [allSubjectSubs, setAllSubjectSubs] = useState<any[] | null>(null);
+  const [allSubjectSubs, setAllSubjectSubs] = useState<SubjectSub[] | null>(null);
   const [isLoadingAllSubs, setIsLoadingAllSubs] = useState(false);
+  // Tracks the most recent fetch failure for the all-subscriptions tab so we
+  // can show a real error state instead of the misleading "no subscriptions"
+  // empty row that previously appeared on a network/API failure.
+  const [allSubsError, setAllSubsError] = useState<string | null>(null);
   const [subjectFilter, setSubjectFilter] = useState("");
   const [extendDialog, setExtendDialog] = useState<{ subId: number; userName: string; subjectName: string } | null>(null);
   const [extendDays, setExtendDays] = useState(14);
   const [isExtending, setIsExtending] = useState(false);
+
+  // Gem refund/grant dialog (per subject subscription). delta > 0 grants,
+  // delta < 0 refunds (clamped server-side to [0, messagesLimit]). The
+  // reason is REQUIRED — every adjustment is recorded in the gem ledger
+  // for audit, so we make it impossible to submit without one.
+  const [gemAdjustDialog, setGemAdjustDialog] = useState<{
+    subId: number;
+    userName: string;
+    subjectName: string;
+    currentBalance: number;
+  } | null>(null);
+  const [gemAdjustDelta, setGemAdjustDelta] = useState<string>("");
+  const [gemAdjustReason, setGemAdjustReason] = useState("");
+  const [isGemAdjusting, setIsGemAdjusting] = useState(false);
 
   // Card creation subject
   const [newCardSubjectId, setNewCardSubjectId] = useState("");
@@ -94,77 +209,162 @@ export default function Admin() {
   const [showGrantSubjectPicker, setShowGrantSubjectPicker] = useState(false);
 
   // Support messages
-  const [supportThreads, setSupportThreads] = useState<any[]>([]);
+  const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
+  const [supportInitialLoading, setSupportInitialLoading] = useState(true);
+  const [supportError, setSupportError] = useState<string | null>(null);
   const [supportUnread, setSupportUnread] = useState(0);
   const [unresolvedAlertsCount, setUnresolvedAlertsCount] = useState(0);
-  const [selectedThread, setSelectedThread] = useState<any | null>(null);
+  const [selectedThread, setSelectedThread] = useState<SupportThread | null>(null);
   const [replyMessage, setReplyMessage] = useState("");
   const [isSendingReply, setIsSendingReply] = useState(false);
 
   // Live users
-  const [liveUsersList, setLiveUsersList] = useState<any[]>([]);
+  const [liveUsersList, setLiveUsersList] = useState<LiveUser[]>([]);
 
   useEffect(() => {
     if (user?.role !== "admin") return;
+    // Per-stream polling health. Tracking support and live-users
+    // independently is critical: previously a healthy support cycle could
+    // reset the shared counter and mask a sustained live-users outage,
+    // so admins might never see "live users" data go stale.
+    type StreamState = { failures: number; alerted: boolean; arabicLabel: string };
+    const streams: Record<"support" | "live", StreamState> = {
+      support: { failures: 0, alerted: false, arabicLabel: "خدمة الدعم والإشعارات" },
+      live:    { failures: 0, alerted: false, arabicLabel: "قائمة المتصلين الآن" },
+    };
+    const onStreamFailure = (key: "support" | "live", err: unknown) => {
+      const s = streams[key];
+      // eslint-disable-next-line no-console
+      console.error(`[admin polling] ${key} failed`, err);
+      s.failures += 1;
+      // Fire ONCE on the second consecutive failure so a single blip
+      // doesn't spam the admin, but a real outage does get surfaced.
+      if (s.failures === 2 && !s.alerted) {
+        s.alerted = true;
+        toast({
+          variant: "destructive",
+          title: `تعذّر تحديث ${s.arabicLabel}`,
+          description: "البيانات قد تكون قديمة. سنعيد المحاولة تلقائياً.",
+        });
+      }
+    };
+    const onStreamSuccess = (key: "support" | "live") => {
+      const s = streams[key];
+      if (s.failures > 0 && s.alerted) {
+        toast({
+          title: `تمّت استعادة ${s.arabicLabel}`,
+          className: "bg-emerald-600 text-white border-none",
+        });
+      }
+      s.failures = 0;
+      s.alerted = false;
+    };
     const fetchSupportData = () => {
-      fetch("/api/admin/support/threads", { credentials: "include" })
-        .then(r => r.ok ? r.json() : [])
-        .then(d => { if (Array.isArray(d)) setSupportThreads(d); })
-        .catch(() => {});
-      fetch("/api/admin/support/unread-count", { credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => d && setSupportUnread(d.count ?? 0))
-        .catch(() => {});
-      // Operational alerts (OpenRouter outage etc.) — same poll cadence
-      // as support so admins notice an outage within ~15s.
-      fetch("/api/admin/alerts?resolved=false&limit=1", { credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => d && setUnresolvedAlertsCount(Number(d.unresolvedCount ?? 0)))
-        .catch(() => {});
+      return Promise.all([
+        fetch("/api/admin/support/threads", { credentials: "include" })
+          .then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (Array.isArray(d)) setSupportThreads(d as SupportThread[]);
+          }),
+        fetch("/api/admin/support/unread-count", { credentials: "include" })
+          .then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (d) setSupportUnread(Number(d.count ?? 0));
+          }),
+        // Operational alerts (OpenRouter outage etc.) — same poll cadence
+        // as support so admins notice an outage within ~15s.
+        fetch("/api/admin/alerts?resolved=false&limit=1", { credentials: "include" })
+          .then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (d) setUnresolvedAlertsCount(Number(d.unresolvedCount ?? 0));
+          }),
+      ])
+        .then(() => { onStreamSuccess("support"); setSupportError(null); })
+        .catch(err => {
+          onStreamFailure("support", err);
+          setSupportError(extractServerError(err) ?? (err as { message?: string } | null)?.message ?? "تعذّر تحميل المحادثات");
+        })
+        .finally(() => setSupportInitialLoading(false));
     };
     const fetchLiveUsers = () => {
       fetch("/api/admin/live-users", { credentials: "include" })
-        .then(r => r.ok ? r.json() : [])
-        .then(d => { if (Array.isArray(d)) setLiveUsersList(d); })
-        .catch(() => {});
+        .then(async r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const d = await r.json();
+          if (Array.isArray(d)) setLiveUsersList(d as LiveUser[]);
+          onStreamSuccess("live");
+        })
+        .catch(err => onStreamFailure("live", err));
     };
     fetchSupportData();
     fetchLiveUsers();
     const interval = setInterval(() => { fetchSupportData(); fetchLiveUsers(); }, 15000);
     return () => clearInterval(interval);
-  }, [user?.role]);
+  }, [user?.role, toast]);
 
   const handleSupportReply = async (userId: number, subject: string) => {
     if (!replyMessage.trim()) return;
     setIsSendingReply(true);
     try {
-      await fetch("/api/admin/support/reply", {
+      const replyRes = await fetch("/api/admin/support/reply", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, subject, message: replyMessage.trim() }),
       });
+      if (!replyRes.ok) {
+        let serverMsg: string | null = null;
+        try {
+          const errBody = await replyRes.json();
+          serverMsg = typeof errBody?.error === "string"
+            ? errBody.error
+            : typeof errBody?.message === "string"
+              ? errBody.message
+              : null;
+        } catch {}
+        throw new Error(serverMsg ?? `HTTP ${replyRes.status}`);
+      }
       setReplyMessage("");
       toast({ title: "تم الرد", description: "تم إرسال الرد بنجاح", className: "bg-emerald-600 border-none text-white" });
-      const res = await fetch("/api/admin/support/threads", { credentials: "include" });
-      if (res.ok) {
+      try {
+        const res = await fetch("/api/admin/support/threads", { credentials: "include" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        setSupportThreads(data);
-        const updated = data.find((t: any) => t.userId === userId);
-        if (updated) setSelectedThread(updated);
+        if (Array.isArray(data)) {
+          const threads = data as SupportThread[];
+          setSupportThreads(threads);
+          const updated = threads.find(t => t.userId === userId);
+          if (updated) setSelectedThread(updated);
+        }
+      } catch (refreshErr) {
+        toastServerError(refreshErr, "تم الإرسال ولكن تعذّر تحديث المحادثات");
       }
-      fetch("/api/admin/support/unread-count", { credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => d && setSupportUnread(d.count ?? 0))
-        .catch(() => {});
-    } catch {}
-    setIsSendingReply(false);
+      try {
+        const r = await fetch("/api/admin/support/unread-count", { credentials: "include" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        if (d) setSupportUnread(Number(d.count ?? 0));
+      } catch (unreadErr) {
+        toastServerError(unreadErr, "تعذّر تحديث عدد الرسائل غير المقروءة");
+      }
+    } catch (err) {
+      toastServerError(err, "تعذّر إرسال الرد");
+    } finally {
+      setIsSendingReply(false);
+    }
   };
 
-  const { data: stats, refetch: refetchStats } = useGetAdminStats();
-  const { data: requests, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
-  const { data: cards, refetch: refetchCards } = useGetActivationCards();
-  const { data: allUsers, refetch: refetchUsers } = useGetAdminUsers();
+  const { data: statsRaw, isLoading: statsLoading, isError: statsError, error: statsErrorObj, refetch: refetchStats } = useGetAdminStats();
+  const { data: requestsRaw, isLoading: requestsLoading, isError: requestsError, error: requestsErrorObj, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
+  const { data: cardsRaw, isLoading: cardsLoading, isError: cardsError, error: cardsErrorObj, refetch: refetchCards } = useGetActivationCards();
+  const { data: allUsersRaw, isLoading: usersLoading, isError: usersError, error: usersErrorObj, refetch: refetchUsers } = useGetAdminUsers();
+  const stats = statsRaw as AdminStatsRow | undefined;
+  const requests: AdminRequestRow[] = Array.isArray(requestsRaw) ? (requestsRaw as AdminRequestRow[]) : [];
+  const cards = Array.isArray(cardsRaw) ? cardsRaw : [];
+  const allUsers: AdminUserRow[] = Array.isArray(allUsersRaw) ? (allUsersRaw as AdminUserRow[]) : [];
 
   const approveMutation = useApproveSubscriptionRequest();
   const rejectMutation = useRejectSubscriptionRequest();
@@ -193,12 +393,12 @@ export default function Admin() {
     gold: <Gem className="w-3.5 h-3.5 text-gold" />,
   };
 
-  const pendingCount = requests?.filter((r: any) => r.status === 'pending').length ?? 0;
-  const filteredRequests = filterStatus === 'all'
+  const pendingCount = requests.filter(r => r.status === 'pending').length;
+  const filteredRequests: AdminRequestRow[] = filterStatus === 'all'
     ? requests
-    : requests?.filter((r: any) => r.status === filterStatus);
+    : requests.filter(r => r.status === filterStatus);
 
-  const filteredUsers = allUsers?.filter((u: any) => {
+  const filteredUsers: AdminUserRow[] = allUsers.filter(u => {
     if (!userSearch.trim()) return true;
     const q = userSearch.toLowerCase();
     return (
@@ -214,43 +414,33 @@ export default function Admin() {
     refetchStats();
   };
 
-  // Pulls the server's Arabic error message out of an ApiError / axios / fetch
-  // failure so the admin sees WHY the action failed (instead of a generic
-  // toast that hides the real cause and makes diagnosis impossible).
-  // Checks BOTH common shapes:
-  //   - orval/customFetch:  err.data.{error|message}
-  //   - axios:              err.response.data.{error|message}
-  // Falls back to err.message only as a last resort because ApiError prefixes
-  // it with "HTTP <status> <statusText>:" which buries the Arabic reason.
-  const extractServerError = (err: any): string | null => {
-    const candidates: any[] = [err?.data, err?.response?.data];
+  // Extract a server-supplied Arabic error from orval/axios/fetch errors.
+  const extractServerError = (err: unknown): string | null => {
+    const e = err as { data?: { error?: unknown; message?: unknown }; response?: { data?: { error?: unknown; message?: unknown } }; message?: unknown } | null | undefined;
+    const candidates = [e?.data, e?.response?.data];
     for (const data of candidates) {
-      if (typeof data?.error === "string" && data.error.trim()) return data.error.trim();
-      if (typeof data?.message === "string" && data.message.trim()) return data.message.trim();
+      const errVal = data?.error;
+      if (typeof errVal === "string" && errVal.trim()) return errVal.trim();
+      const msgVal = data?.message;
+      if (typeof msgVal === "string" && msgVal.trim()) return msgVal.trim();
     }
-    if (typeof err?.message === "string" && err.message.trim() && err.message !== "Network Error") {
-      // Strip the "HTTP <status> <text>:" prefix that customFetch adds, so
-      // the admin sees the clean Arabic reason without the boilerplate.
-      const cleaned = err.message.replace(/^HTTP\s+\d+\s+[^:]+:\s*/i, "").trim();
-      return cleaned || err.message;
+    const m = e?.message;
+    if (typeof m === "string" && m.trim() && m !== "Network Error") {
+      const cleaned = m.replace(/^HTTP\s+\d+\s+[^:]+:\s*/i, "").trim();
+      return cleaned || m;
     }
     return null;
   };
 
-  const handleApprove = async (req: any) => {
+  const handleApprove = async (req: AdminRequestRow) => {
     try {
       await approveMutation.mutateAsync({ id: req.id });
       toast({ title: "تم تفعيل الاشتراك مباشرة", className: "bg-emerald-600 text-white border-none" });
-      setApprovedUser({ planType: req.planType, userName: req.userName || req.userEmail });
+      setApprovedUser({ planType: req.planType, userName: req.userName ?? req.userEmail ?? "—" });
       invalidateAll();
       refetchCards();
-    } catch (err: any) {
-      const serverMsg = extractServerError(err);
-      toast({
-        variant: "destructive",
-        title: "حدث خطأ أثناء القبول",
-        description: serverMsg ?? "تعذّر إكمال العملية. تحقق من الاتصال أو حاول مرة أخرى.",
-      });
+    } catch (err) {
+      toastServerError(err, "حدث خطأ أثناء القبول");
     }
   };
 
@@ -259,19 +449,23 @@ export default function Admin() {
       await rejectMutation.mutateAsync({ id });
       toast({ title: "تم رفض الطلب" });
       invalidateAll();
-    } catch (err: any) {
-      const serverMsg = extractServerError(err);
-      toast({
-        variant: "destructive",
-        title: "حدث خطأ",
-        description: serverMsg ?? "تعذّر إكمال العملية.",
-      });
+    } catch (err) {
+      toastServerError(err, "تعذّر رفض الطلب");
     }
   };
 
-  const handleIncompleteOpen = (req: any) => {
-    setIncompleteTarget({ id: req.id, userName: req.userName || req.userEmail });
+  const handleIncompleteOpen = (req: AdminRequestRow) => {
+    setIncompleteTarget({ id: req.id, userName: req.userName ?? req.userEmail ?? "—" });
     setIncompleteNote("");
+  };
+
+  const toastServerError = (err: unknown, title: string) => {
+    const msg = extractServerError(err) ?? (err as { message?: string } | null)?.message ?? null;
+    toast({
+      variant: "destructive",
+      title,
+      description: msg ?? "تعذّر إكمال العملية. تحقق من الاتصال وأعد المحاولة.",
+    });
   };
 
   const handleIncompleteSubmit = async () => {
@@ -285,8 +479,8 @@ export default function Admin() {
       setIncompleteTarget(null);
       setIncompleteNote("");
       invalidateAll();
-    } catch {
-      toast({ variant: "destructive", title: "حدث خطأ" });
+    } catch (err) {
+      toastServerError(err, "تعذّر إرسال الإشعار");
     }
   };
 
@@ -299,12 +493,20 @@ export default function Admin() {
       setCancelTarget(null);
       queryClient.invalidateQueries({ queryKey: getGetAdminUsersQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
-      // Cancel also wipes per-subject subs server-side; clear local cache too
       setUserSubjectSubs(prev => ({ ...prev, [cancelledUserId]: [] }));
-      setAllSubjectSubs(prev => prev?.filter((s: any) => s.userId !== cancelledUserId) ?? null);
-    } catch {
-      toast({ variant: "destructive", title: "حدث خطأ أثناء الإلغاء" });
+      setAllSubjectSubs(prev => prev?.filter(s => s.userId !== cancelledUserId) ?? null);
+    } catch (err) {
+      toastServerError(err, "تعذّر إلغاء الاشتراك");
     }
+  };
+
+  const resetCreateCardForm = () => {
+    setCreatedCard(null);
+    setNewCardSubjectId("");
+    setNewCardSubjectName("");
+    setCardSubjectSearch("");
+    setShowCardSubjectPicker(false);
+    setNewCardPlan("silver");
   };
 
   const handleCreateCard = async () => {
@@ -316,12 +518,12 @@ export default function Admin() {
         credentials: 'include',
         body: JSON.stringify({ planType: newCardPlan, subjectId: newCardSubjectId, subjectName: newCardSubjectName }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${res.status}`);
       setCreatedCard({ code: data.activationCode, planType: data.planType });
       refetchCards();
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر إنشاء البطاقة");
     } finally {
       setIsCreatingCard(false);
     }
@@ -337,16 +539,52 @@ export default function Admin() {
     toast({ title: "تم التحديث", className: "bg-black border-white/10 text-white" });
   };
 
+  // Loading/error banner for the per-tab queries. Returns null on success.
+  const renderQueryStatus = (opts: {
+    isLoading: boolean;
+    isError: boolean;
+    error?: unknown;
+    onRetry: () => void;
+    label: string;
+  }) => {
+    if (opts.isLoading) {
+      return (
+        <div className="glass rounded-2xl border-white/5 p-4 mb-3 flex items-center gap-3 text-muted-foreground text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          جاري تحميل {opts.label}...
+        </div>
+      );
+    }
+    if (opts.isError) {
+      const msg = extractServerError(opts.error) ?? (opts.error as { message?: string } | undefined)?.message ?? "تعذّر التحميل";
+      return (
+        <div className="glass rounded-2xl border border-red-500/30 bg-red-500/5 p-4 mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-red-200 text-sm">
+            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <span>فشل تحميل {opts.label}: {msg}</span>
+          </div>
+          <Button size="sm" variant="outline" className="border-red-400/40 text-red-200 hover:bg-red-500/10" onClick={opts.onRetry}>
+            إعادة المحاولة
+          </Button>
+        </div>
+      );
+    }
+    return null;
+  };
+
   const loadUserSubjectSubs = async (userId: number) => {
     if (userSubjectSubs[userId]) return;
     try {
       const r = await fetch(`/api/admin/subject-subscriptions/${userId}`, { credentials: "include" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error ?? body?.message ?? `HTTP ${r.status}`);
+      }
       const data = await r.json();
       setUserSubjectSubs(prev => ({ ...prev, [userId]: Array.isArray(data) ? data : [] }));
-    } catch {
+    } catch (err) {
       setUserSubjectSubs(prev => ({ ...prev, [userId]: [] }));
-      toast({ variant: "destructive", title: "تعذّر تحميل اشتراكات المستخدم" });
+      toastServerError(err, "تعذّر تحميل اشتراكات المستخدم");
     }
   };
 
@@ -374,26 +612,26 @@ export default function Admin() {
           region: grantRegion,
         }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${r.status}`);
       toast({ title: "تم منح الاشتراك بنجاح", className: "bg-emerald-600 text-white border-none" });
       const targetUserId = grantTarget.userId;
       setGrantTarget(null);
       setGrantSubjectId("");
       setGrantSubjectName("");
-      // Force refetch user's subject subs
       try {
         const r2 = await fetch(`/api/admin/subject-subscriptions/${targetUserId}`, { credentials: "include" });
-        if (r2.ok) {
-          const data = await r2.json();
-          setUserSubjectSubs(prev => ({ ...prev, [targetUserId]: data }));
-        }
-      } catch {}
-      // Keep stats and the global subscriptions tab in sync
+        if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+        const data = await r2.json();
+        setUserSubjectSubs(prev => ({ ...prev, [targetUserId]: Array.isArray(data) ? data as SubjectSub[] : [] }));
+      } catch (refreshErr) {
+        console.error("[admin] post-grant refetch failed", refreshErr);
+        toastServerError(refreshErr, "تم المنح ولكن تعذّر تحديث القائمة");
+      }
       queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
       if (allSubjectSubs !== null) loadAllSubjectSubs();
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر منح الاشتراك");
     } finally {
       setIsGranting(false);
     }
@@ -405,27 +643,46 @@ export default function Admin() {
         method: "DELETE",
         credentials: "include",
       });
-      if (!r.ok) throw new Error((await r.json()).error);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error ?? body?.message ?? `HTTP ${r.status}`);
+      }
       toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
       setUserSubjectSubs(prev => ({
         ...prev,
         [userId]: (prev[userId] ?? []).filter(s => s.id !== subId),
       }));
-      setAllSubjectSubs(prev => prev?.filter((s: any) => s.id !== subId) ?? null);
+      setAllSubjectSubs(prev => prev?.filter(s => s.id !== subId) ?? null);
       queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر إلغاء الاشتراك");
     }
   };
 
   const loadAllSubjectSubs = async () => {
     setIsLoadingAllSubs(true);
+    setAllSubsError(null);
     try {
       const r = await fetch("/api/admin/all-subject-subscriptions", { credentials: "include" });
+      if (!r.ok) {
+        let serverMsg: string | null = null;
+        try {
+          const errBody = await r.json();
+          serverMsg = typeof errBody?.error === "string"
+            ? errBody.error
+            : typeof errBody?.message === "string"
+              ? errBody.message
+              : null;
+        } catch {}
+        throw new Error(serverMsg ?? `HTTP ${r.status}`);
+      }
       const data = await r.json();
-      setAllSubjectSubs(Array.isArray(data) ? data : []);
-    } catch {
-      setAllSubjectSubs([]);
+      setAllSubjectSubs(Array.isArray(data) ? data as SubjectSub[] : []);
+    } catch (err) {
+      const msg = extractServerError(err) ?? (err as { message?: string } | null)?.message ?? "تعذّر تحميل اشتراكات المواد.";
+      setAllSubsError(msg);
+      setAllSubjectSubs(null);
+      toastServerError(err, "فشل تحميل اشتراكات المواد");
     } finally {
       setIsLoadingAllSubs(false);
     }
@@ -441,15 +698,56 @@ export default function Admin() {
         credentials: "include",
         body: JSON.stringify({ days: extendDays }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${r.status}`);
       toast({ title: `تم تمديد الاشتراك ${extendDays} يوماً`, className: "bg-emerald-600 text-white border-none" });
       setExtendDialog(null);
       loadAllSubjectSubs();
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر تمديد الاشتراك");
     } finally {
       setIsExtending(false);
+    }
+  };
+
+  const handleGemAdjust = async () => {
+    if (!gemAdjustDialog) return;
+    const delta = parseInt(gemAdjustDelta, 10);
+    if (!Number.isFinite(delta) || delta === 0) {
+      toast({ variant: "destructive", title: "أدخل رقماً غير صفر (موجب للمنح، سالب للسحب)" });
+      return;
+    }
+    if (Math.abs(delta) > 100000) {
+      toast({ variant: "destructive", title: "الحد الأقصى لكل عملية ١٠٠٬٠٠٠ جوهرة" });
+      return;
+    }
+    const reason = gemAdjustReason.trim();
+    if (reason.length < 3) {
+      toast({ variant: "destructive", title: "السبب إلزامي (٣ أحرف على الأقل)" });
+      return;
+    }
+    setIsGemAdjusting(true);
+    try {
+      const r = await fetch(`/api/admin/subject-subscriptions/${gemAdjustDialog.subId}/refund-gems`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ delta, reason }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error ?? data?.message ?? "فشلت العملية");
+      toast({
+        title: delta > 0 ? `تم منح ${delta.toLocaleString("ar-EG")} جوهرة` : `تم سحب ${Math.abs(delta).toLocaleString("ar-EG")} جوهرة`,
+        className: "bg-emerald-600 text-white border-none",
+      });
+      setGemAdjustDialog(null);
+      setGemAdjustDelta("");
+      setGemAdjustReason("");
+      if (allSubjectSubs !== null) loadAllSubjectSubs();
+    } catch (err) {
+      toastServerError(err, "تعذّر تعديل الجواهر");
+    } finally {
+      setIsGemAdjusting(false);
     }
   };
 
@@ -459,11 +757,14 @@ export default function Admin() {
         method: "DELETE",
         credentials: "include",
       });
-      if (!r.ok) throw new Error((await r.json()).error);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error ?? body?.message ?? `HTTP ${r.status}`);
+      }
       toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
       setAllSubjectSubs(prev => prev ? prev.filter(s => s.id !== subId) : prev);
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر إلغاء الاشتراك");
     }
   };
 
@@ -520,6 +821,7 @@ export default function Admin() {
           </Button>
         </div>
 
+        {renderQueryStatus({ isLoading: statsLoading && !stats, isError: statsError, error: statsErrorObj, onRetry: () => refetchStats(), label: "الإحصائيات" })}
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="glass p-6 rounded-2xl border-white/5 flex items-center gap-4">
@@ -550,14 +852,14 @@ export default function Admin() {
           </div>
         </div>
 
-        {(stats?.recentlyExpiredSubscriptions ?? 0) > 0 && (
+        {((stats?.recentlyExpiredSubscriptions ?? 0) > 0) && (
           <div className="mb-6 rounded-2xl border-2 border-red-500/30 bg-red-500/5 p-4 flex items-center gap-4">
             <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0">
               <AlertTriangle className="w-5 h-5 text-red-400" />
             </div>
             <div className="flex-1">
               <p className="font-bold text-red-300 text-sm">اشتراكات منتهية مؤخراً</p>
-              <p className="text-xs text-red-200/60">{stats.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
+              <p className="text-xs text-red-200/60">{stats?.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
             </div>
           </div>
         )}
@@ -634,6 +936,10 @@ export default function Admin() {
               <CreditCard className="w-3.5 h-3.5 text-gold" />
               أسعار الباقات
             </TabsTrigger>
+            <TabsTrigger value="exchange-rates" className="flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+              أسعار الصرف
+            </TabsTrigger>
             <TabsTrigger value="ai-insights" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/15 to-purple-500/10 data-[state=active]:from-amber-500/30 data-[state=active]:to-purple-500/20 data-[state=active]:border-amber-400/40">
               <Brain className="w-3.5 h-3.5" />
               مساعد ذكي
@@ -659,6 +965,14 @@ export default function Admin() {
                   {unresolvedAlertsCount > 99 ? "99+" : unresolvedAlertsCount}
                 </span>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="gem-ledger" className="flex items-center gap-1.5">
+              <Gem className="w-3.5 h-3.5 text-emerald-400" />
+              سجل الجواهر
+            </TabsTrigger>
+            <TabsTrigger value="payment-settings" className="flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5 text-gold" />
+              إعدادات الدفع
             </TabsTrigger>
           </TabsList>
 
@@ -701,6 +1015,7 @@ export default function Admin() {
               ))}
             </div>
 
+            {renderQueryStatus({ isLoading: requestsLoading, isError: requestsError, error: requestsErrorObj, onRetry: () => refetchRequests(), label: "الطلبات" })}
             <div className="glass rounded-3xl border-white/5 overflow-hidden">
               <Table>
                 <TableHeader className="bg-black/40">
@@ -723,7 +1038,7 @@ export default function Admin() {
                         {filterStatus === 'pending' ? 'لا توجد طلبات معلقة 🎉' : 'لا توجد طلبات'}
                       </TableCell>
                     </TableRow>
-                  ) : filteredRequests.map((req: any) => (
+                  ) : filteredRequests.map((req) => (
                     <TableRow
                       key={req.id}
                       className={`border-white/5 transition-colors ${
@@ -740,16 +1055,16 @@ export default function Admin() {
                         <Badge variant="outline" className="border-gold text-gold text-xs">
                           {planLabels[req.planType] || req.planType}
                         </Badge>
-                        {(req as any).discountCode && (
+                        {req.discountCode && (
                           <div className="mt-1 flex items-center gap-1 flex-wrap">
                             <Badge variant="outline" className="border-purple-500/40 text-purple-300 text-[10px] font-mono">
-                              {(req as any).discountCode} −{(req as any).discountPercent}%
+                              {req.discountCode} −{req.discountPercent}%
                             </Badge>
-                            {(req as any).finalPrice != null && (req as any).basePrice != null && (
+                            {req.finalPrice != null && req.basePrice != null && (
                               <span className="text-[10px] text-emerald-400">
-                                {Number((req as any).finalPrice).toLocaleString("ar-EG")}
+                                {Number(req.finalPrice).toLocaleString("ar-EG")}
                                 <span className="text-muted-foreground line-through mr-1">
-                                  {Number((req as any).basePrice).toLocaleString("ar-EG")}
+                                  {Number(req.basePrice).toLocaleString("ar-EG")}
                                 </span>
                               </span>
                             )}
@@ -757,15 +1072,15 @@ export default function Admin() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {(req as any).subjectName ? (
+                        {req.subjectName ? (
                           <div className="flex items-center gap-1.5">
                             <BookOpen className="w-3.5 h-3.5 text-gold shrink-0" />
-                            <span className="text-xs font-medium">{(req as any).subjectName}</span>
+                            <span className="text-xs font-medium">{req.subjectName}</span>
                           </div>
-                        ) : (req as any).subjectId && (req as any).subjectId !== 'all' ? (
+                        ) : req.subjectId && req.subjectId !== 'all' ? (
                           <div className="flex items-center gap-1.5">
                             <BookOpen className="w-3.5 h-3.5 text-gold shrink-0" />
-                            <code className="text-xs font-mono text-muted-foreground">{(req as any).subjectId}</code>
+                            <code className="text-xs font-mono text-muted-foreground">{req.subjectId}</code>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1 text-yellow-400">
@@ -778,11 +1093,11 @@ export default function Admin() {
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <span className="text-sm font-medium text-foreground">
-                            {(req as any).accountName || '—'}
+                            {req.accountName || '—'}
                           </span>
-                          {(req as any).accountName && (
+                          {req.accountName && (
                             <button
-                              onClick={() => copyCode((req as any).accountName)}
+                              onClick={() => copyCode(req.accountName)}
                               className="text-muted-foreground hover:text-gold transition-colors"
                             >
                               <Copy className="w-3 h-3" />
@@ -792,13 +1107,13 @@ export default function Admin() {
                       </TableCell>
                       <TableCell>
                         <div className="text-xs text-muted-foreground max-w-[140px]">
-                          {(req as any).adminNote
-                            ? <span className="text-orange-400 font-medium">{(req as any).adminNote}</span>
-                            : (req as any).notes || '—'}
+                          {req.adminNote
+                            ? <span className="text-orange-400 font-medium">{req.adminNote}</span>
+                            : req.notes || '—'}
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {req.createdAt ? new Date(req.createdAt).toLocaleDateString('ar-YE') : '-'}
+                        {formatDateSafe(req.createdAt)}
                       </TableCell>
                       <TableCell>
                         {req.status === 'pending' && <Badge className="bg-orange-500/20 text-orange-400 border-0">معلق</Badge>}
@@ -866,6 +1181,7 @@ export default function Admin() {
               </div>
             </div>
 
+            {renderQueryStatus({ isLoading: usersLoading, isError: usersError, error: usersErrorObj, onRetry: () => refetchUsers(), label: "المستخدمين" })}
             <div className="glass rounded-3xl border-white/5 overflow-hidden">
               <Table>
                 <TableHeader className="bg-black/40">
@@ -890,7 +1206,7 @@ export default function Admin() {
                         {userSearch ? 'لا توجد نتائج' : 'لا يوجد مستخدمون'}
                       </TableCell>
                     </TableRow>
-                  ) : filteredUsers.map((u: any) => {
+                  ) : filteredUsers.map((u) => {
                     return (
                     <React.Fragment key={u.id}>
                     <TableRow className="border-white/5 hover:bg-white/3">
@@ -929,8 +1245,8 @@ export default function Admin() {
                         <div className="text-xs space-y-0.5">
                           <div className="text-muted-foreground">نقاط: <span className="text-foreground font-medium">{u.points}</span></div>
                           <div className="text-muted-foreground">تتابع: <span className="text-foreground font-medium">{u.streakDays} يوم</span></div>
-                          {u.lastActive && (
-                            <div className="text-muted-foreground">آخر نشاط: <span className="text-foreground">{new Date(u.lastActive).toLocaleDateString('ar-YE')}</span></div>
+                          {u.lastActive && parseDateOrNull(u.lastActive) && (
+                            <div className="text-muted-foreground">آخر نشاط: <span className="text-foreground">{formatDateSafe(u.lastActive)}</span></div>
                           )}
                           {u.firstLessonComplete && (
                             <Badge className="bg-emerald-500/10 text-emerald-400 border-0 text-xs">أكمل الدرس الأول</Badge>
@@ -951,7 +1267,7 @@ export default function Admin() {
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString('ar-YE') : '—'}
+                        {formatDateSafe(u.createdAt)}
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex flex-col gap-1.5 items-center">
@@ -1007,15 +1323,28 @@ export default function Admin() {
                             <p className="text-xs text-muted-foreground">لا توجد اشتراكات مواد لهذا المستخدم</p>
                           ) : (
                             <div className="flex flex-wrap gap-2">
-                              {userSubjectSubs[u.id].map((s: any) => {
-                                const isActive = new Date(s.expiresAt) > new Date() && s.messagesUsed < s.messagesLimit;
+                              {userSubjectSubs[u.id].map((s) => {
+                                const expiresAt = parseDateOrNull(s.expiresAt);
+                                // If the timestamp is malformed treat the
+                                // sub as expired rather than crashing the
+                                // row or — worse — defaulting to "active"
+                                // and inflating the balance summary.
+                                const isActive = !!expiresAt && expiresAt > new Date() && (
+                                  typeof s.gemsBalance === "number"
+                                    ? s.gemsBalance > 0
+                                    : s.messagesUsed < s.messagesLimit
+                                );
                                 return (
                                   <div key={s.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs ${isActive ? "border-gold/30 bg-gold/5" : "border-white/10 bg-white/3 opacity-60"}`}>
                                     <span className="font-medium">{s.subjectName ?? s.subjectId}</span>
                                     <span className={`font-bold ${s.plan === "gold" ? "text-gold" : s.plan === "silver" ? "text-slate-300" : "text-orange-400"}`}>
                                       {planLabels[s.plan] ?? s.plan}
                                     </span>
-                                    <span className="text-muted-foreground">{s.messagesLimit - s.messagesUsed}/{s.messagesLimit}</span>
+                                    <span className="text-muted-foreground">{
+                                      typeof s.gemsBalance === "number"
+                                        ? `${Math.max(0, s.gemsBalance)} 💎`
+                                        : `${s.messagesLimit - s.messagesUsed}/${s.messagesLimit}`
+                                    }</span>
                                     {!isActive && <span className="text-red-400">منتهي</span>}
                                     <button
                                       className="text-red-400 hover:text-red-300 ml-1"
@@ -1064,7 +1393,17 @@ export default function Admin() {
               </Button>
             </div>
 
-            {allSubjectSubs === null ? (
+            {allSubsError ? (
+              <div className="text-center py-16 rounded-3xl border border-red-500/20 bg-red-500/5">
+                <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
+                <p className="font-bold text-red-300 mb-2">تعذّر تحميل اشتراكات المواد</p>
+                <p className="text-xs text-muted-foreground mb-4">{allSubsError}</p>
+                <Button size="sm" variant="outline" className="border-red-500/30 text-red-300 hover:bg-red-500/10 gap-2" onClick={loadAllSubjectSubs} disabled={isLoadingAllSubs}>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAllSubs ? 'animate-spin' : ''}`} />
+                  أعد المحاولة
+                </Button>
+              </div>
+            ) : allSubjectSubs === null ? (
               <div className="text-center py-16 text-muted-foreground">جاري تحميل الاشتراكات...</div>
             ) : (
               <div className="glass rounded-3xl border-white/5 overflow-hidden">
@@ -1087,10 +1426,35 @@ export default function Admin() {
                       </TableRow>
                     ) : filteredAllSubs.map(s => {
                       const now = new Date();
-                      const isExpired = new Date(s.expiresAt) < now;
-                      const isExhausted = s.messagesUsed >= s.messagesLimit;
-                      const statusLabel = s.status === "active" ? "نشط" : s.status === "expired" ? "منتهي" : "مُستنفد";
-                      const statusColor = s.status === "active" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-muted-foreground bg-white/5 border-white/10";
+                      const expiresAt = parseDateOrNull(s.expiresAt);
+                      // Malformed expiresAt → treat as expired so the row
+                      // surfaces clearly instead of silently defaulting to
+                      // "active" with a stale wallet underneath.
+                      const isExpired = !expiresAt || expiresAt < now;
+                      // The gems-based wallet is the source of truth: a sub
+                      // is "exhausted" when its gemsBalance hits zero, not
+                      // when the legacy messagesUsed counter was bumped
+                      // (which the gems system doesn't update).
+                      const isExhausted = typeof s.gemsBalance === "number"
+                        ? s.gemsBalance <= 0
+                        : s.messagesUsed >= s.messagesLimit;
+                      // Derive the visible status from the SAME signals
+                      // the student-side gating uses (expiresAt + gem
+                      // balance), not the legacy `s.status` column which
+                      // isn't kept in sync once a sub silently runs out
+                      // of gems mid-window. Order: expired beats
+                      // exhausted (a row that's both gets the more
+                      // informative "منتهي" label).
+                      const statusLabel = isExpired
+                        ? "منتهي"
+                        : isExhausted
+                          ? "مُستنفد"
+                          : "نشط";
+                      const statusColor = (!isExpired && !isExhausted)
+                        ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                        : isExpired
+                          ? "text-red-400 bg-red-500/10 border-red-500/20"
+                          : "text-amber-300 bg-amber-500/10 border-amber-500/20";
                       return (
                         <TableRow key={s.id} className="border-white/5 hover:bg-white/3">
                           <TableCell>
@@ -1111,11 +1475,25 @@ export default function Admin() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            <span className="text-sm font-bold">{s.messagesLimit - s.messagesUsed}</span>
-                            <span className="text-xs text-muted-foreground"> / {s.messagesLimit}</span>
+                            {/* Display the gem wallet balance — what AI usage
+                                actually decrements. The legacy
+                                messagesLimit-messagesUsed pair is left
+                                untouched by the gems flow so showing it would
+                                falsely report "full". */}
+                            {typeof s.gemsBalance === "number" ? (
+                              <>
+                                <span className="text-sm font-bold">{Math.max(0, s.gemsBalance)}</span>
+                                <span className="text-xs text-muted-foreground"> 💎 (يومياً {s.gemsDailyLimit ?? 0})</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-sm font-bold">{s.messagesLimit - s.messagesUsed}</span>
+                                <span className="text-xs text-muted-foreground"> / {s.messagesLimit}</span>
+                              </>
+                            )}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
-                            {new Date(s.expiresAt).toLocaleDateString("ar-YE")}
+                            {formatDateSafe(s.expiresAt)}
                           </TableCell>
                           <TableCell>
                             <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${statusColor}`}>
@@ -1123,14 +1501,29 @@ export default function Admin() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            <div className="flex gap-1.5 justify-center">
+                            <div className="flex gap-1.5 justify-center flex-wrap">
                               <Button
                                 size="sm"
                                 className="h-7 text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 gap-1"
-                                onClick={() => setExtendDialog({ subId: s.id, userName: s.userName ?? s.userEmail, subjectName: s.subjectName ?? s.subjectId })}
+                                onClick={() => setExtendDialog({ subId: s.id, userName: s.userName ?? s.userEmail ?? "—", subjectName: s.subjectName ?? s.subjectId })}
                               >
                                 <CalendarDays className="w-3 h-3" />
                                 تمديد
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 gap-1"
+                                onClick={() => setGemAdjustDialog({
+                                  subId: s.id,
+                                  userName: s.userName ?? s.userEmail ?? "—",
+                                  subjectName: s.subjectName ?? s.subjectId,
+                                  // Backend shape uses gemsBalance / messagesLimit interchangeably during the migration window.
+                                  currentBalance: typeof s.gemsBalance === "number" ? s.gemsBalance : Math.max(0, (s.messagesLimit ?? 0) - (s.messagesUsed ?? 0)),
+                                })}
+                                title="منح أو سحب جواهر — يُسجَّل في سجل الجواهر"
+                              >
+                                <Gem className="w-3 h-3" />
+                                جواهر
                               </Button>
                               <Button
                                 size="sm"
@@ -1157,13 +1550,14 @@ export default function Admin() {
               <p className="text-sm text-muted-foreground">إجمالي البطاقات: {cards?.length ?? 0}</p>
               <Button
                 className="gradient-gold text-primary-foreground gap-2 h-9"
-                onClick={() => { setShowCreateCard(true); setCreatedCard(null); setNewCardSubjectId(""); setNewCardSubjectName(""); setCardSubjectSearch(""); setShowCardSubjectPicker(false); }}
+                onClick={() => { resetCreateCardForm(); setShowCreateCard(true); }}
               >
                 <Plus className="w-4 h-4" />
                 إنشاء بطاقة جديدة
               </Button>
             </div>
 
+            {renderQueryStatus({ isLoading: cardsLoading, isError: cardsError, error: cardsErrorObj, onRetry: () => refetchCards(), label: "البطاقات" })}
             <div className="glass rounded-3xl border-white/5 overflow-hidden">
               <Table>
                 <TableHeader className="bg-black/40">
@@ -1178,7 +1572,7 @@ export default function Admin() {
                 <TableBody>
                   {!cards?.length ? (
                     <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">لا توجد بطاقات</TableCell></TableRow>
-                  ) : cards.map((card: any) => (
+                  ) : cards.map((card) => (
                     <TableRow key={card.id} className="border-white/5">
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -1196,8 +1590,8 @@ export default function Admin() {
                           ? <Badge className="bg-slate-500/20 text-slate-400 border-0">مستخدمة</Badge>
                           : <Badge className="bg-emerald-500/20 text-emerald-400 border-0">متاحة</Badge>}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{card.expiresAt ? new Date(card.expiresAt).toLocaleDateString('ar-YE') : 'لا يوجد'}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{card.usedAt ? new Date(card.usedAt).toLocaleDateString('ar-YE') : '—'}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDateSafe(card.expiresAt, { fallback: 'لا يوجد' })}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDateSafe(card.usedAt)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1207,11 +1601,28 @@ export default function Admin() {
 
           {/* Support Messages Tab */}
           <TabsContent value="support">
+            {supportInitialLoading && supportThreads.length === 0 && (
+              <div className="glass rounded-2xl border-white/5 p-4 mb-3 flex items-center gap-3 text-muted-foreground text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                جاري تحميل المحادثات...
+              </div>
+            )}
+            {supportError && (
+              <div className="glass rounded-2xl border border-red-500/30 bg-red-500/5 p-4 mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-red-200 text-sm">
+                  <AlertTriangle className="w-4 h-4 text-red-400" />
+                  <span>فشل تحميل المحادثات: {supportError}</span>
+                </div>
+                <Button size="sm" variant="outline" className="border-red-400/40 text-red-200 hover:bg-red-500/10" onClick={() => { setSupportError(null); }}>
+                  تجاهل
+                </Button>
+              </div>
+            )}
             <div className="grid md:grid-cols-3 gap-6">
               <div className="md:col-span-1 space-y-2 max-h-[600px] overflow-y-auto">
                 <h3 className="font-bold text-sm text-muted-foreground mb-3">المحادثات ({supportThreads.length})</h3>
                 {supportThreads.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground text-sm">لا توجد رسائل بعد</div>
+                  <div className="text-center py-10 text-muted-foreground text-sm">{supportInitialLoading ? '...' : 'لا توجد رسائل بعد'}</div>
                 ) : (
                   supportThreads.map(thread => (
                     <button
@@ -1232,7 +1643,7 @@ export default function Admin() {
                       <p className="text-xs text-muted-foreground truncate">{thread.userEmail}</p>
                       <p className="text-xs text-gold/80 mt-1 truncate">{thread.lastSubject}</p>
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        {new Date(thread.lastAt).toLocaleDateString("ar-SA")} — {thread.totalMessages} رسالة
+                        {formatDateSafe(thread.lastAt, { locale: 'ar-SA' })} — {thread.totalMessages} رسالة
                       </p>
                     </button>
                   ))
@@ -1261,7 +1672,12 @@ export default function Admin() {
                     </div>
 
                     <div className="max-h-[350px] overflow-y-auto p-4 space-y-3">
-                      {[...selectedThread.messages].reverse().map((msg: any) => (
+                      {/* Defensive copy + reverse: if the server ever sends
+                          a thread without a `messages` array (truncated
+                          response, schema drift) the spread used to throw
+                          and crash the whole admin page. Falling back to
+                          an empty list keeps the rest of the UI alive. */}
+                      {(Array.isArray(selectedThread.messages) ? [...selectedThread.messages] : []).reverse().map((msg) => (
                         <div
                           key={msg.id}
                           className={`flex ${msg.isFromAdmin ? 'justify-start' : 'justify-end'}`}
@@ -1276,7 +1692,7 @@ export default function Admin() {
                                 {msg.isFromAdmin ? 'أنت (المشرف)' : msg.userName || 'المستخدم'}
                               </span>
                               <span className="text-[10px] text-muted-foreground">
-                                {new Date(msg.createdAt).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" })}
+                                {formatDateSafe(msg.createdAt, { locale: 'ar-SA', mode: 'datetime' })}
                               </span>
                             </div>
                             <p className="text-xs text-gold/80 mb-1 font-bold">{msg.subject}</p>
@@ -1318,6 +1734,11 @@ export default function Admin() {
             <AdminPlanPrices />
           </TabsContent>
 
+          {/* Exchange Rates Tab */}
+          <TabsContent value="exchange-rates">
+            <AdminExchangeRates />
+          </TabsContent>
+
           {/* AI Insights Tab */}
           <TabsContent value="ai-insights">
             <AdminInsightsChat />
@@ -1341,6 +1762,16 @@ export default function Admin() {
           {/* System Alerts Tab */}
           <TabsContent value="alerts">
             <AdminAlerts />
+          </TabsContent>
+
+          {/* Gem Ledger Tab */}
+          <TabsContent value="gem-ledger">
+            <AdminGemLedger />
+          </TabsContent>
+
+          {/* Payment Settings Tab */}
+          <TabsContent value="payment-settings">
+            <AdminPaymentSettings />
           </TabsContent>
         </Tabs>
       </div>
@@ -1538,8 +1969,76 @@ export default function Admin() {
         </DialogContent>
       </Dialog>
 
+      {/* Gem Adjust (Refund / Grant) Dialog — reason is REQUIRED for audit */}
+      <Dialog open={!!gemAdjustDialog} onOpenChange={(open) => { if (!open) { setGemAdjustDialog(null); setGemAdjustDelta(""); setGemAdjustReason(""); } }}>
+        <DialogContent className="glass border-amber-500/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <Gem className="w-5 h-5 text-amber-400" />
+            تعديل جواهر اشتراك
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              <strong className="text-foreground">{gemAdjustDialog?.userName}</strong> — مادة{" "}
+              <strong className="text-foreground">{gemAdjustDialog?.subjectName}</strong>
+            </p>
+            <div className="rounded-xl bg-black/40 border border-white/5 p-3 text-center">
+              <p className="text-[11px] text-muted-foreground">الرصيد الحالي</p>
+              <p className="text-2xl font-bold text-amber-300">
+                {(gemAdjustDialog?.currentBalance ?? 0).toLocaleString("ar-EG")} 💎
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">المقدار (موجب للمنح، سالب للسحب)</Label>
+              <Input
+                type="number"
+                placeholder="مثال: +500 أو -200"
+                className="bg-black/40 text-center text-lg font-bold"
+                value={gemAdjustDelta}
+                onChange={e => setGemAdjustDelta(e.target.value)}
+                dir="ltr"
+              />
+              <div className="flex gap-1 justify-between">
+                {[-500, -100, 100, 500, 1000].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setGemAdjustDelta(String(v))}
+                    className={`flex-1 text-[11px] py-1 rounded-md border ${v > 0 ? "border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10" : "border-red-500/30 text-red-400 hover:bg-red-500/10"}`}
+                  >
+                    {v > 0 ? `+${v}` : v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">السبب (إلزامي — يُسجَّل في سجل الجواهر)</Label>
+              <Textarea
+                placeholder="مثال: تعويض عن انقطاع خدمة في 2026-04-30"
+                className="bg-black/40 min-h-[70px]"
+                value={gemAdjustReason}
+                onChange={e => setGemAdjustReason(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                {gemAdjustReason.trim().length}/3 حرف كحد أدنى
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 gradient-gold text-primary-foreground font-bold"
+                disabled={isGemAdjusting || gemAdjustReason.trim().length < 3}
+                onClick={handleGemAdjust}
+              >
+                {isGemAdjusting ? "جاري الحفظ..." : "تأكيد"}
+              </Button>
+              <Button variant="outline" className="border-white/10" onClick={() => { setGemAdjustDialog(null); setGemAdjustDelta(""); setGemAdjustReason(""); }}>
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Create Card Dialog */}
-      <Dialog open={showCreateCard} onOpenChange={setShowCreateCard}>
+      <Dialog open={showCreateCard} onOpenChange={(open) => { setShowCreateCard(open); if (!open) resetCreateCardForm(); }}>
         <DialogContent className="glass border-white/10 max-w-sm">
           <DialogTitle className="text-lg font-bold">إنشاء بطاقة تفعيل جديدة</DialogTitle>
           {createdCard ? (
@@ -1554,7 +2053,7 @@ export default function Admin() {
                   <Copy className="w-4 h-4" />
                 </button>
               </div>
-              <Button className="w-full" variant="outline" onClick={() => { setShowCreateCard(false); setCreatedCard(null); }}>
+              <Button className="w-full" variant="outline" onClick={() => { setShowCreateCard(false); resetCreateCardForm(); }}>
                 إغلاق
               </Button>
             </div>

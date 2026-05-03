@@ -12,6 +12,7 @@ import labReportsRouter from "./lab_reports";
 import { adminInsightsRouter } from "./admin_insights";
 import materialsRouter from "./materials";
 import aiUsageRouter from "./ai_usage";
+import voiceRouter from "./voice";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(labReportsRouter);
 router.use(adminInsightsRouter);
 router.use(materialsRouter);
 router.use(aiUsageRouter);
+router.use(voiceRouter);
 
 export default router;

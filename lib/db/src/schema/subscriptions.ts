@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, uniqueIndex, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -26,6 +26,12 @@ export const subscriptionRequestsTable = pgTable("subscription_requests", {
 });
 
 // ── Discount codes (admin-managed promo codes) ────────────────────────────────
+// `maxUses`: total redemptions allowed across all users (null = unlimited).
+// `perUserLimit`: how many times one user can redeem (null = unlimited but the
+//   discount_code_redemptions unique index still enforces "one row per code+user"
+//   for analytics; per-user re-redemption is gated by this column).
+// `startsAt`/`endsAt`: optional active window — outside this window the code is
+//   treated as inactive even when `active = true`.
 export const discountCodesTable = pgTable("discount_codes", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(),
@@ -33,9 +39,31 @@ export const discountCodesTable = pgTable("discount_codes", {
   note: text("note"),
   active: boolean("active").notNull().default(true),
   usageCount: integer("usage_count").notNull().default(0),
+  maxUses: integer("max_uses"),
+  perUserLimit: integer("per_user_limit"),
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
   createdByUserId: integer("created_by_user_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Per-user redemption ledger for discount codes. One row per *successful*
+// redemption (i.e. inserted inside the approve-request transaction so it
+// only counts when the admin actually grants the subscription, not at
+// request-creation time). Used to enforce `perUserLimit` and to power the
+// "who used this code" admin view.
+export const discountCodeRedemptionsTable = pgTable("discount_code_redemptions", {
+  id: serial("id").primaryKey(),
+  codeId: integer("code_id").notNull(),
+  userId: integer("user_id").notNull(),
+  subscriptionRequestId: integer("subscription_request_id"),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("idx_discount_code_redemptions_code_user").on(t.codeId, t.userId),
+  index("idx_discount_code_redemptions_user").on(t.userId),
+]);
+
+export type DiscountCodeRedemption = typeof discountCodeRedemptionsTable.$inferSelect;
 
 export const insertDiscountCodeSchema = createInsertSchema(discountCodesTable).omit({ id: true, createdAt: true });
 export type InsertDiscountCode = z.infer<typeof insertDiscountCodeSchema>;
@@ -136,6 +164,11 @@ export const userSubjectPlansTable = pgTable("user_subject_plans", {
   subjectId: text("subject_id").notNull(),
   planHtml: text("plan_html").notNull(),
   currentStageIndex: integer("current_stage_index").notNull().default(0),
+  // Micro-step progress within the current stage. Added May 2026 (Task #37).
+  // Columns are created by auto-migrate before the server accepts requests.
+  currentMicroStepIndex: integer("current_micro_step_index").notNull().default(0),
+  completedMicroSteps: text("completed_micro_steps").notNull().default('[]'),
+  growthReflections: text("growth_reflections").notNull().default('[]'),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("user_subject_plans_user_subject_idx").on(t.userId, t.subjectId),
@@ -144,6 +177,16 @@ export const userSubjectPlansTable = pgTable("user_subject_plans", {
 export const insertUserSubjectPlanSchema = createInsertSchema(userSubjectPlansTable).omit({ id: true });
 export type InsertUserSubjectPlan = z.infer<typeof insertUserSubjectPlanSchema>;
 export type UserSubjectPlan = typeof userSubjectPlansTable.$inferSelect;
+
+// Structured audit log for compliance events (mastery drift suppression, etc.)
+export const auditLogsTable = pgTable("audit_logs", {
+  id: serial("id").primaryKey(),
+  event: text("event").notNull(),
+  userId: integer("user_id"),
+  subjectId: text("subject_id"),
+  data: jsonb("data"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const supportMessagesTable = pgTable("support_messages", {
   id: serial("id").primaryKey(),
@@ -181,3 +224,74 @@ export const planPricesTable = pgTable("plan_prices", {
 ]);
 
 export type PlanPrice = typeof planPricesTable.$inferSelect;
+
+// Admin-editable YER→USD exchange rates — one row per region.
+// Stored as the divisor (e.g. 600 means 1 USD = 600 YER, i.e. rate = 1/600).
+// Defaults are seeded by the auto-migrate at boot (north: 600, south: 2800)
+// and never overwritten on subsequent boots so admin edits persist. The
+// pricing-formula.ts module exposes an in-memory cache populated from this
+// table at startup and after every admin PATCH; the static constants in
+// pricing-formula.ts are kept ONLY as an in-process fallback when the DB
+// read fails — never as the source of truth.
+export const exchangeRatesTable = pgTable("exchange_rates", {
+  id: serial("id").primaryKey(),
+  region: text("region").notNull().unique(),
+  yerPerUsd: integer("yer_per_usd").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedByUserId: integer("updated_by_user_id"),
+});
+
+export type ExchangeRate = typeof exchangeRatesTable.$inferSelect;
+
+// ── Gem ledger ────────────────────────────────────────────────────────────────
+// Append-only audit log of every gem balance change. Written from:
+//   - approve / activate-card / admin grant   → reason='grant',   delta=+total
+//   - per-turn AI debit                       → reason='debit',   delta=-cost
+//   - admin refund                            → reason='refund',  delta=+x
+//   - admin manual adjust                     → reason='adjust',  delta=±x
+//   - daily forfeit at Yemen midnight          → reason='forfeit', delta=-leftover
+// Either `subjectSubId` (per-subject wallet) OR `legacyUser=true` is set, so
+// the dashboard can group ledger rows per wallet.
+export const gemLedgerTable = pgTable("gem_ledger", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  subjectSubId: integer("subject_sub_id"),
+  subjectId: text("subject_id"),
+  delta: integer("delta").notNull(),
+  balanceAfter: integer("balance_after").notNull(),
+  reason: text("reason").notNull(),
+  source: text("source"),
+  adminUserId: integer("admin_user_id"),
+  note: text("note"),
+  metadata: jsonb("metadata"),
+  // Idempotency key for AI-call settlement. A unique partial index on
+  // (user_id, request_id) WHERE request_id IS NOT NULL is created in
+  // auto-migrate so two concurrent settles for the same AI call collapse
+  // into a single debit. Legacy rows have NULL and are exempt.
+  requestId: text("request_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("idx_gem_ledger_user_created").on(t.userId, t.createdAt),
+  index("idx_gem_ledger_subject_sub").on(t.subjectSubId),
+  index("idx_gem_ledger_reason").on(t.reason),
+]);
+
+export type GemLedger = typeof gemLedgerTable.$inferSelect;
+export type InsertGemLedger = typeof gemLedgerTable.$inferInsert;
+
+// ── Payment settings ──────────────────────────────────────────────────────────
+// Admin-editable runtime configuration: Kuraimi account numbers, account
+// holder names, etc. Stored as key/value rows so the admin can add new keys
+// (e.g. wechat/USDT) without a schema migration. Values are plain strings —
+// JSON-encoded at the application level when needed.
+export const paymentSettingsTable = pgTable("payment_settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull().default(""),
+  label: text("label"),
+  category: text("category").notNull().default("payment"),
+  updatedByUserId: integer("updated_by_user_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type PaymentSetting = typeof paymentSettingsTable.$inferSelect;
