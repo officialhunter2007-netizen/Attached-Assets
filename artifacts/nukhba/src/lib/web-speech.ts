@@ -164,14 +164,29 @@ export interface RecognitionOptions {
 // `SpeechRecognition` to capture a single Arabic utterance. Returns
 // `true` if a recognition session was successfully started so the caller
 // can suppress the "transcription failed" toast.
+// Minimal local types for the non-standard Web Speech Recognition API.
+// We can't rely on lib.dom because Firefox / older Safari don't expose it.
+interface MinimalRecognitionAlternative { transcript?: string }
+interface MinimalRecognitionResult { 0?: MinimalRecognitionAlternative }
+interface MinimalRecognitionEvent { results?: ArrayLike<MinimalRecognitionResult> }
+interface MinimalRecognition {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((ev: MinimalRecognitionEvent) => void) | null;
+  onerror: ((ev: unknown) => void) | null;
+  start: () => void;
+}
+type MinimalRecognitionCtor = new () => MinimalRecognition;
+
 function tryBrowserSpeechRecognitionFallback(opts: RecognitionOptions): boolean {
   if (typeof window === "undefined") return false;
-  const Ctor = (window as unknown as {
-    SpeechRecognition?: new () => SpeechRecognition;
-    webkitSpeechRecognition?: new () => SpeechRecognition;
-  }).SpeechRecognition ?? (window as unknown as {
-    webkitSpeechRecognition?: new () => SpeechRecognition;
-  }).webkitSpeechRecognition;
+  const w = window as unknown as {
+    SpeechRecognition?: MinimalRecognitionCtor;
+    webkitSpeechRecognition?: MinimalRecognitionCtor;
+  };
+  const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
   if (!Ctor) return false;
   try {
     const rec = new Ctor();
@@ -179,11 +194,11 @@ function tryBrowserSpeechRecognitionFallback(opts: RecognitionOptions): boolean 
     rec.continuous = false;
     rec.interimResults = false;
     rec.maxAlternatives = 1;
-    rec.onresult = (ev: SpeechRecognitionEvent) => {
-      const transcript = ev.results?.[0]?.[0]?.transcript?.trim() || "";
+    rec.onresult = (ev) => {
+      const transcript = (ev.results?.[0]?.[0]?.transcript || "").trim();
       if (transcript) opts.onResult(transcript, true);
     };
-    rec.onerror = () => { /* silently swallow — we already fell back */ };
+    rec.onerror = () => { /* fallback already engaged; suppress double-toast */ };
     rec.start();
     return true;
   } catch {

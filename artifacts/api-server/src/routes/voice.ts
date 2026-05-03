@@ -20,6 +20,7 @@ const STT_ALLOWED_MIME_PREFIXES = [
   "audio/mp4",
   "audio/m4a",
   "audio/x-m4a",
+  "audio/aac",
   "audio/mpeg",
   "audio/mp3",
   "audio/wav",
@@ -200,7 +201,7 @@ router.post("/ai/stt", upload.single("audio"), async (req, res): Promise<unknown
   }
   let ext = "webm";
   if (mime.includes("ogg")) ext = "ogg";
-  else if (mime.includes("mp4") || mime.includes("m4a")) ext = "m4a";
+  else if (mime.includes("mp4") || mime.includes("m4a") || mime.includes("aac")) ext = "m4a";
   else if (mime.includes("wav")) ext = "wav";
   else if (mime.includes("mpeg") || mime.includes("mp3")) ext = "mp3";
 
