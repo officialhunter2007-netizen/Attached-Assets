@@ -209,23 +209,25 @@ function emitFriendlyAiFailure(
 }
 
 /**
- * Store an AI teaching response for admin review and prompt-engineering analysis.
- * Strips markdown code-fences and normalises whitespace, then stores up to
- * maxChars characters (default 16 000 — effectively the full response for any
- * realistic teaching turn). Trimmed at the nearest sentence boundary when the
- * response exceeds the cap. The stored text is used by the admin conversation
- * export feature so admins can review and improve the teacher prompt.
+ * Per-turn length tier. maxWords is the hard cap enforced server-side
+ * by a running word-count check on the streamed text; maxTokens is the
+ * provider ceiling sized so a well-behaved reply never gets clipped
+ * before reaching its word cap. maxWords=null means no enforcement
+ * (diagnostic/lab-report — those flows have their own length policy).
  */
-/**
- * Adaptive length tier for an /ai/teach response. Picks the provider
- * max_tokens ceiling so a well-behaved reply has headroom but a runaway
- * one cannot exceed the per-tier word cap by more than ~10%. Arabic
- * teaching prose averages ~3.1 tokens/word in this codebase (system
- * prompt + tags inflate the ratio above the raw text average), so each
- * tier's maxTokens = ceil(maxWords × 1.10 × 3.1).
- */
-type TeachingResponseTier = "diagnostic" | "dense_concept" | "medium_explain" | "short_followup";
-type TeachingTierDecision = { tier: TeachingResponseTier; maxWords: number; maxTokens: number };
+type TeachingResponseTier = "diagnostic" | "lab_report" | "dense_concept" | "medium_explain" | "short_followup";
+type TeachingTierDecision = { tier: TeachingResponseTier; maxWords: number | null; maxTokens: number };
+
+// Acknowledgment-only follow-ups: short replies whose only purpose is to
+// signal "continue" / "yes" / "thanks". Matching one of these (and the
+// message being short) is what qualifies a turn for the short_followup
+// tier — raw character length alone over-catches substantive concept
+// questions like "ما هي المصفوفة؟".
+const SHORT_ACK_PATTERN = /^(نعم|أيوه|ايوه|تمام|طيب|حسنا|حسناً|أوكي|اوكي|اوك|ok|okay|كمل|أكمل|اكمل|واصل|يلا|تابع|شكرا|شكراً|تمت|فهمت|واضح|مفهوم|👍|✅)[\s.!؟?،,]*$/i;
+
+// Concept-request patterns: even when short, these must NOT downgrade to
+// short_followup. "ما هي X؟", "اشرح Y", "عرّف Z", "كيف يعمل ...", "ليش/لماذا"...
+const CONCEPT_REQUEST_PATTERN = /(^|\s)(ما\s*(هي|هو|معنى|الفرق)|اشرح|اشرحي|عرّف|عرف|فسّر|فسر|وضّح|وضح|كيف\s+(يعمل|نحسب|نطبق|تفعل)|لماذا|ليش|علام|ما\s+الفائدة|درّس|شرح|اعطني\s+مثال)/u;
 
 function classifyTeachingResponseTier(opts: {
   isDiagnosticPhase: boolean;
@@ -235,22 +237,33 @@ function classifyTeachingResponseTier(opts: {
   isLabReport: boolean;
   isNewStage: boolean;
   userMessageLength: number;
+  trimmedUserMessage: string;
 }): TeachingTierDecision {
   // Diagnostic plan synthesis must never be cut mid-sentence — keep the
-  // legacy ceiling and rely on the prompt for length discipline there.
+  // legacy ceiling and skip word-count enforcement.
   if (opts.isDiagnosticPhase) {
-    return { tier: "diagnostic", maxWords: 800, maxTokens: 8192 };
+    return { tier: "diagnostic", maxWords: null, maxTokens: 8192 };
+  }
+  // Lab-report feedback has a separate length policy (Task #43 scope
+  // explicitly excludes it). Keep the legacy ceiling and skip enforcement.
+  if (opts.isLabReport) {
+    return { tier: "lab_report", maxWords: null, maxTokens: 4096 };
   }
   if (
     opts.isShowcaseOpener ||
     opts.isMasteryCheck ||
     opts.needsDeepReasoning ||
-    opts.isLabReport ||
     opts.isNewStage
   ) {
     return { tier: "dense_concept", maxWords: 320, maxTokens: 1100 };
   }
-  if (opts.userMessageLength > 0 && opts.userMessageLength <= 60) {
+  // Short turn → short_followup ONLY when it's an acknowledgment-style
+  // reply with no concept-request signal. Substantive questions ("ما هي
+  // المصفوفة؟") stay in medium_explain even at <60 chars.
+  const msg = opts.trimmedUserMessage;
+  const isAck = msg.length > 0 && msg.length <= 60 && SHORT_ACK_PATTERN.test(msg);
+  const asksConcept = CONCEPT_REQUEST_PATTERN.test(msg);
+  if (isAck && !asksConcept) {
     return { tier: "short_followup", maxWords: 90, maxTokens: 320 };
   }
   return { tier: "medium_explain", maxWords: 180, maxTokens: 620 };
@@ -259,6 +272,16 @@ function classifyTeachingResponseTier(opts: {
 function countWords(text: string): number {
   if (!text) return 0;
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+// Strip image/system tags + code fences before counting words mid-stream
+// so [[IMAGE:...]] markers and ```code``` blocks don't inflate the count
+// and trip the hard cap before the visible prose has reached it.
+function stripTeachingTagsForCount(text: string): string {
+  return text
+    .replace(/\[\[[A-Z_]+:[\s\S]*?\]\]/g, " ")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`\n]+`/g, " ");
 }
 
 function extractTeachingExcerpt(text: string, maxChars = 16000): string {
@@ -2986,8 +3009,6 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     });
   }
 
-  // Tier-driven output ceiling: replaces the legacy flat 4096-token cap
-  // (which was ~10x the prompt's word budget). See classifyTeachingResponseTier.
   const responseTier = classifyTeachingResponseTier({
     isDiagnosticPhase: !!isDiagnosticPhase,
     isShowcaseOpener,
@@ -2996,8 +3017,17 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     isLabReport: detectLabReport(trimmedUserMessage),
     isNewStage: !!isNewStage,
     userMessageLength: trimmedUserMessage.length,
+    trimmedUserMessage,
   });
   const maxTokens = responseTier.maxTokens;
+  // Hard cap enforced mid-stream by the onChunk handler below (null on
+  // diagnostic + lab_report tiers, which have their own length policy).
+  const wordHardCap =
+    responseTier.maxWords != null ? Math.ceil(responseTier.maxWords * 1.10) : null;
+  // Set when the mid-stream word-cap enforcer aborts the upstream call.
+  // Used in the post-stream catch to treat the AbortError as success
+  // rather than firing the mid-stream apology message.
+  let __hardCapHit = false;
 
   const __teachStart = Date.now();
 
@@ -3263,6 +3293,19 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
               // half-closed socket — close handler already flipped clientAborted
             }
           }
+          // Mid-stream word-cap enforcement: when the running response
+          // exceeds the tier's hard cap (maxWords × 1.10), abort the
+          // upstream call so the student never sees a reply more than
+          // 10% over its tier limit. We measure on cleaned text so
+          // [[IMAGE:]] tags / system markers don't inflate the count.
+          if (
+            wordHardCap != null &&
+            !__hardCapHit &&
+            countWords(stripTeachingTagsForCount(fullResponse)) >= wordHardCap
+          ) {
+            __hardCapHit = true;
+            try { abortController.abort(); } catch {}
+          }
         },
       });
       __geminiAttempts = geminiResult.attempts;
@@ -3275,6 +3318,26 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
       // Sentinel: marks success so the post-stream paths fire.
       __success = true;
     } catch (geminiErr: any) {
+      // Mid-stream word-cap abort: not a real error — treat as a clean
+      // end-of-stream so the post-stream paths run normally and no
+      // apology message is appended to the visible reply.
+      if (__hardCapHit) {
+        __success = true;
+        const __gpAbort = (geminiErr?.partial ?? {}) as {
+          usageMetadata?: {
+            promptTokenCount?: number;
+            candidatesTokenCount?: number;
+            cachedContentTokenCount?: number;
+          } | null;
+        };
+        if (__gpAbort.usageMetadata) {
+          __geminiUsage = {
+            inputTokens: Number(__gpAbort.usageMetadata.promptTokenCount ?? 0),
+            outputTokens: Number(__gpAbort.usageMetadata.candidatesTokenCount ?? 0),
+            cachedInputTokens: Number(__gpAbort.usageMetadata.cachedContentTokenCount ?? 0),
+          };
+        }
+      } else {
       // Helper performs internal retries; treat a final transient error as 2 attempts.
       __geminiAttempts = (geminiErr instanceof GeminiTransientError) ? 2 : 1;
       // PARTIAL-USAGE PRESERVATION: gemini-stream stamps the error with
@@ -3334,6 +3397,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           `[ai/teach] Gemini pre-stream failure (${geminiErr?.name || "Error"}):`,
           geminiErr?.message || geminiErr,
         );
+      }
       }
     }
   }
