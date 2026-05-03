@@ -1282,8 +1282,10 @@
   /* Component is laid out by Tailwind; this hook is for future tweaks. */
 }
 .input-pro-icon-btn {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   border-radius: 12px;
   display: inline-flex;
   align-items: center;
@@ -1321,6 +1323,24 @@
   0%   { box-shadow: 0 0 0 0   rgba(244,63,94,0.55); }
   70%  { box-shadow: 0 0 0 10px rgba(244,63,94,0);    }
   100% { box-shadow: 0 0 0 0   rgba(244,63,94,0);    }
+}
+
+/* ─── Mobile touch-target floor (≤480px) ──────────────────────────────────
+   Task #63 acceptance: every interactive element inside the chat dialog
+   must be at least 40x40 CSS pixels on phone widths so finger taps don't
+   misfire. We enforce this with a sweeping rule on every <button> and
+   role="button" inside the chat shell, plus on the input rail's icon
+   buttons. Anything that genuinely needs to be smaller (e.g. a 16x16
+   mute icon embedded inside a 40px hit-area) should wrap a <button> with
+   the visual icon styled inside, not shrink the button itself. */
+@media (max-width: 480px) {
+  .chat-shell button,
+  .chat-shell [role="button"],
+  .input-pro-icon-btn,
+  .input-pro-shell button {
+    min-width: 40px;
+    min-height: 40px;
+  }
 }
 
 /* Path-drawer trigger button (header). Looks like a pill with a map

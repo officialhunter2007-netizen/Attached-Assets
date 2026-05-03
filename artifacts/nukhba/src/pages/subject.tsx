@@ -4724,7 +4724,7 @@ function SubjectPathChat({
     </div>
 
     {/* Chat UI — visible only when no panel is open */}
-    <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11", display: chatVisible ? "flex" : "none" }}>
+    <div className="chat-shell flex-1 flex flex-col overflow-hidden" style={{ background: "#080a11", display: chatVisible ? "flex" : "none" }}>
 
       {/* Mode-choice overlay (first session, before diagnostic).
           When shown, the chat UI below is hidden so the choice card fills the
