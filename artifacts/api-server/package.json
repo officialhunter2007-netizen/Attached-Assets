@@ -14,6 +14,7 @@
     "@fal-ai/serverless-client": "^0.15.0",
     "@google-cloud/storage": "^7.19.0",
     "@types/sanitize-html": "^2.16.1",
+    "@types/ws": "^8.18.1",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/integrations-anthropic-ai": "workspace:*",
@@ -29,6 +30,7 @@
     "pino-http": "^10",
     "sanitize-html": "^2.17.3",
     "unpdf": "^1.6.0",
+    "ws": "^8.20.0",
     "zod": "catalog:"
   },
   "devDependencies": {
