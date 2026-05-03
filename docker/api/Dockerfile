@@ -32,6 +32,17 @@ RUN pnpm --filter @workspace/api-server run build
 # ═══════════════════════════════════════════════════════════════════
 FROM node:22-alpine AS production
 
+# تثبيت بيئات تشغيل الكود (Python 3, GCC, G++, OpenJDK 21)
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    gcc \
+    g++ \
+    musl-dev \
+    openjdk21-jdk \
+    bash \
+    && ln -sf python3 /usr/bin/python
+
 WORKDIR /app
 
 # نسخ الملفات المبنية فقط (بدون node_modules أو المصدر)
