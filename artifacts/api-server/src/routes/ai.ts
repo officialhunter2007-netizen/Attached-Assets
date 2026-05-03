@@ -2052,16 +2052,40 @@ ${formattingRules}`;
   // Per-subject showcase eligibility. The request body's `isDiagnosticPhase`
   // is the authoritative signal for "current turn is teaching" (the frontend
   // persists chatPhase and flips it to teaching when planReady streams in).
-  // For "showcase hasn't already run for this subject" we use
-  // `hasPriorLabEnvTag` — `[[CREATE_LAB_ENV:` is the one concrete marker the
-  // showcase mandates, and it survives `cleanTeachingChunk()`. We deliberately
-  // do NOT scan for HTML class markers like `praise` / `question-box` because
-  // the diagnostic plan-reveal template uses `<div class="praise">` inside
-  // the learning-path block, which would false-trigger and suppress the
-  // showcase on the first teaching turn. We also do NOT use the global
-  // `users.firstLessonComplete` billing flag (consumed once per account, so
-  // it would suppress subjects #2..24).
-  const isShowcaseOpener = !isDiagnosticPhase && !hasPriorLabEnvTag;
+  // For "showcase hasn't already run for this subject" we check TWO markers
+  // (either one disables the showcase), giving redundancy against history
+  // truncation:
+  //   - `[[CREATE_LAB_ENV:` — the lab tag the kit mandates (already scanned
+  //     into hasPriorLabEnvTag earlier in this function).
+  //   - `[[IMAGE:` — the inline image tag the kit also mandates. Diagnostic
+  //     turns never emit images, so its presence reliably means a teaching
+  //     turn has already happened in this subject.
+  // Conversation history is keyed per (user, subject) on the client
+  // (CHAT_STORAGE_KEY = `nukhba::u:${user.id}::chat::${subject.id}`), and
+  // the client never truncates before sending, so either marker surviving
+  // in any prior assistant message means the showcase already ran here.
+  // We deliberately do NOT scan for HTML class markers like `praise` /
+  // `question-box`, because the diagnostic plan-reveal template uses
+  // `<div class="praise">` inside the learning-path block — that would
+  // false-trigger and suppress the showcase on the first teaching turn.
+  // We also do NOT use the global `users.firstLessonComplete` billing
+  // flag (consumed once per account, would suppress subjects #2..24).
+  const hasPriorImageTag = (() => {
+    if (!Array.isArray(history)) return false;
+    type Msg = { role?: string; content?: string | Array<string | { text?: string }> };
+    for (const m of history as Msg[]) {
+      if (m?.role !== "assistant" && m?.role !== "model") continue;
+      const c = m?.content;
+      const text = typeof c === "string"
+        ? c
+        : Array.isArray(c)
+          ? c.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("")
+          : "";
+      if (/\[\[\s*IMAGE\s*:/i.test(text)) return true;
+    }
+    return false;
+  })();
+  const isShowcaseOpener = !isDiagnosticPhase && !hasPriorLabEnvTag && !hasPriorImageTag;
 
   // The showcase addendum itself is appended LATER — after the Gemini
   // addendum — so it is the very last thing the model reads and overrides
