@@ -16,10 +16,29 @@ import {
   adminAlertsTable,
 } from "@workspace/db";
 import { resolveAdminAlert } from "../lib/admin-alerts";
-import { diagnoseOpenRouterKey, pingOpenRouter } from "../lib/openrouter-key";
+import { diagnoseOpenRouterKey, getOpenRouterKey, pingOpenRouter } from "../lib/openrouter-key";
 import { diagnoseObjectStorage } from "../lib/objectStorage";
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { OpenAI } from "@workspace/integrations-openai-ai-server";
 import { recordAiUsage, extractOpenAIUsage } from "../lib/ai-usage";
+
+// OpenRouter-backed client for the admin assistant.
+// We deliberately do NOT reuse the shared openai singleton from the
+// @workspace/integrations-openai-ai-server package because that instance
+// points to api.openai.com — sending a "google/gemini-2.0-flash-lite" model
+// path there produces a hard 404/400 and every admin message fails.
+// Instead we construct a fresh OpenAI-SDK client that targets OpenRouter.
+function buildAdminAiClient(): InstanceType<typeof OpenAI> | null {
+  const key = getOpenRouterKey();
+  if (!key) return null;
+  return new OpenAI({
+    apiKey: key,
+    baseURL: "https://openrouter.ai/api/v1",
+    defaultHeaders: {
+      "HTTP-Referer": "https://learnukhba.com",
+      "X-Title": "Nukhba Admin Assistant",
+    },
+  });
+}
 
 const router: IRouter = Router();
 
@@ -878,12 +897,19 @@ ${contextJson}
     content: m.content,
   }));
 
+  const adminAiClient = buildAdminAiClient();
+  if (!adminAiClient) {
+    res.write(`data: ${JSON.stringify({ error: "مفتاح OPENROUTER_API_KEY غير مضبوط — يرجى إضافته في إعدادات الخادم." })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    return res.end();
+  }
+
   const ac = new AbortController();
   req.on("close", () => ac.abort());
 
   const __aiStart = Date.now();
   try {
-    const stream = await openai.chat.completions.create(
+    const stream = await adminAiClient.chat.completions.create(
       {
         model: ADMIN_AI_MODEL,
         max_tokens: 2048,
