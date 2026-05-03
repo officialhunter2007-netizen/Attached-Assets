@@ -3898,7 +3898,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
 
       let wallet: ChargeWallet | null = null;
       if (isFirstLesson && firstLessonRecord && !exemptFromFreeCap) {
-        wallet = { kind: "first-lesson", firstLessonId: firstLessonRecord.id, cap: FREE_LESSON_GEM_LIMIT };
+        wallet = { kind: "first-lesson", firstLessonId: firstLessonRecord.id, cap: FREE_LESSON_GEM_LIMIT, subjectId };
       } else if (exemptFromFreeCap) {
         console.log(
           `[ai/teach] lab-env showcase exemption: userId=${userId} subjectId=${subjectId} costGems=${gems} (not deducted from free cap)`,

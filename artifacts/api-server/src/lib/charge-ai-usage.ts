@@ -88,11 +88,21 @@ export async function settleAiCharge(opts: SettleAiChargeOpts): Promise<SettleAi
     return NO_OP_RESULT;
   }
 
-  const baseMetadata = {
+  const baseMetadata: Record<string, unknown> = {
     requestId: opts.requestId,
     model: opts.model ?? null,
     costUsd: opts.costUsd ?? null,
   };
+  // First-lesson debits write `delta: 0` to the ledger (no real wallet to
+  // refund into — those gems are platform-absorbed) but the actual gem
+  // count consumed against the 80-gem free cap is preserved here so the
+  // admin ledger view can still surface "this turn cost N gems against
+  // the free trial". Without this, free-trial usage was indistinguishable
+  // from a no-op in the audit log.
+  if (opts.wallet.kind === "first-lesson") {
+    baseMetadata.gemsConsumed = gems;
+    baseMetadata.cap = opts.wallet.cap;
+  }
 
   try {
     return await db.transaction(async (tx) => {

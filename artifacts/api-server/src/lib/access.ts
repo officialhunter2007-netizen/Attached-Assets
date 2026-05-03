@@ -13,6 +13,32 @@ import {
 const RECENT_EXPIRY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 export const FREE_LESSON_GEM_LIMIT = 80;
 
+/**
+ * Pure helper — derives the per-subject first-lesson view from the row
+ * (or its absence). Exported so unit tests and other call sites can rely
+ * on the same predicate the access layer uses.
+ *
+ *   • No row              → 80/80 free, on trial.
+ *   • Partially used      → (cap - used)/cap free, on trial.
+ *   • Used >= cap OR completed → 0/cap free, trial exhausted.
+ *
+ * This is the single source of truth for "did this user already burn the
+ * free trial on this subject?". The `completed` flag is owned by
+ * `settleAiCharge` (lib/charge-ai-usage.ts) and flips atomically when
+ * `freeMessagesUsed + gems >= cap`. See Task #58 for the regression that
+ * happened when other routes started flipping it on session end.
+ */
+export function computeFirstLessonView(
+  row: { completed: boolean; freeMessagesUsed: number } | null | undefined,
+  cap: number = FREE_LESSON_GEM_LIMIT,
+): { isFirstLesson: boolean; gemsRemaining: number; freeMessagesUsed: number } {
+  const used = Math.max(0, row?.freeMessagesUsed ?? 0);
+  const completed = !!row?.completed;
+  const isFirstLesson = !row || (!completed && used < cap);
+  const gemsRemaining = isFirstLesson ? Math.max(0, cap - used) : 0;
+  return { isFirstLesson, gemsRemaining, freeMessagesUsed: used };
+}
+
 export type AccessSource = "per-subject" | "legacy" | "first-lesson" | "none";
 export type AccessReason =
   | "no_user"
@@ -70,6 +96,7 @@ export async function getAccessForUser(opts: {
   // per-subject sub row should still resolve as `source: "first-lesson"`
   // instead of falling back to `isFirstLessonGlobal`).
   let perSubjectIsFirstLesson = false;
+  let perSubjectFreeRemaining = FREE_LESSON_GEM_LIMIT;
   if (subjectId) {
     const [firstLesson] = await db
       .select()
@@ -87,11 +114,10 @@ export async function getAccessForUser(opts: {
     // one-shot from the pre-per-subject era; the authoritative source
     // of "did this user already burn the free trial on this subject?"
     // is the per-subject row itself.
-    const isFirstLesson =
-      !firstLesson ||
-      (!firstLesson.completed &&
-        (firstLesson.freeMessagesUsed ?? 0) < FREE_LESSON_GEM_LIMIT);
+    const firstLessonView = computeFirstLessonView(firstLesson ?? null);
+    const isFirstLesson = firstLessonView.isFirstLesson;
     perSubjectIsFirstLesson = isFirstLesson;
+    perSubjectFreeRemaining = firstLessonView.gemsRemaining;
 
     // Prefer an active row that still has gems; fall back to the most
     // recent row so we can report expired/exhausted state correctly.
@@ -144,8 +170,12 @@ export async function getAccessForUser(opts: {
         balance <= 0 ? "no_gems" : "no_active_sub";
       return {
         hasActiveSub: false,
-        gemsRemaining: balance,
-        dailyRemaining,
+        // When the per-subject sub is dead but the user is still on the
+        // free trial for this subject, surface the REMAINING free gems
+        // (not the dead sub balance). Without this, /subject-access
+        // reports `gemsBalance: 0` for a brand-new subject — Task #58.
+        gemsRemaining: isFirstLesson ? firstLessonView.gemsRemaining : balance,
+        dailyRemaining: isFirstLesson ? firstLessonView.gemsRemaining : dailyRemaining,
         expiresAt,
         expiredRecently,
         isFirstLesson,
@@ -228,10 +258,16 @@ export async function getAccessForUser(opts: {
         : false);
 
   if (isFirstLessonGlobal) {
+    // Surface the actual remaining free gems for the per-subject row
+    // (partially-used subject) or the full cap for a brand-new subject.
+    // Subject-less calls fall back to the cap as a safe default —
+    // /subject-access always passes subjectId so this fallback is only
+    // hit by dashboard-level access checks.
+    const freeRemaining = subjectId ? perSubjectFreeRemaining : FREE_LESSON_GEM_LIMIT;
     return {
       hasActiveSub: false,
-      gemsRemaining: 0,
-      dailyRemaining: 0,
+      gemsRemaining: freeRemaining,
+      dailyRemaining: freeRemaining,
       expiresAt: legacyExpires,
       expiredRecently: legacyExpiredRecently,
       isFirstLesson: true,
