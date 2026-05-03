@@ -164,6 +164,11 @@ export const userSubjectPlansTable = pgTable("user_subject_plans", {
   subjectId: text("subject_id").notNull(),
   planHtml: text("plan_html").notNull(),
   currentStageIndex: integer("current_stage_index").notNull().default(0),
+  // Micro-step progress within the current stage. Added May 2026 (Task #37).
+  // Columns are created by auto-migrate before the server accepts requests.
+  currentMicroStepIndex: integer("current_micro_step_index").notNull().default(0),
+  completedMicroSteps: text("completed_micro_steps").notNull().default('[]'),
+  growthReflections: text("growth_reflections").notNull().default('[]'),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("user_subject_plans_user_subject_idx").on(t.userId, t.subjectId),
@@ -172,6 +177,16 @@ export const userSubjectPlansTable = pgTable("user_subject_plans", {
 export const insertUserSubjectPlanSchema = createInsertSchema(userSubjectPlansTable).omit({ id: true });
 export type InsertUserSubjectPlan = z.infer<typeof insertUserSubjectPlanSchema>;
 export type UserSubjectPlan = typeof userSubjectPlansTable.$inferSelect;
+
+// Structured audit log for compliance events (mastery drift suppression, etc.)
+export const auditLogsTable = pgTable("audit_logs", {
+  id: serial("id").primaryKey(),
+  event: text("event").notNull(),
+  userId: integer("user_id"),
+  subjectId: text("subject_id"),
+  data: jsonb("data"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const supportMessagesTable = pgTable("support_messages", {
   id: serial("id").primaryKey(),

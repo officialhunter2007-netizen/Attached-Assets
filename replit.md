@@ -292,6 +292,35 @@ End-to-end audit & hardening of the gems-and-payments stack. Three new tables, t
 - **Boot-resilience side-fix** (`lib/integrations-{openai-ai-server,anthropic-ai}/src/**/client.ts`): the OpenAI/Anthropic integration clients used to throw at module-import time when `OPENROUTER_API_KEY` was unset, killing the entire api-server boot — even when nothing on the request path needed AI. They now use a lazy `Proxy` that defers the missing-key error to the first real call, matching the documented "graceful degradation" policy from the Teaching section above. Unrelated routes (admin, payments, gem ledger) now boot cleanly in dev environments without any AI provider key.
 - **Schema files**: tables live in `lib/db/src/schema/subscriptions.ts` and are auto-migrated on boot via `artifacts/api-server/src/lib/auto-migrate.ts` (CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS + idempotent seeds for the four `payment_settings` rows).
 
+## Personalized Learning Path Strengthening (Task #37, May 2026)
+
+Three layered upgrades that enforce the AI teacher's commitment to each student's custom plan:
+
+### 1 — Rich diagnostic plan (6-field stages)
+- `diagnosticSystemPrompt` (ai.ts ≈ line 1363) now outputs a structured HTML template per stage with CSS classes: `stage-objectives`, `stage-microsteps`, `stage-deliverable`, `stage-mastery`, `stage-reason`, `stage-prerequisite`. Three worked examples (محاسبة / شبكات / رياضيات) anchor the format.
+- `POST /api/user-plan` runs `validatePlanQuality()` (plans.ts) before saving — rejects (422) plans missing any of the 6 fields or with fewer than 5 stages. Also adds `PATCH /api/user-plan/micro-step` endpoint to persist micro-step completions.
+- `auto-migrate.ts` adds `current_micro_step_index` (integer DEFAULT 0) and `completed_micro_steps` (text DEFAULT '[]') to `user_subject_plans`.
+
+### 2 — Stage contract in every teaching turn
+- `sendTeachMessage` (subject.tsx) now extracts the active stage's rich object from `parsePlanStages(customPlan)` and sends it as `currentStageContract` + `isNewStage` in the `/api/ai/teach` request body.
+- `teachingSystemPrompt` (ai.ts ≈ line 1705) injects a `━━━ 📋 عقد المرحلة الحالية` block with all 6 contract fields so the model is bound to the student's agreed objectives and micro-steps, not generic defaults.
+- When `isNewStage = true`, the prompt requires the teacher to open with a stage roadmap and an ASK_OPTIONS check of prior knowledge.
+- Growth reflection paragraph (3–4 sentences comparing now vs. diagnostic baseline) is required before `[STAGE_COMPLETE]`.
+
+### 3 — Micro-step progress + mastery drift guard
+- Server parses `[MICRO_STEP_DONE: N]` tags after stream ends; indices forwarded in the done SSE event as `microStepsDone`.
+- Client `setCompletedMicroSteps` tracks completed indices per stage; each time the done event fires they're persisted via `PATCH /api/user-plan/micro-step`.
+- **Mastery drift guard**: if `[STAGE_COMPLETE]` fires but the agreed mastery criterion has <25% word overlap with the response, server sets `stageComplete=false` and emits `masteryDriftDetected: true` + `intendedNextStage: stageIdx+1`. Client shows a confirm dialog — student can advance (using `intendedNextStage`, not the suppressed `nextStage`) or stay.
+- Drift events logged as `[AUDIT][ai/teach] mastery_drift_suppressed` (structured JSON) instead of console.warn.
+- `LearningPathPanel` redesigned with expandable stages (click to expand), micro-step checklist with ✓ per completed step, and a live progress bar.
+- `parsePlanStages` / `validatePlanQuality` both use depth-aware `getOutermostOlContent()` + `getTopLevelLiItems()` helpers instead of non-greedy regex (old regex stopped at the first nested `</ol>` inside `stage-microsteps`, returning garbage stage data).
+- `validatePlanQuality` also checks: ≥3 micro-steps per stage, ≥2 objectives per stage, mastery criterion ≥15 chars, reason ≥20 chars.
+- **Drizzle schema updated**: `userSubjectPlansTable` now declares `currentMicroStepIndex` and `completedMicroSteps` columns. Removes all `as any` casts in plans.ts update paths.
+- `GET /api/user-plan` returns `completedMicroSteps` as a parsed `number[]`; frontend initialises from it on mount.
+- **`LearningContractCard`**: shown after `[PLAN_READY]` as a fixed overlay — student sees all stage titles + mastery criteria, clicks "أعتمد الخطة وأبدأ" (fires `pendingTeachStart`) or "أريد تعديلاً" (sends revision message to teacher).
+- Compact path badge now shows the name of the next incomplete micro-step as a secondary subtitle.
+- Manual quality check scenarios: `.local/checks/personalized-path-quality.md`.
+
 ## Design System
 
 - Dark luxury theme: background hsl(222,28%,7%), cards hsl(222,24%,10%)

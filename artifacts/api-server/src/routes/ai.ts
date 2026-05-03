@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomBytes } from "crypto";
 import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
-import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable, studentMistakesTable, studyCardsTable } from "@workspace/db";
+import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable, studentMistakesTable, studyCardsTable, auditLogsTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import {
@@ -762,9 +762,11 @@ function cleanTeachingChunk(text: string): string {
     .replace(/\[STAGE_COMPLETE\]/g, "")
     .replace(/\[PLAN_READY\]/g, "")
     .replace(/\[POINT_DONE:\s*\d{1,3}\s*\]/gi, "")
+    .replace(/\[MICRO_STEP_DONE:\s*\d{1,3}\s*\]/gi, "")
     .replace(/\[MISTAKE:[^\]]*\]/gi, "")
     .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
-    .replace(/\[STUDY_CARD_HINT\]/gi, "");
+    .replace(/\[STUDY_CARD_HINT\]/gi, "")
+    .replace(/\[GROWTH:[^\]]*\]/gi, "");
 }
 
 /**
@@ -974,6 +976,7 @@ function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled
 
 ### قائمة الوسوم المسموح بها فقط:
 - \`[STAGE_COMPLETE]\` — اكتبه في نهاية الرد عند اكتمال مرحلة من الخطة (مرة واحدة في الرد).
+- \`[GROWTH: ملخص النمو]\` — اكتبه قبل [STAGE_COMPLETE] في نفس الرد، جملتان تصفان كيف تطور مستوى الطالب تحديداً في هذه المرحلة. مثال: \`[GROWTH: تحسّن الطالب في تمييز الأسماء المعربة من المبنية. أصبح يطبّق قاعدة المفعول به بدقة في جمل جديدة لم يسبق له رؤيتها.]\`
 ${planTag}- \`[POINT_DONE: N]\` — اكتبه عند تغطية النقطة رقم N من قائمة الفصل (وضع البروفسور). أمثلة: \`[POINT_DONE: 1]\`, \`[POINT_DONE: 5]\`.
 - \`[MISTAKE: topic ||| description]\` — لتسجيل خطأ مفاهيمي جديد (مرة واحدة في الرد كحد أقصى). \`topic\` قصير (≤ 5 كلمات)، \`description\` جملة واضحة.
 - \`[MISTAKE_RESOLVED: id]\` — لتأكيد حل خطأ سابق (الـ id من قائمة الأخطاء النشطة في السياق).
@@ -1052,7 +1055,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true, difficultyHint } = (req.body ?? {}) as Record<string, any>;
+  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true, difficultyHint, currentStageContract, isNewStage } = (req.body ?? {}) as Record<string, any>;
   // Normalize difficulty hint to one of three buckets. Anything unknown
   // collapses to "normal" so a malformed client value never confuses the
   // system prompt below.
@@ -1392,7 +1395,7 @@ ${codingRules}
 - هدفه/طموحه (المراحل الأخيرة تصل إليه فعلياً).
 - وقته المتاح (لا تطلب جلسات أطول مما يستطيع).
 
-استخدم هذا الهيكل HTML بالضبط:
+استخدم هذا الهيكل HTML بالضبط (انسخه حرفياً — لا تبدّل أسماء الـ class):
 
 <div class="learning-path">
   <h3>🎯 خطتك الشخصية في ${subjectName}</h3>
@@ -1406,25 +1409,144 @@ ${codingRules}
   </div>
   <h4>📚 مراحل المسار (مرتّبة):</h4>
   <ol>
-    <li><strong>المرحلة 1 — [اسم المرحلة]:</strong> [وصف عملي 1–2 جملة لما سيتقنه فعلياً، مع مهارة ملموسة + ناتج تطبيقي]. <em>المدة: [س–ص دقيقة/جلسة]</em>.</li>
-    <li><strong>المرحلة 2 — [اسم المرحلة]:</strong> [...] <em>المدة: [...]</em>.</li>
-    <li><strong>المرحلة 3 — [اسم المرحلة]:</strong> [...] <em>المدة: [...]</em>.</li>
-    <li><strong>المرحلة 4 — [اسم المرحلة]:</strong> [...] <em>المدة: [...]</em>.</li>
-    <li><strong>المرحلة 5 — [اسم المرحلة]:</strong> [...] <em>المدة: [...]</em>.</li>
-    <!-- أضف المرحلة 6 و 7 إذا كانت المادة تستحق توسعاً -->
+    <li>
+      <strong>المرحلة 1 — [اسم محدد لا عام]</strong> <em class="stage-duration">المدة: [مدة واقعية]</em>
+      <ul class="stage-objectives">
+        <li>ستحسب/ستُميّز/ستبني [هدف قابل للقياس 1]</li>
+        <li>ستفرّق بين [مفهومين] وتطبّق [مهارة]</li>
+        <li>ستُنتج [ناتج تطبيقي مرتبط بهدف الطالب]</li>
+      </ul>
+      <ol class="stage-microsteps">
+        <li>ابدأ بـ [خطوة أولى محددة]</li>
+        <li>ثم جرّب [خطوة ثانية]</li>
+        <li>أخيراً قِس/طبّق [خطوة ختامية]</li>
+      </ol>
+      <p class="stage-deliverable">[ناتج عملي واحد ملموس — شيء واحد يمتلكه الطالب بعد المرحلة]</p>
+      <p class="stage-mastery">[معيار الإتقان: الشرط الدقيق الذي يُؤذن بـ STAGE_COMPLETE — مثال: "يحل 3/3 مسائل من نوع X بدون مساعدة"]</p>
+      <p class="stage-reason">[اقتباس أو إشارة مباشرة لإجابة الطالب في التشخيص تربطه بهذه المرحلة]</p>
+      <p class="stage-prerequisite">لا متطلب — هذه نقطة الانطلاق</p>
+    </li>
+    <li>
+      <strong>المرحلة 2 — [اسم محدد]</strong> <em class="stage-duration">المدة: [...]</em>
+      <ul class="stage-objectives"><li>[هدف 1]</li><li>[هدف 2]</li></ul>
+      <ol class="stage-microsteps"><li>[خطوة 1]</li><li>[خطوة 2]</li><li>[خطوة 3]</li></ol>
+      <p class="stage-deliverable">[ناتج عملي]</p>
+      <p class="stage-mastery">[معيار الإتقان الدقيق]</p>
+      <p class="stage-reason">[اقتباس من إجابة الطالب]</p>
+      <p class="stage-prerequisite">إتقان المرحلة 1</p>
+    </li>
+    <li>
+      <strong>المرحلة 3 — [اسم محدد]</strong> <em class="stage-duration">المدة: [...]</em>
+      <ul class="stage-objectives"><li>[هدف 1]</li><li>[هدف 2]</li></ul>
+      <ol class="stage-microsteps"><li>[خطوة 1]</li><li>[خطوة 2]</li><li>[خطوة 3]</li></ol>
+      <p class="stage-deliverable">[ناتج عملي]</p>
+      <p class="stage-mastery">[معيار الإتقان الدقيق]</p>
+      <p class="stage-reason">[اقتباس من إجابة الطالب]</p>
+      <p class="stage-prerequisite">إتقان المرحلة 2</p>
+    </li>
+    <li>
+      <strong>المرحلة 4 — [اسم محدد]</strong> <em class="stage-duration">المدة: [...]</em>
+      <ul class="stage-objectives"><li>[هدف 1]</li><li>[هدف 2]</li></ul>
+      <ol class="stage-microsteps"><li>[خطوة 1]</li><li>[خطوة 2]</li><li>[خطوة 3]</li></ol>
+      <p class="stage-deliverable">[ناتج عملي]</p>
+      <p class="stage-mastery">[معيار الإتقان الدقيق]</p>
+      <p class="stage-reason">[اقتباس من إجابة الطالب]</p>
+      <p class="stage-prerequisite">إتقان المرحلة 3</p>
+    </li>
+    <li>
+      <strong>المرحلة 5 — [اسم محدد]</strong> <em class="stage-duration">المدة: [...]</em>
+      <ul class="stage-objectives"><li>[هدف 1]</li><li>[هدف 2]</li></ul>
+      <ol class="stage-microsteps"><li>[خطوة 1]</li><li>[خطوة 2]</li><li>[خطوة 3]</li></ol>
+      <p class="stage-deliverable">[ناتج عملي]</p>
+      <p class="stage-mastery">[معيار الإتقان الدقيق]</p>
+      <p class="stage-reason">[اقتباس من إجابة الطالب]</p>
+      <p class="stage-prerequisite">إتقان المرحلة 4</p>
+    </li>
+    <!-- أضف المرحلة 6 و 7 بنفس الهيكل الكامل إذا كانت المادة تستحق توسعاً -->
   </ol>
   <div class="discover-box"><strong>🏆 ماذا ستجني عند الانتهاء؟</strong><ul><li>[إنجاز ملموس 1 — مهارة قابلة للقياس]</li><li>[إنجاز ملموس 2]</li><li>[إنجاز ملموس 3]</li></ul></div>
 </div>
 
-**معايير جودة المسار (إلزامية):**
-- 5–7 مراحل، مرتّبة منطقياً من الأساس إلى الإتقان (لا قفزات).
-- كل مرحلة لها **اسم محدّد** (لا أسماء عامة كـ"مقدمة")، ووصف يذكر **مهارة ملموسة + ناتج عملي** (مثال: "ستحسب F-value لعملية بسترة حقيقية"، لا "ستفهم البسترة").
-- المراحل تتبنى أسلوب البناء التدريجي: مفهوم → مثال → تطبيق → مشروع/مختبر.
-- لكل مرحلة مدة زمنية واقعية (15–60 دقيقة لكل جلسة، أو عدد جلسات).
-- اربط المراحل بهدف الطالب الذي ذكره — أظهر له كيف ستوصله الخطة لما يريد.
-- استخدم كلمات تحفيزية صادقة، ليست مبالغة.
+────────────────────────────────────────
+**أمثلة على مرحلة صحيحة (للاسترشاد — لا تنسخها حرفياً):**
 
-اختم الرد فوراً بعد </div> الخارجية بسطر منفرد:
+**مثال 1 — مادة المحاسبة المالية (طالب مبتدئ يريد النجاح في الاختبار):**
+\`\`\`
+<li>
+  <strong>المرحلة 1 — معادلة الميزانية والقيد المزدوج</strong> <em class="stage-duration">المدة: 3 جلسات × 25 دقيقة</em>
+  <ul class="stage-objectives">
+    <li>ستُنشئ قيداً محاسبياً كاملاً لعملية شراء وبيع</li>
+    <li>ستُميّز بين الأصول والخصوم وحقوق الملكية بالتطبيق لا بالحفظ</li>
+    <li>ستحل 5 مسائل قيد مزدوج متنوعة بدون مرجع</li>
+  </ul>
+  <ol class="stage-microsteps">
+    <li>ابدأ بتحليل 3 عمليات يومية (شراء بضاعة، دفع إيجار، استلام دفعة) وحدّد أي جانب يزيد ويُصنَّف تحت ماذا</li>
+    <li>طبّق معادلة أصول = خصوم + حقوق على ميزانية شركة صغيرة وتحقق من توازنها</li>
+    <li>أنجز 5 مسائل قيد مزدوج من نموذج اختبار سابق وصحّح بنفسك</li>
+  </ol>
+  <p class="stage-deliverable">ورقة عمل بـ 5 قيود محاسبية صحيحة لعمليات من حياتك اليومية</p>
+  <p class="stage-mastery">يحل 4 من 5 مسائل قيد مزدوج بشكل صحيح بدون مراجعة الملاحظات</p>
+  <p class="stage-reason">ذكرتَ أن "المسائل التطبيقية صعبة علي" — هذه المرحلة تبني الثقة بتطبيق متكرر قبل الانتقال للنظرية</p>
+  <p class="stage-prerequisite">لا متطلب — هذه نقطة الانطلاق</p>
+</li>
+\`\`\`
+
+**مثال 2 — مادة الشبكات (طالب متوسط يريد بناء مهنة):**
+\`\`\`
+<li>
+  <strong>المرحلة 2 — نموذج OSI وبروتوكولات الطبقات</strong> <em class="stage-duration">المدة: 4 جلسات × 30 دقيقة</em>
+  <ul class="stage-objectives">
+    <li>ستشرح وظيفة كل طبقة من 7 طبقات OSI بمثال واقعي لكل منها</li>
+    <li>ستتتبع رحلة packet من المرسل للمستقبل عبر الطبقات</li>
+    <li>ستُشغّل Wireshark وتُحدد الطبقة لكل header تراه</li>
+  </ul>
+  <ol class="stage-microsteps">
+    <li>ارسم نموذج OSI من الذاكرة بعد مشاهدة مثال واحد فقط، ثم قارن</li>
+    <li>تتبّع رسالة بريد إلكتروني من لحظة الإرسال حتى الاستقبال وسمّ بروتوكول كل طبقة</li>
+    <li>افتح Wireshark على شبكتك وحدّد TCP و HTTP و ARP في الـ packets الحقيقية</li>
+  </ol>
+  <p class="stage-deliverable">لقطة شاشة Wireshark مُعلَّقة بخط يدك: كل header مُسمًّى بطبقته وبروتوكوله</p>
+  <p class="stage-mastery">يشرح أي طبقة OSI بمثال جديد لم يُدرَّس في الجلسة ويُربطها ببروتوكول حقيقي</p>
+  <p class="stage-reason">قلتَ إنك تريد "بناء مهنة في الشبكات" — فهم OSI هو لغة المحترفين في كل شهادة (CCNA/CompTIA)</p>
+  <p class="stage-prerequisite">معرفة مفهوم IP address والمنفذ (port) — تأكدنا في المرحلة 1</p>
+</li>
+\`\`\`
+
+**مثال 3 — مادة الرياضيات (طالب ثانوي يريد النجاح في الاختبار، تحديه: البراهين):**
+\`\`\`
+<li>
+  <strong>المرحلة 3 — البراهين الهندسية: من الحدس إلى الاستدلال</strong> <em class="stage-duration">المدة: 5 جلسات × 20 دقيقة</em>
+  <ul class="stage-objectives">
+    <li>ستكتب برهاناً هندسياً كاملاً (سبب + نتيجة) لـ 3 أنواع من المسائل</li>
+    <li>ستُميّز بين المعطيات والمطلوب وخطوات الاستدلال في أي مسألة</li>
+    <li>ستحل مسائل براهين من نموذج وزارة السنوات الثلاث الماضية</li>
+  </ul>
+  <ol class="stage-microsteps">
+    <li>ارسم الشكل الهندسي أولاً وعلّم المعطيات بألوان مختلفة قبل أي حساب</li>
+    <li>اكتب خطوات البرهان كجمل عربية عادية أولاً ("لأن... إذن...") ثم حوّلها لرموز</li>
+    <li>حل 3 مسائل من نموذج الوزارة وتحقق من كل خطوة مع الحل النموذجي</li>
+  </ol>
+  <p class="stage-deliverable">كراسة بـ 5 براهين هندسية مكتملة بخط اليد مع تعليق على كل خطوة</p>
+  <p class="stage-mastery">يكتب برهاناً كاملاً صحيحاً في ≤ 10 دقائق على مسألة لم يرها من قبل</p>
+  <p class="stage-reason">قلتَ إن "البراهين والإثبات" أكبر تحدياتك — هذه المرحلة تُحوّل الغموض إلى منهجية واضحة</p>
+  <p class="stage-prerequisite">إتقان خصائص المثلثات والمتوازيات من المرحلة 2</p>
+</li>
+\`\`\`
+────────────────────────────────────────
+
+**معايير جودة المسار (إلزامية — الخطة تُرفض إذا خالفتها):**
+- **5–7 مراحل فقط**، مرتّبة منطقياً من الأساس إلى الإتقان (لا قفزات).
+- كل مرحلة **يجب** أن تحتوي على العناصر الستة بالـ class المحددة: \`stage-objectives\`، \`stage-microsteps\`، \`stage-deliverable\`، \`stage-mastery\`، \`stage-reason\`، \`stage-prerequisite\`.
+- **\`stage-objectives\`:** قائمة بـ 2–4 أهداف قابلة للقياس (ستحسب/ستُميّز/ستبني — لا "ستفهم" أو "ستعرف").
+- **\`stage-microsteps\`:** قائمة مرقّمة بـ 3–5 خطوات فرعية تعليمية تفصيلية (ما يفعله الطالب فعلاً، لا ما سيشرحه المعلم).
+- **\`stage-deliverable\`:** ناتج عملي واحد ملموس يمتلكه الطالب بعد المرحلة (ورقة، ملف، لقطة شاشة، حل مسائل محدد).
+- **\`stage-mastery\`:** معيار إتقان دقيق قابل للقياس — الشرط الذي يُؤذن بـ [STAGE_COMPLETE] (لا "عندما يفهم المفهوم").
+- **\`stage-reason\`:** اقتباس أو إشارة مباشرة لكلام الطالب في التشخيص — يُشعره أن هذه المرحلة صُمّمت له هو تحديداً.
+- **\`stage-prerequisite\`:** المتطلب القبلي المحدد (أو "لا متطلب — هذه نقطة الانطلاق" للمرحلة الأولى).
+- المراحل تتبنى بناء تدريجياً: مفهوم → مثال → تطبيق → مشروع/مختبر.
+- اربط المراحل بهدف الطالب — أظهر له كيف ستوصله الخطة لما يريد.
+
+اختم الرد فوراً بعد \`</div>\` الخارجية بسطر منفرد:
 [PLAN_READY]
 ثم في سطر منفصل اكتب جملة تشويقية قصيرة (≤ 20 كلمة) تُمهّد لجلسة استكشاف عملية لا لمحاضرة. مثال: "خطتك جاهزة 🚀 — في الجلسة الأولى راح أبني لك بيئة تطبيقية صغيرة تجرّبها بإيدك، عشان تشوف قوة التعليم هنا فعلاً. مستعد نبدأ؟"
 
@@ -1615,6 +1737,16 @@ ${formattingRules}`;
 - **تنسيق الوسم:** \`[[ASK_OPTIONS: السؤال ||| خيار1 ||| خيار2 ||| ... ||| غير ذلك]]\` — الفاصل ثلاث شرطات \`|||\`، و"غير ذلك" آخر خيار حرفياً دائماً.
 
 ${dbPlanContext ? `--- خطة الطالب الشخصية (مرجعك المقدّس في كل جلسة) ---\n${dbPlanContext}\n---\n` : ""}
+${(currentStageContract && !isDiagnosticPhase) ? `━━━ 📋 عقد المرحلة الحالية مع الطالب (ملزم — تُدرَّس ضمنه فقط) ━━━
+• الأهداف القابلة للقياس: ${Array.isArray(currentStageContract.objectives) ? (currentStageContract.objectives as string[]).join(' | ') : String(currentStageContract.objectives ?? '')}
+• الخطوات الفرعية (stage-microsteps):
+${Array.isArray(currentStageContract.microSteps) ? (currentStageContract.microSteps as string[]).map((s: string, i: number) => `  ${i + 1}. ${s}`).join('\n') : String(currentStageContract.microSteps ?? '')}
+• المُخرَج العملي المتوقع: ${currentStageContract.deliverable ?? ''}
+• معيار الإتقان — الشرط الذي يُؤذن بـ [STAGE_COMPLETE]: ${currentStageContract.masteryCriterion ?? ''}
+• لماذا هذه المرحلة لهذا الطالب: ${currentStageContract.reasonForStudent ?? ''}
+• المتطلب القبلي: ${currentStageContract.prerequisite ?? ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+` : ""}
 ${sessionContextNote}
 ${mistakesBankNote}
 **📚 استخدام بنك الأخطاء (مهم للعمق التعليمي):**
@@ -1649,6 +1781,19 @@ ${mistakesBankNote}
 **الجلسة الحالية:**
 - المرحلة الحالية (${stageIdx + 1}/${stageCount}): "${currentStageName}"
 ${nextStageName ? `- المرحلة التالية: "${nextStageName}" (لا تنتقل إليها حتى يُتقن الطالب الحالية)` : "- هذه المرحلة الأخيرة"}
+${isNewStage ? `\n⚡ **بداية مرحلة جديدة — خريطة الطريق إلزامية:** في أول ردّك، ارسم خريطة طريق للمرحلة الحالية بذكر خطواتها الفرعية من عقد المرحلة أعلاه، واطلب من الطالب بـ [ASK_OPTIONS] تحديد أيها يعتقد أنه أتقنها مسبقاً.` : ""}
+
+**وسوم الخطوات الفرعية [MICRO_STEP_DONE] — إلزامية عند توفر عقد المرحلة:**
+${currentStageContract && !isDiagnosticPhase ? `- عند إتمام الطالب خطوة فرعية من القائمة في عقد المرحلة أعلاه، أضف في نهاية الرد (سطر منفرد):
+  \`[MICRO_STEP_DONE: <index>]\` — index = ترتيب الخطوة بدءاً من 0.
+  مثال: الخطوة الأولى → \`[MICRO_STEP_DONE: 0]\`، الثانية → \`[MICRO_STEP_DONE: 1]\`... إلخ.
+- لا تضعه قبل أن يُجيب الطالب بشكل صحيح على سؤال التحقق المرتبط بتلك الخطوة.
+- الوسم لن يُعرض للطالب — يُستخدم لتحديث شريط تقدّمه الفعلي.` : "- لا يوجد عقد مرحلة في هذه الجلسة — تجاهل وسم MICRO_STEP_DONE."}
+
+**تأمّل النموّ إلزامي عند [STAGE_COMPLETE]:**
+- قبل [STAGE_COMPLETE] في نفس الرد، أضف وسم \`[GROWTH: ملخص النمو]\` يلخّص في جملتين كيف تطور مستوى الطالب تحديداً في هذه المرحلة مقارنةً بما أعلنه عند التشخيص.
+- بعد الوسم أضف فقرة قصيرة (3–4 جمل) تُقارن مستوى الطالب الآن بما أعلنه في بداية المسار.
+${currentStageContract?.masteryCriterion ? `- **اذكر معيار الإتقان المتفق عليه بالاسم حرفياً:** "${currentStageContract.masteryCriterion}" — وأكّد أن الطالب حقّقه. بدون هذا الذكر، يُعدّ [STAGE_COMPLETE] ناقصاً.` : ""}
 
 **أسلوبك في التدريس (التزم به في كل رد):**
 
@@ -3228,6 +3373,96 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   stageComplete = fullResponse.includes("[STAGE_COMPLETE]");
   const planReady = fullResponse.includes("[PLAN_READY]");
 
+  // ── MICRO_STEP_DONE parsing ─────────────────────────────────────────────
+  // The teaching prompt instructs the model to emit [MICRO_STEP_DONE: N] when
+  // the student completes a micro-step. Extract all such tags and forward them
+  // to the client in the done event so it can update its progress bar and
+  // persist to DB via PATCH /api/user-plan/micro-step.
+  const microStepDoneTagMatches = Array.from(
+    fullResponse.matchAll(/\[MICRO_STEP_DONE:\s*(\d{1,3})\s*\]/gi)
+  );
+  const microStepsDone: number[] = microStepDoneTagMatches
+    .map((m) => Number(m[1]))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 20);
+
+  // ── Growth reflection parsing ────────────────────────────────────────────
+  const growthMatch = fullResponse.match(/\[GROWTH:\s*([\s\S]*?)\]/i);
+  const growthReflectionText = growthMatch ? growthMatch[1].trim() : "";
+
+  // ── Server-side micro-step persistence ──────────────────────────────────
+  // Update the plan record directly so progress is durable even if the client
+  // disconnects before it can call PATCH /api/user-plan/micro-step.
+  if (microStepsDone.length > 0 && !isDiagnosticPhase) {
+    db.select().from(userSubjectPlansTable).where(
+      and(eq(userSubjectPlansTable.userId, userId), eq(userSubjectPlansTable.subjectId, subjectId))
+    ).then(([existingPlan]) => {
+      if (!existingPlan) return;
+      let completed: number[] = [];
+      try { completed = JSON.parse(existingPlan.completedMicroSteps ?? "[]"); } catch {}
+      for (const n of microStepsDone) {
+        if (!completed.includes(n)) completed.push(n);
+      }
+      return db.update(userSubjectPlansTable).set({
+        currentMicroStepIndex: Math.max(...microStepsDone),
+        completedMicroSteps: JSON.stringify(completed),
+        updatedAt: new Date(),
+      }).where(eq(userSubjectPlansTable.id, existingPlan.id));
+    }).catch(() => {});
+  }
+
+  // ── Server-side growth reflection persistence ────────────────────────────
+  // Appended to the plan's growthReflections JSON array on [STAGE_COMPLETE].
+  if (stageComplete && growthReflectionText && !isDiagnosticPhase) {
+    db.select().from(userSubjectPlansTable).where(
+      and(eq(userSubjectPlansTable.userId, userId), eq(userSubjectPlansTable.subjectId, subjectId))
+    ).then(([plan]) => {
+      if (!plan) return;
+      let existing: Array<{ stageIndex: number; text: string; date: string }> = [];
+      try { existing = JSON.parse(plan.growthReflections ?? "[]"); } catch {}
+      existing.push({ stageIndex: stageIdx, text: growthReflectionText, date: new Date().toISOString() });
+      return db.update(userSubjectPlansTable).set({
+        growthReflections: JSON.stringify(existing),
+        updatedAt: new Date(),
+      }).where(eq(userSubjectPlansTable.id, plan.id));
+    }).catch(() => {});
+  }
+
+  // ── Mastery drift guard ────────────────────────────────────────────────
+  // If [STAGE_COMPLETE] fired but the agreed mastery criterion is not mentioned
+  // in the response (≥ 25% word overlap), suppress stage advancement and
+  // return masteryDriftDetected so the client can show a confirmation dialog.
+  const masteryCriterionText: string =
+    typeof currentStageContract?.masteryCriterion === "string"
+      ? currentStageContract.masteryCriterion
+      : "";
+  let masteryDriftDetected = false;
+  if (stageComplete && masteryCriterionText && !isDiagnosticPhase) {
+    const criterionWords = masteryCriterionText
+      .split(/\s+/)
+      .filter((w: string) => w.length >= 3);
+    if (criterionWords.length >= 3) {
+      const normResponse = fullResponse.replace(/<[^>]+>/g, " ");
+      const matchedCount = criterionWords.filter((w: string) =>
+        normResponse.includes(w)
+      ).length;
+      const ratio = matchedCount / criterionWords.length;
+      if (ratio < 0.25) {
+        db.insert(auditLogsTable).values({
+          event: "mastery_drift_suppressed",
+          userId,
+          subjectId,
+          data: {
+            stageIdx,
+            criterionPreview: masteryCriterionText.slice(0, 100),
+            overlapRatio: parseFloat(ratio.toFixed(2)),
+          },
+        }).catch(() => {});
+        stageComplete = false;
+        masteryDriftDetected = true;
+      }
+    }
+  }
+
   // ── Persist mistakes-bank tags from this turn ────────────────────────────
   // The teaching prompt instructs the model to emit at most one new
   // [MISTAKE: topic ||| description] per response and any number of
@@ -3624,7 +3859,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // the right thing by skipping the message-counter increment.
   if (!res.writableEnded) {
     try {
-      res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining: gemsRemaining, gemsRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, stageComplete, nextStage: stageComplete ? stageIdx + 1 : stageIdx, messagesRemaining: gemsRemaining, gemsRemaining, planReady, quotaExhausted: isQuotaExhausted, materialProgress: materialProgressUpdate, microStepsDone: microStepsDone.length > 0 ? microStepsDone : undefined, masteryDriftDetected: masteryDriftDetected || undefined, masteryCriterion: (masteryDriftDetected && masteryCriterionText) ? masteryCriterionText : undefined, intendedNextStage: masteryDriftDetected ? stageIdx + 1 : undefined, growthReflection: (stageComplete && growthReflectionText) ? growthReflectionText : undefined })}\n\n`);
       res.end();
     } catch {}
   }

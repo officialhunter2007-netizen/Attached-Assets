@@ -286,49 +286,341 @@ function SubscriptionExpiredWall({
   );
 }
 
-function parsePlanStages(planHtml: string | null): { title: string; descHtml: string; duration: string }[] {
+interface PlanStage {
+  title: string;
+  descHtml: string;
+  duration: string;
+  objectives: string[];
+  microSteps: string[];
+  deliverable: string;
+  masteryCriterion: string;
+  reasonForStudent: string;
+  prerequisite: string;
+}
+
+// ── Depth-aware HTML helpers ─────────────────────────────────────────────────
+// Regex with non-greedy `[\s\S]*?` stops at the FIRST closing tag it sees —
+// which is always a nested inner tag, not the intended outer one. These helpers
+// walk the string tracking open/close depth instead.
+
+function getOutermostOlContent(html: string): string | null {
+  const start = html.indexOf('<ol');
+  if (start === -1) return null;
+  const tagEnd = html.indexOf('>', start);
+  if (tagEnd === -1) return null;
+  let depth = 1;
+  let pos = tagEnd + 1;
+  while (depth > 0 && pos < html.length) {
+    const nextOpen = html.indexOf('<ol', pos);
+    const nextClose = html.indexOf('</ol>', pos);
+    if (nextClose === -1) break;
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      depth++;
+      pos = nextOpen + 3;
+    } else {
+      depth--;
+      if (depth === 0) return html.slice(tagEnd + 1, nextClose);
+      pos = nextClose + 5;
+    }
+  }
+  return null;
+}
+
+function getTopLevelLiItems(olContent: string): string[] {
+  const items: string[] = [];
+  let i = 0;
+  while (i < olContent.length) {
+    const liStart = olContent.indexOf('<li', i);
+    if (liStart === -1) break;
+    const tagEnd = olContent.indexOf('>', liStart);
+    if (tagEnd === -1) break;
+    let depth = 1;
+    let pos = tagEnd + 1;
+    let found = false;
+    while (pos < olContent.length) {
+      const nextOpen = olContent.indexOf('<li', pos);
+      const nextClose = olContent.indexOf('</li>', pos);
+      if (nextClose === -1) break;
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        depth++;
+        pos = nextOpen + 3;
+      } else {
+        depth--;
+        if (depth === 0) {
+          items.push(olContent.slice(tagEnd + 1, nextClose));
+          i = nextClose + 5;
+          found = true;
+          break;
+        }
+        pos = nextClose + 5;
+      }
+    }
+    if (!found) break;
+  }
+  return items;
+}
+
+// extractClassedList and extractClassedText operate on a single stage's inner
+// HTML, where sub-lists (stage-objectives, stage-microsteps) don't contain
+// further nested <ul>/<ol>. The regex is safe at this level.
+function extractClassedList(html: string, cls: string): string[] {
+  const re = new RegExp(`class=["'][^"']*${cls}[^"']*["'][^>]*>([\\s\\S]*?)<\\/(?:ul|ol)>`, 'i');
+  const m = html.match(re);
+  if (!m) return [];
+  const items: string[] = [];
+  const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+  let lm: RegExpExecArray | null;
+  while ((lm = liRe.exec(m[1])) !== null) {
+    items.push(lm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+  }
+  return items;
+}
+
+function extractClassedText(html: string, cls: string): string {
+  const re = new RegExp(`class=["'][^"']*${cls}[^"']*["'][^>]*>([\\s\\S]*?)<\\/(?:p|div|span)>`, 'i');
+  const m = html.match(re);
+  if (!m) return '';
+  return m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function parsePlanStages(planHtml: string | null): PlanStage[] {
   if (!planHtml) return [];
   try {
-    const match = planHtml.match(/<ol[^>]*>([\s\S]*?)<\/ol>/i);
-    if (!match) return [];
-    const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
-    const items: { title: string; descHtml: string; duration: string }[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = liRegex.exec(match[1])) !== null) {
-      const inner = m[1];
-      const strong = inner.match(/<strong[^>]*>([\s\S]*?)<\/strong>/i)?.[1] ?? "";
-      const em = inner.match(/<em[^>]*>([\s\S]*?)<\/em>/i)?.[1] ?? "";
-      const cleanTitle = strong.replace(/<[^>]+>/g, "").trim().replace(/^المرحلة\s*\d+\s*[—\-:]\s*/, "");
-      const cleanDuration = em.replace(/<[^>]+>/g, "").replace(/^المدة[:\s]*/i, "").trim();
+    const olContent = getOutermostOlContent(planHtml);
+    if (!olContent) return [];
+    const liItems = getTopLevelLiItems(olContent);
+    const items: PlanStage[] = [];
+    for (const inner of liItems) {
+      const strong = inner.match(/<strong[^>]*>([\s\S]*?)<\/strong>/i)?.[1] ?? '';
+      const em = inner.match(/<em[^>]*>([\s\S]*?)<\/em>/i)?.[1] ?? '';
+      const cleanTitle = strong.replace(/<[^>]+>/g, '').trim().replace(/^المرحلة\s*\d+\s*[—\-:]\s*/, '');
+      const cleanDuration = em.replace(/<[^>]+>/g, '').replace(/^المدة[:\s]*/i, '').trim();
+      const objectives = extractClassedList(inner, 'stage-objectives');
+      const microSteps = extractClassedList(inner, 'stage-microsteps');
+      const deliverable = extractClassedText(inner, 'stage-deliverable');
+      const masteryCriterion = extractClassedText(inner, 'stage-mastery');
+      const reasonForStudent = extractClassedText(inner, 'stage-reason');
+      const prerequisite = extractClassedText(inner, 'stage-prerequisite');
       const descHtml = inner
-        .replace(/<strong[^>]*>[\s\S]*?<\/strong>/i, "")
-        .replace(/<em[^>]*>[\s\S]*?<\/em>/i, "")
+        .replace(/<strong[^>]*>[\s\S]*?<\/strong>/gi, '')
+        .replace(/<em[^>]*>[\s\S]*?<\/em>/gi, '')
         .trim();
-      items.push({ title: cleanTitle || "مرحلة", descHtml, duration: cleanDuration });
+      if (!cleanTitle && objectives.length === 0 && microSteps.length === 0) continue;
+      items.push({
+        title: cleanTitle || `مرحلة ${items.length + 1}`,
+        descHtml,
+        duration: cleanDuration,
+        objectives,
+        microSteps,
+        deliverable,
+        masteryCriterion,
+        reasonForStudent,
+        prerequisite,
+      });
     }
     return items;
   } catch { return []; }
+}
+
+// ── LearningContractCard ──────────────────────────────────────────────────────
+// Shown after [PLAN_READY] fires so the student can review and accept (or ask
+// to revise) the personalised plan before the teacher auto-starts Phase 1.
+const REVISION_OPTIONS = [
+  {
+    key: "easier",
+    label: "الخطة صعبة — أريدها أبسط",
+    msg: "الخطة المقترحة صعبة جداً بالنسبة لمستواي الحالي. أريد إعادة بنائها بمستوى أبسط يتدرج بشكل تدريجي، مع تقليل عدد الخطوات الفرعية في كل مرحلة وإضافة وقت أكبر لكل مرحلة.",
+  },
+  {
+    key: "harder",
+    label: "الخطة سهلة — أريدها أعمق وأشمل",
+    msg: "أريد خطة أعمق وأكثر تحدياً تناسب مستواي. زد من الأهداف في كل مرحلة وأضف موضوعات متقدمة وقلل المدة الزمنية لكل مرحلة.",
+  },
+  {
+    key: "fewer_stages",
+    label: "المراحل كثيرة — أريد خطة أقصر",
+    msg: "عدد المراحل كبير. أريد دمج المراحل المتشابهة للوصول إلى الهدف بشكل أسرع — حافظ على 5–6 مراحل.",
+  },
+  {
+    key: "add_topic",
+    label: "أريد التأكد من تغطية موضوع بعينه",
+    msg: "هناك موضوع خاص أريد التأكد من تغطيته في الخطة. ناقشني أولاً لتحديد المواضيع المطلوبة وبناءً على إجاباتي أعد الخطة من جديد.",
+  },
+];
+
+function LearningContractCard({
+  planHtml,
+  onAccept,
+  onRequestRevision,
+}: {
+  planHtml: string;
+  onAccept: () => void;
+  onRequestRevision: (msg: string) => void;
+}) {
+  const [showRevision, setShowRevision] = useState(false);
+  const [expandedContractStage, setExpandedContractStage] = useState<number>(-1);
+  const stages = parsePlanStages(planHtml);
+
+  if (showRevision) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)", direction: "rtl" }}>
+        <div className="rounded-2xl border border-amber-500/30 bg-[#16120e] shadow-2xl max-w-md w-full p-5 space-y-3">
+          <div className="font-bold text-white text-[15px] mb-0.5">ما نوع التعديل المطلوب؟</div>
+          <div className="text-[12px] text-white/45 mb-2">اختر البُعد الذي تريد تعديله وسيعيد المعلم بناء الخطة بناءً على إجاباتك التشخيصية</div>
+          {REVISION_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => onRequestRevision(opt.msg)}
+              className="w-full text-right px-3.5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.09] border border-white/10 text-[13px] text-white transition-colors"
+            >
+              {opt.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setShowRevision(false)}
+            className="w-full text-center pt-1 pb-0.5 text-[12px] text-white/35 hover:text-white/60 transition-colors"
+          >
+            رجوع
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.80)", direction: "rtl" }}>
+      <div className="rounded-2xl border border-amber-500/30 bg-[#16120e] shadow-2xl max-w-md w-full p-5 space-y-4 max-h-[90dvh] overflow-y-auto">
+        <div className="text-center space-y-1">
+          <div className="text-2xl font-black text-white">خطتك الشخصية جاهزة 🎯</div>
+          <div className="text-[12px] text-white/55">راجع المراحل بالتفصيل وأعلمنا موافقتك لنبدأ التعليم فوراً</div>
+        </div>
+        {stages.length > 0 && (
+          <ol className="space-y-1.5">
+            {stages.map((s, idx) => {
+              const open = expandedContractStage === idx;
+              return (
+                <li key={idx} className="rounded-xl border border-white/10 bg-white/[0.025] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedContractStage(open ? -1 : idx)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-right"
+                  >
+                    <span className="shrink-0 w-6 h-6 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-[11px] font-bold text-amber-200">{idx + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-[13px] text-white leading-tight">{s.title}</div>
+                      {s.duration && <div className="text-[10px] text-white/35 mt-0.5">{s.duration}</div>}
+                    </div>
+                    <span className="shrink-0 text-[10px] text-white/30">{open ? "▲" : "▼"}</span>
+                  </button>
+                  {open && (
+                    <div className="px-3 pb-3 pt-0.5 space-y-2 border-t border-white/[0.06]">
+                      {s.objectives.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">الأهداف</div>
+                          <ul className="space-y-0.5">
+                            {s.objectives.map((o, oi) => (
+                              <li key={oi} className="text-[11px] text-white/65 flex gap-1.5">
+                                <span className="text-amber-400/50 shrink-0">•</span>{o}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {s.microSteps.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">الخطوات الفرعية</div>
+                          <ol className="space-y-0.5">
+                            {s.microSteps.map((step, si) => (
+                              <li key={si} className="text-[11px] text-white/60 flex gap-1.5">
+                                <span className="shrink-0 w-3.5 h-3.5 rounded-full bg-white/8 flex items-center justify-center text-[8px] font-bold text-white/40 mt-0.5">{si + 1}</span>
+                                {step}
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      )}
+                      {s.masteryCriterion && (
+                        <div className="rounded-lg bg-amber-500/8 border border-amber-500/20 px-2 py-1.5">
+                          <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">معيار الإتقان</div>
+                          <div className="text-[11px] text-amber-100/75">{s.masteryCriterion}</div>
+                        </div>
+                      )}
+                      {s.deliverable && (
+                        <div className="text-[10px] text-white/45">
+                          <span className="font-bold text-white/55">المُخرَج: </span>{s.deliverable}
+                        </div>
+                      )}
+                      {s.reasonForStudent && (
+                        <div className="rounded-lg bg-purple-500/8 border border-purple-500/20 px-2 py-1.5">
+                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">لماذا هذه المرحلة لك</div>
+                          <div className="text-[11px] text-purple-100/70">{s.reasonForStudent}</div>
+                        </div>
+                      )}
+                      {s.prerequisite && (
+                        <div className="text-[10px] text-white/35">
+                          <span className="font-bold text-white/45">المتطلب القبلي: </span>{s.prerequisite}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        <div className="flex gap-2.5 pt-1">
+          <button
+            type="button"
+            onClick={onAccept}
+            className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-[14px] transition-colors"
+          >
+            أعتمد الخطة وأبدأ ✓
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowRevision(true)}
+            className="flex-1 py-3 rounded-xl bg-white/8 hover:bg-white/12 border border-white/10 text-white font-bold text-[14px] transition-colors"
+          >
+            أريد تعديلاً
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function LearningPathPanel({
   planHtml,
   currentStage,
   totalStages,
+  completedMicroSteps,
+  growthReflections,
   onJumpToStage,
 }: {
   planHtml: string | null;
   currentStage: number;
   totalStages: number;
+  completedMicroSteps?: number[];
+  growthReflections?: Array<{ stageIndex: number; text: string; date: string }>;
   onJumpToStage?: (stageIndex: number, stageTitle: string) => void;
 }) {
+  const [expandedStage, setExpandedStage] = useState<number>(currentStage);
+  useEffect(() => { setExpandedStage(currentStage); }, [currentStage]);
+
+  const activeStageRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    activeStageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   if (!planHtml) return null;
   const stages = parsePlanStages(planHtml);
   if (stages.length === 0) return null;
   const effectiveTotal = totalStages || stages.length;
   const progressPct = Math.min(100, Math.round((currentStage / Math.max(effectiveTotal, 1)) * 100));
-  const active = stages[currentStage] ?? stages[0];
 
-  // Circular progress ring — pure SVG, no extra deps. r=28 → C ≈ 175.93.
+  // Circular progress ring — pure SVG. r=28 → C ≈ 175.93.
   const r = 28;
   const c = 2 * Math.PI * r;
   const dash = (progressPct / 100) * c;
@@ -362,24 +654,32 @@ function LearningPathPanel({
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-[11px] text-amber-300/80 font-bold mb-0.5">التقدّم العام</div>
-          <div className="text-[13px] font-bold text-white truncate">{active.title}</div>
+          <div className="text-[13px] font-bold text-white truncate">
+            {stages[Math.min(currentStage, stages.length - 1)]?.title || ''}
+          </div>
           <div className="text-[10px] text-white/50 mt-0.5">
             المرحلة {Math.min(currentStage + 1, stages.length)} من {stages.length}
           </div>
         </div>
       </div>
 
-      {/* Per-stage list with status badges + jump button */}
+      {/* Per-stage list: expandable rows */}
       <ol className="space-y-2">
         {stages.map((s, idx) => {
           const isActive = idx === currentStage;
           const isDone = idx < currentStage;
           const isLocked = idx > currentStage;
+          const isExpanded = expandedStage === idx;
           const status = isDone ? "مكتملة" : isActive ? "الحالية" : "مقفلة";
+          const microTotal = s.microSteps.length;
+          const completedCount = isActive
+            ? (completedMicroSteps?.length ?? 0)
+            : (isDone ? microTotal : 0);
           return (
             <li
               key={idx}
-              className={`rounded-xl px-3 py-2.5 border ${
+              ref={isActive ? activeStageRef : undefined}
+              className={`rounded-xl border transition-all ${
                 isActive
                   ? "bg-amber-500/10 border-amber-500/40 shadow-md shadow-amber-500/10"
                   : isDone
@@ -387,57 +687,154 @@ function LearningPathPanel({
                     : "bg-white/[0.03] border-white/10"
               }`}
             >
-              <div className="flex items-start gap-2.5">
-                <span className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-black ${
-                  isActive
-                    ? "bg-amber-500 text-black"
-                    : isDone
-                      ? "bg-emerald-500/30 text-emerald-200 border border-emerald-500/40"
-                      : "bg-white/8 text-white/50 border border-white/10"
-                }`}>
-                  {isDone ? "✓" : isLocked ? "🔒" : idx + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`font-bold text-[13px] ${isActive ? "text-white" : isDone ? "text-emerald-100" : "text-white/70"}`}>
-                      {s.title}
-                    </span>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
-                      isActive
-                        ? "bg-amber-500/30 text-amber-100 border border-amber-400/40"
-                        : isDone
-                          ? "bg-emerald-500/20 text-emerald-200 border border-emerald-500/30"
-                          : "bg-white/5 text-white/40 border border-white/10"
-                    }`}>{status}</span>
+              {/* Stage header row — click to expand/collapse */}
+              <button
+                type="button"
+                onClick={() => setExpandedStage(isExpanded ? -1 : idx)}
+                className="w-full text-right px-3 py-2.5"
+              >
+                <div className="flex items-start gap-2.5">
+                  <span className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-black ${
+                    isActive
+                      ? "bg-amber-500 text-black"
+                      : isDone
+                        ? "bg-emerald-500/30 text-emerald-200 border border-emerald-500/40"
+                        : "bg-white/8 text-white/50 border border-white/10"
+                  }`}>
+                    {isDone ? "✓" : isLocked ? "🔒" : idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`font-bold text-[13px] ${isActive ? "text-white" : isDone ? "text-emerald-100" : "text-white/70"}`}>
+                        {s.title}
+                      </span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
+                        isActive
+                          ? "bg-amber-500/30 text-amber-100 border border-amber-400/40"
+                          : isDone
+                            ? "bg-emerald-500/20 text-emerald-200 border border-emerald-500/30"
+                            : "bg-white/5 text-white/40 border border-white/10"
+                      }`}>{status}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {s.duration && (
+                        <span className="text-[10px] inline-block bg-purple-500/15 border border-purple-400/25 text-purple-200 rounded-full px-2 py-0.5">
+                          ⏱ {s.duration}
+                        </span>
+                      )}
+                      {microTotal > 0 && (
+                        <span className="text-[10px] text-white/40 tabular-nums">
+                          {completedCount}/{microTotal} خطوة
+                        </span>
+                      )}
+                    </div>
+                    {/* Micro-step progress bar */}
+                    {microTotal > 0 && (isActive || isDone) && (
+                      <div className="mt-1.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${isActive ? "bg-amber-400" : "bg-emerald-400"}`}
+                          style={{ width: `${Math.round((completedCount / microTotal) * 100)}%` }}
+                        />
+                      </div>
+                    )}
                   </div>
-                  {s.duration && (
-                    <div className="text-[10px] mt-1 inline-block bg-purple-500/15 border border-purple-400/25 text-purple-200 rounded-full px-2 py-0.5">
-                      ⏱ {s.duration}
+                  <span className={`shrink-0 self-center text-[10px] ml-1 ${isExpanded ? "text-amber-300" : "text-white/25"}`}>
+                    {isExpanded ? "▲" : "▼"}
+                  </span>
+                </div>
+              </button>
+
+              {/* Expanded detail: all 6 contract fields — visible for every stage */}
+              {isExpanded && (
+                <div className="px-3 pb-3 space-y-2.5 border-t border-white/[0.06] pt-2.5">
+                  {s.objectives.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-bold text-amber-300/70 mb-1">الأهداف القابلة للقياس</div>
+                      <ul className="space-y-1">
+                        {s.objectives.map((obj, oi) => (
+                          <li key={oi} className="text-[11px] text-white/70 flex gap-1.5">
+                            <span className="text-amber-400/60 shrink-0">•</span>{obj}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {s.microSteps.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-bold text-purple-300/70 mb-1">الخطوات التفصيلية</div>
+                      <ol className="space-y-1">
+                        {s.microSteps.map((step, si) => {
+                          const done = isDone || (isActive && (completedMicroSteps ?? []).includes(si));
+                          return (
+                            <li key={si} className={`text-[11px] flex gap-1.5 ${done ? "text-emerald-300/80" : isLocked ? "text-white/40" : "text-white/60"}`}>
+                              <span className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold mt-0.5 ${
+                                done ? "bg-emerald-500/30 text-emerald-200" : "bg-white/8 text-white/40"
+                              }`}>{done ? "✓" : si + 1}</span>
+                              {step}
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </div>
+                  )}
+                  {s.masteryCriterion && (
+                    <div className="rounded-lg bg-amber-500/8 border border-amber-500/20 px-2.5 py-2">
+                      <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">معيار الإتقان</div>
+                      <div className={`text-[11px] ${isLocked ? "text-amber-100/50" : "text-amber-100/80"}`}>{s.masteryCriterion}</div>
+                    </div>
+                  )}
+                  {s.deliverable && (
+                    <div className="text-[10px] text-white/50">
+                      <span className="font-bold text-white/60">المُخرَج: </span>{s.deliverable}
+                    </div>
+                  )}
+                  {s.reasonForStudent && (
+                    <div className="rounded-lg bg-purple-500/8 border border-purple-500/20 px-2.5 py-2">
+                      <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">لماذا هذه المرحلة لك</div>
+                      <div className={`text-[11px] ${isLocked ? "text-purple-100/40" : "text-purple-100/70"}`}>{s.reasonForStudent}</div>
+                    </div>
+                  )}
+                  {s.prerequisite && (
+                    <div className="text-[10px] text-white/40">
+                      <span className="font-bold text-white/50">المتطلب القبلي: </span>{s.prerequisite}
                     </div>
                   )}
                 </div>
-              </div>
-              {/* Jump-to-stage button: present on every non-active stage so
-                  the student can revisit a completed stage or peek ahead.
-                  The parent decides what "jump" means (synthesizes a user
-                  message asking the teacher to start that stage). */}
+              )}
+
+              {/* Jump-to-stage button */}
               {!isActive && onJumpToStage && (
-                <button
-                  type="button"
-                  onClick={() => onJumpToStage(idx, s.title)}
-                  className={`mt-2 w-full text-[11px] font-bold py-1.5 rounded-lg border transition-all ${
-                    isDone
-                      ? "bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-100"
-                      : "bg-amber-500/10 hover:bg-amber-500/25 border-amber-500/30 text-amber-200"
-                  }`}
-                >
-                  {isDone ? "↻ راجع هذه المرحلة" : "اقفز هنا ←"}
-                </button>
+                <div className="px-3 pb-2.5">
+                  <button
+                    type="button"
+                    onClick={() => onJumpToStage(idx, s.title)}
+                    className={`w-full text-[11px] font-bold py-1.5 rounded-lg border transition-all ${
+                      isDone
+                        ? "bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-100"
+                        : "bg-amber-500/10 hover:bg-amber-500/25 border-amber-500/30 text-amber-200"
+                    }`}
+                  >
+                    {isDone ? "↻ راجع هذه المرحلة" : "اقفز هنا ←"}
+                  </button>
+                </div>
               )}
             </li>
           );
         })}
       </ol>
+
+      {/* Growth reflections: what the student demonstrated at stage-complete moments */}
+      {growthReflections && growthReflections.length > 0 && (
+        <div className="px-4 pt-2 pb-4 space-y-2">
+          <div className="text-[10px] font-bold text-emerald-300/70 mb-1.5">🌱 نمو المهارات</div>
+          {growthReflections.slice(-5).map((g, i) => (
+            <div key={i} className="rounded-lg bg-emerald-500/[0.06] border border-emerald-500/20 px-2.5 py-2">
+              <div className="text-[9px] text-emerald-300/50 mb-0.5">المرحلة {g.stageIndex + 1} — {new Date(g.date).toLocaleDateString("ar-SA", { month: "short", day: "numeric" })}</div>
+              <div className="text-[11px] text-emerald-100/75 leading-relaxed">{g.text}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2447,6 +2844,26 @@ function SubjectPathChat({
   );
   const [customPlan, setCustomPlan] = useState<string | null>(null);
   const [planLoaded, setPlanLoaded] = useState(false);
+  // Indices of micro-steps the student has completed in the current stage.
+  // Reset to [] whenever currentStage advances. Persisted to DB via
+  // PATCH /api/user-plan/micro-step each time the server emits microStepsDone.
+  const [completedMicroSteps, setCompletedMicroSteps] = useState<number[]>([]);
+  const completedMicroStepsRef = useRef<number[]>([]);
+  useEffect(() => { completedMicroStepsRef.current = completedMicroSteps; }, [completedMicroSteps]);
+  const [growthReflections, setGrowthReflections] = useState<Array<{ stageIndex: number; text: string; date: string }>>([]);
+  // Set when server detects [STAGE_COMPLETE] without the mastery criterion
+  // being mentioned (drift guard). Holds criterion text + target nextStage
+  // so the student can confirm or reject stage advancement.
+  const [masteryDriftWarning, setMasteryDriftWarning] = useState<{
+    masteryCriterion: string;
+    nextStage: number;
+  } | null>(null);
+  // Shown after [PLAN_READY] so the student can review and accept (or revise)
+  // the personalised plan before Phase 1 auto-starts.
+  const [showContractCard, setShowContractCard] = useState(false);
+  // Tracks whether the last completed turn ended with a stage transition so
+  // the next sendTeachMessage can signal isNewStage to the server prompt.
+  const justAdvancedStageRef = useRef(false);
   // Set to `true` the moment the diagnostic stream finishes with [PLAN_READY].
   // A dedicated effect watches this + isStreaming so the very next teacher
   // message (Phase 1, kicked off automatically) starts immediately after the
@@ -2474,6 +2891,16 @@ function SubjectPathChat({
   // exactly what refs encode. Replaces the previous eslint-disable comments.
   const stagesRef = useRef<string[]>(stages);
   useEffect(() => { stagesRef.current = stages; }, [stages]);
+  // Keep stagesRef in sync with the custom plan whenever it changes.
+  // The server derives stageCount, currentStageName, nextStageName, and
+  // completion bounds from this array — defaultStages is a fallback only.
+  useEffect(() => {
+    if (!customPlan) return;
+    const parsed = parsePlanStages(customPlan);
+    if (parsed.length > 0) {
+      stagesRef.current = parsed.map((s) => s.title);
+    }
+  }, [customPlan]);
   const currentStageRef = useRef<number>(initial.currentStage);
   useEffect(() => { currentStageRef.current = currentStage; }, [currentStage]);
   const chatPhaseRef = useRef<'diagnostic' | 'teaching'>(chatPhase);
@@ -2608,10 +3035,14 @@ function SubjectPathChat({
             if (data.plan.currentStageIndex > 0) {
               setCurrentStage(data.plan.currentStageIndex);
             }
-            // A persisted plan means diagnostic phase already completed — switch to teaching
+            if (Array.isArray(data.plan.completedMicroSteps) && data.plan.completedMicroSteps.length > 0) {
+              setCompletedMicroSteps(data.plan.completedMicroSteps);
+            }
+            if (Array.isArray(data.plan.growthReflections) && data.plan.growthReflections.length > 0) {
+              setGrowthReflections(data.plan.growthReflections);
+            }
             setChatPhase('teaching');
           } else {
-            // No saved plan yet → diagnostic phase MUST run for first session of this subject
             setChatPhase('diagnostic');
           }
         }
@@ -2806,6 +3237,7 @@ function SubjectPathChat({
       // Empty text + explicit isDiagnostic=false starts Phase 1 cleanly.
       // Latest stages from ref so a plan generated mid-effect uses the
       // up-to-date list, not the closure's empty initial.
+      justAdvancedStageRef.current = true;
       sendTeachMessageRef.current("", stagesRef.current, 0, false);
     }, 700);
     return () => clearTimeout(t);
@@ -2917,6 +3349,34 @@ function SubjectPathChat({
           // Difficulty hint — server appends a difficulty-specific addendum
           // to the teaching system prompt. See routes/ai.ts.
           difficultyHint: difficultyRef.current,
+          // Stage contract: the 6 structured fields for the active plan stage.
+          // Injected verbatim into the teachingSystemPrompt so the model is
+          // bound to the student's agreed objectives, micro-steps, deliverable,
+          // mastery criterion, reason-for-student, and prerequisite.
+          currentStageContract: (() => {
+            if (diagMode || !customPlan) return undefined;
+            const richStages = parsePlanStages(customPlan);
+            const s = richStages[usedStage];
+            if (!s) return undefined;
+            return {
+              stageIndex: usedStage,
+              stageTitle: s.title,
+              currentMicroStepIndex: completedMicroStepsRef.current?.length ?? 0,
+              objectives: s.objectives,
+              microSteps: s.microSteps,
+              deliverable: s.deliverable,
+              masteryCriterion: s.masteryCriterion,
+              reasonForStudent: s.reasonForStudent,
+              prerequisite: s.prerequisite,
+            };
+          })(),
+          // Flag so the teacher draws a full stage roadmap on the opening turn
+          // of a new stage rather than diving straight into content.
+          isNewStage: (() => {
+            const was = justAdvancedStageRef.current;
+            justAdvancedStageRef.current = false;
+            return was;
+          })(),
         })
       });
 
@@ -3047,24 +3507,42 @@ function SubjectPathChat({
               }
               if (data.planReady) {
                 gotPlanReady = true;
-                setCustomPlan(assistantMsg);
                 setChatPhase('teaching');
-                // Persist plan to DB
-                fetch('/api/user-plan', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
-                  body: JSON.stringify({
-                    subjectId: subject.id,
-                    planHtml: assistantMsg,
-                    currentStageIndex: 0,
-                  }),
-                }).catch(() => {});
-                // Trigger automatic start of Phase 1: a watcher effect picks
-                // this up once the current stream has fully ended (so we don't
-                // race with isStreaming === true). Without this, the student
-                // sees the plan and then nothing happens.
-                setPendingTeachStart(true);
+                // Persist plan to DB and gate the contract card on the quality
+                // check. A 422 means the AI ignored the structured format prompt;
+                // show an in-chat error and let the student ask for regeneration
+                // rather than loading a shallow plan into the teaching flow.
+                try {
+                  const saveRes = await fetch('/api/user-plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                      subjectId: subject.id,
+                      planHtml: assistantMsg,
+                      currentStageIndex: 0,
+                    }),
+                  });
+                  if (saveRes.status === 422) {
+                    const errData = await saveRes.json().catch(() => ({}));
+                    const errMsg = errData.message ?? 'الخطة لم تجتز فحص الجودة. اطلب من المعلم إعادة توليد الخطة بالنقر على أيقونة الإعادة.';
+                    setMessages((prev) => {
+                      const updated = [...prev];
+                      updated[updated.length - 1] = { role: 'assistant', content: assistantMsg };
+                      return [...updated, { role: 'assistant', content: `⚠️ **تنبيه:** ${errMsg}` }];
+                    });
+                    // Plan rejected — do not save or show contract card
+                    setChatPhase('diagnostic');
+                  } else {
+                    setCustomPlan(assistantMsg);
+                    setShowContractCard(true);
+                  }
+                } catch {
+                  // Network error — proceed optimistically so the student
+                  // is not blocked by a transient failure.
+                  setCustomPlan(assistantMsg);
+                  setShowContractCard(true);
+                }
               }
               // Quota exhausted — disable input, trigger summary, show exhausted screen
               if (data.quotaExhausted || data.messagesRemaining === 0) {
@@ -3088,6 +3566,8 @@ function SubjectPathChat({
                     return updated;
                   });
                 } else {
+                  setCompletedMicroSteps([]);
+                  justAdvancedStageRef.current = true;
                   setCurrentStage(data.nextStage);
                   // Persist updated stage to DB
                   fetch('/api/user-plan/stage', {
@@ -3097,6 +3577,39 @@ function SubjectPathChat({
                     body: JSON.stringify({ subjectId: subject.id, currentStageIndex: data.nextStage }),
                   }).catch(() => {});
                 }
+              }
+              // ── Growth reflection ─────────────────────────────────────────
+              if (!diagMode && data.growthReflection && typeof data.growthReflection === "string") {
+                const entry = { stageIndex: data.nextStage !== undefined ? Math.max(0, (data.nextStage as number) - 1) : 0, text: data.growthReflection as string, date: new Date().toISOString() };
+                setGrowthReflections((prev) => [...prev, entry]);
+              }
+              // ── Micro-step completions ────────────────────────────────────
+              if (!diagMode && data.microStepsDone && Array.isArray(data.microStepsDone)) {
+                const indices: number[] = (data.microStepsDone as number[])
+                  .map(Number)
+                  .filter((n) => !isNaN(n) && n >= 0);
+                if (indices.length > 0) {
+                  setCompletedMicroSteps((prev) => {
+                    const next = [...prev, ...indices].filter((v, i, arr) => arr.indexOf(v) === i);
+                    return next;
+                  });
+                  const lastIdx = indices[indices.length - 1];
+                  fetch('/api/user-plan/micro-step', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ subjectId: subject.id, microStepIndex: lastIdx }),
+                  }).catch(() => {});
+                }
+              }
+              // ── Mastery drift guard ───────────────────────────────────────
+              // Server detected [STAGE_COMPLETE] but the mastery criterion was
+              // not mentioned — show a confirmation dialog instead of auto-advancing.
+              if (!diagMode && data.masteryDriftDetected && data.masteryCriterion) {
+                setMasteryDriftWarning({
+                  masteryCriterion: data.masteryCriterion as string,
+                  nextStage: typeof data.intendedNextStage === 'number' ? data.intendedNextStage : (usedStage + 1),
+                });
               }
               break;
             }
@@ -4355,9 +4868,21 @@ function SubjectPathChat({
                   return <span key={idx} className={`compact-path-dot ${cls}`} />;
                 })}
               </div>
-              <span className="text-[10px] text-white/45 truncate hidden sm:inline">
+              <span className="text-[10px] text-white/45 truncate hidden sm:inline max-w-[100px]">
                 {compactStages[currentIdx]?.title || ""}
               </span>
+              {(() => {
+                const curStageData = compactStages[currentIdx];
+                const totalMicro = curStageData?.microSteps?.length ?? 0;
+                const doneMicro = completedMicroSteps.length;
+                const nextMicro = totalMicro > 0 ? curStageData?.microSteps?.[doneMicro] : undefined;
+                if (!nextMicro && totalMicro === 0) return null;
+                return (
+                  <span className="text-[10px] text-amber-300/55 truncate hidden sm:inline max-w-[120px]">
+                    {totalMicro > 0 ? `· خطوة ${Math.min(doneMicro + 1, totalMicro)} من ${totalMicro}${nextMicro ? `: ${nextMicro}` : ""}` : null}
+                  </span>
+                );
+              })()}
             </div>
           </button>
         );
@@ -4725,6 +5250,8 @@ function SubjectPathChat({
                 planHtml={customPlan}
                 currentStage={currentStage}
                 totalStages={stages.length}
+                completedMicroSteps={completedMicroSteps}
+                growthReflections={growthReflections}
                 onJumpToStage={(idx, title) => {
                   if (isStreaming || sessionPaused) return;
                   setPathDrawerOpen(false);
@@ -5159,6 +5686,82 @@ function SubjectPathChat({
           </div>
         </form>
       </div>
+
+      {/* ── Plan contract card ────────────────────────────────────────────
+          Shown after [PLAN_READY] so the student can review and accept
+          (or ask to revise) the personalised plan before Phase 1 starts. */}
+      {showContractCard && customPlan && (
+        <LearningContractCard
+          planHtml={customPlan}
+          onAccept={() => {
+            setShowContractCard(false);
+            setPendingTeachStart(true);
+          }}
+          onRequestRevision={(msg) => {
+            setShowContractCard(false);
+            // Switch back to diagnostic mode so the server generates a fresh plan.
+            // When [PLAN_READY] fires in the new response the contract card
+            // will appear again with the revised plan.
+            setChatPhase('diagnostic');
+            sendTeachMessageRef.current(msg, subject.defaultStages, 0, true);
+          }}
+        />
+      )}
+
+      {/* ── Mastery drift guard dialog ────────────────────────────────────
+          Shown when the server detected [STAGE_COMPLETE] but the mastery
+          criterion was not explicitly mentioned in the AI response. The
+          student confirms they truly mastered the stage before advancing,
+          or stays in the current stage. */}
+      {masteryDriftWarning && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.75)", direction: "rtl" }}
+        >
+          <div className="rounded-2xl border border-amber-500/30 bg-[#1a1510] shadow-2xl max-w-sm w-full p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl shrink-0">🎯</span>
+              <div>
+                <div className="font-bold text-white text-[15px] mb-1">هل أتقنتَ هذه المرحلة فعلاً؟</div>
+                <div className="text-[12px] text-white/60 leading-relaxed">
+                  المعيار المتفق عليه كان:
+                </div>
+                <div className="mt-1.5 rounded-lg bg-amber-500/10 border border-amber-500/25 px-3 py-2 text-[12px] text-amber-100/90 font-medium leading-relaxed">
+                  {masteryDriftWarning.masteryCriterion}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const nextIdx = masteryDriftWarning.nextStage;
+                  setCompletedMicroSteps([]);
+                  justAdvancedStageRef.current = true;
+                  setCurrentStage(nextIdx);
+                  fetch('/api/user-plan/stage', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ subjectId: subject.id, currentStageIndex: nextIdx }),
+                  }).catch(() => {});
+                  setMasteryDriftWarning(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-[13px] transition-colors"
+              >
+                نعم، انتقل للمرحلة التالية
+              </button>
+              <button
+                type="button"
+                onClick={() => setMasteryDriftWarning(null)}
+                className="flex-1 py-2.5 rounded-xl bg-white/8 hover:bg-white/12 border border-white/15 text-white font-bold text-[13px] transition-colors"
+              >
+                ابقَ في هذه المرحلة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       </>)}
     </div>

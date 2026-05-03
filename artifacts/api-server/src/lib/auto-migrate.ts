@@ -224,6 +224,23 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    table: "audit_logs",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "audit_logs" (
+        "id" serial PRIMARY KEY,
+        "event" text NOT NULL,
+        "user_id" integer,
+        "subject_id" text,
+        "data" jsonb,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "audit_logs_event_created_idx" ON "audit_logs" ("event", "created_at")`,
+      `CREATE INDEX IF NOT EXISTS "audit_logs_user_id_idx" ON "audit_logs" ("user_id", "created_at")`,
+    ],
+  },
+  {
     // Per-page OCR / extraction status for the professor-mode "where did the
     // text go?" debugger and the new retry endpoint. One row per
     // (material_id, page_number); status is one of 'ok' / 'failed' /
@@ -353,6 +370,18 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     table: "material_chapter_progress",
     columns: [
       { name: "covered_points", ddl: "text NOT NULL DEFAULT '{}'" },
+    ],
+  },
+  {
+    // Micro-step progress within the current learning plan stage.
+    // currentMicroStepIndex: the last micro-step the student completed (0-based).
+    // completedMicroSteps: JSON array of all completed micro-step indices,
+    //   e.g. "[0, 1, 2]". Persisted so progress survives session reloads.
+    table: "user_subject_plans",
+    columns: [
+      { name: "current_micro_step_index", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "completed_micro_steps", ddl: "text NOT NULL DEFAULT '[]'" },
+      { name: "growth_reflections", ddl: "text NOT NULL DEFAULT '[]'" },
     ],
   },
   {
