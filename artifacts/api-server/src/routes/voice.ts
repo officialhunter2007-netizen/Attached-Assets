@@ -9,10 +9,11 @@ const router: IRouter = Router();
 
 const TTS_MAX_CHARS = 2000;
 const TTS_DAILY_LIMIT = 60;
-// 8 MB upper bound matches Whisper's per-request limit and accommodates
-// Safari mp4/AAC captures that can exceed 2 MB for a 60 s clip. The
-// 60 s duration cap is enforced client-side; this is the cost ceiling.
-const STT_MAX_BYTES = 8 * 1024 * 1024;
+// 4 MB upper bound: enough headroom for 60s of Safari mp4/AAC at
+// ~256 kbps (≈1.9 MB) plus a 2× safety margin, while bounding the
+// per-request transcription cost in case a client bypasses the
+// client-side 60s timer.
+const STT_MAX_BYTES = 4 * 1024 * 1024;
 const STT_DAILY_LIMIT = 60;
 const STT_ALLOWED_MIME_PREFIXES = [
   "audio/webm",
@@ -273,7 +274,9 @@ function sanitizeTextForTts(raw: string): string {
   s = s.replace(/<[^>]*>/g, " ");
   s = s.replace(/^#{1,6}\s+/gm, "");
   s = s.replace(/\*{1,3}([^*\n]+)\*{1,3}/g, "$1");
-  s = s.replace(/`[^`\n]+`/g, "");
+  // Strip backticks but keep the inline term so technical words ("XSS",
+  // "useEffect", etc.) are still spoken aloud.
+  s = s.replace(/`([^`\n]+)`/g, "$1");
   s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, " ");
   return s.replace(/\s+/g, " ").trim();
