@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { db, lessonSummariesTable, usersTable, userSubjectFirstLessonsTable } from "@workspace/db";
+import { db, lessonSummariesTable, usersTable } from "@workspace/db";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { recordAiUsage, extractAnthropicUsage } from "../lib/ai-usage";
 
@@ -112,29 +112,26 @@ router.post("/ai/summarize-lesson", async (req, res): Promise<void> => {
       conversationDate: parsedDate,
     }).returning();
 
-    // Mark per-subject first lesson as complete (if not already done)
-    const [existingFirstLesson] = await db
-      .select()
-      .from(userSubjectFirstLessonsTable)
-      .where(and(
-        eq(userSubjectFirstLessonsTable.userId, userId),
-        eq(userSubjectFirstLessonsTable.subjectId, subjectId)
-      ));
+    // NOTE: We deliberately do NOT touch `userSubjectFirstLessonsTable` here.
+    // The per-subject 80-gem free trial is owned end-to-end by the gem-charge
+    // pipeline: `settleAiCharge` (lib/charge-ai-usage.ts) atomically flips
+    // `completed = true` the moment `freeMessagesUsed + gems >= cap`, and
+    // `getSubjectAccess` (routes/ai.ts) creates the row with
+    // `completed:false` on the first /ai/teach call. Marking the row
+    // completed here — after a single session end, regardless of how many
+    // of the 80 free gems were actually consumed — was the regression
+    // reported in Task #58: a student who used 5 of 80 gems and ended the
+    // session lost the remaining 75 forever, because the next visit
+    // resolved as `isFirstLesson:false`. The summarize endpoint must stay
+    // a pure write to `lesson_summaries`.
 
-    if (existingFirstLesson && !existingFirstLesson.completed) {
-      await db.update(userSubjectFirstLessonsTable)
-        .set({ completed: true })
-        .where(eq(userSubjectFirstLessonsTable.id, existingFirstLesson.id));
-    } else if (!existingFirstLesson) {
-      await db.insert(userSubjectFirstLessonsTable).values({ userId, subjectId, completed: true, freeMessagesUsed: 0 });
-    }
-
-    // Also update global flag and award points
+    // Award points for completing the lesson summary. We intentionally do
+    // NOT set `users.firstLessonComplete = true` here either: that global
+    // one-shot flag is legacy from the pre-per-subject era; the
+    // authoritative "did this user burn the free trial on subject X?"
+    // signal is the per-subject row, which `settleAiCharge` owns.
     await db.update(usersTable)
-      .set({
-        firstLessonComplete: true,
-        points: sql`${usersTable.points} + 15`,
-      })
+      .set({ points: sql`${usersTable.points} + 15` })
       .where(eq(usersTable.id, userId));
 
     res.json(saved);
