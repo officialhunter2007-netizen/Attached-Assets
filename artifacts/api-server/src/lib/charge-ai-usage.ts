@@ -151,26 +151,41 @@ export async function settleAiCharge(opts: SettleAiChargeOpts): Promise<SettleAi
           .returning({ used: userSubjectFirstLessonsTable.freeMessagesUsed });
         balanceAfter = updated ? Math.max(0, cap - (updated.used ?? 0)) : 0;
       } else if (opts.wallet.kind === "per-subject") {
+        // Conditional UPDATE: only debit when balance is actually sufficient.
+        // If 0 rows return, throw to roll back the ledger placeholder too —
+        // we'd rather have a missing audit row than an incorrect debit.
         const [updated] = await tx
           .update(userSubjectSubscriptionsTable)
           .set({
-            gemsBalance: sql`GREATEST(0, ${userSubjectSubscriptionsTable.gemsBalance} - ${gems})`,
+            gemsBalance: sql`${userSubjectSubscriptionsTable.gemsBalance} - ${gems}`,
             gemsUsedToday: sql`${userSubjectSubscriptionsTable.gemsUsedToday} + ${gems}`,
           })
-          .where(eq(userSubjectSubscriptionsTable.id, opts.wallet.subjectSubId))
+          .where(and(
+            eq(userSubjectSubscriptionsTable.id, opts.wallet.subjectSubId),
+            sql`${userSubjectSubscriptionsTable.gemsBalance} >= ${gems}`,
+          ))
           .returning({ gemsBalance: userSubjectSubscriptionsTable.gemsBalance });
-        balanceAfter = updated?.gemsBalance ?? 0;
+        if (!updated) {
+          throw new Error("INSUFFICIENT_BALANCE_AT_SETTLE");
+        }
+        balanceAfter = updated.gemsBalance;
       } else {
         // legacy
         const [updated] = await tx
           .update(usersTable)
           .set({
-            gemsBalance: sql`GREATEST(0, ${usersTable.gemsBalance} - ${gems})`,
+            gemsBalance: sql`${usersTable.gemsBalance} - ${gems}`,
             gemsUsedToday: sql`${usersTable.gemsUsedToday} + ${gems}`,
           })
-          .where(eq(usersTable.id, opts.userId))
+          .where(and(
+            eq(usersTable.id, opts.userId),
+            sql`${usersTable.gemsBalance} >= ${gems}`,
+          ))
           .returning({ gemsBalance: usersTable.gemsBalance });
-        balanceAfter = updated?.gemsBalance ?? 0;
+        if (!updated) {
+          throw new Error("INSUFFICIENT_BALANCE_AT_SETTLE");
+        }
+        balanceAfter = updated.gemsBalance;
       }
 
       // STEP 3 — Update the ledger row with the actual post-debit balance.

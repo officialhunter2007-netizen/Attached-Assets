@@ -562,10 +562,19 @@ export async function runStartupMigrations(): Promise<void> {
     // gem_ledger.request_id unique partial index — prerequisite for the
     // INSERT-first idempotency pattern in lib/charge-ai-usage.ts. Partial so
     // legacy ledger rows (where request_id IS NULL) don't collide.
+    // Plain (non-partial) unique index — Postgres treats NULL as distinct, so
+    // legacy ledger rows (where request_id IS NULL) coexist freely. The plain
+    // index lets us use a simple `ON CONFLICT (user_id, request_id)` target;
+    // partial-index conflict targets require a matching WHERE predicate that
+    // Drizzle's onConflictDoNothing() cannot express, which would silently
+    // break all settles in production.
     try {
+      // Drop any older partial variant from earlier dev runs to avoid two
+      // overlapping uniques.
+      await db.execute(sql.raw(`DROP INDEX IF EXISTS "uq_gem_ledger_user_request_partial"`));
       await db.execute(sql.raw(
         `CREATE UNIQUE INDEX IF NOT EXISTS "uq_gem_ledger_user_request" ` +
-        `ON "gem_ledger" ("user_id", "request_id") WHERE "request_id" IS NOT NULL`,
+        `ON "gem_ledger" ("user_id", "request_id")`,
       ));
     } catch (err: any) {
       logger.error(
