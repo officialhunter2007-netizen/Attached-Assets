@@ -48,6 +48,80 @@ const allSubjectsFlat = [
   ...skills.flatMap(cat => cat.subjects.map(s => ({ id: s.id, name: s.name, emoji: s.emoji }))),
 ];
 
+// ── Local types for admin-only fetches ───────────────────────────────────────
+// The admin page hits a handful of bespoke admin-only endpoints that are NOT
+// in the auto-generated client. Typing these explicitly (instead of `any`)
+// keeps the JSX safe from typos and lets TS catch shape changes server-side.
+type SupportMessage = {
+  id: number;
+  isFromAdmin: boolean;
+  userName?: string | null;
+  subject: string;
+  message: string;
+  createdAt: string;
+};
+type SupportThread = {
+  userId: number;
+  userName?: string | null;
+  userEmail: string;
+  unreadCount: number;
+  lastSubject: string;
+  lastAt: string;
+  totalMessages: number;
+  messages: SupportMessage[];
+};
+type LiveUser = {
+  userId: number;
+  email: string;
+  name?: string | null;
+  page: string;
+  profileImage?: string | null;
+};
+type SubjectSub = {
+  id: number;
+  userId: number;
+  userEmail?: string;
+  userName?: string | null;
+  subjectId: string;
+  subjectName?: string | null;
+  plan: string;
+  region?: string;
+  expiresAt: string;
+  gemsBalance?: number | null;
+  gemsDailyLimit?: number | null;
+  messagesLimit: number;
+  messagesUsed: number;
+  status?: string;
+};
+
+// Format a server-supplied date string for display. Returns the fallback when
+// the value is missing OR parses to an Invalid Date — without this guard the
+// UI displayed the literal string "Invalid Date" whenever the server sent an
+// unexpected timestamp shape.
+const formatDateSafe = (
+  value: unknown,
+  options?: { fallback?: string; locale?: string; mode?: "date" | "datetime" },
+): string => {
+  const fallback = options?.fallback ?? "—";
+  const locale = options?.locale ?? "ar-YE";
+  if (value === null || value === undefined || value === "") return fallback;
+  const d = new Date(value as string | number | Date);
+  if (Number.isNaN(d.getTime())) return fallback;
+  if (options?.mode === "datetime") {
+    return d.toLocaleString(locale, { dateStyle: "short", timeStyle: "short" });
+  }
+  return d.toLocaleDateString(locale);
+};
+
+// Returns true only if `value` parses to a real Date — used to gate
+// arithmetic comparisons (e.g. expiresAt > now) so a bad timestamp doesn't
+// silently flip rows into "expired" / "active" by accident.
+const parseDateOrNull = (value: unknown): Date | null => {
+  if (value === null || value === undefined || value === "") return null;
+  const d = new Date(value as string | number | Date);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
 export default function Admin() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -74,12 +148,16 @@ export default function Admin() {
   const [grantSubjectName, setGrantSubjectName] = useState("");
   const [grantRegion, setGrantRegion] = useState<"north" | "south">("north");
   const [isGranting, setIsGranting] = useState(false);
-  const [userSubjectSubs, setUserSubjectSubs] = useState<Record<number, any[]>>({});
+  const [userSubjectSubs, setUserSubjectSubs] = useState<Record<number, SubjectSub[]>>({});
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
 
   // All subject subscriptions tab
-  const [allSubjectSubs, setAllSubjectSubs] = useState<any[] | null>(null);
+  const [allSubjectSubs, setAllSubjectSubs] = useState<SubjectSub[] | null>(null);
   const [isLoadingAllSubs, setIsLoadingAllSubs] = useState(false);
+  // Tracks the most recent fetch failure for the all-subscriptions tab so we
+  // can show a real error state instead of the misleading "no subscriptions"
+  // empty row that previously appeared on a network/API failure.
+  const [allSubsError, setAllSubsError] = useState<string | null>(null);
   const [subjectFilter, setSubjectFilter] = useState("");
   const [extendDialog, setExtendDialog] = useState<{ subId: number; userName: string; subjectName: string } | null>(null);
   const [extendDays, setExtendDays] = useState(14);
@@ -110,71 +188,148 @@ export default function Admin() {
   const [showGrantSubjectPicker, setShowGrantSubjectPicker] = useState(false);
 
   // Support messages
-  const [supportThreads, setSupportThreads] = useState<any[]>([]);
+  const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
   const [supportUnread, setSupportUnread] = useState(0);
   const [unresolvedAlertsCount, setUnresolvedAlertsCount] = useState(0);
-  const [selectedThread, setSelectedThread] = useState<any | null>(null);
+  const [selectedThread, setSelectedThread] = useState<SupportThread | null>(null);
   const [replyMessage, setReplyMessage] = useState("");
   const [isSendingReply, setIsSendingReply] = useState(false);
 
   // Live users
-  const [liveUsersList, setLiveUsersList] = useState<any[]>([]);
+  const [liveUsersList, setLiveUsersList] = useState<LiveUser[]>([]);
 
   useEffect(() => {
     if (user?.role !== "admin") return;
+    // Per-stream polling health. Tracking support and live-users
+    // independently is critical: previously a healthy support cycle could
+    // reset the shared counter and mask a sustained live-users outage,
+    // so admins might never see "live users" data go stale.
+    type StreamState = { failures: number; alerted: boolean; arabicLabel: string };
+    const streams: Record<"support" | "live", StreamState> = {
+      support: { failures: 0, alerted: false, arabicLabel: "خدمة الدعم والإشعارات" },
+      live:    { failures: 0, alerted: false, arabicLabel: "قائمة المتصلين الآن" },
+    };
+    const onStreamFailure = (key: "support" | "live", err: unknown) => {
+      const s = streams[key];
+      // eslint-disable-next-line no-console
+      console.error(`[admin polling] ${key} failed`, err);
+      s.failures += 1;
+      // Fire ONCE on the second consecutive failure so a single blip
+      // doesn't spam the admin, but a real outage does get surfaced.
+      if (s.failures === 2 && !s.alerted) {
+        s.alerted = true;
+        toast({
+          variant: "destructive",
+          title: `تعذّر تحديث ${s.arabicLabel}`,
+          description: "البيانات قد تكون قديمة. سنعيد المحاولة تلقائياً.",
+        });
+      }
+    };
+    const onStreamSuccess = (key: "support" | "live") => {
+      const s = streams[key];
+      if (s.failures > 0 && s.alerted) {
+        toast({
+          title: `تمّت استعادة ${s.arabicLabel}`,
+          className: "bg-emerald-600 text-white border-none",
+        });
+      }
+      s.failures = 0;
+      s.alerted = false;
+    };
     const fetchSupportData = () => {
-      fetch("/api/admin/support/threads", { credentials: "include" })
-        .then(r => r.ok ? r.json() : [])
-        .then(d => { if (Array.isArray(d)) setSupportThreads(d); })
-        .catch(() => {});
-      fetch("/api/admin/support/unread-count", { credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => d && setSupportUnread(d.count ?? 0))
-        .catch(() => {});
-      // Operational alerts (OpenRouter outage etc.) — same poll cadence
-      // as support so admins notice an outage within ~15s.
-      fetch("/api/admin/alerts?resolved=false&limit=1", { credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => d && setUnresolvedAlertsCount(Number(d.unresolvedCount ?? 0)))
-        .catch(() => {});
+      Promise.all([
+        fetch("/api/admin/support/threads", { credentials: "include" })
+          .then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (Array.isArray(d)) setSupportThreads(d as SupportThread[]);
+          }),
+        fetch("/api/admin/support/unread-count", { credentials: "include" })
+          .then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (d) setSupportUnread(Number(d.count ?? 0));
+          }),
+        // Operational alerts (OpenRouter outage etc.) — same poll cadence
+        // as support so admins notice an outage within ~15s.
+        fetch("/api/admin/alerts?resolved=false&limit=1", { credentials: "include" })
+          .then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (d) setUnresolvedAlertsCount(Number(d.unresolvedCount ?? 0));
+          }),
+      ])
+        .then(() => onStreamSuccess("support"))
+        .catch(err => onStreamFailure("support", err));
     };
     const fetchLiveUsers = () => {
       fetch("/api/admin/live-users", { credentials: "include" })
-        .then(r => r.ok ? r.json() : [])
-        .then(d => { if (Array.isArray(d)) setLiveUsersList(d); })
-        .catch(() => {});
+        .then(async r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const d = await r.json();
+          if (Array.isArray(d)) setLiveUsersList(d as LiveUser[]);
+          onStreamSuccess("live");
+        })
+        .catch(err => onStreamFailure("live", err));
     };
     fetchSupportData();
     fetchLiveUsers();
     const interval = setInterval(() => { fetchSupportData(); fetchLiveUsers(); }, 15000);
     return () => clearInterval(interval);
-  }, [user?.role]);
+  }, [user?.role, toast]);
 
   const handleSupportReply = async (userId: number, subject: string) => {
     if (!replyMessage.trim()) return;
     setIsSendingReply(true);
     try {
-      await fetch("/api/admin/support/reply", {
+      const replyRes = await fetch("/api/admin/support/reply", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, subject, message: replyMessage.trim() }),
       });
+      if (!replyRes.ok) {
+        // Pull the server's Arabic error message so the admin sees WHY the
+        // reply failed (auth lapsed, validation, etc.) instead of the prior
+        // silent failure that just left the textarea full of unsent text.
+        let serverMsg: string | null = null;
+        try {
+          const errBody = await replyRes.json();
+          serverMsg = typeof errBody?.error === "string"
+            ? errBody.error
+            : typeof errBody?.message === "string"
+              ? errBody.message
+              : null;
+        } catch {}
+        throw new Error(serverMsg ?? `HTTP ${replyRes.status}`);
+      }
       setReplyMessage("");
       toast({ title: "تم الرد", description: "تم إرسال الرد بنجاح", className: "bg-emerald-600 border-none text-white" });
       const res = await fetch("/api/admin/support/threads", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setSupportThreads(data);
-        const updated = data.find((t: any) => t.userId === userId);
-        if (updated) setSelectedThread(updated);
+        if (Array.isArray(data)) {
+          const threads = data as SupportThread[];
+          setSupportThreads(threads);
+          const updated = threads.find(t => t.userId === userId);
+          if (updated) setSelectedThread(updated);
+        }
       }
+      // Best-effort unread refresh; surface failures to the console (never
+      // silently swallow) but don't block the success toast on it.
       fetch("/api/admin/support/unread-count", { credentials: "include" })
         .then(r => r.ok ? r.json() : null)
-        .then(d => d && setSupportUnread(d.count ?? 0))
-        .catch(() => {});
-    } catch {}
-    setIsSendingReply(false);
+        .then(d => d && setSupportUnread(Number(d.count ?? 0)))
+        .catch(err => console.error("[admin] unread-count refresh failed", err));
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "تعذّر إرسال الرد",
+        description: err?.message ?? "حدث خطأ أثناء الإرسال — تحقق من الاتصال وأعد المحاولة.",
+      });
+    } finally {
+      setIsSendingReply(false);
+    }
   };
 
   const { data: stats, refetch: refetchStats } = useGetAdminStats();
@@ -397,14 +552,21 @@ export default function Admin() {
       setGrantTarget(null);
       setGrantSubjectId("");
       setGrantSubjectName("");
-      // Force refetch user's subject subs
+      // Force refetch user's subject subs. A failure here doesn't undo the
+      // grant — surface it as a soft warning so the admin knows the inline
+      // list under the user row may show stale data until they reopen it.
       try {
         const r2 = await fetch(`/api/admin/subject-subscriptions/${targetUserId}`, { credentials: "include" });
-        if (r2.ok) {
-          const data = await r2.json();
-          setUserSubjectSubs(prev => ({ ...prev, [targetUserId]: data }));
-        }
-      } catch {}
+        if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+        const data = await r2.json();
+        setUserSubjectSubs(prev => ({ ...prev, [targetUserId]: Array.isArray(data) ? data as SubjectSub[] : [] }));
+      } catch (refreshErr) {
+        console.error("[admin] post-grant refetch failed", refreshErr);
+        toast({
+          title: "تم المنح ولكن تعذّر تحديث القائمة",
+          description: "أعد فتح اشتراكات المستخدم لرؤية الاشتراك الجديد.",
+        });
+      }
       // Keep stats and the global subscriptions tab in sync
       queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
       if (allSubjectSubs !== null) loadAllSubjectSubs();
@@ -436,12 +598,34 @@ export default function Admin() {
 
   const loadAllSubjectSubs = async () => {
     setIsLoadingAllSubs(true);
+    setAllSubsError(null);
     try {
       const r = await fetch("/api/admin/all-subject-subscriptions", { credentials: "include" });
+      if (!r.ok) {
+        let serverMsg: string | null = null;
+        try {
+          const errBody = await r.json();
+          serverMsg = typeof errBody?.error === "string"
+            ? errBody.error
+            : typeof errBody?.message === "string"
+              ? errBody.message
+              : null;
+        } catch {}
+        throw new Error(serverMsg ?? `HTTP ${r.status}`);
+      }
       const data = await r.json();
-      setAllSubjectSubs(Array.isArray(data) ? data : []);
-    } catch {
-      setAllSubjectSubs([]);
+      setAllSubjectSubs(Array.isArray(data) ? data as SubjectSub[] : []);
+    } catch (err: any) {
+      // Show a real error state instead of the misleading empty rows the
+      // tab used to render on a fetch failure.
+      const msg = err?.message ?? "تعذّر تحميل اشتراكات المواد.";
+      setAllSubsError(msg);
+      setAllSubjectSubs(null);
+      toast({
+        variant: "destructive",
+        title: "فشل تحميل اشتراكات المواد",
+        description: msg,
+      });
     } finally {
       setIsLoadingAllSubs(false);
     }
@@ -868,7 +1052,7 @@ export default function Admin() {
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {req.createdAt ? new Date(req.createdAt).toLocaleDateString('ar-YE') : '-'}
+                        {formatDateSafe(req.createdAt)}
                       </TableCell>
                       <TableCell>
                         {req.status === 'pending' && <Badge className="bg-orange-500/20 text-orange-400 border-0">معلق</Badge>}
@@ -999,8 +1183,8 @@ export default function Admin() {
                         <div className="text-xs space-y-0.5">
                           <div className="text-muted-foreground">نقاط: <span className="text-foreground font-medium">{u.points}</span></div>
                           <div className="text-muted-foreground">تتابع: <span className="text-foreground font-medium">{u.streakDays} يوم</span></div>
-                          {u.lastActive && (
-                            <div className="text-muted-foreground">آخر نشاط: <span className="text-foreground">{new Date(u.lastActive).toLocaleDateString('ar-YE')}</span></div>
+                          {u.lastActive && parseDateOrNull(u.lastActive) && (
+                            <div className="text-muted-foreground">آخر نشاط: <span className="text-foreground">{formatDateSafe(u.lastActive)}</span></div>
                           )}
                           {u.firstLessonComplete && (
                             <Badge className="bg-emerald-500/10 text-emerald-400 border-0 text-xs">أكمل الدرس الأول</Badge>
@@ -1021,7 +1205,7 @@ export default function Admin() {
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString('ar-YE') : '—'}
+                        {formatDateSafe(u.createdAt)}
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex flex-col gap-1.5 items-center">
@@ -1077,8 +1261,13 @@ export default function Admin() {
                             <p className="text-xs text-muted-foreground">لا توجد اشتراكات مواد لهذا المستخدم</p>
                           ) : (
                             <div className="flex flex-wrap gap-2">
-                              {userSubjectSubs[u.id].map((s: any) => {
-                                const isActive = new Date(s.expiresAt) > new Date() && (
+                              {userSubjectSubs[u.id].map((s) => {
+                                const expiresAt = parseDateOrNull(s.expiresAt);
+                                // If the timestamp is malformed treat the
+                                // sub as expired rather than crashing the
+                                // row or — worse — defaulting to "active"
+                                // and inflating the balance summary.
+                                const isActive = !!expiresAt && expiresAt > new Date() && (
                                   typeof s.gemsBalance === "number"
                                     ? s.gemsBalance > 0
                                     : s.messagesUsed < s.messagesLimit
@@ -1142,7 +1331,17 @@ export default function Admin() {
               </Button>
             </div>
 
-            {allSubjectSubs === null ? (
+            {allSubsError ? (
+              <div className="text-center py-16 rounded-3xl border border-red-500/20 bg-red-500/5">
+                <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
+                <p className="font-bold text-red-300 mb-2">تعذّر تحميل اشتراكات المواد</p>
+                <p className="text-xs text-muted-foreground mb-4">{allSubsError}</p>
+                <Button size="sm" variant="outline" className="border-red-500/30 text-red-300 hover:bg-red-500/10 gap-2" onClick={loadAllSubjectSubs} disabled={isLoadingAllSubs}>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAllSubs ? 'animate-spin' : ''}`} />
+                  أعد المحاولة
+                </Button>
+              </div>
+            ) : allSubjectSubs === null ? (
               <div className="text-center py-16 text-muted-foreground">جاري تحميل الاشتراكات...</div>
             ) : (
               <div className="glass rounded-3xl border-white/5 overflow-hidden">
@@ -1165,7 +1364,11 @@ export default function Admin() {
                       </TableRow>
                     ) : filteredAllSubs.map(s => {
                       const now = new Date();
-                      const isExpired = new Date(s.expiresAt) < now;
+                      const expiresAt = parseDateOrNull(s.expiresAt);
+                      // Malformed expiresAt → treat as expired so the row
+                      // surfaces clearly instead of silently defaulting to
+                      // "active" with a stale wallet underneath.
+                      const isExpired = !expiresAt || expiresAt < now;
                       // The gems-based wallet is the source of truth: a sub
                       // is "exhausted" when its gemsBalance hits zero, not
                       // when the legacy messagesUsed counter was bumped
@@ -1228,7 +1431,7 @@ export default function Admin() {
                             )}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
-                            {new Date(s.expiresAt).toLocaleDateString("ar-YE")}
+                            {formatDateSafe(s.expiresAt)}
                           </TableCell>
                           <TableCell>
                             <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${statusColor}`}>
@@ -1285,7 +1488,19 @@ export default function Admin() {
               <p className="text-sm text-muted-foreground">إجمالي البطاقات: {cards?.length ?? 0}</p>
               <Button
                 className="gradient-gold text-primary-foreground gap-2 h-9"
-                onClick={() => { setShowCreateCard(true); setCreatedCard(null); setNewCardSubjectId(""); setNewCardSubjectName(""); setCardSubjectSearch(""); setShowCardSubjectPicker(false); }}
+                onClick={() => {
+                  // Reset EVERY field — including `newCardPlan` — so the
+                  // dialog never shows a leftover plan from a previous
+                  // session that the admin might miss before clicking
+                  // "إنشاء البطاقة".
+                  setShowCreateCard(true);
+                  setCreatedCard(null);
+                  setNewCardSubjectId("");
+                  setNewCardSubjectName("");
+                  setCardSubjectSearch("");
+                  setShowCardSubjectPicker(false);
+                  setNewCardPlan("silver");
+                }}
               >
                 <Plus className="w-4 h-4" />
                 إنشاء بطاقة جديدة
@@ -1324,8 +1539,8 @@ export default function Admin() {
                           ? <Badge className="bg-slate-500/20 text-slate-400 border-0">مستخدمة</Badge>
                           : <Badge className="bg-emerald-500/20 text-emerald-400 border-0">متاحة</Badge>}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{card.expiresAt ? new Date(card.expiresAt).toLocaleDateString('ar-YE') : 'لا يوجد'}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{card.usedAt ? new Date(card.usedAt).toLocaleDateString('ar-YE') : '—'}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDateSafe(card.expiresAt, { fallback: 'لا يوجد' })}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDateSafe(card.usedAt)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1360,7 +1575,7 @@ export default function Admin() {
                       <p className="text-xs text-muted-foreground truncate">{thread.userEmail}</p>
                       <p className="text-xs text-gold/80 mt-1 truncate">{thread.lastSubject}</p>
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        {new Date(thread.lastAt).toLocaleDateString("ar-SA")} — {thread.totalMessages} رسالة
+                        {formatDateSafe(thread.lastAt, { locale: 'ar-SA' })} — {thread.totalMessages} رسالة
                       </p>
                     </button>
                   ))
@@ -1389,7 +1604,12 @@ export default function Admin() {
                     </div>
 
                     <div className="max-h-[350px] overflow-y-auto p-4 space-y-3">
-                      {[...selectedThread.messages].reverse().map((msg: any) => (
+                      {/* Defensive copy + reverse: if the server ever sends
+                          a thread without a `messages` array (truncated
+                          response, schema drift) the spread used to throw
+                          and crash the whole admin page. Falling back to
+                          an empty list keeps the rest of the UI alive. */}
+                      {(Array.isArray(selectedThread.messages) ? [...selectedThread.messages] : []).reverse().map((msg) => (
                         <div
                           key={msg.id}
                           className={`flex ${msg.isFromAdmin ? 'justify-start' : 'justify-end'}`}
@@ -1404,7 +1624,7 @@ export default function Admin() {
                                 {msg.isFromAdmin ? 'أنت (المشرف)' : msg.userName || 'المستخدم'}
                               </span>
                               <span className="text-[10px] text-muted-foreground">
-                                {new Date(msg.createdAt).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" })}
+                                {formatDateSafe(msg.createdAt, { locale: 'ar-SA', mode: 'datetime' })}
                               </span>
                             </div>
                             <p className="text-xs text-gold/80 mb-1 font-bold">{msg.subject}</p>

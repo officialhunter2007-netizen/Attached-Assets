@@ -1684,6 +1684,10 @@ router.post("/admin/grant-subject-subscription", async (_req, res): Promise<void
 });
 
 // ── Admin: revoke subject subscription (simplified path) ─────────────────────
+// Mirrors the older `/admin/users/:userId/subject-subscriptions/:subId` route
+// but on a flatter URL the admin UI uses. We MUST fetch the row first and
+// write a ledger entry capturing the burned balance — without it the audit
+// trail loses every admin-initiated revoke that goes through this endpoint.
 router.delete("/admin/revoke-subject-subscription/:subId", async (req, res): Promise<void> => {
   const adminId = getUserId(req);
   if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -1693,7 +1697,27 @@ router.delete("/admin/revoke-subject-subscription/:subId", async (req, res): Pro
   const subId = parseInt(req.params.subId, 10);
   if (isNaN(subId)) { res.status(400).json({ error: "Invalid subscription id" }); return; }
 
+  const [sub] = await db
+    .select()
+    .from(userSubjectSubscriptionsTable)
+    .where(eq(userSubjectSubscriptionsTable.id, subId));
+  if (!sub) { res.status(404).json({ error: "الاشتراك غير موجود" }); return; }
+
   await db.delete(userSubjectSubscriptionsTable).where(eq(userSubjectSubscriptionsTable.id, subId));
+
+  await writeGemLedger({
+    userId: sub.userId,
+    subjectSubId: sub.id,
+    subjectId: sub.subjectId,
+    delta: -(sub.gemsBalance ?? 0),
+    balanceAfter: 0,
+    reason: "adjust",
+    source: "subscription_revoke",
+    adminUserId: adminId,
+    note: "Admin revoked subscription",
+    metadata: { plan: sub.plan, region: sub.region, expiresAt: sub.expiresAt },
+  });
+
   res.json({ success: true });
 });
 
