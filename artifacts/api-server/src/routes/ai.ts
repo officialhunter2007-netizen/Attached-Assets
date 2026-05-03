@@ -2039,22 +2039,50 @@ ${formattingRules}`;
     }
     return false;
   })();
-  // Per-subject "first AI reply ever in this subject" signal. The conversation
-  // itself is per-subject (subjectId scopes history), so "no prior assistant
-  // message in history" means this is the first opener for THIS subject. We
-  // intentionally do NOT gate on the global `isFirstLesson` (firstLessonComplete)
-  // flag here — that flag is a billing concept consumed once across the whole
-  // account; it would prevent every subject after the first from ever seeing
-  // the showcase. The showcase opener is a teaching concern, not a billing one.
-  const hasAnyPriorAssistantMessage = (() => {
-    if (!Array.isArray(history)) return false;
-    return history.some((msg: any) => {
-      const role = msg?.role;
-      return role === "assistant" || role === "model";
-    });
+  // Per-subject showcase eligibility. The opener fires on the FIRST teaching
+  // reply per subject — i.e. the first non-diagnostic assistant turn after the
+  // plan was presented. We intentionally do NOT gate on the global
+  // `isFirstLesson` (users.firstLessonComplete) flag — that's a billing concept
+  // consumed once per account and would prevent subjects #2..24 from ever
+  // showing the showcase. Conversation history is scoped per subject, so any
+  // history-based signal here is naturally per-subject.
+  //
+  // Signal: locate the last assistant message containing `[PLAN_READY]`, then
+  // check if any assistant message exists AFTER it. If none, this is the first
+  // teaching reply post-plan → showcase opener. Diagnostic-phase ASK_OPTIONS
+  // turns are correctly ignored because they appear BEFORE [PLAN_READY].
+  // Fallback: if no [PLAN_READY] is present (legacy data, or somehow missed),
+  // fall back to "no prior assistant message at all" — strict but safe.
+  const isFirstTeachingReplyForSubject = (() => {
+    if (!Array.isArray(history)) return true;
+    const extractText = (msg: any): string => {
+      const c = msg?.content;
+      if (typeof c === "string") return c;
+      if (Array.isArray(c)) return c.map((p: any) => (typeof p === "string" ? p : p?.text ?? "")).join("");
+      return "";
+    };
+    let lastPlanReadyIdx = -1;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const msg: any = history[i];
+      if (msg?.role !== "assistant" && msg?.role !== "model") continue;
+      if (/\[PLAN_READY\]/.test(extractText(msg))) {
+        lastPlanReadyIdx = i;
+        break;
+      }
+    }
+    if (lastPlanReadyIdx === -1) {
+      // No plan marker yet — only treat as opener if no assistant turns at all.
+      return !history.some((m: any) => m?.role === "assistant" || m?.role === "model");
+    }
+    // Showcase opener iff no assistant message exists strictly AFTER the plan.
+    for (let i = lastPlanReadyIdx + 1; i < history.length; i++) {
+      const msg: any = history[i];
+      if (msg?.role === "assistant" || msg?.role === "model") return false;
+    }
+    return true;
   })();
   const isShowcaseOpener =
-    !isDiagnosticPhase && !hasAnyPriorAssistantMessage && !hasPriorLabEnvTag;
+    !isDiagnosticPhase && !hasPriorLabEnvTag && isFirstTeachingReplyForSubject;
 
   // The showcase addendum itself is appended LATER — after the Gemini
   // addendum — so it is the very last thing the model reads and overrides
