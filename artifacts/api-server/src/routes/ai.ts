@@ -2986,10 +2986,9 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // The addendum locks the literal tag format and reinforces single-concept
   // Socratic teaching. Per the May-2026 strict-Gemini lock the router never
   // returns any other provider, so we append unconditionally.
-  // Image-generation availability is gated on the FAL_KEY env var being set.
-  // We pass the flag down so both addendums can drop the IMAGE tag rules
-  // entirely when the feature is dark — preventing the model from emitting
-  // a tag we can't fulfill.
+  // Image generation is always available: Pollinations.ai (free, no key) is
+  // the baseline; fal.ai is used when FAL_KEY is set (faster, server-side).
+  // isImageGenerationConfigured() now returns true unconditionally.
   const __imageEnabled = isImageGenerationConfigured();
   systemPrompt = systemPrompt + buildGeminiTeachingAddendum({
     isDiagnostic: !!isDiagnosticPhase,

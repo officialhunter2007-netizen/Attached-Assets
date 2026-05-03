@@ -4,7 +4,21 @@ import { sql, eq, and } from "drizzle-orm";
 import { db, aiUsageEventsTable } from "@workspace/db";
 import { getOpenAIAudioClient, isOpenAIAudioConfigured } from "../lib/openai-audio";
 import { edgeTts, getEdgeTtsVoice } from "../lib/edge-tts";
+import { elevenLabsTts, isElevenLabsConfigured } from "../lib/elevenlabs-tts";
 import { getStartOfTodayYemen } from "../lib/yemen-time";
+
+// TTS_PROVIDER controls which service is tried first:
+//   "elevenlabs"  — ElevenLabs eleven_multilingual_v2 (best Arabic quality, free 10K chars/mo)
+//   "openai"      — OpenAI gpt-4o-mini-tts shimmer (very good quality, ~$0.015/1K chars)
+//   "edge"        — Microsoft Edge TTS (free, neural, no key needed)  ← default
+//
+// Whichever provider fails gracefully falls through to the next available one.
+function getTtsProvider(): "elevenlabs" | "openai" | "edge" {
+  const v = (process.env.TTS_PROVIDER || "edge").toLowerCase().trim();
+  if (v === "elevenlabs") return "elevenlabs";
+  if (v === "openai") return "openai";
+  return "edge";
+}
 
 const router: IRouter = Router();
 
@@ -131,30 +145,45 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
   const text = cleaned.length > TTS_MAX_CHARS ? cleaned.slice(0, TTS_MAX_CHARS) : cleaned;
 
   const start = Date.now();
+  const provider = getTtsProvider();
+  const errors: string[] = [];
 
-  // ── Primary: Edge TTS (free, local, neural Arabic voices) ──────────────
-  try {
-    const buf = await edgeTts(text);
+  // Helper: send audio buffer and log success
+  const sendAudio = (buf: Buffer, usedProvider: string) => {
     void logVoiceCall({
-      userId,
-      route: "ai/tts",
-      status: "success",
-      inputTokens: text.length,
-      latencyMs: Date.now() - start,
+      userId, route: "ai/tts", status: "success",
+      inputTokens: text.length, latencyMs: Date.now() - start,
     });
+    console.info(`[ai/tts] OK provider=${usedProvider} bytes=${buf.length}`);
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Content-Length", String(buf.length));
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).send(buf);
-  } catch (edgeErr) {
-    const edgeMsg = edgeErr instanceof Error ? edgeErr.message : String(edgeErr);
-    console.error("[ai/tts] edge-tts FAILED:", edgeMsg);
+    res.status(200).send(buf);
+  };
 
-    // ── Fallback: OpenAI TTS (if configured) ─────────────────────────────
+  // ── ElevenLabs ──────────────────────────────────────────────────────────
+  if (provider === "elevenlabs") {
+    if (isElevenLabsConfigured()) {
+      try {
+        const buf = await elevenLabsTts(text);
+        return sendAudio(buf, "elevenlabs");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`elevenlabs: ${msg}`);
+        console.error("[ai/tts] ElevenLabs FAILED:", msg);
+      }
+    } else {
+      errors.push("elevenlabs: ELEVENLABS_API_KEY not set");
+      console.warn("[ai/tts] TTS_PROVIDER=elevenlabs but ELEVENLABS_API_KEY is not set");
+    }
+  }
+
+  // ── OpenAI TTS ──────────────────────────────────────────────────────────
+  if (provider === "openai" || (provider === "elevenlabs" && errors.length > 0)) {
     if (isOpenAIAudioConfigured()) {
       try {
         const client = getOpenAIAudioClient();
-        if (!client) throw new Error("OpenAI client not configured");
+        if (!client) throw new Error("OpenAI client not available");
         const speech = await client.audio.speech.create({
           model: TTS_MODEL,
           voice: TTS_DEFAULT_VOICE,
@@ -163,35 +192,40 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
           instructions: TTS_INSTRUCTIONS,
         });
         const buf = Buffer.from(await speech.arrayBuffer());
-        void logVoiceCall({
-          userId, route: "ai/tts", status: "success",
-          inputTokens: text.length, latencyMs: Date.now() - start,
-        });
-        res.setHeader("Content-Type", "audio/mpeg");
-        res.setHeader("Content-Length", String(buf.length));
-        res.setHeader("Cache-Control", "no-store");
-        return res.status(200).send(buf);
-      } catch (openaiErr) {
-        const openaiMsg = openaiErr instanceof Error ? openaiErr.message : String(openaiErr);
-        console.error("[ai/tts] OpenAI fallback FAILED:", openaiMsg);
-        void logVoiceCall({
-          userId, route: "ai/tts", status: "error",
-          errorMessage: `edge: ${edgeMsg} | openai: ${openaiMsg}`,
-          latencyMs: Date.now() - start,
-        });
+        return sendAudio(buf, "openai");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`openai: ${msg}`);
+        console.error("[ai/tts] OpenAI FAILED:", msg);
       }
-    } else {
-      void logVoiceCall({
-        userId, route: "ai/tts", status: "error",
-        errorMessage: edgeMsg, latencyMs: Date.now() - start,
-      });
+    } else if (provider === "openai") {
+      errors.push("openai: OPENAI_API_KEY not set");
+      console.warn("[ai/tts] TTS_PROVIDER=openai but OpenAI is not configured");
     }
-
-    return res.status(503).json({
-      error: "TTS_FAILED",
-      message: "تعذّر تجهيز الصوت الآن. أعد المحاولة بعد لحظات.",
-    });
   }
+
+  // ── Edge TTS (free fallback / default) ─────────────────────────────────
+  if (provider === "edge" || errors.length > 0) {
+    try {
+      const buf = await edgeTts(text);
+      return sendAudio(buf, "edge");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`edge: ${msg}`);
+      console.error("[ai/tts] Edge TTS FAILED:", msg);
+    }
+  }
+
+  // ── All providers failed ─────────────────────────────────────────────
+  void logVoiceCall({
+    userId, route: "ai/tts", status: "error",
+    errorMessage: errors.join(" | ").slice(0, 500),
+    latencyMs: Date.now() - start,
+  });
+  return res.status(503).json({
+    error: "TTS_FAILED",
+    message: "تعذّر تجهيز الصوت الآن. أعد المحاولة بعد لحظات.",
+  });
 });
 
 router.post("/ai/stt", upload.single("audio"), async (req, res): Promise<unknown> => {

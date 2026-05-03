@@ -41,8 +41,7 @@ RUN apk add --no-cache \
     musl-dev \
     openjdk21-jdk \
     bash \
-    && ln -sf python3 /usr/bin/python \
-    && pip3 install --no-cache-dir --break-system-packages edge-tts
+    && ln -sf python3 /usr/bin/python
 
 WORKDIR /app
 
