@@ -46,18 +46,19 @@ const CACHE_BUDGET_MB = (() => {
 
 // UX SLA: a teacher image must be visible within ~10s on a normal
 // connection. With the SVG poster as a guaranteed local fallback we
-// can afford aggressive provider deadlines — the worst case is
-// 6s (fal) + 6s (pollinations) = 12s before SVG, but in practice fal
-// usually returns in 3-5s and the chain rarely advances. Override via
-// env if a slow upstream needs more headroom.
+// can afford aggressive provider deadlines — the worst case is now
+// 4s (fal) + 4s (pollinations) = 8s before SVG, comfortably inside
+// the 10s target. In practice fal usually returns in 3-5s and the
+// chain rarely advances. Override via env if a slow upstream needs
+// more headroom.
 const FAL_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.FAL_TIMEOUT_MS ?? "", 10);
-  return Number.isFinite(raw) && raw >= 2_000 && raw <= 120_000 ? raw : 6_000;
+  return Number.isFinite(raw) && raw >= 2_000 && raw <= 120_000 ? raw : 4_000;
 })();
 
 const POLLINATIONS_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.POLLINATIONS_TIMEOUT_MS ?? "", 10);
-  return Number.isFinite(raw) && raw >= 2_000 && raw <= 120_000 ? raw : 6_000;
+  return Number.isFinite(raw) && raw >= 2_000 && raw <= 120_000 ? raw : 4_000;
 })();
 
 const URL_PREFIX = "/api/teacher-images/";
@@ -436,7 +437,7 @@ export async function resolveTeacherImage(prompt: string): Promise<ResolveResult
  * prevent path traversal.
  */
 export async function serveTeacherImage(filename: string): Promise<
-  | { ok: true; body: Buffer; contentType: string }
+  | { ok: true; path: string; size: number; contentType: string }
   | { ok: false; status: number; message: string }
 > {
   if (!/^[a-f0-9]{64}\.(png|jpg|jpeg|webp|svg)$/i.test(filename)) {
@@ -444,7 +445,8 @@ export async function serveTeacherImage(filename: string): Promise<
   }
   const file = path.join(CACHE_DIR, filename);
   try {
-    const body = await fs.readFile(file);
+    const stat = await fs.stat(file);
+    if (!stat.isFile()) return { ok: false, status: 404, message: "not found" };
     const ext = path.extname(filename).toLowerCase();
     const contentType =
       ext === ".png" ? "image/png" :
@@ -454,7 +456,7 @@ export async function serveTeacherImage(filename: string): Promise<
     // Refresh mtime for LRU.
     const now = new Date();
     fs.utimes(file, now, now).catch(() => {});
-    return { ok: true, body, contentType };
+    return { ok: true, path: file, size: stat.size, contentType };
   } catch {
     return { ok: false, status: 404, message: "not found" };
   }

@@ -8,8 +8,15 @@
  *
  * Aggressive caching: a 64-hex content hash means the URL is immutable
  * (different prompt = different hash), so we set `immutable, max-age=31536000`.
+ *
+ * The response body is true-streamed via `createReadStream` to keep
+ * memory bounded under concurrent loads (a 30-student class opening the
+ * same chapter image at once would otherwise hold N copies of every
+ * image in the heap).
  */
 import { Router, type IRouter } from "express";
+import { createReadStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import { serveTeacherImage } from "../lib/teacher-image-store";
 
 const router: IRouter = Router();
@@ -22,8 +29,21 @@ router.get("/teacher-images/:filename", async (req, res) => {
   }
   res.setHeader("Content-Type", result.contentType);
   res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-  res.setHeader("Content-Length", String(result.body.length));
-  res.end(result.body);
+  res.setHeader("Content-Length", String(result.size));
+  // HEAD requests get headers only, no body.
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  const stream = createReadStream(result.path);
+  // pipeline() handles cleanup + abort propagation when the client
+  // disconnects mid-transfer (so the fd doesn't leak).
+  try {
+    await pipeline(stream, res);
+  } catch {
+    // Client disconnect or write-after-end — already best-effort handled
+    // by pipeline()'s teardown; nothing to do.
+  }
 });
 
 export default router;
