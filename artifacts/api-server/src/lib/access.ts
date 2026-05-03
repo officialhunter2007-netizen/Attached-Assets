@@ -239,7 +239,13 @@ export function computeAccess(input: {
     expiresAt: legacyExpires,
     expiredRecently: legacyExpiredRecently,
     isFirstLesson: false,
-    blockReason: balance <= 0 ? "no_gems" : "no_active_sub",
+    // For subject-scoped calls, an exhausted free trial with no paid sub
+    // means the subject's gem source is empty → "no_gems" (not
+    // "no_active_sub"). The legacy "no_active_sub" only applies to
+    // subject-less calls where the legacy wallet itself is the source.
+    blockReason: subjectId
+      ? "no_gems"
+      : (balance <= 0 ? "no_gems" : "no_active_sub"),
     canAccess: false,
     source: "none",
     legacyKind: null,

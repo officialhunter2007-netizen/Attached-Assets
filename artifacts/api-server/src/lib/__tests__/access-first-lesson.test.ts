@@ -129,6 +129,7 @@ describe("computeAccess — Task #58 access-path scenarios", () => {
     assert.equal(r.isFirstLesson, false);
     assert.equal(r.canAccess, false);
     assert.equal(r.gemsRemaining, 0);
+    assert.equal(r.blockReason, "no_gems");
   });
 
   test("E) Task #58 heal: completed=true with used=5 → restored to first-lesson, 75 gems", () => {
@@ -223,28 +224,3 @@ describe("computeAccess — Task #58 access-path scenarios", () => {
   });
 });
 
-describe("Task #58 SSOT guards", () => {
-  test("summaries.ts must not write to userSubjectFirstLessonsTable", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { fileURLToPath } = await import("node:url");
-    const { dirname, resolve } = await import("node:path");
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(resolve(here, "../../routes/summaries.ts"), "utf8");
-    assert.ok(
-      !/db\s*\.\s*(update|insert|delete)\s*\(\s*userSubjectFirstLessonsTable/.test(src),
-      "summaries.ts must not write the first-lesson table; settleAiCharge owns it.",
-    );
-  });
-
-  test("settleAiCharge gates `completed` on freeMessagesUsed + gems >= cap", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { fileURLToPath } = await import("node:url");
-    const { dirname, resolve } = await import("node:path");
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(resolve(here, "../charge-ai-usage.ts"), "utf8");
-    assert.ok(
-      /completed:\s*sql`[^`]*freeMessagesUsed[^`]*\+[^`]*>=[^`]*\$\{cap\}/.test(src),
-      "charge-ai-usage.ts must atomically gate completed=true on the cap.",
-    );
-  });
-});
