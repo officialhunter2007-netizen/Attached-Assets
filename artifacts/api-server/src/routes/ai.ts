@@ -821,23 +821,10 @@ function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding
   // The addendum still contains the legacy generic guidance below so that
   // subjects without a kit fall back gracefully.
   const kit = opts.kit;
-  const kitBlock = kit
+  const kitImageBlock = kit && opts.imageEnabled
     ? `
 
-🎯 **عُدّة عرض هذا التخصص — استخدمها حرفياً، لا تعِد صياغتها:**
-
-**(أ) المفهوم المحوري الذي تشرحه في الفقرة الثانية (≤20 كلمة):**
-${kit.hookConcept}
-
-**(ب) السيناريو اليمني الملموس (انسج كل أرقامه وأسمائه في المثال — لا تستبدله بمثال عام):**
-${kit.concreteScenario}
-
-**(ج) وصف بيئة CREATE_LAB_ENV الذي يجب أن يدخل داخل الوسم حرفياً (يحوي الأقسام الخمسة الإلزامية):**
-${kit.labEnvBlueprint}
-
-⚠️ **استخدم الوصف أعلاه بنفس النص داخل** \`[[CREATE_LAB_ENV: …]]\` **في رسالتك — لا تختصره ولا تعمّمه**. لو غيّرته، احرص على إبقاء الأقسام الخمسة موجودة فعلاً.
-
-**(د) بطاقة بصرية إجبارية — اربط هذه الوصفة الإنجليزية مع المفتاح العربي تماماً كما هو:**
+**(د) بطاقة بصرية إجبارية — اربط الوصفة الإنجليزية مع المفتاح العربي حرفياً:**
 \`\`\`
 [[IMAGE: ${kit.imageBlueprint.fluxPrompt}]]
 \`\`\`
@@ -853,12 +840,28 @@ ${kit.labEnvBlueprint}
     <li><span class="num n3">3</span> ${kit.imageBlueprint.legendLinesAr[2]}</li>
   </ol>
 </figcaption>
-\`\`\`
+\`\`\``
+    : "";
+  const kitBlock = kit
+    ? `
+
+🎯 **عُدّة عرض هذا التخصص — استخدمها حرفياً، لا تعِد صياغتها:**
+
+**(أ) المفهوم المحوري في الفقرة الثانية (≤20 كلمة):**
+${kit.hookConcept}
+
+**(ب) السيناريو اليمني الملموس (انسج أرقامه وأسماءه — لا تستبدله بمثال عام):**
+${kit.concreteScenario}
+
+**(ج) وصف بيئة CREATE_LAB_ENV الذي يدخل داخل الوسم حرفياً (يحوي الأقسام الخمسة):**
+${kit.labEnvBlueprint}
+
+⚠️ **استخدم الوصف أعلاه داخل** \`[[CREATE_LAB_ENV: …]]\` **— لا تختصره ولا تعمّمه**.${kitImageBlock}
 
 **(هـ) فخ الخطأ الأول المتوقّع — كن جاهزاً لاستخدام \`[MISTAKE: …]\`:**
-عندما يقع الطالب في هذا الفخ تحديداً (وهو متوقّع بنسبة عالية في هذه التجربة): «${kit.firstMistakeTrap}» — استخدم \`[MISTAKE: ${kit.firstMistakeTrap}]\` في الرد التالي مباشرة، ثم اذكر له بشكل عابر أن المنصة سجّلت هذا الخطأ في ذاكرتك عنه وستربطه بالشروحات القادمة.
+عندما يقع الطالب في هذا الفخ: «${kit.firstMistakeTrap}» — استخدم \`[MISTAKE: ${kit.firstMistakeTrap}]\` في الرد التالي، واذكر له أن المنصة سجّلت الخطأ في ذاكرتك عنه.
 
-**(و) سطر الانتقال إلى الخطة بعد التجربة — استخدمه كما هو في الرد التالي بعد دخول البيئة:**
+**(و) سطر الانتقال إلى الخطة بعد التجربة:**
 ${kit.transitionLine}
 
 ────────────────────────────────────────`
@@ -2039,45 +2042,39 @@ ${formattingRules}`;
     }
     return false;
   })();
-  // Per-subject showcase eligibility. The opener fires on the FIRST teaching
-  // reply per subject — i.e. the first non-diagnostic assistant turn after the
-  // plan was presented. We intentionally do NOT gate on the global
-  // `isFirstLesson` (users.firstLessonComplete) flag — that's a billing concept
-  // consumed once per account and would prevent subjects #2..24 from ever
-  // showing the showcase. Conversation history is scoped per subject, so any
-  // history-based signal here is naturally per-subject.
-  //
-  // Signal: locate the last assistant message containing `[PLAN_READY]`, then
-  // check if any assistant message exists AFTER it. If none, this is the first
-  // teaching reply post-plan → showcase opener. Diagnostic-phase ASK_OPTIONS
-  // turns are correctly ignored because they appear BEFORE [PLAN_READY].
-  // Fallback: if no [PLAN_READY] is present (legacy data, or somehow missed),
-  // fall back to "no prior assistant message at all" — strict but safe.
+  // Per-subject showcase eligibility. Fires on the first teaching reply after
+  // [PLAN_READY] in the per-subject conversation. Decoupled from the global
+  // users.firstLessonComplete billing flag so subjects #2..24 still get the
+  // showcase. Diagnostic ASK_OPTIONS turns appear before [PLAN_READY] and are
+  // correctly ignored. Fallback when no [PLAN_READY]: only fire if no prior
+  // assistant turn exists at all.
+  type HistoryMsg = {
+    role?: string;
+    content?: string | Array<string | { text?: string }>;
+  };
   const isFirstTeachingReplyForSubject = (() => {
     if (!Array.isArray(history)) return true;
-    const extractText = (msg: any): string => {
-      const c = msg?.content;
+    const msgs = history as HistoryMsg[];
+    const isAssistant = (m: HistoryMsg): boolean => m?.role === "assistant" || m?.role === "model";
+    const extractText = (m: HistoryMsg): string => {
+      const c = m?.content;
       if (typeof c === "string") return c;
-      if (Array.isArray(c)) return c.map((p: any) => (typeof p === "string" ? p : p?.text ?? "")).join("");
+      if (Array.isArray(c)) return c.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("");
       return "";
     };
     let lastPlanReadyIdx = -1;
-    for (let i = history.length - 1; i >= 0; i--) {
-      const msg: any = history[i];
-      if (msg?.role !== "assistant" && msg?.role !== "model") continue;
-      if (/\[PLAN_READY\]/.test(extractText(msg))) {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (!isAssistant(msgs[i])) continue;
+      if (/\[PLAN_READY\]/.test(extractText(msgs[i]))) {
         lastPlanReadyIdx = i;
         break;
       }
     }
     if (lastPlanReadyIdx === -1) {
-      // No plan marker yet — only treat as opener if no assistant turns at all.
-      return !history.some((m: any) => m?.role === "assistant" || m?.role === "model");
+      return !msgs.some(isAssistant);
     }
-    // Showcase opener iff no assistant message exists strictly AFTER the plan.
-    for (let i = lastPlanReadyIdx + 1; i < history.length; i++) {
-      const msg: any = history[i];
-      if (msg?.role === "assistant" || msg?.role === "model") return false;
+    for (let i = lastPlanReadyIdx + 1; i < msgs.length; i++) {
+      if (isAssistant(msgs[i])) return false;
     }
     return true;
   })();
