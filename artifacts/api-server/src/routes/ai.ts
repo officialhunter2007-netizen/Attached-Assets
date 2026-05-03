@@ -811,7 +811,7 @@ function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding
   // visual: icons, numbered circles, color-coded boxes — NO TEXT inside
   // the image. The Arabic labels live entirely in the caption.
   const imageShowcase = opts.imageEnabled
-    ? `\n5. **🖼️ صورة توضيحية إجبارية واحدة في هذا الرد فقط:** اعرض على الطالب قدرة المنصة على توليد صور توضيحية لحظية. استخدم وسماً واحداً بالضبط بالشكل التالي **قبل أو بعد** شرحك للمفهوم المحوري:\n\n\`\`\`\n[[IMAGE: a clean educational diagram showing <concept>, NO TEXT, NO LABELS, NO WORDS, only icons and numbered colored circles 1 2 3, white background, flat vector illustration style]]\n\`\`\`\n\n**مباشرةً بعد الوسم اكتب التسمية العربية بـ HTML خام** على الشكل التالي (هذا هو ما يفسّر للطالب ما يراه — الصورة بصرية فقط):\n\n\`\`\`html\n<figcaption class="image-caption"><strong>الشرح:</strong> الدائرة <span class="num">1</span> تمثّل ... ، الدائرة <span class="num">2</span> تمثّل ... ، الدائرة <span class="num">3</span> تمثّل ...</figcaption>\n\`\`\`\n\n**❌ ممنوع منعاً باتاً داخل وسم IMAGE:** أي كلمة عربية، أي طلب لكتابة نص داخل الصورة، أي "labels"، أي "Arabic text"، أي "captions inside image". الصورة بصرية بحتة، والكلام العربي في \`<figcaption>\` تحتها فقط.\n\n**❌ ممنوع** استخدام \`[[IMAGE: ...]]\` أكثر من مرة واحدة في هذا الرد.\n`
+    ? `\n5. **🖼️ بطاقة معلوماتية إجبارية واحدة في هذا الرد فقط:** اعرض على الطالب قدرة المنصة على توليد بطاقات بصرية لحظية. استخدم وسماً واحداً بالضبط بالشكل التالي **قبل أو بعد** شرحك للمفهوم المحوري، والتزم بنواة الوصفة الإنجليزية كاملةً لرفع جودة الإخراج:\n\n\`\`\`\n[[IMAGE: professional editorial infographic illustration, clean multi-panel layout, isometric flat icons, color-coded sections (soft blue, mint green, warm orange, lavender), subtle gradient backgrounds, clear visual hierarchy with thin connector arrows, generous whitespace, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking <list the visual parts of the central concept here>]]\n\`\`\`\n\n**مباشرةً بعد الوسم اكتب المفتاح العربي بصيغة HTML الإلزامية** التي تجعل الصورة + النصّ بطاقةً موحّدة (الصورة بصرية فقط، والمعنى يأتي من المفتاح):\n\n\`\`\`html\n<figcaption class="image-caption">\n  <strong class="caption-title">المفتاح: <اسم البطاقة بالعربية></strong>\n  <ol class="caption-legend">\n    <li><span class="num n1">1</span> <شرح الدائرة الأولى></li>\n    <li><span class="num n2">2</span> <شرح الدائرة الثانية></li>\n    <li><span class="num n3">3</span> <شرح الدائرة الثالثة></li>\n  </ol>\n</figcaption>\n\`\`\`\n\n**اشترط على نفسك** أن المفهوم المحوري الذي تختاره للصورة **بصري بطبيعته** (بنية، علاقة مكانية، عملية متعدّدة الخطوات، مقارنة، أو استعارة بصرية تختصر شرحاً طويلاً). لا تختر مفهوماً نصيّاً بحتاً مجرّد للاستعراض.\n\n**❌ ممنوع منعاً باتاً داخل وسم IMAGE:** أي كلمة عربية، أي طلب لكتابة نص داخل الصورة، أي "labels"، أي "Arabic text"، أي "captions inside image". الصورة بصرية بحتة، والكلام العربي في \`<figcaption>\` تحتها فقط.\n\n**❌ ممنوع** استخدام \`[[IMAGE: ...]]\` أكثر من مرة واحدة في هذا الرد.\n`
     : "";
 
   return `
@@ -864,64 +864,93 @@ function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled
   // we can't fulfill (which would leave a "[صورة توضيحية: ...]" stub in the
   // student's chat with no actual image).
   const imageTagDoc = opts.imageEnabled
-    ? `- \`[[IMAGE: english prompt with NO TEXT NO LABELS, only icons + numbered circles]]\` — لإنشاء **صورة توضيحية بصرية بحتة** عبر FLUX. أنت **معلّم محترف بالصور** — استعملها كلّما أضافت قيمة تربوية حقيقية، حتى لو في معظم الردود. الصورة وحدها ليست تربوية، **السؤال أو الجملة التي تلفّها هو ما يجعلها تعليمية**.
+    ? `- \`[[IMAGE: english infographic prompt … NO TEXT NO LABELS NO WORDS]]\` — لإنشاء **بطاقة معلوماتية (infographic) بصرية بحتة** عبر FLUX.
 
-  **القيود التقنية الثابتة (لا تُمسّ):**
-  • **النص داخل الوسم بالإنجليزية حصراً** — FLUX لا يكتب العربية، أي كلمة عربية داخل الصورة تظهر مشوّهة.
-  • **يجب أن يحتوي الوصف الإنجليزي على \`NO TEXT, NO LABELS, NO WORDS\` صراحةً** — وأن يطلب فقط رموزاً أو دوائر مرقّمة 1 2 3 4 ملوّنة لتمييز الأجزاء.
-  • **مباشرة بعد الوسم اكتب \`<figcaption class="image-caption">…</figcaption>\` بالعربية** يشرح ما تمثّله كل دائرة مرقّمة أو يطرح السؤال البيداغوجي. الصورة بصرية، والكلام العربي في الـ caption.
-  • **حدّ أقصى ٣ صور في الرد الواحد** (الأغلب صورة أو اثنتان؛ ٣ مخصّصة لنمط المقارنة + تحفيز).
+  **🚫 الافتراض = لا صورة.** معظم ردودك يجب ألا تحتوي صورة. الصورة باهظة الكلفة، تأخذ وقت توليد، وغالباً تشتّت الانتباه إذا لم يحتج المفهوم بصراً حقيقياً. **اسأل نفسك قبل إصدار أي وسم: هل سيفهم الطالب هذا المفهوم بسطر أو سطرَين فقط؟ إن كان الجواب نعم، لا تُصدر صورة.**
 
-  **🎨 مكتبة الأنماط البيداغوجية الثمانية — استخدم النمط الأنسب للحظة التدريسية:**
+  **❌ ممنوع إصدار صورة في الحالات التالية (بدون استثناء):**
+  • ردود قصيرة (≤ ٣ أسطر) أو إجابة على سؤال متابعة بسيط.
+  • تحية، شكر، تأكيد إجابة، تشجيع، اعتذار.
+  • تذكير بقاعدة سبق شرحها (تذكُّر/Recall) — اكتفِ بالنص.
+  • شرح نظري نصي خالص (تعريفات، خصائص، فروق بين مصطلحَين، ترتيب عمليات).
+  • معادلات رياضية بسيطة أو خطوات حلّ تكفي فيها \`$$…$$\` و KaTeX.
+  • أكواد برمجية أو مخرجات نصية — استخدم \`\`\`code\`\`\` بدلاً من الصورة.
+  • مفاهيم سبق أن أصدرت لها صورة في نفس الجلسة (لا تكرّر بصرياً).
 
-  **١. صورة-تحفيز (Curiosity Hook)** — تعرض الصورة *قبل* الشرح وتسأل الطالب «ماذا ترى؟ ماذا تتوقّع؟».
-  مثال: «خلّيني أوريك شيئاً وقلّي وش تتوقّع يصير...»
-  \`[[IMAGE: a glass of water with an ice cube floating, side view, cross-section showing the ice partly submerged, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 marking the ice and the water line, white background, flat educational style]]\`
-  \`<figcaption class="image-caption"><strong>سؤال:</strong> برأيك، إذا ذاب الجليد كاملاً، هل سيفيض الماء من الكأس؟ لماذا؟</figcaption>\`
+  **✅ مسموح إصدار صورة فقط عندما يجتمع شرطان:**
+  ١. **المفهوم بصري بطبيعته** — بنية مادية (خلية، دارة، طبقات، مقاطع تشريحية)، علاقة مكانية/هندسية، عملية متعدّدة الأطوار، شبكة عُقد، مقارنة قبل/بعد، أو استعارة بصرية تختصر مفهوماً مجرّداً.
+  ٢. **الصورة تختصر شرحاً يحتاج فعلاً ≥ ٤–٥ أسطر نصية** — إذا أمكن وصف الفكرة في سطرَين، فالنص أفضل.
 
-  **٢. صورة-لغز بصري (Visual Riddle)** — مشهد فيه خطأ مقصود أو تحدٍّ، تسأل «أين الخلل؟» / «أيّهما أصحّ؟».
-  مثال: «شوف الرسم وحاول تكتشف الخطأ...»
-  \`[[IMAGE: an electrical circuit diagram with a battery, switch, and lightbulb but with a deliberate broken wire on one side, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 3 4 marking each component, white background, flat vector]]\`
-  \`<figcaption class="image-caption"><strong>تحدٍّ:</strong> هذه الدارة لن يضيء فيها المصباح. اكتشف السبب من خلال أرقام الدوائر <span class="num">1</span> <span class="num">2</span> <span class="num">3</span> <span class="num">4</span>.</figcaption>\`
+  **القيود التقنية الصارمة:**
+  • **الإنجليزية حصراً داخل الوسم** — أي حرف عربي يخرج مشوّهاً.
+  • **يجب أن يحتوي وصفك الإنجليزي حرفياً على \`NO TEXT, NO LABELS, NO WORDS\`** — FLUX لا يكتب نصاً نظيفاً، الكلمات داخل الصورة تخرج هلاميّة. اطلب فقط أيقونات ودوائر مرقّمة ملوّنة 1 2 3 4 لربط الأجزاء بالمفتاح العربي تحتها.
+  • **مباشرةً بعد الوسم اكتب مفتاحاً عربياً** بهذا الشكل الإلزامي (سيظهر للطالب كبطاقة موحّدة مع الصورة):
 
-  **٣. صورة-مقارنة (Compare/Contrast)** — صورتان متتاليتان «قبل/بعد»، «صحيح/خاطئ»، أو حالتان. **مسموح هنا أن تُصدر وسمَين \`[[IMAGE:...]]\` متتاليَين** بفاصل caption بسيط بينهما.
-  مثال: «خلّيني أعرض لك الفرق بين الحالتين بصرياً...»
-  \`[[IMAGE: a healthy plant cell cross-section with intact organelles, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 3 marking the nucleus, vacuole, and membrane, white background, flat scientific illustration]]\`
-  \`<figcaption class="image-caption"><strong>الحالة الطبيعية:</strong> الخلية كاملة الأجزاء.</figcaption>\`
-  \`[[IMAGE: a damaged plant cell cross-section with shrunken vacuole and ruptured membrane, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 3 marking the same nucleus, vacuole, and membrane, white background, flat scientific illustration]]\`
-  \`<figcaption class="image-caption"><strong>بعد الجفاف:</strong> لاحظ كيف انكمشت الفجوة العصارية <span class="num">1</span>.</figcaption>\`
+  \`\`\`html
+  <figcaption class="image-caption">
+    <strong class="caption-title">المفتاح: <اسم البطاقة بالعربية></strong>
+    <ol class="caption-legend">
+      <li><span class="num n1">1</span> <شرح ما تمثّله الدائرة الزرقاء></li>
+      <li><span class="num n2">2</span> <شرح ما تمثّله الدائرة الخضراء></li>
+      <li><span class="num n3">3</span> <شرح ما تمثّله الدائرة البرتقالية></li>
+    </ol>
+  </figcaption>
+  \`\`\`
 
-  **٤. صورة-استعارة بصرية (Visual Metaphor)** — تشبيه بصري لمفهوم مجرّد. **هذا النمط يصلح حتى للمفاهيم النصية تماماً** كالذاكرة والخوارزميات والمنطق.
-  مثال: «الذاكرة العشوائية تشبه طاولة عمل... شوف:»
-  \`[[IMAGE: a wooden desk with a few books open and pens scattered on top, contrasted next to a tall library shelf in the background, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 marking the desk and the shelf, white background, flat illustrated style]]\`
-  \`<figcaption class="image-caption"><strong>التشبيه:</strong> الطاولة = الذاكرة العشوائية (RAM)، الرف الكبير = القرص الصلب.</figcaption>\`
+  • للأنماط البسيطة جداً (المرساة/الكشف/التحفيز بدون أرقام) يكفي:
+  \`<figcaption class="image-caption"><strong class="caption-title">سؤال:</strong> نص السؤال أو الشرح.</figcaption>\`
 
-  **٥. صورة-مشهد تطبيقي (Scenario)** — تضع الطالب في موقف واقعي.
-  مثال: «تخيّل نفسك تقف في هذه المحطة...»
-  \`[[IMAGE: a small train station platform from a passenger's view, with two trains arriving from opposite directions, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 marking each train, white background, flat vector scene]]\`
-  \`<figcaption class="image-caption"><strong>الموقف:</strong> القطاران يقتربان معاً. كيف تحسب اللحظة التي يلتقيان فيها؟</figcaption>\`
+  • **حدّ أقصى ٣ صور في الرد الواحد**، الأغلب صفر أو واحدة.
 
-  **٦. صورة-خطوة من عملية (Process Step)** — تصوير مرحلة محدَّدة من سلسلة خطوات.
-  مثال: «هذه الخطوة الثالثة من العملية، ركّز فيها...»
-  \`[[IMAGE: zoomed-in cross-section of a single neuron firing, with arrows showing electrical signal direction along the axon, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 3, white background, scientific flat style]]\`
-  \`<figcaption class="image-caption"><strong>الخطوة ٣:</strong> الإشارة تنتقل من <span class="num">1</span> إلى <span class="num">3</span> عبر المحور.</figcaption>\`
+  **🎨 وصفة الـ FLUX prompt (التزم بمصطلحاتها لرفع جودة الإخراج):**
+  ابدأ كل وسم بهذه النواة قبل تفاصيل المفهوم:
+  \`professional editorial infographic illustration, clean multi-panel layout, isometric flat icons, color-coded sections (soft blue, mint green, warm orange, lavender), subtle gradient backgrounds, clear visual hierarchy with thin connector arrows and dividers, generous whitespace, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 4\`
+  ثم أضف تفاصيل المفهوم (المكوّنات، الترتيب، اتجاه الأسهم، الزاوية).
 
-  **٧. صورة-جواب لاحق (Reveal)** — في الرد الحالي تطرح سؤالاً بدون صورة، **وفي الرد التالي** بعد جواب الطالب تكشف الإجابة بصورة.
-  مثال (الرد الحالي): «قبل ما أوريك الجواب، خمّن كيف يبدو شكل الأمواج لو تضاعف التردد...»
+  **🎨 مكتبة الأنماط البيداغوجية الثمانية — استخدم النمط الأنسب فقط عند توفّر شرطَي السماح:**
+
+  **١. صورة-تحفيز (Curiosity Hook)** — مشهد بصري قبل الشرح يثير سؤالاً.
+  \`[[IMAGE: professional editorial infographic illustration, isometric cross-section of a tall glass of water with a large ice cube floating half-submerged, color-coded sections (soft blue water, white-translucent ice), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 marking the ice cube and the water line]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">سؤال للتأمّل:</strong> إذا ذاب الجليد كاملاً، هل سيفيض الماء من الكأس؟ ولماذا؟</figcaption>\`
+
+  **٢. صورة-لغز بصري (Visual Riddle)** — مشهد فيه خطأ مقصود أو تحدٍّ بصري.
+  \`[[IMAGE: professional editorial infographic illustration, clean schematic of a simple electrical circuit with a battery, switch, and lightbulb, isometric flat icons, color-coded components (warm orange battery, mint green switch, soft blue bulb), with one wire on the left side deliberately broken with a small visible gap, thin connector lines, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 4 marking each component]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">تحدٍّ: هذه الدارة لن يضيء فيها المصباح — أين الخلل؟</strong><ol class="caption-legend"><li><span class="num n1">1</span> البطارية (المصدر)</li><li><span class="num n2">2</span> المفتاح</li><li><span class="num n3">3</span> السلك (افحصه جيداً)</li><li><span class="num n4">4</span> المصباح</li></ol></figcaption>\`
+
+  **٣. صورة-مقارنة (Compare/Contrast)** — صورتان متتاليتان (قبل/بعد، صحيح/خاطئ). **مسموح هنا وسمَان متتاليان**.
+  \`[[IMAGE: professional editorial infographic illustration, isometric cross-section of a healthy plant cell with intact nucleus, plump central vacuole, and smooth membrane, color-coded organelles (soft blue nucleus, mint green vacuole, warm orange membrane), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking the nucleus, vacuole, membrane]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">الحالة الطبيعية</strong><ol class="caption-legend"><li><span class="num n1">1</span> النواة سليمة</li><li><span class="num n2">2</span> الفجوة العصارية ممتلئة</li><li><span class="num n3">3</span> الغشاء مشدود</li></ol></figcaption>\`
+  \`[[IMAGE: professional editorial infographic illustration, isometric cross-section of a dehydrated plant cell with shrunken vacuole pulled away from the wall, ruptured membrane, same color-coded organelles (soft blue nucleus, mint green collapsed vacuole, warm orange torn membrane), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking the same parts]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">بعد الجفاف</strong><ol class="caption-legend"><li><span class="num n1">1</span> النواة لا تزال موجودة</li><li><span class="num n2">2</span> الفجوة انكمشت</li><li><span class="num n3">3</span> الغشاء انفصل عن الجدار</li></ol></figcaption>\`
+
+  **٤. صورة-استعارة بصرية (Visual Metaphor)** — تشبيه بصري لمفهوم مجرّد. استعملها فقط عندما يكون المفهوم المجرّد فعلاً صعب التخيّل.
+  \`[[IMAGE: professional editorial infographic illustration, isometric scene of a small wooden desk in the foreground with three open books and a few pens scattered on top, contrasted with a tall multi-shelf library wall in the background filled with closed books, color-coded zones (warm orange desk, soft blue library), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 marking the desk and the library shelves]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">التشبيه: ذاكرة الحاسوب</strong><ol class="caption-legend"><li><span class="num n1">1</span> الطاولة = الذاكرة العشوائية (RAM): سريعة، صغيرة، مؤقتة</li><li><span class="num n2">2</span> رفوف المكتبة = القرص الصلب: بطيء، ضخم، دائم</li></ol></figcaption>\`
+
+  **٥. صورة-مشهد تطبيقي (Scenario)** — موقف واقعي يضع الطالب فيه قبل المسألة.
+  \`[[IMAGE: professional editorial infographic illustration, isometric view of a small train station platform with two trains approaching from opposite directions on parallel tracks, color-coded trains (warm orange train from the right, mint green train from the left), thin motion arrows showing direction, subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 marking each train]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">الموقف: لحظة الالتقاء</strong><ol class="caption-legend"><li><span class="num n1">1</span> القطار القادم من اليمين بسرعة معلومة</li><li><span class="num n2">2</span> القطار القادم من اليسار بسرعة مختلفة</li></ol></figcaption>\`
+
+  **٦. صورة-خطوة من عملية (Process Step)** — مرحلة محدّدة من سلسلة خطوات معقّدة.
+  \`[[IMAGE: professional editorial infographic illustration, zoomed isometric cross-section of a single neuron firing along its axon, with thin curved arrows showing electrical signal direction from the cell body to the axon terminal, color-coded segments (soft blue dendrites, mint green cell body, warm orange axon, lavender terminal), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 along the signal path]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">الخطوة ٣ من نقل الإشارة العصبية</strong><ol class="caption-legend"><li><span class="num n1">1</span> دخول الإشارة من التغصّنات</li><li><span class="num n2">2</span> مرورها في جسم الخلية</li><li><span class="num n3">3</span> انتقالها على طول المحور إلى النهاية</li></ol></figcaption>\`
+
+  **٧. صورة-جواب لاحق (Reveal)** — في الرد الحالي اطرح سؤالاً بدون صورة، **وفي الرد التالي** بعد جواب الطالب اكشف الإجابة بصرياً.
   مثال (الرد التالي بعد جواب الطالب):
-  \`[[IMAGE: two sine waves drawn one above the other, the bottom wave with double the frequency of the top, NO TEXT NO LABELS NO WORDS, only numbered circles 1 2 marking each wave, white background, clean mathematical illustration]]\`
-  \`<figcaption class="image-caption"><strong>الكشف:</strong> هذا هو الفرق — الموجة السفلى ترددها ضعف العليا.</figcaption>\`
+  \`[[IMAGE: professional editorial infographic illustration, two sine waves drawn one above the other on a clean grid, the top wave with normal frequency and the bottom wave with double the frequency, color-coded waves (soft blue top, warm orange bottom), thin axis lines, subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 marking each wave]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">الكشف: مضاعفة التردّد</strong><ol class="caption-legend"><li><span class="num n1">1</span> الموجة الأصلية: تردّد مرجعي</li><li><span class="num n2">2</span> الموجة الجديدة: ضعف التردّد، نصف الطول الموجي</li></ol></figcaption>\`
 
-  **٨. صورة-مرساة ذاكرة (Memory Anchor)** — رسم مرئي بسيط جداً يربطه الطالب بالمفهوم لاحقاً، يظهر مرّة واحدة في الجلسة لمفهوم مهم.
-  مثال: «خذ هذه الصورة في ذهنك، كلّما تذكرتها ستتذكر القاعدة...»
-  \`[[IMAGE: a simple icon of a heart connected by an arrow to a brain, both highly stylized minimal flat icons, NO TEXT NO LABELS NO WORDS, white background, vector minimal style]]\`
-  \`<figcaption class="image-caption"><strong>المرساة:</strong> العاطفة تسبق المنطق دائماً في القرار اللحظي.</figcaption>\`
+  **٨. صورة-مرساة ذاكرة (Memory Anchor)** — أيقونة بسيطة جداً تربط بقاعدة محورية، مرّة واحدة فقط في الجلسة كلّها.
+  \`[[IMAGE: professional editorial infographic illustration, minimal flat iconic composition of a stylized heart connected by a single thin curved arrow to a stylized brain, both centered with generous whitespace, color-coded (warm orange heart, soft blue brain), subtle gradient background, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS]]\`
+  \`<figcaption class="image-caption"><strong class="caption-title">المرساة:</strong> العاطفة تسبق المنطق دائماً في القرار اللحظي.</figcaption>\`
 
-  **❌ أمثلة خاطئة:**
+  **❌ أمثلة خاطئة (لا تفعلها):**
   • \`[[IMAGE: دائرة كهربائية بسيطة]]\` — عربي داخل الوسم ممنوع.
-  • \`[[IMAGE: circuit with labels "battery" and "switch"]]\` — labels ممنوعة في FLUX.
-  • صورة بدون \`<figcaption>\` بعدها — الصورة وحدها لا تعلّم، العربية تشرح ما يراه.
-  • أربع صور في رد واحد — السقف ٣ كحدٍّ أقصى.
+  • \`[[IMAGE: circuit with labels "battery" and "switch"]]\` — أي labels داخل الصورة تخرج مشوّهة.
+  • صورة بدون مفتاح \`<figcaption class="image-caption">\` بعدها — الصورة وحدها لا تعلّم.
+  • صورة لشرح "ما الفرق بين الجمع والضرب" — هذا نصّي، لا يحتاج صورة.
+  • صورة بعد إجابة قصيرة "نعم، صحيح!" — ممنوع.
+  • أربع صور في رد واحد — السقف ٣.
 `
     : "";
   return `

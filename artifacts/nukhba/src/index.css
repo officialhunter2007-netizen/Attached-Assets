@@ -584,30 +584,33 @@
 ═══════════════════════════════════════════════ */
 .teach-image {
   display: block;
-  margin: 14px auto;
-  padding: 10px;
-  max-width: min(420px, 100%);
-  background: linear-gradient(135deg, rgba(245,158,11,0.06) 0%, rgba(15,18,32,0.4) 100%);
-  border: 1px solid rgba(245,158,11,0.18);
-  border-radius: 14px;
+  margin: 18px auto;
+  padding: 0;
+  max-width: min(460px, 100%);
+  background: linear-gradient(180deg, #1a1f33 0%, #11142a 100%);
+  border: 1px solid rgba(245,158,11,0.22);
+  border-radius: 16px;
   text-align: center;
   direction: rtl;
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.45);
 }
 .teach-image img {
   display: block;
   width: 100%;
-  /* Reserve a 4:3 box BEFORE the image loads so layout doesn't jump
-     when the network swaps the placeholder for the real <img>. The
-     image keeps its real intrinsic ratio once loaded (object-fit
-     contain) — the box just guarantees stable scroll position
-     during streaming. */
-  aspect-ratio: 4 / 3;
+  /* Reserve a 1:1 box BEFORE the image loads so layout doesn't jump
+     when the network swaps the placeholder for the real <img>. FLUX
+     schnell renders square_hd (1024×1024) so a 1:1 box matches the
+     intrinsic ratio exactly; object-fit:cover guarantees the image
+     fills the card edge-to-edge as a unified infographic poster. */
+  aspect-ratio: 1 / 1;
   height: auto;
   max-height: 60vh;
-  object-fit: contain;
-  background: rgba(15, 18, 32, 0.4);
-  border-radius: 10px;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  object-fit: cover;
+  background: #f8fafc;
+  border-radius: 0;
+  box-shadow: none;
+  border-bottom: 1px solid rgba(245,158,11,0.18);
 }
 /* Click-to-zoom affordance: only ready images are interactive. */
 .teach-image-ready { cursor: zoom-in; }
@@ -618,17 +621,21 @@
 }
 .teach-image-ready:hover img { transform: scale(1.015); }
 .teach-image figcaption {
-  margin-top: 8px;
-  font-size: 0.82em;
-  color: #cbd5e1 !important;
-  font-style: italic;
-  line-height: 1.55;
+  margin: 0;
+  padding: 12px 14px 14px;
+  font-size: 0.86em;
+  color: #e2e8f0 !important;
+  font-style: normal;
+  line-height: 1.7;
+  text-align: right;
+  background: linear-gradient(180deg, rgba(245,158,11,0.05) 0%, rgba(15,18,32,0) 100%);
 }
 .teach-image-loading {
-  min-height: 160px;
+  min-height: 220px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #f8fafc;
 }
 .teach-image-spinner {
   display: flex;
@@ -747,39 +754,76 @@
   }
 }
 
-/* Pedagogical caption styles: the teacher writes
-   <figcaption class="image-caption"><strong>سؤال:</strong> ...</figcaption>
-   so the leading label (سؤال / تحدٍّ / الكشف / المرساة …) is bolded
-   and the question/explanation reads as a clear pedagogical prompt. */
+/* Infographic-card caption: title + colored-numbered legend.
+   The teacher emits:
+     <figcaption class="image-caption">
+       <strong class="caption-title">المفتاح: ...</strong>
+       <ol class="caption-legend">
+         <li><span class="num n1">1</span> ...</li>
+         ...
+       </ol>
+     </figcaption>
+   The card renders as a single unified poster: image flush on top,
+   title band, then the colored numbered legend that matches the
+   1/2/3/4 circles drawn inside the FLUX illustration. */
 .teach-image figcaption.image-caption {
   font-style: normal;
   color: #e2e8f0 !important;
-  font-size: 0.86em;
+  font-size: 0.88em;
+  line-height: 1.7;
+}
+.teach-image figcaption.image-caption .caption-title,
+.teach-image figcaption.image-caption > strong {
+  display: block;
+  color: #fbbf24 !important;
+  font-weight: 800;
+  font-size: 0.98em;
+  margin: 0 0 8px;
+  letter-spacing: 0.01em;
+  border-bottom: 1px dashed rgba(245,158,11,0.25);
+  padding-bottom: 6px;
+}
+.teach-image figcaption.image-caption .caption-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: right;
+}
+.teach-image figcaption.image-caption .caption-legend li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  color: #e2e8f0 !important;
   line-height: 1.65;
 }
-.teach-image figcaption.image-caption strong {
-  color: #f59e0b;
-  font-weight: 700;
-  margin-left: 4px;
-}
 /* Inline numbered-circle markers (matches the colored 1 2 3 4 inside the
-   image so the caption can refer to them: "الدائرة <span class='num'>1</span>
-   تمثّل ..."). Tiny, readable, no clash with the body type. */
+   image so the caption legend can reference them). Color-coded to mirror
+   the FLUX prompt vocabulary: 1=blue, 2=green, 3=orange, 4=lavender. */
 .teach-image figcaption .num {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
+  flex-shrink: 0;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
   background: rgba(245,158,11,0.22);
   color: #fbbf24 !important;
   font-weight: 800;
-  font-size: 0.78em;
-  margin: 0 2px;
+  font-size: 0.82em;
   font-style: normal;
+  line-height: 1;
 }
+.teach-image figcaption .num.n1 { background: rgba(96,165,250,0.22); color: #93c5fd !important; }
+.teach-image figcaption .num.n2 { background: rgba(74,222,128,0.20); color: #86efac !important; }
+.teach-image figcaption .num.n3 { background: rgba(251,146,60,0.22); color: #fdba74 !important; }
+.teach-image figcaption .num.n4 { background: rgba(196,181,253,0.22); color: #c4b5fd !important; }
 
 /* Historical placeholder rendered server-side after stream ends */
 .image-historical {
