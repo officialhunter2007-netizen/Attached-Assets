@@ -2917,6 +2917,15 @@ function SubjectPathChat({
   useEffect(() => { currentStageRef.current = currentStage; }, [currentStage]);
   const chatPhaseRef = useRef<'diagnostic' | 'teaching'>(chatPhase);
   useEffect(() => { chatPhaseRef.current = chatPhase; }, [chatPhase]);
+  // One-shot guard so the bootstrap effect never fires the diagnostic opener
+  // twice within a single session. Without it, a flip in `chatGated` (e.g. the
+  // teaching-mode fetch resolving after `planLoaded`) or React Strict Mode in
+  // dev would re-enter the effect mid-stream, before any assistant content has
+  // landed in `messages`, and dispatch a second sendTeachMessage("") — the
+  // student then sees the same diagnostic question twice. The guard is reset
+  // only when the student explicitly restarts the session via
+  // `sessionRestartKey` (see `startNextSession`).
+  const diagnosticBootstrapFiredRef = useRef(false);
   // sendTeachMessage is re-created each render. Effects that fire it from a
   // stale closure (auto-start / chatStarter / pendingTeachStart) must call
   // through this ref so they always invoke the latest version, even though
@@ -3169,6 +3178,11 @@ function SubjectPathChat({
     // student has explicitly chosen a mode. This closes the race window where
     // teachingMode is still `null` and would otherwise let the diagnostic fire.
     if (chatGated) return;
+    // One-shot per session. If we've already fired the opener for this
+    // session, skip — even if `chatGated` flips back to false or the effect
+    // re-runs under React Strict Mode. The guard is reset only when
+    // `sessionRestartKey` changes (see effect below).
+    if (diagnosticBootstrapFiredRef.current) return;
     // Kick off the first teacher message if the chat has no assistant reply yet
     // (covers fresh sessions AND stale localStorage where only a user message was cached).
     const hasAssistant = messages.some((m) => m.role === "assistant" && (m.content || "").trim().length > 0);
@@ -3187,10 +3201,18 @@ function SubjectPathChat({
           try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
         }
       }
+      // Mark fired BEFORE dispatching so any synchronous re-entry (Strict
+      // Mode double-invoke, immediate state flip in sendTeachMessage) hits
+      // the guard above on its next pass.
+      diagnosticBootstrapFiredRef.current = true;
       // Read everything else through refs so this effect doesn't re-fire
       // on every keystroke / phase flip / stage change. Triggers stay
       // intentional: planLoaded, chatGated, sessionRestartKey.
       sendTeachMessageRef.current("", stagesRef.current, currentStageRef.current, chatPhaseRef.current === 'diagnostic');
+    } else {
+      // Already have an assistant reply (returning student) — count this as
+      // "opener handled" so we don't re-fire if chatGated flips later.
+      diagnosticBootstrapFiredRef.current = true;
     }
   }, [planLoaded, chatGated, sessionRestartKey]);
 
@@ -3519,7 +3541,24 @@ function SubjectPathChat({
               }
               if (data.planReady) {
                 gotPlanReady = true;
+                // Flip phase BEFORE the await so React commits and the purple
+                // "diagnostic" bar disappears the moment the plan is ready.
                 setChatPhase('teaching');
+                chatPhaseRef.current = 'teaching';
+                // Persist `chatPhase: 'teaching'` to localStorage synchronously
+                // so a refresh during the slow await window (POST below) does
+                // NOT restore the bar — the persistence effect won't fire
+                // until React's next commit, which the await may delay.
+                if (CHAT_STORAGE_KEY) {
+                  try {
+                    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+                    const prev = raw ? JSON.parse(raw) : {};
+                    localStorage.setItem(
+                      CHAT_STORAGE_KEY,
+                      JSON.stringify({ ...prev, chatPhase: 'teaching' }),
+                    );
+                  } catch {}
+                }
                 // Persist plan to DB and gate the contract card on the quality
                 // check. A 422 means the AI ignored the structured format prompt;
                 // show an in-chat error and let the student ask for regeneration
@@ -3543,8 +3582,24 @@ function SubjectPathChat({
                       updated[updated.length - 1] = { role: 'assistant', content: assistantMsg };
                       return [...updated, { role: 'assistant', content: `⚠️ **تنبيه:** ${errMsg}` }];
                     });
-                    // Plan rejected — do not save or show contract card
+                    // Plan rejected (real 422 only) — revert to diagnostic so
+                    // the student can request a regeneration. We deliberately
+                    // do NOT revert in any other failure path (network errors
+                    // fall into the catch below and proceed optimistically),
+                    // because a successfully-shown plan must never bring the
+                    // purple "diagnostic" bar back.
                     setChatPhase('diagnostic');
+                    chatPhaseRef.current = 'diagnostic';
+                    if (CHAT_STORAGE_KEY) {
+                      try {
+                        const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+                        const prev = raw ? JSON.parse(raw) : {};
+                        localStorage.setItem(
+                          CHAT_STORAGE_KEY,
+                          JSON.stringify({ ...prev, chatPhase: 'diagnostic' }),
+                        );
+                      } catch {}
+                    }
                   } else {
                     setCustomPlan(assistantMsg);
                     setShowContractCard(true);
@@ -4192,6 +4247,12 @@ function SubjectPathChat({
     setSummaryError(false);
     setIsSummarizing(false);
     try { if (CHAT_STORAGE_KEY) localStorage.removeItem(CHAT_STORAGE_KEY); } catch {}
+    // Reset the one-shot bootstrap guard SYNCHRONOUSLY before bumping the
+    // restart key, so when the bootstrap effect re-runs (triggered by the
+    // key change) it sees the guard cleared and dispatches the opener for
+    // the new session. Doing this in a separate post-commit effect would
+    // race the bootstrap effect on the same render.
+    diagnosticBootstrapFiredRef.current = false;
     setSessionRestartKey((k) => k + 1);
   };
 
