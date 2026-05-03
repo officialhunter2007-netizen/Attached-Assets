@@ -440,6 +440,9 @@ const REQUIRED_COLUMNS: TableSpec[] = [
   {
     table: "ai_teacher_messages",
     columns: [
+      { name: "subject_name", ddl: "text" },
+      { name: "is_diagnostic", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "stage_index", ddl: "integer" },
       { name: "word_count", ddl: "integer" },
       { name: "over_length", ddl: "integer" },
     ],

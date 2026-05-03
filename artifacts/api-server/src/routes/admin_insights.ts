@@ -1037,6 +1037,8 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
   const adminId = getUserId(req);
   if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
 
+  try {
+
   const subjectId = String(req.query.subjectId ?? "").trim();
   if (!subjectId) return res.status(400).json({ error: "subjectId required" });
 
@@ -1172,6 +1174,14 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
   res.setHeader("Cache-Control", "no-store");
   res.send(lines.join("\n"));
+  } catch (err: any) {
+    console.error("[admin/insights/course-conversations-export] error:", err?.message || err, err?.stack);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: `تعذّر تصدير المحادثات: ${err?.message || "خطأ غير معروف"}`,
+      });
+    }
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
