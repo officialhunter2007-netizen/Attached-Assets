@@ -225,6 +225,24 @@ export const planPricesTable = pgTable("plan_prices", {
 
 export type PlanPrice = typeof planPricesTable.$inferSelect;
 
+// Admin-editable YER→USD exchange rates — one row per region.
+// Stored as the divisor (e.g. 600 means 1 USD = 600 YER, i.e. rate = 1/600).
+// Defaults are seeded by the auto-migrate at boot (north: 600, south: 2800)
+// and never overwritten on subsequent boots so admin edits persist. The
+// pricing-formula.ts module exposes an in-memory cache populated from this
+// table at startup and after every admin PATCH; the static constants in
+// pricing-formula.ts are kept ONLY as an in-process fallback when the DB
+// read fails — never as the source of truth.
+export const exchangeRatesTable = pgTable("exchange_rates", {
+  id: serial("id").primaryKey(),
+  region: text("region").notNull().unique(),
+  yerPerUsd: integer("yer_per_usd").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedByUserId: integer("updated_by_user_id"),
+});
+
+export type ExchangeRate = typeof exchangeRatesTable.$inferSelect;
+
 // ── Gem ledger ────────────────────────────────────────────────────────────────
 // Append-only audit log of every gem balance change. Written from:
 //   - approve / activate-card / admin grant   → reason='grant',   delta=+total

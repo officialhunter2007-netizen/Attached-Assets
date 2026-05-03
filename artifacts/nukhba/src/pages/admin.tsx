@@ -36,6 +36,7 @@ import { AdminDiscountCodes } from "@/components/admin-discount-codes";
 import { AdminAiUsage } from "@/components/admin-ai-usage";
 import { AdminDbMonitor } from "@/components/admin-db-monitor";
 import { AdminPlanPrices } from "@/components/admin-plan-prices";
+import { AdminExchangeRates } from "@/components/admin-exchange-rates";
 import { AdminConversations } from "@/components/admin-conversations";
 import { AdminAlerts } from "@/components/admin-alerts";
 import { AdminGemLedger } from "@/components/admin-gem-ledger";
@@ -935,6 +936,10 @@ export default function Admin() {
               <CreditCard className="w-3.5 h-3.5 text-gold" />
               أسعار الباقات
             </TabsTrigger>
+            <TabsTrigger value="exchange-rates" className="flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+              أسعار الصرف
+            </TabsTrigger>
             <TabsTrigger value="ai-insights" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/15 to-purple-500/10 data-[state=active]:from-amber-500/30 data-[state=active]:to-purple-500/20 data-[state=active]:border-amber-400/40">
               <Brain className="w-3.5 h-3.5" />
               مساعد ذكي
@@ -1727,6 +1732,11 @@ export default function Admin() {
           {/* Plan Prices Tab */}
           <TabsContent value="plan-prices">
             <AdminPlanPrices />
+          </TabsContent>
+
+          {/* Exchange Rates Tab */}
+          <TabsContent value="exchange-rates">
+            <AdminExchangeRates />
           </TabsContent>
 
           {/* AI Insights Tab */}

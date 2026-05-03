@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./logger";
+import { setYerToUsdRates, YER_PER_USD_FALLBACK } from "./pricing-formula";
 
 type ColumnSpec = {
   name: string;
@@ -101,6 +102,19 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     indexes: [
       `CREATE UNIQUE INDEX IF NOT EXISTS "uq_plan_prices_region_plan" ON "plan_prices" ("region", "plan_type")`,
     ],
+  },
+  {
+    table: "exchange_rates",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "exchange_rates" (
+        "id" serial PRIMARY KEY,
+        "region" text NOT NULL UNIQUE,
+        "yer_per_usd" integer NOT NULL,
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_by_user_id" integer
+      )
+    `,
+    indexes: [],
   },
   {
     // Gem ledger — append-only history of every balance change. Powers the
@@ -329,6 +343,57 @@ const DEFAULT_PAYMENT_SETTINGS: Array<{
   { key: "kuraimi.south.number", value: "3167076083",            label: "رقم حساب كريمي — الجنوب", category: "payment" },
   { key: "kuraimi.south.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الجنوب", category: "payment" },
 ];
+
+// Default YER→USD divisors used to seed `exchange_rates` on first boot only.
+// Subsequent boots NEVER overwrite admin edits — we use ON CONFLICT DO NOTHING
+// so the stored values are the source of truth. Mirrors the static fallback
+// constants in pricing-formula.ts.
+const DEFAULT_EXCHANGE_RATES: Array<{ region: "north" | "south"; yerPerUsd: number }> = [
+  { region: "north", yerPerUsd: YER_PER_USD_FALLBACK.north },
+  { region: "south", yerPerUsd: YER_PER_USD_FALLBACK.south },
+];
+
+async function seedExchangeRates(): Promise<void> {
+  try {
+    for (const r of DEFAULT_EXCHANGE_RATES) {
+      await db.execute(sql`
+        INSERT INTO "exchange_rates" ("region", "yer_per_usd")
+        VALUES (${r.region}, ${r.yerPerUsd})
+        ON CONFLICT ("region") DO NOTHING
+      `);
+    }
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message },
+      "auto-migrate: failed to seed exchange_rates defaults",
+    );
+  }
+}
+
+// Load the live divisors from the DB and push them into the in-memory cache
+// in pricing-formula.ts. Called once after the seed step at startup so the
+// formula sees admin-edited values immediately without waiting for the first
+// admin PATCH.
+async function loadExchangeRatesIntoFormula(): Promise<void> {
+  try {
+    const rows = await db.execute<{ region: string; yer_per_usd: number }>(sql`
+      SELECT "region", "yer_per_usd" FROM "exchange_rates"
+    `);
+    const map: Record<string, number> = {};
+    for (const r of rows.rows) {
+      const divisor = Number(r.yer_per_usd);
+      if (Number.isFinite(divisor) && divisor > 0) {
+        map[r.region] = divisor;
+      }
+    }
+    setYerToUsdRates(map);
+  } catch (err: any) {
+    logger.warn(
+      { err: err?.message },
+      "auto-migrate: failed to load exchange_rates; pricing-formula will use static fallback",
+    );
+  }
+}
 
 async function seedPaymentSettings(): Promise<void> {
   try {
@@ -591,6 +656,8 @@ export async function runStartupMigrations(): Promise<void> {
   try {
     await ensureRequiredTables();
     await seedPlanPrices();
+    await seedExchangeRates();
+    await loadExchangeRatesIntoFormula();
     await seedPaymentSettings();
     const { added, errors } = await ensureRequiredColumns();
     // FTS index depends on `content_normalized` column existing — order matters.

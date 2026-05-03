@@ -19,16 +19,52 @@
 /** Subscription duration in days. Drives dailyGemLimit calculation. */
 export const SUB_DURATION_DAYS = 14;
 
-/** YER → USD conversion rates. Conservative (lower value → cap kicks in earlier). */
-export const YER_TO_USD_RATES: Record<string, number> = {
-  north: 1 / 600,
-  south: 1 / 2800,
+/**
+ * Static fallback YER→USD conversion rates (stored as the YER-per-USD divisor).
+ * Used only when the DB seed has not yet run or the DB read fails. The live
+ * values are loaded from the `exchange_rates` table at server startup and after
+ * every admin edit via `setYerToUsdRates`. Conservative (lower value → cap
+ * kicks in earlier).
+ *
+ * ⚠ Do NOT mutate this object. To update the live rates use `setYerToUsdRates`.
+ */
+export const YER_PER_USD_FALLBACK: Record<string, number> = {
+  north: 600,
+  south: 2800,
 };
 
-const DEFAULT_YER_TO_USD_RATE = YER_TO_USD_RATES.south;
+/** Backward-compatible export — derived from the fallback divisors. */
+export const YER_TO_USD_RATES: Record<string, number> = {
+  north: 1 / YER_PER_USD_FALLBACK.north,
+  south: 1 / YER_PER_USD_FALLBACK.south,
+};
+
+// In-memory cache of the live divisors. Initialised to the static fallback so
+// the formula stays correct before the DB loader has run. `setYerToUsdRates`
+// replaces this map (called from auto-migrate at startup and from the admin
+// PATCH endpoint after a successful update).
+let LIVE_YER_PER_USD: Record<string, number> = { ...YER_PER_USD_FALLBACK };
+
+/** Replace the live YER-per-USD divisor map. Called by the DB loader. */
+export function setYerToUsdRates(map: Record<string, number>): void {
+  const next: Record<string, number> = { ...YER_PER_USD_FALLBACK };
+  for (const [region, divisor] of Object.entries(map)) {
+    if (Number.isFinite(divisor) && divisor > 0) {
+      next[region] = divisor;
+    }
+  }
+  LIVE_YER_PER_USD = next;
+}
+
+/** Read-only snapshot of the current live divisors (YER per 1 USD). */
+export function getYerPerUsdMap(): Record<string, number> {
+  return { ...LIVE_YER_PER_USD };
+}
 
 export function getYerToUsdRate(region: string | null | undefined): number {
-  return (region && YER_TO_USD_RATES[region]) || DEFAULT_YER_TO_USD_RATE;
+  const divisor =
+    (region && LIVE_YER_PER_USD[region]) || LIVE_YER_PER_USD.south || YER_PER_USD_FALLBACK.south;
+  return 1 / divisor;
 }
 
 /**

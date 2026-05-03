@@ -10,6 +10,7 @@ import {
   discountCodesTable,
   discountCodeRedemptionsTable,
   planPricesTable,
+  exchangeRatesTable,
   gemLedgerTable,
   paymentSettingsTable,
 } from "@workspace/db";
@@ -32,6 +33,9 @@ import {
   computePricingBreakdown,
   SUB_DURATION_DAYS as PRICING_SUB_DURATION_DAYS,
   BASE_PRICES_FALLBACK as PRICING_BASE_PRICES_FALLBACK,
+  YER_PER_USD_FALLBACK,
+  setYerToUsdRates,
+  getYerPerUsdMap,
 } from "../lib/pricing-formula";
 
 const router: IRouter = Router();
@@ -1499,6 +1503,117 @@ router.patch("/admin/plan-prices", async (req, res): Promise<void> => {
       "admin/plan-prices: update failed",
     );
     res.status(500).json({ error: "تعذّر حفظ السعر. حاول مرة أخرى." });
+  }
+});
+
+// ── Admin: exchange rates (read + update) ────────────────────────────────────
+// One row per region (north / south) holding the YER-per-USD divisor.
+// Stored as an integer divisor so the admin UI is intuitive ("1 دولار = 600
+// ريال") rather than asking them to type a tiny float. The pricing formula
+// uses 1 / divisor.
+//
+// PATCH updates a single region with strict validation (positive integer,
+// capped at 100,000 to keep the cost-cap math sane) and immediately pushes
+// the new value into the in-memory cache in pricing-formula.ts so subsequent
+// gem grants and AI cost caps reflect the change without a server restart.
+router.get("/admin/exchange-rates", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const user = await getUser(userId);
+  if (user?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  try {
+    const rows = await db.select().from(exchangeRatesTable);
+    const byRegion = new Map<string, typeof rows[number]>();
+    for (const r of rows) byRegion.set(r.region, r);
+
+    const grid = VALID_REGIONS.map((region) => {
+      const r = byRegion.get(region);
+      return {
+        region,
+        yerPerUsd: r?.yerPerUsd ?? YER_PER_USD_FALLBACK[region],
+        updatedAt: r?.updatedAt ?? null,
+        updatedByUserId: r?.updatedByUserId ?? null,
+        seeded: !r,
+      };
+    });
+
+    res.json({ rates: grid, defaults: YER_PER_USD_FALLBACK });
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "admin/exchange-rates: read failed");
+    res.status(500).json({ error: "تعذّر قراءة أسعار الصرف من قاعدة البيانات." });
+  }
+});
+
+router.patch("/admin/exchange-rates", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const user = await getUser(userId);
+  if (user?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const rawRegion = req.body?.region;
+  const rawDivisor = req.body?.yerPerUsd;
+
+  const region: PlanRegion | null =
+    rawRegion === "north" || rawRegion === "south" ? rawRegion : null;
+  if (!region) {
+    res.status(400).json({ error: "المنطقة غير صحيحة. اختر north أو south." });
+    return;
+  }
+  const yerPerUsd = typeof rawDivisor === "number" ? rawDivisor : Number(rawDivisor);
+  if (!Number.isFinite(yerPerUsd) || !Number.isInteger(yerPerUsd) || yerPerUsd < 1 || yerPerUsd > 100_000) {
+    res.status(400).json({ error: "سعر الصرف يجب أن يكون عدداً صحيحاً بين 1 و 100,000 ريال للدولار." });
+    return;
+  }
+
+  try {
+    const [row] = await db
+      .insert(exchangeRatesTable)
+      .values({
+        region,
+        yerPerUsd,
+        updatedByUserId: userId,
+      })
+      .onConflictDoUpdate({
+        target: exchangeRatesTable.region,
+        set: {
+          yerPerUsd,
+          updatedAt: new Date(),
+          updatedByUserId: userId,
+        },
+      })
+      .returning();
+
+    // Update the cache for the just-edited region IMMEDIATELY using the
+    // current snapshot, so a transient failure of the full DB refresh below
+    // cannot leave the formula stale in this process.
+    setYerToUsdRates({ ...getYerPerUsdMap(), [region]: yerPerUsd });
+
+    // Then refresh the cache from the DB so all regions stay consistent
+    // with whatever else may have been updated concurrently.
+    try {
+      const all = await db.select().from(exchangeRatesTable);
+      const map: Record<string, number> = {};
+      for (const r of all) {
+        if (Number.isFinite(r.yerPerUsd) && r.yerPerUsd > 0) {
+          map[r.region] = r.yerPerUsd;
+        }
+      }
+      setYerToUsdRates(map);
+    } catch (cacheErr: any) {
+      logger.warn(
+        { err: cacheErr?.message },
+        "admin/exchange-rates: full cache refresh failed; the just-edited region was applied directly",
+      );
+    }
+
+    res.json({ ok: true, rate: row });
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message, region, yerPerUsd },
+      "admin/exchange-rates: update failed",
+    );
+    res.status(500).json({ error: "تعذّر حفظ سعر الصرف. حاول مرة أخرى." });
   }
 });
 

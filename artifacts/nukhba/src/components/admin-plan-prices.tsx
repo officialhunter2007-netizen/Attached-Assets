@@ -14,12 +14,11 @@ type Region = "north" | "south";
 type PlanType = "bronze" | "silver" | "gold";
 
 // ── Pricing formula (mirrors pricing-formula.ts on the server) ─────────────
-// Keep these constants in sync with artifacts/api-server/src/lib/pricing-formula.ts
-const YER_TO_USD_RATES: Record<Region, number> = {
-  north: 1 / 600,
-  south: 1 / 2800,
-};
+// SUB_DURATION_DAYS is constant; the YER→USD rates come from the live admin
+// settings (`/api/admin/exchange-rates`) so the preview reflects whatever the
+// admin has configured rather than a stale hardcoded constant.
 const SUB_DURATION_DAYS = 14;
+const FALLBACK_YER_PER_USD: Record<Region, number> = { north: 600, south: 2800 };
 
 type PricingPreview = {
   gemsGranted: number;
@@ -28,8 +27,13 @@ type PricingPreview = {
   priceUsd: number;
 };
 
-function computePreview(priceYer: number, region: Region): PricingPreview {
-  const rate = YER_TO_USD_RATES[region];
+function computePreview(
+  priceYer: number,
+  region: Region,
+  yerPerUsd: Record<Region, number>,
+): PricingPreview {
+  const divisor = yerPerUsd[region] || FALLBACK_YER_PER_USD[region];
+  const rate = 1 / divisor;
   const priceUsd = priceYer * rate;
   const studentShareUsd = priceUsd / 2;
   const platformShareUsd = priceUsd / 2;
@@ -108,9 +112,15 @@ function toEnglishDigits(s: string): string {
     .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)));
 }
 
+type ExchangeRateRow = {
+  region: Region;
+  yerPerUsd: number;
+};
+
 export function AdminPlanPrices() {
   const { toast } = useToast();
   const [data, setData] = useState<PriceResponse | null>(null);
+  const [rates, setRates] = useState<Record<Region, number>>(FALLBACK_YER_PER_USD);
   const [loading, setLoading] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -121,10 +131,25 @@ export function AdminPlanPrices() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch("/api/admin/plan-prices", { credentials: "include" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = (await r.json()) as PriceResponse;
+      const [pricesRes, ratesRes] = await Promise.all([
+        fetch("/api/admin/plan-prices", { credentials: "include" }),
+        fetch("/api/admin/exchange-rates", { credentials: "include" }),
+      ]);
+      if (!pricesRes.ok) throw new Error(`HTTP ${pricesRes.status}`);
+      const j = (await pricesRes.json()) as PriceResponse;
       setData(j);
+      // Exchange rates are best-effort: if they fail to load, keep the
+      // fallback divisors so the preview still renders.
+      if (ratesRes.ok) {
+        const rj = (await ratesRes.json()) as { rates: ExchangeRateRow[] };
+        const next: Record<Region, number> = { ...FALLBACK_YER_PER_USD };
+        for (const row of rj.rates ?? []) {
+          if (Number.isFinite(row.yerPerUsd) && row.yerPerUsd > 0) {
+            next[row.region] = row.yerPerUsd;
+          }
+        }
+        setRates(next);
+      }
       // Reset drafts so any unsaved local edits do not block a fresh refresh.
       const d: Record<string, string> = {};
       for (const row of j.prices) {
@@ -378,7 +403,7 @@ export function AdminPlanPrices() {
                         const rawDraft = toEnglishDigits(draft).trim();
                         const previewYer = /^\d+$/.test(rawDraft) ? Number(rawDraft) : NaN;
                         if (!Number.isFinite(previewYer) || previewYer <= 0) return null;
-                        const pv = computePreview(previewYer, reg.key);
+                        const pv = computePreview(previewYer, reg.key, rates);
                         return (
                           <div className="mt-2 rounded-lg bg-white/5 border border-white/10 px-2.5 py-2 text-[11px] space-y-1">
                             <div className="text-muted-foreground font-medium mb-1">معاينة الاشتراك بهذا السعر:</div>
@@ -436,7 +461,7 @@ export function AdminPlanPrices() {
               </div>
 
               {confirmRow.newPrice != null && confirmRow.newPrice > 0 && (() => {
-                const pv = computePreview(confirmRow.newPrice, confirmRow.region);
+                const pv = computePreview(confirmRow.newPrice, confirmRow.region, rates);
                 return (
                   <div className="rounded-lg bg-white/5 border border-white/10 p-3 text-xs space-y-1.5">
                     <div className="text-muted-foreground font-medium mb-1">الاشتراكات الجديدة بهذا السعر ستحصل على:</div>
