@@ -3,6 +3,7 @@ import multer from "multer";
 import { sql, eq, and } from "drizzle-orm";
 import { db, aiUsageEventsTable } from "@workspace/db";
 import { getOpenAIAudioClient, isOpenAIAudioConfigured } from "../lib/openai-audio";
+import { edgeTts, getEdgeTtsVoice } from "../lib/edge-tts";
 import { getStartOfTodayYemen } from "../lib/yemen-time";
 
 const router: IRouter = Router();
@@ -114,13 +115,6 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-  if (!isOpenAIAudioConfigured()) {
-    return res.status(503).json({
-      error: "TTS_NOT_CONFIGURED",
-      message: "خدمة قراءة النص غير مهيّأة على الخادم.",
-    });
-  }
-
   const calls = await countTodayCalls(userId, "ai/tts");
   if (calls >= TTS_DAILY_LIMIT) {
     return res.status(429).json({
@@ -129,32 +123,18 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
     });
   }
 
-  const { text: rawText, voice } = (req.body ?? {}) as { text?: string; voice?: string };
+  const { text: rawText } = (req.body ?? {}) as { text?: string; voice?: string };
   const cleaned = sanitizeTextForTts(rawText ?? "");
   if (!cleaned) {
     return res.status(400).json({ error: "EMPTY_TEXT", message: "النص فارغ بعد التنظيف." });
   }
   const text = cleaned.length > TTS_MAX_CHARS ? cleaned.slice(0, TTS_MAX_CHARS) : cleaned;
 
-  const chosenVoice: AllowedVoice =
-    voice && ALLOWED_VOICES.has(voice as AllowedVoice)
-      ? (voice as AllowedVoice)
-      : TTS_DEFAULT_VOICE;
-
   const start = Date.now();
-  try {
-    const client = getOpenAIAudioClient();
-    if (!client) throw new Error("OpenAI client not configured");
-    const speech = await client.audio.speech.create({
-      model: TTS_MODEL,
-      voice: chosenVoice,
-      input: text,
-      response_format: "mp3",
-      instructions: TTS_INSTRUCTIONS,
-    });
-    const arrayBuf = await speech.arrayBuffer();
-    const buf = Buffer.from(arrayBuf);
 
+  // ── Primary: Edge TTS (free, local, neural Arabic voices) ──────────────
+  try {
+    const buf = await edgeTts(text);
     void logVoiceCall({
       userId,
       route: "ai/tts",
@@ -162,21 +142,51 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
       inputTokens: text.length,
       latencyMs: Date.now() - start,
     });
-
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Content-Length", String(buf.length));
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).send(buf);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[ai/tts] FAILED:", msg);
-    void logVoiceCall({
-      userId,
-      route: "ai/tts",
-      status: "error",
-      errorMessage: msg,
-      latencyMs: Date.now() - start,
-    });
+  } catch (edgeErr) {
+    const edgeMsg = edgeErr instanceof Error ? edgeErr.message : String(edgeErr);
+    console.error("[ai/tts] edge-tts FAILED:", edgeMsg);
+
+    // ── Fallback: OpenAI TTS (if configured) ─────────────────────────────
+    if (isOpenAIAudioConfigured()) {
+      try {
+        const client = getOpenAIAudioClient();
+        if (!client) throw new Error("OpenAI client not configured");
+        const speech = await client.audio.speech.create({
+          model: TTS_MODEL,
+          voice: TTS_DEFAULT_VOICE,
+          input: text,
+          response_format: "mp3",
+          instructions: TTS_INSTRUCTIONS,
+        });
+        const buf = Buffer.from(await speech.arrayBuffer());
+        void logVoiceCall({
+          userId, route: "ai/tts", status: "success",
+          inputTokens: text.length, latencyMs: Date.now() - start,
+        });
+        res.setHeader("Content-Type", "audio/mpeg");
+        res.setHeader("Content-Length", String(buf.length));
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(200).send(buf);
+      } catch (openaiErr) {
+        const openaiMsg = openaiErr instanceof Error ? openaiErr.message : String(openaiErr);
+        console.error("[ai/tts] OpenAI fallback FAILED:", openaiMsg);
+        void logVoiceCall({
+          userId, route: "ai/tts", status: "error",
+          errorMessage: `edge: ${edgeMsg} | openai: ${openaiMsg}`,
+          latencyMs: Date.now() - start,
+        });
+      }
+    } else {
+      void logVoiceCall({
+        userId, route: "ai/tts", status: "error",
+        errorMessage: edgeMsg, latencyMs: Date.now() - start,
+      });
+    }
+
     return res.status(503).json({
       error: "TTS_FAILED",
       message: "تعذّر تجهيز الصوت الآن. أعد المحاولة بعد لحظات.",
