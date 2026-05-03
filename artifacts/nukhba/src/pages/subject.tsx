@@ -5329,14 +5329,11 @@ function SubjectPathChat({
         </Drawer>
       )}
 
-      {/* Diagnostic phase banner */}
+      {/* Diagnostic phase banner — single-line slim strip (~28px, was ~52px). */}
       {chatPhase === 'diagnostic' && (
-        <div className="shrink-0 px-4 py-2.5 border-b border-purple-500/15 flex flex-col items-center justify-center gap-1" style={{ background: "rgba(139,92,246,0.06)" }}>
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-            <p className="text-[12px] text-purple-300 font-medium">مرحلة التشخيص — يبني معلمك خطتك التعليمية الشخصية</p>
-          </div>
-          <p className="text-[10px] text-purple-300/60">معلّم متخصّص يُصمَّم لك أنت — ليس إجابات عامة كـChatGPT.</p>
+        <div className="shrink-0 px-3 py-1 border-b border-purple-500/15 flex items-center justify-center gap-2" style={{ background: "rgba(139,92,246,0.06)" }}>
+          <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+          <p className="text-[11px] text-purple-300 font-medium truncate">مرحلة التشخيص — يبني معلمك خطتك التعليمية الشخصية</p>
         </div>
       )}
 
@@ -5489,36 +5486,56 @@ function SubjectPathChat({
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
-        {chatVisible && !anyPanelOpen && (
-          (onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec) ||
-          (attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario)
-        ) && (
-          <div className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
+      <div className="shrink-0 border-t border-white/8 p-2 sm:p-3" style={{ background: "#0b0d17" }}>
+        {/* Compact action rail — combines the lab/attack-sim CTAs AND the
+            suggestions toggle into a single ~32px-tall row (was three
+            separate ~36px rows = ~108px of permanent chrome). On phones
+            the labels collapse to icons-only via Tailwind's `xs:`/`sm:`
+            helpers, ensuring all targets stay ≥40px tall and never wrap
+            into a second row at ≤480px. */}
+        {chatVisible && !anyPanelOpen && !isStreaming && !chatGated && !quotaExhausted && (
+          <div className="max-w-2xl mx-auto mb-1.5 flex flex-wrap items-center gap-1.5 justify-center" style={{ direction: "rtl" }}>
             {onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec && (
               <button
                 type="button"
                 onClick={() => onStartLabEnvIntent()}
-                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
-                className="quick-launch-chip text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 text-amber-100 hover:text-amber-50 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={sessionPaused}
+                className="quick-launch-chip min-h-[36px] text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 text-amber-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
+                aria-label="ابنِ بيئة تطبيقية"
               >
-                <span>🧪</span>
-                <span>ابنِ بيئة تطبيقية</span>
+                <span aria-hidden="true">🧪</span>
+                <span className="hidden xs:inline sm:inline">بيئة تطبيقية</span>
               </button>
             )}
             {attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario && (
               <button
                 type="button"
                 onClick={() => onOpenAttackIntake()}
-                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
-                className="quick-launch-chip text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-400/70 text-rose-100 hover:text-rose-50 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={sessionPaused}
+                className="quick-launch-chip min-h-[36px] text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-400/70 text-rose-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="ابدأ محاكاة هجمة تعليمية"
+                aria-label="محاكاة هجمة"
               >
-                <span>🎯</span>
-                <span>محاكاة هجمة</span>
+                <span aria-hidden="true">🎯</span>
+                <span className="hidden xs:inline sm:inline">محاكاة هجمة</span>
               </button>
             )}
+            {/* Suggestions toggle — promoted from a standalone row into this
+                shared rail so the sub-rail render below only takes height
+                when actually expanded. */}
+            <button
+              type="button"
+              onClick={() => setSuggestionsOpen((v) => !v)}
+              className="min-h-[36px] inline-flex items-center gap-1.5 text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-full text-white/70 hover:text-amber-200 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all"
+              aria-expanded={suggestionsOpen}
+              aria-controls="suggestion-chips"
+              title={suggestionsOpen ? "إخفاء الاقتراحات" : "إظهار اقتراحات للأسئلة"}
+            >
+              <Lightbulb className="w-3 h-3" aria-hidden="true" />
+              <span className="hidden xs:inline sm:inline">{suggestionsOpen ? "إخفاء الاقتراحات" : "اقتراحات"}</span>
+              {suggestionsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
           </div>
         )}
         {(recordingHandle || isTranscribing) && (
@@ -5560,22 +5577,9 @@ function SubjectPathChat({
             collapse behind a small "اقتراحات ✨" toggle so the student opens
             them only when stuck. Choice persisted per subject in localStorage.
             Generic fallback covers anything unknown. */}
-        {!isStreaming && !chatGated && !quotaExhausted && (
-          <div className="max-w-2xl mx-auto mb-2 flex justify-center" style={{ direction: "rtl" }}>
-            <button
-              type="button"
-              onClick={() => setSuggestionsOpen((v) => !v)}
-              className="session-toggle-btn inline-flex items-center gap-1.5 text-[11px] text-white/60 hover:text-amber-200 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all"
-              aria-expanded={suggestionsOpen}
-              aria-controls="suggestion-chips"
-              title={suggestionsOpen ? "إخفاء الاقتراحات" : "إظهار اقتراحات للأسئلة"}
-            >
-              <Lightbulb className="w-3 h-3" />
-              <span>{suggestionsOpen ? "إخفاء الاقتراحات" : "اقتراحات ✨"}</span>
-              {suggestionsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
-          </div>
-        )}
+        {/* Suggestions toggle was here — promoted into the shared compact
+            action rail above so it doesn't claim its own row. The expanded
+            chip list still renders below when toggled open. */}
         {!isStreaming && !chatGated && !quotaExhausted && suggestionsOpen && (() => {
           const text = `${String(subject?.id || "")} ${String(subject?.name || "")}`.toLowerCase();
           const has = (re: RegExp) => re.test(text);

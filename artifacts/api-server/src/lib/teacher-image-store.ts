@@ -218,17 +218,32 @@ function buildSvgPoster(prompt: string, hash: string): Buffer {
   return Buffer.from(svg, "utf8");
 }
 
-function detectExt(buf: Buffer): string {
-  // Sniff common magic bytes; default to .png.
-  if (buf.length >= 4) {
-    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return ".png";
-    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return ".jpg";
-    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return ".webp";
-    // SVG starts with "<?xml" or "<svg"
-    const head = buf.slice(0, 5).toString("utf8");
-    if (head.startsWith("<?xml") || head.startsWith("<svg")) return ".svg";
-  }
-  return ".png";
+/**
+ * Returns the canonical file extension for a buffer IFF its magic bytes
+ * match a supported image format, or `null` if the buffer is something
+ * else (HTML error page, JSON, plain text, empty, etc.). Used to reject
+ * non-image responses BEFORE persisting them — without this, a 200-OK
+ * Pollinations error page could be cached as `.png` and the browser would
+ * silently render a broken-image icon, defeating the "always visible
+ * image" guarantee.
+ */
+function detectImageExt(buf: Buffer): string | null {
+  if (buf.length < 8) return null;
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return ".png";
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return ".jpg";
+  // WEBP: "RIFF....WEBP"
+  if (
+    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
+  ) return ".webp";
+  // GIF: "GIF87a" or "GIF89a"
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return ".png"; // re-encode-ish, treat as png mime would lie — skip
+  // SVG: "<?xml" or "<svg"
+  const head = buf.slice(0, Math.min(buf.length, 256)).toString("utf8").trimStart();
+  if (head.startsWith("<?xml") || head.startsWith("<svg")) return ".svg";
+  return null;
 }
 
 // ── LRU disk-budget eviction (background) ───────────────────────────────────
@@ -274,6 +289,34 @@ async function maybeEvict(): Promise<void> {
   }
 }
 
+/**
+ * Schedule cache maintenance: one sweep at startup (after a short delay so
+ * boot isn't blocked by disk I/O) and then once every hour. Idempotent —
+ * `maybeEvict` itself short-circuits if the cache is under budget or a
+ * sweep is already in flight.
+ *
+ * Called once from `startScheduledJobs` at server startup.
+ */
+let __maintenanceStarted = false;
+export function startTeacherImageMaintenance(): void {
+  if (__maintenanceStarted) return;
+  __maintenanceStarted = true;
+  // Initial sweep after 30s — gives the server time to finish startup
+  // migrations and accept the first requests before we touch the disk.
+  setTimeout(() => { ensureDir().then(() => maybeEvict()).catch(() => {}); }, 30_000);
+  // Hourly thereafter.
+  const interval = setInterval(
+    () => { ensureDir().then(() => maybeEvict()).catch(() => {}); },
+    60 * 60 * 1000,
+  );
+  // unref so the timer doesn't keep the process alive on shutdown.
+  if (typeof interval.unref === "function") interval.unref();
+  logger.info(
+    { budgetMB: CACHE_BUDGET_MB, dir: CACHE_DIR },
+    "teacher-image-store: maintenance scheduled (startup + hourly)",
+  );
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 export type ResolveResult = {
   /** Same-origin URL the browser should load. */
@@ -314,13 +357,36 @@ export async function resolveTeacherImage(prompt: string): Promise<ResolveResult
     }
 
     // 2. Provider chain: fal → pollinations → svg.
+    // Each external buffer is content-validated by `detectImageExt`. If the
+    // bytes are NOT a real image (e.g. Pollinations occasionally serves an
+    // HTML 200 error page when overloaded), we discard them and fall
+    // through. This is what upholds the "always visible image" guarantee:
+    // garbage in, SVG poster out.
     let buf: Buffer | null = null;
+    let ext: string | null = null;
     let provider: ResolveResult["provider"] = "svg";
-    if (!buf) { buf = await tryFal(cleanPrompt); if (buf) provider = "fal"; }
-    if (!buf) { buf = await tryPollinations(cleanPrompt); if (buf) provider = "pollinations"; }
-    if (!buf) { buf = buildSvgPoster(cleanPrompt, hash); provider = "svg"; }
-
-    const ext = detectExt(buf);
+    if (!buf) {
+      const b = await tryFal(cleanPrompt);
+      if (b) {
+        const e = detectImageExt(b);
+        if (e) { buf = b; ext = e; provider = "fal"; }
+        else logger.warn({ provider: "fal", bytes: b.length }, "teacher-image-store: fal returned non-image bytes — falling through");
+      }
+    }
+    if (!buf) {
+      const b = await tryPollinations(cleanPrompt);
+      if (b) {
+        const e = detectImageExt(b);
+        if (e) { buf = b; ext = e; provider = "pollinations"; }
+        else logger.warn({ provider: "pollinations", bytes: b.length }, "teacher-image-store: pollinations returned non-image bytes — falling through");
+      }
+    }
+    if (!buf) {
+      buf = buildSvgPoster(cleanPrompt, hash);
+      ext = ".svg";
+      provider = "svg";
+    }
+    if (!ext) ext = ".svg"; // defensive — buf is always set by the SVG branch.
     const file = path.join(CACHE_DIR, hash + ext);
     // Write atomically: tmp → rename. Avoids serving a half-written file.
     const tmp = file + ".tmp";

@@ -31,6 +31,7 @@ import {
 } from "./gems";
 import { getYemenDateString } from "./yemen-time";
 import { logger } from "./logger";
+import { startTeacherImageMaintenance } from "./teacher-image-store";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
@@ -107,4 +108,10 @@ export function startScheduledJobs(): void {
   const tick = setInterval(() => { void runRolloverSweep(); }, ONE_HOUR_MS);
   tick.unref?.();
   logger.info("scheduled-jobs: hourly rollover sweep registered");
+
+  // Teacher-image cache maintenance — startup sweep + hourly LRU eviction
+  // so the on-disk cache never exceeds TEACHER_IMAGE_CACHE_MB even when
+  // students go a long stretch without triggering new image generations
+  // (which would otherwise be the only thing kicking eviction).
+  startTeacherImageMaintenance();
 }
