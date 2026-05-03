@@ -1,68 +1,21 @@
-/**
- * Per-subject "Showcase Kit" used by the FIRST teaching reply (the showcase
- * opener) of each subject. Hand-authored, Yemeni-context, concrete and
- * sensory. The teaching prompt builder injects these fields literally into
- * the system prompt so the model has zero room to drift into generic
- * "welcome to the course" filler.
- *
- * Goal: every first reply must demonstrate the platform's actual capability
- * (interactive lab via [[CREATE_LAB_ENV]], visual infographic via [[IMAGE]],
- * mistake-tracking via [MISTAKE]) using a single concrete moment from Yemeni
- * daily life — not by describing features.
- *
- * The kit is OPTIONAL. When a subjectId has no kit registered, the addendum
- * builder falls back to its previous generic instructions.
- */
+// Per-subject showcase kit injected into the first teaching reply. Optional:
+// missing subjectIds fall back to the legacy generic showcase.
 
 export interface SubjectShowcaseKit {
-  /** ≤20-word phrasing of the single concept the first reply will showcase. */
   hookConcept: string;
-
-  /** 3–4 line Yemeni-context scenario with real names/places/numbers. */
   concreteScenario: string;
-
-  /**
-   * Full description string that goes inside [[CREATE_LAB_ENV: …]]. MUST
-   * include the 5 mandatory sections (context, initial data with real
-   * numbers, screens, success criteria, expected first mistake) so the
-   * lab-builder accepts it. Authored as one dense Arabic paragraph.
-   */
+  /** Goes literally inside [[CREATE_LAB_ENV: …]]; must contain the 5 mandatory sections. */
   labEnvBlueprint: string;
-
-  /**
-   * The English FLUX prompt body (NO Arabic — diffusion models can't render
-   * Arabic) describing the visual the first reply will inject via [[IMAGE]],
-   * plus the Arabic caption parts that go beneath the image.
-   */
   imageBlueprint: {
-    /** English-only FLUX body. No text/labels inside the image. */
+    /** English-only FLUX body, no Arabic, no in-image text. */
     fluxPrompt: string;
-    /** Arabic caption title (the bold heading inside <figcaption>). */
     captionTitleAr: string;
-    /** 3 numbered Arabic legend lines describing the 3 numbered circles. */
     legendLinesAr: [string, string, string];
   };
-
-  /**
-   * The first specific misconception we EXPECT the student to fall into
-   * during the showcase, so the model can demonstrate [MISTAKE: …] live.
-   * Phrased as the wrong belief, not the question.
-   */
   firstMistakeTrap: string;
-
-  /**
-   * Single Arabic transition sentence the model says immediately after the
-   * student tries the lab — bridging from "tour" back into the personal
-   * plan's first stage.
-   */
   transitionLine: string;
 }
 
-/**
- * Authoritative kit table keyed by subjectId. Every subject in
- * `curriculum.ts` should have an entry. Missing entries simply fall back
- * to the legacy generic showcase.
- */
 export const SUBJECT_SHOWCASE_KITS: Record<string, SubjectShowcaseKit> = {
   // ─────────────────────────── UNIVERSITY ───────────────────────────
   "uni-it": {

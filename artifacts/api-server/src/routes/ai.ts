@@ -2052,7 +2052,10 @@ ${formattingRules}`;
   const hasPriorImageTag = historyMsgs.some(
     (m) => isAssistantMsg(m) && /\[\[\s*IMAGE\s*:/i.test(extractText(m)),
   );
-  const isShowcaseOpener = !isDiagnosticPhase && !hasPriorLabEnvTag && !hasPriorImageTag;
+  // Showcase only on the very first free lesson, never on paid/later
+  // sessions. The dual-marker scan above is repeat suppression WITHIN that
+  // first lesson (so subsequent turns don't re-show the lab/image).
+  const isShowcaseOpener = !isDiagnosticPhase && isFirstLesson && !hasPriorLabEnvTag && !hasPriorImageTag;
 
   // The showcase addendum itself is appended LATER — after the Gemini
   // addendum — so it is the very last thing the model reads and overrides

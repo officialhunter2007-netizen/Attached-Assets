@@ -43,17 +43,7 @@ const generateUnits = (subjectId: string, count: number, lessonCount: number): U
   }));
 };
 
-/**
- * Build a subject's units when ONLY the first unit (u1) has hand-written
- * lesson titles. The remaining units fall back to the auto-generated
- * placeholder titles so we don't have to hand-author every lesson at once.
- *
- * Why: task #36 mandates that the FIRST session of every subject is the
- * "showcase moment" that hooks the student. To make that session feel real
- * and not generic, u1 needs concrete, specific lesson titles instead of
- * "الدرس ١: مفاهيم أساسية في …". Later units can be expanded incrementally
- * in follow-up tasks without changing this signature.
- */
+// Build units with hand-written u1 lessons; later units fall back to placeholders.
 const buildUnitsWithManualU1 = (
   subjectId: string,
   totalUnits: number,
