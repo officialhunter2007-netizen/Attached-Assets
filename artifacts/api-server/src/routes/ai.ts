@@ -70,6 +70,7 @@ import { validateAndHealEnv } from "../lib/lab-env-validator";
 import { robustJsonParse } from "../lib/json-repair";
 import { z } from "zod";
 import { signMasteryToken, verifyMasteryToken, newAttemptId } from "../lib/lab-exam-token";
+import { getShowcaseKit, type SubjectShowcaseKit } from "../lib/subject-showcase-kits";
 import {
   createAttempt,
   getAttempt,
@@ -807,9 +808,60 @@ function cleanTeachingChunk(text: string): string {
  * The platform absorbs the extra gem cost via FREE_LESSON_GEM_LIMIT = 80, so
  * the student never gets cut off mid-tour even if the showcase runs long.
  */
-function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding: boolean; imageEnabled: boolean }): string {
+function buildFirstLessonShowcaseAddendum(opts: { subjectName: string; hasCoding: boolean; imageEnabled: boolean; kit?: SubjectShowcaseKit }): string {
   const codingShowcase = opts.hasCoding
     ? `   • **محرر الأكواد المدمج (للبرمجة فقط):** اطلب منه فتح المحرر بسطر صريح مثل: "اضغط زر **IDE** الذهبي في **أعلى نافذة المحادثة** (أيقونة الكود)، اكتب أبسط برنامج 'Hello World' بلغة ${opts.subjectName}، ثم شغّله بنقرة واحدة — ستراه يطبع نتيجته فوراً." لا تكتب الكود له، اطلب منه يكتبه بنفسه ليشعر بالتجربة.\n`
+    : "";
+
+  // ── Per-subject Showcase Kit injection ──────────────────────────────────
+  // When a hand-authored kit exists for this subject, we inject its concrete
+  // pieces literally into the addendum. The model has zero room to drift
+  // into generic "welcome to X" filler — it must use this exact concept,
+  // this exact Yemeni scenario, this exact lab blueprint, this exact image.
+  // The addendum still contains the legacy generic guidance below so that
+  // subjects without a kit fall back gracefully.
+  const kit = opts.kit;
+  const kitBlock = kit
+    ? `
+
+🎯 **عُدّة عرض هذا التخصص — استخدمها حرفياً، لا تعِد صياغتها:**
+
+**(أ) المفهوم المحوري الذي تشرحه في الفقرة الثانية (≤20 كلمة):**
+${kit.hookConcept}
+
+**(ب) السيناريو اليمني الملموس (انسج كل أرقامه وأسمائه في المثال — لا تستبدله بمثال عام):**
+${kit.concreteScenario}
+
+**(ج) وصف بيئة CREATE_LAB_ENV الذي يجب أن يدخل داخل الوسم حرفياً (يحوي الأقسام الخمسة الإلزامية):**
+${kit.labEnvBlueprint}
+
+⚠️ **استخدم الوصف أعلاه بنفس النص داخل** \`[[CREATE_LAB_ENV: …]]\` **في رسالتك — لا تختصره ولا تعمّمه**. لو غيّرته، احرص على إبقاء الأقسام الخمسة موجودة فعلاً.
+
+**(د) بطاقة بصرية إجبارية — اربط هذه الوصفة الإنجليزية مع المفتاح العربي تماماً كما هو:**
+\`\`\`
+[[IMAGE: ${kit.imageBlueprint.fluxPrompt}]]
+\`\`\`
+
+ثم مباشرةً تحتها في ردّك:
+
+\`\`\`html
+<figcaption class="image-caption">
+  <strong class="caption-title">${kit.imageBlueprint.captionTitleAr}</strong>
+  <ol class="caption-legend">
+    <li><span class="num n1">1</span> ${kit.imageBlueprint.legendLinesAr[0]}</li>
+    <li><span class="num n2">2</span> ${kit.imageBlueprint.legendLinesAr[1]}</li>
+    <li><span class="num n3">3</span> ${kit.imageBlueprint.legendLinesAr[2]}</li>
+  </ol>
+</figcaption>
+\`\`\`
+
+**(هـ) فخ الخطأ الأول المتوقّع — كن جاهزاً لاستخدام \`[MISTAKE: …]\`:**
+عندما يقع الطالب في هذا الفخ تحديداً (وهو متوقّع بنسبة عالية في هذه التجربة): «${kit.firstMistakeTrap}» — استخدم \`[MISTAKE: ${kit.firstMistakeTrap}]\` في الرد التالي مباشرة، ثم اذكر له بشكل عابر أن المنصة سجّلت هذا الخطأ في ذاكرتك عنه وستربطه بالشروحات القادمة.
+
+**(و) سطر الانتقال إلى الخطة بعد التجربة — استخدمه كما هو في الرد التالي بعد دخول البيئة:**
+${kit.transitionLine}
+
+────────────────────────────────────────`
     : "";
   // Image showcase: a *single* mandatory illustration in the first reply.
   // The teacher writes the FLUX prompt in English (no Arabic — diffusion
@@ -859,7 +911,7 @@ ${imageShowcase}
 - لا تشرح قائمة الميزات كلها في رد واحد. **استعرض ميزة واحدة لذيذة في الرد الأول، والباقي يأتي بشكل طبيعي.**
 - لا تخف من تكلفة الجواهر — هذه جلسة استكشاف مجانية، الطالب لن يُقطع عنه شيء حتى لو طوّلنا في الاستعراض.
 ────────────────────────────────────────
-`;
+${kitBlock}`;
 }
 
 function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled: boolean }): string {
@@ -1333,7 +1385,17 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   - "سأبني لك قيد شراء بضاعة بقيمة 500,000 ريال نقداً، طبّقه ثم أرسل لي النتيجة"
   - "خلّيني أنشئ لك فاتورة مبيعات بالآجل للعميل شركة النور — جرّبها"
   - "سأبني لك بيئة لإضافة صنف جديد + سند إدخال بـ 50 وحدة"
-- **عند استلام نتائج من البيئة التطبيقية:** إذا أرسل الطالب نتائج، حلّلها بالتفصيل: هل القيد صحيح ومتوازن؟ هل الحسابات المستخدمة مناسبة؟ هل التصنيف صحيح؟ قدّم ملاحظات تصحيحية إن لزم الأمر.` : ""}`;
+- **عند استلام نتائج من البيئة التطبيقية:** إذا أرسل الطالب نتائج، حلّلها بالتفصيل: هل القيد صحيح ومتوازن؟ هل الحسابات المستخدمة مناسبة؟ هل التصنيف صحيح؟ قدّم ملاحظات تصحيحية إن لزم الأمر.` : ""}${(subjectId === "uni-cybersecurity" || subjectId === "skill-nmap" || subjectId === "skill-wireshark") ? `
+- **بناء بيئة تطبيقية أمنية — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً أمنياً يمكن لمسه (تصنيف محاولات دخول مشبوهة، مسح منافذ، تحليل حزم، فحص قوة كلمة مرور، تتبّع سلسلة هجوم)، استخدم الوسم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة محاكاة عامة بشاشات الأدلة + جدول الأحداث + خانة تصنيف/تقرير. **لا تدّعي وجود مختبر متخصّص بأدوات حقيقية مدمجة**؛ البيئة عامة تُبنى ديناميكياً عبر وصف الـscreens والـinitialData. ابتعد عن أي ادعاء بتنفيذ أدوات هجومية فعلية على أهداف خارجية — كل التشغيل محاكاة تعليمية فقط.
+- **عند استلام نتائج من البيئة:** حلّلها: هل التصنيف صحيح؟ هل الفلتر مناسب؟ هل التقرير يحدد المؤشّر الحقيقي؟ ادمج \`[MISTAKE: ...]\` لتسجيل الالتباسات الشائعة (الخلط بين Latency وPacket loss، الاكتفاء بـ-sS، تجاهل DNS الصغيرة).` : ""}${(subjectId === "uni-data-science") ? `
+- **بناء بيئة تطبيقية للبيانات — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً يمكن قياسه على بيانات (المتوسط/الوسيط، الانحراف المعياري، الـHistogram، Boxplot، كشف القيم المتطرفة، تنظيف بيانات بسيط)، استخدم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة فيها جدول قابل للتعديل + حاسبة المقاييس + رسم بياني واحد + خانة استنتاج. عيّن \`specializationKind: "data-science"\` ضمن وصفك.
+- **عند استلام نتائج تحليلية:** حلّل: هل اختيار المقياس مناسب لتوزيع البيانات؟ هل أُهملت قيم متطرفة؟ هل الاستنتاج يصمد إذا تغيّرت قيمة واحدة؟` : ""}${(subjectId === "uni-networks" || subjectId === "skill-net-basics") ? `
+- **بناء بيئة تطبيقية للشبكات — إلزامي عند كل تطبيق عملي:** عندما تشرح مفهوماً شبكياً قابلاً للتجربة (تصنيف مشكلة على طبقات OSI، حساب Subnet، اختيار طريق Routing، تجزئة ملف لحزم، التمييز بين TCP وUDP)، استخدم \`[[CREATE_LAB_ENV: ...]]\` لتنشئ بيئة فيها مخطط الشبكة + لوحة تشخيص + شاشة محاكاة (ping/traceroute بصرية) + تقرير. عيّن \`specializationKind: "networking"\`.
+- **عند استلام نتائج التشخيص:** حلّل: هل الطبقة المختارة صحيحة؟ هل تجاهل الطالب فقدان الحزم لصالح الـLatency؟ هل اختيار البروتوكول مناسب للسيناريو؟` : ""}${(subjectId === "uni-business") ? `
+- **بناء بيئة تطبيقية للأعمال — إلزامي عند كل تطبيق عملي:** عندما تشرح أداة قابلة للتطبيق (Business Model Canvas، SWOT، نقطة التعادل، حصة سوقية تقديرية)، استخدم \`[[CREATE_LAB_ENV: ...]]\` لتبني بيئة بلوحة قابلة للتعبئة + حاسبة + خانة قرار. عيّن \`specializationKind: "business"\`.
+- **عند استلام النتائج:** اختبر فرضيات الطالب — هل حصة السوق المقدّرة معقولة؟ هل نقطة التعادل تتجاهل تكاليف خفية؟ هل القرار مبني على رقم أم تفاؤل؟` : ""}${(subjectId === "uni-mobile" || subjectId === "uni-software-eng" || subjectId === "uni-ai") ? `
+- **بناء بيئة تطبيقية مفهومية — إلزامي عند كل تطبيق عملي غير برمجي مباشر:** هذه المواد تجمع بين الكود والمفاهيم المعمارية. استخدم \`[[CREATE_LAB_ENV: ...]]\` لشرح المفاهيم التي يصعب تجربتها بـIDE وحده (دورة حياة الشاشة، تطبيق SOLID على كلاس قائم، تتبّع احتماليات Bigram، فصل المسؤوليات في كلاس God). البيئة تُبنى عامة بشاشات تحكم وحاسبات ومحاكيات بصرية — لا تستخدم زرّ IDE لهذي اللقطات. عيّن \`specializationKind: "programming"\`.
+- **للتحديات البرمجية المباشرة (كتابة كود جديد)** أكمِل استخدام إرشاد الـIDE الذهبي كما هو معتاد، ولا تنشئ بيئة CREATE_LAB_ENV زائدة.` : ""}`;
 
   const formattingRules = `**قواعد التنسيق (مهم جداً — التزم بها حرفياً):**
 - كل ردودك HTML داخل <div> واحد فقط. لا Markdown أبداً.
@@ -1977,7 +2039,22 @@ ${formattingRules}`;
     }
     return false;
   })();
-  const isShowcaseOpener = !isDiagnosticPhase && isFirstLesson && !hasPriorLabEnvTag;
+  // Per-subject "first AI reply ever in this subject" signal. The conversation
+  // itself is per-subject (subjectId scopes history), so "no prior assistant
+  // message in history" means this is the first opener for THIS subject. We
+  // intentionally do NOT gate on the global `isFirstLesson` (firstLessonComplete)
+  // flag here — that flag is a billing concept consumed once across the whole
+  // account; it would prevent every subject after the first from ever seeing
+  // the showcase. The showcase opener is a teaching concern, not a billing one.
+  const hasAnyPriorAssistantMessage = (() => {
+    if (!Array.isArray(history)) return false;
+    return history.some((msg: any) => {
+      const role = msg?.role;
+      return role === "assistant" || role === "model";
+    });
+  })();
+  const isShowcaseOpener =
+    !isDiagnosticPhase && !hasAnyPriorAssistantMessage && !hasPriorLabEnvTag;
 
   // The showcase addendum itself is appended LATER — after the Gemini
   // addendum — so it is the very last thing the model reads and overrides
@@ -2853,6 +2930,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
       subjectName: subjectName ?? "هذه المادة",
       hasCoding: !!hasCoding,
       imageEnabled: __imageEnabled,
+      kit: getShowcaseKit(subjectId),
     });
   }
 
