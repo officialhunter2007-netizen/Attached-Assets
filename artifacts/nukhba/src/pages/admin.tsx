@@ -93,10 +93,7 @@ type SubjectSub = {
   messagesUsed: number;
   status?: string;
 };
-// Admin-side extensions of generated schemas. The server returns extra
-// fields (subject info, billing, gem-wallet rollups) that the OpenAPI doc
-// hasn't been updated for yet — typing them here keeps the JSX honest
-// without spraying `as any` casts.
+// Local extensions for fields the server returns that aren't in the generated schema yet.
 type AdminUserRow = import("@workspace/api-client-react").AdminUser & {
   messagesLimit?: number | null;
   activeSubjectSubscriptionsCount?: number | null;
@@ -118,9 +115,8 @@ type AdminStatsRow = import("@workspace/api-client-react").AdminStats & {
   recentlyExpiredSubscriptions?: number;
 };
 
-// Format a server-supplied date string for display. Returns the fallback when
-// the value is missing OR parses to an Invalid Date — without this guard the
-// UI displayed the literal string "Invalid Date" whenever the server sent an
+// Format a server-supplied date safely; returns fallback for null/Invalid Date.
+// Avoids the literal "Invalid Date" string the UI used to render when the server returned an
 // unexpected timestamp shape.
 const formatDateSafe = (
   value: unknown,
@@ -332,8 +328,9 @@ export default function Admin() {
       }
       setReplyMessage("");
       toast({ title: "تم الرد", description: "تم إرسال الرد بنجاح", className: "bg-emerald-600 border-none text-white" });
-      const res = await fetch("/api/admin/support/threads", { credentials: "include" });
-      if (res.ok) {
+      try {
+        const res = await fetch("/api/admin/support/threads", { credentials: "include" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (Array.isArray(data)) {
           const threads = data as SupportThread[];
@@ -341,11 +338,17 @@ export default function Admin() {
           const updated = threads.find(t => t.userId === userId);
           if (updated) setSelectedThread(updated);
         }
+      } catch (refreshErr) {
+        toastServerError(refreshErr, "تم الإرسال ولكن تعذّر تحديث المحادثات");
       }
-      fetch("/api/admin/support/unread-count", { credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => d && setSupportUnread(Number(d.count ?? 0)))
-        .catch(err => console.error("[admin] unread-count refresh failed", err));
+      try {
+        const r = await fetch("/api/admin/support/unread-count", { credentials: "include" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        if (d) setSupportUnread(Number(d.count ?? 0));
+      } catch (unreadErr) {
+        toastServerError(unreadErr, "تعذّر تحديث عدد الرسائل غير المقروءة");
+      }
     } catch (err) {
       toastServerError(err, "تعذّر إرسال الرد");
     } finally {
@@ -494,6 +497,15 @@ export default function Admin() {
     } catch (err) {
       toastServerError(err, "تعذّر إلغاء الاشتراك");
     }
+  };
+
+  const resetCreateCardForm = () => {
+    setCreatedCard(null);
+    setNewCardSubjectId("");
+    setNewCardSubjectName("");
+    setCardSubjectSearch("");
+    setShowCardSubjectPicker(false);
+    setNewCardPlan("silver");
   };
 
   const handleCreateCard = async () => {
@@ -1533,15 +1545,7 @@ export default function Admin() {
               <p className="text-sm text-muted-foreground">إجمالي البطاقات: {cards?.length ?? 0}</p>
               <Button
                 className="gradient-gold text-primary-foreground gap-2 h-9"
-                onClick={() => {
-                  setShowCreateCard(true);
-                  setCreatedCard(null);
-                  setNewCardSubjectId("");
-                  setNewCardSubjectName("");
-                  setCardSubjectSearch("");
-                  setShowCardSubjectPicker(false);
-                  setNewCardPlan("silver");
-                }}
+                onClick={() => { resetCreateCardForm(); setShowCreateCard(true); }}
               >
                 <Plus className="w-4 h-4" />
                 إنشاء بطاقة جديدة
@@ -2024,7 +2028,7 @@ export default function Admin() {
       </Dialog>
 
       {/* Create Card Dialog */}
-      <Dialog open={showCreateCard} onOpenChange={setShowCreateCard}>
+      <Dialog open={showCreateCard} onOpenChange={(open) => { setShowCreateCard(open); if (!open) resetCreateCardForm(); }}>
         <DialogContent className="glass border-white/10 max-w-sm">
           <DialogTitle className="text-lg font-bold">إنشاء بطاقة تفعيل جديدة</DialogTitle>
           {createdCard ? (
@@ -2039,7 +2043,7 @@ export default function Admin() {
                   <Copy className="w-4 h-4" />
                 </button>
               </div>
-              <Button className="w-full" variant="outline" onClick={() => { setShowCreateCard(false); setCreatedCard(null); }}>
+              <Button className="w-full" variant="outline" onClick={() => { setShowCreateCard(false); resetCreateCardForm(); }}>
                 إغلاق
               </Button>
             </div>
