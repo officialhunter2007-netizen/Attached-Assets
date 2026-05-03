@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx src/lib/__tests__/plan-quality.test.ts && tsx src/lib/pricing-formula.test.ts && tsx src/lib/__tests__/access-first-lesson.test.ts && tsx src/lib/__tests__/teacher-image-store.test.ts"
+    "test": "tsx src/lib/__tests__/plan-quality.test.ts && tsx src/lib/pricing-formula.test.ts && tsx src/lib/__tests__/access-first-lesson.test.ts && tsx src/lib/__tests__/teacher-image-store.test.ts && tsx src/routes/__tests__/teacher-images.route.test.ts"
   },
   "dependencies": {
     "@fal-ai/serverless-client": "^0.15.0",
