@@ -274,16 +274,6 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-// Strip image/system tags + code fences before counting words mid-stream
-// so [[IMAGE:...]] markers and ```code``` blocks don't inflate the count
-// and trip the hard cap before the visible prose has reached it.
-function stripTeachingTagsForCount(text: string): string {
-  return text
-    .replace(/\[\[[A-Z_]+:[\s\S]*?\]\]/g, " ")
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/`[^`\n]+`/g, " ");
-}
-
 function extractTeachingExcerpt(text: string, maxChars = 16000): string {
   const plain = text
     .replace(/```[\s\S]*?```/g, "")
@@ -3020,14 +3010,6 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     trimmedUserMessage,
   });
   const maxTokens = responseTier.maxTokens;
-  // Hard cap enforced mid-stream by the onChunk handler below (null on
-  // diagnostic + lab_report tiers, which have their own length policy).
-  const wordHardCap =
-    responseTier.maxWords != null ? Math.ceil(responseTier.maxWords * 1.10) : null;
-  // Set when the mid-stream word-cap enforcer aborts the upstream call.
-  // Used in the post-stream catch to treat the AbortError as success
-  // rather than firing the mid-stream apology message.
-  let __hardCapHit = false;
 
   const __teachStart = Date.now();
 
@@ -3293,19 +3275,6 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
               // half-closed socket — close handler already flipped clientAborted
             }
           }
-          // Mid-stream word-cap enforcement: when the running response
-          // exceeds the tier's hard cap (maxWords × 1.10), abort the
-          // upstream call so the student never sees a reply more than
-          // 10% over its tier limit. We measure on cleaned text so
-          // [[IMAGE:]] tags / system markers don't inflate the count.
-          if (
-            wordHardCap != null &&
-            !__hardCapHit &&
-            countWords(stripTeachingTagsForCount(fullResponse)) >= wordHardCap
-          ) {
-            __hardCapHit = true;
-            try { abortController.abort(); } catch {}
-          }
         },
       });
       __geminiAttempts = geminiResult.attempts;
@@ -3318,26 +3287,6 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
       // Sentinel: marks success so the post-stream paths fire.
       __success = true;
     } catch (geminiErr: any) {
-      // Mid-stream word-cap abort: not a real error — treat as a clean
-      // end-of-stream so the post-stream paths run normally and no
-      // apology message is appended to the visible reply.
-      if (__hardCapHit) {
-        __success = true;
-        const __gpAbort = (geminiErr?.partial ?? {}) as {
-          usageMetadata?: {
-            promptTokenCount?: number;
-            candidatesTokenCount?: number;
-            cachedContentTokenCount?: number;
-          } | null;
-        };
-        if (__gpAbort.usageMetadata) {
-          __geminiUsage = {
-            inputTokens: Number(__gpAbort.usageMetadata.promptTokenCount ?? 0),
-            outputTokens: Number(__gpAbort.usageMetadata.candidatesTokenCount ?? 0),
-            cachedInputTokens: Number(__gpAbort.usageMetadata.cachedContentTokenCount ?? 0),
-          };
-        }
-      } else {
       // Helper performs internal retries; treat a final transient error as 2 attempts.
       __geminiAttempts = (geminiErr instanceof GeminiTransientError) ? 2 : 1;
       // PARTIAL-USAGE PRESERVATION: gemini-stream stamps the error with
@@ -3397,7 +3346,6 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           `[ai/teach] Gemini pre-stream failure (${geminiErr?.name || "Error"}):`,
           geminiErr?.message || geminiErr,
         );
-      }
       }
     }
   }
@@ -3863,12 +3811,16 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         // engineering and teaching-quality analysis.
         const excerpt = extractTeachingExcerpt(cleanAssistant);
         // Telemetry: flag when the reply exceeded its tier word cap by
-        // more than 10% (diagnostic turns are exempt). The provider
-        // max_tokens ceiling already enforces the ≤10% overage hard
-        // limit; this flag surfaces near-misses for admin review.
+        // more than 10%. The tier max_tokens is sized so a well-behaved
+        // model stays well within the cap; this flag surfaces the
+        // remaining overruns for admin review and prompt iteration.
         const __wordCount = countWords(excerpt);
+        // overLength is purely advisory telemetry — diagnostic and
+        // lab_report tiers carry maxWords=null and are exempt from the
+        // soft cap (their length policies live elsewhere).
         const __overLength =
-          !isDiagnosticPhase && __wordCount > Math.ceil(responseTier.maxWords * 1.10);
+          responseTier.maxWords != null &&
+          __wordCount > Math.ceil(responseTier.maxWords * 1.10);
         await db.insert(aiTeacherMessagesTable).values({
           userId,
           subjectId,
