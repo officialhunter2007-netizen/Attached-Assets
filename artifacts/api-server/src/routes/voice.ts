@@ -55,10 +55,10 @@ const upload = multer({
 // gpt-4o-mini-tts expanded voice set (superset of the old tts-1 voices).
 type AllowedVoice =
   | "nova" | "shimmer" | "alloy" | "echo" | "fable" | "onyx"
-  | "ash" | "coral" | "sage" | "verse" | "ballad";
+  | "ash" | "coral" | "sage" | "verse" | "ballad" | "marin" | "cedar";
 const ALLOWED_VOICES: ReadonlySet<AllowedVoice> = new Set([
   "nova", "shimmer", "alloy", "echo", "fable", "onyx",
-  "ash", "coral", "sage", "verse", "ballad",
+  "ash", "coral", "sage", "verse", "ballad", "marin", "cedar",
 ]);
 
 function getUserId(req: Request): number | null {
@@ -150,10 +150,6 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
       voice: chosenVoice,
       input: text,
       response_format: "mp3",
-      // Style instructions — guide the model to sound like a professional
-      // Arabic teacher rather than a generic narrator.
-      // @ts-expect-error — `instructions` is supported by gpt-4o-mini-tts
-      // but not yet typed in the current @types/openai version.
       instructions: TTS_INSTRUCTIONS,
     });
     const arrayBuf = await speech.arrayBuffer();
