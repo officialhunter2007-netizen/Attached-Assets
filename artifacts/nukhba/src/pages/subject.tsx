@@ -5436,12 +5436,12 @@ function SubjectPathChat({
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
         {/* Quick-launch chips for "Build a lab env" + "Attack simulation",
             replacing the previous bottom-right floating buttons. */}
-        {chatVisible && !isCreatingEnv && !compiledSpec && !isCompilingSpec && (
-          (onStartLabEnvIntent && !pendingDynamicEnv) ||
+        {chatVisible && !anyPanelOpen && (
+          (onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec) ||
           (attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario)
         ) && (
           <div className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
-            {onStartLabEnvIntent && !pendingDynamicEnv && (
+            {onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec && (
               <button
                 type="button"
                 onClick={() => onStartLabEnvIntent()}
@@ -5464,6 +5464,41 @@ function SubjectPathChat({
                 <span>🎯</span>
                 <span>محاكاة هجمة</span>
               </button>
+            )}
+          </div>
+        )}
+        {/* Visible recording / transcribing indicator with elapsed counter
+            and a pulsing waveform — sits above the input so the user has
+            unmistakable feedback that the mic is open. */}
+        {(recordingHandle || isTranscribing) && (
+          <div className="max-w-2xl mx-auto mb-2 flex items-center justify-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/40 text-rose-100 text-[11px] sm:text-xs font-bold" style={{ direction: "rtl" }}>
+            {isTranscribing ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>جارٍ تفريغ الصوت إلى نص...</span>
+              </>
+            ) : (
+              <>
+                <span className="relative inline-flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+                </span>
+                <span className="inline-flex items-end gap-0.5 h-3" aria-hidden="true">
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "60%", animationDelay: "0ms" }} />
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "100%", animationDelay: "120ms" }} />
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "40%", animationDelay: "240ms" }} />
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "80%", animationDelay: "360ms" }} />
+                  <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "50%", animationDelay: "480ms" }} />
+                </span>
+                <span>تسجيل... {Math.floor(recordingElapsedMs / 1000)}/60 ث</span>
+                <button
+                  type="button"
+                  onClick={handleToggleMic}
+                  className="ml-1 px-2 py-0.5 rounded-full bg-rose-500/30 hover:bg-rose-500/50 border border-rose-400/60 text-white text-[10px]"
+                >
+                  إيقاف
+                </button>
+              </>
             )}
           </div>
         )}

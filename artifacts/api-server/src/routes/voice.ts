@@ -9,8 +9,27 @@ const router: IRouter = Router();
 
 const TTS_MAX_CHARS = 2000;
 const TTS_DAILY_LIMIT = 60;
-const STT_MAX_BYTES = 8 * 1024 * 1024;
+// 60s of opus at 32 kbps ≈ 240 KB. We allow 1.5 MB to give headroom for
+// higher-bitrate Safari mp4/m4a captures while still bounding the per-
+// request transcription cost.
+const STT_MAX_BYTES = 1_500_000;
 const STT_DAILY_LIMIT = 60;
+const STT_ALLOWED_MIME_PREFIXES = [
+  "audio/webm",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/m4a",
+  "audio/x-m4a",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+] as const;
+// Higher-quality cloud TTS model. `gpt-4o-mini-tts` supports the same
+// `voice` parameter set as `tts-1` but with markedly better Arabic
+// prosody and embedded-English handling.
+const TTS_MODEL = "gpt-4o-mini-tts";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -58,7 +77,7 @@ async function logVoiceCall(opts: {
       subjectId: null,
       route: opts.route,
       provider: "openai",
-      model: opts.route === "ai/tts" ? "tts-1" : "whisper-1",
+      model: opts.route === "ai/tts" ? TTS_MODEL : "whisper-1",
       inputTokens: opts.inputTokens ?? 0,
       outputTokens: opts.outputTokens ?? 0,
       cachedInputTokens: 0,
@@ -105,7 +124,7 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
     const client = getOpenAIAudioClient();
     if (!client) throw new Error("OpenAI client not configured");
     const speech = await client.audio.speech.create({
-      model: "tts-1",
+      model: TTS_MODEL,
       voice: chosenVoice,
       input: text,
       response_format: "mp3",
@@ -167,6 +186,22 @@ router.post("/ai/stt", upload.single("audio"), async (req, res): Promise<unknown
   }
 
   const mime = (file.mimetype || "audio/webm").toLowerCase();
+  if (!STT_ALLOWED_MIME_PREFIXES.some(p => mime.startsWith(p))) {
+    return res.status(415).json({
+      error: "UNSUPPORTED_AUDIO_TYPE",
+      message: "نوع الملف الصوتي غير مدعوم.",
+    });
+  }
+  // Cheap server-side duration guard: at 256 kbps (highest realistic
+  // browser MediaRecorder bitrate) 60 s ≈ 1.92 MB. The 1.5 MB hard cap
+  // above already enforces this, but reject explicitly for clearer error
+  // messaging when a client overrides the 60 s timer.
+  if (file.buffer.length > STT_MAX_BYTES) {
+    return res.status(413).json({
+      error: "AUDIO_TOO_LARGE",
+      message: "التسجيل أطول من الحد المسموح (60 ثانية).",
+    });
+  }
   let ext = "webm";
   if (mime.includes("ogg")) ext = "ogg";
   else if (mime.includes("mp4") || mime.includes("m4a")) ext = "m4a";

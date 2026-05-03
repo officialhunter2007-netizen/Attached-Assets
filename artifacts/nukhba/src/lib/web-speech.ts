@@ -1,24 +1,14 @@
-// Voice helpers for the teacher chat. As of May 2026 both directions are
-// served by cloud OpenAI APIs through the api-server (POST /api/voice/tts
-// and /api/voice/stt). The browser's native Web Speech API is kept ONLY as
-// a silent fallback for TTS when the network call fails — it is no longer
-// used for STT at all because its in-browser quality (especially Arabic +
-// embedded English technical terms) was the source of repeated user
-// complaints, and it doesn't work on Firefox / Samsung Internet / in-app
-// browsers.
-
-// ──────────────────────────────────────────────────────────────────────────
-// TTS — text → audio playback
-// ──────────────────────────────────────────────────────────────────────────
+// Voice helpers for the teacher chat. TTS hits POST /api/ai/tts (cloud
+// OpenAI TTS); the browser's native speechSynthesis is kept as a silent
+// fallback when the network call fails. STT records via MediaRecorder
+// and uploads to POST /api/ai/stt (Whisper).
 
 let activeAudio: HTMLAudioElement | null = null;
 let activeAbort: AbortController | null = null;
 let activeListeners: Array<() => void> = [];
 
 export function isSpeechSynthesisSupported(): boolean {
-  // We always support TTS now — the cloud route is available to every
-  // logged-in user. The legacy callsites still ask this question to decide
-  // whether to render the speaker button, so keep it returning true.
+  // Always supported now: the cloud route is available to every user.
   return true;
 }
 
@@ -53,22 +43,11 @@ export interface SpeakOptions {
   rate?: number;
   pitch?: number;
   voice?: string;
-  /** Fired once audio playback actually begins (after fetch + decode). */
   onPlay?: () => void;
-  /** Fired when playback finishes naturally OR when stopSpeaking is called. */
   onEnd?: () => void;
   onError?: (msg: string) => void;
 }
 
-/**
- * Speak `text` aloud via the cloud TTS endpoint. Returns `true` if a
- * playback attempt was kicked off (the audio is fetched + played
- * asynchronously). Any in-flight playback is cancelled first.
- *
- * Falls back to the native `speechSynthesis` API only when the network
- * call fails (offline, 503, etc.) so the speaker button still produces
- * something audible instead of silently doing nothing.
- */
 export function speakText(text: string, opts?: SpeakOptions): boolean {
   if (!text || typeof window === "undefined") return false;
   stopSpeaking();
@@ -108,22 +87,20 @@ export function speakText(text: string, opts?: SpeakOptions): boolean {
       try {
         await audio.play();
         opts?.onPlay?.();
-      } catch (playErr: any) {
+      } catch (playErr) {
         URL.revokeObjectURL(url);
         if (activeAudio === audio) activeAudio = null;
-        opts?.onError?.(playErr?.message || "تعذّر تشغيل الصوت");
+        opts?.onError?.(playErr instanceof Error ? playErr.message : "تعذّر تشغيل الصوت");
         notifyEnded();
       }
     })
-    .catch((err) => {
+    .catch((err: unknown) => {
       if (ctrl.signal.aborted) return;
-      // Network/server failure → degrade to browser TTS so the user
-      // still hears something.
       const fallback = fallbackToBrowserTts(text, { rate: opts?.rate, pitch: opts?.pitch });
       if (fallback) {
         opts?.onPlay?.();
       } else {
-        opts?.onError?.(err?.message || "فشل تجهيز الصوت");
+        opts?.onError?.(err instanceof Error ? err.message : "فشل تجهيز الصوت");
         notifyEnded();
       }
     });
@@ -155,10 +132,6 @@ export function isSpeaking(): boolean {
   return false;
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// STT — microphone → cloud transcription
-// ──────────────────────────────────────────────────────────────────────────
-
 export function isMediaRecorderSupported(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -167,50 +140,25 @@ export function isMediaRecorderSupported(): boolean {
   );
 }
 
-// Legacy alias kept so `subject.tsx` doesn't have to change its
-// rendering condition. We now answer "yes" whenever the modern
-// `MediaRecorder` API is present — i.e. on every modern Chrome / Safari
-// / Firefox / Samsung browser, including the in-app webviews that the
-// previous `webkitSpeechRecognition` check was excluding.
+// Legacy alias preserved for existing callsites.
 export function isSpeechRecognitionSupported(): boolean {
   return isMediaRecorderSupported();
 }
 
 export interface RecognitionHandle {
-  /** Stop recording, upload the audio, and emit the final transcript. */
   stop: () => void;
-  /** Force-cancel without sending audio (e.g. component unmount). */
   cancel: () => void;
 }
 
 export interface RecognitionOptions {
-  /** Hard cap on recording length, in milliseconds. Defaults to 60 s. */
   maxDurationMs?: number;
-  /**
-   * Called repeatedly while the audio is being captured / uploaded with
-   * the elapsed millisecond count. Lets the UI render a live counter
-   * without re-implementing its own timer.
-   */
   onProgress?: (elapsedMs: number) => void;
-  /** Called when transcription finishes successfully. `isFinal` is always true. */
   onResult: (transcript: string, isFinal: boolean) => void;
-  /** Called on permission denial, network failure, server error, etc. */
   onError?: (msg: string) => void;
-  /** Always called after stop/cancel/error so callers can reset UI state. */
   onEnd?: () => void;
-  /** Lifecycle hook fired once the upload starts (mic stream closed). */
   onUploading?: () => void;
 }
 
-/**
- * Begin recording from the microphone. The returned handle's `stop()`
- * uploads the captured audio to `/api/voice/stt` and surfaces the final
- * transcript via `onResult`. `cancel()` aborts everything without
- * uploading.
- *
- * Returns `null` if the browser doesn't support `MediaRecorder` or the
- * user denies the microphone permission — `onError` is invoked first.
- */
 export function startRecognition(opts: RecognitionOptions): RecognitionHandle | null {
   if (!isMediaRecorderSupported()) {
     opts.onError?.("متصفّحك لا يدعم التسجيل الصوتي. جرّب Chrome أو Safari الحديث.");
@@ -257,9 +205,6 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
     },
   };
 
-  // Pick a MIME the browser actually supports — Safari produces mp4/m4a,
-  // Chrome/Firefox produce webm. Letting the browser default kicks in
-  // when our preferred type isn't supported.
   const preferred = [
     "audio/webm;codecs=opus",
     "audio/webm",
@@ -267,7 +212,7 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
     "audio/ogg;codecs=opus",
   ];
   const supported = preferred.find(
-    (t) => typeof MediaRecorder !== "undefined" && (MediaRecorder as any).isTypeSupported?.(t),
+    (t) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t),
   );
 
   navigator.mediaDevices
@@ -279,15 +224,9 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
       },
     })
     .then((s) => {
-      // Short-circuit on EITHER cancelled OR stopped: if the user pressed
-      // the mic button a second time (= stop) before getUserMedia resolved
-      // we must NOT actually open the recorder, otherwise the UI shows
-      // "transcribing..." forever waiting on a recorder that no one will
-      // ever ask to stop. Same path as cancel — just don't fire onResult.
+      // If toggle-off raced ahead of getUserMedia, drop the stream and bail.
       if (cancelled || stopped) {
         try { s.getTracks().forEach(t => t.stop()); } catch {}
-        // The stop() handler already cleared `recordingHandle` and set
-        // `isTranscribing=true` optimistically; reset that to idle.
         if (stopped && !cancelled) {
           opts.onError?.("تم إلغاء التسجيل قبل أن يبدأ الميكروفون.");
         }
@@ -297,16 +236,17 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
       stream = s;
       try {
         recorder = supported ? new MediaRecorder(s, { mimeType: supported }) : new MediaRecorder(s);
-      } catch (err: any) {
-        finishWithError(err?.message || "فشل بدء التسجيل.");
+      } catch (err) {
+        finishWithError(err instanceof Error ? err.message : "فشل بدء التسجيل.");
         return;
       }
 
       recorder.ondataavailable = (ev: BlobEvent) => {
         if (ev.data && ev.data.size > 0) chunks.push(ev.data);
       };
-      recorder.onerror = (ev: any) => {
-        finishWithError(ev?.error?.message || "حدث خطأ في التسجيل.");
+      recorder.onerror = (ev: Event) => {
+        const e = (ev as Event & { error?: { message?: string } }).error;
+        finishWithError(e?.message || "حدث خطأ في التسجيل.");
       };
       recorder.onstop = () => {
         cleanupStreams();
@@ -320,9 +260,6 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
         }
         opts.onUploading?.();
         const fd = new FormData();
-        // The extension is informational only — the server picks the real
-        // extension from the MIME type — but it makes server-side logs
-        // easier to grep when debugging.
         const ext = mime.includes("mp4") ? "m4a"
           : mime.includes("ogg") ? "ogg"
           : mime.includes("wav") ? "wav"
@@ -338,7 +275,7 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
             }
             return resp.json();
           })
-          .then((data) => {
+          .then((data: { text?: string }) => {
             const text = (data?.text || "").toString().trim();
             if (!text) {
               opts.onError?.("لم يتعرّف النظام على أي كلام في التسجيل.");
@@ -347,16 +284,16 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
             }
             opts.onEnd?.();
           })
-          .catch((err) => {
-            opts.onError?.(err?.message || "تعذّر تحويل الصوت إلى نص.");
+          .catch((err: unknown) => {
+            opts.onError?.(err instanceof Error ? err.message : "تعذّر تحويل الصوت إلى نص.");
             opts.onEnd?.();
           });
       };
 
       try {
         recorder.start();
-      } catch (err: any) {
-        finishWithError(err?.message || "فشل بدء التسجيل.");
+      } catch (err) {
+        finishWithError(err instanceof Error ? err.message : "فشل بدء التسجيل.");
         return;
       }
 
@@ -369,13 +306,14 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
         if (!stopped) handle.stop();
       }, maxDurationMs);
     })
-    .catch((err: any) => {
-      const code = err?.name || err?.code || "";
+    .catch((err: unknown) => {
+      const e = err as { name?: string; code?: string; message?: string };
+      const code = e?.name || e?.code || "";
       const msg = code === "NotAllowedError" || code === "PermissionDeniedError"
         ? "تم رفض الإذن للوصول إلى الميكروفون. فعّله من إعدادات المتصفح."
         : code === "NotFoundError"
           ? "لم يُعثر على ميكروفون متّصل."
-          : (err?.message || "تعذّر فتح الميكروفون.");
+          : (e?.message || "تعذّر فتح الميكروفون.");
       finishWithError(msg);
     });
 
