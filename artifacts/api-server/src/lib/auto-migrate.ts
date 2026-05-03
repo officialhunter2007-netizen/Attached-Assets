@@ -373,11 +373,6 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     ],
   },
   {
-    // Length telemetry on assistant responses (added Task #43). Both columns
-    // are nullable: legacy rows from before the column existed stay NULL,
-    // and user-role rows (where the count is meaningless) are written NULL
-    // by the insert path. The admin "محادثات المعلم" tab and the export
-    // endpoint surface them so admins can spot prompts that bloat outputs.
     table: "ai_teacher_messages",
     columns: [
       { name: "word_count", ddl: "integer" },

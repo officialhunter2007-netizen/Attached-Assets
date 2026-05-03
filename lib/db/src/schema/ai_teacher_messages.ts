@@ -11,12 +11,8 @@ export const aiTeacherMessagesTable = pgTable("ai_teacher_messages", {
   content: text("content").notNull(),
   isDiagnostic: integer("is_diagnostic").notNull().default(0),
   stageIndex: integer("stage_index"),
-  // Length telemetry (assistant messages only — null for user rows).
-  // wordCount = whitespace-split word count of the cleaned response.
-  // overLength = 1 when the response exceeded the tier soft-cap by >25%
-  // (computed server-side from the response tier classifier in /ai/teach).
-  // The flag never truncates the student-facing response — it is purely a
-  // signal for admin review so we can find prompts that bloat outputs.
+  // Length telemetry (assistant rows only). overLength=1 when wordCount
+  // exceeded the response tier's word cap by >10%.
   wordCount: integer("word_count"),
   overLength: integer("over_length"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -1148,9 +1148,6 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
         const tags: string[] = [];
         if (m.isDiagnostic) tags.push("تشخيصي");
         if (m.stageIndex !== null && m.stageIndex !== undefined) tags.push(`مرحلة ${m.stageIndex}`);
-        // Length telemetry (Task #43): assistant rows surface the word
-        // count + a clear warning when over_length=1, so admins can spot
-        // bloated responses while reviewing the transcript.
         if (m.role === "assistant" && m.wordCount != null) {
           tags.push(`${m.wordCount} كلمة`);
           if (m.overLength === 1) tags.push("⚠️ تجاوز السقف");
@@ -1179,10 +1176,9 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/insights/teacher-length-stats
-// Aggregate length-tier telemetry on assistant teacher messages (Task #43).
-// Returns counts + averages over the past N days, optionally filtered by
-// subject. Lets admins answer "how often is the teacher overshooting the
-// soft cap?" and "did the new prompt actually shorten responses?".
+// Aggregate length-tier telemetry on assistant teacher messages: counts,
+// averages, p95, and over-length rate over the past N days, optionally
+// filtered by subject.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get("/admin/insights/teacher-length-stats", async (req, res): Promise<any> => {
   const adminId = getUserId(req);

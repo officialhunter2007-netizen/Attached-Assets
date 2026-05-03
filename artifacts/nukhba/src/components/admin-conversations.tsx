@@ -23,8 +23,7 @@ interface ConversationLine {
   createdAt: string;
   isDiagnostic: number;
   stageIndex: number | null;
-  // Length telemetry (Task #43): null on user rows + on legacy assistant
-  // rows from before the column existed.
+  // Null on user rows + on legacy assistant rows.
   wordCount: number | null;
   overLength: boolean;
   userId: number;
@@ -51,6 +50,7 @@ export function AdminConversations() {
   const [days, setDays] = useState("30");
 
   const [loading, setLoading] = useState(false);
+  const [onlyOverLength, setOnlyOverLength] = useState(false);
   const [rawText, setRawText] = useState("");
   const [lines, setLines] = useState<ConversationLine[]>([]);
 
@@ -126,10 +126,7 @@ export function AdminConversations() {
       while ((match = msgRegex.exec(fullText)) !== null) {
         const role = match[1] === "🧑 الطالب" ? "user" : "assistant";
         const rawHeader = match[2].trim();
-        // The export now appends optional metadata in parens after the
-        // date, e.g. "DATE (تشخيصي · مرحلة 3 · 245 كلمة · ⚠️ تجاوز السقف)".
-        // Split the date from the meta tags so we can render the word-
-        // count badge separately (Task #43).
+        // Header format: "DATE (تشخيصي · مرحلة 3 · 245 كلمة · ⚠️ تجاوز السقف)".
         const metaMatch = rawHeader.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
         const dateStr = metaMatch ? metaMatch[1].trim() : rawHeader;
         const metaTags = metaMatch ? metaMatch[2].split("·").map(s => s.trim()) : [];
@@ -191,11 +188,19 @@ export function AdminConversations() {
     URL.revokeObjectURL(url);
   };
 
+  const overLengthCount = React.useMemo(
+    () => lines.filter(l => l.role === "assistant" && l.overLength).length,
+    [lines],
+  );
+
   const groupedMessages = React.useMemo(() => {
     if (lines.length === 0) return [];
+    const filtered = onlyOverLength
+      ? lines.filter(l => l.role === "assistant" && l.overLength)
+      : lines;
     const groups: Array<{ userId: number; name: string; email: string; messages: ConversationLine[] }> = [];
     let current: (typeof groups)[0] | null = null;
-    for (const l of lines) {
+    for (const l of filtered) {
       if (!current || current.userId !== l.userId) {
         current = { userId: l.userId, name: l.userName ?? "", email: l.userEmail ?? "", messages: [] };
         groups.push(current);
@@ -203,7 +208,7 @@ export function AdminConversations() {
       current.messages.push(l);
     }
     return groups;
-  }, [lines]);
+  }, [lines, onlyOverLength]);
 
   const subjectObj = allSubjects.find(s => s.id === subjectId);
 
@@ -357,13 +362,35 @@ export function AdminConversations() {
         </div>
       )}
 
-      {groupedMessages.length > 0 && (
+      {lines.length > 0 && (
         <div className="space-y-6">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MessageCircle className="w-4 h-4" />
-            <span>{groupedMessages.length} طالب · {lines.length} رسالة</span>
-            {subjectObj && <span>في مادة {subjectObj.emoji} {subjectObj.name}</span>}
+          <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
+            <div className="flex items-center gap-2">
+              <MessageCircle className="w-4 h-4" />
+              <span>{groupedMessages.length} طالب · {lines.length} رسالة</span>
+              {subjectObj && <span>في مادة {subjectObj.emoji} {subjectObj.name}</span>}
+            </div>
+            <label className={`flex items-center gap-2 px-2.5 py-1 rounded-md border cursor-pointer text-xs select-none ${
+              onlyOverLength
+                ? "border-rose-500/40 bg-rose-500/10 text-rose-200"
+                : "border-white/10 bg-black/30 hover:bg-white/5"
+            }`}>
+              <input
+                type="checkbox"
+                checked={onlyOverLength}
+                onChange={e => setOnlyOverLength(e.target.checked)}
+                className="accent-rose-400"
+              />
+              <span>عرض التجاوزات فقط</span>
+              <span className="opacity-70">({overLengthCount})</span>
+            </label>
           </div>
+
+          {onlyOverLength && groupedMessages.length === 0 && (
+            <div className="text-sm text-muted-foreground bg-black/30 border border-white/10 rounded-xl p-6 text-center">
+              لا توجد ردود تجاوزت سقف الكلمات في هذه النافذة.
+            </div>
+          )}
 
           {groupedMessages.map((g, gi) => (
             <div key={g.userId || gi} className="bg-black/20 border border-white/8 rounded-xl overflow-hidden">

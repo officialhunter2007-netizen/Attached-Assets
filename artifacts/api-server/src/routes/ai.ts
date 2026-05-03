@@ -217,36 +217,12 @@ function emitFriendlyAiFailure(
  * export feature so admins can review and improve the teacher prompt.
  */
 /**
- * Adaptive length tier for an /ai/teach response (Task #43).
- *
- * The model has no inherent self-discipline on output length — left to its
- * own devices it routinely produces 600+ word teaching turns even when the
- * user message is a one-word follow-up ("نعم"). We classify the response
- * tier deterministically from existing context signals (no extra model
- * call) and use the tier for two things:
- *   1. The provider `max_tokens` ceiling — caps a runaway response BEFORE
- *      the bytes go out the wire (the previous flat 4096 ceiling was
- *      ~1300 Arabic words, dwarfing the prompt's 220-word soft cap).
- *   2. A post-stream `over_length=1` flag in `ai_teacher_messages` so
- *      admins can spot prompts that bloat outputs without truncating the
- *      student's reply mid-stream.
- *
- * Tiers (Arabic ≈ 1.5 chars / token; we keep generous headroom on
- * maxTokens so well-behaved responses never get clipped, while runaway
- * responses still hit the ceiling well before the legacy 4096 limit):
- *   • diagnostic       — 8192 tok (unchanged; the plan synthesis turn
- *                          must never be cut mid-sentence).
- *   • dense_concept    — 2048 tok / 320-word soft cap. Used when the
- *                          turn introduces a new dense concept (showcase
- *                          opener, mastery teach-back, deep-reasoning
- *                          re-explain, lab-report feedback, first turn
- *                          of a new stage).
- *   • medium_explain   — 1100 tok / 180-word soft cap. The default
- *                          teaching turn — replaces the legacy 4096.
- *   • short_followup   — 600 tok / 90-word soft cap. Triggered when the
- *                          student's message itself is brief (≤ 60 chars,
- *                          e.g. "نعم", "كمل", "اشرحها مرة ثانية"); the
- *                          response should be brief too.
+ * Adaptive length tier for an /ai/teach response. Picks the provider
+ * max_tokens ceiling so a well-behaved reply has headroom but a runaway
+ * one cannot exceed the per-tier word cap by more than ~10%. Arabic
+ * teaching prose averages ~3.1 tokens/word in this codebase (system
+ * prompt + tags inflate the ratio above the raw text average), so each
+ * tier's maxTokens = ceil(maxWords × 1.10 × 3.1).
  */
 type TeachingResponseTier = "diagnostic" | "dense_concept" | "medium_explain" | "short_followup";
 type TeachingTierDecision = { tier: TeachingResponseTier; maxWords: number; maxTokens: number };
@@ -260,6 +236,8 @@ function classifyTeachingResponseTier(opts: {
   isNewStage: boolean;
   userMessageLength: number;
 }): TeachingTierDecision {
+  // Diagnostic plan synthesis must never be cut mid-sentence — keep the
+  // legacy ceiling and rely on the prompt for length discipline there.
   if (opts.isDiagnosticPhase) {
     return { tier: "diagnostic", maxWords: 800, maxTokens: 8192 };
   }
@@ -270,18 +248,14 @@ function classifyTeachingResponseTier(opts: {
     opts.isLabReport ||
     opts.isNewStage
   ) {
-    return { tier: "dense_concept", maxWords: 320, maxTokens: 2048 };
+    return { tier: "dense_concept", maxWords: 320, maxTokens: 1100 };
   }
   if (opts.userMessageLength > 0 && opts.userMessageLength <= 60) {
-    return { tier: "short_followup", maxWords: 90, maxTokens: 600 };
+    return { tier: "short_followup", maxWords: 90, maxTokens: 320 };
   }
-  return { tier: "medium_explain", maxWords: 180, maxTokens: 1100 };
+  return { tier: "medium_explain", maxWords: 180, maxTokens: 620 };
 }
 
-/**
- * Whitespace-split word count of cleaned text. Used post-stream to record
- * the actual response length and the over_length=1 soft-cap flag.
- */
 function countWords(text: string): number {
   if (!text) return 0;
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -3012,17 +2986,8 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     });
   }
 
-  // ── Output ceiling — adaptive tier (Task #43) ───────────────────────────
-  // The previous flat 4096-token ceiling for non-diagnostic turns was ~10x
-  // higher than the 220-word soft cap in the prompt, giving the model
-  // unbounded headroom to bloat replies. We now classify the tier from
-  // existing context signals and pick a `max_tokens` value that matches
-  // the prompt's per-tier word budget — with comfortable headroom so a
-  // well-behaved response never gets clipped mid-sentence, but a runaway
-  // one hits the ceiling well before it can flood the student with text.
-  // The tier is also persisted on the assistant row (over_length flag)
-  // for admin review. See classifyTeachingResponseTier() for the
-  // tier table.
+  // Tier-driven output ceiling: replaces the legacy flat 4096-token cap
+  // (which was ~10x the prompt's word budget). See classifyTeachingResponseTier.
   const responseTier = classifyTeachingResponseTier({
     isDiagnosticPhase: !!isDiagnosticPhase,
     isShowcaseOpener,
@@ -3833,15 +3798,13 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         // so admins can export and review complete conversations for prompt
         // engineering and teaching-quality analysis.
         const excerpt = extractTeachingExcerpt(cleanAssistant);
-        // Length telemetry (Task #43): word count + soft-cap flag. We
-        // never truncate the streamed response — this is a signal the
-        // admin tab uses to find prompts that bloat outputs. A response
-        // is flagged when it exceeds its tier's maxWords by more than
-        // 25 %; diagnostic turns are exempt (the plan synthesis is
-        // legitimately long).
+        // Telemetry: flag when the reply exceeded its tier word cap by
+        // more than 10% (diagnostic turns are exempt). The provider
+        // max_tokens ceiling already enforces the ≤10% overage hard
+        // limit; this flag surfaces near-misses for admin review.
         const __wordCount = countWords(excerpt);
         const __overLength =
-          !isDiagnosticPhase && __wordCount > Math.ceil(responseTier.maxWords * 1.25);
+          !isDiagnosticPhase && __wordCount > Math.ceil(responseTier.maxWords * 1.10);
         await db.insert(aiTeacherMessagesTable).values({
           userId,
           subjectId,
