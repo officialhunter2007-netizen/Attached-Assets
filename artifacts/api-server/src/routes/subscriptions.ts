@@ -27,30 +27,32 @@ import { generateActivationCode } from "../lib/auth";
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { writeGemLedger } from "../lib/gem-ledger";
 import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
+import {
+  computeGemsForPrice,
+  computePricingBreakdown,
+  SUB_DURATION_DAYS as PRICING_SUB_DURATION_DAYS,
+  BASE_PRICES_FALLBACK as PRICING_BASE_PRICES_FALLBACK,
+} from "../lib/pricing-formula";
 
 const router: IRouter = Router();
 
-// Gems granted per plan for the full 14-day period.
-// Daily cap = Math.floor(total / 14). Each subject is its own subscription
-// — these gems are scoped to the subject the user paid for.
-const PLAN_GEM_LIMITS: Record<string, { total: number; daily: number }> = {
-  bronze: { total: 1000, daily: 71 },
-  silver: { total: 2000, daily: 142 },
-  gold:   { total: 3000, daily: 214 },
-};
+// NOTE: Gem amounts are no longer hardcoded. They are computed dynamically from
+// the price paid (YER) and region via `computeGemsForPrice` in pricing-formula.ts.
+// Do NOT reintroduce a PLAN_GEM_LIMITS constant — it silently decouples gem grants
+// from admin-configured prices. See pricing-formula.ts for the formula.
 
-// Static fallback ONLY — actual prices live in the `plan_prices` DB table and
-// are admin-editable from the dashboard. Used only if the DB read fails (network
-// blip / table missing pre-migration). Mirrors the seed in auto-migrate.ts.
-const BASE_PRICES_FALLBACK: Record<"north" | "south", Record<string, number>> = {
-  north: { bronze: 1000, silver: 2000, gold: 3000 },
-  south: { bronze: 2000, silver: 4000, gold: 6000 },
-};
+// Fallback plan prices — imported from pricing-formula.ts (single source of truth).
+// Used only when the DB read fails; live prices always come from `plan_prices` table.
+const BASE_PRICES_FALLBACK = PRICING_BASE_PRICES_FALLBACK as Record<"north" | "south", Record<string, number>>;
 
 const VALID_REGIONS = ["north", "south"] as const;
 const VALID_PLAN_TYPES = ["bronze", "silver", "gold"] as const;
 type PlanRegion = typeof VALID_REGIONS[number];
 type PlanType = typeof VALID_PLAN_TYPES[number];
+
+function isPlanType(value: string): value is PlanType {
+  return (VALID_PLAN_TYPES as readonly string[]).includes(value);
+}
 
 // In-memory cache of all plan prices, refreshed at most every PRICE_CACHE_TTL_MS.
 // Admin edits invalidate the cache immediately via `invalidatePlanPriceCache()`
@@ -117,8 +119,9 @@ const WELCOME_OFFER_PERCENT = 20;
 const WELCOME_OFFER_DURATION_MS = 24 * 60 * 60 * 1000;
 const WELCOME_OFFER_LABEL = "WELCOME20";
 
-// 14-day subscription window for plans approved here.
-const SUB_DURATION_DAYS = 14;
+// 14-day subscription window — imported from pricing-formula.ts so the
+// daily gem limit calculation uses the same constant.
+const SUB_DURATION_DAYS = PRICING_SUB_DURATION_DAYS;
 
 function getYemenDateLabel(): string {
   return new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -159,8 +162,17 @@ async function grantSubjectSubscriptionInTx(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   opts: GrantSubjectSubscriptionOpts,
 ): Promise<typeof userSubjectSubscriptionsTable.$inferSelect> {
-  const planGems = PLAN_GEM_LIMITS[opts.planType];
-  if (!planGems) throw new Error(`Unknown plan type: ${opts.planType}`);
+  // Validate plan type without relying on a hardcoded gem table.
+  if (!isPlanType(opts.planType)) {
+    throw new Error(`Unknown plan type: ${opts.planType}`);
+  }
+
+  // Gem totals are derived dynamically from the price paid, so admin changes
+  // to plan prices take effect on the next approved subscription automatically.
+  const { gemsGranted, dailyGemLimit } = computeGemsForPrice({
+    priceYer: opts.paidPriceYer,
+    region: opts.region,
+  });
 
   const expiresAt = new Date(Date.now() + SUB_DURATION_DAYS * 24 * 60 * 60 * 1000);
   const yemenDate = getYemenDateLabel();
@@ -178,14 +190,14 @@ async function grantSubjectSubscriptionInTx(
     subjectName: opts.subjectName,
     plan: opts.planType,
     messagesUsed: 0,
-    messagesLimit: planGems.total, // legacy column kept = total gems
+    messagesLimit: gemsGranted, // legacy column kept = total gems
     expiresAt,
     activationCode: opts.activationCode,
     subscriptionRequestId: opts.subscriptionRequestId,
     paidPriceYer: opts.paidPriceYer,
     region: opts.region,
-    gemsBalance: planGems.total,
-    gemsDailyLimit: planGems.daily,
+    gemsBalance: gemsGranted,
+    gemsDailyLimit: dailyGemLimit,
     gemsUsedToday: 0,
     gemsResetDate: yemenDate,
   }).returning();
@@ -209,11 +221,19 @@ async function grantSubjectSubscriptionInTx(
 async function grantSubjectSubscription(
   opts: GrantSubjectSubscriptionOpts,
 ): Promise<typeof userSubjectSubscriptionsTable.$inferSelect> {
-  const planGems = PLAN_GEM_LIMITS[opts.planType];
-  if (!planGems) throw new Error(`Unknown plan type: ${opts.planType}`);
+  if (!isPlanType(opts.planType)) {
+    throw new Error(`Unknown plan type: ${opts.planType}`);
+  }
   const source = opts.source ?? "admin_grant";
 
   const row = await db.transaction((tx) => grantSubjectSubscriptionInTx(tx, opts));
+
+  // Full accounting breakdown for the ledger — enables transparent auditing
+  // of how gems were calculated from the price paid.
+  const breakdown = computePricingBreakdown({
+    priceYer: opts.paidPriceYer,
+    region: opts.region,
+  });
 
   // Audit row — best-effort, errors are swallowed inside writeGemLedger so
   // a transient ledger failure cannot undo a paid subscription.
@@ -221,8 +241,8 @@ async function grantSubjectSubscription(
     userId: opts.userId,
     subjectSubId: row.id,
     subjectId: row.subjectId,
-    delta: planGems.total,
-    balanceAfter: planGems.total,
+    delta: breakdown.gemsGranted,
+    balanceAfter: breakdown.gemsGranted,
     reason: "grant",
     source,
     adminUserId: opts.adminUserId ?? null,
@@ -231,8 +251,13 @@ async function grantSubjectSubscription(
       planType: opts.planType,
       region: opts.region,
       paidPriceYer: opts.paidPriceYer,
+      gemsGranted: breakdown.gemsGranted,
       activationCode: opts.activationCode,
       subscriptionRequestId: opts.subscriptionRequestId,
+      yerToUsdRate: breakdown.yerToUsdRate,
+      priceUsd: breakdown.priceUsd,
+      platformShareUsd: breakdown.platformShareUsd,
+      studentShareUsd: breakdown.studentShareUsd,
     },
   });
 
@@ -897,8 +922,7 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     return;
   }
 
-  const planGems = PLAN_GEM_LIMITS[card.planType];
-  if (!planGems) {
+  if (!isPlanType(card.planType)) {
     res.status(400).json({ success: false, message: `نوع الباقة غير معروف: ${card.planType}` });
     return;
   }
@@ -995,9 +1019,9 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
     planType: card.planType,
     subjectId: sub.subjectId,
     subjectName: sub.subjectName,
-    gemsGranted: planGems.total,
+    gemsGranted: sub.gemsBalance,
     expiresAt: sub.expiresAt,
-    message: `تم تفعيل باقة ${card.planType} (${planGems.total}💎) لمادة "${sub.subjectName ?? sub.subjectId}" بنجاح!`,
+    message: `تم تفعيل باقة ${card.planType} (${sub.gemsBalance}💎) لمادة "${sub.subjectName ?? sub.subjectId}" بنجاح!`,
   });
 });
 
@@ -1070,8 +1094,7 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
   const code = generateActivationCode();
   const expiresAt = new Date(Date.now() + SUB_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
-  const planGems = PLAN_GEM_LIMITS[request.planType];
-  if (!planGems) {
+  if (!isPlanType(request.planType)) {
     res.status(400).json({ error: `نوع الباقة غير معروف في الطلب: ${request.planType}` });
     return;
   }
@@ -1181,7 +1204,7 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
         subjectName: request.subjectName ?? null,
         planType: request.planType,
         region: request.region,
-        paidPriceYer: request.finalPrice ?? 0,
+        paidPriceYer: request.finalPrice ?? request.basePrice ?? 0,
         activationCode: code,
         subscriptionRequestId: id,
       });
@@ -1191,13 +1214,19 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
 
     // Audit row — best-effort, AFTER the transaction commits so a
     // transient ledger failure cannot undo a paid subscription.
-    const grantedPlan = PLAN_GEM_LIMITS[request.planType];
+    // Use finalPrice (post-discount) if set; fall back to basePrice for legacy
+    // or pending rows where finalPrice was not yet computed.
+    const approvedPriceYer = request.finalPrice ?? request.basePrice ?? 0;
+    const approvalBreakdown = computePricingBreakdown({
+      priceYer: approvedPriceYer,
+      region: request.region,
+    });
     await writeGemLedger({
       userId: request.userId,
       subjectSubId: subscription.id,
       subjectId: subscription.subjectId,
-      delta: grantedPlan.total,
-      balanceAfter: grantedPlan.total,
+      delta: approvalBreakdown.gemsGranted,
+      balanceAfter: approvalBreakdown.gemsGranted,
       reason: "grant",
       source: "approve_request",
       adminUserId: userId,
@@ -1205,9 +1234,14 @@ router.post("/admin/subscription-requests/:id/approve", async (req, res): Promis
       metadata: {
         planType: request.planType,
         region: request.region,
-        paidPriceYer: request.finalPrice ?? 0,
+        paidPriceYer: approvedPriceYer,
+        gemsGranted: approvalBreakdown.gemsGranted,
         activationCode: code,
         subscriptionRequestId: id,
+        yerToUsdRate: approvalBreakdown.yerToUsdRate,
+        priceUsd: approvalBreakdown.priceUsd,
+        platformShareUsd: approvalBreakdown.platformShareUsd,
+        studentShareUsd: approvalBreakdown.studentShareUsd,
       },
     });
 
@@ -1346,7 +1380,7 @@ router.post("/admin/cards/create", async (req, res): Promise<void> => {
   }
 
   const { planType } = req.body;
-  if (!planType || !PLAN_GEM_LIMITS[planType]) {
+  if (!planType || !VALID_PLAN_TYPES.includes(planType)) {
     res.status(400).json({ error: "Invalid plan type" });
     return;
   }
@@ -2547,7 +2581,7 @@ router.post("/admin/users/:id/grant-gems", async (req, res): Promise<void> => {
   const region: "north" | "south" | null =
     rawRegion === "north" ? "north" : rawRegion === "south" ? "south" : null;
 
-  if (!PLAN_GEM_LIMITS[planType]) {
+  if (!isPlanType(planType)) {
     res.status(400).json({ error: "نوع الباقة غير صحيح" });
     return;
   }

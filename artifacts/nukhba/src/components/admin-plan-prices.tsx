@@ -13,6 +13,41 @@ import {
 type Region = "north" | "south";
 type PlanType = "bronze" | "silver" | "gold";
 
+// ── Pricing formula (mirrors pricing-formula.ts on the server) ─────────────
+// Keep these constants in sync with artifacts/api-server/src/lib/pricing-formula.ts
+const YER_TO_USD_RATES: Record<Region, number> = {
+  north: 1 / 600,
+  south: 1 / 2800,
+};
+const SUB_DURATION_DAYS = 14;
+
+type PricingPreview = {
+  gemsGranted: number;
+  dailyGemLimit: number;
+  aiCostCapUsd: number;
+  priceUsd: number;
+};
+
+function computePreview(priceYer: number, region: Region): PricingPreview {
+  const rate = YER_TO_USD_RATES[region];
+  const priceUsd = priceYer * rate;
+  const studentShareUsd = priceUsd / 2;
+  const platformShareUsd = priceUsd / 2;
+  const gemsGranted = Math.floor(studentShareUsd * 100 * 10);
+  const dailyGemLimit = Math.floor(gemsGranted / SUB_DURATION_DAYS);
+  return { gemsGranted, dailyGemLimit, aiCostCapUsd: platformShareUsd, priceUsd };
+}
+
+function fmtGems(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString("ar-EG");
+}
+
+function fmtUsd(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return `$${n.toFixed(3)}`;
+}
+
 type PriceRow = {
   region: Region;
   planType: PlanType;
@@ -337,6 +372,33 @@ export function AdminPlanPrices() {
                           </span>
                         )}
                       </div>
+
+                      {/* Live pricing preview — updates as admin types */}
+                      {(() => {
+                        const rawDraft = toEnglishDigits(draft).trim();
+                        const previewYer = /^\d+$/.test(rawDraft) ? Number(rawDraft) : NaN;
+                        if (!Number.isFinite(previewYer) || previewYer <= 0) return null;
+                        const pv = computePreview(previewYer, reg.key);
+                        return (
+                          <div className="mt-2 rounded-lg bg-white/5 border border-white/10 px-2.5 py-2 text-[11px] space-y-1">
+                            <div className="text-muted-foreground font-medium mb-1">معاينة الاشتراك بهذا السعر:</div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-muted-foreground flex items-center gap-1">
+                                <Gem className="w-3 h-3 inline-block" /> جواهر الطالب
+                              </span>
+                              <span className="font-bold text-foreground">{fmtGems(pv.gemsGranted)} 💎</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-muted-foreground">الحد اليومي</span>
+                              <span className="font-bold text-foreground">{fmtGems(pv.dailyGemLimit)} / يوم</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-muted-foreground">سقف تكلفة AI</span>
+                              <span className="font-bold text-foreground">{fmtUsd(pv.aiCostCapUsd)}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -372,6 +434,27 @@ export function AdminPlanPrices() {
                   </p>
                 </div>
               </div>
+
+              {confirmRow.newPrice != null && confirmRow.newPrice > 0 && (() => {
+                const pv = computePreview(confirmRow.newPrice, confirmRow.region);
+                return (
+                  <div className="rounded-lg bg-white/5 border border-white/10 p-3 text-xs space-y-1.5">
+                    <div className="text-muted-foreground font-medium mb-1">الاشتراكات الجديدة بهذا السعر ستحصل على:</div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">جواهر الطالب</span>
+                      <span className="font-bold">{fmtGems(pv.gemsGranted)} 💎</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">الحد اليومي</span>
+                      <span className="font-bold">{fmtGems(pv.dailyGemLimit)} / يوم</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">سقف تكلفة AI</span>
+                      <span className="font-bold">{fmtUsd(pv.aiCostCapUsd)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-200">
                 المشتركون الحاليون لن يتأثروا. التعديل يسري على طلبات الاشتراك الجديدة فقط.
