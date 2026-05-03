@@ -29,7 +29,7 @@ import {
   Copy, Plus, Filter, RefreshCw, AlertTriangle, Ban,
   Zap, Star, Gem, MessageCircle, Activity, Search,
   BookOpen, Gift, Trash2, Clock, CalendarDays, ChevronDown, Brain,
-  Percent, Eye, Power,
+  Percent, Eye, Power, Loader2,
 } from "lucide-react";
 import { AdminInsightsChat } from "@/components/admin-insights-chat";
 import { AdminDiscountCodes } from "@/components/admin-discount-codes";
@@ -92,6 +92,30 @@ type SubjectSub = {
   messagesLimit: number;
   messagesUsed: number;
   status?: string;
+};
+// Admin-side extensions of generated schemas. The server returns extra
+// fields (subject info, billing, gem-wallet rollups) that the OpenAPI doc
+// hasn't been updated for yet — typing them here keeps the JSX honest
+// without spraying `as any` casts.
+type AdminUserRow = import("@workspace/api-client-react").AdminUser & {
+  messagesLimit?: number | null;
+  activeSubjectSubscriptionsCount?: number | null;
+};
+type AdminRequestRow = import("@workspace/api-client-react").SubscriptionRequest & {
+  userName?: string | null;
+  userEmail?: string;
+  subjectId?: string | null;
+  subjectName?: string | null;
+  accountName?: string | null;
+  notes?: string | null;
+  adminNote?: string | null;
+  discountCode?: string | null;
+  discountPercent?: number | null;
+  basePrice?: number | null;
+  finalPrice?: number | null;
+};
+type AdminStatsRow = import("@workspace/api-client-react").AdminStats & {
+  recentlyExpiredSubscriptions?: number;
 };
 
 // Format a server-supplied date string for display. Returns the fallback when
@@ -321,21 +345,24 @@ export default function Admin() {
         .then(r => r.ok ? r.json() : null)
         .then(d => d && setSupportUnread(Number(d.count ?? 0)))
         .catch(err => console.error("[admin] unread-count refresh failed", err));
-    } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "تعذّر إرسال الرد",
-        description: err?.message ?? "حدث خطأ أثناء الإرسال — تحقق من الاتصال وأعد المحاولة.",
-      });
+    } catch (err) {
+      toastServerError(err, "تعذّر إرسال الرد");
     } finally {
       setIsSendingReply(false);
     }
   };
 
-  const { data: stats, refetch: refetchStats } = useGetAdminStats();
-  const { data: requests, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
-  const { data: cards, refetch: refetchCards } = useGetActivationCards();
-  const { data: allUsers, refetch: refetchUsers } = useGetAdminUsers();
+  const { data: statsRaw, refetch: refetchStats } = useGetAdminStats();
+  const { data: requestsRaw, isLoading: requestsLoading, isError: requestsError, error: requestsErrorObj, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
+  const { data: cardsRaw, isLoading: cardsLoading, isError: cardsError, error: cardsErrorObj, refetch: refetchCards } = useGetActivationCards();
+  const { data: allUsersRaw, isLoading: usersLoading, isError: usersError, error: usersErrorObj, refetch: refetchUsers } = useGetAdminUsers();
+  const stats = statsRaw as AdminStatsRow | undefined;
+  // Defensive coercion: the admin tabs used to assume these were arrays
+  // and `.filter`/`.map` would crash the whole page if the server ever
+  // returned an object error envelope or null. Always normalize first.
+  const requests: AdminRequestRow[] = Array.isArray(requestsRaw) ? (requestsRaw as AdminRequestRow[]) : [];
+  const cards = Array.isArray(cardsRaw) ? cardsRaw : [];
+  const allUsers: AdminUserRow[] = Array.isArray(allUsersRaw) ? (allUsersRaw as AdminUserRow[]) : [];
 
   const approveMutation = useApproveSubscriptionRequest();
   const rejectMutation = useRejectSubscriptionRequest();
@@ -364,12 +391,12 @@ export default function Admin() {
     gold: <Gem className="w-3.5 h-3.5 text-gold" />,
   };
 
-  const pendingCount = requests?.filter((r: any) => r.status === 'pending').length ?? 0;
-  const filteredRequests = filterStatus === 'all'
+  const pendingCount = requests.filter(r => r.status === 'pending').length;
+  const filteredRequests: AdminRequestRow[] = filterStatus === 'all'
     ? requests
-    : requests?.filter((r: any) => r.status === filterStatus);
+    : requests.filter(r => r.status === filterStatus);
 
-  const filteredUsers = allUsers?.filter((u: any) => {
+  const filteredUsers: AdminUserRow[] = allUsers.filter(u => {
     if (!userSearch.trim()) return true;
     const q = userSearch.toLowerCase();
     return (
@@ -393,35 +420,32 @@ export default function Admin() {
   //   - axios:              err.response.data.{error|message}
   // Falls back to err.message only as a last resort because ApiError prefixes
   // it with "HTTP <status> <statusText>:" which buries the Arabic reason.
-  const extractServerError = (err: any): string | null => {
-    const candidates: any[] = [err?.data, err?.response?.data];
+  const extractServerError = (err: unknown): string | null => {
+    const e = err as { data?: { error?: unknown; message?: unknown }; response?: { data?: { error?: unknown; message?: unknown } }; message?: unknown } | null | undefined;
+    const candidates = [e?.data, e?.response?.data];
     for (const data of candidates) {
-      if (typeof data?.error === "string" && data.error.trim()) return data.error.trim();
-      if (typeof data?.message === "string" && data.message.trim()) return data.message.trim();
+      const errVal = data?.error;
+      if (typeof errVal === "string" && errVal.trim()) return errVal.trim();
+      const msgVal = data?.message;
+      if (typeof msgVal === "string" && msgVal.trim()) return msgVal.trim();
     }
-    if (typeof err?.message === "string" && err.message.trim() && err.message !== "Network Error") {
-      // Strip the "HTTP <status> <text>:" prefix that customFetch adds, so
-      // the admin sees the clean Arabic reason without the boilerplate.
-      const cleaned = err.message.replace(/^HTTP\s+\d+\s+[^:]+:\s*/i, "").trim();
-      return cleaned || err.message;
+    const m = e?.message;
+    if (typeof m === "string" && m.trim() && m !== "Network Error") {
+      const cleaned = m.replace(/^HTTP\s+\d+\s+[^:]+:\s*/i, "").trim();
+      return cleaned || m;
     }
     return null;
   };
 
-  const handleApprove = async (req: any) => {
+  const handleApprove = async (req: AdminRequestRow) => {
     try {
       await approveMutation.mutateAsync({ id: req.id });
       toast({ title: "تم تفعيل الاشتراك مباشرة", className: "bg-emerald-600 text-white border-none" });
-      setApprovedUser({ planType: req.planType, userName: req.userName || req.userEmail });
+      setApprovedUser({ planType: req.planType, userName: req.userName ?? req.userEmail ?? "—" });
       invalidateAll();
       refetchCards();
-    } catch (err: any) {
-      const serverMsg = extractServerError(err);
-      toast({
-        variant: "destructive",
-        title: "حدث خطأ أثناء القبول",
-        description: serverMsg ?? "تعذّر إكمال العملية. تحقق من الاتصال أو حاول مرة أخرى.",
-      });
+    } catch (err) {
+      toastServerError(err, "حدث خطأ أثناء القبول");
     }
   };
 
@@ -430,19 +454,25 @@ export default function Admin() {
       await rejectMutation.mutateAsync({ id });
       toast({ title: "تم رفض الطلب" });
       invalidateAll();
-    } catch (err: any) {
-      const serverMsg = extractServerError(err);
-      toast({
-        variant: "destructive",
-        title: "حدث خطأ",
-        description: serverMsg ?? "تعذّر إكمال العملية.",
-      });
+    } catch (err) {
+      toastServerError(err, "تعذّر رفض الطلب");
     }
   };
 
-  const handleIncompleteOpen = (req: any) => {
-    setIncompleteTarget({ id: req.id, userName: req.userName || req.userEmail });
+  const handleIncompleteOpen = (req: AdminRequestRow) => {
+    setIncompleteTarget({ id: req.id, userName: req.userName ?? req.userEmail ?? "—" });
     setIncompleteNote("");
+  };
+
+  // One toast helper so every failed admin action surfaces the server's
+  // Arabic reason (via extractServerError) instead of a generic message.
+  const toastServerError = (err: unknown, title: string) => {
+    const msg = extractServerError(err) ?? (err as { message?: string } | null)?.message ?? null;
+    toast({
+      variant: "destructive",
+      title,
+      description: msg ?? "تعذّر إكمال العملية. تحقق من الاتصال وأعد المحاولة.",
+    });
   };
 
   const handleIncompleteSubmit = async () => {
@@ -456,8 +486,8 @@ export default function Admin() {
       setIncompleteTarget(null);
       setIncompleteNote("");
       invalidateAll();
-    } catch {
-      toast({ variant: "destructive", title: "حدث خطأ" });
+    } catch (err) {
+      toastServerError(err, "تعذّر إرسال الإشعار");
     }
   };
 
@@ -470,11 +500,10 @@ export default function Admin() {
       setCancelTarget(null);
       queryClient.invalidateQueries({ queryKey: getGetAdminUsersQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
-      // Cancel also wipes per-subject subs server-side; clear local cache too
       setUserSubjectSubs(prev => ({ ...prev, [cancelledUserId]: [] }));
-      setAllSubjectSubs(prev => prev?.filter((s: any) => s.userId !== cancelledUserId) ?? null);
-    } catch {
-      toast({ variant: "destructive", title: "حدث خطأ أثناء الإلغاء" });
+      setAllSubjectSubs(prev => prev?.filter(s => s.userId !== cancelledUserId) ?? null);
+    } catch (err) {
+      toastServerError(err, "تعذّر إلغاء الاشتراك");
     }
   };
 
@@ -487,12 +516,12 @@ export default function Admin() {
         credentials: 'include',
         body: JSON.stringify({ planType: newCardPlan, subjectId: newCardSubjectId, subjectName: newCardSubjectName }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${res.status}`);
       setCreatedCard({ code: data.activationCode, planType: data.planType });
       refetchCards();
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر إنشاء البطاقة");
     } finally {
       setIsCreatingCard(false);
     }
@@ -508,16 +537,55 @@ export default function Admin() {
     toast({ title: "تم التحديث", className: "bg-black border-white/10 text-white" });
   };
 
+  // Inline banner for the per-tab TanStack queries. Renders nothing on
+  // success so existing empty-states still show; surfaces a spinner while
+  // loading and a red retry banner on failure (the tab used to silently
+  // render "لا يوجد..." which masked outages).
+  const renderQueryStatus = (opts: {
+    isLoading: boolean;
+    isError: boolean;
+    error?: unknown;
+    onRetry: () => void;
+    label: string;
+  }) => {
+    if (opts.isLoading) {
+      return (
+        <div className="glass rounded-2xl border-white/5 p-4 mb-3 flex items-center gap-3 text-muted-foreground text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          جاري تحميل {opts.label}...
+        </div>
+      );
+    }
+    if (opts.isError) {
+      const msg = extractServerError(opts.error) ?? (opts.error as { message?: string } | undefined)?.message ?? "تعذّر التحميل";
+      return (
+        <div className="glass rounded-2xl border border-red-500/30 bg-red-500/5 p-4 mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-red-200 text-sm">
+            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <span>فشل تحميل {opts.label}: {msg}</span>
+          </div>
+          <Button size="sm" variant="outline" className="border-red-400/40 text-red-200 hover:bg-red-500/10" onClick={opts.onRetry}>
+            إعادة المحاولة
+          </Button>
+        </div>
+      );
+    }
+    return null;
+  };
+
   const loadUserSubjectSubs = async (userId: number) => {
     if (userSubjectSubs[userId]) return;
     try {
       const r = await fetch(`/api/admin/subject-subscriptions/${userId}`, { credentials: "include" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error ?? body?.message ?? `HTTP ${r.status}`);
+      }
       const data = await r.json();
       setUserSubjectSubs(prev => ({ ...prev, [userId]: Array.isArray(data) ? data : [] }));
-    } catch {
+    } catch (err) {
       setUserSubjectSubs(prev => ({ ...prev, [userId]: [] }));
-      toast({ variant: "destructive", title: "تعذّر تحميل اشتراكات المستخدم" });
+      toastServerError(err, "تعذّر تحميل اشتراكات المستخدم");
     }
   };
 
@@ -545,16 +613,13 @@ export default function Admin() {
           region: grantRegion,
         }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${r.status}`);
       toast({ title: "تم منح الاشتراك بنجاح", className: "bg-emerald-600 text-white border-none" });
       const targetUserId = grantTarget.userId;
       setGrantTarget(null);
       setGrantSubjectId("");
       setGrantSubjectName("");
-      // Force refetch user's subject subs. A failure here doesn't undo the
-      // grant — surface it as a soft warning so the admin knows the inline
-      // list under the user row may show stale data until they reopen it.
       try {
         const r2 = await fetch(`/api/admin/subject-subscriptions/${targetUserId}`, { credentials: "include" });
         if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
@@ -562,16 +627,12 @@ export default function Admin() {
         setUserSubjectSubs(prev => ({ ...prev, [targetUserId]: Array.isArray(data) ? data as SubjectSub[] : [] }));
       } catch (refreshErr) {
         console.error("[admin] post-grant refetch failed", refreshErr);
-        toast({
-          title: "تم المنح ولكن تعذّر تحديث القائمة",
-          description: "أعد فتح اشتراكات المستخدم لرؤية الاشتراك الجديد.",
-        });
+        toastServerError(refreshErr, "تم المنح ولكن تعذّر تحديث القائمة");
       }
-      // Keep stats and the global subscriptions tab in sync
       queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
       if (allSubjectSubs !== null) loadAllSubjectSubs();
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر منح الاشتراك");
     } finally {
       setIsGranting(false);
     }
@@ -583,16 +644,19 @@ export default function Admin() {
         method: "DELETE",
         credentials: "include",
       });
-      if (!r.ok) throw new Error((await r.json()).error);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error ?? body?.message ?? `HTTP ${r.status}`);
+      }
       toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
       setUserSubjectSubs(prev => ({
         ...prev,
         [userId]: (prev[userId] ?? []).filter(s => s.id !== subId),
       }));
-      setAllSubjectSubs(prev => prev?.filter((s: any) => s.id !== subId) ?? null);
+      setAllSubjectSubs(prev => prev?.filter(s => s.id !== subId) ?? null);
       queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر إلغاء الاشتراك");
     }
   };
 
@@ -615,17 +679,11 @@ export default function Admin() {
       }
       const data = await r.json();
       setAllSubjectSubs(Array.isArray(data) ? data as SubjectSub[] : []);
-    } catch (err: any) {
-      // Show a real error state instead of the misleading empty rows the
-      // tab used to render on a fetch failure.
-      const msg = err?.message ?? "تعذّر تحميل اشتراكات المواد.";
+    } catch (err) {
+      const msg = extractServerError(err) ?? (err as { message?: string } | null)?.message ?? "تعذّر تحميل اشتراكات المواد.";
       setAllSubsError(msg);
       setAllSubjectSubs(null);
-      toast({
-        variant: "destructive",
-        title: "فشل تحميل اشتراكات المواد",
-        description: msg,
-      });
+      toastServerError(err, "فشل تحميل اشتراكات المواد");
     } finally {
       setIsLoadingAllSubs(false);
     }
@@ -641,13 +699,13 @@ export default function Admin() {
         credentials: "include",
         body: JSON.stringify({ days: extendDays }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${r.status}`);
       toast({ title: `تم تمديد الاشتراك ${extendDays} يوماً`, className: "bg-emerald-600 text-white border-none" });
       setExtendDialog(null);
       loadAllSubjectSubs();
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر تمديد الاشتراك");
     } finally {
       setIsExtending(false);
     }
@@ -677,8 +735,8 @@ export default function Admin() {
         credentials: "include",
         body: JSON.stringify({ delta, reason }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "فشلت العملية");
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error ?? data?.message ?? "فشلت العملية");
       toast({
         title: delta > 0 ? `تم منح ${delta.toLocaleString("ar-EG")} جوهرة` : `تم سحب ${Math.abs(delta).toLocaleString("ar-EG")} جوهرة`,
         className: "bg-emerald-600 text-white border-none",
@@ -686,10 +744,9 @@ export default function Admin() {
       setGemAdjustDialog(null);
       setGemAdjustDelta("");
       setGemAdjustReason("");
-      // Refresh affected views.
       if (allSubjectSubs !== null) loadAllSubjectSubs();
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر تعديل الجواهر");
     } finally {
       setIsGemAdjusting(false);
     }
@@ -701,11 +758,14 @@ export default function Admin() {
         method: "DELETE",
         credentials: "include",
       });
-      if (!r.ok) throw new Error((await r.json()).error);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error ?? body?.message ?? `HTTP ${r.status}`);
+      }
       toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
       setAllSubjectSubs(prev => prev ? prev.filter(s => s.id !== subId) : prev);
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+    } catch (err) {
+      toastServerError(err, "تعذّر إلغاء الاشتراك");
     }
   };
 
@@ -792,7 +852,7 @@ export default function Admin() {
           </div>
         </div>
 
-        {(((stats as any)?.recentlyExpiredSubscriptions ?? 0) > 0) && (
+        {((stats?.recentlyExpiredSubscriptions ?? 0) > 0) && (
           <div className="mb-6 rounded-2xl border-2 border-red-500/30 bg-red-500/5 p-4 flex items-center gap-4">
             <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0">
               <AlertTriangle className="w-5 h-5 text-red-400" />
@@ -803,7 +863,7 @@ export default function Admin() {
                   not yet present in the auto-generated AdminStats type. Read
                   through `as any` so the dashboard reflects the live value
                   without waiting for a full client regen. */}
-              <p className="text-xs text-red-200/60">{(stats as any)?.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
+              <p className="text-xs text-red-200/60">{stats?.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
             </div>
           </div>
         )}
@@ -955,6 +1015,7 @@ export default function Admin() {
               ))}
             </div>
 
+            {renderQueryStatus({ isLoading: requestsLoading, isError: requestsError, error: requestsErrorObj, onRetry: () => refetchRequests(), label: "الطلبات" })}
             <div className="glass rounded-3xl border-white/5 overflow-hidden">
               <Table>
                 <TableHeader className="bg-black/40">
@@ -977,7 +1038,7 @@ export default function Admin() {
                         {filterStatus === 'pending' ? 'لا توجد طلبات معلقة 🎉' : 'لا توجد طلبات'}
                       </TableCell>
                     </TableRow>
-                  ) : filteredRequests.map((req: any) => (
+                  ) : filteredRequests.map((req) => (
                     <TableRow
                       key={req.id}
                       className={`border-white/5 transition-colors ${
@@ -994,16 +1055,16 @@ export default function Admin() {
                         <Badge variant="outline" className="border-gold text-gold text-xs">
                           {planLabels[req.planType] || req.planType}
                         </Badge>
-                        {(req as any).discountCode && (
+                        {req.discountCode && (
                           <div className="mt-1 flex items-center gap-1 flex-wrap">
                             <Badge variant="outline" className="border-purple-500/40 text-purple-300 text-[10px] font-mono">
-                              {(req as any).discountCode} −{(req as any).discountPercent}%
+                              {req.discountCode} −{req.discountPercent}%
                             </Badge>
-                            {(req as any).finalPrice != null && (req as any).basePrice != null && (
+                            {req.finalPrice != null && req.basePrice != null && (
                               <span className="text-[10px] text-emerald-400">
-                                {Number((req as any).finalPrice).toLocaleString("ar-EG")}
+                                {Number(req.finalPrice).toLocaleString("ar-EG")}
                                 <span className="text-muted-foreground line-through mr-1">
-                                  {Number((req as any).basePrice).toLocaleString("ar-EG")}
+                                  {Number(req.basePrice).toLocaleString("ar-EG")}
                                 </span>
                               </span>
                             )}
@@ -1011,15 +1072,15 @@ export default function Admin() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {(req as any).subjectName ? (
+                        {req.subjectName ? (
                           <div className="flex items-center gap-1.5">
                             <BookOpen className="w-3.5 h-3.5 text-gold shrink-0" />
-                            <span className="text-xs font-medium">{(req as any).subjectName}</span>
+                            <span className="text-xs font-medium">{req.subjectName}</span>
                           </div>
-                        ) : (req as any).subjectId && (req as any).subjectId !== 'all' ? (
+                        ) : req.subjectId && req.subjectId !== 'all' ? (
                           <div className="flex items-center gap-1.5">
                             <BookOpen className="w-3.5 h-3.5 text-gold shrink-0" />
-                            <code className="text-xs font-mono text-muted-foreground">{(req as any).subjectId}</code>
+                            <code className="text-xs font-mono text-muted-foreground">{req.subjectId}</code>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1 text-yellow-400">
@@ -1032,11 +1093,11 @@ export default function Admin() {
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <span className="text-sm font-medium text-foreground">
-                            {(req as any).accountName || '—'}
+                            {req.accountName || '—'}
                           </span>
-                          {(req as any).accountName && (
+                          {req.accountName && (
                             <button
-                              onClick={() => copyCode((req as any).accountName)}
+                              onClick={() => copyCode(req.accountName)}
                               className="text-muted-foreground hover:text-gold transition-colors"
                             >
                               <Copy className="w-3 h-3" />
@@ -1046,9 +1107,9 @@ export default function Admin() {
                       </TableCell>
                       <TableCell>
                         <div className="text-xs text-muted-foreground max-w-[140px]">
-                          {(req as any).adminNote
-                            ? <span className="text-orange-400 font-medium">{(req as any).adminNote}</span>
-                            : (req as any).notes || '—'}
+                          {req.adminNote
+                            ? <span className="text-orange-400 font-medium">{req.adminNote}</span>
+                            : req.notes || '—'}
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
@@ -1120,6 +1181,7 @@ export default function Admin() {
               </div>
             </div>
 
+            {renderQueryStatus({ isLoading: usersLoading, isError: usersError, error: usersErrorObj, onRetry: () => refetchUsers(), label: "المستخدمين" })}
             <div className="glass rounded-3xl border-white/5 overflow-hidden">
               <Table>
                 <TableHeader className="bg-black/40">
@@ -1144,7 +1206,7 @@ export default function Admin() {
                         {userSearch ? 'لا توجد نتائج' : 'لا يوجد مستخدمون'}
                       </TableCell>
                     </TableRow>
-                  ) : filteredUsers.map((u: any) => {
+                  ) : filteredUsers.map((u) => {
                     return (
                     <React.Fragment key={u.id}>
                     <TableRow className="border-white/5 hover:bg-white/3">
@@ -1507,6 +1569,7 @@ export default function Admin() {
               </Button>
             </div>
 
+            {renderQueryStatus({ isLoading: cardsLoading, isError: cardsError, error: cardsErrorObj, onRetry: () => refetchCards(), label: "البطاقات" })}
             <div className="glass rounded-3xl border-white/5 overflow-hidden">
               <Table>
                 <TableHeader className="bg-black/40">
@@ -1521,7 +1584,7 @@ export default function Admin() {
                 <TableBody>
                   {!cards?.length ? (
                     <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">لا توجد بطاقات</TableCell></TableRow>
-                  ) : cards.map((card: any) => (
+                  ) : cards.map((card) => (
                     <TableRow key={card.id} className="border-white/5">
                       <TableCell>
                         <div className="flex items-center gap-2">
