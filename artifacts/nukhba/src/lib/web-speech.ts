@@ -53,6 +53,9 @@ export interface SpeakOptions {
   rate?: number;
   pitch?: number;
   voice?: string;
+  /** Fired once audio playback actually begins (after fetch + decode). */
+  onPlay?: () => void;
+  /** Fired when playback finishes naturally OR when stopSpeaking is called. */
   onEnd?: () => void;
   onError?: (msg: string) => void;
 }
@@ -74,7 +77,7 @@ export function speakText(text: string, opts?: SpeakOptions): boolean {
   const ctrl = new AbortController();
   activeAbort = ctrl;
 
-  fetch("/api/voice/tts", {
+  fetch("/api/ai/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -104,8 +107,8 @@ export function speakText(text: string, opts?: SpeakOptions): boolean {
       };
       try {
         await audio.play();
+        opts?.onPlay?.();
       } catch (playErr: any) {
-        // Autoplay blocked or other playback issue.
         URL.revokeObjectURL(url);
         if (activeAudio === audio) activeAudio = null;
         opts?.onError?.(playErr?.message || "تعذّر تشغيل الصوت");
@@ -114,10 +117,12 @@ export function speakText(text: string, opts?: SpeakOptions): boolean {
     })
     .catch((err) => {
       if (ctrl.signal.aborted) return;
-      // Network or server failure → degrade to browser TTS so the user
-      // still hears something, even if it's the lower-quality voice.
+      // Network/server failure → degrade to browser TTS so the user
+      // still hears something.
       const fallback = fallbackToBrowserTts(text, { rate: opts?.rate, pitch: opts?.pitch });
-      if (!fallback) {
+      if (fallback) {
+        opts?.onPlay?.();
+      } else {
         opts?.onError?.(err?.message || "فشل تجهيز الصوت");
         notifyEnded();
       }
@@ -324,7 +329,7 @@ export function startRecognition(opts: RecognitionOptions): RecognitionHandle | 
           : "webm";
         fd.append("audio", blob, `recording.${ext}`);
 
-        fetch("/api/voice/stt", { method: "POST", body: fd, credentials: "include" })
+        fetch("/api/ai/stt", { method: "POST", body: fd, credentials: "include" })
           .then(async (resp) => {
             if (!resp.ok) {
               let detail = "";

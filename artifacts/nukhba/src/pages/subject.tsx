@@ -2030,7 +2030,11 @@ const MessageToolbar = memo(function MessageToolbar({
 }) {
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  // Three-state TTS lifecycle: "idle" → "loading" (fetch in flight) →
+  // "playing" → back to "idle". Modeled explicitly because the cloud
+  // round-trip introduces a visible gap between click and audio start
+  // that the old polling-based flag conflated with "not speaking".
+  const [ttsState, setTtsState] = useState<"idle" | "loading" | "playing">("idle");
   // Ratings are persisted to localStorage under `nukhba.feedback.<key>` so
   // a thumbs-up/down survives reload, remount, and tab close. The backend
   // POST is best-effort/admin-side; the local cache is what the UI shows.
@@ -2045,7 +2049,7 @@ const MessageToolbar = memo(function MessageToolbar({
   const ttsAvailable = isSpeechSynthesisSupported();
 
   // Stop any in-flight TTS if the message unmounts (e.g. user navigates).
-  useEffect(() => () => { if (speaking) stopSpeaking(); }, [speaking]);
+  useEffect(() => () => { if (ttsState !== "idle") stopSpeaking(); }, [ttsState]);
 
   const handleCopy = useCallback(async () => {
     const txt = plainTextFromHtmlContent(content);
@@ -2076,20 +2080,22 @@ const MessageToolbar = memo(function MessageToolbar({
 
   const handleTTS = useCallback(() => {
     if (!ttsAvailable) return;
-    if (speaking || isSpeaking()) {
+    // Tap while loading or playing → cancel everything (also aborts the
+    // in-flight fetch and any other message's playback, so the toolbars
+    // can never both show "playing" simultaneously).
+    if (ttsState !== "idle") {
       stopSpeaking();
-      setSpeaking(false);
+      setTtsState("idle");
       return;
     }
-    const ok = speakText(plainTextFromHtmlContent(content));
-    setSpeaking(ok);
-    if (ok && typeof window !== "undefined") {
-      // Watchdog: speechSynthesis doesn't always fire `onend` reliably.
-      const id = setInterval(() => {
-        if (!isSpeaking()) { setSpeaking(false); clearInterval(id); }
-      }, 600);
-    }
-  }, [content, speaking, ttsAvailable]);
+    setTtsState("loading");
+    const started = speakText(plainTextFromHtmlContent(content), {
+      onPlay: () => setTtsState("playing"),
+      onEnd: () => setTtsState("idle"),
+      onError: () => setTtsState("idle"),
+    });
+    if (!started) setTtsState("idle");
+  }, [content, ttsState, ttsAvailable]);
 
   const handleRateClick = useCallback((value: "up" | "down") => {
     setRated((prev) => {
@@ -2120,13 +2126,21 @@ const MessageToolbar = memo(function MessageToolbar({
       {ttsAvailable && (
         <button
           type="button"
-          className={`msg-toolbar-btn ${speaking ? "msg-toolbar-btn-active" : ""}`}
-          title={speaking ? "إيقاف القراءة" : "اقرأها بصوت عربي"}
-          aria-label={speaking ? "إيقاف القراءة" : "اقرأها بصوت عربي"}
+          className={`msg-toolbar-btn ${ttsState !== "idle" ? "msg-toolbar-btn-active" : ""}`}
+          title={
+            ttsState === "loading" ? "جارٍ تجهيز الصوت..."
+            : ttsState === "playing" ? "إيقاف القراءة"
+            : "اقرأها بصوت عربي"
+          }
+          aria-label={ttsState === "playing" ? "إيقاف القراءة" : "اقرأها بصوت عربي"}
           onClick={handleTTS}
         >
-          {speaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-          <span className="msg-toolbar-label">{speaking ? "أوقف" : "اقرأها"}</span>
+          {ttsState === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : ttsState === "playing" ? <VolumeX className="w-3.5 h-3.5" />
+            : <Volume2 className="w-3.5 h-3.5" />}
+          <span className="msg-toolbar-label">
+            {ttsState === "loading" ? "جارٍ التجهيز..." : ttsState === "playing" ? "أوقف" : "اقرأها"}
+          </span>
         </button>
       )}
       <button
@@ -2766,19 +2780,11 @@ function SubjectPathChat({
   // Inline image preview (data URL). Sent once via sendPayloadOverride; persisted history holds a short placeholder.
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Speech-recognition control: a non-null handle means we're actively
-  // recording; calling .stop() ends the session and triggers `onend`.
-  // The handle now exposes both `stop()` (= upload + transcribe) and
-  // `cancel()` (= drop the recording, used on unmount) since STT moved
-  // from the synchronous Web Speech API to the async cloud transcription
-  // pipeline (`/api/voice/stt`). See `lib/web-speech.ts` for details.
+  // Mic handle: stop() = upload + transcribe, cancel() = drop without
+  // sending. See `lib/web-speech.ts`.
   const [recordingHandle, setRecordingHandle] = useState<{ stop: () => void; cancel: () => void } | null>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
-  // Async UX state for the cloud STT round-trip. While `recordingHandle`
-  // is non-null the mic is open; once we call `.stop()` the handle clears
-  // but the audio is still being uploaded — we surface that via
-  // `isTranscribing` so the user sees a "جارٍ التفريغ..." hint instead of
-  // a confusingly-empty mic button.
+  // True while the audio is being uploaded/transcribed (after stop()).
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   // Session control state.
@@ -4012,16 +4018,10 @@ function SubjectPathChat({
     }
   }, [exportingPdf, subject.name]);
 
-  // ── Voice input (cloud STT via /api/voice/stt) ─────────────────────────
-  // The mic button is a 3-state toggle:
-  //   • idle      → press to start recording
-  //   • recording → press to stop & upload (or wait 60 s auto-stop)
-  //   • uploading → disabled until transcription returns or fails
+  // 3-state mic toggle: idle → recording → uploading (transcribing) → idle.
   const handleToggleMic = useCallback(() => {
-    if (isTranscribing) return; // wait for the round-trip to finish
+    if (isTranscribing) return;
     if (recordingHandle) {
-      // .stop() will trigger the upload; the handle clears here so the
-      // button immediately shows the "uploading" state.
       recordingHandle.stop();
       setRecordingHandle(null);
       setIsTranscribing(true);
@@ -4040,12 +4040,7 @@ function SubjectPathChat({
           return next;
         });
       },
-      onUploading: () => {
-        // Auto-stop (60 s timer) clears recordingHandle indirectly via
-        // onEnd; this hook ensures the "uploading" indicator appears even
-        // when the user didn't manually press stop.
-        setIsTranscribing(true);
-      },
+      onUploading: () => setIsTranscribing(true),
       onError: (err) => {
         setRecordingError(err);
         setRecordingHandle(null);
@@ -4060,9 +4055,7 @@ function SubjectPathChat({
     if (handle) setRecordingHandle(handle);
   }, [recordingHandle, isTranscribing]);
 
-  // Stop recognition (and any in-flight TTS) if the component unmounts.
-  // Use `cancel()` here instead of `stop()` so we don't trigger an upload
-  // for audio nobody will see the result of.
+  // Drop the recording on unmount — don't trigger an upload nobody'll see.
   useEffect(() => () => { recordingHandle?.cancel(); stopSpeaking(); }, [recordingHandle]);
 
   // ── File attach (image OR text, plus paste) ──────────────────────────────
@@ -4632,14 +4625,9 @@ function SubjectPathChat({
         IMPORTANT: this does NOT call /ai/lab/build-env directly. It triggers
         the teacher-orchestrated intake interview, which emits
         [[LAB_INTAKE_DONE]] only after all 5 questions complete. */}
-    {/* "ابنِ بيئة تطبيقية" + "محاكاة هجمة" used to render here as two
-        big floating bottom-right buttons (bottom-24/bottom-40 + shadow-2xl
-        + bottom-aligned over the chat). On phones they covered the last
-        message of the conversation and forced students to scroll past
-        them on every turn. They moved into the small chip rail directly
-        above the input area (search the file for `quick-launch-chip`)
-        where they sit alongside the existing topic-suggestion chips and
-        no longer obscure any chat content. */}
+    {/* "ابنِ بيئة تطبيقية" + "محاكاة هجمة" moved into the input-area
+        chip rail (search for `quick-launch-chip`) so they no longer
+        cover the last chat message on small screens. */}
     {/* Attack Simulation: re-open button when scenario exists but panel closed. */}
     {showReopenAttack && (
       <button
@@ -4940,14 +4928,9 @@ function SubjectPathChat({
             )}
           </div>
           <div className="shrink-0 flex items-center gap-1">
-            {/* "End session & save summary" used to live inside the dropdown
-                below — students complained it was buried among 8+ other
-                items even though it's the single most important action of
-                a tutoring session. Promoted here as a primary header
-                button (always visible, never collapsed even on phones).
-                Disabled until there are at least 2 messages so a freshly-
-                opened empty session can't accidentally write an empty
-                summary. */}
+            {/* "End session & save summary" — promoted out of the
+                dropdown so it's reachable in one tap. Hidden until the
+                session has at least one teacher reply to summarize. */}
             {messages.length >= 2 && (
               <button
                 type="button"
@@ -5062,10 +5045,6 @@ function SubjectPathChat({
                   {shareCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4 text-white/60" />}
                   <span>{shareCopied ? "تم نسخ الرابط ✓" : "نسخ رابط المشاركة"}</span>
                 </DropdownMenuItem>
-                {/* "إنهاء الجلسة وحفظ الملخص" was previously listed here.
-                    Promoted out of this dropdown to a primary header
-                    button on its left to make it discoverable in one tap
-                    (May 2026 — see commit history). */}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -5455,16 +5434,8 @@ function SubjectPathChat({
 
       {/* Input area */}
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
-        {/* Quick-launch chips for "Build a lab env" and "Attack simulation".
-            These two actions used to be huge floating bottom-right buttons
-            (~56 px tall + 2-line shadow + always on top of the chat) that
-            covered the last AI message on every phone. They migrated here
-            into a discreet centred chip rail, kept their distinctive
-            colours (amber for lab, red for attack) so they're still
-            recognisable, but are now flat ~28 px chips that sit above the
-            input with the rest of the suggestion UI and obscure no chat
-            content. The render gates (no panel open, no env in flight,
-            etc.) are unchanged from the floating-button version. */}
+        {/* Quick-launch chips for "Build a lab env" + "Attack simulation",
+            replacing the previous bottom-right floating buttons. */}
         {chatVisible && !isCreatingEnv && !compiledSpec && !isCompilingSpec && (
           (onStartLabEnvIntent && !pendingDynamicEnv) ||
           (attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario)

@@ -1,23 +1,8 @@
-// Dedicated OpenAI client for the audio endpoints (`tts` + `stt`).
-//
-// The shared `@workspace/integrations-openai-ai-server` client points at
-// OpenRouter (`AI_INTEGRATIONS_OPENAI_BASE_URL` defaults to OpenRouter),
-// and OpenRouter does NOT proxy the `/audio/speech` and
-// `/audio/transcriptions` endpoints — they are OpenAI-direct only. We
-// therefore construct a separate client that targets `api.openai.com`
-// using a plain OpenAI API key.
-//
-// Resolution order for the key:
-//   1. OPENAI_API_KEY       — direct env override / Replit secret
-//   2. AI_INTEGRATIONS_OPENAI_API_KEY — set by the Replit OpenAI integration
-//
-// The client is constructed lazily so the api-server still boots in dev
-// environments that don't have either key configured (the route handlers
-// fall back to a friendly 503 in that case).
-
-// `OpenAI` is re-exported from the workspace integration package so this
-// file doesn't need its own dependency on the `openai` npm package — the
-// integration package owns the SDK version pin for the whole monorepo.
+// Dedicated OpenAI client for /audio/speech + /audio/transcriptions.
+// OpenRouter does not proxy these endpoints, so we target api.openai.com
+// directly using OPENAI_API_KEY (or the Replit integration's
+// AI_INTEGRATIONS_OPENAI_API_KEY). Lazy: api-server still boots without
+// a key — the routes return a friendly 503 in that case.
 import { OpenAI } from "@workspace/integrations-openai-ai-server";
 
 type OpenAIClient = InstanceType<typeof OpenAI>;
