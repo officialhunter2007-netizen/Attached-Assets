@@ -2198,10 +2198,13 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
         eq(userSubjectFirstLessonsTable.subjectId, subjectId),
       ));
   }
+  // Per-subject view: any non-paid path (no active per-subject sub, no
+  // legacy global wallet) is treated as the free-lesson display path —
+  // even when the row is completed/exhausted. That keeps the badge
+  // visible as a red "اشترك للمتابعة" CTA after the 80-gem cap is hit
+  // (settleAiCharge flips `completed = true` at that boundary).
   const onFirstLessonGrace = subjectId
-    ? (access.source !== "per-subject" &&
-       access.source !== "legacy" &&
-       (!perSubjectFirstLesson || !perSubjectFirstLesson.completed))
+    ? (access.source !== "per-subject" && access.source !== "legacy")
     : (access.source === "first-lesson");
 
   if (access.source === "per-subject" && subjectId) {

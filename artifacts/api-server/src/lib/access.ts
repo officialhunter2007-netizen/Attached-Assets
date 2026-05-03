@@ -65,6 +65,11 @@ export async function getAccessForUser(opts: {
 
   const now = new Date();
 
+  // Per-subject first-lesson eligibility computed up-front so the global
+  // legacy fallthrough below can honor it too (a brand-new subject with no
+  // per-subject sub row should still resolve as `source: "first-lesson"`
+  // instead of falling back to `isFirstLessonGlobal`).
+  let perSubjectIsFirstLesson = false;
   if (subjectId) {
     const [firstLesson] = await db
       .select()
@@ -76,13 +81,17 @@ export async function getAccessForUser(opts: {
         ),
       );
 
-    // First-lesson grace requires both the global flag and a non-completed
-    // per-subject row, so the free lesson can only be consumed once.
+    // Per-subject first-lesson grace: each new تخصص/مهارة gets a fresh
+    // 80-gem free trial. We deliberately do NOT gate on the global
+    // `users.firstLessonComplete` flag here — that flag is a legacy
+    // one-shot from the pre-per-subject era; the authoritative source
+    // of "did this user already burn the free trial on this subject?"
+    // is the per-subject row itself.
     const isFirstLesson =
-      !user.firstLessonComplete &&
-      (!firstLesson ||
-        (!firstLesson.completed &&
-          (firstLesson.freeMessagesUsed ?? 0) < FREE_LESSON_GEM_LIMIT));
+      !firstLesson ||
+      (!firstLesson.completed &&
+        (firstLesson.freeMessagesUsed ?? 0) < FREE_LESSON_GEM_LIMIT);
+    perSubjectIsFirstLesson = isFirstLesson;
 
     // Prefer an active row that still has gems; fall back to the most
     // recent row so we can report expired/exhausted state correctly.
@@ -161,7 +170,12 @@ export async function getAccessForUser(opts: {
   const usedToday = user.gemsUsedToday ?? 0;
   const dailyRemaining = Math.max(0, dailyLimit - usedToday);
   const exhaustedDaily = dailyLimit > 0 && usedToday >= dailyLimit;
-  const isFirstLessonGlobal = !user.firstLessonComplete;
+  // For subject-scoped calls, the per-subject row is authoritative; for
+  // subject-less calls (rare — dashboard-level access checks), fall back
+  // to the global one-shot flag.
+  const isFirstLessonGlobal = subjectId
+    ? perSubjectIsFirstLesson
+    : !user.firstLessonComplete;
   const legacyActive = !!(legacyExpires && legacyExpires > now && balance > 0);
 
   if (legacyActive) {
