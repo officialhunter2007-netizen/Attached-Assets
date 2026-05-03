@@ -113,17 +113,33 @@ export function AdminConversations() {
       const fullText = text;
       const msgRegex = /\[(🧑 الطالب|🤖 المعلم الذكي) — ([^\]\n]+)\]\n\n([\s\S]*?)(?=\n\[(?:🧑|🤖)|─{10,}|═{10,}|$)/g;
       let match: RegExpExecArray | null;
-      let lastUser = { userId: 0, name: "", email: "" };
 
+      // Index user headers by position so each parsed message can be
+      // attributed to the student whose header most recently preceded
+      // it in the export. Without this, the over-length filter groups
+      // every flagged reply under user 0/blank.
       const userHeaderRegex = /─{50}\n(.+?) — (.+?) — ID (\d+)\n─{50}/g;
-      const userMap = new Map<number, { name: string; email: string }>();
+      const userHeaders: Array<{ pos: number; userId: number; name: string; email: string }> = [];
       let um: RegExpExecArray | null;
       while ((um = userHeaderRegex.exec(fullText)) !== null) {
-        const uid = parseInt(um[3]);
-        userMap.set(uid, { name: um[1], email: um[2] });
+        userHeaders.push({
+          pos: um.index,
+          userId: parseInt(um[3], 10),
+          name: um[1],
+          email: um[2],
+        });
       }
+      const lookupUser = (msgPos: number) => {
+        let found = { userId: 0, name: "", email: "" };
+        for (const h of userHeaders) {
+          if (h.pos <= msgPos) found = { userId: h.userId, name: h.name, email: h.email };
+          else break;
+        }
+        return found;
+      };
 
       while ((match = msgRegex.exec(fullText)) !== null) {
+        const lastUser = lookupUser(match.index);
         const role = match[1] === "🧑 الطالب" ? "user" : "assistant";
         const rawHeader = match[2].trim();
         // Header format: "DATE (تشخيصي · مرحلة 3 · 245 كلمة · ⚠️ تجاوز السقف)".
