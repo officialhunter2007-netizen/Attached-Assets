@@ -2882,6 +2882,9 @@ function SubjectPathChat({
   // POST /api/user-plan call fires twice, overwrites the stored plan, and the
   // contract card flashes on screen a second time.
   const planAlreadySavedRef = useRef(false);
+  // When the plan quality check returns 422, flip this to true to show a
+  // one-tap retry chip above the input that re-fires the diagnostic flow.
+  const [planRetryPending, setPlanRetryPending] = useState(false);
   // sendTeachMessage is re-created each render. Effects that fire it from a
   // stale closure (auto-start / chatStarter / pendingTeachStart) must call
   // through this ref so they always invoke the latest version, even though
@@ -2936,6 +2939,10 @@ function SubjectPathChat({
   const [streamTruncated, setStreamTruncated] = useState<{ lastUserMessage: string } | null>(null);
   // Professor-curriculum mode state
   const [teachingMode, setTeachingMode] = useState<'unset' | 'custom' | 'professor' | null>(null);
+  // Ref mirror of teachingMode so async callbacks (fetchPlan, effects) that
+  // run concurrently with fetchMode can read the latest resolved value without
+  // listing teachingMode as an effect dependency.
+  const teachingModeRef = useRef<'unset' | 'custom' | 'professor' | null>(null);
   const [activeMaterialId, setActiveMaterialId] = useState<number | null>(
     initialSourcesMaterialId && initialSourcesMaterialId > 0 ? initialSourcesMaterialId : null,
   );
@@ -3038,7 +3045,15 @@ function SubjectPathChat({
             }
             setChatPhase('teaching');
           } else {
-            setChatPhase('diagnostic');
+            // Professor mode never needs a diagnostic phase — the teacher
+            // works from the uploaded material. If the mode is already
+            // resolved (fetchMode completed before us), skip the 'diagnostic'
+            // default so the professor-mode override effect doesn't have to
+            // fight a race. If mode is still null the override effect will
+            // correct it once fetchMode resolves.
+            if (teachingModeRef.current !== 'professor') {
+              setChatPhase('diagnostic');
+            }
           }
         }
       } catch {}
@@ -3046,6 +3061,10 @@ function SubjectPathChat({
     }
     fetchPlan();
   }, [subject.id]);
+
+  // Keep teachingModeRef in sync so concurrent async callbacks can read the
+  // latest value without being listed as effect dependencies.
+  useEffect(() => { teachingModeRef.current = teachingMode; }, [teachingMode]);
 
   // Fetch teaching mode (custom vs professor) for this subject
   useEffect(() => {
@@ -3582,15 +3601,15 @@ function SubjectPathChat({
                       setMessages((prev) => {
                         const updated = [...prev];
                         updated[updated.length - 1] = { role: 'assistant', content: assistantMsg };
-                        return [...updated, { role: 'assistant', content: `⚠️ **تنبيه:** ${errMsg}\n\nاكتب "أعد توليد الخطة" أو انقر على أيقونة الإعادة لإعادة المحاولة.` }];
+                        return [...updated, { role: 'assistant', content: `⚠️ **تنبيه:** ${errMsg}` }];
                       });
                       // Reset the save guard so the student can trigger a fresh plan.
                       planAlreadySavedRef.current = false;
-                      // Do NOT revert to diagnostic phase — the teaching phase is
-                      // already set and reverting it brings back the diagnostic
-                      // banner, which causes the smart teacher to ask diagnostic
-                      // questions again on the next message. Instead, keep
-                      // chatPhase='teaching' and let the student ask for a retry.
+                      // Show the one-tap retry chip so the student can regenerate
+                      // without typing anything. chatPhase stays 'teaching' —
+                      // reverting it to 'diagnostic' here is what caused the
+                      // smart-teacher-repeats-diagnostic-questions bug (Bug #3).
+                      setPlanRetryPending(true);
                     } else {
                       setCustomPlan(assistantMsg);
                       setShowContractCard(true);
@@ -5477,6 +5496,24 @@ function SubjectPathChat({
             the labels collapse to icons-only via Tailwind's `xs:`/`sm:`
             helpers, ensuring all targets stay ≥40px tall and never wrap
             into a second row at ≤480px. */}
+        {planRetryPending && !isStreaming && !chatGated && (
+          <div className="max-w-2xl mx-auto mb-2 flex items-center justify-center gap-2" style={{ direction: "rtl" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setPlanRetryPending(false);
+                // Re-fire the diagnostic plan-generation flow without touching
+                // chatPhase state — isDiagnostic=true forces the server to use
+                // the diagnostic system prompt which produces a structured plan.
+                sendTeachMessageRef.current("", stagesRef.current, 0, true);
+              }}
+              className="min-h-[40px] sm:min-h-[36px] inline-flex items-center gap-2 text-[11px] sm:text-xs px-4 py-2 sm:py-1.5 rounded-full bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/50 hover:border-amber-400/80 text-amber-200 font-bold transition-all"
+            >
+              <span aria-hidden="true">🔄</span>
+              <span>أعد توليد الخطة</span>
+            </button>
+          </div>
+        )}
         {chatVisible && !anyPanelOpen && !isStreaming && !chatGated && !quotaExhausted && (
           <div className="max-w-2xl mx-auto mb-1.5 flex flex-wrap items-center gap-1.5 justify-center" style={{ direction: "rtl" }}>
             {onStartLabEnvIntent && !pendingDynamicEnv && !isCreatingEnv && !compiledSpec && !isCompilingSpec && (
