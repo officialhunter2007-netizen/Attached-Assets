@@ -71,6 +71,36 @@ describe("serveTeacherImage — filename allowlist", () => {
   });
 });
 
+describe("resolveTeacherImage — fallback-to-SVG + cache replay", () => {
+  test("falls through to SVG poster when both providers fail, persists to disk, second call hits cache", async () => {
+    delete process.env.FAL_KEY;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new Error("simulated upstream failure");
+    }) as typeof fetch;
+
+    try {
+      const { resolveTeacherImage } = await import("../teacher-image-store.js");
+
+      const prompt = "test-prompt-" + Date.now();
+      const r1 = await resolveTeacherImage(prompt);
+      assert.equal(r1.provider, "svg", "first call should fall through to svg");
+      assert.match(r1.url, /^\/api\/teacher-images\/[a-f0-9]{64}\.svg$/);
+
+      const filename = r1.url.split("/").pop()!;
+      const persisted = path.join(tmpDir, filename);
+      const s = await stat(persisted);
+      assert.ok(s.size > 0, "svg poster persisted to disk with nonzero size");
+
+      const r2 = await resolveTeacherImage(prompt);
+      assert.equal(r2.provider, "cache", "second call should hit the disk cache");
+      assert.equal(r2.url, r1.url, "cache hit returns the same URL");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
 describe("serveTeacherImage — content-type mapping", () => {
   test("png / jpg / jpeg / webp / svg map correctly", async () => {
     const { serveTeacherImage } = await import("../teacher-image-store.js");
