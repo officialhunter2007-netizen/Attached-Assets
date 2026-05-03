@@ -1081,6 +1081,8 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
       content: aiTeacherMessagesTable.content,
       isDiagnostic: aiTeacherMessagesTable.isDiagnostic,
       stageIndex: aiTeacherMessagesTable.stageIndex,
+      wordCount: aiTeacherMessagesTable.wordCount,
+      overLength: aiTeacherMessagesTable.overLength,
       createdAt: aiTeacherMessagesTable.createdAt,
     })
     .from(aiTeacherMessagesTable)
@@ -1146,6 +1148,13 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
         const tags: string[] = [];
         if (m.isDiagnostic) tags.push("تشخيصي");
         if (m.stageIndex !== null && m.stageIndex !== undefined) tags.push(`مرحلة ${m.stageIndex}`);
+        // Length telemetry (Task #43): assistant rows surface the word
+        // count + a clear warning when over_length=1, so admins can spot
+        // bloated responses while reviewing the transcript.
+        if (m.role === "assistant" && m.wordCount != null) {
+          tags.push(`${m.wordCount} كلمة`);
+          if (m.overLength === 1) tags.push("⚠️ تجاوز السقف");
+        }
         const tagPart = tags.length ? ` (${tags.join(" · ")})` : "";
         lines.push(h3(`${who} — ${fmtDate(m.createdAt as any)}${tagPart}`));
         lines.push("");
@@ -1166,6 +1175,68 @@ router.get("/admin/insights/course-conversations-export", async (req, res): Prom
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
   res.setHeader("Cache-Control", "no-store");
   res.send(lines.join("\n"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/insights/teacher-length-stats
+// Aggregate length-tier telemetry on assistant teacher messages (Task #43).
+// Returns counts + averages over the past N days, optionally filtered by
+// subject. Lets admins answer "how often is the teacher overshooting the
+// soft cap?" and "did the new prompt actually shorten responses?".
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/admin/insights/teacher-length-stats", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+
+  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 365);
+  const subjectId = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  try {
+    const subjectFilter = subjectId
+      ? sql`AND subject_id = ${subjectId}`
+      : sql``;
+    const result = await db.execute<{
+      total: string;
+      with_count: string;
+      over_count: string;
+      avg_words: string | null;
+      max_words: string | null;
+      p95_words: string | null;
+    }>(sql`
+      SELECT
+        count(*)::text                                                AS total,
+        count(word_count)::text                                       AS with_count,
+        count(*) FILTER (WHERE over_length = 1)::text                 AS over_count,
+        round(avg(word_count)::numeric, 1)::text                      AS avg_words,
+        max(word_count)::text                                         AS max_words,
+        percentile_cont(0.95) WITHIN GROUP (ORDER BY word_count)::text AS p95_words
+      FROM ai_teacher_messages
+      WHERE role = 'assistant'
+        AND is_diagnostic = 0
+        AND created_at >= ${since}
+        ${subjectFilter}
+    `);
+    const row = (result.rows[0] ?? {}) as any;
+    res.json({
+      ok: true,
+      windowDays: days,
+      subjectId: subjectId || null,
+      total: Number(row.total ?? 0),
+      withWordCount: Number(row.with_count ?? 0),
+      overLengthCount: Number(row.over_count ?? 0),
+      overLengthRate:
+        Number(row.with_count ?? 0) > 0
+          ? Number(row.over_count ?? 0) / Number(row.with_count ?? 0)
+          : 0,
+      avgWords: row.avg_words != null ? Number(row.avg_words) : null,
+      maxWords: row.max_words != null ? Number(row.max_words) : null,
+      p95Words: row.p95_words != null ? Number(row.p95_words) : null,
+    });
+  } catch (err: any) {
+    console.error("[admin/insights/teacher-length-stats] error:", err?.message || err);
+    res.status(500).json({ error: "STATS_FAILED" });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

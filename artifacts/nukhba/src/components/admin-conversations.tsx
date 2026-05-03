@@ -23,6 +23,10 @@ interface ConversationLine {
   createdAt: string;
   isDiagnostic: number;
   stageIndex: number | null;
+  // Length telemetry (Task #43): null on user rows + on legacy assistant
+  // rows from before the column existed.
+  wordCount: number | null;
+  overLength: boolean;
   userId: number;
   userName: string | null;
   userEmail: string | null;
@@ -121,14 +125,29 @@ export function AdminConversations() {
 
       while ((match = msgRegex.exec(fullText)) !== null) {
         const role = match[1] === "🧑 الطالب" ? "user" : "assistant";
-        const dateStr = match[2].trim();
+        const rawHeader = match[2].trim();
+        // The export now appends optional metadata in parens after the
+        // date, e.g. "DATE (تشخيصي · مرحلة 3 · 245 كلمة · ⚠️ تجاوز السقف)".
+        // Split the date from the meta tags so we can render the word-
+        // count badge separately (Task #43).
+        const metaMatch = rawHeader.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+        const dateStr = metaMatch ? metaMatch[1].trim() : rawHeader;
+        const metaTags = metaMatch ? metaMatch[2].split("·").map(s => s.trim()) : [];
+        const wordTag = metaTags.find(t => /\d+\s*كلمة/.test(t)) ?? null;
+        const wordCount = wordTag ? parseInt(wordTag, 10) : null;
+        const overLength = metaTags.some(t => t.includes("تجاوز السقف"));
+        const isDiag = metaTags.some(t => t === "تشخيصي") ? 1 : 0;
+        const stageTag = metaTags.find(t => /^مرحلة\s+\d+$/.test(t));
+        const stageIndex = stageTag ? parseInt(stageTag.replace(/\D/g, ""), 10) : null;
         const content = match[3].trim();
         parsed.push({
           role,
           content,
           createdAt: dateStr,
-          isDiagnostic: 0,
-          stageIndex: null,
+          isDiagnostic: isDiag,
+          stageIndex,
+          wordCount,
+          overLength,
           userId: lastUser.userId,
           userName: lastUser.name,
           userEmail: lastUser.email,
@@ -369,10 +388,22 @@ export function AdminConversations() {
                         {isUser ? "🧑" : "🤖"}
                       </div>
                       <div className={`flex-1 min-w-0 space-y-1.5 ${isUser ? "" : "items-end"}`}>
-                        <div className={`flex items-center gap-2 text-[11px] text-muted-foreground ${isUser ? "" : "flex-row-reverse"}`}>
+                        <div className={`flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap ${isUser ? "" : "flex-row-reverse"}`}>
                           <span className="font-medium">{isUser ? "الطالب" : "المعلم الذكي"}</span>
                           <span>{m.createdAt}</span>
                           {m.isDiagnostic ? <span className="px-1.5 py-0.5 bg-amber-500/15 text-amber-400 rounded text-[10px]">تشخيصي</span> : null}
+                          {!isUser && m.wordCount != null ? (
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                m.overLength
+                                  ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                                  : "bg-white/5 text-muted-foreground"
+                              }`}
+                              title={m.overLength ? "تجاوز سقف الكلمات لفئة الرد" : "عدد كلمات الرد"}
+                            >
+                              {m.wordCount} كلمة{m.overLength ? " ⚠️" : ""}
+                            </span>
+                          ) : null}
                         </div>
                         <div className={`rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words ${
                           isUser

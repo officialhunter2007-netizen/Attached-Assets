@@ -373,6 +373,18 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     ],
   },
   {
+    // Length telemetry on assistant responses (added Task #43). Both columns
+    // are nullable: legacy rows from before the column existed stay NULL,
+    // and user-role rows (where the count is meaningless) are written NULL
+    // by the insert path. The admin "محادثات المعلم" tab and the export
+    // endpoint surface them so admins can spot prompts that bloat outputs.
+    table: "ai_teacher_messages",
+    columns: [
+      { name: "word_count", ddl: "integer" },
+      { name: "over_length", ddl: "integer" },
+    ],
+  },
+  {
     // Micro-step progress within the current learning plan stage.
     // currentMicroStepIndex: the last micro-step the student completed (0-based).
     // completedMicroSteps: JSON array of all completed micro-step indices,

@@ -216,6 +216,77 @@ function emitFriendlyAiFailure(
  * response exceeds the cap. The stored text is used by the admin conversation
  * export feature so admins can review and improve the teacher prompt.
  */
+/**
+ * Adaptive length tier for an /ai/teach response (Task #43).
+ *
+ * The model has no inherent self-discipline on output length — left to its
+ * own devices it routinely produces 600+ word teaching turns even when the
+ * user message is a one-word follow-up ("نعم"). We classify the response
+ * tier deterministically from existing context signals (no extra model
+ * call) and use the tier for two things:
+ *   1. The provider `max_tokens` ceiling — caps a runaway response BEFORE
+ *      the bytes go out the wire (the previous flat 4096 ceiling was
+ *      ~1300 Arabic words, dwarfing the prompt's 220-word soft cap).
+ *   2. A post-stream `over_length=1` flag in `ai_teacher_messages` so
+ *      admins can spot prompts that bloat outputs without truncating the
+ *      student's reply mid-stream.
+ *
+ * Tiers (Arabic ≈ 1.5 chars / token; we keep generous headroom on
+ * maxTokens so well-behaved responses never get clipped, while runaway
+ * responses still hit the ceiling well before the legacy 4096 limit):
+ *   • diagnostic       — 8192 tok (unchanged; the plan synthesis turn
+ *                          must never be cut mid-sentence).
+ *   • dense_concept    — 2048 tok / 320-word soft cap. Used when the
+ *                          turn introduces a new dense concept (showcase
+ *                          opener, mastery teach-back, deep-reasoning
+ *                          re-explain, lab-report feedback, first turn
+ *                          of a new stage).
+ *   • medium_explain   — 1100 tok / 180-word soft cap. The default
+ *                          teaching turn — replaces the legacy 4096.
+ *   • short_followup   — 600 tok / 90-word soft cap. Triggered when the
+ *                          student's message itself is brief (≤ 60 chars,
+ *                          e.g. "نعم", "كمل", "اشرحها مرة ثانية"); the
+ *                          response should be brief too.
+ */
+type TeachingResponseTier = "diagnostic" | "dense_concept" | "medium_explain" | "short_followup";
+type TeachingTierDecision = { tier: TeachingResponseTier; maxWords: number; maxTokens: number };
+
+function classifyTeachingResponseTier(opts: {
+  isDiagnosticPhase: boolean;
+  isShowcaseOpener: boolean;
+  isMasteryCheck: boolean;
+  needsDeepReasoning: boolean;
+  isLabReport: boolean;
+  isNewStage: boolean;
+  userMessageLength: number;
+}): TeachingTierDecision {
+  if (opts.isDiagnosticPhase) {
+    return { tier: "diagnostic", maxWords: 800, maxTokens: 8192 };
+  }
+  if (
+    opts.isShowcaseOpener ||
+    opts.isMasteryCheck ||
+    opts.needsDeepReasoning ||
+    opts.isLabReport ||
+    opts.isNewStage
+  ) {
+    return { tier: "dense_concept", maxWords: 320, maxTokens: 2048 };
+  }
+  if (opts.userMessageLength > 0 && opts.userMessageLength <= 60) {
+    return { tier: "short_followup", maxWords: 90, maxTokens: 600 };
+  }
+  return { tier: "medium_explain", maxWords: 180, maxTokens: 1100 };
+}
+
+/**
+ * Whitespace-split word count of cleaned text. Used post-stream to record
+ * the actual response length and the over_length=1 soft-cap flag.
+ */
+function countWords(text: string): number {
+  if (!text) return 0;
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 function extractTeachingExcerpt(text: string, maxChars = 16000): string {
   const plain = text
     .replace(/```[\s\S]*?```/g, "")
@@ -1729,7 +1800,7 @@ ${formattingRules}`;
 - **مفهوم جديد كثيف:** مثال موسّع 3-4 أسطر بالنمط الكامل (مشهد → استخراج → تعميم).
 - **متابعة، تذكير، أو جواب على سؤال متابعة:** مثال خاطف سطر-سطرين، أو إشارة قصيرة لمثال سابق ("تذكر بائع الطماطم؟ نفس الفكرة هنا").
 - **مراجعة سريعة:** يمكن الاستغناء عن مثال جديد والاكتفاء باسترجاع مثال ذكرناه قبلاً.
-- لا تكسر سقف 220 كلمة باسم "المثال القوي" — الإيجاز جزء من القوة.
+- لا تكسر سقف الكلمات الخاص بنوع الرد (انظر "📏 سلّم الإيجاز التكيفي" أدناه) باسم "المثال القوي" — الإيجاز جزء من القوة.
 
 **معايير المثال القوي (عند تقديم مفهوم جديد — كلها إلزامية):**
 1. **محسوس لا مجرد:** اسم محدد، مكان محدد، رقم محدد. ليس "شخص اشترى أشياء" بل "أحمد راح بقالة الحارة، اشترى 3 كيلو طماطم بـ 800 ريال". ليس "س + ص" بل أرقام حقيقية في سياق حقيقي.
@@ -1768,31 +1839,36 @@ ${formattingRules}`;
 
 ثم — وفقط بعد ذلك — اكتب الرد. النموذج الذي يتسرّع في الرد يُعطي إجابات سطحية؛ النموذج الذي يفكّر أولاً يُعطي إجابات نخبة. لا تكتب هذه الخطوات للطالب — استخدمها كموجه داخلي لردّك.
 
-**✅ قائمة فحص ذاتي قبل إرسال الرد (راجع ذهنياً — لا تكتبها):**
-- ☐ هل الرد ≤ 220 كلمة؟ (≤ 350 فقط لمفهوم جديد كثيف)
-- ☐ هل ركّزت على مفهوم واحد فقط؟
-- ☐ هل المثال يستخدم أرقاماً/أسماء حقيقية ملموسة (لا "س + ص")؟
-- ☐ هل ينتهي الرد بسؤال أو دعوة لتفاعل واحدة فقط (وليس عدة أسئلة)؟
-- ☐ هل تجنبت كشف الإجابة الكاملة قبل أن يحاول الطالب؟
-- ☐ هل التزمت بالمرحلة الحالية من خطة الطالب ولم أتجاوزها؟
-- ☐ إن استخدمت سؤالاً له ≤ 5 إجابات متوقعة، هل وضعتُه في وسم \`ASK_OPTIONS\`؟
-- ☐ **هل ردي يبدو إنساناً يتكلم، لا آلة تُلقي معلومات؟** (لو قرأتَه بصوت عالٍ، هل يبدو طبيعياً؟)
-- ☐ **هل المثال محسوس بأرقام وأسماء وأماكن حقيقية**، ويستطيع الطالب رسمه في خياله؟
-- ☐ هل تجنبتُ صياغات الآلة ("سأشرح لك"، "يُلاحَظ أن"، "يمكن القول إن")؟
-- ☐ **هل بدأتُ ردي بهوك فضول (سؤال/مشهد/مفارقة) لا بتعريف مباشر؟** (افتتاحية ≤ 15 كلمة من القائمة الـ 10)
-- ☐ **هل طلبتُ توقعاً من الطالب قبل كشف الجواب** (إن كان الرد فيه نتيجة جديدة)؟ ("خمّن قبل ما نحسب...")
-- ☐ **عند الإجابة الصحيحة، هل سألتُ "كيف وصلت؟" أو "ليش هذي بالذات؟"** بدل "ممتاز" المجردة؟
-- ☐ **عند الإجابة الخاطئة، هل استخدمتُ تناقضاً موجَّهاً** بدل التصحيح المباشر؟ ("لو سلّمنا بكلامك، شو يصير في...؟")
-- ☐ **هل عبارة المدح اللي استخدمتها مختلفة عن الرد السابق؟** (لا تكرر "ممتاز" مرتين متتاليتين)
-- إذا فشل أي بند، أعد صياغة الرد قبل الإرسال.
+**📏 سلّم الإيجاز التكيفي (اختر الفئة المناسبة قبل أن تكتب — لا سقف واحد للجميع):**
+الردود الطويلة المرهقة تُضعف التعلم بقدر الردود المبتورة. الفئة الصحيحة لكل رد تأتي من سياقه:
 
-**🔴 معايير الجودة العليا (التزم بها قبل أي شيء آخر — هذه هي الفارق بين معلم عادي ومعلم نخبة):**
-1. **إيجاز محسوب:** كل رد ≤ 220 كلمة افتراضياً (يُسمح بـ 350 فقط عند تقديم مفهوم جديد كثيف). لا فقرات حشو، لا تذكير بما قلتَه قبل سطرين، لا اعتذارات.
-2. **مفهوم واحد لكل رد:** لا تكدّس مفهومين جديدين في رسالة واحدة. مفهوم واحد، مثال واحد ملموس، سؤال واحد في النهاية. خصوم الفهم هم: التشتت، والإغراق المعلوماتي.
-3. **أرقام وأسماء حقيقية:** الأمثلة لا تكون "س + ص = …" بل "بائع في سوق صنعاء يبيع … بسعر …". الأمثلة المجردة تُنسى، الملموسة تُحفظ. **هذا قانون لا يُكسر.**
-4. **حسم اللغة + دفء النبرة:** اكتب جُملاً قصيرة حاسمة، لكن بنفَس إنساني دافئ. تجنّب "يمكن أن يقال إن …" — قل الفكرة مباشرة. تجنّب "سأشرح لك" — قل "خلّيني أوريك". الإيجاز ليس عداوة للدفء، بل أعلى أشكاله.
-5. **لا تخترع:** إذا لم تكن متأكداً من رقم/تعريف/تاريخ، قل "أحتاج التأكد، لكن …" بدل أن تختلق. الثقة تُبنى على الصدق لا على الادعاء.
-6. **اعترف بالطالب قبل المحتوى عند الحاجة:** جملة قصيرة تُشعره بأنك سمعتَه قبل أن تنتقل للشرح ("سؤالك حلو، خلّينا نشوفه")، خاصة إن طرح سؤالاً ذكياً أو بدا عليه التعب أو الحماس.
+| نوع الرد | متى يُستخدم | السقف بالكلمات | البنية المطلوبة |
+|---|---|---|---|
+| **متابعة قصيرة** | الطالب أرسل رسالة قصيرة جداً (نعم/كمل/أعد بطريقة أخرى)، أو طلب توضيحاً سريعاً، أو تأكيد فهم | **40–90 كلمة** | بلا افتتاحية طويلة، بلا مثال جديد، سؤال ختامي اختياري واحد |
+| **شرح متوسط** | السؤال الافتراضي، تطبيق على مفهوم سبق شرحه، تصحيح إجابة، مراجعة سريعة | **90–180 كلمة** | افتتاحية ≤ 12 كلمة + مثال خاطف أو إشارة لمثال سابق + سؤال ختامي واحد |
+| **مفهوم جديد كثيف** | مفهوم جديد لم يُشرح بعد، أو طلب "اشرحها بكلماتك"، أو افتتاح مرحلة جديدة، أو رد على "لم أفهم/اشرح بعمق"، أو تغذية راجعة لمختبر | **180–320 كلمة** | افتتاحية + مشهد ملموس + استخراج المفهوم + تعميم + سؤال واحد |
+
+**قواعد إضافية على السلّم — لا تُكسَر:**
+- **لا تكرر ما قلته في الرد السابق.** إن أردتَ التذكير، اقتصر على إشارة من 4-7 كلمات ("تذكر بائع الطماطم؟").
+- **لا افتتاحية إذا كانت الرسالة متابعة قصيرة.** ادخل في صلب الرد مباشرة. الافتتاحية الـ 10 الإلزامية تخص الردود المتوسطة والكثيفة فقط.
+- **\`ASK_OPTIONS\` بديل عن السؤال النصي لا إضافة عليه** — لا تجمع سؤالاً نصياً + ASK_OPTIONS في نفس الرد.
+- **سؤال واحد فقط في نهاية كل رد** (نصياً أو عبر ASK_OPTIONS) — لا تكدّس عدة أسئلة.
+- إن وجدتَ نفسك تتجاوز سقف فئتك، احذف الجمل الزائدة قبل الإرسال — ليس بإضافة "خلاصة" في الآخر.
+
+**🔴 ميثاق الجودة + قائمة الفحص الذاتي (راجعها ذهنياً قبل الإرسال — كلها إلزامية):**
+1. **مفهوم واحد فقط في الرد** — لا تكدّس مفهومين جديدين. مفهوم واحد، مثال واحد ملموس، سؤال واحد في النهاية.
+2. **أرقام وأسماء وأماكن حقيقية في المثال** — لا "س + ص"، بل "بائع في سوق صنعاء يبيع 3 كيلو طماطم بـ 800 ريال". الطالب يستطيع رسم المشهد في خياله.
+3. **حسم + دفء**: جُمل قصيرة حاسمة بنبرة إنسانية. تجنّب "سأشرح لك"/"يُلاحَظ"/"يمكن القول"/"تجدر الإشارة" — قل الفكرة مباشرة بـ"خلّيني أوريك"/"شف"/"المهم".
+4. **افتتاحية الفضول ≤ 15 كلمة** للردود المتوسطة والكثيفة (هوك سؤال/مشهد/مفارقة من قائمة الـ 10، لا تعريف مباشر). للمتابعة القصيرة: لا افتتاحية.
+5. **تنبّأ ثم اكشف** قبل أي نتيجة جديدة (سؤال بلاغي تجيب عليه بنفسك في الجملة التالية، ليس انتظار رد الطالب).
+6. **عند الإجابة الصحيحة:** اسأل "كيف وصلت؟" أو "ليش هذي بالذات؟" بدل "ممتاز" المجردة. **عند الإجابة الخاطئة:** استخدم تناقضاً موجَّهاً ("لو سلّمنا بكلامك، شو يصير في...؟") لا تصحيحاً مباشراً.
+7. **نوّع المدح** — لا تكرر "ممتاز/رائع/أحسنت" في رَدّين متتاليين.
+8. **التزم بالمرحلة الحالية من خطة الطالب** ولا تتجاوز سقفها. لا تكشف إجابة سؤال قبل أن يحاول.
+9. **أي سؤال له ≤ 5 إجابات منطقية متوقعة → \`ASK_OPTIONS\` إجبارية** (وحدها، لا مع سؤال نصي).
+10. **لا تخترع** — إذا لم تكن متأكداً من رقم/تعريف/تاريخ، قل "أحتاج التأكد، لكن…" بدل الادعاء.
+11. **اعترف بالطالب قبل المحتوى عند الحاجة** — جملة قصيرة تُشعره بأنك سمعتَه (خاصة عند سؤال ذكي أو تعب أو حماس).
+12. **اقرأ ردك بصوت عالٍ ذهنياً قبل الإرسال** — هل يبدو إنساناً يتكلم لا آلة تُلقي معلومات؟ إن كانت الإجابة "لا" — أعد الصياغة.
+13. **التزم بسقف فئة الرد بالكلمات** (الجدول أعلاه). إن تجاوزتَ السقف، احذف، لا تُلخّص.
 
 **🔘 أزرار قابلة للنقر (\`ASK_OPTIONS\`) — متى تكون إلزامية في وضع التدريس:**
 - **فحص الفهم بنعم/لا:** بدل "هل وصلتك الفكرة؟" استخدم:
@@ -2936,22 +3012,27 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     });
   }
 
-  // ── Output ceiling ──────────────────────────────────────────────────────
-  // Diagnostic turns: 8192 tokens — the diagnostic phase ends with a *full
-  // personalized plan* (5–8 phases, each with an Arabic paragraph). Arabic
-  // averages ~1.5 chars/token, so a 7-phase plan can easily exceed 4096
-  // tokens and get truncated mid-sentence — leaving the student stranded
-  // with no [PLAN_READY] tag.
-  //
-  // Regular teaching turns: 4096 tokens — a full teaching response (concept
-  // + concrete example + Socratic question + optional ASK_OPTIONS block)
-  // never gets truncated. The 220-word soft-cap in the system prompt
-  // (≤350 for new-concept turns) keeps average tokens-per-turn low, so
-  // this is a ceiling not a target. Same value applies to both Gemini's
-  // `maxOutputTokens` and Anthropic's `max_tokens` for parity.
-  const maxTokens = isDiagnosticPhase
-    ? 8192
-    : 4096;
+  // ── Output ceiling — adaptive tier (Task #43) ───────────────────────────
+  // The previous flat 4096-token ceiling for non-diagnostic turns was ~10x
+  // higher than the 220-word soft cap in the prompt, giving the model
+  // unbounded headroom to bloat replies. We now classify the tier from
+  // existing context signals and pick a `max_tokens` value that matches
+  // the prompt's per-tier word budget — with comfortable headroom so a
+  // well-behaved response never gets clipped mid-sentence, but a runaway
+  // one hits the ceiling well before it can flood the student with text.
+  // The tier is also persisted on the assistant row (over_length flag)
+  // for admin review. See classifyTeachingResponseTier() for the
+  // tier table.
+  const responseTier = classifyTeachingResponseTier({
+    isDiagnosticPhase: !!isDiagnosticPhase,
+    isShowcaseOpener,
+    isMasteryCheck: detectMasteryCheckFromHistory(history),
+    needsDeepReasoning: detectDeepReasoning(trimmedUserMessage),
+    isLabReport: detectLabReport(trimmedUserMessage),
+    isNewStage: !!isNewStage,
+    userMessageLength: trimmedUserMessage.length,
+  });
+  const maxTokens = responseTier.maxTokens;
 
   const __teachStart = Date.now();
 
@@ -3752,6 +3833,15 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         // so admins can export and review complete conversations for prompt
         // engineering and teaching-quality analysis.
         const excerpt = extractTeachingExcerpt(cleanAssistant);
+        // Length telemetry (Task #43): word count + soft-cap flag. We
+        // never truncate the streamed response — this is a signal the
+        // admin tab uses to find prompts that bloat outputs. A response
+        // is flagged when it exceeds its tier's maxWords by more than
+        // 25 %; diagnostic turns are exempt (the plan synthesis is
+        // legitimately long).
+        const __wordCount = countWords(excerpt);
+        const __overLength =
+          !isDiagnosticPhase && __wordCount > Math.ceil(responseTier.maxWords * 1.25);
         await db.insert(aiTeacherMessagesTable).values({
           userId,
           subjectId,
@@ -3760,6 +3850,8 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           content: excerpt,
           isDiagnostic: isDiagnosticPhase ? 1 : 0,
           stageIndex: typeof currentStage === "number" ? currentStage : null,
+          wordCount: __wordCount,
+          overLength: __overLength ? 1 : 0,
         });
       }
     } catch (err: any) {
