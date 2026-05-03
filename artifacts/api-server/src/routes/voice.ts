@@ -28,19 +28,37 @@ const STT_ALLOWED_MIME_PREFIXES = [
   "audio/x-wav",
   "audio/wave",
 ] as const;
-// Higher-quality cloud TTS model. `gpt-4o-mini-tts` supports the same
-// `voice` parameter set as `tts-1` but with markedly better Arabic
-// prosody and embedded-English handling.
+// Higher-quality cloud TTS model. `gpt-4o-mini-tts` supports the expanded
+// voice set (ash, coral, sage, verse, ballad…) and the `instructions`
+// parameter for fine-grained style control.
 const TTS_MODEL = "gpt-4o-mini-tts";
+
+// Style instructions passed to the model so the voice sounds like a calm,
+// professional Arabic teacher rather than a generic narrator.
+const TTS_INSTRUCTIONS =
+  "You are a professional Arabic teacher on an educational platform for students. " +
+  "Speak in clear, fluent Modern Standard Arabic (فصحى). " +
+  "Use a calm, warm, and confident tone — like a knowledgeable teacher explaining to a student. " +
+  "Pace yourself moderately: not too fast, not too slow. " +
+  "Pronounce each word precisely and naturally. " +
+  "Do not add any sounds, music, or commentary beyond reading the provided text.";
+
+// Default voice: `shimmer` — warm, articulate, and performs best for Arabic
+// among the available options on gpt-4o-mini-tts.
+const TTS_DEFAULT_VOICE = "shimmer" as const;
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: STT_MAX_BYTES, files: 1 },
 });
 
-type AllowedVoice = "nova" | "shimmer" | "alloy" | "echo" | "fable" | "onyx";
+// gpt-4o-mini-tts expanded voice set (superset of the old tts-1 voices).
+type AllowedVoice =
+  | "nova" | "shimmer" | "alloy" | "echo" | "fable" | "onyx"
+  | "ash" | "coral" | "sage" | "verse" | "ballad";
 const ALLOWED_VOICES: ReadonlySet<AllowedVoice> = new Set([
   "nova", "shimmer", "alloy", "echo", "fable", "onyx",
+  "ash", "coral", "sage", "verse", "ballad",
 ]);
 
 function getUserId(req: Request): number | null {
@@ -119,7 +137,9 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
   const text = cleaned.length > TTS_MAX_CHARS ? cleaned.slice(0, TTS_MAX_CHARS) : cleaned;
 
   const chosenVoice: AllowedVoice =
-    voice && ALLOWED_VOICES.has(voice as AllowedVoice) ? (voice as AllowedVoice) : "nova";
+    voice && ALLOWED_VOICES.has(voice as AllowedVoice)
+      ? (voice as AllowedVoice)
+      : TTS_DEFAULT_VOICE;
 
   const start = Date.now();
   try {
@@ -130,6 +150,11 @@ router.post("/ai/tts", async (req, res): Promise<unknown> => {
       voice: chosenVoice,
       input: text,
       response_format: "mp3",
+      // Style instructions — guide the model to sound like a professional
+      // Arabic teacher rather than a generic narrator.
+      // @ts-expect-error — `instructions` is supported by gpt-4o-mini-tts
+      // but not yet typed in the current @types/openai version.
+      instructions: TTS_INSTRUCTIONS,
     });
     const arrayBuf = await speech.arrayBuffer();
     const buf = Buffer.from(arrayBuf);
@@ -269,16 +294,78 @@ router.use("/ai/stt", (err: unknown, _req: Request, res: Response, next: NextFun
 function sanitizeTextForTts(raw: string): string {
   if (!raw) return "";
   let s = String(raw);
+
+  // ── 1. Fenced code blocks → drop entirely (never read code aloud) ──────────
   s = s.replace(/```[\s\S]*?```/g, " ");
+  // Indented code blocks (4+ spaces or tab at line start)
+  s = s.replace(/^( {4,}|\t).+$/gm, " ");
+
+  // ── 2. Internal platform markers ──────────────────────────────────────────
   s = s.replace(/\[\[(?:CREATE_LAB_ENV|ASK_OPTIONS|IMAGE|PLAN_READY|STAGE_COMPLETE|LAB_INTAKE_DONE)[^\]]*\]\]/gi, " ");
+
+  // ── 3. HTML tags ──────────────────────────────────────────────────────────
   s = s.replace(/<[^>]*>/g, " ");
+
+  // ── 4. LaTeX / math blocks ($$ and $) ────────────────────────────────────
+  s = s.replace(/\$\$[\s\S]*?\$\$/g, " ");
+  s = s.replace(/\$[^$\n]+\$/g, " ");
+
+  // ── 5. Markdown headings → keep heading text only ─────────────────────────
   s = s.replace(/^#{1,6}\s+/gm, "");
+
+  // ── 6. Horizontal rules ───────────────────────────────────────────────────
+  s = s.replace(/^[-*_]{3,}\s*$/gm, " ");
+
+  // ── 7. Blockquotes (> at line start) ─────────────────────────────────────
+  s = s.replace(/^>\s*/gm, "");
+
+  // ── 8. Table rows (any line that starts and ends with |) ──────────────────
+  s = s.replace(/^\|.*\|$/gm, " ");
+  // Table separator rows like |---|---|
+  s = s.replace(/^[\|\s\-:]+$/gm, " ");
+
+  // ── 9. Bold / italic markers — keep the inner text ────────────────────────
+  // ***bold italic*** **bold** *italic*
   s = s.replace(/\*{1,3}([^*\n]+)\*{1,3}/g, "$1");
-  // Strip backticks but keep the inline term so technical words ("XSS",
-  // "useEffect", etc.) are still spoken aloud.
-  s = s.replace(/`([^`\n]+)`/g, "$1");
+  // __bold__ _italic_
+  s = s.replace(/_{1,2}([^_\n]+)_{1,2}/g, "$1");
+  // ~~strikethrough~~
+  s = s.replace(/~~([^~\n]+)~~/g, "$1");
+
+  // ── 10. Inline code: keep simple identifiers, drop complex expressions ────
+  //   Simple: only word chars + dots/hyphens (useEffect, console.log, XSS…)
+  //   Complex: contains parens, brackets, operators, spaces → drop
+  s = s.replace(/`([^`\n]+)`/g, (_, inner: string) => {
+    const t = inner.trim();
+    return /^[\w\u0600-\u06FF][\w\u0600-\u06FF.\-]*$/.test(t) ? t : " ";
+  });
+
+  // ── 11. Markdown links [label](url) → keep label only ────────────────────
   s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-  s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, " ");
+  // Image links ![alt](url) → drop entirely
+  s = s.replace(/!\[[^\]]*\]\([^)]+\)/g, " ");
+
+  // ── 12. Raw URLs ──────────────────────────────────────────────────────────
+  s = s.replace(/https?:\/\/\S+/g, " ");
+
+  // ── 13. List bullet markers at line start (-, *, +, 1., 2)…) ─────────────
+  s = s.replace(/^[ \t]*[-*+]\s+/gm, " ");
+  s = s.replace(/^[ \t]*\d+[.)]\s+/gm, " ");
+
+  // ── 14. Stray punctuation that TTS reads aloud as symbols ─────────────────
+  // Pipes, carets, tildes, backslashes, curly/square brackets that survived
+  s = s.replace(/[|^\\{}\[\]~`]/g, " ");
+  // Angle brackets (not part of HTML since we already stripped tags)
+  s = s.replace(/[<>]/g, " ");
+  // Hash still present (e.g. #tag outside a heading)
+  s = s.replace(/#/g, " ");
+  // @ symbol (mentions, email-style references)
+  s = s.replace(/@\S*/g, " ");
+
+  // ── 15. Emojis ────────────────────────────────────────────────────────────
+  s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}]/gu, " ");
+
+  // ── 16. Normalise whitespace ──────────────────────────────────────────────
   return s.replace(/\s+/g, " ").trim();
 }
 

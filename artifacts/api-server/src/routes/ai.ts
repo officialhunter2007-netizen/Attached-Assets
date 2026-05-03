@@ -1,5 +1,9 @@
 import { Router, type IRouter } from "express";
 import { randomBytes } from "crypto";
+import { spawn } from "child_process";
+import { mkdtemp, writeFile, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
 import { db, usersTable, userSubjectSubscriptionsTable, userSubjectFirstLessonsTable, userSubjectPlansTable, lessonSummariesTable, aiTeacherMessagesTable, studentMistakesTable, studyCardsTable, auditLogsTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -7033,6 +7037,153 @@ ${recentTerminal || "(لا مخرجات بعد)"}
     });
     res.write(`data: ${JSON.stringify({ error: e?.message || "فشل" })}\n\n`);
     res.end();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/ai/run-code
+// Execute student code locally inside the Docker container.
+// Runtimes available (installed via Dockerfile):
+//   JS/TS → node 22  |  Python → python3  |  C/C++ → gcc/g++
+//   Java → openjdk21  |  Bash → bash
+// Kotlin and Dart are not currently supported (not in the container).
+// ─────────────────────────────────────────────────────────────────────────────
+async function runCodeLocally(
+  language: string,
+  code: string,
+  timeoutMs = 10_000,
+): Promise<{ output: string; exitCode: number }> {
+  const dir = await mkdtemp(join(tmpdir(), "nukhba-code-"));
+  try {
+    const execAsync = (cmd: string, args: string[], opts?: any) =>
+      new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+        const child = spawn(cmd, args, { cwd: dir, env: { ...process.env, HOME: dir }, ...opts });
+        let stdout = "";
+        let stderr = "";
+        const cap = (s: string) => s.slice(0, 8000);
+        child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+        child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+        const timer = setTimeout(() => { child.kill("SIGKILL"); }, timeoutMs);
+        child.on("close", (code: number) => {
+          clearTimeout(timer);
+          resolve({ stdout: cap(stdout), stderr: cap(stderr), code: code ?? 1 });
+        });
+      });
+
+    let output = "";
+    let exitCode = 0;
+
+    if (language === "javascript") {
+      await writeFile(join(dir, "main.js"), code);
+      const r = await execAsync("node", ["main.js"]);
+      output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
+      exitCode = r.code;
+
+    } else if (language === "typescript") {
+      await writeFile(join(dir, "main.ts"), code);
+      const compile = await execAsync("node", [
+        "--input-type=module",
+        "--eval",
+        `import {transpileModule} from 'typescript'; import {readFileSync,writeFileSync} from 'fs';
+         const src=readFileSync('${join(dir,"main.ts")}','utf8');
+         const out=transpileModule(src,{compilerOptions:{module:1,target:3}}).outputText;
+         writeFileSync('${join(dir,"main.js")}',out);`,
+      ], { timeout: 8000 }).catch(() => null);
+      if (!compile || compile.code !== 0) {
+        // Fallback: strip type annotations and run as JS
+        const stripped = code
+          .replace(/:\s*\w[\w<>\[\]|&, ?.]*(?=[\s=,);\n{])/g, "")
+          .replace(/<\w[\w<>\[\]|&, ?. ]*>/g, "")
+          .replace(/^(interface|type)\s+[^{]+\{[\s\S]*?\}/gm, "")
+          .replace(/^export\s+/gm, "");
+        await writeFile(join(dir, "main.js"), stripped);
+      }
+      const r = await execAsync("node", ["main.js"]);
+      output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
+      exitCode = r.code;
+
+    } else if (language === "python") {
+      await writeFile(join(dir, "main.py"), code);
+      const r = await execAsync("python3", ["main.py"]);
+      output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
+      exitCode = r.code;
+
+    } else if (language === "bash") {
+      await writeFile(join(dir, "main.sh"), code);
+      const r = await execAsync("bash", ["main.sh"]);
+      output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
+      exitCode = r.code;
+
+    } else if (language === "c") {
+      await writeFile(join(dir, "main.c"), code);
+      const compile = await execAsync("gcc", ["-o", "main", "main.c", "-lm"]);
+      if (compile.code !== 0) {
+        return { output: compile.stderr || compile.stdout || "خطأ في الترجمة", exitCode: compile.code };
+      }
+      const r = await execAsync("./main", []);
+      output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
+      exitCode = r.code;
+
+    } else if (language === "cpp") {
+      await writeFile(join(dir, "main.cpp"), code);
+      const compile = await execAsync("g++", ["-o", "main", "main.cpp", "-lm", "-std=c++17"]);
+      if (compile.code !== 0) {
+        return { output: compile.stderr || compile.stdout || "خطأ في الترجمة", exitCode: compile.code };
+      }
+      const r = await execAsync("./main", []);
+      output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
+      exitCode = r.code;
+
+    } else if (language === "java") {
+      const classMatch = code.match(/public\s+class\s+(\w+)/);
+      const className = classMatch?.[1] ?? "Main";
+      await writeFile(join(dir, `${className}.java`), code);
+      const compile = await execAsync("javac", [`${className}.java`], { timeout: 20_000 });
+      if (compile.code !== 0) {
+        return { output: compile.stderr || compile.stdout || "خطأ في الترجمة", exitCode: compile.code };
+      }
+      const r = await execAsync("java", ["-cp", dir, className], { timeout: 15_000 });
+      output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
+      exitCode = r.code;
+
+    } else {
+      return { output: `تشغيل ${language} غير مدعوم حالياً في هذه البيئة.`, exitCode: 0 };
+    }
+
+    return { output: output || "لا يوجد إخراج", exitCode };
+  } finally {
+    rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+router.post("/ai/run-code", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { code, language } = (req.body ?? {}) as { code?: string; language?: string };
+  if (!code || typeof code !== "string" || code.trim().length === 0) {
+    return res.status(400).json({ error: "code مطلوب" });
+  }
+  if (!language || typeof language !== "string") {
+    return res.status(400).json({ error: "language مطلوب" });
+  }
+  if (code.length > 100_000) {
+    return res.status(400).json({ error: "الكود طويل جداً (الحد الأقصى ١٠٠ ألف حرف)" });
+  }
+
+  if (language === "html" || language === "css") {
+    return res.json({ output: "صفحات HTML/CSS تعمل في نافذة المعاينة — اضغط زر المعاينة 👁️", exitCode: 0 });
+  }
+  if (language === "sql") {
+    return res.json({ output: "تشغيل SQL غير مدعوم في هذه البيئة مباشرةً.", exitCode: 0 });
+  }
+
+  try {
+    const { output, exitCode } = await runCodeLocally(language, code, 10_000);
+    return res.json({ output, exitCode });
+  } catch (err: any) {
+    console.error("[run-code] error:", err?.message || err);
+    return res.status(500).json({ error: "تعذّر تشغيل الكود — " + (err?.message || "خطأ غير معروف") });
   }
 });
 

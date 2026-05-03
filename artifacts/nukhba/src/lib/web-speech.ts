@@ -60,7 +60,7 @@ export function speakText(text: string, opts?: SpeakOptions): boolean {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ text, voice: opts?.voice ?? "nova" }),
+    body: JSON.stringify({ text, voice: opts?.voice ?? "shimmer" }),
     signal: ctrl.signal,
   })
     .then(async (resp) => {
