@@ -382,13 +382,25 @@ export type ResolveResult = {
  */
 const inflight = new Map<string, Promise<ResolveResult>>();
 
-export async function resolveTeacherImage(prompt: string): Promise<ResolveResult> {
+export type ResolveOptions = {
+  /** Skip the paid fal.ai provider; use cache → pollinations → svg only. */
+  noFal?: boolean;
+};
+
+export async function resolveTeacherImage(
+  prompt: string,
+  options: ResolveOptions = {},
+): Promise<ResolveResult> {
   const start = Date.now();
   const cleanPrompt = (prompt || "").trim();
   const hash = hashPrompt(cleanPrompt || "empty-prompt");
+  const noFal = !!options.noFal;
 
-  // De-duplicate identical concurrent requests.
-  const existing = inflight.get(hash);
+  // De-duplicate identical concurrent requests with the SAME provider
+  // policy (a noFal call shouldn't piggy-back on an in-flight paid call,
+  // and vice versa).
+  const inflightKey = noFal ? `nf:${hash}` : hash;
+  const existing = inflight.get(inflightKey);
   if (existing) return existing;
 
   const job = (async (): Promise<ResolveResult> => {
@@ -410,7 +422,7 @@ export async function resolveTeacherImage(prompt: string): Promise<ResolveResult
     let buf: Buffer | null = null;
     let ext: string | null = null;
     let provider: ResolveResult["provider"] = "svg";
-    if (!buf) {
+    if (!buf && !noFal) {
       const b = await tryFal(cleanPrompt);
       if (b) {
         const e = detectImageExt(b);
@@ -461,9 +473,9 @@ export async function resolveTeacherImage(prompt: string): Promise<ResolveResult
     return { url: urlFor(hash, ext), provider, latencyMs: Date.now() - start };
   })();
 
-  inflight.set(hash, job);
+  inflight.set(inflightKey, job);
   try { return await job; }
-  finally { inflight.delete(hash); }
+  finally { inflight.delete(inflightKey); }
 }
 
 /**

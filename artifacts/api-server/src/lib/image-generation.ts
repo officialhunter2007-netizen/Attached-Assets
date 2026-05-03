@@ -102,20 +102,10 @@ export async function generateTeacherImage(
     }
   }
 
-  // Temporarily mask FAL_KEY to force the store down the free path.
-  let savedFalKey: string | undefined;
-  if (limitedToFreeProviders) {
-    savedFalKey = process.env.FAL_KEY;
-    delete process.env.FAL_KEY;
-  }
-  let result;
-  try {
-    result = await resolveTeacherImage(cleanPrompt);
-  } finally {
-    if (limitedToFreeProviders && savedFalKey !== undefined) {
-      process.env.FAL_KEY = savedFalKey;
-    }
-  }
+  // Pass an explicit provider-policy flag through to the store rather
+  // than mutating process.env (which would race across concurrent
+  // requests and is also ignored once the fal SDK is already configured).
+  const result = await resolveTeacherImage(cleanPrompt, { noFal: limitedToFreeProviders });
   const latencyMs = Date.now() - start;
 
   // Bookkeeping: only bill the user when fal.ai actually produced the image
