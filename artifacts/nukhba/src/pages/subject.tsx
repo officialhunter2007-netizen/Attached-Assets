@@ -2400,7 +2400,13 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
             console.debug('[teach-image] local timeout fired', { id });
             localTimersRef.current.delete(id);
             onImageTimeout?.(id);
-          }, 75_000);
+          // Provider deadlines were tightened to 6s + 6s in the server
+          // store, so a healthy generation completes well under 15s. This
+          // safety timer is the absolute backstop for a dropped SSE
+          // channel; 20s gives a generous cushion before we surface the
+          // friendly "تعذّر تحميل الصورة" hint. Aligned with the task's
+          // ≤10s visible-image goal.
+          }, 20_000);
           localTimersRef.current.set(id, timer);
         }
         return;
@@ -2954,6 +2960,24 @@ function SubjectPathChat({
   useEffect(() => {
     try { localStorage.setItem(SUGGESTIONS_KEY, suggestionsOpen ? '1' : '0'); } catch {}
   }, [SUGGESTIONS_KEY, suggestionsOpen]);
+  // ── Chat-chrome single collapsible strip (Task #63) ─────────────────────
+  // The compact path bar, mode/sources mini-bar, and stage-progress bar
+  // used to render as three independent stacked strips (~28+30+36 ≈ 94px
+  // of permanent chrome eating the message viewport on phones). We now
+  // wrap all three behind one `chromeOpen` toggle exposed as a 22px
+  // hide/show pill so the student can reclaim the entire vertical
+  // budget with a single tap. Choice persists per-subject so it survives
+  // page refresh.
+  const CHROME_KEY = `nukhba.chromeOpen.${subject.id}`;
+  const [chromeOpen, setChromeOpen] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem(CHROME_KEY);
+      return v === null ? true : v === '1';
+    } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(CHROME_KEY, chromeOpen ? '1' : '0'); } catch {}
+  }, [CHROME_KEY, chromeOpen]);
   // Set to `true` if the diagnostic stream ended without [PLAN_READY] (e.g.
   // truncation past max_tokens, network blip, model refusal). We surface a
   // visible retry button so the student never gets silently stranded.
@@ -4902,6 +4926,25 @@ function SubjectPathChat({
         </div>
       )}
 
+      {/* Single one-tap hide/show toggle for the consolidated chat-chrome
+          strip below (compact path + mode/sources + stage progress). 22px
+          tall — kept always visible so the student can re-open the chrome
+          even after collapsing. Aligns with the task requirement of "one
+          compact strip with one-tap hide/show". */}
+      {(teachingMode && teachingMode !== 'unset') && (
+        <button
+          type="button"
+          onClick={() => setChromeOpen(v => !v)}
+          className="shrink-0 w-full px-3 py-0.5 border-b border-white/5 bg-white/[0.02] hover:bg-white/[0.05] flex items-center justify-center gap-1 text-[10px] text-white/45 hover:text-amber-200 transition-colors"
+          aria-expanded={chromeOpen}
+          aria-controls="chat-chrome-strip"
+          title={chromeOpen ? "إخفاء شريط الحالة" : "إظهار شريط الحالة"}
+        >
+          {chromeOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          <span>{chromeOpen ? "إخفاء الحالة" : "إظهار الحالة"}</span>
+        </button>
+      )}
+      <div id="chat-chrome-strip" hidden={!chromeOpen} className="contents">
       {/* Inline compact path bar — a thin horizontal stage-dot strip directly
           under the session header. Renders alongside (not instead of) the
           side drawer so accustomed users keep their familiar inline path
@@ -5289,6 +5332,9 @@ function SubjectPathChat({
           )}
         </div>
       )}
+
+      </div>
+      {/* /chat-chrome-strip */}
 
       {/* Personalized learning path — side drawer (RTL right edge) opened from the header path icon. */}
       {chatPhase === 'teaching' && customPlan && (

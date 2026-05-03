@@ -44,14 +44,20 @@ const CACHE_BUDGET_MB = (() => {
   return Number.isFinite(raw) && raw >= 50 && raw <= 50_000 ? raw : 500;
 })();
 
+// UX SLA: a teacher image must be visible within ~10s on a normal
+// connection. With the SVG poster as a guaranteed local fallback we
+// can afford aggressive provider deadlines — the worst case is
+// 6s (fal) + 6s (pollinations) = 12s before SVG, but in practice fal
+// usually returns in 3-5s and the chain rarely advances. Override via
+// env if a slow upstream needs more headroom.
 const FAL_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.FAL_TIMEOUT_MS ?? "", 10);
-  return Number.isFinite(raw) && raw >= 5_000 && raw <= 120_000 ? raw : 25_000;
+  return Number.isFinite(raw) && raw >= 2_000 && raw <= 120_000 ? raw : 6_000;
 })();
 
 const POLLINATIONS_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.POLLINATIONS_TIMEOUT_MS ?? "", 10);
-  return Number.isFinite(raw) && raw >= 5_000 && raw <= 120_000 ? raw : 35_000;
+  return Number.isFinite(raw) && raw >= 2_000 && raw <= 120_000 ? raw : 6_000;
 })();
 
 const URL_PREFIX = "/api/teacher-images/";
