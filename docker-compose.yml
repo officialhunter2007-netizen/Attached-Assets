@@ -51,6 +51,15 @@ services:
       UNLIMITED_ACCESS_EMAILS: ${UNLIMITED_ACCESS_EMAILS:-}
       APP_DOMAIN: ${APP_DOMAIN}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # ─── الصور التوضيحية (تخزين دائم على القرص) ────────────────────
+      # المجلد داخل الحاوية يطابق volume أدناه. التغيير هنا يتطلّب
+      # تحديث docker-compose.yml كذلك.
+      TEACHER_IMAGE_DIR: /data/teacher-images
+      # سعة التخزين بالميغابايت قبل تشغيل LRU eviction.
+      TEACHER_IMAGE_CACHE_MB: ${TEACHER_IMAGE_CACHE_MB:-500}
+    volumes:
+      # تخزين دائم للصور التوضيحية المولّدة، لا يُمسح عند إعادة البناء.
+      - teacher_images:/data/teacher-images
 
   # ─── Nginx (الواجهة الأمامية + reverse proxy) ────────────────────
   nginx:
@@ -79,3 +88,4 @@ volumes:
   postgres_data:
   certbot_certs:
   certbot_webroot:
+  teacher_images:

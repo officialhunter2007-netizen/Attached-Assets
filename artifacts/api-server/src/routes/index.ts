@@ -13,6 +13,7 @@ import { adminInsightsRouter } from "./admin_insights";
 import materialsRouter from "./materials";
 import aiUsageRouter from "./ai_usage";
 import voiceRouter from "./voice";
+import teacherImagesRouter from "./teacher-images";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(adminInsightsRouter);
 router.use(materialsRouter);
 router.use(aiUsageRouter);
 router.use(voiceRouter);
+router.use(teacherImagesRouter);
 
 export default router;

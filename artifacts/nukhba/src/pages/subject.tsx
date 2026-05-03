@@ -1279,8 +1279,10 @@ export default function Subject() {
 
             {/* Header */}
             <div className="shrink-0 border-b border-white/8" style={{ background: "linear-gradient(180deg, #0f1220 0%, #080a11 100%)" }}>
-              {/* Top bar */}
-              <div className="px-4 py-3 flex items-center justify-between">
+              {/* Top bar — collapsed to ~44px (was ~64px) to give the chat more
+                  vertical room. Avatar shrunk 10→8, paddings reduced, label
+                  font sizes bumped down one notch. */}
+              <div className="px-3 py-1.5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {isIDEOpen ? (
                     <>
@@ -1348,15 +1350,15 @@ export default function Subject() {
                     </>
                   ) : (
                     <>
-                      <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-lg shrink-0`}>
-                        <span className="text-lg">{subject.emoji}</span>
+                      <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${subject.colorFrom} ${subject.colorTo} flex items-center justify-center shadow-md shrink-0`}>
+                        <span className="text-sm">{subject.emoji}</span>
                       </div>
-                      <div>
-                        <p className="font-bold text-base leading-tight">معلم {subject.name}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="font-bold text-sm leading-tight truncate max-w-[55vw] sm:max-w-[280px]">معلم {subject.name}</p>
+                        <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                          <p className="text-[11px] text-emerald-400 font-medium">متصل الآن</p>
-                        </div>
+                          متصل
+                        </span>
                       </div>
                     </>
                   )}
@@ -2388,17 +2390,17 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
       };
 
       if (!state || state.status === 'loading') {
-        // Absolute safety-net timer (60s) — only fires if neither
-        // imageReady nor imageError SSE events arrived. The server's
-        // own FAL_TIMEOUT_MS (default 25s) is the real ceiling; this
-        // is purely a defence against a dropped SSE connection so the
-        // spinner never spins forever.
+        // Safety-net timer — fires only if neither imageReady nor imageError
+        // SSE events arrived (dropped connection). The server's worst-case
+        // is FAL_TIMEOUT_MS + POLLINATIONS_TIMEOUT_MS ≈ 60s, then SVG
+        // fallback (instant). 75s gives a 15s cushion before we declare the
+        // SSE channel dead.
         if (!localTimersRef.current.has(id)) {
           const timer = setTimeout(() => {
             console.debug('[teach-image] local timeout fired', { id });
             localTimersRef.current.delete(id);
             onImageTimeout?.(id);
-          }, 60_000);
+          }, 75_000);
           localTimersRef.current.set(id, timer);
         }
         return;
@@ -2415,71 +2417,34 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
         console.debug('[teach-image] figure upgraded to ready', { id });
         const cap = clearBodyKeepCaption();
 
-        // Build the <img> element first; we attach load/error handlers BEFORE
-        // setting src so we never miss the events for cached responses.
-        // CRITICAL UX: the URL might be a Pollinations.ai endpoint (when
-        // FAL_KEY is unset) — the browser then has to wait 5-15s for the
-        // image to actually arrive. We keep a "loading" overlay (spinner +
-        // text) visible during that window so users always see progress.
+        // Same-origin URL (`/api/teacher-images/<hash>.<ext>`) served from our
+        // own static handler — no CORS, no third-party CDN latency, no
+        // signed-URL expiry. Bytes are persisted server-side BEFORE this
+        // event arrives so the fetch is essentially instant. No load-overlay
+        // and no 90s safety timer needed any more.
         const img = document.createElement('img');
         img.alt = 'صورة توضيحية';
-        // Use 'eager' instead of 'lazy' so the browser fetches immediately
-        // (the figure is in-viewport by definition — it's the message the
-        // student is reading). Lazy-loading delayed Pollinations fetches
-        // until scroll, making the spinner appear stuck.
         img.loading = 'eager';
-
-        // Loading overlay (spinner + label) shown until img.onload fires.
-        // Absolutely positioned over the (still-empty) <img> box, which is
-        // already sized via aspect-ratio:1/1 in CSS so the overlay has space.
-        const overlay = document.createElement('div');
-        overlay.className = 'teach-image-overlay';
-        overlay.innerHTML =
-          '<div class="teach-image-spinner">' +
-            '<span class="dot"></span><span class="dot"></span><span class="dot"></span>' +
-            '<span class="label">جارٍ تحميل الصورة…</span>' +
-          '</div>';
-
-        let settled = false;
-        img.onload = () => {
-          if (settled) return;
-          settled = true;
-          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-          fig.classList.remove('teach-image-loading-overlay');
-        };
         img.onerror = () => {
-          if (settled) return;
-          settled = true;
-          console.debug('[teach-image] img onerror fallback', { id, src: img.src.slice(0, 80) });
+          // Only fires if the cached file was deleted between render and
+          // request (LRU eviction race) — extremely rare. Show a friendly
+          // hint instead of a broken-image icon.
+          console.debug('[teach-image] img onerror', { id, src: img.src.slice(0, 80) });
           const cap2 = clearBodyKeepCaption();
           const fail = document.createElement('div');
           fail.className = 'teach-image-fail';
-          fail.textContent = '⚠️ تعذّر تحميل الصورة — تحقق من الاتصال أو أعد المحاولة.';
+          fail.textContent = '⚠️ تعذّر تحميل الصورة — أعد المحاولة.';
           fig.appendChild(fail);
           if (cap2) fig.appendChild(cap2);
-          fig.classList.remove('teach-image-ready', 'teach-image-loading', 'teach-image-loading-overlay');
+          fig.classList.remove('teach-image-ready', 'teach-image-loading');
           fig.classList.add('teach-image-error');
         };
-        // Hard ceiling: if Pollinations / fal CDN takes > 90s, give up.
-        const fallbackTimer = setTimeout(() => {
-          if (settled) return;
-          if (img.complete && img.naturalWidth > 0) { img.onload?.(new Event('load')); return; }
-          img.onerror?.(new Event('error'));
-        }, 90_000);
-        const origOnload = img.onload;
-        img.onload = (ev) => { clearTimeout(fallbackTimer); origOnload?.call(img, ev); };
-
-        // Now actually start the fetch.
         img.src = state.url;
 
         fig.appendChild(img);
-        fig.appendChild(overlay);
         if (cap) fig.appendChild(cap);
         fig.classList.remove('teach-image-loading', 'teach-image-error');
-        fig.classList.add('teach-image-ready', 'teach-image-loading-overlay');
-
-        // Cached/instant case: img.complete may already be true synchronously.
-        if (img.complete && img.naturalWidth > 0) img.onload?.(new Event('load'));
+        fig.classList.add('teach-image-ready');
         return;
       }
 
