@@ -594,6 +594,25 @@
   direction: rtl;
   overflow: hidden;
   box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+  position: relative; /* anchor for .teach-image-overlay */
+}
+/* Loading overlay shown while a ready img is still being fetched by the
+   browser (Pollinations.ai can take 5-15s). Sits over the reserved
+   aspect-ratio:1/1 image box so the user always sees progress. */
+.teach-image-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  /* Cover only the image area (figcaption sits below); aspect-ratio
+     1:1 gives us a square equal to the figure width. */
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 18, 32, 0.72);
+  backdrop-filter: blur(2px);
+  border-radius: 16px 16px 0 0;
+  pointer-events: none;
+  z-index: 2;
 }
 .teach-image img {
   display: block;

@@ -1271,7 +1271,7 @@ export default function Subject() {
               max-sm:!w-full max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0
               ${anyPanelOpen
                 ? "sm:!max-w-none sm:!w-[100vw] sm:!h-[100dvh] sm:!rounded-none sm:!border-0"
-                : "sm:max-w-[860px] sm:h-[90vh] sm:rounded-3xl"}
+                : "sm:w-[96vw] sm:max-w-[1400px] sm:h-[95vh] sm:rounded-3xl"}
               w-full p-0 flex flex-col gap-0 overflow-hidden border shadow-lg
               bg-[#080a11] border-white/8
             `}
@@ -2414,11 +2414,42 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
 
         console.debug('[teach-image] figure upgraded to ready', { id });
         const cap = clearBodyKeepCaption();
+
+        // Build the <img> element first; we attach load/error handlers BEFORE
+        // setting src so we never miss the events for cached responses.
+        // CRITICAL UX: the URL might be a Pollinations.ai endpoint (when
+        // FAL_KEY is unset) — the browser then has to wait 5-15s for the
+        // image to actually arrive. We keep a "loading" overlay (spinner +
+        // text) visible during that window so users always see progress.
         const img = document.createElement('img');
-        img.src = state.url;
         img.alt = 'صورة توضيحية';
-        img.loading = 'lazy';
+        // Use 'eager' instead of 'lazy' so the browser fetches immediately
+        // (the figure is in-viewport by definition — it's the message the
+        // student is reading). Lazy-loading delayed Pollinations fetches
+        // until scroll, making the spinner appear stuck.
+        img.loading = 'eager';
+
+        // Loading overlay (spinner + label) shown until img.onload fires.
+        // Absolutely positioned over the (still-empty) <img> box, which is
+        // already sized via aspect-ratio:1/1 in CSS so the overlay has space.
+        const overlay = document.createElement('div');
+        overlay.className = 'teach-image-overlay';
+        overlay.innerHTML =
+          '<div class="teach-image-spinner">' +
+            '<span class="dot"></span><span class="dot"></span><span class="dot"></span>' +
+            '<span class="label">جارٍ تحميل الصورة…</span>' +
+          '</div>';
+
+        let settled = false;
+        img.onload = () => {
+          if (settled) return;
+          settled = true;
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+          fig.classList.remove('teach-image-loading-overlay');
+        };
         img.onerror = () => {
+          if (settled) return;
+          settled = true;
           console.debug('[teach-image] img onerror fallback', { id, src: img.src.slice(0, 80) });
           const cap2 = clearBodyKeepCaption();
           const fail = document.createElement('div');
@@ -2426,13 +2457,29 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
           fail.textContent = '⚠️ تعذّر تحميل الصورة — تحقق من الاتصال أو أعد المحاولة.';
           fig.appendChild(fail);
           if (cap2) fig.appendChild(cap2);
-          fig.classList.remove('teach-image-ready', 'teach-image-loading');
+          fig.classList.remove('teach-image-ready', 'teach-image-loading', 'teach-image-loading-overlay');
           fig.classList.add('teach-image-error');
         };
+        // Hard ceiling: if Pollinations / fal CDN takes > 90s, give up.
+        const fallbackTimer = setTimeout(() => {
+          if (settled) return;
+          if (img.complete && img.naturalWidth > 0) { img.onload?.(new Event('load')); return; }
+          img.onerror?.(new Event('error'));
+        }, 90_000);
+        const origOnload = img.onload;
+        img.onload = (ev) => { clearTimeout(fallbackTimer); origOnload?.call(img, ev); };
+
+        // Now actually start the fetch.
+        img.src = state.url;
+
         fig.appendChild(img);
+        fig.appendChild(overlay);
         if (cap) fig.appendChild(cap);
         fig.classList.remove('teach-image-loading', 'teach-image-error');
-        fig.classList.add('teach-image-ready');
+        fig.classList.add('teach-image-ready', 'teach-image-loading-overlay');
+
+        // Cached/instant case: img.complete may already be true synchronously.
+        if (img.complete && img.naturalWidth > 0) img.onload?.(new Event('load'));
         return;
       }
 
