@@ -26,7 +26,7 @@ import {
 import { generateActivationCode } from "../lib/auth";
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { writeGemLedger } from "../lib/gem-ledger";
-import { getAccessForUser } from "../lib/access";
+import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
 
 const router: IRouter = Router();
 
@@ -2174,6 +2174,20 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
   let gemsDailyLimit = 0;
   let gemsUsedToday = 0;
 
+  // First-lesson detection. We treat the user as on the free-lesson grace
+  // whenever EITHER the access helper says so (source === "first-lesson") OR
+  // the global `firstLessonComplete` flag is still false. The second branch
+  // catches the exhausted edge: when freeMessagesUsed hits the 80 cap, the
+  // helper flips access.source to "none" — but the user has not actually
+  // completed a paid path either, so the badge must remain visible (red CTA
+  // "اشترك للمتابعة") instead of disappearing.
+  let firstLessonGemsRemaining = 0;
+  let firstLessonGemsUsed = 0;
+  const userRow = await getUser(userId);
+  const onFirstLessonGrace =
+    access.source === "first-lesson" ||
+    (access.source === "none" && !!userRow && !userRow.firstLessonComplete);
+
   if (access.source === "per-subject" && subjectId) {
     const [sub] = await db
       .select()
@@ -2188,10 +2202,26 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
     gemsDailyLimit = sub?.gemsDailyLimit ?? 0;
     gemsUsedToday = sub?.gemsUsedToday ?? 0;
   } else if (access.source === "legacy") {
-    const user = await getUser(userId);
-    plan = user?.nukhbaPlan ?? null;
-    gemsDailyLimit = user?.gemsDailyLimit ?? 0;
-    gemsUsedToday = user?.gemsUsedToday ?? 0;
+    plan = userRow?.nukhbaPlan ?? null;
+    gemsDailyLimit = userRow?.gemsDailyLimit ?? 0;
+    gemsUsedToday = userRow?.gemsUsedToday ?? 0;
+  } else if (onFirstLessonGrace && subjectId) {
+    const [firstLesson] = await db
+      .select()
+      .from(userSubjectFirstLessonsTable)
+      .where(and(
+        eq(userSubjectFirstLessonsTable.userId, userId),
+        eq(userSubjectFirstLessonsTable.subjectId, subjectId),
+      ));
+    firstLessonGemsUsed = firstLesson?.freeMessagesUsed ?? 0;
+    firstLessonGemsRemaining = Math.max(0, FREE_LESSON_GEM_LIMIT - firstLessonGemsUsed);
+    gemsDailyLimit = FREE_LESSON_GEM_LIMIT;
+    gemsUsedToday = firstLessonGemsUsed;
+  } else if (onFirstLessonGrace) {
+    // Subject-less call — defend the shape so the summary endpoint can still
+    // surface a meaningful badge.
+    gemsDailyLimit = FREE_LESSON_GEM_LIMIT;
+    firstLessonGemsRemaining = FREE_LESSON_GEM_LIMIT;
   }
 
   // Cross-subject summary: same shape as the `subjects` array on
@@ -2202,18 +2232,28 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
   const { getNextMidnightYemen } = await import("../lib/yemen-time");
   const dailyResetAtUtc = getNextMidnightYemen();
 
+  const isFirstLesson = onFirstLessonGrace;
+  const gemsBalance = isFirstLesson ? firstLessonGemsRemaining : access.gemsRemaining;
+  const dailyRemaining = isFirstLesson ? firstLessonGemsRemaining : access.dailyRemaining;
+  // Surface the exhausted-grace state explicitly so the badge can flip to a
+  // red "اشترك للمتابعة" CTA instead of disappearing when freeMessagesUsed
+  // hits the 80 cap (access.source flips to "none" at that boundary).
+  const isFirstLessonExhausted = isFirstLesson && gemsBalance <= 0;
+
   res.json({
     subjectId: subjectId || null,
     subjectName,
-    gemsBalance: access.gemsRemaining,
+    gemsBalance,
     gemsDailyLimit,
     gemsUsedToday,
-    dailyRemaining: access.dailyRemaining,
+    dailyRemaining,
     gemsExpiresAt: access.expiresAt,
     hasActiveSub: access.hasActiveSub,
-    canUseGems: access.canAccess && access.gemsRemaining > 0,
+    isFirstLesson,
+    isFirstLessonExhausted,
+    canUseGems: isFirstLesson ? gemsBalance > 0 : (access.canAccess && access.gemsRemaining > 0),
     plan,
-    source: access.source === "first-lesson" ? ("none" as const) : access.source,
+    source: isFirstLesson ? ("first-lesson" as const) : access.source,
     dailyResetAtUtc,
   });
 });
@@ -2374,6 +2414,41 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
         nearestSubject: null,
         subjects: [],
         source: "legacy" as const,
+      });
+      return;
+    }
+
+    // No active paid wallet — but if the user is still on their first-lesson
+    // grace, surface that as a badge-eligible state so the header doesn't
+    // go dark on non-subject pages (dashboard, learn, etc.). We pick the
+    // best (most-remaining) per-subject row so a user who has barely used
+    // the grace in any subject still sees a healthy "free gems" badge,
+    // and falls back to the full 80-cap when no row exists yet.
+    if (!user.firstLessonComplete) {
+      const rows = await db
+        .select()
+        .from(userSubjectFirstLessonsTable)
+        .where(eq(userSubjectFirstLessonsTable.userId, userId));
+      let bestRemaining = rows.length === 0 ? FREE_LESSON_GEM_LIMIT : 0;
+      for (const r of rows) {
+        if (r.completed) continue;
+        const used = r.freeMessagesUsed ?? 0;
+        const remaining = Math.max(0, FREE_LESSON_GEM_LIMIT - used);
+        if (remaining > bestRemaining) bestRemaining = remaining;
+      }
+      const exhausted = bestRemaining <= 0;
+      res.json({
+        hasActiveSub: false,
+        canUseGems: !exhausted,
+        isFirstLesson: true,
+        isFirstLessonExhausted: exhausted,
+        totalDailyRemaining: bestRemaining,
+        totalDailyLimit: FREE_LESSON_GEM_LIMIT,
+        totalBalance: bestRemaining,
+        activeSubjectCount: 0,
+        worstSubject: null,
+        subjects: [],
+        source: "first-lesson" as const,
       });
       return;
     }

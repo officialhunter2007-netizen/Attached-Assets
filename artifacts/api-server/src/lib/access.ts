@@ -11,7 +11,7 @@ import {
 } from "./gems";
 
 const RECENT_EXPIRY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const FREE_LESSON_GEM_LIMIT = 80;
+export const FREE_LESSON_GEM_LIMIT = 80;
 
 export type AccessSource = "per-subject" | "legacy" | "first-lesson" | "none";
 export type AccessReason =

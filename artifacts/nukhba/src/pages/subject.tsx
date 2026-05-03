@@ -2388,19 +2388,17 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
       };
 
       if (!state || state.status === 'loading') {
-        // Schedule a local 10s safety-net timer once for this figure id.
-        // Even if the placeholder SSE event hasn't arrived yet (race
-        // between the marker landing in the DOM and the SSE event),
-        // we still want a guaranteed resolution within 10s.
+        // Absolute safety-net timer (60s) — only fires if neither
+        // imageReady nor imageError SSE events arrived. The server's
+        // own FAL_TIMEOUT_MS (default 25s) is the real ceiling; this
+        // is purely a defence against a dropped SSE connection so the
+        // spinner never spins forever.
         if (!localTimersRef.current.has(id)) {
           const timer = setTimeout(() => {
             console.debug('[teach-image] local timeout fired', { id });
             localTimersRef.current.delete(id);
-            // Mutate React state so the error survives re-renders.
-            // The parent's onImageTimeout handler is idempotent and
-            // refuses to clobber a state that is already `ready`.
             onImageTimeout?.(id);
-          }, 10_000);
+          }, 60_000);
           localTimersRef.current.set(id, timer);
         }
         return;
@@ -3653,16 +3651,10 @@ function SubjectPathChat({
               const url = String(data.imageReady.url);
               console.debug('[teach-image] ready received', { id, url: url.slice(0, 80) });
               setImageMap(prev => {
-                const cur = prev.get(id);
-                // If the local 10s timeout already flipped this id to
-                // `error`, the user has already seen the friendly fail
-                // message — don't suddenly resurrect a successful image
-                // (would be confusing and break the contract that the
-                // bubble resolves within 10s).
-                if (cur && cur.status === 'error') {
-                  console.debug('[teach-image] late ready ignored (already errored)', { id });
-                  return prev;
-                }
+                // Late-arriving `ready` after the 60s safety-net flipped to
+                // `error` is a genuine fal.ai response — adopt it so the
+                // student gets the image even if the dropped-SSE fallback
+                // fired first.
                 const next = new Map(prev);
                 next.set(id, { status: 'ready', url });
                 return next;

@@ -14,6 +14,7 @@ type GemsState = {
   dailyRemaining: number;
   gemsDailyLimit: number;
   hasActiveSub: boolean;
+  isFirstLesson?: boolean;
   activeSubjectCount?: number;
   label?: string | null;
   // Nearest-expiry warning. ≤ 7 days flips the badge into a warning state;
@@ -22,7 +23,54 @@ type GemsState = {
 } | null;
 
 function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boolean }) {
-  if (!gems || !gems.hasActiveSub) return null;
+  if (!gems) return null;
+  // First-lesson grace path: render a distinct "free" badge so a brand-new
+  // student sees their 80-gem allowance instead of an empty header. When the
+  // 80 are spent the badge stays visible and turns into a "subscribe" CTA.
+  if (gems.isFirstLesson && !gems.hasActiveSub) {
+    const remaining = Math.max(0, gems.gemsBalance);
+    const limit = gems.gemsDailyLimit > 0 ? gems.gemsDailyLimit : 80;
+    const exhausted = remaining <= 0;
+    const label = gems.label ? ` — ${gems.label}` : "";
+    const tooltip = exhausted
+      ? `انتهت جواهر الجلسة المجانية${label} — اشترك لمواصلة التعلم`
+      : `لديك ${remaining.toLocaleString("ar-EG")} من ${limit.toLocaleString("ar-EG")} جوهرة مجانية في هذه الجلسة${label}`;
+    return (
+      <Link href="/subscription">
+        <motion.span
+          whileHover={{ scale: 1.05 }}
+          className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-all whitespace-nowrap max-w-[260px] ${compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1.5 text-xs"}`}
+          style={exhausted ? {
+            background: "rgba(239,68,68,0.15)",
+            border: "1px solid rgba(239,68,68,0.4)",
+            color: "#F87171",
+            boxShadow: "0 0 12px rgba(239,68,68,0.2)",
+          } : {
+            background: "rgba(16,185,129,0.12)",
+            border: "1px solid rgba(16,185,129,0.4)",
+            color: "#34D399",
+            boxShadow: "0 0 10px rgba(16,185,129,0.18)",
+          }}
+          title={tooltip}
+        >
+          💎
+          {exhausted ? (
+            <span>اشترك للمتابعة</span>
+          ) : (
+            <>
+              <span>{remaining.toLocaleString("ar-EG")}</span>
+              {!compact && (
+                <span className="opacity-70 font-normal">
+                  / {limit.toLocaleString("ar-EG")} مجانية
+                </span>
+              )}
+            </>
+          )}
+        </motion.span>
+      </Link>
+    );
+  }
+  if (!gems.hasActiveSub) return null;
 
   const balanceEmpty = gems.gemsBalance <= 0;
   const dailyExhausted = gems.dailyRemaining <= 0 && gems.gemsDailyLimit > 0;
@@ -264,6 +312,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               dailyRemaining: d.dailyRemaining ?? 0,
               gemsDailyLimit: d.gemsDailyLimit ?? 0,
               hasActiveSub: d.hasActiveSub ?? false,
+              isFirstLesson: d.isFirstLesson ?? d.source === "first-lesson",
               activeSubjectCount: 1,
               label,
               expiresInDays,
@@ -274,7 +323,21 @@ export function AppLayout({ children }: { children: ReactNode }) {
         fetch("/api/subscriptions/gems-balance-summary", { credentials: "include" })
           .then(r => r.ok ? r.json() : null)
           .then(d => {
-            if (!d || !d.hasActiveSub) { setGems(null); return; }
+            if (!d) { setGems(null); return; }
+            if (!d.hasActiveSub && d.isFirstLesson) {
+              setGems({
+                gemsBalance: d.totalBalance ?? 0,
+                dailyRemaining: d.totalDailyRemaining ?? 0,
+                gemsDailyLimit: d.totalDailyLimit ?? 0,
+                hasActiveSub: false,
+                isFirstLesson: true,
+                activeSubjectCount: 0,
+                label: null,
+                expiresInDays: null,
+              });
+              return;
+            }
+            if (!d.hasActiveSub) { setGems(null); return; }
             let label: string | null = null;
             if (d.activeSubjectCount === 1) {
               const w = d.worstSubject;
