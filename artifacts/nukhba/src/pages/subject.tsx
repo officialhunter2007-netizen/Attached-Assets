@@ -4859,7 +4859,7 @@ function SubjectPathChat({
           <span>{chromeOpen ? "إخفاء الحالة" : "إظهار الحالة"}</span>
         </button>
       )}
-      <div id="chat-chrome-strip" hidden={!chromeOpen} className="contents">
+      <div id="chat-chrome-strip" className={chromeOpen ? "contents" : "hidden"}>
       {/* Inline compact path bar — a thin horizontal stage-dot strip directly
           under the session header. Renders alongside (not instead of) the
           side drawer so accustomed users keep their familiar inline path
