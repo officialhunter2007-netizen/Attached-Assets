@@ -2768,8 +2768,19 @@ function SubjectPathChat({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Speech-recognition control: a non-null handle means we're actively
   // recording; calling .stop() ends the session and triggers `onend`.
-  const [recordingHandle, setRecordingHandle] = useState<{ stop: () => void } | null>(null);
+  // The handle now exposes both `stop()` (= upload + transcribe) and
+  // `cancel()` (= drop the recording, used on unmount) since STT moved
+  // from the synchronous Web Speech API to the async cloud transcription
+  // pipeline (`/api/voice/stt`). See `lib/web-speech.ts` for details.
+  const [recordingHandle, setRecordingHandle] = useState<{ stop: () => void; cancel: () => void } | null>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
+  // Async UX state for the cloud STT round-trip. While `recordingHandle`
+  // is non-null the mic is open; once we call `.stop()` the handle clears
+  // but the audio is still being uploaded — we surface that via
+  // `isTranscribing` so the user sees a "جارٍ التفريغ..." hint instead of
+  // a confusingly-empty mic button.
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   // Session control state.
   const [sessionPaused, setSessionPaused] = useState(false);
   const [pathDrawerOpen, setPathDrawerOpen] = useState(false);
@@ -4001,38 +4012,58 @@ function SubjectPathChat({
     }
   }, [exportingPdf, subject.name]);
 
-  // ── Voice input (SpeechRecognition) ───────────────────────────────────────
+  // ── Voice input (cloud STT via /api/voice/stt) ─────────────────────────
+  // The mic button is a 3-state toggle:
+  //   • idle      → press to start recording
+  //   • recording → press to stop & upload (or wait 60 s auto-stop)
+  //   • uploading → disabled until transcription returns or fails
   const handleToggleMic = useCallback(() => {
+    if (isTranscribing) return; // wait for the round-trip to finish
     if (recordingHandle) {
+      // .stop() will trigger the upload; the handle clears here so the
+      // button immediately shows the "uploading" state.
       recordingHandle.stop();
       setRecordingHandle(null);
+      setIsTranscribing(true);
       return;
     }
     setRecordingError(null);
+    setRecordingElapsedMs(0);
     const handle = startRecognition({
-      lang: "ar-SA",
-      onResult: (transcript, isFinal) => {
-        // Append final transcripts to whatever's already in the input;
-        // interim transcripts are previewed inline so the user can see
-        // the live recognition.
+      maxDurationMs: 60_000,
+      onProgress: (ms) => setRecordingElapsedMs(ms),
+      onResult: (transcript) => {
         setInput(prev => {
           const sep = prev && !prev.endsWith(" ") ? " " : "";
-          if (isFinal) return `${prev}${sep}${transcript}`.trim() + " ";
-          return prev; // interim previews don't pollute the saved value
+          const next = `${prev}${sep}${transcript}`.trim() + " ";
+          draftSaverRef.current(next);
+          return next;
         });
-        if (isFinal) draftSaverRef.current(transcript);
+      },
+      onUploading: () => {
+        // Auto-stop (60 s timer) clears recordingHandle indirectly via
+        // onEnd; this hook ensures the "uploading" indicator appears even
+        // when the user didn't manually press stop.
+        setIsTranscribing(true);
       },
       onError: (err) => {
         setRecordingError(err);
         setRecordingHandle(null);
+        setIsTranscribing(false);
       },
-      onEnd: () => setRecordingHandle(null),
+      onEnd: () => {
+        setRecordingHandle(null);
+        setIsTranscribing(false);
+        setRecordingElapsedMs(0);
+      },
     });
     if (handle) setRecordingHandle(handle);
-  }, [recordingHandle]);
+  }, [recordingHandle, isTranscribing]);
 
-  // Stop recognition if the component unmounts while listening.
-  useEffect(() => () => { recordingHandle?.stop(); stopSpeaking(); }, [recordingHandle]);
+  // Stop recognition (and any in-flight TTS) if the component unmounts.
+  // Use `cancel()` here instead of `stop()` so we don't trigger an upload
+  // for audio nobody will see the result of.
+  useEffect(() => () => { recordingHandle?.cancel(); stopSpeaking(); }, [recordingHandle]);
 
   // ── File attach (image OR text, plus paste) ──────────────────────────────
   // Images become an inline preview chip + are sent ONCE via the data URL
@@ -4601,29 +4632,14 @@ function SubjectPathChat({
         IMPORTANT: this does NOT call /ai/lab/build-env directly. It triggers
         the teacher-orchestrated intake interview, which emits
         [[LAB_INTAKE_DONE]] only after all 5 questions complete. */}
-    {!pendingDynamicEnv && !anyPanelOpen && !isCreatingEnv && !compiledSpec && !isCompilingSpec && onStartLabEnvIntent && chatVisible && (
-      <button
-        onClick={() => onStartLabEnvIntent()}
-        className="fixed bottom-24 md:bottom-6 right-4 z-[70] bg-gradient-to-l from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-amber-300/50"
-        style={{ direction: "rtl" }}
-        title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
-      >
-        <span className="text-lg">🧪</span>
-        <span>ابنِ بيئة تطبيقية</span>
-      </button>
-    )}
-    {/* Attack Simulation: floating "build" button (security/networking only). */}
-    {attackSimEnabled && !pendingAttackScenario && !anyPanelOpen && chatVisible && onOpenAttackIntake && (
-      <button
-        onClick={() => onOpenAttackIntake()}
-        className="fixed bottom-40 md:bottom-20 right-4 z-[70] bg-gradient-to-l from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
-        style={{ direction: "rtl" }}
-        title="ابدأ محاكاة هجمة تعليمية"
-      >
-        <span className="text-lg">🎯</span>
-        <span>محاكاة هجمة</span>
-      </button>
-    )}
+    {/* "ابنِ بيئة تطبيقية" + "محاكاة هجمة" used to render here as two
+        big floating bottom-right buttons (bottom-24/bottom-40 + shadow-2xl
+        + bottom-aligned over the chat). On phones they covered the last
+        message of the conversation and forced students to scroll past
+        them on every turn. They moved into the small chip rail directly
+        above the input area (search the file for `quick-launch-chip`)
+        where they sit alongside the existing topic-suggestion chips and
+        no longer obscure any chat content. */}
     {/* Attack Simulation: re-open button when scenario exists but panel closed. */}
     {showReopenAttack && (
       <button
@@ -4924,6 +4940,27 @@ function SubjectPathChat({
             )}
           </div>
           <div className="shrink-0 flex items-center gap-1">
+            {/* "End session & save summary" used to live inside the dropdown
+                below — students complained it was buried among 8+ other
+                items even though it's the single most important action of
+                a tutoring session. Promoted here as a primary header
+                button (always visible, never collapsed even on phones).
+                Disabled until there are at least 2 messages so a freshly-
+                opened empty session can't accidentally write an empty
+                summary. */}
+            {messages.length >= 2 && (
+              <button
+                type="button"
+                onClick={handleEndSession}
+                disabled={isStreaming}
+                className="session-action-btn flex items-center gap-1 text-[11px] font-bold text-amber-100 bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                title="إنهاء الجلسة وحفظ ملخص لها في لوحتي"
+                aria-label="إنهاء الجلسة وحفظ الملخص"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span className="hidden xs:inline sm:inline">إنهاء الجلسة</span>
+              </button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -5025,19 +5062,10 @@ function SubjectPathChat({
                   {shareCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4 text-white/60" />}
                   <span>{shareCopied ? "تم نسخ الرابط ✓" : "نسخ رابط المشاركة"}</span>
                 </DropdownMenuItem>
-                {messages.length >= 2 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onSelect={handleEndSession}
-                      disabled={isStreaming}
-                      className="cursor-pointer gap-2 text-sm text-amber-200 focus:text-amber-100 focus:bg-amber-500/15"
-                    >
-                      <FileText className="w-4 h-4" />
-                      <span>إنهاء الجلسة وحفظ الملخص</span>
-                    </DropdownMenuItem>
-                  </>
-                )}
+                {/* "إنهاء الجلسة وحفظ الملخص" was previously listed here.
+                    Promoted out of this dropdown to a primary header
+                    button on its left to make it discoverable in one tap
+                    (May 2026 — see commit history). */}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -5427,6 +5455,47 @@ function SubjectPathChat({
 
       {/* Input area */}
       <div className="shrink-0 border-t border-white/8 p-3 sm:p-4" style={{ background: "#0b0d17" }}>
+        {/* Quick-launch chips for "Build a lab env" and "Attack simulation".
+            These two actions used to be huge floating bottom-right buttons
+            (~56 px tall + 2-line shadow + always on top of the chat) that
+            covered the last AI message on every phone. They migrated here
+            into a discreet centred chip rail, kept their distinctive
+            colours (amber for lab, red for attack) so they're still
+            recognisable, but are now flat ~28 px chips that sit above the
+            input with the rest of the suggestion UI and obscure no chat
+            content. The render gates (no panel open, no env in flight,
+            etc.) are unchanged from the floating-button version. */}
+        {chatVisible && !isCreatingEnv && !compiledSpec && !isCompilingSpec && (
+          (onStartLabEnvIntent && !pendingDynamicEnv) ||
+          (attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario)
+        ) && (
+          <div className="max-w-2xl mx-auto mb-2 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
+            {onStartLabEnvIntent && !pendingDynamicEnv && (
+              <button
+                type="button"
+                onClick={() => onStartLabEnvIntent()}
+                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+                className="quick-launch-chip text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 text-amber-100 hover:text-amber-50 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
+              >
+                <span>🧪</span>
+                <span>ابنِ بيئة تطبيقية</span>
+              </button>
+            )}
+            {attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario && (
+              <button
+                type="button"
+                onClick={() => onOpenAttackIntake()}
+                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+                className="quick-launch-chip text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-400/70 text-rose-100 hover:text-rose-50 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="ابدأ محاكاة هجمة تعليمية"
+              >
+                <span>🎯</span>
+                <span>محاكاة هجمة</span>
+              </button>
+            )}
+          </div>
+        )}
         {/* Universal subject-specific suggested-prompt chips. Detected from
             the subject name/id so each domain gets relevant kick-off prompts.
             REDESIGN (May 2026): chips used to ALWAYS render above the input
@@ -5624,12 +5693,18 @@ function SubjectPathChat({
               <button
                 type="button"
                 onClick={handleToggleMic}
-                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}
+                disabled={isStreaming || quotaExhausted || chatGated || sessionPaused || isTranscribing}
                 className={`input-pro-icon-btn ${recordingHandle ? "input-pro-icon-btn-recording" : ""}`}
-                title={recordingHandle ? "إيقاف التسجيل" : "إدخال صوتي"}
-                aria-label={recordingHandle ? "إيقاف التسجيل" : "إدخال صوتي"}
+                title={
+                  isTranscribing ? "جارٍ تفريغ الصوت..."
+                  : recordingHandle ? `إيقاف التسجيل (${Math.floor(recordingElapsedMs / 1000)} ث)`
+                  : "إدخال صوتي (تفريغ سحابي عالي الدقّة)"
+                }
+                aria-label={recordingHandle ? "إيقاف التسجيل" : isTranscribing ? "جارٍ تفريغ الصوت" : "إدخال صوتي"}
               >
-                {recordingHandle ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                {isTranscribing ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : recordingHandle ? <MicOff className="w-4 h-4" />
+                  : <Mic className="w-4 h-4" />}
               </button>
             )}
             <textarea
@@ -5655,7 +5730,8 @@ function SubjectPathChat({
                 sessionPaused ? "الجلسة متوقّفة — اضغط استئناف للمتابعة..." :
                 chatGated ? "اختر طريقة التعلّم أولاً..." :
                 quotaExhausted ? "انتهى رصيدك — يرجى تجديد الاشتراك" :
-                recordingHandle ? "🎙️ تحدّث الآن... سيظهر النص هنا" :
+                isTranscribing ? "جارٍ تفريغ الصوت إلى نص..." :
+                recordingHandle ? `🎙️ تحدّث الآن... ${Math.floor(recordingElapsedMs / 1000)} ث (60 ث كحدّ أقصى)` :
                 "اكتب رسالتك للمعلم... (Ctrl+V للصق صورة)"
               }
               disabled={isStreaming || quotaExhausted || chatGated || sessionPaused}

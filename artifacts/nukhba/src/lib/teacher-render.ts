@@ -1,4 +1,14 @@
-import hljs from "highlight.js/lib/common";
+// Use the FULL highlight.js registry rather than `/lib/common`.
+//
+// `/lib/common` only registers ~38 of the most-popular languages, which
+// silently drops syntax colouring for things the AI teacher emits
+// regularly: php, kotlin, swift, dart, lua, r, scala, perl, dockerfile,
+// yaml, toml, makefile, nginx, powershell, vbnet, etc. Switching to the
+// full bundle adds ~100 KB gzipped to the chunk this lazy-loads in, but
+// guarantees that any language tag the model produces gets coloured —
+// which was the user-visible bug being fixed (code blocks rendered as a
+// plain monochrome wall).
+import hljs from "highlight.js";
 import katex from "katex";
 
 const MATH_PLACEHOLDER_PREFIX = "XNUKHBAMATHX";
