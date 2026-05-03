@@ -7,7 +7,8 @@
  * URL to the frontend via a separate SSE event so the placeholder swaps in
  * the actual image.
  *
- * Cost: ~$0.003 per image. Latency: ~1-3s typical, 8s hard timeout.
+ * Cost: ~$0.003 per image. Latency: ~1-3s typical; hard timeout
+ * configurable via FAL_TIMEOUT_MS (default 25s, see TIMEOUT_MS below).
  *
  * Arabic text inside images is impossible — FLUX (and every current diffusion
  * model) garbles non-Latin scripts. The teacher's prompt MUST contain
@@ -147,8 +148,9 @@ export async function generateTeacherImage(
 
   // ── fal.subscribe with a hard timeout ────────────────────────────────────
   // fal.subscribe waits for the queued job to finish and resolves with the
-  // final result payload. We race it against a hard 8s timer so a stuck
-  // fal.ai queue can't stall the teaching reply for half a minute.
+  // final result payload. We race it against a hard timer (TIMEOUT_MS,
+  // FAL_TIMEOUT_MS-tunable, default 25s) so a stuck fal.ai queue can't
+  // stall the teaching reply.
   let timeoutHandle: NodeJS.Timeout | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(

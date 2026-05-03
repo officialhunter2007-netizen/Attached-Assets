@@ -2174,19 +2174,35 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
   let gemsDailyLimit = 0;
   let gemsUsedToday = 0;
 
-  // First-lesson detection. We treat the user as on the free-lesson grace
-  // whenever EITHER the access helper says so (source === "first-lesson") OR
-  // the global `firstLessonComplete` flag is still false. The second branch
-  // catches the exhausted edge: when freeMessagesUsed hits the 80 cap, the
-  // helper flips access.source to "none" — but the user has not actually
-  // completed a paid path either, so the badge must remain visible (red CTA
-  // "اشترك للمتابعة") instead of disappearing.
+  // First-lesson detection (per-subject / per-skill). The free 80-gem grace
+  // applies to each new تخصص/مهارة the user opens — independent of the
+  // global `users.firstLessonComplete` one-shot flag — as long as there is
+  // no active paid wallet for that subject. We derive eligibility purely
+  // from the per-subject row (or its absence) so:
+  //   • a brand-new subject with no row  → 80/80 free
+  //   • partially used (< 80)            → (80 - used) free
+  //   • exhausted (= 80) or row.completed → 0/80 with red CTA
+  //   • any active paid sub for subject  → not first-lesson (paid path)
   let firstLessonGemsRemaining = 0;
   let firstLessonGemsUsed = 0;
   const userRow = await getUser(userId);
-  const onFirstLessonGrace =
-    access.source === "first-lesson" ||
-    (access.source === "none" && !!userRow && !userRow.firstLessonComplete);
+  let perSubjectFirstLesson:
+    | typeof userSubjectFirstLessonsTable.$inferSelect
+    | undefined;
+  if (subjectId && access.source !== "per-subject" && access.source !== "legacy") {
+    [perSubjectFirstLesson] = await db
+      .select()
+      .from(userSubjectFirstLessonsTable)
+      .where(and(
+        eq(userSubjectFirstLessonsTable.userId, userId),
+        eq(userSubjectFirstLessonsTable.subjectId, subjectId),
+      ));
+  }
+  const onFirstLessonGrace = subjectId
+    ? (access.source !== "per-subject" &&
+       access.source !== "legacy" &&
+       (!perSubjectFirstLesson || !perSubjectFirstLesson.completed))
+    : (access.source === "first-lesson");
 
   if (access.source === "per-subject" && subjectId) {
     const [sub] = await db
@@ -2206,14 +2222,7 @@ router.get("/subscriptions/gems-balance", async (req, res): Promise<void> => {
     gemsDailyLimit = userRow?.gemsDailyLimit ?? 0;
     gemsUsedToday = userRow?.gemsUsedToday ?? 0;
   } else if (onFirstLessonGrace && subjectId) {
-    const [firstLesson] = await db
-      .select()
-      .from(userSubjectFirstLessonsTable)
-      .where(and(
-        eq(userSubjectFirstLessonsTable.userId, userId),
-        eq(userSubjectFirstLessonsTable.subjectId, subjectId),
-      ));
-    firstLessonGemsUsed = firstLesson?.freeMessagesUsed ?? 0;
+    firstLessonGemsUsed = perSubjectFirstLesson?.freeMessagesUsed ?? 0;
     firstLessonGemsRemaining = Math.max(0, FREE_LESSON_GEM_LIMIT - firstLessonGemsUsed);
     gemsDailyLimit = FREE_LESSON_GEM_LIMIT;
     gemsUsedToday = firstLessonGemsUsed;
@@ -2418,13 +2427,15 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
       return;
     }
 
-    // No active paid wallet — but if the user is still on their first-lesson
-    // grace, surface that as a badge-eligible state so the header doesn't
-    // go dark on non-subject pages (dashboard, learn, etc.). We pick the
-    // best (most-remaining) per-subject row so a user who has barely used
-    // the grace in any subject still sees a healthy "free gems" badge,
-    // and falls back to the full 80-cap when no row exists yet.
-    if (!user.firstLessonComplete) {
+    // No active paid wallet — surface first-lesson grace as a badge-eligible
+    // state so the header never goes dark for a logged-in user on
+    // non-subject pages (dashboard, learn, etc.). The free grace is
+    // per-subject: each new تخصص/مهارة gets a fresh 80, so we look across
+    // all rows and pick the best (most-remaining) non-completed one.
+    // No rows → user hasn't opened any subject yet → assume the full 80
+    // are still available. Only when every existing row is exhausted or
+    // completed do we surface the red "اشترك للمتابعة" CTA.
+    {
       const rows = await db
         .select()
         .from(userSubjectFirstLessonsTable)
