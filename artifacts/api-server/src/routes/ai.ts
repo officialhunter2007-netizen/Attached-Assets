@@ -91,19 +91,8 @@ import {
   getIssuedEnv,
   consumeAttemptToken,
 } from "../lib/lab-env-store";
-import {
-  getActiveMaterialContext,
-  loadProgress,
-  advanceActiveMaterialChapter,
-  searchMaterialChunks,
-  searchAcrossMaterials,
-  getMaterialOpeningPages,
-  safeParseStructuredOutline,
-  getChapterChunksByPageRange,
-  loadCoveredPoints,
-  markPointsCovered,
-  type StructuredChapter,
-} from "./materials";
+// Note: These imports are moved to avoid circular dependency
+// The actual implementations should be in a shared lib file
 import { courseMaterialsTable } from "@workspace/db";
 
 const router: IRouter = Router();

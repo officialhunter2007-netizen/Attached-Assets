@@ -3005,7 +3005,7 @@ function SubjectPathChat({
     const label = langLabels[language] || language;
     const msg = `كتبت هذا الكود بلغة ${label}:\n\`\`\`${language}\n${code}\n\`\`\`\nالناتج:\n${output || "(لا يوجد إخراج)"}`;
     onCloseIDE?.();
-    sendTeachMessage(msg);
+    sendTeachMessageRef.current(msg);
   };
 
   const messageCount = messages.length;
@@ -3985,7 +3985,7 @@ function SubjectPathChat({
   const handleRestartStage = useCallback(() => {
     if (isStreaming || sessionPaused) return;
     if (!confirm("سيُعيد المعلم شرح هذه المرحلة من البداية. هل تريد المتابعة؟")) return;
-    sendTeachMessage("أعد لي شرح هذه المرحلة من البداية بطريقة مختلفة وأبسط، وكأنني أبدأها لأول مرة.");
+    sendTeachMessageRef.current("أعد لي شرح هذه المرحلة من البداية بطريقة مختلفة وأبسط، وكأنني أبدأها لأول مرة.");
   }, [isStreaming, sessionPaused]);
 
   // ── Re-explain image ──────────────────────────────────────────────────────
@@ -3993,7 +3993,7 @@ function SubjectPathChat({
   // referencing the image so the teacher knows which figure to elaborate on.
   const handleReExplainImage = useCallback((imageUrl: string) => {
     if (isStreaming || sessionPaused) return;
-    sendTeachMessage(`اشرح لي الصورة التوضيحية التالية مرة أخرى بتفصيل أكبر، واذكر العناصر المرقمة فيها واحداً تلو الآخر:\n\n![صورة من جلستك](${imageUrl})`);
+    sendTeachMessageRef.current(`اشرح لي الصورة التوضيحية التالية مرة أخرى بتفصيل أكبر، واذكر العناصر المرقمة فيها واحداً تلو الآخر:\n\n![صورة من جلستك](${imageUrl})`);
   }, [isStreaming, sessionPaused]);
 
   // ── Copy share link ──────────────────────────────────────────────────────
@@ -4519,15 +4519,15 @@ function SubjectPathChat({
   // Visibility is toggled with CSS display only — never conditional rendering.
   const handleLabShare = (content: string) => {
     onCloseLab?.();
-    sendTeachMessage(`نتائج من المختبر الغذائي:\n${content}`);
+    sendTeachMessageRef.current(`نتائج من المختبر الغذائي:\n${content}`);
   };
   const handleYemenSoftShare = (content: string) => {
     onCloseYemenSoft?.();
-    sendTeachMessage(`نتائج من البيئة التطبيقية (يمن سوفت):\n${content}`);
+    sendTeachMessageRef.current(`نتائج من البيئة التطبيقية (يمن سوفت):\n${content}`);
   };
   const handleAccountingLabShare = (content: string) => {
     onCloseAccountingLab?.();
-    sendTeachMessage(`نتائج من مختبر المحاسبة:\n${content}`);
+    sendTeachMessageRef.current(`نتائج من مختبر المحاسبة:\n${content}`);
   };
   const anyPanelOpen = !!(ideOpen || labOpen || yemenSoftOpen || accountingLabOpen || (dynamicEnvOpen && pendingDynamicEnv) || (attackSimOpen && pendingAttackScenario));
   const chatVisible = !anyPanelOpen;
@@ -5337,7 +5337,7 @@ function SubjectPathChat({
                   const text = idx < currentStage
                     ? `أريد مراجعة المرحلة ${idx + 1}: ${title}. ابدأ الشرح من بدايتها.`
                     : `أريد الانتقال إلى المرحلة ${idx + 1}: ${title}. ابدأ شرحها الآن.`;
-                  sendTeachMessage(text);
+                  sendTeachMessageRef.current(text);
                 }}
               />
             </div>
@@ -5422,7 +5422,7 @@ function SubjectPathChat({
                         content={msg.content}
                         isStreaming={isStreaming && isLastMsg}
                         onCreateLabEnv={onCreateLabEnv}
-                        onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessage(ans) : undefined}
+                        onAnswerOption={isLastMsg && !isStreaming ? (ans) => sendTeachMessageRef.current(ans) : undefined}
                         imageMap={imageMap}
                         onReExplainImage={handleReExplainImage}
                         subjectId={subject.id}
@@ -5468,7 +5468,7 @@ function SubjectPathChat({
                           ].map((b) => (
                             <button
                               key={b.label}
-                              onClick={() => sendTeachMessage(b.msg)}
+                              onClick={() => sendTeachMessageRef.current(b.msg)}
                               className="text-[11px] sm:text-xs px-2.5 py-1.5 rounded-full bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-amber-200 transition-all"
                               title={b.msg}
                             >
@@ -5653,7 +5653,7 @@ function SubjectPathChat({
                 <button
                   key={i}
                   type="button"
-                  onClick={() => { sendTeachMessage(q); setSuggestionsOpen(false); }}
+                  onClick={() => { sendTeachMessageRef.current(q); setSuggestionsOpen(false); }}
                   className="text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/25 border border-cyan-400/30 hover:border-cyan-400/60 text-cyan-200 hover:text-cyan-100 transition-all"
                 >
                   {q}
@@ -5667,7 +5667,7 @@ function SubjectPathChat({
           <div className="max-w-2xl mx-auto mb-2.5 flex flex-wrap gap-1.5 justify-center" style={{ direction: "rtl" }}>
             {activeMaterialWeakAreas.length > 0 && (
               <button
-                onClick={() => sendTeachMessage("ركّز على نقاط ضعفي")}
+                onClick={() => sendTeachMessageRef.current("ركّز على نقاط ضعفي")}
                 title={activeMaterialWeakAreas.map(w => `${w.topic} (${w.missed})`).join("، ")}
                 className="text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-500/70 text-rose-200 transition-all font-bold"
               >
@@ -5682,7 +5682,7 @@ function SubjectPathChat({
               .map((q, i) => (
                 <button
                   key={i}
-                  onClick={() => sendTeachMessage(q)}
+                  onClick={() => sendTeachMessageRef.current(q)}
                   className="text-[11px] sm:text-xs px-3 py-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/60 text-amber-200 transition-all"
                 >
                   {q}
@@ -5710,7 +5710,7 @@ function SubjectPathChat({
                 if (nm.length > 0 && nm[nm.length - 1].role === 'user') nm.pop();
                 return nm;
               });
-              setTimeout(() => sendTeachMessage(lastMsg, stages, currentStage, false), 100);
+              setTimeout(() => sendTeachMessageRef.current(lastMsg, stages, currentStage, false), 100);
             }}
           />
         )}
@@ -5727,7 +5727,7 @@ function SubjectPathChat({
               setCustomPlan(null);
               setChatPhase('diagnostic');
               setPendingTeachStart(false);
-              setTimeout(() => sendTeachMessage("", stages, 0, true), 200);
+              setTimeout(() => sendTeachMessageRef.current("", stages, 0, true), 200);
             }}
           />
         )}

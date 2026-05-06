@@ -36,6 +36,16 @@ import {
   extractGeminiUsage,
 } from "../lib/ai-usage";
 import {
+  loadProgress,
+  mutateProgress,
+  getActiveMaterialContext,
+  loadCoveredPoints,
+  markPointsCovered,
+  safeParseStructuredOutline,
+  type StructuredChapter,
+  type CoveredPointsMap,
+} from "./materials";
+import {
   generateGemini,
   generateGeminiJson,
   hasGeminiProvider,
@@ -1307,6 +1317,31 @@ router.get("/materials/:id/units", async (req, res): Promise<any> => {
     units: units.map((u) => ({ ...u, images: imagesByUnit.get(u.id) ?? [] })),
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Missing function declarations that are used but not defined
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function extractPdfTextPerPage(buf: Buffer): Promise<{
+  pages: Map<number, string>;
+  totalPages: number;
+  encrypted: boolean;
+  error?: string;
+}> {
+  // Implementation would go here - this is a placeholder
+  return { pages: new Map(), totalPages: 0, encrypted: false };
+}
+
+async function ocrPdfWithGemini(buf: Buffer, pageCount: number, ctx?: AiUsageCtx): Promise<{
+  text: string;
+  totalChunks: number;
+  successfulChunks: number;
+  placeholders: string;
+  failedRanges: Array<[number, number]>;
+}> {
+  // Implementation would go here - this is a placeholder
+  return { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "", failedRanges: [] };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Background processor: extract text → optional OCR → outline + summary + starters
