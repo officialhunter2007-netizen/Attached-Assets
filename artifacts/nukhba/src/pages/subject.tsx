@@ -45,6 +45,7 @@ import { MobileDesktopHint } from "@/components/mobile-desktop-hint";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import { CourseMaterialsPanel, TeachingModeChoiceCard } from "@/components/course-materials-panel";
 import { QuizPanel, type QuizKind } from "@/components/quiz-panel";
+import { PathwayPanel } from "@/components/pathway-panel";
 import { BookOpen } from "lucide-react";
 
 interface LessonSummary {
@@ -959,6 +960,7 @@ export default function Subject() {
   // does NOT lose the env — the user can come back to exactly where they were.
   const [pendingDynamicEnv, setPendingDynamicEnvState] = useState<any | null>(null);
   const [isDynamicEnvOpen, setIsDynamicEnvOpen] = useState(false);
+  const [isPathwayOpen, setIsPathwayOpen] = useState(false);
   const dynamicEnvStorageSuffix = subject?.id ? `dynamic-env::${subject.id}` : null;
   // Wrap the setter so every change to the env is mirrored to per-user storage.
   const setPendingDynamicEnv = useCallback((env: any | null) => {
@@ -1364,6 +1366,16 @@ export default function Subject() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  {!isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
+                    <button
+                      onClick={() => setIsPathwayOpen(true)}
+                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500/20 transition-all"
+                      title="المسار التكيّفي"
+                    >
+                      <MapIcon className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">مسار تكيّفي</span>
+                    </button>
+                  )}
                   {subject.hasCoding && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
                     <button
                       onClick={() => setIsIDEOpen(true)}
@@ -5923,6 +5935,15 @@ function SubjectPathChat({
 
       </>)}
     </div>
+
+    {/* Adaptive Pathway Panel — overlays the subject page when active */}
+    {isPathwayOpen && subject && (
+      <PathwayPanel
+        subjectId={subject.id}
+        subjectName={subject.name}
+        onClose={() => setIsPathwayOpen(false)}
+      />
+    )}
     </>
   );
 }
