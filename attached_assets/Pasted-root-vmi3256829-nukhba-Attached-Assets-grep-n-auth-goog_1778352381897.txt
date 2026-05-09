@@ -1,0 +1,37 @@
+root@vmi3256829:~/nukhba/Attached-Assets# grep -n "auth/google\|Unauthorized" /root/nukhba/Attached-Assets/artifacts/api-server/dist/index.mjs | head -20
+1050:      "401": "Unauthorized",
+34043:            config2.ssl.rejectUnauthorized = false;
+34051:              config2.ssl.rejectUnauthorized = false;
+34085:            config2.ssl.rejectUnauthorized = false;
+34180:          return { rejectUnauthorized: false };
+34221:          this.ssl = { rejectUnauthorized: false };
+71183:// ../../node_modules/.pnpm/google-auth-library@10.6.2/node_modules/google-auth-library/build/src/auth/googleauth.js
+71185:  "../../node_modules/.pnpm/google-auth-library@10.6.2/node_modules/google-auth-library/build/src/auth/googleauth.js"(exports) {
+89386:    function isUnauthorizedError(message) {
+89387:      return message["status"] === "error" && message["error"] === "Unauthorized";
+89488:              if (isUnauthorizedError(data)) {
+89489:                send2({ type: "unauthorized", error: new Error("Unauthorized") });
+110102:// ../../node_modules/.pnpm/google-auth-library@9.15.1/node_modules/google-auth-library/build/src/auth/googleauth.js
+110104:  "../../node_modules/.pnpm/google-auth-library@9.15.1/node_modules/google-auth-library/build/src/auth/googleauth.js"(exports) {
+161208:    res.status(401).json({ error: "Unauthorized" });
+161241:    res.status(401).json({ error: "Unauthorized" });
+161320:    res.status(401).json({ error: "Unauthorized" });
+161333:  const callbackUrl = `https://${getAppDomain()}/api/auth/google/callback`;
+161354:router2.get("/auth/google", (req, res) => {
+161356:  const callbackUrl = `https://${domain2}/api/auth/google/callback`;
+root@vmi3256829:~/nukhba/Attached-Assets# pm2 logs api-server --lines 20 --nostream
+[TAILING] Tailing last 20 lines for [api-server] process (change the value with --lines option)
+/root/.pm2/logs/api-server-out.log last 20 lines:
+/root/.pm2/logs/api-server-error.log last 20 lines:
+0|api-serv | Error: DATABASE_URL must be set. Did you forget to provision a database?
+0|api-serv |     at ../../lib/db/src/index.ts (file:///root/nukhba/Attached-Assets/lib/db/src/index.ts:8:9)
+0|api-serv |     at __init (file:///root/nukhba/Attached-Assets/artifacts/api-server/dist/index.mjs:22:56)
+0|api-serv |     at file:///root/nukhba/Attached-Assets/artifacts/api-server/src/routes/auth.ts:3:1
+0|api-serv |     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+0|api-serv |     at ModuleLoader.import (node:internal/modules/esm/loader:606:24)
+0|api-serv | Error: DATABASE_URL must be set. Did you forget to provision a database?
+0|api-serv |     at ../../lib/db/src/index.ts (file:///root/nukhba/Attached-Assets/lib/db/src/index.ts:8:9)
+0|api-serv |     at __init (file:///root/nukhba/Attached-Assets/artifacts/api-server/dist/index.mjs:22:56)
+0|api-serv |     at file:///root/nukhba/Attached-Assets/artifacts/api-server/src/routes/auth.ts:3:1
+0|api-serv |     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+0|api-serv |     at ModuleLoader.import (node:internal/modules/esm/loader:606:24)
