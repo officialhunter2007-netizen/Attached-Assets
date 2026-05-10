@@ -29,7 +29,8 @@ function Particle({ x, y, color, size, delay }: { x: string; y: string; color: s
 
 export default function Login() {
   const handleGoogleLogin = () => {
-    const url = `${window.location.origin}/api/auth/google`;
+    const apiUrl = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
+    const url = `${apiUrl}/api/auth/google`;
     let inIframe = false;
     try { inIframe = window.self !== window.top; } catch { inIframe = true; }
 
