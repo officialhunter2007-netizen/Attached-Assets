@@ -170,7 +170,16 @@ function getAppDomain(): string {
   if (process.env.APP_DOMAIN) return process.env.APP_DOMAIN.trim();
   const prodDomains = process.env.REPLIT_DOMAINS;
   if (prodDomains) return prodDomains.split(",")[0].trim();
-  return process.env.REPLIT_DEV_DOMAIN ?? "";
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) return devDomain;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Could not determine app domain. Please set the APP_DOMAIN environment variable for your deployment.",
+    );
+  }
+
+  return "";
 }
 
 function getGoogleClient() {
