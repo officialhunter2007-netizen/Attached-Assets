@@ -186,18 +186,6 @@ function getFrontendUrl(path = "") {
   return `https://${getAppDomain()}${path}`;
 }
 
-function setSessionCookie(res: any, userId: number) {
-  const isProd = process.env.NODE_ENV === "production";
-  const token = signSession({ userId });
-  res.cookie("session", token, {
-    httpOnly: true,
-    sameSite: isProd ? "none" : "lax",
-    secure: isProd,
-    path: "/",
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-  });
-}
-
 router.get("/auth/google", (req, res): void => {
   const domain = getAppDomain();
   const callbackUrl = `https://${domain}/api/auth/google/callback`;
@@ -283,13 +271,13 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
           })
           .returning();
 
-        setSessionCookie(res, user.id);
+        (req as any).session = { userId: user.id };
         res.redirect(getFrontendUrl("/welcome"));
         return;
       }
     }
 
-    setSessionCookie(res, user.id);
+    (req as any).session = { userId: user.id };
     console.log("[OAuth callback] Login success for user", user.id, "→ redirecting to", user.onboardingDone ? "/learn" : "/welcome");
     res.redirect(getFrontendUrl(user.onboardingDone ? "/learn" : "/welcome"));
   } catch (err: any) {
