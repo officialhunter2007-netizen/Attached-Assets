@@ -40,10 +40,14 @@ export function verifySession(token: string): SessionPayload | null {
   if (parts.length !== 2) return null;
   const [data, sig] = parts;
   if (!data || !sig) return null;
-  const expected = b64urlEncode(createHmac("sha256", SECRET).update(data).digest());
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+
+  const expectedSig = createHmac("sha256", SECRET).update(data).digest();
+  const tokenSig = b64urlDecode(sig);
+
+  if (expectedSig.length !== tokenSig.length || !timingSafeEqual(expectedSig, tokenSig)) {
+    return null;
+  }
+
   try {
     const json = b64urlDecode(data).toString("utf8");
     const parsed = JSON.parse(json);
