@@ -1619,6 +1619,14 @@ export default function Subject() {
           </div>
         )}
       </div>
+
+      {isPathwayOpen && subject && (
+        <PathwayPanel
+          subjectId={subject.id}
+          subjectName={subject.name}
+          onClose={() => setIsPathwayOpen(false)}
+        />
+      )}
     </AppLayout>
   );
 }
@@ -5938,15 +5946,6 @@ function SubjectPathChat({
 
       </>)}
     </div>
-
-    {/* Adaptive Pathway Panel — overlays the subject page when active */}
-    {isPathwayOpen && subject && (
-      <PathwayPanel
-        subjectId={subject.id}
-        subjectName={subject.name}
-        onClose={() => setIsPathwayOpen(false)}
-      />
-    )}
     </>
   );
 }
