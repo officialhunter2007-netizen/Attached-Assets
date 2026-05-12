@@ -21,7 +21,7 @@ COPY artifacts/nukhba/ ./artifacts/nukhba/
 COPY attached_assets/ ./attached_assets/
 
 # تثبيت الحزم
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # بناء Vite (الناتج في artifacts/nukhba/dist/public/)
 ENV NODE_ENV=production

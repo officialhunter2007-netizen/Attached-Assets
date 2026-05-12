@@ -1,0 +1,131 @@
+root@vmi3256829:~/nukhba/Attached-Assets# git pull
+Updating c1cd45c..3013e3d
+error: Your local changes to the following files would be overwritten by merge:
+        artifacts/api-server/src/routes/materials.ts
+        lib/db/src/schema/index.ts
+Please commit your changes or stash them before you merge.
+error: The following untracked working tree files would be overwritten by merge:
+        artifacts/api-server/src/lib/book-units-processor.ts
+Please move or remove them before you merge.
+Aborting
+root@vmi3256829:~/nukhba/Attached-Assets# cd /root/nukhba/Attached-Assets
+
+# احفظ التعديلات المحلية جانباً وأحضر آخر الكود
+git stash
+rm -f artifacts/api-server/src/lib/book-units-processor.ts
+git pull
+
+# الآن أعد بناء Docker
+docker compose up -d --build
+Saved working directory and index state WIP on main: c1cd45c Add error handling and defensive checks to subject pages
+Updating c1cd45c..3013e3d
+Fast-forward
+ artifacts/api-server/src/lib/book-units-processor.ts |  12 ++++++++++++
+ artifacts/api-server/src/routes/materials.ts         |  24 ------------------------
+ artifacts/nukhba/src/pages/subject.tsx               |  17 ++++++++---------
+ attached_assets/image_1778605588537.png              | Bin 0 -> 47377 bytes
+ lib/db/src/schema/book_units.ts                      |  30 ++++++++++++++++++++++++++++++
+ lib/db/src/schema/index.ts                           |   1 +
+ 6 files changed, 51 insertions(+), 33 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/book-units-processor.ts
+ create mode 100644 attached_assets/image_1778605588537.png
+ create mode 100644 lib/db/src/schema/book_units.ts
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+[+] Building 10.7s (26/32)                                                                 
+ => [internal] load local bake definitions                                            0.0s
+ => => reading from stdin 969B                                                        0.0s
+ => [nginx internal] load build definition from Dockerfile                            0.0s
+ => => transferring dockerfile: 2.00kB                                                0.0s
+ => [api internal] load build definition from Dockerfile                              0.1s
+ => => transferring dockerfile: 2.36kB                                                0.0s
+ => [api internal] load metadata for docker.io/library/node:22                        0.5s
+ => [nginx internal] load metadata for docker.io/library/nginx:1.27-alpine            0.4s
+ => [api internal] load metadata for docker.io/library/node:22-alpine                 0.5s
+ => [nginx internal] load .dockerignore                                               0.1s
+ => => transferring context: 465B                                                     0.0s
+ => [api builder 1/9] FROM docker.io/library/node:22@sha256:62e4daa6819762bbd3072af7  0.1s
+ => => resolve docker.io/library/node:22@sha256:62e4daa6819762bbd3072af77cc282ab72c6  0.1s
+ => CACHED [api production 1/4] FROM docker.io/library/node:22-alpine@sha256:8ea2348  0.2s
+ => => resolve docker.io/library/node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aa  0.1s
+ => [api internal] load build context                                                 0.2s
+ => => transferring context: 239.69kB                                                 0.0s
+ => [nginx internal] load build context                                               0.2s
+ => => transferring context: 552.11kB                                                 0.1s
+ => [nginx stage-1 1/3] FROM docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0  0.2s
+ => => resolve docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89  0.1s
+ => CACHED [api builder 2/9] RUN corepack enable && corepack prepare pnpm@10 --activ  0.0s
+ => CACHED [api builder 3/9] WORKDIR /app                                             0.0s
+ => CACHED [api builder  4/10] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml   0.0s
+ => [api builder  5/10] COPY lib/ ./lib/                                              1.2s
+ => CANCELED [api production 2/4] RUN apk add --no-cache     python3     py3-pip      9.2s
+ => [api builder  6/10] COPY scripts/ ./scripts/                                      0.1s
+ => CACHED [api builder 4/9] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ts  0.0s
+ => CACHED [api builder 5/9] COPY lib/ ./lib/                                         0.0s
+ => CACHED [api builder 6/9] COPY scripts/ ./scripts/                                 0.0s
+ => [api builder 7/9] COPY artifacts/api-server/ ./artifacts/api-server/              0.3s
+ => [nginx builder  7/10] COPY artifacts/nukhba/ ./artifacts/nukhba/                  0.7s
+ => ERROR [api builder 8/9] RUN pnpm install --frozen-lockfile                        6.8s
+ => [nginx builder  8/10] COPY attached_assets/ ./attached_assets/                    1.4s
+ => CANCELED [nginx builder  9/10] RUN pnpm install --frozen-lockfile                 6.2s
+------
+ > [api builder 8/9] RUN pnpm install --frozen-lockfile:
+4.497 Scope: all 10 workspace projects
+5.497  ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/artifacts/api-server/package.json
+5.497 
+5.497 Note that in CI environments this setting is true by default. If you still need to run install in such cases, use "pnpm install --no-frozen-lockfile"
+5.497 
+5.497   Failure reason:
+5.497   specifiers in the lockfile don't match specifiers in package.json:
+5.497 * 19 dependencies are mismatched:
+5.497   - @google-cloud/storage (lockfile: ^7.19.0, manifest: ^7.11.0)
+5.497   - @types/sanitize-html (lockfile: ^2.16.1, manifest: ^2.11.0)
+5.497   - @types/ws (lockfile: ^8.18.1, manifest: ^8.5.10)
+5.497   - cookie-parser (lockfile: ^1.4.7, manifest: ^1.4.6)
+5.497   - cors (lockfile: ^2, manifest: ^2.8.5)
+5.497   - express (lockfile: ^5, manifest: ^4.19.2)
+5.497   - google-auth-library (lockfile: ^10.6.2, manifest: ^9.11.0)
+5.497   - multer (lockfile: ^2.1.1, manifest: ^1.4.5-lts.1)
+5.497   - pino (lockfile: ^9, manifest: ^9.2.0)
+5.497   - pino-http (lockfile: ^10, manifest: ^10.1.0)
+5.497   - sanitize-html (lockfile: ^2.17.3, manifest: ^2.13.0)
+5.497   - ws (lockfile: ^8.20.0, manifest: ^8.17.0)
+5.497   - @types/cookie-parser (lockfile: ^1.4.10, manifest: ^1.4.7)
+5.497   - @types/cors (lockfile: ^2.8.19, manifest: ^2.8.17)
+5.497   - @types/express (lockfile: ^5.0.6, manifest: ^4.17.21)
+5.497   - @types/multer (lockfile: ^2.1.0, manifest: ^1.4.11)
+5.497   - esbuild-plugin-pino (lockfile: ^2.3.3, manifest: ^2.1.0)
+5.497   - pino-pretty (lockfile: ^13, manifest: ^11.2.1)
+5.497   - thread-stream (lockfile: 3.1.0, manifest: ^0.9.0)
+5.497 
+5.625 
+5.625    ╭──────────────────────────────────────────────╮
+5.625    │                                              │
+5.625    │     Update available! 10.33.4 → 11.1.1.      │
+5.625    │     Changelog: https://pnpm.io/v/11.1.1      │
+5.625    │   To update, run: corepack use pnpm@11.1.1   │
+5.625    │                                              │
+5.625    ╰──────────────────────────────────────────────╯
+5.625 
+------
+[+] up 0/2
+ ⠙ Image attached-assets-api   Building                                               11.1s
+ ⠙ Image attached-assets-nginx Building                                               11.1s
+Dockerfile:25
+
+--------------------
+
+  23 |     
+
+  24 |     # تثبيت جميع الحزم (frozen لضمان تطابق lockfile)
+
+  25 | >>> RUN pnpm install --frozen-lockfile
+
+  26 |     
+
+  27 |     # بناء الخادم (esbuild يُجمّع كل شيء في dist/index.mjs)
+
+--------------------
+
+target api: failed to solve: process "/bin/sh -c pnpm install --frozen-lockfile" did not complete successfully: exit code: 1
+
+root@vmi3256829:~/nukhba/Attached-Assets# 

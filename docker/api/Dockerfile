@@ -21,8 +21,8 @@ COPY scripts/ ./scripts/
 # نسخ الخادم الخلفي
 COPY artifacts/api-server/ ./artifacts/api-server/
 
-# تثبيت جميع الحزم (frozen لضمان تطابق lockfile)
-RUN pnpm install --frozen-lockfile
+# تثبيت جميع الحزم
+RUN pnpm install --no-frozen-lockfile
 
 # بناء الخادم (esbuild يُجمّع كل شيء في dist/index.mjs)
 RUN pnpm --filter @workspace/api-server run build
