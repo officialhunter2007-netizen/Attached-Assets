@@ -1,0 +1,57 @@
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose ps && docker compose logs --tail=30
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+NAME                        IMAGE                    COMMAND                  SERVICE   CREATED         STATUS                 PORTS
+attached-assets-api-1       attached-assets-api      "docker-entrypoint.s…"   api       3 minutes ago   Up 2 minutes           8080/tcp
+attached-assets-certbot-1   certbot/certbot:latest   "/bin/sh -c 'trap ex…"   certbot   7 hours ago     Up 7 hours             80/tcp, 443/tcp
+attached-assets-db-1        postgres:16-alpine       "docker-entrypoint.s…"   db        7 hours ago     Up 7 hours (healthy)   5432/tcp
+attached-assets-nginx-1     attached-assets-nginx    "/docker-entrypoint.…"   nginx     3 minutes ago   Up 2 minutes           0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+api-1  | [gemini-stream] STARTUP: OpenRouter channel active (gemini-flash, key tail=...471c, format=valid)
+api-1  | (node:1) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+api-1  | (Use `node --trace-deprecation ...` to show where the warning was created)
+api-1  | {"level":30,"time":1778606722560,"pid":1,"hostname":"72ce772285b1","ms":317,"msg":"auto-migrate: schema is up to date"}
+api-1  | {"level":30,"time":1778606722564,"pid":1,"hostname":"72ce772285b1","port":8080,"msg":"Server listening"}
+api-1  | {"level":30,"time":1778606722564,"pid":1,"hostname":"72ce772285b1","msg":"scheduled-jobs: hourly rollover sweep registered"}
+api-1  | {"level":30,"time":1778606722565,"pid":1,"hostname":"72ce772285b1","budgetMB":500,"dir":"/data/teacher-images","msg":"teacher-image-store: maintenance scheduled (startup + hourly)"}
+nginx-1  | /docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+nginx-1  | /docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+nginx-1  | 10-listen-on-ipv6-by-default.sh: info: Getting the checksum of /etc/nginx/conf.d/default.conf
+nginx-1  | 10-listen-on-ipv6-by-default.sh: info: Enabled listen on IPv6 in /etc/nginx/conf.d/default.conf
+nginx-1  | /docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+nginx-1  | /docker-entrypoint.sh: Configuration complete; ready for start up
+certbot-1  | Saving debug log to /var/log/letsencrypt/letsencrypt.log
+certbot-1  | 
+certbot-1  | - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+certbot-1  | Processing /etc/letsencrypt/renewal/learnukhba.com.conf
+certbot-1  | - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+certbot-1  | Certificate not yet due for renewal
+certbot-1  | 
+certbot-1  | - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+certbot-1  | The following certificates are not due for renewal yet:
+certbot-1  |   /etc/letsencrypt/live/learnukhba.com/fullchain.pem expires on 2026-07-28 (skipped)
+certbot-1  | No renewals were attempted.
+certbot-1  | - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+db-1       | 
+db-1       | PostgreSQL Database directory appears to contain a database; Skipping initialization
+db-1       | 
+db-1       | 2026-05-12 10:39:00.638 UTC [1] LOG:  starting PostgreSQL 16.13 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+db-1       | 2026-05-12 10:39:00.638 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+db-1       | 2026-05-12 10:39:00.638 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+db-1       | 2026-05-12 10:39:00.647 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+db-1       | 2026-05-12 10:39:00.671 UTC [29] LOG:  database system was shut down at 2026-05-12 10:35:47 UTC
+db-1       | 2026-05-12 10:39:00.724 UTC [1] LOG:  database system is ready to accept connections
+db-1       | 2026-05-12 10:44:00.729 UTC [27] LOG:  checkpoint starting: time
+db-1       | 2026-05-12 10:44:01.806 UTC [27] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.025 s, sync=0.005 s, total=1.078 s; sync files=12, longest=0.003 s, average=0.001 s; distance=24 kB, estimate=24 kB; lsn=0/316AEC0, redo lsn=0/316AE88
+db-1       | 2026-05-12 14:29:03.797 UTC [27] LOG:  checkpoint starting: time
+db-1       | 2026-05-12 14:29:04.584 UTC [27] LOG:  checkpoint complete: wrote 8 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.727 s, sync=0.011 s, total=0.788 s; sync files=7, longest=0.009 s, average=0.002 s; distance=24 kB, estimate=24 kB; lsn=0/31710F8, redo lsn=0/31710C0
+db-1       | 2026-05-12 15:34:04.375 UTC [27] LOG:  checkpoint starting: time
+db-1       | 2026-05-12 15:34:05.435 UTC [27] LOG:  checkpoint complete: wrote 11 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.027 s, sync=0.011 s, total=1.061 s; sync files=10, longest=0.007 s, average=0.002 s; distance=25 kB, estimate=25 kB; lsn=0/31776B0, redo lsn=0/3177678
+db-1       | 2026-05-12 17:09:05.659 UTC [27] LOG:  checkpoint starting: time
+db-1       | 2026-05-12 17:09:06.735 UTC [27] LOG:  checkpoint complete: wrote 11 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.023 s, sync=0.006 s, total=1.076 s; sync files=10, longest=0.004 s, average=0.001 s; distance=26 kB, estimate=26 kB; lsn=0/317E030, redo lsn=0/317DFE0
+db-1       | 2026-05-12 17:19:05.861 UTC [27] LOG:  checkpoint starting: time
+db-1       | 2026-05-12 17:19:06.962 UTC [27] LOG:  checkpoint complete: wrote 11 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.015 s, sync=0.011 s, total=1.102 s; sync files=10, longest=0.007 s, average=0.002 s; distance=26 kB, estimate=26 kB; lsn=0/3184A00, redo lsn=0/31849C8
+db-1       | 2026-05-12 17:24:06.063 UTC [27] LOG:  checkpoint starting: time
+db-1       | 2026-05-12 17:24:06.776 UTC [27] LOG:  checkpoint complete: wrote 7 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.625 s, sync=0.022 s, total=0.714 s; sync files=7, longest=0.011 s, average=0.004 s; distance=24 kB, estimate=26 kB; lsn=0/318AD78, redo lsn=0/318AD40
