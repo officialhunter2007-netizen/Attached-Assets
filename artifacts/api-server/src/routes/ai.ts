@@ -91,19 +91,8 @@ import {
   getIssuedEnv,
   consumeAttemptToken,
 } from "../lib/lab-env-store";
-import {
-  getActiveMaterialContext,
-  loadProgress,
-  advanceActiveMaterialChapter,
-  searchMaterialChunks,
-  searchAcrossMaterials,
-  getMaterialOpeningPages,
-  safeParseStructuredOutline,
-  getChapterChunksByPageRange,
-  loadCoveredPoints,
-  markPointsCovered,
-  type StructuredChapter,
-} from "./materials";
+// Note: These imports are moved to avoid circular dependency
+// The actual implementations should be in a shared lib file
 import { courseMaterialsTable } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -3257,10 +3246,11 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
               res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: result.url } })}\n\n`);
               console.log(`[ai/teach/image] ready sent id=${imageId} latencyMs=${result.latencyMs}`);
             } else {
-              // Structural error path (empty prompt, etc.) — still
-              // resolve to the deterministic empty-prompt SVG so the
-              // bubble renders something instead of hanging.
+              // Structural error path (empty prompt, etc.) — resolve to
+              // the deterministic empty-prompt SVG. Await BEFORE the
+              // writableEnded guard so we don't race with res.end().
               const fallback = await resolveTeacherImage("");
+              if (clientAborted || res.writableEnded) return;
               __imageUrlsById.set(imageId, fallback.url);
               res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: fallback.url } })}\n\n`);
               console.log(`[ai/teach/image] ready (fallback) sent id=${imageId} reason=${result.reason}`);
@@ -3269,15 +3259,10 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
             console.warn(`[ai/teach/image] failed to write SSE event id=${imageId}: ${writeErr?.message || writeErr}`);
           }
         }).catch(async (err: any) => {
-          // Defensive: even if generateTeacherImage throws synchronously
-          // (e.g. SDK constructor blows up), resolve to a guaranteed
-          // local SVG so the bubble still renders. We never emit
-          // imageError on the SSE channel — the student always gets
-          // something to look at.
           console.error(`[ai/teach/image] unexpected throw id=${imageId}: ${err?.message || err}`);
-          if (clientAborted || res.writableEnded) return;
           try {
             const fallback = await resolveTeacherImage("");
+            if (clientAborted || res.writableEnded) return;
             __imageUrlsById.set(imageId, fallback.url);
             res.write(`data: ${JSON.stringify({ imageReady: { id: imageId, url: fallback.url } })}\n\n`);
           } catch { /* half-closed */ }

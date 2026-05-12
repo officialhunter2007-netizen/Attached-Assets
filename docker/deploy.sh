@@ -22,8 +22,14 @@ fail() { echo -e "${RED}[ERROR]${NC}  $1"; exit 1; }
 # ── التحقّق من المتطلبات ──────────────────────────────────────────
 command -v docker >/dev/null 2>&1 || fail "Docker غير مثبّت. شغّل: curl -fsSL https://get.docker.com | sh"
 command -v curl   >/dev/null 2>&1 || fail "curl غير مثبّت: apt install curl"
+command -v pnpm   >/dev/null 2>&1 || fail "pnpm غير مثبّت. شغّل: npm install -g pnpm"
 
 [ -f ".env" ] || fail "ملف .env غير موجود. انسخ .env.example إلى .env وأكمل القيم."
+
+# التحقق من صحة ملف .env
+if ! source .env 2>/dev/null; then
+    fail "خطأ في قراءة ملف .env. تأكد من صحة التنسيق."
+fi
 
 source .env
 
@@ -118,10 +124,21 @@ log "الدومين: $APP_DOMAIN"
 log "════════════════════════════════════════"
 
 log "جاري بناء صور Docker (قد يستغرق 5-10 دقائق)..."
-docker compose build
+# إيقاف الخدمات الحالية أولاً لتجنب تضارب المنافذ
+docker compose down --remove-orphans 2>/dev/null || true
+
+# تنظيف الصور القديمة لتوفير مساحة
+docker system prune -f
+
+# بناء الصور مع عدم استخدام cache للحصول على أحدث إصدار
+docker compose build --no-cache
 
 log "تشغيل الخدمات..."
 docker compose up -d
+
+# انتظار إضافي لضمان بدء جميع الخدمات
+info "انتظار بدء جميع الخدمات..."
+sleep 20
 
 info "انتظار بدء تشغيل قاعدة البيانات..."
 sleep 15
@@ -133,12 +150,32 @@ if docker compose exec -T api node -e "
     : # API already handles migrations on startup
 fi
 
-if curl -sf "http://localhost/api/healthz" > /dev/null 2>&1; then
-    log "✔ الخادم يستجيب بنجاح!"
+# فحص شامل لجميع الخدمات
+log "فحص حالة الخدمات..."
+
+# فحص قاعدة البيانات
+if docker compose exec -T db pg_isready -U ${POSTGRES_USER:-nukhba_user} -d ${POSTGRES_DB:-nukhba} >/dev/null 2>&1; then
+    info "✔ قاعدة البيانات: تعمل"
 else
-    warn "الخادم لم يستجب بعد — انتظر قليلاً ثم جرّب:"
-    info "  curl http://localhost/api/healthz"
+    warn "✗ قاعدة البيانات: لا تستجيب"
+fi
+
+# فحص API
+if curl -sf "http://localhost/api/healthz" > /dev/null 2>&1; then
+    info "✔ API Server: يعمل"
+else
+    warn "✗ API Server: لا يستجيب"
+fi
+
+# فحص الواجهة الأمامية
+if curl -sf "http://localhost" > /dev/null 2>&1; then
+    info "✔ Frontend: يعمل"
+    log "✔ جميع الخدمات تعمل بنجاح!"
+else
+    warn "✗ Frontend: لا يستجيب"
+    warn "بعض الخدمات لا تعمل — تحقّق من السجلات:"
     info "  docker compose logs api --tail=30"
+    info "  docker compose logs nginx --tail=30"
     info "  docker compose logs db --tail=30"
 fi
 

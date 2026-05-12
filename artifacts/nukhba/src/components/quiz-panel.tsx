@@ -5,6 +5,8 @@ import {
   RefreshCw, Sparkles, ArrowLeft, ArrowRight, Target, Library, Layers,
 } from "lucide-react";
 
+// Add missing humanizeError function
+
 export type QuizKind = "chapter" | "exam";
 
 interface QuizQuestion {

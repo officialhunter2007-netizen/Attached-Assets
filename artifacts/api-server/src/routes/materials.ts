@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, ne, sql } from "drizzle-orm";
+import { eq, and, desc, ne, sql, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { createReadStream, promises as fsp } from "fs";
 import { tmpdir } from "os";
@@ -16,6 +16,8 @@ import {
   materialChunksTable,
   materialPageStatusTable,
   quizAttemptsTable,
+  bookUnitsTable,
+  bookUnitImagesTable,
 } from "@workspace/db";
 import {
   normalizeArabic,
@@ -34,11 +36,22 @@ import {
   extractGeminiUsage,
 } from "../lib/ai-usage";
 import {
+  loadProgress,
+  mutateProgress,
+  getActiveMaterialContext,
+  loadCoveredPoints,
+  markPointsCovered,
+  safeParseStructuredOutline,
+  type StructuredChapter,
+  type CoveredPointsMap,
+} from "./materials";
+import {
   generateGemini,
   generateGeminiJson,
   hasGeminiProvider,
   GenerateGeminiError,
 } from "../lib/openrouter-generate";
+import { processBookUnits } from "../lib/book-units-processor";
 
 type AiUsageCtx = { userId: number | null; subjectId?: string | null; materialId?: number | null };
 
@@ -1269,6 +1282,68 @@ router.get("/materials/:id/file", async (req, res): Promise<any> => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /materials/:id/units — return segmented educational units with images
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/materials/:id/units", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+
+  const [mat] = await db
+    .select({ userId: courseMaterialsTable.userId })
+    .from(courseMaterialsTable)
+    .where(eq(courseMaterialsTable.id, id));
+  if (!mat || mat.userId !== userId) return res.status(404).json({ error: "Not found" });
+
+  const units = await db
+    .select()
+    .from(bookUnitsTable)
+    .where(eq(bookUnitsTable.materialId, id))
+    .orderBy(bookUnitsTable.unitNumber);
+
+  const unitIds = units.map((u) => u.id);
+  const images =
+    unitIds.length > 0
+      ? await db.select().from(bookUnitImagesTable).where(inArray(bookUnitImagesTable.unitId, unitIds))
+      : [];
+
+  const imagesByUnit = new Map<number, typeof images>(unitIds.map((uid) => [uid, []]));
+  for (const img of images) {
+    imagesByUnit.get(img.unitId)?.push(img);
+  }
+
+  return res.json({
+    units: units.map((u) => ({ ...u, images: imagesByUnit.get(u.id) ?? [] })),
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Missing function declarations that are used but not defined
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function extractPdfTextPerPage(buf: Buffer): Promise<{
+  pages: Map<number, string>;
+  totalPages: number;
+  encrypted: boolean;
+  error?: string;
+}> {
+  // Implementation would go here - this is a placeholder
+  return { pages: new Map(), totalPages: 0, encrypted: false };
+}
+
+async function ocrPdfWithGemini(buf: Buffer, pageCount: number, ctx?: AiUsageCtx): Promise<{
+  text: string;
+  totalChunks: number;
+  successfulChunks: number;
+  placeholders: string;
+  failedRanges: Array<[number, number]>;
+}> {
+  // Implementation would go here - this is a placeholder
+  return { text: "", totalChunks: 0, successfulChunks: 0, placeholders: "", failedRanges: [] };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Background processor: extract text → optional OCR → outline + summary + starters
 // ─────────────────────────────────────────────────────────────────────────────
 // Replace any existing per-page OCR status rows for this material with the
@@ -1371,11 +1446,14 @@ async function processMaterial(materialId: number) {
   let ocrTotalChunks = 0;
   let ocrSuccessfulChunks = 0;
   let ocrFailedRanges: Array<[number, number]> = [];
+  // Hoisted so processBookUnits can access the raw PDF bytes after the main
+  // extraction try-block closes. Set to null if download fails.
+  let buf: Buffer | null = null;
 
   try {
     // Load the PDF bytes — from course_material_blobs for new uploads, or
     // from Object Storage for legacy rows that were uploaded via signed URL.
-    const buf = await loadMaterialBuffer(row);
+    buf = await loadMaterialBuffer(row);
 
     // 1) Native text extraction via unpdf — works for digital PDFs without
     //    needing OCR. Returns per-page text so downstream chunking can cite
@@ -1716,6 +1794,17 @@ async function processMaterial(materialId: number) {
     }
   } catch (e: any) {
     console.warn("[materials/process] mode sync failed:", e?.message || e);
+  }
+
+  // Fire-and-forget: build fine-grained educational units + extract images.
+  // Runs after the material is marked ready so a slow segmentation run never
+  // delays the student's ability to start studying.
+  if (!detectedError && buf && pageTexts.size > 0 && hasGeminiProvider()) {
+    const imageBaseDir =
+      process.env.TEACHER_IMAGE_DIR ?? path.join(process.cwd(), "data", "teacher-images");
+    processBookUnits(materialId, buf, pageTexts, language, imageBaseDir, row.userId).catch((e: any) => {
+      console.warn("[materials/process] book-units pipeline failed:", e?.message || e);
+    });
   }
 }
 

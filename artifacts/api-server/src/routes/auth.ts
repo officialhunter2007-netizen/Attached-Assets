@@ -170,7 +170,16 @@ function getAppDomain(): string {
   if (process.env.APP_DOMAIN) return process.env.APP_DOMAIN.trim();
   const prodDomains = process.env.REPLIT_DOMAINS;
   if (prodDomains) return prodDomains.split(",")[0].trim();
-  return process.env.REPLIT_DEV_DOMAIN ?? "";
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) return devDomain;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Could not determine app domain. Please set the APP_DOMAIN environment variable for your deployment.",
+    );
+  }
+
+  return "";
 }
 
 function getGoogleClient() {
@@ -184,18 +193,6 @@ function getGoogleClient() {
 
 function getFrontendUrl(path = "") {
   return `https://${getAppDomain()}${path}`;
-}
-
-function setSessionCookie(res: any, userId: number) {
-  const isProd = process.env.NODE_ENV === "production";
-  const token = signSession({ userId });
-  res.cookie("session", token, {
-    httpOnly: true,
-    sameSite: isProd ? "none" : "lax",
-    secure: isProd,
-    path: "/",
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-  });
 }
 
 router.get("/auth/google", (req, res): void => {
@@ -283,13 +280,13 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
           })
           .returning();
 
-        setSessionCookie(res, user.id);
+        (req as any).session = { userId: user.id };
         res.redirect(getFrontendUrl("/welcome"));
         return;
       }
     }
 
-    setSessionCookie(res, user.id);
+    (req as any).session = { userId: user.id };
     console.log("[OAuth callback] Login success for user", user.id, "→ redirecting to", user.onboardingDone ? "/learn" : "/welcome");
     res.redirect(getFrontendUrl(user.onboardingDone ? "/learn" : "/welcome"));
   } catch (err: any) {
