@@ -914,7 +914,10 @@ function EnvBuildingOverlay() {
 
 export default function Subject() {
   const { subjectId } = useParams();
-  const subject = getSubjectById(subjectId || "");
+  const subjectRaw = getSubjectById(subjectId || "");
+  const subject = subjectRaw
+    ? { ...subjectRaw, units: Array.isArray(subjectRaw.units) ? subjectRaw.units : [] }
+    : subjectRaw;
   const { user } = useAuth();
   const [, setLocation] = useLocation();
 
