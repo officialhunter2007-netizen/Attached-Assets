@@ -1,0 +1,61 @@
+root@vmi3256829:~/nukhba/Attached-Assets# git pull
+docker compose up -d --build api
+Already up to date.
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+[+] Building 3.2s (21/21) FINISHED                                                                                    
+ => [internal] load local bake definitions                                                                       0.0s
+ => => reading from stdin 523B                                                                                   0.0s
+ => [internal] load build definition from Dockerfile                                                             0.3s
+ => => transferring dockerfile: 2.32kB                                                                           0.0s
+ => [internal] load metadata for docker.io/library/node:22-alpine                                                1.1s
+ => [internal] load metadata for docker.io/library/node:22                                                       1.1s
+ => [internal] load .dockerignore                                                                                0.0s
+ => => transferring context: 465B                                                                                0.0s
+ => [builder 1/9] FROM docker.io/library/node:22@sha256:62e4daa6819762bbd3072af77cc282ab72c631c4aed30dd7980192b  0.1s
+ => => resolve docker.io/library/node:22@sha256:62e4daa6819762bbd3072af77cc282ab72c631c4aed30dd7980192babaf385b  0.0s
+ => [internal] load build context                                                                                0.1s
+ => => transferring context: 15.87kB                                                                             0.0s
+ => [production 1/4] FROM docker.io/library/node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7  0.1s
+ => => resolve docker.io/library/node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5ca  0.1s
+ => CACHED [production 2/4] RUN apk add --no-cache     python3     py3-pip     gcc     g++     musl-dev     ope  0.0s
+ => CACHED [production 3/4] WORKDIR /app                                                                         0.0s
+ => CACHED [builder 2/9] RUN corepack enable && corepack prepare pnpm@10 --activate                              0.0s
+ => CACHED [builder 3/9] WORKDIR /app                                                                            0.0s
+ => CACHED [builder 4/9] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./              0.0s
+ => CACHED [builder 5/9] COPY lib/ ./lib/                                                                        0.0s
+ => CACHED [builder 6/9] COPY scripts/ ./scripts/                                                                0.0s
+ => CACHED [builder 7/9] COPY artifacts/api-server/ ./artifacts/api-server/                                      0.0s
+ => CACHED [builder 8/9] RUN pnpm install --no-frozen-lockfile                                                   0.0s
+ => CACHED [builder 9/9] RUN pnpm --filter @workspace/api-server run build                                       0.0s
+ => CACHED [production 4/4] COPY --from=builder /app/artifacts/api-server/dist/ ./dist/                          0.0s
+ => exporting to image                                                                                           0.4s
+ => => exporting layers                                                                                          0.0s
+ => => exporting manifest sha256:7881d5f730ac070ca63089e49cb9a58f6d6eff77d426cf3a9d59dfe8b70925a0                0.0s
+ => => exporting config sha256:c2f84da603f7306b44883967a7e705d3a678815eccd027f72e7d77d8d5f9863a                  0.0s
+ => => exporting attestation manifest sha256:715a6ce4b64494c2c189addcca09c4a879f36ad0d48db42358825d7a5cf77c66    0.1s
+ => => exporting manifest list sha256:75960f242f3dfed13ca0df7c073f37471ef6eaa139b2b853579d64b84a83de1e           0.0s
+ => => naming to docker.io/library/attached-assets-api:latest                                                    0.0s
+ => => unpacking to docker.io/library/attached-assets-api:latest                                                 0.1s
+ => resolving provenance for metadata file                                                                       0.0s
+[+] up 3/3
+ ✔ Image attached-assets-api       Built                                                                          3.6s
+ ✔ Container attached-assets-db-1  Healthy                                                                       12.9s
+ ✔ Container attached-assets-api-1 Started                                                                       14.1s
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose logs api --tail=30
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+api-1  | [gemini-stream] STARTUP: OpenRouter channel active (gemini-flash, key tail=...7db1, format=valid)
+api-1  | (node:1) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+api-1  | (Use `node --trace-deprecation ...` to show where the warning was created)
+api-1  | {"level":30,"time":1778610639794,"pid":1,"hostname":"6b8754a1e4d5","ms":653,"msg":"auto-migrate: schema is up to date"}
+api-1  | {"level":30,"time":1778610639798,"pid":1,"hostname":"6b8754a1e4d5","port":8080,"msg":"Server listening"}
+api-1  | {"level":30,"time":1778610639798,"pid":1,"hostname":"6b8754a1e4d5","msg":"scheduled-jobs: hourly rollover sweep registered"}
+api-1  | {"level":30,"time":1778610639798,"pid":1,"hostname":"6b8754a1e4d5","budgetMB":500,"dir":"/data/teacher-images","msg":"teacher-image-store: maintenance scheduled (startup + hourly)"}
+api-1  | {"level":30,"time":1778610657442,"pid":1,"hostname":"6b8754a1e4d5","req":{"id":2,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":81,"msg":"request completed"}
+api-1  | {"level":30,"time":1778610657471,"pid":1,"hostname":"6b8754a1e4d5","req":{"id":1,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":127,"msg":"request completed"}
+api-1  | {"level":30,"time":1778610675393,"pid":1,"hostname":"6b8754a1e4d5","req":{"id":4,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":130,"msg":"request completed"}
+api-1  | {"level":30,"time":1778610675395,"pid":1,"hostname":"6b8754a1e4d5","req":{"id":5,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":90,"msg":"request completed"}
+api-1  | {"level":30,"time":1778610675403,"pid":1,"hostname":"6b8754a1e4d5","req":{"id":3,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":149,"msg":"request completed"}
+api-1  | {"level":30,"time":1778610679333,"pid":1,"hostname":"6b8754a1e4d5","req":{"id":6,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":19,"msg":"request completed"}
+api-1  | {"level":30,"time":1778610684340,"pid":1,"hostname":"6b8754a1e4d5","req":{"id":8,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":9,"msg":"request completed"}
+api-1  | {"level":30,"time":1778610684349,"pid":1,"hostname":"6b8754a1e4d5","req":{"id":7,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":35,"msg":"request completed"}
+root@vmi3256829:~/nukhba/Attached-Assets# 
