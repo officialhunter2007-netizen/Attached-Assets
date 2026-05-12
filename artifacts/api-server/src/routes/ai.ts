@@ -43,6 +43,16 @@ import {
   GenerateGeminiError,
 } from "../lib/openrouter-generate";
 import { getYemenDateString, getNextMidnightYemen } from "../lib/yemen-time";
+import {
+  loadProgress,
+  mutateProgress,
+  getActiveMaterialContext,
+  loadCoveredPoints,
+  markPointsCovered,
+  safeParseStructuredOutline,
+  type StructuredChapter,
+  type CoveredPointsMap,
+} from "./materials";
 
 // Per-request material context tunneled from the prompt-build phase to the
 // post-stream parser. Lives on `req` (not `ctx`) so we don't mutate the

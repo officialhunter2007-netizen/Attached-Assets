@@ -36,16 +36,6 @@ import {
   extractGeminiUsage,
 } from "../lib/ai-usage";
 import {
-  loadProgress,
-  mutateProgress,
-  getActiveMaterialContext,
-  loadCoveredPoints,
-  markPointsCovered,
-  safeParseStructuredOutline,
-  type StructuredChapter,
-  type CoveredPointsMap,
-} from "./materials";
-import {
   generateGemini,
   generateGeminiJson,
   hasGeminiProvider,
