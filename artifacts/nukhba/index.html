@@ -10,6 +10,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Apply stored language preference before React loads to prevent flash -->
+    <script>
+      (function () {
+        try {
+          var lang = localStorage.getItem("nukhba-lang");
+          if (lang === "en") {
+            document.documentElement.setAttribute("lang", "en");
+            document.documentElement.setAttribute("dir", "ltr");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,9 +1,10 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/use-auth";
-import { LogOut, LogIn, Menu, User, MessageCircle, Home, BookOpen, CreditCard, Settings } from "lucide-react";
+import { useLang } from "@/lib/lang-context";
+import { LogOut, LogIn, Menu, User, MessageCircle, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { ReactNode, useState, useEffect, useRef, useCallback } from "react";
+import { ReactNode, useState, useEffect, useRef } from "react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
 import { PlatformChatWidget } from "@/components/platform-chat-widget";
 import { startActivityTracker, trackPageView } from "@/lib/activity-tracker";
@@ -17,24 +18,74 @@ type GemsState = {
   isFirstLesson?: boolean;
   activeSubjectCount?: number;
   label?: string | null;
-  // Nearest-expiry warning. ≤ 7 days flips the badge into a warning state;
-  // 0–1 days reuses the existing red alert visuals so the user can't miss it.
   expiresInDays?: number | null;
 } | null;
 
+// ─────────────────────────────────────────────────────────
+// Language Toggle Button
+// ─────────────────────────────────────────────────────────
+function LangToggle({ compact = false }: { compact?: boolean }) {
+  const { lang, toggle, tr } = useLang();
+  const isAr = lang === "ar";
+
+  return (
+    <motion.button
+      onClick={toggle}
+      whileHover={{ scale: 1.06 }}
+      whileTap={{ scale: 0.94 }}
+      title={tr.lang.switchTo}
+      aria-label={tr.lang.switchTo}
+      className={`
+        relative flex items-center overflow-hidden rounded-full font-bold
+        transition-colors duration-200 select-none
+        ${compact ? "gap-1 px-2 py-1 text-[11px]" : "gap-1.5 px-3 py-1.5 text-xs"}
+      `}
+      style={{
+        background: "rgba(245,158,11,0.08)",
+        border: "1px solid rgba(245,158,11,0.25)",
+        color: "rgba(245,158,11,0.9)",
+        boxShadow: "0 0 8px rgba(245,158,11,0.1)",
+      }}
+    >
+      <Globe className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} />
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={lang}
+          initial={{ opacity: 0, y: isAr ? -8 : 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: isAr ? 8 : -8 }}
+          transition={{ duration: 0.18 }}
+          className="leading-none"
+          style={{ minWidth: compact ? 14 : 18, display: "inline-block", textAlign: "center" }}
+        >
+          {isAr ? "EN" : "ع"}
+        </motion.span>
+      </AnimatePresence>
+    </motion.button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// Gems Badge
+// ─────────────────────────────────────────────────────────
 function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boolean }) {
+  const { tr, lang } = useLang();
   if (!gems) return null;
-  // First-lesson grace path: render a distinct "free" badge so a brand-new
-  // student sees their 80-gem allowance instead of an empty header. When the
-  // 80 are spent the badge stays visible and turns into a "subscribe" CTA.
+
   if (gems.isFirstLesson && !gems.hasActiveSub) {
     const remaining = Math.max(0, gems.gemsBalance);
     const limit = gems.gemsDailyLimit > 0 ? gems.gemsDailyLimit : 80;
     const exhausted = remaining <= 0;
     const label = gems.label ? ` — ${gems.label}` : "";
+    const fmt = (n: number) => n.toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
     const tooltip = exhausted
-      ? `انتهت جواهر الجلسة المجانية${label} — اشترك لمواصلة التعلم`
-      : `لديك ${remaining.toLocaleString("ar-EG")} من ${limit.toLocaleString("ar-EG")} جوهرة مجانية في هذه الجلسة${label}`;
+      ? lang === "ar"
+        ? `انتهت جواهر الجلسة المجانية${label} — اشترك لمواصلة التعلم`
+        : `Free session gems exhausted${label} — Subscribe to continue`
+      : lang === "ar"
+      ? `لديك ${fmt(remaining)} من ${fmt(limit)} جوهرة مجانية في هذه الجلسة${label}`
+      : `You have ${fmt(remaining)} of ${fmt(limit)} free gems this session${label}`;
+
     return (
       <Link href="/subscription">
         <motion.span
@@ -55,13 +106,13 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
         >
           💎
           {exhausted ? (
-            <span>اشترك للمتابعة</span>
+            <span>{tr.gems.subscribe}</span>
           ) : (
             <>
-              <span>{remaining.toLocaleString("ar-EG")}</span>
+              <span>{fmt(remaining)}</span>
               {!compact && (
                 <span className="opacity-70 font-normal">
-                  / {limit.toLocaleString("ar-EG")} مجانية
+                  / {fmt(limit)} {tr.gems.free}
                 </span>
               )}
             </>
@@ -70,13 +121,14 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
       </Link>
     );
   }
+
   if (!gems.hasActiveSub) return null;
 
+  const fmt = (n: number) => n.toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
   const balanceEmpty = gems.gemsBalance <= 0;
   const dailyExhausted = gems.dailyRemaining <= 0 && gems.gemsDailyLimit > 0;
   const lowDaily = gems.dailyRemaining < 20;
   const lowBalance = gems.gemsBalance < 200;
-  // Sub-window expiry warning. < 2 days = red alert, < 7 days = orange warn.
   const days = gems.expiresInDays;
   const expiringCritical = days != null && days >= 0 && days < 2;
   const expiringSoon = days != null && days >= 0 && days < 7;
@@ -85,17 +137,31 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
 
   const multiSub = (gems.activeSubjectCount ?? 1) > 1;
   const subjectsPart = multiSub
-    ? ` — لديك ${gems.activeSubjectCount} مادة نشطة`
-    : (gems.label ? ` (${gems.label})` : "");
-  const baseTooltip = `المتبقي اليوم: ${gems.dailyRemaining.toLocaleString("ar-EG")} / ${gems.gemsDailyLimit.toLocaleString("ar-EG")} 💎${subjectsPart} — الرصيد الكلي: ${gems.gemsBalance.toLocaleString("ar-EG")}`;
-  const expiryPart = expiringSoon ? ` — ينتهي ${days === 0 ? "اليوم" : `خلال ${days} يوم`}` : "";
+    ? lang === "ar"
+      ? ` — لديك ${gems.activeSubjectCount} مادة نشطة`
+      : ` — ${gems.activeSubjectCount} active ${tr.gems.subjects}`
+    : gems.label ? ` (${gems.label})` : "";
+  const baseTooltip = lang === "ar"
+    ? `المتبقي اليوم: ${fmt(gems.dailyRemaining)} / ${fmt(gems.gemsDailyLimit)} 💎${subjectsPart} — الرصيد الكلي: ${fmt(gems.gemsBalance)}`
+    : `Today: ${fmt(gems.dailyRemaining)} / ${fmt(gems.gemsDailyLimit)} 💎${subjectsPart} — Total: ${fmt(gems.gemsBalance)}`;
+  const expiryPart = expiringSoon
+    ? lang === "ar"
+      ? ` — ينتهي ${days === 0 ? "اليوم" : `خلال ${days} يوم`}`
+      : ` — expires ${days === 0 ? "today" : `in ${days} days`}`
+    : "";
   const tooltip = balanceEmpty
-    ? `${baseTooltip}${expiryPart} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
+    ? lang === "ar"
+      ? `${baseTooltip}${expiryPart} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
+      : `${baseTooltip}${expiryPart} — Balance depleted, subscription active but gems need renewal`
     : `${baseTooltip}${expiryPart}`;
 
   const scopeLabel = multiSub
-    ? `${gems.activeSubjectCount} مواد`
+    ? `${gems.activeSubjectCount} ${tr.gems.subjects}`
     : (gems.label ?? null);
+
+  const dayLabel = days === 0
+    ? tr.gems.lastDay
+    : lang === "ar" ? `${days}ي` : `${days}d`;
 
   return (
     <Link href="/subscription">
@@ -122,15 +188,15 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
         title={tooltip}
       >
         💎
-        <span>{gems.dailyRemaining.toLocaleString("ar-EG")}</span>
+        <span>{fmt(gems.dailyRemaining)}</span>
         {!compact && (
-          <span className="opacity-60 font-normal">/ {gems.gemsDailyLimit.toLocaleString("ar-EG")} اليوم</span>
+          <span className="opacity-60 font-normal">/ {fmt(gems.gemsDailyLimit)} {tr.gems.todayLimit}</span>
         )}
         {warn && !compact && (
           <span className="opacity-90 font-bold border-r pr-1 mr-0.5"
             style={{ borderColor: "rgba(249,115,22,0.4)" }}
           >
-            ⏰ {days === 0 ? "آخر يوم" : `${days}ي`}
+            ⏰ {dayLabel}
           </span>
         )}
         {scopeLabel && (
@@ -145,6 +211,9 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
   );
 }
 
+// ─────────────────────────────────────────────────────────
+// User Avatar
+// ─────────────────────────────────────────────────────────
 function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: string | null; size?: number }) {
   if (src) {
     return (
@@ -180,6 +249,9 @@ function UserAvatar({ src, name, size = 32 }: { src?: string | null; name?: stri
   );
 }
 
+// ─────────────────────────────────────────────────────────
+// Notification helpers
+// ─────────────────────────────────────────────────────────
 function requestNotificationPermission() {
   if ("Notification" in window && Notification.permission === "default") {
     Notification.requestPermission();
@@ -193,10 +265,6 @@ function sendBrowserNotification(title: string, body: string, url?: string) {
       icon: "/favicon.svg",
       badge: "/favicon.svg",
       tag: "nukhba-support",
-      // `renotify` is a real Chrome/Edge field that re-fires the alert sound
-      // even when an existing notification with the same `tag` is replaced,
-      // but it isn't in the standard NotificationOptions lib type. Cast the
-      // options bag to skip the type-check while preserving runtime behavior.
       renotify: true,
     } as NotificationOptions);
     if (url) {
@@ -209,6 +277,9 @@ function sendBrowserNotification(title: string, body: string, url?: string) {
   }
 }
 
+// ─────────────────────────────────────────────────────────
+// Nav Link
+// ─────────────────────────────────────────────────────────
 function NavLink({ href, children, active }: { href: string; children: React.ReactNode; active: boolean }) {
   return (
     <Link href={href}>
@@ -233,8 +304,12 @@ function NavLink({ href, children, active }: { href: string; children: React.Rea
   );
 }
 
+// ─────────────────────────────────────────────────────────
+// App Layout
+// ─────────────────────────────────────────────────────────
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
+  const { tr, lang } = useLang();
   const [unreadCount, setUnreadCount] = useState(0);
   const prevUnreadRef = useRef(0);
   const [location] = useLocation();
@@ -276,11 +351,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [user, location]);
 
-  // Pull subjectId from any subject-scoped learning route so the header
-  // calls /gems-balance?subjectId=… (subject-specific truth) instead of
-  // falling back to the cross-subject summary endpoint. Covers /subject/:id
-  // and /lesson/:id/:unit/:lesson today; extend the alternation if new
-  // subject-scoped routes are added.
   const currentSubjectId = (() => {
     const m = location.match(/^\/(?:subject|lesson)\/([^/?#]+)/);
     return m ? decodeURIComponent(m[1]) : null;
@@ -299,13 +369,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               (typeof d.subjectName === "string" && d.subjectName.trim()) ||
               (typeof d.subjectId === "string" && d.subjectId.trim() && d.subjectId !== "all" ? d.subjectId : null) ||
               currentSubjectId ||
-              "اشتراكي";
-            // Compute days-until-expiry from the per-subject endpoint's
-            // gemsExpiresAt so the badge can show the warning state even
-            // when the user is inside a single subject view. The endpoint
-            // historically returned the field as `expiresAt` in some
-            // responses; keep the fallback to avoid breaking when the
-            // server is rolled forward but the page is cached.
+              (lang === "ar" ? "اشتراكي" : "My Plan");
             let expiresInDays: number | null = null;
             const expiryRaw = d.gemsExpiresAt ?? d.expiresAt;
             if (expiryRaw) {
@@ -350,9 +414,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 label =
                   (typeof w.subjectName === "string" && w.subjectName.trim()) ||
                   (typeof w.subjectId === "string" && w.subjectId.trim() && w.subjectId !== "all" ? w.subjectId : null) ||
-                  "اشتراكي";
+                  (lang === "ar" ? "اشتراكي" : "My Plan");
               } else {
-                label = "كل المواد";
+                label = lang === "ar" ? "كل المواد" : "All Subjects";
               }
             }
             setGems({
@@ -375,22 +439,26 @@ export function AppLayout({ children }: { children: ReactNode }) {
       clearInterval(interval);
       window.removeEventListener("nukhba:gems-changed", fetchGems);
     };
-  }, [user, currentSubjectId]);
+  }, [user, currentSubjectId, lang]);
 
   useEffect(() => {
     if (!user) return;
     const fetchUnread = () => {
-      const endpoint = user.role === 'admin' ? '/api/admin/support/unread-count' : '/api/support/unread-count';
-      fetch(endpoint, { credentials: 'include' })
+      const endpoint = user.role === "admin" ? "/api/admin/support/unread-count" : "/api/support/unread-count";
+      fetch(endpoint, { credentials: "include" })
         .then(r => r.ok ? r.json() : null)
         .then(d => {
           if (!d) return;
           const newCount = d.count ?? 0;
           if (newCount > prevUnreadRef.current && prevUnreadRef.current >= 0) {
-            const isAdmin = user.role === 'admin';
+            const isAdmin = user.role === "admin";
             sendBrowserNotification(
-              isAdmin ? "رسالة جديدة من مستخدم" : "رد جديد من المشرف",
-              isAdmin ? "لديك رسالة دعم جديدة تنتظر ردك" : "المشرف رد على رسالتك — افتح صفحة الدعم",
+              isAdmin
+                ? (lang === "ar" ? "رسالة جديدة من مستخدم" : "New message from a user")
+                : (lang === "ar" ? "رد جديد من المشرف" : "New reply from admin"),
+              isAdmin
+                ? (lang === "ar" ? "لديك رسالة دعم جديدة تنتظر ردك" : "A new support message awaits your reply")
+                : (lang === "ar" ? "المشرف رد على رسالتك — افتح صفحة الدعم" : "The admin replied — open the support page"),
               isAdmin ? "/admin" : "/support"
             );
           }
@@ -402,15 +470,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
     fetchUnread();
     const interval = setInterval(fetchUnread, 15000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, lang]);
 
   const loginUrl = "/api/auth/google";
 
   const navItems = [
-    { href: "/learn", label: "تعلّم" },
-    { href: "/dashboard", label: "لوحتي" },
-    { href: "/subscription", label: "الاشتراك" },
-    ...(user?.role === 'admin' ? [{ href: "/admin", label: "إدارة" }] : []),
+    { href: "/learn", label: tr.nav.learn },
+    { href: "/dashboard", label: tr.nav.dashboard },
+    { href: "/subscription", label: tr.nav.subscription },
+    ...(user?.role === "admin" ? [{ href: "/admin", label: tr.nav.admin }] : []),
   ];
 
   return (
@@ -426,15 +494,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <div
           className="w-full border-b transition-all duration-300"
           style={{
-            background: scrolled
-              ? "rgba(6,9,16,0.92)"
-              : "rgba(8,12,20,0.8)",
+            background: scrolled ? "rgba(6,9,16,0.92)" : "rgba(8,12,20,0.8)",
             backdropFilter: "blur(20px) saturate(180%)",
             borderColor: scrolled ? "rgba(245,158,11,0.12)" : "rgba(255,255,255,0.06)",
             boxShadow: scrolled ? "0 4px 30px rgba(0,0,0,0.4), 0 1px 0 rgba(245,158,11,0.08)" : "none",
           }}
         >
           <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+
+            {/* Logo */}
             <Link href={user ? "/learn" : "/"}>
               <motion.div whileHover={{ scale: 1.03 }} transition={{ type: "spring", stiffness: 400 }}>
                 <NukhbaLogo size="md" />
@@ -452,7 +520,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 <NavLink href="/support" active={location.startsWith("/support")}>
                   <span className="relative inline-flex items-center gap-1">
                     <MessageCircle className="w-3.5 h-3.5" />
-                    الدعم
+                    {tr.nav.support}
                     <AnimatePresence>
                       {unreadCount > 0 && (
                         <motion.span
@@ -473,8 +541,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
             {/* Desktop right section */}
             <div className="hidden md:flex items-center gap-3">
+              {/* Language Toggle */}
+              <LangToggle />
+
               {user ? (
                 <>
+                  <div className="h-6 w-px bg-white/10" />
                   <GemsBadge gems={gems} />
                   <div className="h-6 w-px bg-white/10 mx-1" />
                   <UserAvatar src={user.profileImage} name={user.displayName} size={34} />
@@ -487,17 +559,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     whileTap={{ scale: 0.95 }}
                     className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 px-2.5 py-1.5 rounded-lg transition-colors"
                     style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)" }}
-                    title="تسجيل الخروج"
+                    title={tr.auth.logoutFull}
                   >
                     <LogOut className="w-3.5 h-3.5" />
-                    <span>خروج</span>
+                    <span>{tr.auth.logout}</span>
                   </motion.button>
                 </>
               ) : (
                 <div className="flex items-center gap-2">
                   <Link href="/login">
                     <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-gold font-medium">
-                      دخول
+                      {tr.auth.login}
                     </Button>
                   </Link>
                   <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
@@ -506,7 +578,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     >
                       <a href={loginUrl}>
                         <LogIn className="w-4 h-4 ml-2" />
-                        تسجيل الدخول
+                        {tr.auth.register}
                       </a>
                     </Button>
                   </motion.div>
@@ -514,7 +586,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               )}
             </div>
 
-            {/* Mobile nav */}
+            {/* ── Mobile header ── */}
             <div className="md:hidden flex items-center gap-2">
               {user && (
                 <>
@@ -522,6 +594,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   <UserAvatar src={user.profileImage} name={user.displayName} size={30} />
                 </>
               )}
+              <LangToggle compact />
               <Sheet>
                 <SheetTrigger asChild>
                   <Button variant="ghost" size="icon" className="rounded-xl" style={{ background: "rgba(255,255,255,0.05)" }}>
@@ -542,7 +615,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                       <div className="flex items-center gap-3 pb-4 border-b border-white/8">
                         <UserAvatar src={user.profileImage} name={user.displayName} size={44} />
                         <div className="flex-1 min-w-0">
-                          <p className="font-bold text-foreground truncate">{user.displayName || "مستخدم"}</p>
+                          <p className="font-bold text-foreground truncate">{user.displayName || (lang === "ar" ? "مستخدم" : "User")}</p>
                           <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                         </div>
                       </div>
@@ -560,13 +633,21 @@ export function AppLayout({ children }: { children: ReactNode }) {
                         <Link href="/support">
                           <div className={`px-4 py-3 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 ${location.startsWith("/support") ? "bg-gold/10 text-gold border border-gold/20" : "text-foreground/80 hover:bg-white/5"}`}>
                             <MessageCircle className="w-4 h-4" />
-                            الدعم
+                            {tr.nav.support}
                             {unreadCount > 0 && (
                               <span className="w-5 h-5 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center mr-auto">{unreadCount}</span>
                             )}
                           </div>
                         </Link>
                       )}
+                    </div>
+
+                    {/* Language toggle inside mobile menu */}
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-xs text-white/40 font-medium">
+                        {lang === "ar" ? "اللغة" : "Language"}
+                      </span>
+                      <LangToggle />
                     </div>
 
                     <GemsBadge gems={gems} />
@@ -576,7 +657,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     {user ? (
                       <Button variant="destructive" onClick={logout} className="w-full justify-start rounded-xl">
                         <LogOut className="w-4 h-4 ml-2" />
-                        تسجيل الخروج
+                        {tr.auth.logoutFull}
                       </Button>
                     ) : (
                       <Button asChild className="w-full gradient-gold text-primary-foreground font-bold justify-start rounded-xl"
@@ -584,7 +665,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                       >
                         <a href={loginUrl}>
                           <LogIn className="w-4 h-4 ml-2" />
-                          تسجيل الدخول
+                          {tr.auth.register}
                         </a>
                       </Button>
                     )}
@@ -592,6 +673,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 </SheetContent>
               </Sheet>
             </div>
+
           </div>
         </div>
       </motion.header>
@@ -610,7 +692,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <div className="flex justify-center items-center mb-3">
             <NukhbaLogo size="sm" />
           </div>
-          <p className="text-sm">جميع الحقوق محفوظة {new Date().getFullYear()} © نُخبة</p>
+          <p className="text-sm">
+            {tr.footer.rights} {new Date().getFullYear()} © {lang === "ar" ? "نُخبة" : "Nukhba"}
+          </p>
         </div>
       </footer>
     </div>

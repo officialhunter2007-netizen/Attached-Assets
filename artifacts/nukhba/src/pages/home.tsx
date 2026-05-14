@@ -1,9 +1,44 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { motion, useInView } from "framer-motion";
-import { BookOpen, GraduationCap, Terminal, Sparkles, Zap, Shield, Crown, Check, X, Brain, Cpu, Star, ArrowLeft, ChevronDown } from "lucide-react";
+import { motion, useInView, AnimatePresence } from "framer-motion";
+import { BookOpen, GraduationCap, Terminal, Sparkles, Zap, Shield, Crown, Check, X, Brain, Cpu, Star, ArrowLeft, ChevronDown, Globe } from "lucide-react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
+import { useLang } from "@/lib/lang-context";
 import { useRef, useEffect, useState } from "react";
+
+function HomeLangToggle() {
+  const { lang, toggle, tr } = useLang();
+  const isAr = lang === "ar";
+  return (
+    <motion.button
+      onClick={toggle}
+      whileHover={{ scale: 1.06 }}
+      whileTap={{ scale: 0.94 }}
+      title={tr.lang.switchTo}
+      aria-label={tr.lang.switchTo}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold select-none transition-colors duration-200"
+      style={{
+        background: "rgba(245,158,11,0.08)",
+        border: "1px solid rgba(245,158,11,0.25)",
+        color: "rgba(245,158,11,0.9)",
+      }}
+    >
+      <Globe className="w-3.5 h-3.5" />
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={lang}
+          initial={{ opacity: 0, y: isAr ? -6 : 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: isAr ? 6 : -6 }}
+          transition={{ duration: 0.18 }}
+          style={{ minWidth: 18, display: "inline-block", textAlign: "center" }}
+        >
+          {isAr ? "EN" : "ع"}
+        </motion.span>
+      </AnimatePresence>
+    </motion.button>
+  );
+}
 
 /* ─── Animated counter ─── */
 function AnimatedNumber({ target, suffix = "" }: { target: number; suffix?: string }) {
@@ -195,6 +230,7 @@ export default function Home() {
           <div className="relative container mx-auto px-4 h-16 md:h-20 flex items-center justify-between">
             <NukhbaLogo size="md" />
             <div className="flex items-center gap-3">
+              <HomeLangToggle />
               <Link href="/login">
                 <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-gold transition-colors font-medium">
                   دخول
