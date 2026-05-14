@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLang } from "@/lib/lang-context";
 
 interface State<T> {
   data: T;
@@ -20,6 +21,8 @@ export function useDashboardFetch<T>(
   initial: T,
   key: ReadonlyArray<unknown> = [],
 ): State<T> {
+  const { tr } = useLang();
+  const td = tr.dashboard;
   const [data, setData] = useState<T>(initial);
   const [loading, setLoading] = useState<boolean>(!!url);
   const [error, setError] = useState<string | null>(null);
@@ -50,12 +53,12 @@ export function useDashboardFetch<T>(
           setData(parse(raw));
           setError(null);
         } catch {
-          setError("تعذّر قراءة البيانات. حاول مجدداً.");
+          setError(td.fetchErrorParse);
         }
       })
       .catch(() => {
         if (cancelled) return;
-        setError("تعذّر الاتصال بالخادم. حاول مجدداً.");
+        setError(td.fetchErrorNetwork);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

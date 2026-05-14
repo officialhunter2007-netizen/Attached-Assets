@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useLang } from "@/lib/lang-context";
 import { AppLayout } from "@/components/layout/app-layout";
 import { markLeftSubPageWithoutSub, clearLeftSubPageWithoutSub } from "@/components/welcome-offer-modal";
 import { university, skills } from "@/lib/curriculum";
@@ -123,6 +124,41 @@ export default function Subscription() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const planPrices = usePlanPrices();
+  const { tr, lang } = useLang();
+  const ts = tr.subscription;
+
+  const translatedPlans = useMemo(() => ({
+    bronze: {
+      ...plans.bronze,
+      name: ts.planBronzeName,
+      desc: ts.planBronzeDesc,
+      features: [
+        ts.planBronzeF1, ts.planBronzeF2, ts.planBronzeF3, ts.planBronzeF4, ts.planBronzeF5,
+      ],
+    },
+    silver: {
+      ...plans.silver,
+      name: ts.planSilverName,
+      desc: ts.planSilverDesc,
+      features: [
+        ts.planSilverF1, ts.planSilverF2, ts.planSilverF3, ts.planSilverF4, ts.planSilverF5, ts.planSilverF6,
+      ],
+    },
+    gold: {
+      ...plans.gold,
+      name: ts.planGoldName,
+      desc: ts.planGoldDesc,
+      features: [
+        ts.planGoldF1, ts.planGoldF2, ts.planGoldF3, ts.planGoldF4, ts.planGoldF5, ts.planGoldF6,
+      ],
+    },
+  }), [ts]);
+
+  const planLabelMapTr: Record<string, string> = {
+    bronze: ts.planBronzeName,
+    silver: ts.planSilverName,
+    gold: ts.planGoldName,
+  };
 
 
   const [region, setRegion] = useState<"north" | "south">("north");
@@ -313,7 +349,7 @@ export default function Subscription() {
           });
         } else {
           setDiscountInfo(null);
-          setDiscountError(data.message || data.error || "كود غير صالح");
+          setDiscountError(data.message || data.error || ts.discountInvalidCode);
         }
       } catch {
         // Network errors leave existing info; user can re-apply.
@@ -326,12 +362,12 @@ export default function Subscription() {
   const handleApplyDiscount = async () => {
     setDiscountError(null);
     if (!selectedPlan) {
-      setDiscountError("اختر باقة أولاً قبل تطبيق الكود");
+      setDiscountError(ts.discountSelectFirst);
       return;
     }
     const code = discountInput.trim().toUpperCase();
     if (!code) {
-      setDiscountError("أدخل كود الخصم");
+      setDiscountError(ts.discountEnterFirst);
       return;
     }
     setDiscountChecking(true);
@@ -354,10 +390,10 @@ export default function Subscription() {
         setDiscountInput(data.code);
       } else {
         setDiscountInfo(null);
-        setDiscountError(data.message || data.error || "كود غير صالح");
+        setDiscountError(data.message || data.error || ts.discountInvalidCode);
       }
     } catch (e: any) {
-      setDiscountError("تعذّر التحقق — أعد المحاولة");
+      setDiscountError(ts.discountNetworkError);
     } finally {
       setDiscountChecking(false);
     }
@@ -384,7 +420,7 @@ export default function Subscription() {
   const handlePaymentSubmit = async () => {
     if (!selectedPlan || !accountName.trim()) return;
     if (!selectedSubject) {
-      toast({ variant: "destructive", title: "اختر التخصص أولاً", description: "كل اشتراك مرتبط بتخصص واحد — اختر المادة قبل إرسال الطلب." });
+      toast({ variant: "destructive", title: ts.errorSelectSubject, description: ts.errorSelectSubjectDesc });
       return;
     }
     try {
@@ -403,8 +439,8 @@ export default function Subscription() {
         }
       });
       toast({
-        title: "تم إرسال الطلب",
-        description: `سيراجع المشرف طلب اشتراك "${selectedSubject.name}" ويُفعّل جواهرك قريباً`,
+        title: ts.sentTitle,
+        description: ts.sentDesc.replace("{name}", selectedSubject.name),
         className: "bg-emerald-600 border-none text-white"
       });
       setSubmitted(true);
@@ -422,7 +458,7 @@ export default function Subscription() {
       queryClient.invalidateQueries({ queryKey: getGetMySubscriptionRequestsQueryKey() });
       refetchMyRequests();
     } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message });
+      toast({ variant: "destructive", title: ts.errorGeneric, description: e.message });
     }
   };
 
@@ -434,10 +470,8 @@ export default function Subscription() {
       });
       if (res.success) {
         toast({
-          title: "تم التفعيل بنجاح!",
-          description: (res as any).subjectId
-            ? `تم تفعيل باقة ${plans[(res as any).planType as PlanKey]?.name || (res as any).planType} لمادة "${(res as any).subjectId}".`
-            : `تم تفعيل الباقة بنجاح.`,
+          title: ts.activationSuccess,
+          description: ts.sentDesc.replace("{name}", (res as any).subjectId || (planLabelMapTr[(res as any).planType] || (res as any).planType || "")),
           className: "bg-emerald-600 border-none text-white"
         });
         if (user) {
@@ -446,11 +480,11 @@ export default function Subscription() {
         setActivationCode("");
       }
     } catch (e: any) {
-      toast({ variant: "destructive", title: "خطأ", description: e.message || "كود التفعيل غير صالح أو مستخدم مسبقاً" });
+      toast({ variant: "destructive", title: ts.errorGeneric, description: e.message || ts.activationPlaceholder });
     }
   };
 
-  const planLabelMap: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
+  const planLabelMap: Record<string, string> = { bronze: ts.planBronze, silver: ts.planSilver, gold: ts.planGold };
 
   return (
     <AppLayout>
@@ -490,7 +524,7 @@ export default function Subscription() {
             transition={{ delay: 0.2 }}
             className="text-4xl md:text-5xl font-black mb-4"
           >
-            اشترك في{" "}
+            {ts.heroTitle}{" "}
             <span className="text-transparent bg-clip-text"
               style={{ backgroundImage: "linear-gradient(135deg, #FDE68A, #F59E0B, #D97706)" }}
             >
@@ -503,7 +537,7 @@ export default function Subscription() {
             transition={{ delay: 0.3 }}
             className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed"
           >
-            اشتراك مستقل لكل تخصص — اختر مادتك أولاً، ثم الباقة المناسبة لك
+            {ts.heroSub}
           </motion.p>
           <motion.p
             initial={{ opacity: 0 }}
@@ -516,7 +550,7 @@ export default function Subscription() {
               color: "rgba(253,230,138,0.85)",
             }}
           >
-            ✨ أنت لا تشترك في "محادثة" — أنت تشترك في معلّم متخصّص يتذكّر تقدّمك، يبني خططاً ومختبرات تطبيقية، ويراجع عملك.
+            {ts.heroNote}
           </motion.p>
         </div>
 
@@ -524,13 +558,11 @@ export default function Subscription() {
           <div className="mb-8 p-5 rounded-2xl border border-orange-500/30 bg-orange-500/5 flex items-start gap-4">
             <Clock className="w-6 h-6 text-orange-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-orange-400 mb-1">طلبك قيد المراجعة</p>
+              <p className="font-bold text-orange-400 mb-1">{ts.pendingTitle}</p>
               <p className="text-sm text-muted-foreground">
-                أرسلت طلب اشتراك باسم الحساب{" "}
-                <strong className="text-foreground">{latestRequest?.accountName}</strong>{" "}
-                لباقة{" "}
-                <strong className="text-foreground">{plans[latestRequest?.planType as PlanKey]?.name || latestRequest?.planType}</strong>.
-                {" "}سيتم تفعيل جواهرك فور موافقة المشرف.
+                {(ts.pendingDescFull || ts.pendingDesc)
+                  .replace("{account}", latestRequest?.accountName || "")
+                  .replace("{plan}", planLabelMapTr[latestRequest?.planType] || latestRequest?.planType || "")}
               </p>
             </div>
           </div>
@@ -540,10 +572,8 @@ export default function Subscription() {
           <div className="mb-8 p-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 flex items-start gap-4">
             <CheckCircle className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-emerald-400 mb-1">تم إرسال طلبك بنجاح!</p>
-              <p className="text-sm text-muted-foreground">
-                سيراجع المشرف طلبك ويفعّل اشتراكك مباشرة بعد التحقق.
-              </p>
+              <p className="font-bold text-emerald-400 mb-1">{ts.submittedTitle}</p>
+              <p className="text-sm text-muted-foreground">{ts.submittedDesc}</p>
             </div>
           </div>
         )}
@@ -552,21 +582,19 @@ export default function Subscription() {
           <div className="mb-8 p-5 rounded-2xl border border-red-500/30 bg-red-500/5 flex items-start gap-4">
             <AlertTriangle className="w-6 h-6 text-red-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-red-400 mb-2">المبلغ المرسل غير مكتمل</p>
+              <p className="font-bold text-red-400 mb-2">{ts.incompleteTitle}</p>
               <p className="text-sm text-muted-foreground mb-3">
-                رسالة من المشرف: <span className="text-foreground font-medium">{latestRequest?.adminNote}</span>
+                {ts.incompleteNote}: <span className="text-foreground font-medium">{latestRequest?.adminNote}</span>
               </p>
-              <p className="text-sm text-orange-400 font-medium">
-                يرجى إكمال المبلغ وإرسال طلب جديد بعد الدفع.
-              </p>
+              <p className="text-sm text-orange-400 font-medium">{ts.incompleteCTA}</p>
             </div>
           </div>
         )}
 
         <div className="mb-6">
           <div className="text-center mb-3">
-            <p className="text-sm font-bold text-gold mb-1">أولاً: حدد منطقتك</p>
-            <p className="text-xs text-muted-foreground">لكل منطقة رقم حساب كريمي مختلف وسعر مختلف — اختر المنطقة الصحيحة حتى يظهر لك الحساب المناسب للدفع</p>
+            <p className="text-sm font-bold text-gold mb-1">{ts.step1Region}</p>
+            <p className="text-xs text-muted-foreground">{ts.step1RegionSub}</p>
           </div>
           <div className="flex justify-center">
             <div className="glass p-1 rounded-2xl flex gap-2 border-white/10">
@@ -574,13 +602,13 @@ export default function Subscription() {
                 className={`px-6 sm:px-8 py-3 rounded-xl font-bold transition-all text-sm sm:text-base ${region === 'north' ? 'gradient-gold text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 onClick={() => setRegion('north')}
               >
-                المحافظات الشمالية
+                {ts.northRegion}
               </button>
               <button
                 className={`px-6 sm:px-8 py-3 rounded-xl font-bold transition-all text-sm sm:text-base ${region === 'south' ? 'gradient-gold text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 onClick={() => setRegion('south')}
               >
-                المحافظات الجنوبية
+                {ts.southRegion}
               </button>
             </div>
           </div>
@@ -590,10 +618,8 @@ export default function Subscription() {
             its own subscription; gems do NOT cross subject boundaries. */}
         <div className="mb-6">
           <div className="text-center mb-3">
-            <p className="text-sm font-bold text-gold mb-1">ثانياً: اختر التخصص الذي ستشترك فيه</p>
-            <p className="text-xs text-muted-foreground">
-              كل تخصص اشتراك مستقل — جواهر باقة الأمن السيبراني تُستخدم في الأمن السيبراني فقط، وهكذا لكل مادة.
-            </p>
+            <p className="text-sm font-bold text-gold mb-1">{ts.step2Subject}</p>
+            <p className="text-xs text-muted-foreground">{ts.step2SubjectSub}</p>
           </div>
 
           {/* Custom subject picker */}
@@ -610,7 +636,7 @@ export default function Subscription() {
               <span className="flex items-center gap-2">
                 {selectedSubject
                   ? <><span className="text-xl">{selectedSubject.emoji}</span> {selectedSubject.name}</>
-                  : "— اختر تخصصك —"}
+                  : ts.selectSubjectPlaceholder}
               </span>
               <ChevronDown className={`w-5 h-5 transition-transform shrink-0 ${showSubjectPicker ? "rotate-180" : ""}`} />
             </button>
@@ -628,7 +654,7 @@ export default function Subscription() {
                         ? "bg-emerald-500/15 text-emerald-400 border-b-2 border-emerald-400"
                         : "text-muted-foreground hover:text-foreground"}`}
                   >
-                    🎓 الجامعي
+                    🎓 {ts.tabUniversity}
                   </button>
                   <button
                     type="button"
@@ -638,7 +664,7 @@ export default function Subscription() {
                         ? "bg-blue-500/15 text-blue-400 border-b-2 border-blue-400"
                         : "text-muted-foreground hover:text-foreground"}`}
                   >
-                    ⚡ المهارات
+                    ⚡ {ts.tabSkills}
                   </button>
                 </div>
 
@@ -697,27 +723,27 @@ export default function Subscription() {
 
             {selectedSubject && (
               <p className="text-xs text-center text-emerald-400 mt-2">
-                ✓ ستشترك في تخصص: <strong>{selectedSubject.name}</strong>
+                ✓ {ts.selectedSubjectConfirm.replace("{name}", selectedSubject.name)}
               </p>
             )}
           </div>
         </div>
 
         <div className="mb-4 text-center">
-          <p className="text-sm font-bold text-gold mb-1">ثالثاً: اضغط على الباقة التي تناسبك</p>
+          <p className="text-sm font-bold text-gold mb-1">{ts.step3Plan}</p>
           <p className="text-xs text-muted-foreground">
             {selectedSubject
-              ? `الباقة المختارة ستفعّل جواهر تخصّص "${selectedSubject.name}" فقط — لن تعمل في أي تخصص آخر.`
-              : "اختر تخصصاً أولاً ثم ستظهر لك تفاصيل الدفع المطلوبة."}
+              ? ts.step3PlanSubSelected.replace("{name}", selectedSubject.name)
+              : ts.step3PlanSubEmpty}
           </p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 mb-16">
-          {(Object.keys(plans) as PlanKey[]).map(key => {
-            const plan = plans[key];
+          {(Object.keys(translatedPlans) as PlanKey[]).map(key => {
+            const plan = translatedPlans[key];
             const isSelected = selectedPlan === key;
             const priceNum = planPrices[region][key];
-            const price = priceNum.toLocaleString("ar-EG");
+            const price = priceNum.toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
             return (
               <div
                 key={key}
@@ -725,8 +751,8 @@ export default function Subscription() {
                   if (!selectedSubject) {
                     toast({
                       variant: "destructive",
-                      title: "اختر التخصص أولاً",
-                      description: "اختر التخصص من القائمة المنسدلة في الأعلى قبل اختيار الباقة.",
+                      title: ts.errorSelectSubject,
+                      description: ts.planSelectSubjectFirst,
                     });
                     return;
                   }
@@ -742,7 +768,7 @@ export default function Subscription() {
               >
                 {plan.popular && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gold text-primary-foreground font-bold text-xs px-4 py-1 rounded-full whitespace-nowrap">
-                    الأكثر طلباً
+                    {ts.mostPopular}
                   </div>
                 )}
                 <div className="mb-4">{plan.icon}</div>
@@ -750,14 +776,14 @@ export default function Subscription() {
                 <p className="text-xs text-muted-foreground mb-4">{plan.desc}</p>
                 <div className="mb-2">
                   <span className={`text-3xl font-black ${isSelected ? 'text-gold' : ''}`}>{price}</span>
-                  <span className="text-sm text-muted-foreground mr-1">ريال / ١٤ يوماً</span>
+                  <span className="text-sm text-muted-foreground mr-1">{ts.rialPer14Days}</span>
                 </div>
                 <div className="text-xs text-gold font-bold mb-2 flex items-center gap-1">
                   <span>💎</span>
-                  <span>{plan.gems.toLocaleString("ar-EG")} جوهرة إجمالي</span>
+                  <span>{plan.gems.toLocaleString(lang === "ar" ? "ar-EG" : "en-US")} {ts.gemsTotal}</span>
                 </div>
                 <div className="text-xs text-emerald-400 font-bold mb-6">
-                  حتى {plan.gemsPerDay} جوهرة / يوم — لهذا التخصص فقط
+                  {ts.upToGemsPerDay.replace("{n}", String(plan.gemsPerDay))}
                 </div>
                 <ul className="space-y-2 text-sm">
                   {plan.features.map((f, fi) => (
@@ -776,10 +802,10 @@ export default function Subscription() {
           <div className="text-center mb-8">
             <h2 className="text-2xl sm:text-3xl font-black flex items-center justify-center gap-3 mb-3">
               <Sparkles className="w-7 h-7 text-gold" />
-              لماذا نُخبة وليس ChatGPT أو DeepSeek؟
+              {ts.cmpTitle}
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
-              المساعدات العامة ممتازة للأسئلة العابرة، لكنها لا تعرفك ولا تتذكر تقدّمك. نُخبة بُنيت خصيصاً لتكون <span className="text-gold font-bold">معلّمك المتخصّص</span> طوال رحلة تعلّمك.
+              {ts.cmpDesc} <span className="text-gold font-bold">{ts.cmpHighlight}</span>
             </p>
           </div>
 
@@ -788,7 +814,7 @@ export default function Subscription() {
               <table className="w-full text-right" dir="rtl">
                 <thead>
                   <tr className="border-b border-white/10 bg-gradient-to-l from-gold/10 via-gold/5 to-transparent">
-                    <th className="p-3 sm:p-4 text-sm sm:text-base font-bold text-foreground/80 w-[40%]">الميزة</th>
+                    <th className="p-3 sm:p-4 text-sm sm:text-base font-bold text-foreground/80 w-[40%]">{ts.cmpFeature}</th>
                     <th className="p-3 sm:p-4 text-center">
                       <div className="flex flex-col items-center gap-1">
                         <Crown className="w-5 h-5 text-gold" />
@@ -804,14 +830,7 @@ export default function Subscription() {
                   </tr>
                 </thead>
                 <tbody className="text-sm">
-                  {[
-                    { feature: "يتذكّر تقدّمك ونقاط ضعفك بين الجلسات", n: true, c: false, d: false },
-                    { feature: "يبني خطة تعلّم شخصية لمادتك", n: true, c: false, d: false },
-                    { feature: "مختبرات تطبيقية تفاعلية داخل المنصة", n: true, c: false, d: false },
-                    { feature: "مراجعة معلّم بشري لتقاريرك وأعمالك", n: true, c: false, d: false },
-                    { feature: "محتوى مبني على المنهج اليمني والجامعي المحلي", n: true, c: false, d: false },
-                    { feature: "إجابات عامة على الأسئلة", n: true, c: true, d: true },
-                  ].map((row, i) => (
+                  {ts.cmpRows.map((row, i) => (
                     <tr key={i} className={`border-b border-white/5 last:border-0 ${i % 2 === 0 ? "bg-white/[0.015]" : ""} hover:bg-gold/[0.03] transition-colors`}>
                       <td className="p-3 sm:p-4 font-medium text-foreground/90 text-xs sm:text-sm leading-relaxed">{row.feature}</td>
                       <td className="p-3 sm:p-4 text-center">
@@ -846,7 +865,7 @@ export default function Subscription() {
             </div>
             <div className="p-4 sm:p-5 bg-gradient-to-l from-gold/10 to-transparent border-t border-gold/15">
               <p className="text-xs sm:text-sm text-center text-foreground/80 leading-relaxed">
-                <span className="text-gold font-bold">الخلاصة:</span> أنت لا تدفع مقابل "محادثة" — أنت تستثمر في معلّم متخصّص يرافقك خطوة بخطوة حتى تتقن مادتك.
+                {ts.cmpSummary}
               </p>
             </div>
           </div>
@@ -857,10 +876,10 @@ export default function Subscription() {
           <div className="text-center mb-8">
             <h2 className="text-2xl sm:text-3xl font-black flex items-center justify-center gap-3 mb-3">
               <ShieldCheck className="w-7 h-7 text-gold" />
-              تقنية المعلّم وضمان الجودة
+              {ts.techTitle}
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
-              نريدك أن تعرف بالضبط ما الذي يقف خلف معلّمك الذكي في نُخبة، ولماذا يبقى معك حتى آخر يوم في اشتراكك.
+              {ts.techDesc}
             </p>
           </div>
 
@@ -876,24 +895,24 @@ export default function Subscription() {
                     POWERED BY AI
                   </div>
                   <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
-                    مدعوم بأقوى نماذج الذكاء الاصطناعي
+                    {ts.techAiTitle}
                   </h3>
                 </div>
               </div>
               <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
-                معلّمك في نُخبة لا يعمل على ChatGPT ولا DeepSeek — بل على نماذج ذكاء اصطناعي متخصصة اخترناها بعناية لتناسب التعلم الشخصي العميق.
+                {ts.techAiDesc}
               </p>
               <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
                   <span>
-                    <span className="font-bold text-foreground">نموذج التفكير العميق</span> للتشخيص، اختبار الفهم، تقارير المختبر، ولحظات "لم أفهم".
+                    <span className="font-bold text-foreground">{ts.techAiDeep}</span> {ts.techAiDeepDesc}
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
                   <span>
-                    <span className="font-bold text-foreground">نموذج الاستجابة السريعة</span> للأسئلة اليومية والإجابات الفورية دون انتظار.
+                    <span className="font-bold text-foreground">{ts.techAiFast}</span> {ts.techAiFastDesc}
                   </span>
                 </li>
               </ul>
@@ -907,34 +926,28 @@ export default function Subscription() {
                 </div>
                 <div className="flex-1">
                   <div className="text-[11px] sm:text-xs font-bold text-emerald-400/90 mb-1 tracking-wide">
-                    ضمان الاستمرارية
+                    {ts.techGuaranteeTag}
                   </div>
                   <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
-                    نظام جودة ذكي طوال الأسبوعين
+                    {ts.techGuaranteeTitle}
                   </h3>
                 </div>
               </div>
               <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
-                صمّمنا نظاماً يضمن لك خدمة <span className="text-emerald-400 font-bold">متّسقة وعادلة</span> طوال أيام اشتراكك الـ١٤ — لصالحك أنت قبل أي شيء آخر.
+                {ts.techGuaranteeDesc} <span className="text-emerald-400 font-bold">{ts.techGuaranteeHighlight}</span> {ts.techGuaranteeDescEnd}
               </p>
               <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>
-                    لن يُقطع عنك المعلّم في منتصف الاشتراك مهما كان استخدامك — ستستمر في التعلّم كل يوم حتى آخر يوم.
-                  </span>
+                  <span>{ts.techContinuityItem}</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>
-                    النموذجان (العميق والسريع) يتناوبان داخل اليوم بحسب نوع سؤالك، فيصلك دائماً النموذج المناسب للحظة المناسبة.
-                  </span>
+                  <span>{ts.techRotationItem}</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>
-                    كل صباح يُجدَّد رصيدك اليومي تلقائياً — اليوم الجديد يبدأ دائماً بصفحة بيضاء.
-                  </span>
+                  <span>{ts.techRenewItem}</span>
                 </li>
               </ul>
             </div>
@@ -945,16 +958,16 @@ export default function Subscription() {
           <div className="text-center mb-8">
             <h2 className="text-2xl font-black flex items-center justify-center gap-3 mb-2">
               <ClipboardCheck className="w-7 h-7 text-gold" />
-              كيف تشترك؟ — خطوات بسيطة وواضحة
+              {ts.stepsTitle}
             </h2>
-            <p className="text-muted-foreground">اتبع هذه الخطوات وسيتم تفعيل اشتراكك خلال دقائق</p>
+            <p className="text-muted-foreground">{ts.stepsDesc}</p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { step: "١", icon: <Crown className="w-6 h-6 text-gold" />, title: "اختر الباقة", desc: "اختر الباقة المناسبة لك (برونزية، فضية، أو ذهبية) من الأعلى" },
-              { step: "٢", icon: <Banknote className="w-6 h-6 text-emerald-400" />, title: "حوّل المبلغ", desc: "افتح تطبيق الكريمي وحوّل المبلغ المطلوب إلى رقم الحساب الظاهر أدناه" },
-              { step: "٣", icon: <Send className="w-6 h-6 text-blue-400" />, title: "أرسل الطلب", desc: "اكتب اسم الحساب الذي حوّلت منه (نفس الاسم في الكريمي) واضغط تأكيد" },
-              { step: "٤", icon: <UserCheck className="w-6 h-6 text-purple-400" />, title: "التفعيل الفوري", desc: "المشرف يتحقق من وصول المبلغ ويفعّل اشتراكك — ستصلك رسالة التفعيل" },
+              { step: lang === "ar" ? "١" : "1", icon: <Crown className="w-6 h-6 text-gold" />, title: ts.subStepTitle1 || "اختر الباقة", desc: ts.subStepDesc1 || "" },
+              { step: lang === "ar" ? "٢" : "2", icon: <Banknote className="w-6 h-6 text-emerald-400" />, title: ts.subStepTitle2 || "حوّل المبلغ", desc: ts.subStepDesc2 || "" },
+              { step: lang === "ar" ? "٣" : "3", icon: <Send className="w-6 h-6 text-blue-400" />, title: ts.subStepTitle3 || "أرسل الطلب", desc: ts.subStepDesc3 || "" },
+              { step: lang === "ar" ? "٤" : "4", icon: <UserCheck className="w-6 h-6 text-purple-400" />, title: ts.subStepTitle4 || "التفعيل الفوري", desc: ts.subStepDesc4 || "" },
             ].map(s => (
               <div key={s.step} className="glass rounded-2xl p-5 border border-white/5 relative">
                 <div className="absolute -top-3 -right-2 w-8 h-8 rounded-full gradient-gold flex items-center justify-center text-sm font-black text-black">{s.step}</div>
@@ -972,14 +985,9 @@ export default function Subscription() {
               <ShieldCheck className="w-8 h-8 text-emerald-400" />
             </div>
             <div className="flex-1">
-              <h3 className="text-xl font-black text-emerald-400 mb-3">ضمان التفعيل — اطمئن تماماً</h3>
+              <h3 className="text-xl font-black text-emerald-400 mb-3">{ts.guaranteeTitle}</h3>
               <div className="grid sm:grid-cols-2 gap-3">
-                {[
-                  "اشتراكك يُفعّل فوراً بعد التحقق من وصول التحويل — لا تأخير",
-                  "إذا لم يصل المبلغ أو كان ناقصاً، سنُبلغك فوراً برسالة واضحة",
-                  "كل تحويل يُسجّل باسمك تلقائياً — أموالك محفوظة ومضمونة",
-                  "إذا واجهت أي مشكلة، تواصل معنا وسنحلها فوراً",
-                ].map((item, i) => (
+                {[ts.guaranteeItem1, ts.guaranteeItem2, ts.guaranteeItem3, ts.guaranteeItem4].map((item, i) => (
                   <div key={i} className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
                     <span className="text-sm text-foreground/90">{item}</span>
@@ -994,26 +1002,26 @@ export default function Subscription() {
           <div className="glass p-8 rounded-3xl border-white/5">
             <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
               <CreditCard className="w-6 h-6 text-gold" />
-              الدفع وتأكيد الاشتراك
+              {ts.paymentTitle}
             </h3>
 
             {!selectedPlan ? (
               <div className="h-48 flex items-center justify-center text-muted-foreground text-center border-2 border-dashed border-gold/20 rounded-2xl px-4 bg-gold/[0.02]">
                 <div>
                   <ChevronDown className="w-8 h-8 mx-auto mb-2 text-gold/40 animate-bounce" style={{animationDuration: '2s'}} />
-                  <p className="text-base font-bold mb-1 text-gold/70">لم تختر باقة بعد</p>
-                  <p className="text-xs">ارجع للأعلى واضغط على إحدى الباقات الثلاث (برونزية، فضية، أو ذهبية) — بعدها سيظهر هنا رقم حساب الكريمي وتفاصيل الدفع</p>
+                  <p className="text-base font-bold mb-1 text-gold/70">{ts.noPlanSelected}</p>
+                  <p className="text-xs">{ts.noPlanSelectedSub}</p>
                 </div>
               </div>
             ) : (
               <div className="space-y-6">
                 <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
-                  <p className="text-xs text-emerald-400 font-bold text-center mb-1">الخطوة الأولى: حوّل المبلغ عبر الكريمي</p>
-                  <p className="text-[11px] text-center text-muted-foreground">افتح تطبيق الكريمي على هاتفك وحوّل المبلغ إلى الرقم التالي</p>
+                  <p className="text-xs text-emerald-400 font-bold text-center mb-1">{ts.payStep1Title}</p>
+                  <p className="text-[11px] text-center text-muted-foreground">{ts.payStep1Sub}</p>
                 </div>
 
                 <div className="bg-black/30 p-5 rounded-2xl border border-white/5">
-                  <p className="text-sm text-muted-foreground mb-1">المبلغ المطلوب:</p>
+                  <p className="text-sm text-muted-foreground mb-1">{ts.amountLabel}:</p>
                   {welcomeOffer.active ? (() => {
                     const basePriceNum = planPrices[region][selectedPlan];
                     const finalPriceNum = Math.round(basePriceNum * (1 - welcomeOffer.percent / 100));
@@ -1021,14 +1029,14 @@ export default function Subscription() {
                       <div className="mb-4">
                         <div className="flex items-baseline gap-2">
                           <span className="text-gold font-bold text-2xl" data-testid="welcome-final-price">
-                            {finalPriceNum.toLocaleString("ar-EG")} ريال
+                            {finalPriceNum.toLocaleString("ar-EG")} {ts.rialUnit}
                           </span>
                           <span className="text-sm text-muted-foreground line-through">
-                            {basePriceNum.toLocaleString("ar-EG")} ريال
+                            {basePriceNum.toLocaleString("ar-EG")} {ts.rialUnit}
                           </span>
                         </div>
                         <p className="text-xs text-gold mt-1">
-                          خصم {welcomeOffer.percent}٪ عبر العرض الترحيبي — وفّرت {(basePriceNum - finalPriceNum).toLocaleString("ar-EG")} ريال
+                          {ts.welcomeSaveMsg.replace("{n}", String(welcomeOffer.percent)).replace("{saved}", (basePriceNum - finalPriceNum).toLocaleString("ar-EG"))}
                         </p>
                       </div>
                     );
@@ -1036,19 +1044,19 @@ export default function Subscription() {
                     <div className="mb-4">
                       <div className="flex items-baseline gap-2">
                         <span className="text-emerald-400 font-bold text-2xl">
-                          {discountInfo.finalPrice.toLocaleString("ar-EG")} ريال
+                          {discountInfo.finalPrice.toLocaleString("ar-EG")} {ts.rialUnit}
                         </span>
                         <span className="text-sm text-muted-foreground line-through">
-                          {discountInfo.basePrice.toLocaleString("ar-EG")} ريال
+                          {discountInfo.basePrice.toLocaleString("ar-EG")} {ts.rialUnit}
                         </span>
                       </div>
                       <p className="text-xs text-emerald-400 mt-1">
-                        خصم {discountInfo.percent}% عبر كود <span className="font-mono font-bold">{discountInfo.code}</span> — وفّرت {discountInfo.discountAmount.toLocaleString("ar-EG")} ريال
+                        {ts.discountSaveMsg.replace("{n}", String(discountInfo.percent)).replace("{code}", discountInfo.code).replace("{saved}", discountInfo.discountAmount.toLocaleString("ar-EG"))}
                       </p>
                     </div>
                   ) : (
                     <p className="text-gold font-bold text-xl mb-4">
-                      {planPrices[region][selectedPlan].toLocaleString("ar-EG")} ريال
+                      {planPrices[region][selectedPlan].toLocaleString("ar-EG")} {ts.rialUnit}
                     </p>
                   )}
 
@@ -1060,27 +1068,27 @@ export default function Subscription() {
                     >
                       <div className="flex items-center gap-2 mb-2">
                         <Sparkles className="w-5 h-5 text-gold" />
-                        <p className="font-bold text-gold">العرض الترحيبي مُفعّل — خصم {welcomeOffer.percent}٪</p>
+                        <p className="font-bold text-gold">{ts.welcomeActive.replace("{n}", String(welcomeOffer.percent))}</p>
                       </div>
                       <p className="text-xs text-zinc-300 leading-relaxed mb-2">
-                        سيُطبَّق الخصم تلقائياً عند إرسال طلب الاشتراك. لا حاجة لإدخال أي كود.
+                        {ts.welcomeAutoApplied}
                       </p>
                       <div className="flex items-center justify-center gap-2 text-xs text-zinc-400 bg-black/40 rounded-lg py-2">
                         <Clock className="w-3.5 h-3.5" />
-                        <span>ينتهي خلال:</span>
+                        <span>{ts.welcomeExpiresIn}</span>
                         <span className="font-mono font-bold text-gold tabular-nums" data-testid="welcome-banner-countdown">
                           {welcomeRemainingLabel}
                         </span>
                       </div>
                       <p className="text-[10px] text-zinc-500 text-center mt-2">
-                        لا يمكن إدخال كود خصم آخر مع هذا العرض.
+                        {ts.welcomeNoCoupon}
                       </p>
                     </div>
                   ) : (
                     /* Discount code input */
                     <div className="mb-4 p-3 rounded-xl bg-purple-500/5 border border-purple-500/20">
                       <p className="text-xs text-purple-300 font-bold mb-2 text-center">
-                        عندك كود خصم؟ أدخله هنا قبل التحويل
+                        {ts.discountHaveCode}
                       </p>
                       {discountInfo ? (
                         <div className="flex items-center justify-between gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
@@ -1094,14 +1102,14 @@ export default function Subscription() {
                             className="text-xs text-muted-foreground hover:text-red-400 transition-colors"
                             type="button"
                           >
-                            إزالة
+                            {ts.discountClear}
                           </button>
                         </div>
                       ) : (
                         <>
                           <div className="flex gap-2">
                             <Input
-                              placeholder="مثال: SUMMER20"
+                              placeholder={lang === "ar" ? "مثال: SUMMER20" : "Example: SUMMER20"}
                               className="bg-black/40 h-10 flex-1 text-center font-mono uppercase"
                               dir="ltr"
                               value={discountInput}
@@ -1114,7 +1122,7 @@ export default function Subscription() {
                               disabled={discountChecking || !discountInput.trim()}
                               onClick={handleApplyDiscount}
                             >
-                              {discountChecking ? "..." : "تطبيق"}
+                              {discountChecking ? "..." : ts.discountApply}
                             </Button>
                           </div>
                           {discountError && (
@@ -1125,7 +1133,7 @@ export default function Subscription() {
                     </div>
                   )}
 
-                  <p className="text-sm font-bold mb-2">رقم حساب الكريمي:</p>
+                  <p className="text-sm font-bold mb-2">{ts.kuraimiNumber}:</p>
                   {(() => {
                     // Pull live numbers from /api/payment-settings/public; fall
                     // back to the historical hard-coded values so the page is
@@ -1145,31 +1153,31 @@ export default function Subscription() {
                         <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-4 rounded-xl border border-gold/20" dir="ltr">
                           {num}
                         </div>
-                        <p className="text-center text-sm mt-2 font-medium">باسم: <span className="text-gold">{accountName}</span></p>
+                        <p className="text-center text-sm mt-2 font-medium">{ts.accountNameLabel}: <span className="text-gold">{accountName}</span></p>
                       </>
                     );
                   })()}
                   <div className="mt-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <p className="text-xs text-amber-300 text-center font-medium">
-                      تأكد من تحويل المبلغ كاملاً — أي نقص سيؤخر التفعيل
+                      {ts.transferWarning}
                     </p>
                   </div>
                 </div>
 
                 <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3">
-                  <p className="text-xs text-blue-400 font-bold text-center mb-1">الخطوة الثانية: أكّد الدفع هنا</p>
-                  <p className="text-[11px] text-center text-muted-foreground">بعد التحويل، اكتب اسم حسابك في الكريمي واضغط تأكيد</p>
+                  <p className="text-xs text-blue-400 font-bold text-center mb-1">{ts.payStep2Title}</p>
+                  <p className="text-[11px] text-center text-muted-foreground">{ts.payStep2Sub}</p>
                 </div>
 
                 <div className="space-y-3">
                   <Label className="text-base font-semibold">
-                    اسم الحساب المرسل منه
+                    {ts.senderNameLabel}
                   </Label>
                   <p className="text-xs text-muted-foreground -mt-1">
-                    اكتب <strong className="text-foreground">نفس الاسم</strong> الظاهر في تطبيق الكريمي الخاص بك (الاسم المسجّل في حسابك)
+                    {ts.senderNameHint}
                   </p>
                   <Input
-                    placeholder="مثال: أحمد محمد علي"
+                    placeholder={ts.senderNamePlaceholder}
                     className="bg-black/40 h-12 text-right"
                     dir="rtl"
                     value={accountName}
@@ -1178,9 +1186,9 @@ export default function Subscription() {
                 </div>
 
                 <div className="space-y-3">
-                  <Label>ملاحظات (اختياري)</Label>
+                  <Label>{ts.notesLabel}</Label>
                   <Textarea
-                    placeholder="مثال: حوّلت من حساب أخي، أو رقم العملية..."
+                    placeholder={ts.notesPlaceholder}
                     className="bg-black/40"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
@@ -1192,13 +1200,13 @@ export default function Subscription() {
                   disabled={!accountName.trim() || createReqMutation.isPending}
                   onClick={handlePaymentSubmit}
                 >
-                  {createReqMutation.isPending ? "جاري الإرسال..." : "تأكيد الدفع وإرسال الطلب ✓"}
+                  {createReqMutation.isPending ? ts.submitPending : ts.submitBtn}
                 </Button>
 
                 <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
-                  <p className="text-xs text-center text-emerald-400 font-bold mb-1">ماذا بعد الضغط؟</p>
+                  <p className="text-xs text-center text-emerald-400 font-bold mb-1">{ts.afterSubmitTitle}</p>
                   <p className="text-xs text-center text-muted-foreground">
-                    سيصلنا طلبك فوراً ← نتحقق من وصول التحويل ← نفعّل اشتراكك ← تبدأ التعلم مباشرة!
+                    {ts.afterSubmitFlow}
                   </p>
                 </div>
               </div>
@@ -1210,15 +1218,15 @@ export default function Subscription() {
               <div className="absolute top-0 left-0 w-40 h-40 bg-emerald/10 rounded-br-full -z-10" />
               <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
                 <Key className="w-6 h-6 text-emerald" />
-                تفعيل عبر كود
+                {ts.activationTitle}
               </h3>
               <p className="text-muted-foreground mb-6">
-                إذا حصلت على كود تفعيل من وكلائنا أو كهدية، أدخله هنا لتفعيل اشتراكك فوراً — بدون تحويل.
+                {ts.activationDesc}
               </p>
 
               <div className="space-y-4">
                 <Input
-                  placeholder="أدخل كود التفعيل المكون من 16 حرف"
+                  placeholder={ts.activationPlaceholder}
                   className="bg-black/40 h-14 text-center tracking-widest text-lg font-mono uppercase focus-visible:ring-emerald focus-visible:border-emerald"
                   dir="ltr"
                   value={activationCode}
@@ -1229,7 +1237,7 @@ export default function Subscription() {
                   disabled={!activationCode || activateMutation.isPending}
                   onClick={handleActivationSubmit}
                 >
-                  {activateMutation.isPending ? "جاري التفعيل..." : "تفعيل الحساب"}
+                  {activateMutation.isPending ? ts.activatingBtn : ts.activationBtn}
                 </Button>
               </div>
             </div>
@@ -1237,16 +1245,10 @@ export default function Subscription() {
             <div className="glass p-6 rounded-3xl border-white/5">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <HelpCircle className="w-5 h-5 text-gold" />
-                أسئلة شائعة
+                {ts.faqTitle}
               </h3>
               <div className="space-y-4">
-                {[
-                  { q: "كم يستغرق تفعيل الاشتراك؟", a: "عادةً خلال دقائق من إرسال الطلب. في أقصى حد لا يتجاوز بضع ساعات." },
-                  { q: "ماذا لو حوّلت مبلغاً خاطئاً؟", a: "سنرسل لك إشعاراً بالمبلغ الناقص، ويمكنك إكماله وإرسال طلب جديد." },
-                  { q: "هل يمكنني الاشتراك في أكثر من مادة؟", a: "نعم! كل مادة لها اشتراك منفصل. يمكنك الاشتراك في أي عدد من المواد." },
-                  { q: "متى يبدأ حساب الأسبوعين؟", a: "يبدأ العد من لحظة تفعيل الاشتراك، وليس من لحظة الدفع." },
-                  { q: "هل أموالي في أمان؟", a: "نعم. كل تحويل مسجّل ومرتبط بحسابك. إذا حدث أي خطأ، تواصل معنا وسنحل المشكلة فوراً." },
-                ].map((item, i) => (
+                {ts.faqItems.map((item, i) => (
                   <div key={i} className="border-b border-white/5 last:border-0 pb-3 last:pb-0">
                     <p className="text-sm font-bold mb-1 text-gold/90">{item.q}</p>
                     <p className="text-xs text-muted-foreground leading-relaxed">{item.a}</p>
@@ -1259,8 +1261,8 @@ export default function Subscription() {
 
         <div className="mb-14">
           <div className="text-center mb-8">
-            <h2 className="text-2xl font-black mb-2">ماذا يقول طلابنا؟</h2>
-            <p className="text-muted-foreground text-sm">تجارب حقيقية من طلاب استفادوا من نُخبة</p>
+            <h2 className="text-2xl font-black mb-2">{ts.testimonialsTitle}</h2>
+            <p className="text-muted-foreground text-sm">{ts.testimonialsSub}</p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
@@ -1295,9 +1297,9 @@ export default function Subscription() {
             <div className="w-16 h-16 rounded-2xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center mx-auto mb-4">
               <PhoneCall className="w-8 h-8 text-blue-400" />
             </div>
-            <h3 className="text-xl font-black text-blue-300 mb-2">واجهتك مشكلة؟ نحن هنا لمساعدتك</h3>
+            <h3 className="text-xl font-black text-blue-300 mb-2">{ts.supportTitle}</h3>
             <p className="text-sm text-muted-foreground max-w-lg mx-auto">
-              إذا واجهت أي صعوبة في الاشتراك أو الدفع أو التفعيل، لا تتردد — تواصل معنا مباشرة وسنساعدك فوراً
+              {ts.supportDesc}
             </p>
           </div>
           <div className="grid sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
@@ -1306,18 +1308,17 @@ export default function Subscription() {
               className="glass rounded-2xl p-5 border border-blue-500/20 hover:border-blue-500/40 transition-all group text-center"
             >
               <MessageCircle className="w-8 h-8 text-blue-400 mx-auto mb-3 group-hover:scale-110 transition-transform" />
-              <p className="font-bold text-base mb-1">رسائل الدعم الداخلية</p>
-              <p className="text-xs text-muted-foreground mb-3">أرسل رسالة مباشرة من داخل المنصة وسيرد عليك المشرف في أقرب وقت</p>
-              <span className="text-xs text-blue-400 font-bold">اذهب لصفحة الدعم ←</span>
+              <p className="font-bold text-base mb-1">{ts.supportInboxTitle}</p>
+              <p className="text-xs text-muted-foreground mb-3">{ts.supportInboxDesc}</p>
+              <span className="text-xs text-blue-400 font-bold">{ts.supportInboxCta}</span>
             </a>
             <div className="glass rounded-2xl p-5 border border-white/5 text-center">
               <Send className="w-8 h-8 text-emerald-400 mx-auto mb-3" />
-              <p className="font-bold text-base mb-1">كيف ترسل رسالة دعم؟</p>
+              <p className="font-bold text-base mb-1">{ts.supportHowTitle}</p>
               <div className="text-xs text-muted-foreground text-right space-y-2">
-                <p className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">١.</span> اضغط على "الدعم" من القائمة الجانبية أو الرابط بجانبه</p>
-                <p className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">٢.</span> اكتب عنوان لمشكلتك (مثال: "مشكلة في الدفع")</p>
-                <p className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">٣.</span> اشرح المشكلة بالتفصيل في خانة الرسالة</p>
-                <p className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">٤.</span> اضغط إرسال — سيصلك رد المشرف مباشرة في نفس الصفحة</p>
+                {ts.supportHowSteps.map((step, i) => (
+                  <p key={i} className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">{lang === "ar" ? ["١","٢","٣","٤"][i] : i + 1}.</span> {step}</p>
+                ))}
               </div>
             </div>
           </div>

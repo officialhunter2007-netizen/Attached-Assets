@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, memo, useCallback, useMemo } from "react";
+import { useLang } from "@/lib/lang-context";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { writeUserJson, readUserJson, removeUserKey } from "@/lib/user-storage";
@@ -60,7 +61,9 @@ interface LessonSummary {
 
 function SubjectSummaryCard({ summary }: { summary: LessonSummary }) {
   const [expanded, setExpanded] = useState(false);
-  const date = new Date(summary.conversationDate).toLocaleDateString("ar-SA", {
+  const { tr, lang } = useLang();
+  const t = tr.subject;
+  const date = new Date(summary.conversationDate).toLocaleDateString(lang === "ar" ? "ar-SA" : "en-GB", {
     year: "numeric", month: "long", day: "numeric"
   });
 
@@ -85,8 +88,8 @@ function SubjectSummaryCard({ summary }: { summary: LessonSummary }) {
             <FileText className="w-5 h-5 text-gold" />
           </div>
           <div className="text-right">
-            <h4 className="font-bold text-base">{summary.title || `جلسة ${summary.subjectName}`}</h4>
-            <p className="text-xs text-muted-foreground mt-0.5">{date} · {summary.messagesCount} رسالة</p>
+            <h4 className="font-bold text-base">{summary.title || `${t.session} ${summary.subjectName}`}</h4>
+            <p className="text-xs text-muted-foreground mt-0.5">{date} · {summary.messagesCount} {t.message}</p>
           </div>
         </div>
         {expanded
@@ -125,7 +128,9 @@ interface LabReport {
 
 function SubjectLabReportCard({ report }: { report: LabReport }) {
   const [expanded, setExpanded] = useState(false);
-  const date = new Date(report.createdAt).toLocaleDateString("ar-SA", {
+  const { tr, lang } = useLang();
+  const t = tr.subject;
+  const date = new Date(report.createdAt).toLocaleDateString(lang === "ar" ? "ar-SA" : "en-GB", {
     year: "numeric", month: "long", day: "numeric"
   });
 
@@ -150,7 +155,7 @@ function SubjectLabReportCard({ report }: { report: LabReport }) {
             <FlaskConical className="w-5 h-5 text-emerald" />
           </div>
           <div className="text-right min-w-0">
-            <h4 className="font-bold text-base truncate">{report.envTitle || "تقرير مختبر"}</h4>
+            <h4 className="font-bold text-base truncate">{report.envTitle || t.labReport}</h4>
             <p className="text-xs text-muted-foreground mt-0.5 truncate">{date}</p>
           </div>
         </div>
@@ -172,16 +177,16 @@ function SubjectLabReportCard({ report }: { report: LabReport }) {
                 <div className="text-xs text-muted-foreground italic">{report.envBriefing}</div>
               )}
               <div>
-                <div className="text-xs font-bold text-gold mb-2">📋 تقريرك المرسل</div>
+                <div className="text-xs font-bold text-gold mb-2">{t.yourReport}</div>
                 <pre className="text-xs whitespace-pre-wrap bg-black/30 border border-white/5 rounded-xl p-3 text-white/85 leading-relaxed font-sans" dir="rtl">{report.reportText}</pre>
               </div>
               {safeFeedback ? (
                 <div>
-                  <div className="text-xs font-bold text-emerald mb-2">📝 ملاحظات المعلم</div>
+                  <div className="text-xs font-bold text-emerald mb-2">{t.teacherNotes}</div>
                   <div className="ai-msg" dangerouslySetInnerHTML={{ __html: safeFeedback }} />
                 </div>
               ) : (
-                <div className="text-xs text-muted-foreground">لم تُسجَّل ملاحظات المعلم لهذا التقرير.</div>
+                <div className="text-xs text-muted-foreground">{t.noTeacherNotes}</div>
               )}
             </div>
           </motion.div>
@@ -200,6 +205,8 @@ function SubscriptionExpiredWall({
   allSummaries: LessonSummary[];
   onRenew: () => void;
 }) {
+  const { tr } = useLang();
+  const t = tr.subject;
   const uniqueSubjects = [...new Set(allSummaries.map(s => s.subjectName))];
   const nextStages = subject.defaultStages?.slice(0, 3) ?? [];
 
@@ -217,8 +224,8 @@ function SubscriptionExpiredWall({
           <Trophy className="w-7 h-7 text-gold" />
         </div>
         <div>
-          <h2 className="text-xl font-bold">انتهت فترة اشتراكك</h2>
-          <p className="text-sm text-muted-foreground">إليك ما أنجزته خلال الأسبوعين الماضيين</p>
+          <h2 className="text-xl font-bold">{t.expiredTitle}</h2>
+          <p className="text-sm text-muted-foreground">{t.expiredSubtitle}</p>
         </div>
       </div>
 
@@ -227,11 +234,11 @@ function SubscriptionExpiredWall({
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div className="text-center">
               <div className="text-3xl font-black text-gold">{allSummaries.length}</div>
-              <div className="text-xs text-muted-foreground mt-1">جلسة تعليمية مكتملة</div>
+              <div className="text-xs text-muted-foreground mt-1">{t.expiredSessions}</div>
             </div>
             <div className="text-center">
               <div className="text-3xl font-black text-emerald">{uniqueSubjects.length}</div>
-              <div className="text-xs text-muted-foreground mt-1">مادة درستها</div>
+              <div className="text-xs text-muted-foreground mt-1">{t.expiredSubjects}</div>
             </div>
           </div>
           {uniqueSubjects.length > 0 && (
@@ -246,7 +253,7 @@ function SubscriptionExpiredWall({
         </div>
       ) : (
         <div className="bg-black/30 rounded-2xl p-5 mb-6 border border-white/5 text-center text-muted-foreground text-sm">
-          لم تُكمل جلسات بعد — ابدأ اشتراكاً جديداً وابنِ مسارك التعليمي
+          {t.expiredNoSessions}
         </div>
       )}
 
@@ -255,7 +262,7 @@ function SubscriptionExpiredWall({
         <div className="mb-6">
           <p className="text-sm font-semibold mb-3 flex items-center gap-2">
             <Calendar className="w-4 h-4 text-gold" />
-            ستتعلم في {subject.name} خلال اشتراكك القادم:
+            {t.expiredNextLearn.replace("{name}", subject.name)}
           </p>
           <ul className="space-y-1.5">
             {nextStages.map((stage: string, i: number) => (
@@ -266,7 +273,7 @@ function SubscriptionExpiredWall({
             ))}
             {subject.defaultStages?.length > 3 && (
               <li className="text-xs text-muted-foreground/60 mr-3.5">
-                و{subject.defaultStages.length - 3} مرحلة أخرى...
+                {t.expiredMoreStages.replace("{n}", String(subject.defaultStages.length - 3))}
               </li>
             )}
           </ul>
@@ -280,7 +287,7 @@ function SubscriptionExpiredWall({
           className="flex-1 gradient-gold text-primary-foreground font-bold h-12 rounded-xl shadow-md shadow-gold/20 flex items-center justify-center gap-2"
         >
           <Sparkles className="w-5 h-5" />
-          جدّد اشتراكك الآن
+          {t.renewBtn}
         </Button>
       </div>
     </motion.div>
@@ -426,7 +433,7 @@ function parsePlanStages(planHtml: string | null): PlanStage[] {
 // ── LearningContractCard ──────────────────────────────────────────────────────
 // Shown after [PLAN_READY] fires so the student can review and accept (or ask
 // to revise) the personalised plan before the teacher auto-starts Phase 1.
-const REVISION_OPTIONS = [
+const REVISION_OPTIONS_AR = [
   {
     key: "easier",
     label: "الخطة صعبة — أريدها أبسط",
@@ -448,6 +455,28 @@ const REVISION_OPTIONS = [
     msg: "هناك موضوع خاص أريد التأكد من تغطيته في الخطة. ناقشني أولاً لتحديد المواضيع المطلوبة وبناءً على إجاباتي أعد الخطة من جديد.",
   },
 ];
+const REVISION_OPTIONS_EN = [
+  {
+    key: "easier",
+    label: "The plan is too hard — make it simpler",
+    msg: "الخطة المقترحة صعبة جداً بالنسبة لمستواي الحالي. أريد إعادة بنائها بمستوى أبسط يتدرج بشكل تدريجي، مع تقليل عدد الخطوات الفرعية في كل مرحلة وإضافة وقت أكبر لكل مرحلة.",
+  },
+  {
+    key: "harder",
+    label: "The plan is too easy — make it deeper",
+    msg: "أريد خطة أعمق وأكثر تحدياً تناسب مستواي. زد من الأهداف في كل مرحلة وأضف موضوعات متقدمة وقلل المدة الزمنية لكل مرحلة.",
+  },
+  {
+    key: "fewer_stages",
+    label: "Too many stages — give me a shorter plan",
+    msg: "عدد المراحل كبير. أريد دمج المراحل المتشابهة للوصول إلى الهدف بشكل أسرع — حافظ على 5–6 مراحل.",
+  },
+  {
+    key: "add_topic",
+    label: "I want to make sure a specific topic is covered",
+    msg: "هناك موضوع خاص أريد التأكد من تغطيته في الخطة. ناقشني أولاً لتحديد المواضيع المطلوبة وبناءً على إجاباتي أعد الخطة من جديد.",
+  },
+];
 
 function LearningContractCard({
   planHtml,
@@ -458,6 +487,9 @@ function LearningContractCard({
   onAccept: () => void;
   onRequestRevision: (msg: string) => void;
 }) {
+  const { tr, lang } = useLang();
+  const t = tr.subject;
+  const REVISION_OPTIONS = lang === "en" ? REVISION_OPTIONS_EN : REVISION_OPTIONS_AR;
   const [showRevision, setShowRevision] = useState(false);
   const [expandedContractStage, setExpandedContractStage] = useState<number>(-1);
   const stages = parsePlanStages(planHtml);
@@ -466,8 +498,8 @@ function LearningContractCard({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)", direction: "rtl" }}>
         <div className="rounded-2xl border border-amber-500/30 bg-[#16120e] shadow-2xl max-w-md w-full p-5 space-y-3">
-          <div className="font-bold text-white text-[15px] mb-0.5">ما نوع التعديل المطلوب؟</div>
-          <div className="text-[12px] text-white/45 mb-2">اختر البُعد الذي تريد تعديله وسيعيد المعلم بناء الخطة بناءً على إجاباتك التشخيصية</div>
+          <div className="font-bold text-white text-[15px] mb-0.5">{t.planRevisionTitle}</div>
+          <div className="text-[12px] text-white/45 mb-2">{t.planRevisionSub}</div>
           {REVISION_OPTIONS.map((opt) => (
             <button
               key={opt.key}
@@ -483,7 +515,7 @@ function LearningContractCard({
             onClick={() => setShowRevision(false)}
             className="w-full text-center pt-1 pb-0.5 text-[12px] text-white/35 hover:text-white/60 transition-colors"
           >
-            رجوع
+            {t.planBackBtn}
           </button>
         </div>
       </div>
@@ -494,8 +526,8 @@ function LearningContractCard({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.80)", direction: "rtl" }}>
       <div className="rounded-2xl border border-amber-500/30 bg-[#16120e] shadow-2xl max-w-md w-full p-5 space-y-4 max-h-[90dvh] overflow-y-auto">
         <div className="text-center space-y-1">
-          <div className="text-2xl font-black text-white">خطتك الشخصية جاهزة 🎯</div>
-          <div className="text-[12px] text-white/55">راجع المراحل بالتفصيل وأعلمنا موافقتك لنبدأ التعليم فوراً</div>
+          <div className="text-2xl font-black text-white">{t.planReady}</div>
+          <div className="text-[12px] text-white/55">{t.planReadySub}</div>
         </div>
         {stages.length > 0 && (
           <ol className="space-y-1.5">
@@ -519,7 +551,7 @@ function LearningContractCard({
                     <div className="px-3 pb-3 pt-0.5 space-y-2 border-t border-white/[0.06]">
                       {s.objectives.length > 0 && (
                         <div>
-                          <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">الأهداف</div>
+                          <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">{t.planObjectives}</div>
                           <ul className="space-y-0.5">
                             {s.objectives.map((o, oi) => (
                               <li key={oi} className="text-[11px] text-white/65 flex gap-1.5">
@@ -531,7 +563,7 @@ function LearningContractCard({
                       )}
                       {s.microSteps.length > 0 && (
                         <div>
-                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">الخطوات الفرعية</div>
+                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">{t.planMicroSteps}</div>
                           <ol className="space-y-0.5">
                             {s.microSteps.map((step, si) => (
                               <li key={si} className="text-[11px] text-white/60 flex gap-1.5">
@@ -544,24 +576,24 @@ function LearningContractCard({
                       )}
                       {s.masteryCriterion && (
                         <div className="rounded-lg bg-amber-500/8 border border-amber-500/20 px-2 py-1.5">
-                          <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">معيار الإتقان</div>
+                          <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">{t.planMastery}</div>
                           <div className="text-[11px] text-amber-100/75">{s.masteryCriterion}</div>
                         </div>
                       )}
                       {s.deliverable && (
                         <div className="text-[10px] text-white/45">
-                          <span className="font-bold text-white/55">المُخرَج: </span>{s.deliverable}
+                          <span className="font-bold text-white/55">{t.planDeliverable}: </span>{s.deliverable}
                         </div>
                       )}
                       {s.reasonForStudent && (
                         <div className="rounded-lg bg-purple-500/8 border border-purple-500/20 px-2 py-1.5">
-                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">لماذا هذه المرحلة لك</div>
+                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">{t.planWhyStage}</div>
                           <div className="text-[11px] text-purple-100/70">{s.reasonForStudent}</div>
                         </div>
                       )}
                       {s.prerequisite && (
                         <div className="text-[10px] text-white/35">
-                          <span className="font-bold text-white/45">المتطلب القبلي: </span>{s.prerequisite}
+                          <span className="font-bold text-white/45">{t.planPrerequisite}: </span>{s.prerequisite}
                         </div>
                       )}
                     </div>
@@ -577,14 +609,14 @@ function LearningContractCard({
             onClick={onAccept}
             className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-[14px] transition-colors"
           >
-            أعتمد الخطة وأبدأ ✓
+            {t.planAccept}
           </button>
           <button
             type="button"
             onClick={() => setShowRevision(true)}
             className="flex-1 py-3 rounded-xl bg-white/8 hover:bg-white/12 border border-white/10 text-white font-bold text-[14px] transition-colors"
           >
-            أريد تعديلاً
+            {t.planRevise}
           </button>
         </div>
       </div>
@@ -607,6 +639,8 @@ function LearningPathPanel({
   growthReflections?: Array<{ stageIndex: number; text: string; date: string }>;
   onJumpToStage?: (stageIndex: number, stageTitle: string) => void;
 }) {
+  const { tr, lang } = useLang();
+  const t = tr.subject;
   const [expandedStage, setExpandedStage] = useState<number>(currentStage);
   useEffect(() => { setExpandedStage(currentStage); }, [currentStage]);
 
@@ -654,12 +688,12 @@ function LearningPathPanel({
           </div>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] text-amber-300/80 font-bold mb-0.5">التقدّم العام</div>
+          <div className="text-[11px] text-amber-300/80 font-bold mb-0.5">{t.overallProgress}</div>
           <div className="text-[13px] font-bold text-white truncate">
             {stages[Math.min(currentStage, stages.length - 1)]?.title || ''}
           </div>
           <div className="text-[10px] text-white/50 mt-0.5">
-            المرحلة {Math.min(currentStage + 1, stages.length)} من {stages.length}
+            {t.stageOf.replace("{n}", String(Math.min(currentStage + 1, stages.length))).replace("{total}", String(stages.length))}
           </div>
         </div>
       </div>
@@ -671,7 +705,7 @@ function LearningPathPanel({
           const isDone = idx < currentStage;
           const isLocked = idx > currentStage;
           const isExpanded = expandedStage === idx;
-          const status = isDone ? "مكتملة" : isActive ? "الحالية" : "مقفلة";
+          const status = isDone ? t.stageDone : isActive ? t.stageCurrent : t.stageLocked;
           const microTotal = s.microSteps.length;
           const completedCount = isActive
             ? (completedMicroSteps?.length ?? 0)
@@ -725,7 +759,7 @@ function LearningPathPanel({
                       )}
                       {microTotal > 0 && (
                         <span className="text-[10px] text-white/40 tabular-nums">
-                          {completedCount}/{microTotal} خطوة
+                          {completedCount}/{microTotal} {t.steps}
                         </span>
                       )}
                     </div>
@@ -750,7 +784,7 @@ function LearningPathPanel({
                 <div className="px-3 pb-3 space-y-2.5 border-t border-white/[0.06] pt-2.5">
                   {s.objectives.length > 0 && (
                     <div>
-                      <div className="text-[10px] font-bold text-amber-300/70 mb-1">الأهداف القابلة للقياس</div>
+                      <div className="text-[10px] font-bold text-amber-300/70 mb-1">{t.planObjectives}</div>
                       <ul className="space-y-1">
                         {s.objectives.map((obj, oi) => (
                           <li key={oi} className="text-[11px] text-white/70 flex gap-1.5">
@@ -762,7 +796,7 @@ function LearningPathPanel({
                   )}
                   {s.microSteps.length > 0 && (
                     <div>
-                      <div className="text-[10px] font-bold text-purple-300/70 mb-1">الخطوات التفصيلية</div>
+                      <div className="text-[10px] font-bold text-purple-300/70 mb-1">{t.planMicroSteps}</div>
                       <ol className="space-y-1">
                         {s.microSteps.map((step, si) => {
                           const done = isDone || (isActive && (completedMicroSteps ?? []).includes(si));
@@ -780,24 +814,24 @@ function LearningPathPanel({
                   )}
                   {s.masteryCriterion && (
                     <div className="rounded-lg bg-amber-500/8 border border-amber-500/20 px-2.5 py-2">
-                      <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">معيار الإتقان</div>
+                      <div className="text-[10px] font-bold text-amber-300/70 mb-0.5">{t.planMastery}</div>
                       <div className={`text-[11px] ${isLocked ? "text-amber-100/50" : "text-amber-100/80"}`}>{s.masteryCriterion}</div>
                     </div>
                   )}
                   {s.deliverable && (
                     <div className="text-[10px] text-white/50">
-                      <span className="font-bold text-white/60">المُخرَج: </span>{s.deliverable}
+                      <span className="font-bold text-white/60">{t.planDeliverable}: </span>{s.deliverable}
                     </div>
                   )}
                   {s.reasonForStudent && (
                     <div className="rounded-lg bg-purple-500/8 border border-purple-500/20 px-2.5 py-2">
-                      <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">لماذا هذه المرحلة لك</div>
+                      <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">{t.planReason}</div>
                       <div className={`text-[11px] ${isLocked ? "text-purple-100/40" : "text-purple-100/70"}`}>{s.reasonForStudent}</div>
                     </div>
                   )}
                   {s.prerequisite && (
                     <div className="text-[10px] text-white/40">
-                      <span className="font-bold text-white/50">المتطلب القبلي: </span>{s.prerequisite}
+                      <span className="font-bold text-white/50">{t.planPrereq}: </span>{s.prerequisite}
                     </div>
                   )}
                 </div>
@@ -815,7 +849,7 @@ function LearningPathPanel({
                         : "bg-amber-500/10 hover:bg-amber-500/25 border-amber-500/30 text-amber-200"
                     }`}
                   >
-                    {isDone ? "↻ راجع هذه المرحلة" : "اقفز هنا ←"}
+                    {isDone ? t.reviewStage : t.jumpHere}
                   </button>
                 </div>
               )}
@@ -827,10 +861,10 @@ function LearningPathPanel({
       {/* Growth reflections: what the student demonstrated at stage-complete moments */}
       {growthReflections && growthReflections.length > 0 && (
         <div className="px-4 pt-2 pb-4 space-y-2">
-          <div className="text-[10px] font-bold text-emerald-300/70 mb-1.5">🌱 نمو المهارات</div>
+          <div className="text-[10px] font-bold text-emerald-300/70 mb-1.5">🌱 {t.skillGrowth}</div>
           {growthReflections.slice(-5).map((g, i) => (
             <div key={i} className="rounded-lg bg-emerald-500/[0.06] border border-emerald-500/20 px-2.5 py-2">
-              <div className="text-[9px] text-emerald-300/50 mb-0.5">المرحلة {g.stageIndex + 1} — {new Date(g.date).toLocaleDateString("ar-SA", { month: "short", day: "numeric" })}</div>
+              <div className="text-[9px] text-emerald-300/50 mb-0.5">{t.stageLabelNum.replace("{n}", String(g.stageIndex + 1))} — {new Date(g.date).toLocaleDateString(lang === "ar" ? "ar-SA" : "en-US", { month: "short", day: "numeric" })}</div>
               <div className="text-[11px] text-emerald-100/75 leading-relaxed">{g.text}</div>
             </div>
           ))}
@@ -846,24 +880,17 @@ function LearningPathPanel({
 // detection the server uses so [[LAB_INTAKE_DONE]] is never silently ignored.
 const LAB_INTENT_RE = /(?:أريد|اريد|ابن[ِيه]?|اعمل|انشئ|أنشئ|ابدأ)\s*(?:لي\s*)?(?:بيئة|محاكاة|مختبر|سيناريو|تطبيق)\s*(?:تطبيقي[ةه]?|عملي[ةه]?|تفاعلي[ةه]?|تدريبي[ةه]?|مخصص[ةه]?)?/u;
 
-const ENV_BUILD_PHRASES = [
-  { icon: "🧠", text: "نُحلّل مستواك ونصمّم بيئة تطبيقية تناسبك تماماً..." },
-  { icon: "📐", text: "نرسم خطوات التعلم بترتيب ذكي يبني المهارة تدريجياً..." },
-  { icon: "🛠️", text: "نُجهّز الأدوات والشاشات التي ستحتاجها أثناء التطبيق..." },
-  { icon: "🎯", text: "نضع لك معايير نجاح واضحة لتقيس تقدّمك بنفسك..." },
-  { icon: "📚", text: "نضيف تلميحات وموارد مساعدة في كل مهمة..." },
-  { icon: "✨", text: "نُضيف اللمسات الأخيرة — بيئتك على وشك الجاهزية..." },
-  { icon: "🧪", text: "نُولّد سيناريوهات تطبيقية حقيقية لتتدرّب عليها..." },
-  { icon: "🪜", text: "نرتّب المهام من الأسهل إلى الأعمق لتتقدم بثقة..." },
-];
+const ENV_BUILD_ICONS = ["🧠","📐","🛠️","🎯","📚","✨","🧪","🪜"];
 
 function EnvBuildingOverlay() {
+  const { tr } = useLang();
+  const t = tr.subject;
   const [phraseIdx, setPhraseIdx] = useState(0);
   const [seconds, setSeconds] = useState(0);
 
   useEffect(() => {
     const phraseTimer = setInterval(() => {
-      setPhraseIdx((i) => (i + 1) % ENV_BUILD_PHRASES.length);
+      setPhraseIdx((i) => (i + 1) % ENV_BUILD_ICONS.length);
     }, 2600);
     const secTimer = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => {
@@ -872,7 +899,8 @@ function EnvBuildingOverlay() {
     };
   }, []);
 
-  const phrase = ENV_BUILD_PHRASES[phraseIdx];
+  const phrases = t.envBuildPhrases;
+  const phrase = { icon: ENV_BUILD_ICONS[phraseIdx % ENV_BUILD_ICONS.length], text: phrases[phraseIdx % phrases.length] };
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" style={{ direction: "rtl" }}>
@@ -883,8 +911,8 @@ function EnvBuildingOverlay() {
             <Loader2 className="w-8 h-8 animate-spin text-gold relative" />
           </div>
           <div className="text-right">
-            <div className="text-white font-black text-lg leading-tight">جارٍ بناء بيئتك التطبيقية</div>
-            <div className="text-[11px] text-gold/70">قد يستغرق الأمر من ٢٠ إلى ٤٥ ثانية — اللحظة تستحق الانتظار</div>
+            <div className="text-white font-black text-lg leading-tight">{t.envBuildTitle}</div>
+            <div className="text-[11px] text-gold/70">{t.envBuildSub}</div>
           </div>
         </div>
 
@@ -899,7 +927,7 @@ function EnvBuildingOverlay() {
         <div className="flex items-center justify-between text-[11px] text-white/40 px-1">
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>المعلم الذكي يعمل من أجلك</span>
+            <span>{t.envBuildWorking}</span>
           </div>
           <span className="font-mono tabular-nums">{seconds}s</span>
         </div>
@@ -920,6 +948,8 @@ export default function Subject() {
     : subjectRaw;
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const { tr } = useLang();
+  const t = tr.subject;
 
   // If launched with `?sources=<materialId>` (e.g. from the dashboard's
   // chapter-progress card), open the chat and the Sources side panel
@@ -1095,8 +1125,8 @@ export default function Subject() {
     return (
       <AppLayout>
         <div className="container mx-auto px-4 py-12 text-center">
-          <h1 className="text-2xl font-bold mb-4">المادة غير موجودة</h1>
-          <Button onClick={() => setLocation("/learn")}>العودة للتعلم</Button>
+          <h1 className="text-2xl font-bold mb-4">{t.notFound}</h1>
+          <Button onClick={() => setLocation("/learn")}>{t.backToLearn}</Button>
         </div>
       </AppLayout>
     );
@@ -1189,9 +1219,9 @@ export default function Subject() {
               <Sparkles className="w-6 h-6 md:w-7 md:h-7 text-primary-foreground" />
             </div>
             <div className="flex-1">
-              <h2 className="text-xl md:text-2xl font-bold mb-2">جلستك التعليمية المخصصة</h2>
+              <h2 className="text-xl md:text-2xl font-bold mb-2">{t.sessionTitle}</h2>
               <p className="text-muted-foreground text-sm leading-relaxed mb-5">
-                يرافقك معلمك الذكي خطوة بخطوة، يشرح المفهوم أولاً بمثال واقعي، ثم يطرح عليك سؤالاً توجيهياً للتثبيت قبل الانتقال للمرحلة التالية.
+                {t.sessionDesc}
               </p>
               <div className="flex flex-wrap gap-3">
                 <Button
@@ -1200,7 +1230,7 @@ export default function Subject() {
                   className="border-gold/30 text-gold hover:bg-gold/10 h-10 rounded-xl px-5 flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
-                  جلسة جديدة
+                  {t.newSession}
                 </Button>
               </div>
             </div>
@@ -1212,19 +1242,19 @@ export default function Subject() {
         <div className="mb-10">
           <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
             <div className="w-2 h-7 bg-emerald rounded-full" />
-            تقارير المختبرات السابقة
+            {t.labReports}
           </h3>
 
           {labReportsLoading ? (
             <div className="flex items-center justify-center py-10 text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin ml-2" />
-              جاري التحميل...
+              {t.loading}
             </div>
           ) : labReports.length === 0 ? (
             <div className="glass border border-white/5 rounded-2xl p-8 text-center text-muted-foreground">
               <FlaskConical className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">لا توجد تقارير مختبر بعد</p>
-              <p className="text-sm mt-1 opacity-70">عند إرسال تقرير من البيئة التطبيقية لهذه المادة سيظهر هنا للمراجعة</p>
+              <p className="font-medium">{t.noLabReports}</p>
+              <p className="text-sm mt-1 opacity-70">{t.noLabReportsSub}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1239,19 +1269,19 @@ export default function Subject() {
         <div className="mb-10">
           <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
             <div className="w-2 h-7 bg-gold rounded-full" />
-            ملخصات جلساتك السابقة
+            {t.summaries}
           </h3>
 
           {summariesLoading ? (
             <div className="flex items-center justify-center py-10 text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin ml-2" />
-              جاري التحميل...
+              {t.loading}
             </div>
           ) : summaries.length === 0 ? (
             <div className="glass border border-white/5 rounded-2xl p-8 text-center text-muted-foreground">
               <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">لا توجد ملخصات بعد</p>
-              <p className="text-sm mt-1 opacity-70">بعد إكمال أول جلسة سيظهر ملخصها هنا تلقائياً للمراجعة</p>
+              <p className="font-medium">{t.noSummaries}</p>
+              <p className="text-sm mt-1 opacity-70">{t.noSummariesSub}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1301,8 +1331,8 @@ export default function Subject() {
                         <Code2 className="w-4 h-4 text-gold" />
                       </div>
                       <div>
-                        <p className="font-bold text-sm">بيئة التطبيق</p>
-                        <p className="text-[11px] text-muted-foreground">اكتب وشغّل كودك</p>
+                        <p className="font-bold text-sm">{t.panelCode}</p>
+                        <p className="text-[11px] text-muted-foreground">{t.panelCodeSub}</p>
                       </div>
                     </>
                   ) : isLabOpen ? (
@@ -1317,8 +1347,8 @@ export default function Subject() {
                         <span className="text-sm">🔬</span>
                       </div>
                       <div>
-                        <p className="font-bold text-sm">المختبر الغذائي</p>
-                        <p className="text-[11px] text-muted-foreground">حاسبات ورسوم ومخطط HACCP</p>
+                        <p className="font-bold text-sm">{t.panelFoodLab}</p>
+                        <p className="text-[11px] text-muted-foreground">{t.panelFoodLabSub}</p>
                       </div>
                     </>
                   ) : isYemenSoftOpen ? (
@@ -1333,8 +1363,8 @@ export default function Subject() {
                         <span className="text-sm">🏢</span>
                       </div>
                       <div>
-                        <p className="font-bold text-sm">البيئة التطبيقية</p>
-                        <p className="text-[11px] text-muted-foreground">محاكاة يمن سوفت المحاسبية</p>
+                        <p className="font-bold text-sm">{t.panelERP}</p>
+                        <p className="text-[11px] text-muted-foreground">{t.panelERPSub}</p>
                       </div>
                     </>
                   ) : isAccountingLabOpen ? (
@@ -1349,8 +1379,8 @@ export default function Subject() {
                         <span className="text-sm">🎓</span>
                       </div>
                       <div>
-                        <p className="font-bold text-sm">مختبر المحاسبة</p>
-                        <p className="text-[11px] text-muted-foreground">12 أداة أكاديمية تفاعلية</p>
+                        <p className="font-bold text-sm">{t.panelAccLab}</p>
+                        <p className="text-[11px] text-muted-foreground">{t.panelAccLabSub}</p>
                       </div>
                     </>
                   ) : (
@@ -1359,10 +1389,10 @@ export default function Subject() {
                         <span className="text-sm">{subject.emoji}</span>
                       </div>
                       <div className="flex items-center gap-2 min-w-0">
-                        <p className="font-bold text-sm leading-tight truncate max-w-[55vw] sm:max-w-[280px]">معلم {subject.name}</p>
+                        <p className="font-bold text-sm leading-tight truncate max-w-[55vw] sm:max-w-[280px]">{t.teacherOf} {subject.name}</p>
                         <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                          متصل
+                          {t.online}
                         </span>
                       </div>
                     </>
@@ -1373,10 +1403,10 @@ export default function Subject() {
                     <button
                       onClick={() => setIsPathwayOpen(true)}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500/20 transition-all"
-                      title="المسار التكيّفي"
+                      title={t.adaptivePath}
                     >
                       <MapIcon className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">مسار تكيّفي</span>
+                      <span className="hidden sm:inline">{t.adaptivePath}</span>
                     </button>
                   )}
                   {subject.hasCoding && !isIDEOpen && !isLabOpen && !isYemenSoftOpen && !isAccountingLabOpen && (
@@ -1573,14 +1603,14 @@ export default function Subject() {
               <div className="flex items-start gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center text-xl shrink-0">🧪</div>
                 <div className="flex-1">
-                  <h3 className="text-white font-extrabold text-lg mb-1">بناء بيئة تطبيقية مخصصة</h3>
+                  <h3 className="text-white font-extrabold text-lg mb-1">{t.labIntakeTitle}</h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    سيطرح عليك المعلم الذكي ٥ أسئلة سريعة لفهم ما تريد التدرّب عليه، ثم يُجهّز لك بيئة تطبيقية مصمّمة خصيصاً لك.
+                    {t.labIntakeDesc}
                   </p>
                 </div>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3 mb-4 text-xs text-muted-foreground leading-relaxed">
-                ⏱️ تستغرق الأسئلة أقل من دقيقة — ستكون البيئة جاهزة بعدها مباشرة.
+                {t.labIntakeTiming}
               </div>
               <div className="flex gap-2">
                 <button
@@ -1590,13 +1620,13 @@ export default function Subject() {
                   }}
                   className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-slate-900 font-bold hover:bg-gold/90 transition-colors text-sm"
                 >
-                  ابدأ الأسئلة
+                  {t.labIntakeStart}
                 </button>
                 <button
                   onClick={() => setPendingLabStarter(null)}
                   className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-colors text-sm"
                 >
-                  إلغاء
+                  {t.labIntakeCancel}
                 </button>
               </div>
             </div>
@@ -1633,6 +1663,8 @@ export default function Subject() {
 
 
 function Countdown({ until, onExpired }: { until: string; onExpired?: () => void }) {
+  const { tr } = useLang();
+  const t = tr.subject;
   const [timeLeft, setTimeLeft] = useState(() => Math.max(0, new Date(until).getTime() - Date.now()));
   const firedRef = useRef(false);
 
@@ -1669,7 +1701,7 @@ function Countdown({ until, onExpired }: { until: string; onExpired?: () => void
   return (
     <div className="flex flex-col items-center gap-2">
       <div className="flex items-center justify-center gap-2 md:gap-3" dir="ltr">
-        {[{ v: hours, l: "ساعة" }, { v: minutes, l: "دقيقة" }, { v: seconds, l: "ثانية" }].map((item, i, arr) => (
+        {[{ v: hours, l: t.countdownHour }, { v: minutes, l: t.countdownMin }, { v: seconds, l: t.countdownSec }].map((item, i, arr) => (
           <div key={item.l} className="flex items-center gap-2 md:gap-3">
             <div className="bg-black/40 border border-gold/20 rounded-xl md:rounded-2xl px-3 py-2 md:px-5 md:py-3 text-center min-w-[52px] md:min-w-[72px]">
               <div className="text-2xl md:text-4xl font-black text-gold font-mono">{String(item.v).padStart(2, '0')}</div>
@@ -1679,7 +1711,7 @@ function Countdown({ until, onExpired }: { until: string; onExpired?: () => void
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-muted-foreground/70">بتوقيت اليمن (UTC+3)</p>
+      <p className="text-[11px] text-muted-foreground/70">{t.countdownTz}</p>
     </div>
   );
 }
@@ -2053,6 +2085,8 @@ const MessageToolbar = memo(function MessageToolbar({
   canRegenerate: boolean;
   ratingKey?: string;
 }) {
+  const { tr } = useLang();
+  const t = tr.subject;
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
   const [ttsState, setTtsState] = useState<"idle" | "loading" | "playing">("idle");
@@ -2135,14 +2169,14 @@ const MessageToolbar = memo(function MessageToolbar({
 
   return (
     <div className="msg-toolbar mt-1.5 flex flex-wrap items-center gap-1" style={{ direction: "rtl" }}>
-      <button type="button" className="msg-toolbar-btn" title="نسخ النص" aria-label="نسخ النص" onClick={handleCopy}>
+      <button type="button" className="msg-toolbar-btn" title={t.toolbarCopy} aria-label={t.toolbarCopy} onClick={handleCopy}>
         {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-        <span className="msg-toolbar-label">{copied ? "نُسِخ" : "نسخ"}</span>
+        <span className="msg-toolbar-label">{copied ? t.toolbarCopied : t.toolbarCopy}</span>
       </button>
       {canRegenerate && onRegenerate && (
-        <button type="button" className="msg-toolbar-btn" title="أعد توليد الإجابة" aria-label="أعد توليد الإجابة" onClick={onRegenerate}>
+        <button type="button" className="msg-toolbar-btn" title={t.toolbarRegenerate} aria-label={t.toolbarRegenerate} onClick={onRegenerate}>
           <RefreshCw className="w-3.5 h-3.5" />
-          <span className="msg-toolbar-label">أعد التوليد</span>
+          <span className="msg-toolbar-label">{t.toolbarRegenerate}</span>
         </button>
       )}
       {ttsAvailable && (
@@ -2150,26 +2184,26 @@ const MessageToolbar = memo(function MessageToolbar({
           type="button"
           className={`msg-toolbar-btn ${ttsState !== "idle" ? "msg-toolbar-btn-active" : ""}`}
           title={
-            ttsState === "loading" ? "جارٍ تجهيز الصوت..."
-            : ttsState === "playing" ? "إيقاف القراءة"
-            : "اقرأها بصوت عربي"
+            ttsState === "loading" ? t.toolbarTTSTitleLoading
+            : ttsState === "playing" ? t.toolbarTTSTitleStop
+            : t.toolbarTTSTitleReady
           }
-          aria-label={ttsState === "playing" ? "إيقاف القراءة" : "اقرأها بصوت عربي"}
+          aria-label={ttsState === "playing" ? t.toolbarTTSTitleStop : t.toolbarTTSTitleReady}
           onClick={handleTTS}
         >
           {ttsState === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
             : ttsState === "playing" ? <VolumeX className="w-3.5 h-3.5" />
             : <Volume2 className="w-3.5 h-3.5" />}
           <span className="msg-toolbar-label">
-            {ttsState === "loading" ? "جارٍ التجهيز..." : ttsState === "playing" ? "أوقف" : "اقرأها"}
+            {ttsState === "loading" ? t.toolbarTTSLoading : ttsState === "playing" ? t.toolbarTTSStop : t.toolbarTTSReady}
           </span>
         </button>
       )}
       <button
         type="button"
         className={`msg-toolbar-btn ${rated === "up" ? "msg-toolbar-btn-up" : ""}`}
-        title="إجابة مفيدة"
-        aria-label="إجابة مفيدة"
+        title={t.toolbarRateUp}
+        aria-label={t.toolbarRateUp}
         onClick={() => handleRateClick("up")}
       >
         <ThumbsUp className="w-3.5 h-3.5" />
@@ -2177,15 +2211,15 @@ const MessageToolbar = memo(function MessageToolbar({
       <button
         type="button"
         className={`msg-toolbar-btn ${rated === "down" ? "msg-toolbar-btn-down" : ""}`}
-        title="إجابة بحاجة لتحسين"
-        aria-label="إجابة بحاجة لتحسين"
+        title={t.toolbarRateDown}
+        aria-label={t.toolbarRateDown}
         onClick={() => handleRateClick("down")}
       >
         <ThumbsDown className="w-3.5 h-3.5" />
       </button>
-      <button type="button" className="msg-toolbar-btn" title="مشاركة" aria-label="مشاركة" onClick={handleShare}>
+      <button type="button" className="msg-toolbar-btn" title={t.toolbarShare} aria-label={t.toolbarShare} onClick={handleShare}>
         <Share2 className="w-3.5 h-3.5" />
-        <span className="msg-toolbar-label">{shared ? "نُسِخ ✓" : "شارك"}</span>
+        <span className="msg-toolbar-label">{shared ? t.toolbarShared : t.toolbarShare}</span>
       </button>
     </div>
   );
@@ -2202,15 +2236,17 @@ function WelcomeEmptyState({
   starters: string[];
   onPick: (text: string) => void;
 }) {
+  const { tr } = useLang();
+  const t = tr.subject;
   return (
     <div className="flex flex-col items-center justify-center px-4 py-10 text-center" style={{ direction: "rtl" }}>
       <div className="w-16 h-16 mb-4 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
         <Sparkles className="w-8 h-8 text-black" />
       </div>
       <span className="text-[11px] font-bold text-amber-300 mb-1">{modeBadge}</span>
-      <h3 className="text-xl font-black text-white mb-1.5">أهلاً بك في {subjectName}</h3>
+      <h3 className="text-xl font-black text-white mb-1.5">{t.welcomeGreeting} {subjectName}</h3>
       <p className="text-sm text-white/55 leading-relaxed max-w-md mb-5">
-        ابدأ بسؤال، أو اختر اقتراحاً للأسفل. يستطيع المعلم شرح المفاهيم وحل التمارين وبناء بيئات تطبيقية تفاعلية لك.
+        {t.welcomeHint}
       </p>
       <div className="flex flex-wrap gap-2 justify-center max-w-xl">
         {starters.map((s, i) => (
@@ -2272,6 +2308,8 @@ type TeacherImageState = { status: 'loading' | 'ready'; url?: string };
 type TeacherImageMap = Map<string, TeacherImageState>;
 
 const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onReExplainImage, subjectId }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onReExplainImage?: (url: string) => void; subjectId?: string }) {
+  const { tr } = useLang();
+  const t = tr.subject;
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -2429,7 +2467,7 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
         // latency, no signed-URL expiry. Bytes are persisted server-side
         // BEFORE this event arrives so the fetch is essentially instant.
         const img = document.createElement('img');
-        img.alt = 'صورة توضيحية';
+        img.alt = t.imageAlt;
         img.loading = 'eager';
         img.onerror = () => {
           // Only fires if the cached file was deleted between render and
@@ -2541,14 +2579,14 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
           className="teach-image-lightbox"
           role="dialog"
           aria-modal="true"
-          aria-label="عرض الصورة بحجم كامل"
+          aria-label={t.lightboxLabel}
           onClick={() => setLightboxUrl(null)}
         >
           <button
             ref={lightboxCloseRef}
             type="button"
             className="teach-image-lightbox-close"
-            aria-label="إغلاق"
+            aria-label={t.lightboxClose}
             onClick={(e) => { e.stopPropagation(); setLightboxUrl(null); }}
           >
             ×
@@ -2557,8 +2595,8 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
             <button
               type="button"
               className="lightbox-tool-btn"
-              aria-label="تصغير"
-              title="تصغير"
+              aria-label={t.lightboxZoomOut}
+              title={t.lightboxZoomOut}
               onClick={() => { setLightboxZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2))); setLightboxPan({ x: 0, y: 0 }); }}
             >
               <ZoomOut className="w-4 h-4" />
@@ -2567,8 +2605,8 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
             <button
               type="button"
               className="lightbox-tool-btn"
-              aria-label="تكبير"
-              title="تكبير"
+              aria-label={t.lightboxZoomIn}
+              title={t.lightboxZoomIn}
               onClick={() => { setLightboxZoom(z => Math.min(4, +(z + 0.25).toFixed(2))); }}
             >
               <ZoomIn className="w-4 h-4" />
@@ -2576,8 +2614,8 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
             <button
               type="button"
               className="lightbox-tool-btn"
-              aria-label="تنزيل الصورة"
-              title="تنزيل"
+              aria-label={t.lightboxDownload}
+              title={t.lightboxDownloadTitle}
               onClick={async () => {
                 try {
                   const r = await fetch(lightboxUrl);
@@ -2606,13 +2644,13 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
                   setLightboxUrl(null);
                 }}
               >
-                <span className="text-xs">اشرحها لي مرة أخرى</span>
+                <span className="text-xs">{t.lightboxReExplain}</span>
               </button>
             )}
           </div>
           <img
             src={lightboxUrl}
-            alt={lightboxAlt || "صورة توضيحية مكبّرة"}
+            alt={lightboxAlt || t.lightboxAltDefault}
             draggable={false}
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => {

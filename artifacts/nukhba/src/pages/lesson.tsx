@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
+import { useLang } from "@/lib/lang-context";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/use-auth";
 import { getSubjectById } from "@/lib/curriculum";
@@ -29,6 +30,8 @@ export default function Lesson() {
   const { user, refreshUser } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { tr } = useLang();
+  const tl = tr.lesson;
 
   const lessonKey = `${subjectId}__${unitId}__${lessonId}`;
 
@@ -208,8 +211,8 @@ export default function Lesson() {
         {isGenerating || isCacheLoading ? (
           <div className="glass p-8 md:p-16 rounded-3xl border-white/5 flex flex-col items-center justify-center text-center">
             <Loader2 className="w-10 h-10 md:w-12 md:h-12 animate-spin text-gold mb-4 md:mb-6" />
-            <h3 className="text-xl md:text-2xl font-bold mb-2">جاري تحضير الدرس...</h3>
-            <p className="text-muted-foreground text-sm md:text-base">يقوم الذكاء الاصطناعي ببناء الشرح الأمثل لك</p>
+            <h3 className="text-xl md:text-2xl font-bold mb-2">{tl.preparing}</h3>
+            <p className="text-muted-foreground text-sm md:text-base">{tl.preparingSub}</p>
           </div>
         ) : sections.length > 0 ? (
           <LessonViewer 
@@ -235,7 +238,7 @@ function parseSections(html: string) {
   const parts = html.split(/<h2[^>]*>/i);
   if (parts.length <= 1) return [{ title: "محتوى الدرس", content: html }];
   
-  const sections = [];
+  const sections: { title: string; content: string }[] = [];
   if (parts[0].trim()) sections.push({ title: "مقدمة", content: parts[0] });
   
   for (let i = 1; i < parts.length; i++) {
@@ -265,14 +268,16 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, sub
   const [answer, setAnswer] = useState("");
   const markChallenge = useMarkChallengeAnswered();
   const { toast } = useToast();
+  const { tr } = useLang();
+  const tl = tr.lesson;
 
   const handleChallengeSubmit = async () => {
     if (!answer.trim() || !viewId) return;
     try {
       await markChallenge.mutateAsync({ id: viewId });
       toast({
-        title: "أحسنت!",
-        description: "تم تسجيل إجابتك، لقد كسبت نقاط التحدي.",
+        title: tl.challengeSuccessTitle,
+        description: tl.challengeSuccessDesc,
         className: "bg-emerald-600 border-none text-white"
       });
       if (activeSection < sections.length - 1) {
@@ -307,7 +312,7 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, sub
           <div className="mt-6 not-prose">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-2 h-2 rounded-full bg-gold animate-pulse" />
-              <span className="text-sm font-bold text-gold">بيئة التطبيق — اكتب وشغّل كودك</span>
+              <span className="text-sm font-bold text-gold">{tl.codeEnv}</span>
             </div>
             <CodeEditorPanel sectionContent={section.content} subjectId={subjectId} />
             <Button
@@ -316,18 +321,18 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, sub
               className="mt-4 gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20"
             >
               <CheckCircle2 className="w-5 h-5 ml-2" />
-              إنهاء التحدي وكسب النقاط
+              {tl.finishChallenge}
             </Button>
           </div>
         )}
 
         {isChallenge && !showCodeEditor && (
           <div className="mt-8 p-6 rounded-2xl glass-gold border-gold/20">
-            <h4 className="text-xl font-bold text-gold mb-4 mt-0">أجب عن التحدي</h4>
+            <h4 className="text-xl font-bold text-gold mb-4 mt-0">{tl.answerChallenge}</h4>
             <Textarea 
               value={answer}
               onChange={e => setAnswer(e.target.value)}
-              placeholder="اكتب إجابتك هنا للتحقق منها..."
+              placeholder={tl.answerPlaceholder}
               className="bg-black/40 border-white/10 mb-4 min-h-[100px] text-lg"
             />
             <Button 
@@ -336,7 +341,7 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, sub
               className="gradient-gold text-primary-foreground font-bold shadow-lg shadow-gold/20"
             >
               <CheckCircle2 className="w-5 h-5 ml-2" />
-              تحقق من إجابتي
+              {tl.checkAnswer}
             </Button>
           </div>
         )}
@@ -350,7 +355,7 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, sub
           className="border-white/10 hover:bg-white/5"
         >
           <ChevronRight className="w-5 h-5 ml-2" />
-          السابق
+          {tl.prev}
         </Button>
         
         {activeSection < sections.length - 1 ? (
@@ -358,7 +363,7 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, sub
             onClick={() => setActiveSection(activeSection + 1)}
             className="gradient-gold text-primary-foreground font-bold px-8 shadow-lg shadow-gold/20"
           >
-            التالي
+            {tl.next}
             <ChevronLeft className="w-5 h-5 mr-2" />
           </Button>
         ) : (
@@ -367,7 +372,7 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, sub
             className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-8 shadow-lg shadow-emerald/20"
           >
             <Trophy className="w-5 h-5 ml-2" />
-            إنهاء الدرس
+            {tl.finishLesson}
           </Button>
         )}
       </div>
@@ -377,41 +382,43 @@ function LessonViewer({ sections, activeSection, setActiveSection, lessonId, sub
 
 function PaywallModal({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) {
   const [, setLocation] = useLocation();
+  const { tr } = useLang();
+  const tl = tr.lesson;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px] glass p-0 border-white/10 overflow-hidden" hideCloseButton>
-        <DialogTitle className="sr-only">ترقية الحساب</DialogTitle>
+        <DialogTitle className="sr-only">{tl.paywallTitle}</DialogTitle>
 
         <div className="h-28 bg-gradient-to-br from-gold/20 to-gold/10 flex items-center justify-center relative">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div className="relative z-10 text-center">
             <Lock className="w-10 h-10 text-white mx-auto mb-1" />
-            <p className="text-white font-bold text-lg">انتهت جلستك المجانية</p>
+            <p className="text-white font-bold text-lg">{tl.paywallTitle}</p>
           </div>
         </div>
 
         <div className="p-6">
-          <p className="text-center text-muted-foreground mb-6">اشترك للاستمرار في التعلم مع المعلم الذكي</p>
+          <p className="text-center text-muted-foreground mb-6">{tl.paywallSub}</p>
 
           <div className="glass-gold rounded-2xl p-5 flex items-center gap-4 mb-4">
             <div className="w-10 h-10 rounded-xl bg-gold/20 flex items-center justify-center shrink-0">
               <Crown className="w-5 h-5 text-gold" />
             </div>
             <div className="flex-1">
-              <h3 className="font-bold text-gold text-sm mb-0.5">اشترك الآن</h3>
-              <p className="text-xs text-muted-foreground">باقات برونز وفضة وذهب عبر كريمي</p>
+              <h3 className="font-bold text-gold text-sm mb-0.5">{tl.paywallCTA}</h3>
+              <p className="text-xs text-muted-foreground">{tl.paywallPlans}</p>
             </div>
             <Button
               onClick={() => { onOpenChange(false); setLocation("/subscription"); }}
               className="gradient-gold text-primary-foreground font-bold shrink-0 shadow-lg shadow-gold/20"
             >
-              عرض الباقات
+              {tl.viewPlans}
             </Button>
           </div>
 
           <Button variant="ghost" className="w-full mt-2 text-muted-foreground text-sm" onClick={() => onOpenChange(false)}>
-            إغلاق
+            {tl.close}
           </Button>
         </div>
       </DialogContent>

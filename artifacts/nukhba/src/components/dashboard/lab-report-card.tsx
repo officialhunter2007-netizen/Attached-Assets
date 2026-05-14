@@ -3,12 +3,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronUp, ChevronDown, FlaskConical } from "lucide-react";
 import { sanitizeRichHtml } from "@/lib/sanitize-html";
 import { LabReport } from "./types";
+import { useLang } from "@/lib/lang-context";
 
 export function LabReportCard({ report }: { report: LabReport }) {
+  const { tr, lang } = useLang();
+  const ts = tr.dashboard.subject;
   const [expanded, setExpanded] = useState(false);
-  const date = new Date(report.createdAt).toLocaleDateString("ar-SA", {
-    year: "numeric", month: "long", day: "numeric",
-  });
+  const date = new Date(report.createdAt).toLocaleDateString(
+    lang === "ar" ? "ar-SA" : "en-US",
+    { year: "numeric", month: "long", day: "numeric" },
+  );
   const safeFeedback = sanitizeRichHtml(report.feedbackHtml);
 
   return (
@@ -28,7 +32,7 @@ export function LabReportCard({ report }: { report: LabReport }) {
             <FlaskConical className="w-5 h-5 text-emerald" />
           </div>
           <div className="text-right min-w-0">
-            <h4 className="font-bold text-sm truncate">{report.envTitle || "تقرير مختبر"}</h4>
+            <h4 className="font-bold text-sm truncate">{report.envTitle || ts.labReport}</h4>
             <p className="text-xs text-muted-foreground mt-0.5 truncate">
               {report.subjectName || report.subjectId} · {date}
             </p>
@@ -52,7 +56,7 @@ export function LabReportCard({ report }: { report: LabReport }) {
                 <div className="text-xs text-muted-foreground italic">{report.envBriefing}</div>
               )}
               <div>
-                <div className="text-xs font-bold text-gold mb-2">📋 تقريرك المرسل</div>
+                <div className="text-xs font-bold text-gold mb-2">{ts.yourReport}</div>
                 <pre
                   className="text-xs whitespace-pre-wrap bg-black/30 border border-white/5 rounded-xl p-3 text-white/85 leading-relaxed font-sans"
                   dir="rtl"
@@ -60,11 +64,11 @@ export function LabReportCard({ report }: { report: LabReport }) {
               </div>
               {safeFeedback ? (
                 <div>
-                  <div className="text-xs font-bold text-emerald mb-2">📝 ملاحظات المعلم</div>
+                  <div className="text-xs font-bold text-emerald mb-2">{ts.teacherNotes}</div>
                   <div className="ai-msg" dangerouslySetInnerHTML={{ __html: safeFeedback }} />
                 </div>
               ) : (
-                <div className="text-xs text-muted-foreground">لم تُسجَّل ملاحظات المعلم لهذا التقرير.</div>
+                <div className="text-xs text-muted-foreground">{ts.noTeacherNotes}</div>
               )}
             </div>
           </motion.div>

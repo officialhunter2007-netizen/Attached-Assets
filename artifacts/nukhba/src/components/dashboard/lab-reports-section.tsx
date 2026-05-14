@@ -3,12 +3,16 @@ import { FlaskConical, Search, X } from "lucide-react";
 import { SectionState } from "./dashboard-card";
 import { LabReportCard } from "./lab-report-card";
 import { LabReport } from "./types";
+import { useLang } from "@/lib/lang-context";
 
 type DateRange = "all" | "7d" | "30d" | "month" | "custom";
 
 export function LabReportsSection({
   reports, loading, error, onRetry,
 }: { reports: LabReport[]; loading: boolean; error: string | null; onRetry: () => void }) {
+  const { tr } = useLang();
+  const td = tr.dashboard;
+
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [dateRange, setDateRange] = useState<DateRange>("all");
@@ -65,11 +69,11 @@ export function LabReportsSection({
   const isFiltering = selectedSubject !== null || q.length > 0 || dateFilterActive;
 
   const dateChips: { id: DateRange; label: string }[] = [
-    { id: "all", label: "كل الفترات" },
-    { id: "7d", label: "آخر ٧ أيام" },
-    { id: "30d", label: "آخر ٣٠ يوم" },
-    { id: "month", label: "هذا الشهر" },
-    { id: "custom", label: "مدى مخصّص" },
+    { id: "all",    label: td.filterAll },
+    { id: "7d",     label: td.filter7d },
+    { id: "30d",    label: td.filter30d },
+    { id: "month",  label: td.filterMonth },
+    { id: "custom", label: td.filterCustom },
   ];
 
   const resetFilters = () => {
@@ -82,7 +86,7 @@ export function LabReportsSection({
       error={error}
       empty={reports.length === 0}
       emptyIcon={<FlaskConical className="w-10 h-10" />}
-      emptyMessage="لم تُرسل أي تقرير من البيئات التطبيقية بعد. عند إنهاء بيئة وإرسالها للمعلم تظهر تقاريرك هنا للمراجعة."
+      emptyMessage={td.emptyLabReports}
       onRetry={onRetry}
     >
       <div className="space-y-4">
@@ -97,7 +101,7 @@ export function LabReportsSection({
                     : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
                 }`}
               >
-                الكل ({reports.length})
+                {td.filterAllReports} ({reports.length})
               </button>
               {subjects.map(s => {
                 const count = reports.filter(r => r.subjectId === s.id).length;
@@ -138,10 +142,10 @@ export function LabReportsSection({
           </div>
           {dateRange === "custom" && (
             <div className="flex flex-wrap gap-2 items-center">
-              <label className="text-xs text-muted-foreground">من</label>
+              <label className="text-xs text-muted-foreground">{td.filterFrom}</label>
               <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
                 className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-emerald/40" />
-              <label className="text-xs text-muted-foreground">إلى</label>
+              <label className="text-xs text-muted-foreground">{td.filterTo}</label>
               <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
                 className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-emerald/40" />
             </div>
@@ -152,7 +156,7 @@ export function LabReportsSection({
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="ابحث في عناوين البيئات أو ملاحظات المعلم..."
+              placeholder={td.filterSearch}
               className="w-full bg-white/5 border border-white/10 rounded-xl pr-10 pl-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-emerald/40"
               dir="rtl"
             />
@@ -160,7 +164,7 @@ export function LabReportsSection({
               <button
                 onClick={() => setQuery("")}
                 className="absolute left-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full hover:bg-white/10 flex items-center justify-center"
-                aria-label="مسح البحث"
+                aria-label={td.filterSearchClear}
               >
                 <X className="w-3.5 h-3.5 text-muted-foreground" />
               </button>
@@ -171,10 +175,10 @@ export function LabReportsSection({
         {filtered.length === 0 ? (
           <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-10 text-center text-muted-foreground">
             <FlaskConical className="w-10 h-10 mx-auto mb-4 opacity-30" />
-            <p className="mb-3">لا توجد تقارير مطابقة للبحث.</p>
+            <p className="mb-3">{td.noResults}</p>
             {isFiltering && (
               <button onClick={resetFilters} className="text-xs text-emerald hover:underline">
-                مسح الفلاتر
+                {td.clearFilters}
               </button>
             )}
           </div>

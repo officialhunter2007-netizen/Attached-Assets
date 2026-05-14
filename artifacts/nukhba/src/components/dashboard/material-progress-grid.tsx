@@ -1,8 +1,11 @@
 import { Link } from "wouter";
 import { BookOpen, ChevronLeft } from "lucide-react";
 import { MaterialWithProgress } from "./types";
+import { useLang } from "@/lib/lang-context";
 
 function MaterialProgressCard({ material, locked }: { material: MaterialWithProgress; locked: boolean }) {
+  const { tr } = useLang();
+  const td = tr.dashboard;
   const p = material.progress!;
   const pct = p.chaptersTotal > 0 ? Math.round((p.completedCount / p.chaptersTotal) * 100) : 0;
   const href = locked
@@ -29,7 +32,7 @@ function MaterialProgressCard({ material, locked }: { material: MaterialWithProg
         </div>
         <div className="mt-auto">
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
-            <span>تقدّم القراءة: {p.completedCount} / {p.chaptersTotal} فصول</span>
+            <span>{td.readingProgress}: {p.completedCount} / {p.chaptersTotal} {td.chapters}</span>
             <span className="font-bold text-amber-300">{pct}%</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
@@ -37,7 +40,7 @@ function MaterialProgressCard({ material, locked }: { material: MaterialWithProg
           </div>
           {p.currentChapterTitle && (
             <p className="mt-2 text-[11px] text-muted-foreground truncate">
-              الفصل الحالي: <span className="text-white/70">{p.currentChapterTitle}</span>
+              {td.currentChapter}: <span className="text-white/70">{p.currentChapterTitle}</span>
             </p>
           )}
         </div>

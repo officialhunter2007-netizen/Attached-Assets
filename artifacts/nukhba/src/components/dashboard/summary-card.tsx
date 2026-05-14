@@ -3,12 +3,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronUp, ChevronDown, FileText } from "lucide-react";
 import { sanitizeRichHtml } from "@/lib/sanitize-html";
 import { LessonSummary } from "./types";
+import { useLang } from "@/lib/lang-context";
 
 export function SummaryCard({ summary }: { summary: LessonSummary }) {
+  const { tr, lang } = useLang();
+  const ts = tr.dashboard.subject;
   const [expanded, setExpanded] = useState(false);
-  const date = new Date(summary.conversationDate).toLocaleDateString("ar-SA", {
-    year: "numeric", month: "long", day: "numeric",
-  });
+  const date = new Date(summary.conversationDate).toLocaleDateString(
+    lang === "ar" ? "ar-SA" : "en-US",
+    { year: "numeric", month: "long", day: "numeric" },
+  );
   const safeHtml = sanitizeRichHtml(summary.summaryHtml);
 
   return (
@@ -28,9 +32,9 @@ export function SummaryCard({ summary }: { summary: LessonSummary }) {
             <FileText className="w-5 h-5 text-gold" />
           </div>
           <div className="text-right min-w-0">
-            <h4 className="font-bold text-sm truncate">{summary.title || `جلسة ${summary.subjectName}`}</h4>
+            <h4 className="font-bold text-sm truncate">{summary.title || `${ts.session} ${summary.subjectName}`}</h4>
             <p className="text-xs text-muted-foreground mt-0.5 truncate">
-              {summary.subjectName} · {date} · {summary.messagesCount} رسالة
+              {summary.subjectName} · {date} · {summary.messagesCount} {ts.message}
             </p>
           </div>
         </div>

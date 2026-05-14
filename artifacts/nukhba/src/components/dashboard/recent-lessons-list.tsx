@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { BookOpen, ChevronLeft } from "lucide-react";
 import { DashboardCard } from "./dashboard-card";
+import { useLang } from "@/lib/lang-context";
 
 interface LessonView {
   id: number | string;
@@ -12,11 +13,13 @@ interface LessonView {
 }
 
 export function RecentLessonsList({ views, locked = false }: { views: LessonView[]; locked?: boolean }) {
+  const { tr } = useLang();
+  const t = tr.recentLessons;
   return (
     <DashboardCard accent="gold" padding="p-0">
       {views.length === 0 ? (
         <div className="p-8 text-center text-sm text-muted-foreground">
-          لم تبدأ أي درس بعد. {!locked && (<Link href="/learn" className="text-gold font-bold">ابدأ الآن!</Link>)}
+          {t.empty} {!locked && (<Link href="/learn" className="text-gold font-bold">{t.startNow}</Link>)}
         </div>
       ) : (
         <div className="divide-y divide-white/5">

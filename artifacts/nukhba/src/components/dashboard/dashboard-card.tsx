@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { useLang } from "@/lib/lang-context";
 
 export type AccentVariant = "gold" | "emerald" | "amber" | "blue" | "red" | "yellow" | "neutral";
 
@@ -24,14 +25,14 @@ export function DashboardCard({
   padding?: string;
   children: ReactNode;
 }) {
-  const t = ACCENT_TOKENS[accent];
+  const tk = ACCENT_TOKENS[accent];
   return (
     <div
       className={`relative rounded-3xl overflow-hidden ${padding} ${className}`}
       style={{
-        background: `linear-gradient(135deg, ${t.bgFrom} 0%, rgba(10,13,22,0.85) 70%)`,
-        border: `1px solid ${t.border}`,
-        boxShadow: t.glow,
+        background: `linear-gradient(135deg, ${tk.bgFrom} 0%, rgba(10,13,22,0.85) 70%)`,
+        border: `1px solid ${tk.border}`,
+        boxShadow: tk.glow,
       }}
     >
       {children}
@@ -50,16 +51,16 @@ export function SectionHeading({
   children: ReactNode;
   level?: 2 | 3;
 }) {
-  const t = ACCENT_TOKENS[accent];
+  const tk = ACCENT_TOKENS[accent];
   const Tag = (level === 2 ? "h2" : "h3") as "h2" | "h3";
   return (
     <Tag className={`flex items-center gap-3 mb-6 font-bold ${level === 2 ? "text-2xl md:text-[26px]" : "text-xl"}`}>
       <span
         aria-hidden
         className="inline-block w-1.5 h-7 rounded-full shrink-0"
-        style={{ background: t.bar, boxShadow: `0 0 10px ${t.border}` }}
+        style={{ background: tk.bar, boxShadow: `0 0 10px ${tk.border}` }}
       />
-      {icon && <span style={{ color: t.text }} className="shrink-0">{icon}</span>}
+      {icon && <span style={{ color: tk.text }} className="shrink-0">{icon}</span>}
       <span>{children}</span>
     </Tag>
   );
@@ -82,12 +83,15 @@ export function SectionState({
   onRetry?: () => void;
   children: ReactNode;
 }) {
+  const { tr } = useLang();
+  const td = tr.dashboard;
+
   if (loading) {
     return (
       <DashboardCard padding="p-10">
         <div className="flex flex-col items-center justify-center text-muted-foreground gap-3">
           <Loader2 className="w-7 h-7 animate-spin opacity-70" />
-          <span className="text-sm">جارِ التحميل...</span>
+          <span className="text-sm">{td.loadingText}</span>
         </div>
       </DashboardCard>
     );
@@ -105,7 +109,7 @@ export function SectionState({
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-red-500/15 hover:bg-red-500/25 border border-red-500/40 text-red-200 transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              إعادة المحاولة
+              {td.retryBtn}
             </button>
           )}
         </div>
