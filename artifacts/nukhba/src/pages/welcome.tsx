@@ -8,9 +8,10 @@ import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, MapPin, GraduationCap, MessageSquare, BookOpen,
-  ChevronLeft, ChevronRight, Rocket, Users, Crown, Zap,
-  Terminal, Check, Lock, Unlock, Trophy, Gift
+  ChevronLeft, ChevronRight, Rocket, Crown, Zap,
+  Terminal, Check, Unlock, Trophy, Gift
 } from "lucide-react";
+import { useLang } from "@/lib/lang-context";
 
 const TOTAL_STEPS = 6;
 
@@ -37,6 +38,7 @@ export default function Welcome() {
   const [, setLocation] = useLocation();
   const { user, setUser } = useAuth();
   const { toast } = useToast();
+  const { tr } = useLang();
   const [step, setStep] = useState(0);
   const [name, setName] = useState(user?.displayName || "");
   const [region, setRegion] = useState<"north" | "south" | null>(null);
@@ -52,7 +54,7 @@ export default function Welcome() {
       setUser(updatedUser);
       setLocation("/learn");
     } catch {
-      toast({ variant: "destructive", title: "خطأ", description: "لم نتمكن من حفظ بياناتك، حاول مجدداً" });
+      toast({ variant: "destructive", title: tr.welcome.errorSave.split("،")[0], description: tr.welcome.errorSave });
     }
   };
 
@@ -72,14 +74,14 @@ export default function Welcome() {
       <div className="w-24 h-24 mx-auto rounded-3xl gradient-gold flex items-center justify-center mb-8 shadow-[0_0_40px_rgba(245,158,11,0.3)]">
         <Sparkles className="w-12 h-12 text-primary-foreground" />
       </div>
-      <h1 className="text-4xl md:text-5xl font-black mb-3">أهلاً بك في نُخبة!</h1>
-      <p className="text-muted-foreground mb-2 text-lg">أول خطوة — كيف تحب أن نناديك؟</p>
-      <p className="text-xs text-gold/70 mb-10">منصّة تعليمية يمنية أذكى من المساعدات العامة — مُصمَّمة لتُتقن، لا فقط لتُجيب.</p>
+      <h1 className="text-4xl md:text-5xl font-black mb-3">{tr.welcome.step0Title}</h1>
+      <p className="text-muted-foreground mb-2 text-lg">{tr.welcome.step0Subtitle}</p>
+      <p className="text-xs text-gold/70 mb-10">{tr.welcome.step0Badge}</p>
       <div className="space-y-4">
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="اسمك الأول أو لقبك..."
+          placeholder={tr.welcome.step0Placeholder}
           className="h-14 text-center text-xl bg-black/40 border-gold/30 focus-visible:ring-gold rounded-2xl"
           autoFocus
           onKeyDown={(e) => e.key === "Enter" && name.trim() && next()}
@@ -89,7 +91,7 @@ export default function Welcome() {
           disabled={!name.trim()}
           className="w-full h-14 rounded-2xl text-lg font-bold gradient-gold text-primary-foreground shadow-lg shadow-gold/20"
         >
-          التالي <ChevronLeft className="w-5 h-5 mr-2" />
+          {tr.welcome.nextBtn} <ChevronLeft className="w-5 h-5 mr-2" />
         </Button>
       </div>
     </motion.div>,
@@ -106,8 +108,8 @@ export default function Welcome() {
       <div className="w-24 h-24 mx-auto rounded-3xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mb-8">
         <MapPin className="w-12 h-12 text-blue-400" />
       </div>
-      <h1 className="text-4xl font-black mb-3">أين تدرس يا {name}؟</h1>
-      <p className="text-muted-foreground mb-8">نحدد أسعار الاشتراكات حسب منطقتك</p>
+      <h1 className="text-4xl font-black mb-3">{tr.welcome.step1Title.replace("{name}", name)}</h1>
+      <p className="text-muted-foreground mb-8">{tr.welcome.step1Desc}</p>
       <div className="grid grid-cols-2 gap-4 mb-6">
         <button
           onClick={() => setRegion("north")}
@@ -118,7 +120,7 @@ export default function Welcome() {
           }`}
         >
           <div className="text-3xl mb-2">🏔️</div>
-          المحافظات الشمالية
+          {tr.welcome.step1North}
         </button>
         <button
           onClick={() => setRegion("south")}
@@ -129,19 +131,19 @@ export default function Welcome() {
           }`}
         >
           <div className="text-3xl mb-2">🌊</div>
-          المحافظات الجنوبية
+          {tr.welcome.step1South}
         </button>
       </div>
       <div className="flex gap-3">
         <Button variant="outline" onClick={prev} className="flex-1 h-12 rounded-xl">
-          <ChevronRight className="w-4 h-4 ml-2" /> رجوع
+          <ChevronRight className="w-4 h-4 ml-2" /> {tr.welcome.backBtn}
         </Button>
         <Button
           onClick={next}
           disabled={!region}
           className="flex-1 h-12 rounded-xl font-bold gradient-gold text-primary-foreground"
         >
-          التالي <ChevronLeft className="w-4 h-4 mr-2" />
+          {tr.welcome.nextBtn} <ChevronLeft className="w-4 h-4 mr-2" />
         </Button>
       </div>
     </motion.div>,
@@ -159,8 +161,8 @@ export default function Welcome() {
         <div className="w-20 h-20 mx-auto rounded-3xl bg-emerald/10 border border-emerald/30 flex items-center justify-center mb-6">
           <GraduationCap className="w-10 h-10 text-emerald" />
         </div>
-        <h2 className="text-3xl md:text-4xl font-black mb-3">المعلم الذكي — كيف يعمل؟</h2>
-        <p className="text-muted-foreground">محرّك تعليمي متخصّص يفوق المساعدات العامة (ChatGPT، DeepSeek) — لأنه مُدرَّب على البيداغوجيا، يتذكّر تقدّمك، ويبني لك خطة شخصية لكل مادة</p>
+        <h2 className="text-3xl md:text-4xl font-black mb-3">{tr.welcome.step2Title}</h2>
+        <p className="text-muted-foreground">{tr.welcome.step2Desc}</p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mb-8">
@@ -168,38 +170,38 @@ export default function Welcome() {
           <div className="w-10 h-10 rounded-xl bg-emerald/10 flex items-center justify-center mb-3">
             <BookOpen className="w-5 h-5 text-emerald" />
           </div>
-          <h4 className="font-bold mb-2">شرح تفاعلي</h4>
-          <p className="text-sm text-muted-foreground">المعلم يشرح الدرس بأسلوب سقراطي — يبدأ بسؤال يثير فضولك، ثم يبني المعرفة معك خطوة بخطوة</p>
+          <h4 className="font-bold mb-2">{tr.welcome.step2Card1Title}</h4>
+          <p className="text-sm text-muted-foreground">{tr.welcome.step2Card1Desc}</p>
         </div>
         <div className="glass p-5 rounded-2xl border-gold/10">
           <div className="w-10 h-10 rounded-xl bg-gold/10 flex items-center justify-center mb-3">
             <MessageSquare className="w-5 h-5 text-gold" />
           </div>
-          <h4 className="font-bold mb-2">محادثة حقيقية</h4>
-          <p className="text-sm text-muted-foreground">اسأل المعلم أي سؤال تريده، ناقشه، اطلب أمثلة إضافية، أو اطلب منه التبسيط أكثر</p>
+          <h4 className="font-bold mb-2">{tr.welcome.step2Card2Title}</h4>
+          <p className="text-sm text-muted-foreground">{tr.welcome.step2Card2Desc}</p>
         </div>
         <div className="glass p-5 rounded-2xl border-blue-500/10">
           <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center mb-3">
             <Terminal className="w-5 h-5 text-blue-400" />
           </div>
-          <h4 className="font-bold mb-2">محرر الكود المدمج</h4>
-          <p className="text-sm text-muted-foreground">لمسارات البرمجة والمهارات، يمكنك كتابة وتشغيل الكود مباشرة داخل المنصة — 10 لغات برمجية</p>
+          <h4 className="font-bold mb-2">{tr.welcome.step2Card3Title}</h4>
+          <p className="text-sm text-muted-foreground">{tr.welcome.step2Card3Desc}</p>
         </div>
         <div className="glass p-5 rounded-2xl border-purple-500/10">
           <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center mb-3">
             <Trophy className="w-5 h-5 text-purple-400" />
           </div>
-          <h4 className="font-bold mb-2">نقاط ومستويات</h4>
-          <p className="text-sm text-muted-foreground">اجمع النقاط مع كل درس وتحدٍّ، وارتقِ في المستويات من مبتدئ حتى أسطورة</p>
+          <h4 className="font-bold mb-2">{tr.welcome.step2Card4Title}</h4>
+          <p className="text-sm text-muted-foreground">{tr.welcome.step2Card4Desc}</p>
         </div>
       </div>
 
       <div className="flex gap-3">
         <Button variant="outline" onClick={prev} className="flex-1 h-12 rounded-xl">
-          <ChevronRight className="w-4 h-4 ml-2" /> رجوع
+          <ChevronRight className="w-4 h-4 ml-2" /> {tr.welcome.backBtn}
         </Button>
         <Button onClick={next} className="flex-1 h-12 rounded-xl font-bold gradient-gold text-primary-foreground">
-          كيف أبدأ؟ <ChevronLeft className="w-4 h-4 mr-2" />
+          {tr.welcome.step2NextBtn} <ChevronLeft className="w-4 h-4 mr-2" />
         </Button>
       </div>
     </motion.div>,
@@ -217,59 +219,45 @@ export default function Welcome() {
         <div className="w-20 h-20 mx-auto rounded-3xl bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
           <Rocket className="w-10 h-10 text-gold" />
         </div>
-        <h2 className="text-3xl md:text-4xl font-black mb-3">رحلتك التعليمية</h2>
-        <p className="text-muted-foreground">كيف تبدأ وتنتقل بين الدروس؟</p>
+        <h2 className="text-3xl md:text-4xl font-black mb-3">{tr.welcome.step3Title}</h2>
+        <p className="text-muted-foreground">{tr.welcome.step3Desc}</p>
       </div>
 
       <div className="space-y-4 mb-8">
-        {[
-          {
-            num: "١",
-            color: "text-gold bg-gold/10 border-gold/30",
-            title: "اختر مسارك",
-            desc: "انتقل إلى صفحة التعلم، اختر قسماً (ثانوي، جامعي، مهارات)، ثم المادة التي تريد دراستها",
-            icon: <GraduationCap className="w-5 h-5" />,
-          },
-          {
-            num: "٢",
-            color: "text-emerald bg-emerald/10 border-emerald/30",
-            title: "ابدأ الدرس",
-            desc: "اختر وحدة دراسية ثم درساً منها — المعلم الذكي يبدأ شرحه فوراً بأسلوب تفاعلي مميز",
-            icon: <BookOpen className="w-5 h-5" />,
-          },
-          {
-            num: "٣",
-            color: "text-blue-400 bg-blue-500/10 border-blue-500/30",
-            title: "تفاعل مع المعلم",
-            desc: "الجلسة مبنية على مراحل — كل مرحلة تبني على السابقة. اسأل، ناقش، وأجب على التحديات",
-            icon: <MessageSquare className="w-5 h-5" />,
-          },
-          {
-            num: "٤",
-            color: "text-purple-400 bg-purple-500/10 border-purple-500/30",
-            title: "راجع ملخصك",
-            desc: "بعد كل جلسة، يُولّد المعلم ملخصاً تلقائياً يظهر في لوحة التحكم — مرجعك الدائم",
-            icon: <Trophy className="w-5 h-5" />,
-          },
-        ].map((item) => (
-          <div key={item.num} className="flex items-start gap-4 glass p-4 rounded-2xl border-white/5">
-            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 font-black text-lg ${item.color}`}>
-              {item.num}
+        {tr.welcome.step3Steps.map((item, idx) => {
+          const colors = [
+            "text-gold bg-gold/10 border-gold/30",
+            "text-emerald bg-emerald/10 border-emerald/30",
+            "text-blue-400 bg-blue-500/10 border-blue-500/30",
+            "text-purple-400 bg-purple-500/10 border-purple-500/30",
+          ];
+          const nums = ["١", "٢", "٣", "٤"];
+          const icons = [
+            <GraduationCap key="g" className="w-5 h-5" />,
+            <BookOpen key="b" className="w-5 h-5" />,
+            <MessageSquare key="m" className="w-5 h-5" />,
+            <Trophy key="t" className="w-5 h-5" />,
+          ];
+          return (
+            <div key={idx} className="flex items-start gap-4 glass p-4 rounded-2xl border-white/5">
+              <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 font-black text-lg ${colors[idx]}`}>
+                {nums[idx]}
+              </div>
+              <div>
+                <h4 className="font-bold mb-1">{item.title}</h4>
+                <p className="text-sm text-muted-foreground">{item.desc}</p>
+              </div>
             </div>
-            <div>
-              <h4 className="font-bold mb-1">{item.title}</h4>
-              <p className="text-sm text-muted-foreground">{item.desc}</p>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="flex gap-3">
         <Button variant="outline" onClick={prev} className="flex-1 h-12 rounded-xl">
-          <ChevronRight className="w-4 h-4 ml-2" /> رجوع
+          <ChevronRight className="w-4 h-4 ml-2" /> {tr.welcome.backBtn}
         </Button>
         <Button onClick={next} className="flex-1 h-12 rounded-xl font-bold gradient-gold text-primary-foreground">
-          التالي <ChevronLeft className="w-4 h-4 mr-2" />
+          {tr.welcome.nextBtn} <ChevronLeft className="w-4 h-4 mr-2" />
         </Button>
       </div>
     </motion.div>,
@@ -287,8 +275,8 @@ export default function Welcome() {
         <div className="w-20 h-20 mx-auto rounded-3xl bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
           <Crown className="w-10 h-10 text-gold" />
         </div>
-        <h2 className="text-3xl md:text-4xl font-black mb-3">كيف تحصل على الوصول؟</h2>
-        <p className="text-muted-foreground">ثلاث طرق للاستمتاع بالمنصة</p>
+        <h2 className="text-3xl md:text-4xl font-black mb-3">{tr.welcome.step4Title}</h2>
+        <p className="text-muted-foreground">{tr.welcome.step4Desc}</p>
       </div>
 
       <div className="space-y-4 mb-8">
@@ -300,10 +288,10 @@ export default function Welcome() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-bold">الدرس المجاني</h4>
-                <span className="text-xs bg-emerald/20 text-emerald border border-emerald/30 rounded-full px-2 py-0.5">متاح الآن</span>
+                <h4 className="font-bold">{tr.welcome.step4FreeTitle}</h4>
+                <span className="text-xs bg-emerald/20 text-emerald border border-emerald/30 rounded-full px-2 py-0.5">{tr.welcome.step4FreeBadge}</span>
               </div>
-              <p className="text-sm text-muted-foreground">أول جلسة تعليمية مجانية لك 100% — جرّب المنصة بشكل كامل قبل أي قرار</p>
+              <p className="text-sm text-muted-foreground">{tr.welcome.step4FreeDesc}</p>
             </div>
           </div>
         </div>
@@ -316,11 +304,13 @@ export default function Welcome() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-bold">برنامج الإحالة</h4>
-                <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full px-2 py-0.5">مجاني</span>
+                <h4 className="font-bold">{tr.welcome.step4RefTitle}</h4>
+                <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full px-2 py-0.5">{tr.welcome.step4RefBadge}</span>
               </div>
               <p className="text-sm text-muted-foreground">
-                ادعُ <strong className="text-foreground">٥ أصدقاء</strong> عبر رابطك الشخصي من لوحة التحكم، واحصل على <strong className="text-blue-400">٣ جلسات مجانية</strong> كمكافأة — مرة واحدة فقط
+                {tr.welcome.step4RefDesc
+                  .replace("{n}", <strong key="n" className="text-foreground">٥</strong> as unknown as string)
+                  .replace("{r}", <strong key="r" className="text-blue-400">٣</strong> as unknown as string)}
               </p>
             </div>
           </div>
@@ -334,24 +324,24 @@ export default function Welcome() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <h4 className="font-bold">باقات الاشتراك</h4>
-                <span className="text-xs bg-gold/20 text-gold border border-gold/30 rounded-full px-2 py-0.5">عبر كريمي</span>
+                <h4 className="font-bold">{tr.welcome.step4SubTitle}</h4>
+                <span className="text-xs bg-gold/20 text-gold border border-gold/30 rounded-full px-2 py-0.5">{tr.welcome.step4SubBadge}</span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div className="bg-black/30 rounded-xl p-2 text-center border border-amber-700/20">
-                  <div className="font-bold text-amber-600">برونز</div>
-                  <div className="text-muted-foreground">٢٠ رسالة يومياً</div>
-                  <div className="text-muted-foreground">لمدة ١٤ يوم</div>
+                  <div className="font-bold text-amber-600">{tr.welcome.step4Bronze}</div>
+                  <div className="text-muted-foreground">{tr.welcome.step4DailyMsg.replace("{n}", "٢٠")}</div>
+                  <div className="text-muted-foreground">{tr.welcome.step4Duration}</div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-2 text-center border border-zinc-400/20">
-                  <div className="font-bold text-zinc-300">فضة</div>
-                  <div className="text-muted-foreground">٤٠ رسالة يومياً</div>
-                  <div className="text-muted-foreground">لمدة ١٤ يوم</div>
+                  <div className="font-bold text-zinc-300">{tr.welcome.step4Silver}</div>
+                  <div className="text-muted-foreground">{tr.welcome.step4DailyMsg.replace("{n}", "٤٠")}</div>
+                  <div className="text-muted-foreground">{tr.welcome.step4Duration}</div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-2 text-center border border-gold/20">
-                  <div className="font-bold text-gold">ذهب</div>
-                  <div className="text-muted-foreground">٧٠ رسالة يومياً</div>
-                  <div className="text-muted-foreground">لمدة ١٤ يوم</div>
+                  <div className="font-bold text-gold">{tr.welcome.step4Gold}</div>
+                  <div className="text-muted-foreground">{tr.welcome.step4DailyMsg.replace("{n}", "٧٠")}</div>
+                  <div className="text-muted-foreground">{tr.welcome.step4Duration}</div>
                 </div>
               </div>
             </div>
@@ -361,10 +351,10 @@ export default function Welcome() {
 
       <div className="flex gap-3">
         <Button variant="outline" onClick={prev} className="flex-1 h-12 rounded-xl">
-          <ChevronRight className="w-4 h-4 ml-2" /> رجوع
+          <ChevronRight className="w-4 h-4 ml-2" /> {tr.welcome.backBtn}
         </Button>
         <Button onClick={next} className="flex-1 h-12 rounded-xl font-bold gradient-gold text-primary-foreground">
-          رائع! <ChevronLeft className="w-4 h-4 mr-2" />
+          {tr.welcome.step4NextBtn} <ChevronLeft className="w-4 h-4 mr-2" />
         </Button>
       </div>
     </motion.div>,
@@ -393,7 +383,7 @@ export default function Welcome() {
         transition={{ delay: 0.25 }}
         className="text-4xl md:text-5xl font-black mb-4"
       >
-        أنت جاهز يا {name}! 🎉
+        {tr.welcome.step5Title.replace("{name}", name)}
       </motion.h1>
 
       <motion.p
@@ -402,7 +392,7 @@ export default function Welcome() {
         transition={{ delay: 0.35 }}
         className="text-lg text-muted-foreground mb-8"
       >
-        رحلتك التعليمية مع نُخبة تبدأ الآن — معلّم خاص يفهمك ويتذكّرك. درسك الأول مجاني!
+        {tr.welcome.step5Desc}
       </motion.p>
 
       <motion.div
@@ -412,11 +402,11 @@ export default function Welcome() {
         className="glass p-5 rounded-2xl border-gold/20 mb-8 text-right space-y-2"
       >
         {[
-          { icon: <Check className="w-4 h-4 text-emerald" />, text: "درسك الأول مجاني ومتاح فوراً" },
-          { icon: <Check className="w-4 h-4 text-emerald" />, text: "ادعُ ٥ أصدقاء للحصول على ٣ جلسات إضافية" },
-          { icon: <Check className="w-4 h-4 text-emerald" />, text: "اشترك عبر كريمي للاستمرار بلا توقف" },
-          { icon: <Check className="w-4 h-4 text-emerald" />, text: "تابع تقدمك ونقاطك من لوحة التحكم" },
-        ].map((item, i) => (
+          tr.welcome.step5Check1,
+          tr.welcome.step5Check2,
+          tr.welcome.step5Check3,
+          tr.welcome.step5Check4,
+        ].map((text, i) => (
           <motion.div
             key={i}
             initial={{ opacity: 0, x: 20 }}
@@ -425,9 +415,9 @@ export default function Welcome() {
             className="flex items-center gap-3"
           >
             <div className="w-6 h-6 rounded-full bg-emerald/10 border border-emerald/30 flex items-center justify-center shrink-0">
-              {item.icon}
+              <Check className="w-4 h-4 text-emerald" />
             </div>
-            <span className="text-sm">{item.text}</span>
+            <span className="text-sm">{text}</span>
           </motion.div>
         ))}
       </motion.div>
@@ -442,7 +432,7 @@ export default function Welcome() {
           disabled={updateMutation.isPending}
           className="w-full h-16 rounded-2xl text-xl font-black gradient-gold text-primary-foreground shadow-[0_0_40px_rgba(245,158,11,0.3)] hover:shadow-[0_0_60px_rgba(245,158,11,0.5)] transition-all"
         >
-          {updateMutation.isPending ? "جاري الإعداد..." : "ابدأ رحلتك الآن! 🚀"}
+          {updateMutation.isPending ? tr.welcome.loadingBtn : tr.welcome.startBtn}
         </Button>
       </motion.div>
     </motion.div>,

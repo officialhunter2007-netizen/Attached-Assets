@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { MessageCircle, Send, ArrowRight, ShieldCheck, Clock, CheckCircle2, HelpCircle, Inbox } from "lucide-react";
-import { useAuth } from "@/lib/use-auth";
+import { MessageCircle, Send, ShieldCheck, Clock, CheckCircle2, HelpCircle, Inbox } from "lucide-react";
+import { useLang } from "@/lib/lang-context";
 
 interface SupportMessage {
   id: number;
@@ -19,7 +19,7 @@ interface SupportMessage {
 }
 
 export default function Support() {
-  const { user } = useAuth();
+  const { tr, lang } = useLang();
   const { toast } = useToast();
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [subject, setSubject] = useState("");
@@ -55,7 +55,7 @@ export default function Support() {
 
   const handleSend = async () => {
     if (!subject.trim() || !message.trim()) {
-      toast({ variant: "destructive", title: "خطأ", description: "يرجى كتابة الموضوع والرسالة" });
+      toast({ variant: "destructive", title: tr.support.toastErrTitle, description: tr.support.toastErrEmpty });
       return;
     }
     setSending(true);
@@ -67,14 +67,14 @@ export default function Support() {
         body: JSON.stringify({ subject: subject.trim(), message: message.trim() }),
       });
       if (res.ok) {
-        toast({ title: "تم الإرسال", description: "رسالتك وصلت للمشرف — سيرد عليك قريباً", className: "bg-emerald-600 border-none text-white" });
+        toast({ title: tr.support.toastSentTitle, description: tr.support.toastSentDesc, className: "bg-emerald-600 border-none text-white" });
         setMessage("");
         fetchMessages();
       } else {
-        toast({ variant: "destructive", title: "تعذّر الإرسال", description: "حدث خطأ أثناء إرسال رسالتك. حاول مجدداً." });
+        toast({ variant: "destructive", title: tr.support.toastFailTitle, description: tr.support.toastFailDesc });
       }
     } catch {
-      toast({ variant: "destructive", title: "خطأ", description: "فشل في إرسال الرسالة" });
+      toast({ variant: "destructive", title: tr.support.toastErrTitle, description: tr.support.toastErrGeneric });
     }
     setSending(false);
   };
@@ -86,11 +86,11 @@ export default function Support() {
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1) return "الآن";
-    if (diffMins < 60) return `منذ ${diffMins} دقيقة`;
-    if (diffHours < 24) return `منذ ${diffHours} ساعة`;
-    if (diffDays < 7) return `منذ ${diffDays} يوم`;
-    return date.toLocaleDateString("ar-SA");
+    if (diffMins < 1) return tr.support.timeNow;
+    if (diffMins < 60) return tr.support.timeMinutes.replace("{n}", String(diffMins));
+    if (diffHours < 24) return tr.support.timeHours.replace("{n}", String(diffHours));
+    if (diffDays < 7) return tr.support.timeDays.replace("{n}", String(diffDays));
+    return date.toLocaleDateString(lang === "ar" ? "ar-SA" : "en-US");
   };
 
   return (
@@ -100,15 +100,15 @@ export default function Support() {
           <div className="w-16 h-16 rounded-2xl bg-gold/10 border-2 border-gold/30 flex items-center justify-center mx-auto mb-4">
             <MessageCircle className="w-8 h-8 text-gold" />
           </div>
-          <h1 className="text-3xl font-black mb-2">تواصل مع المشرف</h1>
-          <p className="text-muted-foreground">أرسل استفسارك أو مشكلتك وسنرد عليك في أسرع وقت</p>
+          <h1 className="text-3xl font-black mb-2">{tr.support.title}</h1>
+          <p className="text-muted-foreground">{tr.support.desc}</p>
         </div>
 
         <div className="glass rounded-3xl border border-white/5 overflow-hidden mb-8">
           <div className="p-5 border-b border-white/5 bg-black/20">
             <h2 className="font-bold flex items-center gap-2">
               <Inbox className="w-5 h-5 text-gold" />
-              المحادثات
+              {tr.support.inboxTitle}
             </h2>
           </div>
 
@@ -116,13 +116,13 @@ export default function Support() {
             {loading ? (
               <div className="flex items-center justify-center h-40 text-muted-foreground">
                 <Clock className="w-5 h-5 animate-spin ml-2" />
-                جاري التحميل...
+                {tr.support.loading}
               </div>
             ) : messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-muted-foreground text-center">
                 <HelpCircle className="w-10 h-10 mb-3 text-white/10" />
-                <p className="font-bold mb-1">لا توجد رسائل بعد</p>
-                <p className="text-xs">أرسل أول رسالة للمشرف باستخدام النموذج أدناه</p>
+                <p className="font-bold mb-1">{tr.support.emptyTitle}</p>
+                <p className="text-xs">{tr.support.emptyDesc}</p>
               </div>
             ) : (
               [...messages].reverse().map(msg => (
@@ -140,7 +140,7 @@ export default function Support() {
                         <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                       ) : null}
                       <span className={`text-xs font-bold ${msg.isFromAdmin ? 'text-emerald-400' : 'text-gold'}`}>
-                        {msg.isFromAdmin ? 'المشرف' : 'أنت'}
+                        {msg.isFromAdmin ? tr.support.admin : tr.support.you}
                       </span>
                       <span className="text-[10px] text-muted-foreground">{formatDate(msg.createdAt)}</span>
                     </div>
@@ -157,25 +157,25 @@ export default function Support() {
         <div className="glass rounded-3xl p-6 border border-white/5">
           <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
             <Send className="w-5 h-5 text-gold" />
-            إرسال رسالة جديدة
+            {tr.support.formTitle}
           </h3>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-bold mb-1.5 block">الموضوع</label>
+              <label className="text-sm font-bold mb-1.5 block">{tr.support.subjectLabel}</label>
               <Input
-                placeholder="مثال: استفسار عن الاشتراك، مشكلة تقنية..."
+                placeholder={tr.support.subjectPlaceholder}
                 className="bg-black/40 h-12 text-right"
-                dir="rtl"
+                dir={lang === "ar" ? "rtl" : "ltr"}
                 value={subject}
                 onChange={e => setSubject(e.target.value)}
               />
             </div>
             <div>
-              <label className="text-sm font-bold mb-1.5 block">رسالتك</label>
+              <label className="text-sm font-bold mb-1.5 block">{tr.support.messageLabel}</label>
               <Textarea
-                placeholder="اكتب رسالتك هنا بالتفصيل..."
+                placeholder={tr.support.messagePlaceholder}
                 className="bg-black/40 min-h-[120px]"
-                dir="rtl"
+                dir={lang === "ar" ? "rtl" : "ltr"}
                 value={message}
                 onChange={e => setMessage(e.target.value)}
               />
@@ -185,7 +185,7 @@ export default function Support() {
               disabled={!subject.trim() || !message.trim() || sending}
               onClick={handleSend}
             >
-              {sending ? "جاري الإرسال..." : "إرسال الرسالة"}
+              {sending ? tr.support.sendingBtn : tr.support.sendBtn}
             </Button>
           </div>
         </div>
@@ -193,7 +193,7 @@ export default function Support() {
         <div className="mt-6 p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 text-center">
           <p className="text-xs text-muted-foreground">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 inline ml-1" />
-            رسائلك تصل للمشرف مباشرة — سيتم الرد عليك في أقرب وقت ممكن
+            {tr.support.footerNote}
           </p>
         </div>
       </div>

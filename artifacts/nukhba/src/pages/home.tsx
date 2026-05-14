@@ -76,10 +76,6 @@ function FloatingOrb({ className, delay = 0, size = 300 }: { className?: string;
   );
 }
 
-/* ─── 3D Floating Icon ─── */
-// `x` and `y` accept either a number (px) or a string (any CSS length such as
-// "5%") — the JSX call sites pass percentage strings to keep icons positioned
-// proportionally as the viewport scales, while defaults stay numeric.
 function FloatingIcon({ icon: Icon, color, size = 40, delay = 0, x = 0, y = 0 }: {
   icon: React.ElementType; color: string; size?: number; delay?: number; x?: number | string; y?: number | string;
 }) {
@@ -161,12 +157,10 @@ function FeatureCard({ icon: Icon, title, desc, color, delay }: {
         boxShadow: `0 0 18px ${color}18, 0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 ${color}10`,
       }}
     >
-      {/* Permanent top corner glow */}
       <div
         className="absolute top-0 right-0 w-20 h-20 rounded-bl-full pointer-events-none"
         style={{ background: `radial-gradient(circle at top right, ${color}15, transparent 70%)` }}
       />
-      {/* Subtle bottom line */}
       <div
         className="absolute bottom-0 left-4 right-4 h-px pointer-events-none"
         style={{ background: `linear-gradient(90deg, transparent, ${color}40, transparent)` }}
@@ -219,6 +213,7 @@ function StatCard({ value, label, color, suffix = "", delay }: {
 
 export default function Home() {
   const heroRef = useRef<HTMLElement>(null);
+  const { tr } = useLang();
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground font-sans selection:bg-gold/30 overflow-x-hidden">
@@ -233,12 +228,12 @@ export default function Home() {
               <HomeLangToggle />
               <Link href="/login">
                 <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-gold transition-colors font-medium">
-                  دخول
+                  {tr.home.loginBtn}
                 </Button>
               </Link>
               <Link href="/register">
                 <Button size="sm" className="gradient-gold text-primary-foreground font-bold rounded-full px-5 shadow-lg shadow-gold/20 hover:shadow-gold/40 transition-shadow">
-                  ابدأ مجاناً
+                  {tr.home.startFree}
                 </Button>
               </Link>
             </div>
@@ -253,20 +248,15 @@ export default function Home() {
         ══════════════════════════════════════ */}
         <section ref={heroRef} className="relative min-h-[100dvh] flex flex-col items-center justify-center pt-20 pb-12 overflow-hidden aurora-bg">
           
-          {/* Background grid */}
           <div className="absolute inset-0 bg-grid opacity-60" />
           
-          {/* Gradient background blobs */}
           <FloatingOrb className="bg-amber-400/8 nk-float-slow top-[15%] left-[10%]" delay={0} size={400} />
           <FloatingOrb className="bg-emerald-400/6 nk-float-slow top-[50%] right-[5%]" delay={2} size={350} />
           <FloatingOrb className="bg-purple-500/5 bottom-[10%] left-[30%]" delay={4} size={300} />
 
-          {/* Floating 3D icons */}
           <div className="absolute inset-0 pointer-events-none">
-            {/* Always show some icons */}
             <FloatingIcon icon={Brain}   color="#F59E0B" size={42} delay={0}   x="5%"  y="22%" />
             <FloatingIcon icon={Zap}     color="#06B6D4" size={36} delay={0.8} x="88%" y="58%" />
-            {/* More icons on large screens */}
             <div className="hidden sm:block">
               <FloatingIcon icon={Cpu}     color="#10B981" size={44} delay={1.5} x="88%" y="28%" />
               <FloatingIcon icon={Star}    color="#8B5CF6" size={36} delay={2.5} x="10%" y="62%" />
@@ -275,10 +265,8 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Particles */}
           <ParticleDots />
 
-          {/* Hero content */}
           <div className="relative z-10 container mx-auto px-4 text-center max-w-5xl">
 
             {/* Badge */}
@@ -300,7 +288,7 @@ export default function Home() {
               >
                 ✨
               </motion.span>
-              منصة تعليمية ذكية مصممة لليمن
+              {tr.home.badge}
               <motion.span
                 animate={{ rotate: [0, -15, 15, 0] }}
                 transition={{ duration: 2, repeat: Infinity, repeatDelay: 2, delay: 0.3 }}
@@ -316,7 +304,7 @@ export default function Home() {
               transition={{ duration: 0.8, delay: 0.2 }}
               className="text-5xl sm:text-6xl md:text-8xl font-black mb-6 leading-[1.1] tracking-tight"
             >
-              تعلّم بطريقة
+              {tr.home.heroTitle1}
               <br />
               <span className="relative inline-block">
                 <span
@@ -326,9 +314,8 @@ export default function Home() {
                     filter: "drop-shadow(0 0 30px rgba(245,158,11,0.6))",
                   }}
                 >
-                  مختلفة تماماً
+                  {tr.home.heroTitle2}
                 </span>
-                {/* Neon underline */}
                 <motion.div
                   initial={{ scaleX: 0 }}
                   animate={{ scaleX: 1 }}
@@ -350,10 +337,10 @@ export default function Home() {
               transition={{ duration: 0.7, delay: 0.4 }}
               className="text-lg md:text-2xl text-muted-foreground mb-10 leading-relaxed max-w-3xl mx-auto"
             >
-              معلّم ذكاء اصطناعي يعرفك شخصياً —{" "}
-              <span className="text-white font-semibold">يبني خطتك</span>،
-              {" "}<span className="text-white font-semibold">يتذكر تقدمك</span>،
-              {" "}ويرافقك خطوة بخطوة حتى الإتقان.
+              {tr.home.heroDesc.split("—")[0]}—{" "}
+              <span className="text-white font-semibold">{tr.home.heroDescBuild}</span>،
+              {" "}<span className="text-white font-semibold">{tr.home.heroDescRemember}</span>،
+              {" "}{tr.home.heroDesc.split("،").slice(-1)[0]}
             </motion.p>
 
             {/* CTA buttons */}
@@ -373,7 +360,7 @@ export default function Home() {
                     }}
                   >
                     <span className="relative z-10 flex items-center gap-2">
-                      انضم للنخبة الآن
+                      {tr.home.joinNow}
                       <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
                     </span>
                     <div className="absolute inset-0 bg-gradient-to-l from-yellow-300/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -392,7 +379,7 @@ export default function Home() {
                       background: "rgba(245,158,11,0.06)",
                     }}
                   >
-                    استعرض الباقات
+                    {tr.home.viewPlans}
                   </Button>
                 </motion.div>
               </Link>
@@ -405,9 +392,9 @@ export default function Home() {
               transition={{ duration: 0.8, delay: 0.8 }}
               className="grid grid-cols-3 gap-4 md:gap-10 max-w-2xl mx-auto pt-10 border-t border-white/8"
             >
-              <StatCard value={1000} suffix="+" label="طالب مستفيد" color="#F59E0B" delay={0.9} />
-              <StatCard value={500} suffix="+" label="درس تفاعلي" color="#10B981" delay={1.0} />
-              <StatCard value={15} suffix="+" label="تخصص دراسي" color="#8B5CF6" delay={1.1} />
+              <StatCard value={1000} suffix="+" label={tr.home.statStudents} color="#F59E0B" delay={0.9} />
+              <StatCard value={500} suffix="+" label={tr.home.statLessons} color="#10B981" delay={1.0} />
+              <StatCard value={15} suffix="+" label={tr.home.statSubjects} color="#8B5CF6" delay={1.1} />
             </motion.div>
           </div>
 
@@ -439,9 +426,12 @@ export default function Home() {
             className="text-center mb-16"
           >
             <h2 className="text-3xl md:text-5xl font-black mb-4">
-              اختر <span className="text-transparent bg-clip-text" style={{ backgroundImage: "linear-gradient(135deg, #F59E0B, #10B981)" }}>مسارك</span>
+              {tr.home.choosePathTitle}{" "}
+              <span className="text-transparent bg-clip-text" style={{ backgroundImage: "linear-gradient(135deg, #F59E0B, #10B981)" }}>
+                {tr.home.choosePathHighlight}
+              </span>
             </h2>
-            <p className="text-muted-foreground text-lg">مسارات مبنية على الاحتياجات الحقيقية للطالب اليمني</p>
+            <p className="text-muted-foreground text-lg">{tr.home.choosePathDesc}</p>
           </motion.div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
@@ -459,14 +449,12 @@ export default function Home() {
                 boxShadow: "0 0 32px rgba(16,185,129,0.12), 0 8px 30px rgba(0,0,0,0.4), inset 0 1px 0 rgba(16,185,129,0.12)",
               }}
             >
-              {/* Permanent corner glow */}
               <div className="absolute top-0 right-0 w-48 h-48 rounded-bl-full pointer-events-none"
                 style={{ background: "radial-gradient(circle at top right, rgba(16,185,129,0.14), transparent 65%)" }}
               />
               <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full pointer-events-none"
                 style={{ background: "radial-gradient(circle, rgba(16,185,129,0.2), transparent)", filter: "blur(20px)" }}
               />
-              {/* Top accent line */}
               <div className="absolute top-0 left-6 right-6 h-[2px] rounded-b-full pointer-events-none"
                 style={{ background: "linear-gradient(90deg, transparent, rgba(16,185,129,0.7), transparent)" }}
               />
@@ -484,13 +472,13 @@ export default function Home() {
                 <h3 className="text-2xl md:text-3xl font-black mb-3"
                   style={{ color: "#10B981", textShadow: "0 0 20px rgba(16,185,129,0.5)" }}
                 >
-                  الجامعي
+                  {tr.home.uniTitle}
                 </h3>
                 <p className="leading-relaxed mb-5 text-sm md:text-base" style={{ color: "rgba(255,255,255,0.6)" }}>
-                  مسارات مخصصة لتخصصات تقنية المعلومات، الهندسة، المحاسبة، وإدارة الأعمال — مع كتب جامعية تفاعلية.
+                  {tr.home.uniDesc}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {["هندسة الغذاء", "محاسبة", "تقنية معلومات", "و أكثر..."].map(tag => (
+                  {tr.home.uniTags.map(tag => (
                     <span key={tag} className="text-xs px-3 py-1 rounded-full font-medium"
                       style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#10B981" }}
                     >
@@ -538,13 +526,13 @@ export default function Home() {
                 <h3 className="text-2xl md:text-3xl font-black mb-3 text-blue-400"
                   style={{ textShadow: "0 0 20px rgba(59,130,246,0.5)" }}
                 >
-                  المهارات
+                  {tr.home.skillsTitle}
                 </h3>
                 <p className="leading-relaxed mb-5 text-sm md:text-base" style={{ color: "rgba(255,255,255,0.6)" }}>
-                  تعلّم البرمجة، تطوير الويب، والأمن السيبراني — مع بيئة كود تفاعلية مدمجة ومحرر أكواد احترافي.
+                  {tr.home.skillsDesc}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {["برمجة", "أمن سيبراني", "تطوير ويب", "و أكثر..."].map(tag => (
+                  {tr.home.skillsTags.map(tag => (
                     <span key={tag} className="text-xs px-3 py-1 rounded-full font-medium"
                       style={{ background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: "#60A5FA" }}
                     >
@@ -573,64 +561,28 @@ export default function Home() {
               className="text-center mb-16"
             >
               <div className="inline-flex items-center gap-2 mb-4 text-gold text-sm font-bold">
-                <Sparkles className="w-4 h-4" /> لماذا نُخبة
+                <Sparkles className="w-4 h-4" /> {tr.home.whyBadge}
               </div>
               <h2 className="text-3xl md:text-5xl font-black mb-4">
-                تجربة لا تقارن بـ{" "}
+                {tr.home.whyTitle1}{" "}
                 <span className="text-transparent bg-clip-text"
                   style={{ backgroundImage: "linear-gradient(135deg, #F59E0B, #D97706)" }}
                 >
-                  أي منصة أخرى
+                  {tr.home.whyTitle2}
                 </span>
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                نستخدم أحدث تقنيات الذكاء الاصطناعي لتقديم تجربة تعليمية لم تكن ممكنة من قبل
+                {tr.home.whyDesc}
               </p>
             </motion.div>
 
             <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6">
-              <FeatureCard
-                icon={Brain}
-                title="خطة مخصصة لك وحدك"
-                desc="الذكاء الاصطناعي يجري معك مقابلة تشخيصية ويبني خطة دراسية تناسب مستواك بدقة متناهية."
-                color="#F59E0B"
-                delay={0}
-              />
-              <FeatureCard
-                icon={Zap}
-                title="تعلم تفاعلي حقيقي"
-                desc="لست مستمعاً فقط. ناقش، اسأل، وحل التحديات مع معلمك الذكي في أي وقت."
-                color="#10B981"
-                delay={0.1}
-              />
-              <FeatureCard
-                icon={Terminal}
-                title="بيئة تطبيق مدمجة"
-                desc="محرر أكواد احترافي + بيئات تطبيقية تبنى لك تلقائياً داخل المنصة — بدون إعداد أي برامج."
-                color="#3B82F6"
-                delay={0.2}
-              />
-              <FeatureCard
-                icon={Shield}
-                title="يتذكر أخطاءك ويصحّحها"
-                desc="بنك خاص بأخطائك يُحقن في كل جلسة حتى تتغلب عليها نهائياً."
-                color="#8B5CF6"
-                delay={0.3}
-              />
-              <FeatureCard
-                icon={BookOpen}
-                title="كتبك الجامعية بالذكاء الاصطناعي"
-                desc="ارفع كتابك واستعرضه فصلاً بفصل مع معلم يشرح لك كل مفهوم بأسلوبك."
-                color="#F59E0B"
-                delay={0.4}
-              />
-              <FeatureCard
-                icon={Crown}
-                title="مختبرات تطبيقية فريدة"
-                desc="مختبرات تفاعلية متخصصة للمحاسبة، الهندسة الغذائية، والأمن السيبراني."
-                color="#06B6D4"
-                delay={0.5}
-              />
+              <FeatureCard icon={Brain}    title={tr.home.feat1Title} desc={tr.home.feat1Desc} color="#F59E0B" delay={0} />
+              <FeatureCard icon={Zap}      title={tr.home.feat2Title} desc={tr.home.feat2Desc} color="#10B981" delay={0.1} />
+              <FeatureCard icon={Terminal} title={tr.home.feat3Title} desc={tr.home.feat3Desc} color="#3B82F6" delay={0.2} />
+              <FeatureCard icon={Shield}   title={tr.home.feat4Title} desc={tr.home.feat4Desc} color="#8B5CF6" delay={0.3} />
+              <FeatureCard icon={BookOpen} title={tr.home.feat5Title} desc={tr.home.feat5Desc} color="#F59E0B" delay={0.4} />
+              <FeatureCard icon={Crown}    title={tr.home.feat6Title} desc={tr.home.feat6Desc} color="#06B6D4" delay={0.5} />
             </div>
           </div>
         </section>
@@ -646,7 +598,7 @@ export default function Home() {
             className="text-center mb-12"
           >
             <h2 className="text-2xl sm:text-3xl md:text-5xl font-black mb-4">
-              نُخبة vs{" "}
+              {tr.home.cmpTitle1}{" "}
               <span className="text-transparent bg-clip-text"
                 style={{ backgroundImage: "linear-gradient(135deg, #F59E0B, #D97706)" }}
               >
@@ -654,8 +606,8 @@ export default function Home() {
               </span>
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto text-lg leading-relaxed">
-              المساعدات العامة ممتازة للأسئلة العابرة، لكنها لا تعرفك. نُخبة بُنيت لتكون{" "}
-              <span className="text-gold font-bold">معلّمك المتخصّص</span>.
+              {tr.home.cmpDesc}{" "}
+              <span className="text-gold font-bold">{tr.home.cmpDescHighlight}</span>.
             </p>
           </motion.div>
 
@@ -671,14 +623,13 @@ export default function Home() {
               boxShadow: "0 0 60px rgba(245,158,11,0.06), 0 20px 60px rgba(0,0,0,0.5)",
             }}
           >
-            {/* Glow top edge */}
             <div className="h-px w-full" style={{ background: "linear-gradient(90deg, transparent, rgba(245,158,11,0.6), transparent)" }} />
 
             <div className="overflow-x-auto">
               <table className="w-full text-right" dir="rtl">
                 <thead>
                   <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(245,158,11,0.06)" }}>
-                    <th className="p-4 text-sm font-bold text-foreground/70 w-[45%]">الميزة</th>
+                    <th className="p-4 text-sm font-bold text-foreground/70 w-[45%]">{tr.home.cmpFeature}</th>
                     <th className="p-4 text-center">
                       <div className="flex flex-col items-center gap-1">
                         <Crown className="w-5 h-5 text-gold" />
@@ -694,13 +645,7 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody className="text-sm">
-                  {[
-                    { feature: "يتذكّر تقدّمك ونقاط ضعفك بين الجلسات", n: true, c: false, d: false },
-                    { feature: "خطة تعلّم شخصية لمادتك", n: true, c: false, d: false },
-                    { feature: "مختبرات تطبيقية تفاعلية داخل المنصة", n: true, c: false, d: false },
-                    { feature: "محتوى مبني على المنهج اليمني والجامعي المحلي", n: true, c: false, d: false },
-                    { feature: "معلم يصحح أخطاءك المتكررة تلقائياً", n: true, c: false, d: false },
-                  ].map((row, i) => (
+                  {tr.home.cmpRows.map((feature, i) => (
                     <motion.tr
                       key={i}
                       initial={{ opacity: 0, x: 20 }}
@@ -713,7 +658,7 @@ export default function Home() {
                       }}
                       className="hover:bg-gold/[0.03] transition-colors"
                     >
-                      <td className="p-4 font-medium text-foreground/85 text-sm leading-relaxed">{row.feature}</td>
+                      <td className="p-4 font-medium text-foreground/85 text-sm leading-relaxed">{feature}</td>
                       <td className="p-4 text-center">
                         <div className="inline-flex items-center justify-center w-8 h-8 rounded-full"
                           style={{
@@ -738,8 +683,8 @@ export default function Home() {
             </div>
             <div className="p-5" style={{ background: "rgba(245,158,11,0.05)", borderTop: "1px solid rgba(245,158,11,0.1)" }}>
               <p className="text-sm text-center text-foreground/75 leading-relaxed">
-                <span className="text-gold font-bold">الخلاصة:</span> أنت لا تشترك في "محادثة" — أنت تشترك في{" "}
-                <span className="text-white font-semibold">معلّم متخصّص يرافقك خطوة بخطوة</span>.
+                <span className="text-gold font-bold">{tr.home.cmpSummaryLabel}</span> {tr.home.cmpSummary}{" "}
+                <span className="text-white font-semibold">{tr.home.cmpSummaryHighlight}</span>.
               </p>
             </div>
           </motion.div>
@@ -761,8 +706,8 @@ export default function Home() {
               viewport={{ once: true }}
               className="text-center mb-16"
             >
-              <h2 className="text-3xl md:text-5xl font-black mb-4">باقات الاشتراك</h2>
-              <p className="text-muted-foreground text-lg">الدفع عبر محفظة كريمي — اختر الباقة المناسبة لك</p>
+              <h2 className="text-3xl md:text-5xl font-black mb-4">{tr.home.pricingTitle}</h2>
+              <p className="text-muted-foreground text-lg">{tr.home.pricingDesc}</p>
             </motion.div>
 
             <div className="grid sm:grid-cols-3 gap-5 max-w-5xl mx-auto">
@@ -779,11 +724,11 @@ export default function Home() {
                   border: "1px solid rgba(255,255,255,0.08)",
                 }}
               >
-                <div className="text-sm font-bold text-muted-foreground mb-2">مجاني</div>
-                <div className="text-3xl font-black mb-1">٠ <span className="text-base text-muted-foreground font-normal">ريال</span></div>
-                <p className="text-xs text-muted-foreground mb-6">ابدأ بالتجربة</p>
+                <div className="text-sm font-bold text-muted-foreground mb-2">{tr.home.planFreeLabel}</div>
+                <div className="text-3xl font-black mb-1">{tr.home.planFreePrice} <span className="text-base text-muted-foreground font-normal">{tr.home.planFreeCurrency}</span></div>
+                <p className="text-xs text-muted-foreground mb-6">{tr.home.planFreeTagline}</p>
                 <ul className="space-y-3 mb-8 flex-1 text-sm">
-                  {["درس واحد مجاني لكل تخصص", "تصفح المنهج الدراسي"].map(f => (
+                  {tr.home.planFreeFeatures.map(f => (
                     <li key={f} className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald flex-shrink-0" />
                       {f}
@@ -791,7 +736,7 @@ export default function Home() {
                   ))}
                 </ul>
                 <Link href="/learn" className="w-full">
-                  <Button className="w-full rounded-2xl" variant="outline">جرّب الآن</Button>
+                  <Button className="w-full rounded-2xl" variant="outline">{tr.home.planFreeCta}</Button>
                 </Link>
               </motion.div>
 
@@ -809,11 +754,11 @@ export default function Home() {
                   boxShadow: "0 4px 30px rgba(161,161,170,0.05)",
                 }}
               >
-                <div className="text-sm font-bold text-zinc-300 mb-2">الفضية</div>
+                <div className="text-sm font-bold text-zinc-300 mb-2">{tr.home.planSilverLabel}</div>
                 <div className="text-3xl font-black mb-1 text-zinc-100">٢٬٠٠٠ <span className="text-base text-muted-foreground font-normal">💎</span></div>
-                <p className="text-xs text-muted-foreground mb-6">١٤ يوماً • ١٤٢ جوهرة/يوم</p>
+                <p className="text-xs text-muted-foreground mb-6">{tr.home.planSilverTagline}</p>
                 <ul className="space-y-3 mb-8 flex-1 text-sm">
-                  {["لجميع التخصصات بلا استثناء", "ملخصات الدروس التلقائية", "جواهر تتجدد منتصف الليل"].map(f => (
+                  {tr.home.planSilverFeatures.map(f => (
                     <li key={f} className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-zinc-400 flex-shrink-0" />
                       {f}
@@ -821,7 +766,7 @@ export default function Home() {
                   ))}
                 </ul>
                 <Link href="/subscription" className="w-full">
-                  <Button className="w-full rounded-2xl bg-zinc-700 hover:bg-zinc-600 text-white">اشترك الآن</Button>
+                  <Button className="w-full rounded-2xl bg-zinc-700 hover:bg-zinc-600 text-white">{tr.home.planSubscribeCta}</Button>
                 </Link>
               </motion.div>
 
@@ -839,22 +784,20 @@ export default function Home() {
                   boxShadow: "0 0 40px rgba(245,158,11,0.12), 0 8px 40px rgba(0,0,0,0.5)",
                 }}
               >
-                {/* Popular badge */}
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 gradient-gold text-primary-foreground font-black text-xs px-4 py-1.5 rounded-full shadow-lg shadow-gold/30">
-                  ⭐ الأكثر طلباً
+                  {tr.home.planGoldPopular}
                 </div>
-                {/* Inner glow */}
                 <div className="absolute inset-0 rounded-3xl pointer-events-none"
                   style={{ background: "radial-gradient(ellipse 80% 40% at 50% 0%, rgba(245,158,11,0.08), transparent)" }}
                 />
                 <div className="relative z-10 flex flex-col h-full">
-                  <div className="text-sm font-bold text-gold mb-2">الذهبية</div>
+                  <div className="text-sm font-bold text-gold mb-2">{tr.home.planGoldLabel}</div>
                   <div className="text-3xl font-black mb-1" style={{ color: "#FDE68A" }}>
                     ٣٬٠٠٠ <span className="text-base text-gold/60 font-normal">💎</span>
                   </div>
-                  <p className="text-xs text-gold/60 mb-6">١٤ يوماً • ٢١٤ جوهرة/يوم</p>
+                  <p className="text-xs text-gold/60 mb-6">{tr.home.planGoldTagline}</p>
                   <ul className="space-y-3 mb-8 flex-1 text-sm">
-                    {["لجميع التخصصات بلا استثناء", "ملخصات الدروس التلقائية", "جواهر تتجدد منتصف الليل", "أولوية الدعم الفني"].map(f => (
+                    {tr.home.planGoldFeatures.map(f => (
                       <li key={f} className="flex items-center gap-2">
                         <Check className="w-4 h-4 text-gold flex-shrink-0" />
                         {f}
@@ -866,7 +809,7 @@ export default function Home() {
                       className="w-full rounded-2xl gradient-gold text-primary-foreground font-bold"
                       style={{ boxShadow: "0 0 20px rgba(245,158,11,0.3)" }}
                     >
-                      اشترك الذهبية
+                      {tr.home.planGoldCta}
                     </Button>
                   </Link>
                 </div>
@@ -893,14 +836,14 @@ export default function Home() {
                   <Shield className="w-6 h-6 text-amber-600" />
                 </div>
                 <div className="flex-1 text-center sm:text-right">
-                  <p className="text-sm font-bold text-amber-400 mb-0.5">الباقة البرونزية — ابدأ بأقل تكلفة</p>
-                  <p className="text-xs text-muted-foreground">١٬٠٠٠ 💎 جوهرة (٧١ يومياً) لجميع التخصصات لمدة ١٤ يوماً. مثالية للبداية.</p>
+                  <p className="text-sm font-bold text-amber-400 mb-0.5">{tr.home.bronzeTitle}</p>
+                  <p className="text-xs text-muted-foreground">{tr.home.bronzeDesc}</p>
                 </div>
                 <Link href="/subscription" className="shrink-0">
                   <Button size="sm" className="rounded-xl text-white font-bold px-5"
                     style={{ background: "rgba(180,83,9,0.8)", border: "1px solid rgba(180,83,9,0.5)" }}
                   >
-                    اشترك الآن
+                    {tr.home.planSubscribeCta}
                   </Button>
                 </Link>
               </div>
@@ -917,7 +860,7 @@ export default function Home() {
         <div className="relative container mx-auto px-4 flex flex-col items-center justify-center gap-4">
           <div className="opacity-70"><NukhbaLogo size="sm" /></div>
           <p className="text-muted-foreground text-sm text-center">
-            صُنع بشغف لطلاب اليمن · جميع الحقوق محفوظة {new Date().getFullYear()} ©
+            {tr.home.footerTagline} · {tr.footer.rights} {new Date().getFullYear()} ©
           </p>
         </div>
       </footer>

@@ -26,6 +26,7 @@ import {
   MaterialWithProgress,
   SubjectSub,
 } from "@/components/dashboard/types";
+import { useLang } from "@/lib/lang-context";
 
 const asArray = <T,>(raw: unknown): T[] => (Array.isArray(raw) ? (raw as T[]) : []);
 
@@ -36,6 +37,7 @@ interface GemsBalanceProbe {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { tr } = useLang();
   const {
     data: views,
     isLoading: viewsLoading,
@@ -79,8 +81,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    // Wait until the subscriptions fetch has settled — otherwise we'd
-    // show "no books" while subscriptions are still loading.
     if (subjectSubs.loading) {
       setMaterialsLoading(true);
       setMaterialsError(null);
@@ -89,7 +89,7 @@ export default function Dashboard() {
     if (subjectSubs.error) {
       setMaterials([]);
       setMaterialsLoading(false);
-      setMaterialsError("تعذّر تحميل اشتراكاتك، ولذلك لا يمكن عرض كتبك. حاول مجدداً.");
+      setMaterialsError(tr.dashboard.errorSubsLoad);
       return;
     }
     const subs = subjectSubs.data;
@@ -160,11 +160,11 @@ export default function Dashboard() {
       })
       .catch(() => {
         if (cancelled) return;
-        setMaterialsError("تعذّر تحميل تقدّم الكتب. حاول مجدداً.");
+        setMaterialsError(tr.dashboard.errorBooks);
       })
       .finally(() => { if (!cancelled) setMaterialsLoading(false); });
     return () => { cancelled = true; };
-  }, [subjectSubs.data, subjectSubs.loading, subjectSubs.error, materialsTick]);
+  }, [subjectSubs.data, subjectSubs.loading, subjectSubs.error, materialsTick, tr.dashboard.errorSubsLoad, tr.dashboard.errorBooks]);
 
   // ── Mobile coding warning ──
   const [showMobileCodingWarning, setShowMobileCodingWarning] = useState(false);
@@ -203,9 +203,6 @@ export default function Dashboard() {
   }));
 
   const { usableSubs, expiredSubs, expiringSoonSubs, isBlocked } = useMemo(() => {
-    // Never derive blocked / expired-banner state from a failed or
-    // in-flight subscriptions probe — that would show the "renew now"
-    // experience to a paying user during a transient network error.
     if (subjectSubs.loading || subjectSubs.error || legacyProbe.loading || legacyProbe.error) {
       return { usableSubs: [] as SubjectSub[], expiredSubs: [] as SubjectSub[], expiringSoonSubs: [] as SubjectSub[], isBlocked: false };
     }
@@ -233,12 +230,8 @@ export default function Dashboard() {
       return Number.isFinite(t) && (now.getTime() - t) < THIRTY_DAYS_MS;
     });
 
-    // Expired-renewal banner only when no other usable access exists.
     const expired = !usable.length && !hasAnyLegacyAccess ? recentlyExpired : [];
 
-    // Expiring-soon banner: usable subs whose deadline is within 2 days,
-    // and dedup against the expired list (a subject that already shows in
-    // the more severe red banner shouldn't also show the orange one).
     const twoDaysFromNow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
     const expiredIds = new Set(expired.map(s => s.subjectId));
     const expiringSoon = usable
@@ -284,10 +277,10 @@ export default function Dashboard() {
                 className="h-8 w-1 rounded-full"
                 style={{ background: "linear-gradient(180deg, #F59E0B, #D97706)", boxShadow: "0 0 12px rgba(245,158,11,0.5)" }}
               />
-              <h1 className="text-3xl md:text-4xl font-black">لوحة القيادة</h1>
+              <h1 className="text-3xl md:text-4xl font-black">{tr.dashboard.title}</h1>
             </div>
             <p className="text-xs text-gold/70 pr-4">
-              معلّمك يتذكّر كل جلسة، كل خطأ صحّحته، وكل مهارة أتقنتها — هذا ما لا يفعله ChatGPT.
+              {tr.dashboard.desc}
             </p>
           </motion.div>
 
@@ -315,11 +308,11 @@ export default function Dashboard() {
           <div className="grid lg:grid-cols-3 gap-6 mb-10">
             <div className="lg:col-span-2">
               <SectionHeading accent="gold" icon={<BookOpen className="w-5 h-5" />}>
-                الدروس الأخيرة
+                {tr.dashboard.recentLessons}
               </SectionHeading>
               <SectionState
                 loading={viewsLoading}
-                error={viewsIsError ? "تعذّر تحميل سجل الدروس. حاول مجدداً." : null}
+                error={viewsIsError ? tr.dashboard.errorLessons : null}
                 empty={false}
                 emptyMessage=""
                 onRetry={() => { void refetchViews(); }}
@@ -328,12 +321,12 @@ export default function Dashboard() {
               </SectionState>
             </div>
             <div>
-              <SectionHeading accent="gold">حالة الاشتراك</SectionHeading>
+              <SectionHeading accent="gold">{tr.dashboard.subscriptionStatus}</SectionHeading>
               <SectionState
                 loading={subjectSubs.loading || legacyProbe.loading}
                 error={
                   subjectSubs.error || legacyProbe.error
-                    ? "تعذّر تحميل حالة اشتراكك. حاول مجدداً."
+                    ? tr.dashboard.errorSubscription
                     : null
                 }
                 empty={false}
@@ -348,14 +341,14 @@ export default function Dashboard() {
           {/* ── Books progress ── */}
           <div className="mb-10">
             <SectionHeading accent="amber" icon={<Library className="w-6 h-6" />}>
-              تقدّم كتبك
+              {tr.dashboard.bookProgress}
             </SectionHeading>
             <SectionState
               loading={materialsLoading}
               error={materialsError}
               empty={materials.length === 0}
               emptyIcon={<Library className="w-10 h-10" />}
-              emptyMessage="لم تُحمِّل أي كتاب PDF بعد. ارفع كتابك من داخل الجلسة لتظهر فصوله وتقدّمك هنا."
+              emptyMessage={tr.dashboard.emptyBooks}
               onRetry={refetchMaterials}
             >
               <MaterialProgressGrid materials={materials} locked={isBlocked} />
@@ -365,7 +358,7 @@ export default function Dashboard() {
           {/* ── Lab reports ── */}
           <div className="mb-10">
             <SectionHeading accent="emerald" icon={<FlaskConical className="w-6 h-6" />}>
-              تقارير المختبرات
+              {tr.dashboard.labReports}
             </SectionHeading>
             <LabReportsSection
               reports={labReports.data}
@@ -377,7 +370,7 @@ export default function Dashboard() {
 
           {/* ── Summaries ── */}
           <div>
-            <SectionHeading accent="gold">ملخصاتي</SectionHeading>
+            <SectionHeading accent="gold">{tr.dashboard.mySummaries}</SectionHeading>
             <SummariesSection
               summaries={summaries.data}
               loading={summaries.loading}

@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { motion } from "framer-motion";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { CheckCircle2, Star, GraduationCap, Terminal, Sparkles, ArrowLeft } from "lucide-react";
+import { useLang } from "@/lib/lang-context";
 
 /* Map Tailwind color class prefix to actual hex for glow */
 const colorGlowMap: Record<string, { glow: string; gradFrom: string; gradTo: string; border: string }> = {
@@ -35,6 +36,7 @@ function getColors(colorFrom: string) {
 }
 
 function SubjectProgressBadge({ subject, viewedLessonIds }: { subject: Subject; viewedLessonIds: Set<string> }) {
+  const { tr } = useLang();
   const totalLessons = subject.units.reduce((sum, u) => sum + u.lessons.length, 0);
   const completedLessons = subject.units.reduce((sum, u) => {
     return sum + u.lessons.filter(l => viewedLessonIds.has(`${subject.id}__${l.id}`)).length;
@@ -50,12 +52,12 @@ function SubjectProgressBadge({ subject, viewedLessonIds }: { subject: Subject; 
       {isDone ? (
         <div className="flex items-center justify-center gap-1.5 text-xs font-bold" style={{ color: "#10b981" }}>
           <CheckCircle2 className="w-3.5 h-3.5" />
-          <span>مكتمل ✓</span>
+          <span>{tr.learn.completed}</span>
         </div>
       ) : (
         <div className="space-y-1.5">
           <div className="flex justify-between text-[11px]" style={{ color: "rgba(255,255,255,0.45)" }}>
-            <span>{completedLessons}/{totalLessons} درس</span>
+            <span>{completedLessons}/{totalLessons} {tr.learn.lesson}</span>
             <span className="font-bold" style={{ color: "#f59e0b" }}>{pct}%</span>
           </div>
           <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
@@ -78,6 +80,7 @@ function SubjectCard({ subject, viewedLessonIds, index = 0 }: {
   viewedLessonIds: Set<string>;
   index?: number;
 }) {
+  const { tr } = useLang();
   const colors = getColors(subject.colorFrom);
 
   return (
@@ -137,7 +140,7 @@ function SubjectCard({ subject, viewedLessonIds, index = 0 }: {
 
           {/* Arrow hint */}
           <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: colors.gradTo }}>
-            <span className="text-[10px] font-bold">ابدأ الآن</span>
+            <span className="text-[10px] font-bold">{tr.learn.startNow}</span>
             <ArrowLeft className="w-2.5 h-2.5" />
           </div>
 
@@ -150,6 +153,7 @@ function SubjectCard({ subject, viewedLessonIds, index = 0 }: {
 
 export default function Learn() {
   const { data: views } = useGetLessonViews();
+  const { tr } = useLang();
 
   const viewedLessonIds = new Set<string>(
     (views ?? []).map(v => `${v.subjectId}__${v.lessonId}`)
@@ -193,19 +197,19 @@ export default function Learn() {
               }}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              اختر مسارك التعليمي
+              {tr.learn.badge}
             </div>
             <h1 className="text-3xl md:text-5xl font-black mb-3 leading-tight">
-              مسارات{" "}
+              {tr.learn.title}{" "}
               <span
                 className="text-transparent bg-clip-text"
                 style={{ backgroundImage: "linear-gradient(135deg, #F59E0B, #10B981)" }}
               >
-                التعلّم
+                {tr.learn.titleHighlight}
               </span>
             </h1>
             <p className="text-sm md:text-base max-w-lg mx-auto leading-relaxed" style={{ color: "rgba(255,255,255,0.5)" }}>
-              اختر مادتك وابدأ مع معلّمك الذكي الذي يعرفك ويتذكّر تقدّمك
+              {tr.learn.desc}
             </p>
           </motion.div>
 
@@ -230,14 +234,14 @@ export default function Learn() {
                   className="py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 justify-center data-[state=active]:bg-white/8 data-[state=active]:text-gold"
                 >
                   <GraduationCap className="w-4 h-4" />
-                  الجامعي
+                  {tr.learn.tabUniversity}
                 </TabsTrigger>
                 <TabsTrigger
                   value="skills"
                   className="py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 justify-center data-[state=active]:bg-white/8 data-[state=active]:text-gold"
                 >
                   <Terminal className="w-4 h-4" />
-                  المهارات
+                  {tr.learn.tabSkills}
                 </TabsTrigger>
               </TabsList>
             </motion.div>
@@ -298,9 +302,9 @@ export default function Learn() {
               viewport={{ once: true }}
               className="text-center mb-8 md:mb-10"
             >
-              <h2 className="text-xl md:text-3xl font-black mb-2">كلام طلاب سبقوك</h2>
+              <h2 className="text-xl md:text-3xl font-black mb-2">{tr.learn.testimonialsTitle}</h2>
               <p className="text-sm" style={{ color: "rgba(255,255,255,0.45)" }}>
-                تجارب من طلاب بدأوا مثلك وحققوا تقدّماً حقيقياً
+                {tr.learn.testimonialsDesc}
               </p>
             </motion.div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-5">

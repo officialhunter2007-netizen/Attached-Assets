@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { NukhbaLogo } from "@/components/nukhba-logo";
 import { Link } from "wouter";
 import { Check, Brain, GraduationCap, Terminal } from "lucide-react";
+import { useLang } from "@/lib/lang-context";
 
 function GoogleIcon() {
   return (
@@ -14,12 +15,6 @@ function GoogleIcon() {
     </svg>
   );
 }
-
-const benefits = [
-  { icon: Brain, text: "معلّم ذكي يبني خطة مخصصة لك", color: "#F59E0B" },
-  { icon: GraduationCap, text: "دروس تفاعلية لكل المستويات", color: "#10B981" },
-  { icon: Terminal, text: "بيئة برمجة تطبيقية مدمجة", color: "#3B82F6" },
-];
 
 function Particle({ x, y, color, size, delay }: { x: string; y: string; color: string; size: number; delay: number }) {
   return (
@@ -33,6 +28,14 @@ function Particle({ x, y, color, size, delay }: { x: string; y: string; color: s
 }
 
 export default function Register() {
+  const { tr } = useLang();
+
+  const benefits = [
+    { icon: Brain, text: tr.register.benefit1, color: "#F59E0B" },
+    { icon: GraduationCap, text: tr.register.benefit2, color: "#10B981" },
+    { icon: Terminal, text: tr.register.benefit3, color: "#3B82F6" },
+  ];
+
   const handleGoogleRegister = () => {
     const url = `${window.location.origin}/api/auth/google`;
     let inIframe = false;
@@ -117,7 +120,7 @@ export default function Register() {
               transition={{ delay: 0.3 }}
               className="text-3xl font-black mb-2"
             >
-              انضم للنُخبة
+              {tr.register.title}
             </motion.h1>
             <motion.p
               initial={{ opacity: 0 }}
@@ -125,7 +128,7 @@ export default function Register() {
               transition={{ delay: 0.4 }}
               className="text-muted-foreground text-sm leading-relaxed"
             >
-              ابدأ رحلة تعلّمك الذكية المجانية اليوم
+              {tr.register.desc}
             </motion.p>
           </div>
 
@@ -181,14 +184,14 @@ export default function Register() {
               style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1)" }}
             >
               <GoogleIcon />
-              إنشاء حساب بـ Google — مجاناً
+              {tr.register.googleBtn}
             </Button>
           </motion.div>
 
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            لديك حساب بالفعل؟{" "}
+            {tr.register.hasAccount}{" "}
             <Link href="/login" className="text-emerald font-bold hover:underline transition-colors">
-              سجّل الدخول
+              {tr.register.loginLink}
             </Link>
           </div>
 
@@ -203,7 +206,7 @@ export default function Register() {
             >
               <div className="w-1.5 h-1.5 rounded-full bg-gold" />
             </div>
-            التسجيل مجاني • لا بطاقة ائتمانية مطلوبة
+            {tr.register.freeNote}
           </motion.div>
         </div>
       </motion.div>

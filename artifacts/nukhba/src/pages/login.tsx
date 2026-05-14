@@ -2,7 +2,8 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { NukhbaLogo } from "@/components/nukhba-logo";
-import { Brain, Zap, Star } from "lucide-react";
+import { Brain, Zap } from "lucide-react";
+import { useLang } from "@/lib/lang-context";
 
 function GoogleIcon() {
   return (
@@ -15,7 +16,6 @@ function GoogleIcon() {
   );
 }
 
-/* ─── Floating particle ─── */
 function Particle({ x, y, color, size, delay }: { x: string; y: string; color: string; size: number; delay: number }) {
   return (
     <motion.div
@@ -28,6 +28,8 @@ function Particle({ x, y, color, size, delay }: { x: string; y: string; color: s
 }
 
 export default function Login() {
+  const { tr } = useLang();
+
   const handleGoogleLogin = () => {
     const apiUrl = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
     const url = `${apiUrl}/api/auth/google`;
@@ -50,7 +52,7 @@ export default function Login() {
 
     const popup = window.open(url, "_blank", "noopener,noreferrer");
     if (!popup) {
-      alert("تعذّر فتح صفحة تسجيل الدخول داخل الإطار المضمّن. الرجاء فتح الموقع مباشرةً في المتصفح ثم إعادة المحاولة.");
+      alert(tr.login.iframeAlert);
     }
   };
 
@@ -164,7 +166,7 @@ export default function Login() {
               transition={{ delay: 0.3 }}
               className="text-3xl font-black mb-2"
             >
-              أهلاً بعودتك
+              {tr.login.title}
             </motion.h1>
             <motion.p
               initial={{ opacity: 0 }}
@@ -172,7 +174,7 @@ export default function Login() {
               transition={{ delay: 0.4 }}
               className="text-muted-foreground text-sm leading-relaxed"
             >
-              سجّل دخولك لمتابعة رحلة تعلّمك مع معلّمك الذكي
+              {tr.login.desc}
             </motion.p>
             <motion.p
               initial={{ opacity: 0 }}
@@ -181,7 +183,7 @@ export default function Login() {
               className="text-xs mt-2 font-medium"
               style={{ color: "rgba(245,158,11,0.75)" }}
             >
-              ✨ معلّمك يتذكّر تقدّمك ويعرفك شخصياً
+              {tr.login.badge}
             </motion.p>
           </div>
 
@@ -199,15 +201,15 @@ export default function Login() {
               style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1)" }}
             >
               <GoogleIcon />
-              تسجيل الدخول بـ Google
+              {tr.login.googleBtn}
             </Button>
           </motion.div>
 
           {/* Divider */}
           <div className="mt-8 text-center text-sm text-muted-foreground">
-            ليس لديك حساب؟{" "}
+            {tr.login.noAccount}{" "}
             <Link href="/register" className="text-gold font-bold hover:underline transition-colors">
-              سجّل الآن مجاناً
+              {tr.login.registerLink}
             </Link>
           </div>
 
@@ -223,7 +225,7 @@ export default function Login() {
             >
               <div className="w-1.5 h-1.5 rounded-full bg-emerald" />
             </div>
-            تسجيل دخول آمن عبر Google
+            {tr.login.secureNote}
           </motion.div>
         </div>
       </motion.div>
