@@ -2776,6 +2776,8 @@ function SubjectPathChat({
   onCloseAttackSim?: () => void;
 }) {
   const { user } = useAuth();
+  const { tr, lang } = useLang();
+  const t = tr.subject;
   // SECURITY: scope chat history by user.id so accounts on the same browser
   // never see each other's messages. If user is not yet loaded, we start
   // empty and only persist once we have a verified user.
