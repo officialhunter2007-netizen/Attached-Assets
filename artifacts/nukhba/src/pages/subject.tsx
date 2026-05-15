@@ -392,7 +392,7 @@ function extractClassedText(html: string, cls: string): string {
   return m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function parsePlanStages(planHtml: string | null): PlanStage[] {
+function parsePlanStages(planHtml: string | null, lang: "ar" | "en" = "ar"): PlanStage[] {
   if (!planHtml) return [];
   try {
     const olContent = getOutermostOlContent(planHtml);
@@ -416,7 +416,7 @@ function parsePlanStages(planHtml: string | null): PlanStage[] {
         .trim();
       if (!cleanTitle && objectives.length === 0 && microSteps.length === 0) continue;
       items.push({
-        title: cleanTitle || `مرحلة ${items.length + 1}`,
+        title: cleanTitle || (lang === "ar" ? `مرحلة ${items.length + 1}` : `Stage ${items.length + 1}`),
         descHtml,
         duration: cleanDuration,
         objectives,
@@ -493,7 +493,7 @@ function LearningContractCard({
   const REVISION_OPTIONS = lang === "en" ? REVISION_OPTIONS_EN : REVISION_OPTIONS_AR;
   const [showRevision, setShowRevision] = useState(false);
   const [expandedContractStage, setExpandedContractStage] = useState<number>(-1);
-  const stages = parsePlanStages(planHtml);
+  const stages = parsePlanStages(planHtml, lang);
 
   if (showRevision) {
     return (
@@ -588,13 +588,13 @@ function LearningContractCard({
                       )}
                       {s.reasonForStudent && (
                         <div className="rounded-lg bg-purple-500/8 border border-purple-500/20 px-2 py-1.5">
-                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">{t.planWhyStage}</div>
+                          <div className="text-[10px] font-bold text-purple-300/70 mb-0.5">{t.planReason}</div>
                           <div className="text-[11px] text-purple-100/70">{s.reasonForStudent}</div>
                         </div>
                       )}
                       {s.prerequisite && (
                         <div className="text-[10px] text-white/35">
-                          <span className="font-bold text-white/45">{t.planPrerequisite}: </span>{s.prerequisite}
+                          <span className="font-bold text-white/45">{t.planPrereq}: </span>{s.prerequisite}
                         </div>
                       )}
                     </div>
@@ -610,14 +610,14 @@ function LearningContractCard({
             onClick={onAccept}
             className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-[14px] transition-colors"
           >
-            {t.planAccept}
+            {t.planAcceptBtn}
           </button>
           <button
             type="button"
             onClick={() => setShowRevision(true)}
             className="flex-1 py-3 rounded-xl bg-white/8 hover:bg-white/12 border border-white/10 text-white font-bold text-[14px] transition-colors"
           >
-            {t.planRevise}
+            {t.planRevisionBtn}
           </button>
         </div>
       </div>
@@ -651,7 +651,7 @@ function LearningPathPanel({
   }, []);
 
   if (!planHtml) return null;
-  const stages = parsePlanStages(planHtml);
+  const stages = parsePlanStages(planHtml, lang);
   if (stages.length === 0) return null;
   const effectiveTotal = totalStages || stages.length;
   const progressPct = Math.min(100, Math.round((currentStage / Math.max(effectiveTotal, 1)) * 100));
@@ -1255,7 +1255,7 @@ export default function Subject() {
             <div className="glass border border-white/5 rounded-2xl p-8 text-center text-muted-foreground">
               <FlaskConical className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p className="font-medium">{t.noLabReports}</p>
-              <p className="text-sm mt-1 opacity-70">{t.noLabReportsSub}</p>
+              <p className="text-sm mt-1 opacity-70">{t.noLabReportsDesc}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1282,7 +1282,7 @@ export default function Subject() {
             <div className="glass border border-white/5 rounded-2xl p-8 text-center text-muted-foreground">
               <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p className="font-medium">{t.noSummaries}</p>
-              <p className="text-sm mt-1 opacity-70">{t.noSummariesSub}</p>
+              <p className="text-sm mt-1 opacity-70">{t.noSummariesDesc}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1497,7 +1497,7 @@ export default function Subject() {
                     console.log(`[create-lab-env] response attempt ${attempt}:`, r.status);
                     if (!r.ok) {
                       const errText = await r.text().catch(() => "");
-                      lastErr = new Error(`فشل بناء البيئة (${r.status}): ${errText.slice(0, 200)}`);
+                      lastErr = new Error(`${tr.subject.envBuildFailPrefix} (${r.status}): ${errText.slice(0, 200)}`);
                       if (attempt < maxAttempts) {
                         console.warn("[create-lab-env] retrying after failure on attempt", attempt);
                         await new Promise((res) => setTimeout(res, 1500));
@@ -1515,7 +1515,7 @@ export default function Subject() {
                       lastErr = null;
                       break; // success
                     } else {
-                      lastErr = new Error("الاستجابة لا تحتوي على بيئة صالحة");
+                      lastErr = new Error(tr.subject.envInvalidResponse);
                       if (attempt < maxAttempts) {
                         await new Promise((res) => setTimeout(res, 1500));
                         continue;
@@ -1532,7 +1532,7 @@ export default function Subject() {
                 }
                 if (lastErr) {
                   console.error("[create-lab-env] all attempts failed:", lastErr.message);
-                  setCreateEnvError(lastErr.message || "حدث خطأ غير متوقع أثناء بناء البيئة");
+                  setCreateEnvError(lastErr.message || tr.subject.unexpectedError);
                 }
                 setIsCreatingEnv(false);
               }}
@@ -1569,11 +1569,11 @@ export default function Subject() {
                 body: JSON.stringify({ subjectId: subject?.id, description, difficulty, category }),
               });
               if (!r.ok) {
-                const t = await r.text().catch(() => "");
-                throw new Error(`فشل بناء السيناريو (${r.status}): ${t.slice(0, 200)}`);
+                const errText = await r.text().catch(() => "");
+                throw new Error(`${tr.subject.scenarioBuildFailPrefix} (${r.status}): ${errText.slice(0, 200)}`);
               }
               const data = await r.json();
-              if (!data?.scenario) throw new Error("الاستجابة لا تحتوي على سيناريو صالح");
+              if (!data?.scenario) throw new Error(tr.subject.scenarioInvalidResponse);
               setPendingAttackScenario(data.scenario as AttackScenario);
               setIsAttackSimOpen(true);
               setIsAttackIntakeOpen(false);
@@ -1583,7 +1583,7 @@ export default function Subject() {
               setIsAccountingLabOpen(false);
               setIsDynamicEnvOpen(false);
             } catch (e: any) {
-              setAttackBuildError(e?.message || "حدث خطأ غير متوقع");
+              setAttackBuildError(e?.message || tr.subject.unexpectedError);
             } finally {
               setIsBuildingAttack(false);
             }
@@ -1859,20 +1859,20 @@ function normalizeLabEnvButtons(raw: string): string {
 // streaming detector) with placeholder <figure> markup. The figure carries
 // `data-image-id` so an effect in AIMessage can swap in the real <img> when
 // the matching SSE `imageReady` event resolves the URL.
-function renderImageMarkers(raw: string): string {
+function renderImageMarkers(raw: string, loadingLabel = "جارٍ توليد الصورة التوضيحية…"): string {
   return raw.replace(/\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi, (_m, id) =>
-    `\n\n<figure class="teach-image teach-image-loading" data-image-id="${id}"><div class="teach-image-spinner"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="label">جارٍ توليد الصورة التوضيحية…</span></div></figure>\n\n`,
+    `\n\n<figure class="teach-image teach-image-loading" data-image-id="${id}"><div class="teach-image-spinner"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="label">${loadingLabel}</span></div></figure>\n\n`,
   );
 }
 
-function renderAssistantHtml(raw: string): string {
+function renderAssistantHtml(raw: string, loadingLabel?: string): string {
   if (!raw) return "";
   // NOTE: `normalizeLabEnvButtons` must be called by the CALLER, BEFORE
   // `expandLabEnvTags` runs — otherwise it would also match the proper
   // <button> markup that expandLabEnvTags just produced and undo it.
   // marked is synchronous when no async extensions are registered, but the
   // type signature is `string | Promise<string>` — `as string` is safe here.
-  const withImages = renderImageMarkers(raw);
+  const withImages = renderImageMarkers(raw, loadingLabel);
   // Math is extracted as plain ASCII placeholders BEFORE marked + DOMPurify,
   // then restored AFTER sanitization with pre-rendered KaTeX HTML. This keeps
   // KaTeX's inline styles (vertical-align, padding, etc.) intact since they
@@ -1923,10 +1923,10 @@ function renderStreamingHtml(raw: string): string {
 
 
 // Transforms [[CREATE_LAB_ENV: description]] tags into clickable buttons
-function expandLabEnvTags(html: string): string {
+function expandLabEnvTags(html: string, buildEnvLabel = "⚡ ابنِ هذه البيئة التطبيقية لي الآن"): string {
   return html.replace(/\[\[CREATE_LAB_ENV:\s*([^\]]+?)\]\]/g, (_m, desc) => {
     const safe = desc.trim().replace(/"/g, '&quot;');
-    return `<button data-build-env="${safe}" class="build-env-btn" type="button">⚡ ابنِ هذه البيئة التطبيقية لي الآن</button>`;
+    return `<button data-build-env="${safe}" class="build-env-btn" type="button">${buildEnvLabel}</button>`;
   });
 }
 
@@ -2309,7 +2309,7 @@ type TeacherImageState = { status: 'loading' | 'ready'; url?: string };
 type TeacherImageMap = Map<string, TeacherImageState>;
 
 const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv, onAnswerOption, imageMap, onReExplainImage, subjectId }: { content: string; isStreaming: boolean; onCreateLabEnv?: (desc: string) => void; onAnswerOption?: (answer: string) => void; imageMap?: TeacherImageMap; onReExplainImage?: (url: string) => void; subjectId?: string }) {
-  const { tr } = useLang();
+  const { tr, lang } = useLang();
   const t = tr.subject;
   const safeRef = useRef<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2329,7 +2329,7 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
     // Order matters: normalize broken Gemini button-HTML emissions FIRST
     // (converts them to canonical [[CREATE_LAB_ENV: ...]] tags), THEN expand
     // ALL such tags into real <button> markup, THEN run marked + sanitize.
-    safeRef.current = renderAssistantHtml(expandLabEnvTags(normalizeLabEnvButtons(stripped)));
+    safeRef.current = renderAssistantHtml(expandLabEnvTags(normalizeLabEnvButtons(stripped), t.buildEnvBtn), t.imageLoading);
   }
   // While streaming we route the partial content through the same
   // markdown→HTML pipeline so the formatting builds up live as the model
@@ -2360,12 +2360,12 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
         console.log("[lab-env-btn] click; desc length=", desc.length, "preview=", desc.slice(0, 80));
         if (!desc || desc.length < 4) {
           console.warn("[lab-env-btn] rejected: empty or too short");
-          alert("تعذّر فتح هذه البيئة — وصفها مفقود. اطلب من المعلم بناء بيئة جديدة.");
+          alert(tr.subject.errorLabEnvMissing);
           return;
         }
         if (desc.length > 4000) {
           console.warn("[lab-env-btn] rejected: too long (", desc.length, ")");
-          alert("وصف البيئة طويل جداً. اطلب من المعلم اختصاره.");
+          alert(tr.subject.errorLabEnvTooLong);
           return;
         }
         onCreateLabEnv(desc);
@@ -2478,7 +2478,7 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
           const cap2 = clearBodyKeepCaption();
           const fail = document.createElement('div');
           fail.className = 'teach-image-fail';
-          fail.textContent = '⚠️ تعذّر تحميل الصورة — أعد المحاولة.';
+          fail.textContent = t.errorImageLoad;
           fig.appendChild(fail);
           if (cap2) fig.appendChild(cap2);
           fig.classList.remove('teach-image-ready', 'teach-image-loading');
@@ -2922,7 +2922,7 @@ function SubjectPathChat({
   // completion bounds from this array — defaultStages is a fallback only.
   useEffect(() => {
     if (!customPlan) return;
-    const parsed = parsePlanStages(customPlan);
+    const parsed = parsePlanStages(customPlan, lang);
     if (parsed.length > 0) {
       stagesRef.current = parsed.map((s) => s.title);
     }
@@ -3055,7 +3055,8 @@ function SubjectPathChat({
       dart: "Dart 🎯", kotlin: "Kotlin 🤖", sql: "SQL 🗄️",
     };
     const label = langLabels[language] || language;
-    const msg = `كتبت هذا الكود بلغة ${label}:\n\`\`\`${language}\n${code}\n\`\`\`\nالناتج:\n${output || "(لا يوجد إخراج)"}`;
+    const t = tr.subject;
+    const msg = `${t.codeOutputIntro.replace("{lang}", label)}\n\`\`\`${language}\n${code}\n\`\`\`\n${t.codeOutputResult}\n${output || t.codeOutputNone}`;
     onCloseIDE?.();
     sendTeachMessageRef.current(msg);
   };
@@ -3372,17 +3373,17 @@ function SubjectPathChat({
         }),
       });
       if (!r.ok) {
-        const t = await r.text().catch(() => "");
-        throw new Error(`فشل تجميع المواصفة (${r.status}): ${t.slice(0, 200)}`);
+        const errText = await r.text().catch(() => "");
+        throw new Error(`${tr.subject.specCompileFailPrefix} (${r.status}): ${errText.slice(0, 200)}`);
       }
       const data = await r.json();
       if (data.spec) {
         setCompiledSpec(data.spec);
       } else {
-        throw new Error("الاستجابة لا تحتوي على مواصفة صالحة");
+        throw new Error(tr.subject.specInvalidResponse);
       }
     } catch (e: any) {
-      setSpecCompileError(e?.message || "حدث خطأ أثناء تجميع مواصفة البيئة");
+      setSpecCompileError(e?.message || tr.subject.unexpectedError);
     } finally {
       setIsCompilingSpec(false);
     }
@@ -3469,7 +3470,7 @@ function SubjectPathChat({
           // mastery criterion, reason-for-student, and prerequisite.
           currentStageContract: (() => {
             if (diagMode || !customPlan) return undefined;
-            const richStages = parsePlanStages(customPlan);
+            const richStages = parsePlanStages(customPlan, lang);
             const s = richStages[usedStage];
             if (!s) return undefined;
             return {
@@ -3518,8 +3519,8 @@ function SubjectPathChat({
         console.error("[teach] non-ok response:", response.status);
         const status = response.status;
         const errorHtml = status === 401 || status === 419
-          ? `<p><em>⚠️ انتهت جلستك. سجّل الدخول مجدّداً للمتابعة.</em></p>`
-          : `<p><em>⚠️ تعذّر الردّ بسبب خلل مؤقّت في الخادم (${status}). أعد المحاولة بعد لحظات — لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`;
+          ? `<p><em>${tr.subject.errorSession}</em></p>`
+          : `<p><em>${tr.subject.errorServer.replace("{status}", String(status))}</em></p>`;
         setMessages(prev => [...prev, { role: 'assistant', content: errorHtml }]);
         clearTimeout(timeoutId);
         setIsStreaming(false);
@@ -3527,7 +3528,7 @@ function SubjectPathChat({
       }
 
       if (!response.body) {
-        const errorHtml = `<p><em>⚠️ لم يصل أي ردّ من الخادم. أعد المحاولة بعد لحظات.</em></p>`;
+        const errorHtml = `<p><em>${tr.subject.errorNoResponse}</em></p>`;
         setMessages(prev => [...prev, { role: 'assistant', content: errorHtml }]);
         clearTimeout(timeoutId);
         setIsStreaming(false);
@@ -3662,11 +3663,11 @@ function SubjectPathChat({
                     });
                     if (saveRes.status === 422) {
                       const errData = await saveRes.json().catch(() => ({}));
-                      const errMsg = errData.message ?? 'الخطة لم تجتز فحص الجودة. اطلب من المعلم إعادة توليد الخطة بالنقر على أيقونة الإعادة.';
+                      const errMsg = errData.message ?? tr.subject.errorPlanQuality;
                       setMessages((prev) => {
                         const updated = [...prev];
                         updated[updated.length - 1] = { role: 'assistant', content: assistantMsg };
-                        return [...updated, { role: 'assistant', content: `⚠️ **تنبيه:** ${errMsg}` }];
+                        return [...updated, { role: 'assistant', content: `${tr.subject.errorPlanWarning} **${errMsg}**` }];
                       });
                       // Reset the save guard so the student can trigger a fresh plan.
                       planAlreadySavedRef.current = false;
@@ -3889,7 +3890,7 @@ function SubjectPathChat({
         } else if (pairs.length >= 1) {
           // Partial completion (2-4 pairs) — surface an error so the student
           // can restart rather than getting a spec built on incomplete input.
-          setSpecCompileError(`لم تكتمل المقابلة (وُجدت ${pairs.length} إجابات من 5). يرجى إعادة المحاولة.`);
+          setSpecCompileError(tr.subject.errorIntakePairs.replace("{found}", String(pairs.length)));
           setLabIntakeActive(false);
           labIntakeActiveRef.current = false;
           console.warn("[lab-intake] [[LAB_INTAKE_DONE]] with only", pairs.length, "pairs — aborting compile");
@@ -3960,8 +3961,8 @@ function SubjectPathChat({
       const aborted = e?.name === 'AbortError';
       console.error('[teach] network error:', aborted ? 'timeout' : e?.message || e);
       const errorHtml = aborted
-        ? `<p><em>⚠️ استغرقت الاستجابة وقتاً طويلاً وتمّ قطعها. تحقّق من الاتصال وأعد إرسال رسالتك — لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`
-        : `<p><em>⚠️ تعذّر الاتصال بالمعلّم الآن. تحقّق من الإنترنت وأعد المحاولة بعد لحظات — لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`;
+        ? `<p><em>${tr.subject.errorTimeout}</em></p>`
+        : `<p><em>${tr.subject.errorConnection}</em></p>`;
       setMessages(prev => {
         const updated = [...prev];
         // If we already added an empty assistant placeholder (stream had
@@ -3993,10 +3994,11 @@ function SubjectPathChat({
     const trimmed = input.trim();
     if ((!trimmed && !attachedImage) || isStreaming || sessionPaused) return;
     if (attachedImage) {
-      const visibleText = trimmed ? `📎 [صورة مرفقة]\n\n${trimmed}` : "📎 [صورة مرفقة]";
+      const imgPlaceholder = tr.subject.imageAttachPlaceholder;
+      const visibleText = trimmed ? `${imgPlaceholder}\n\n${trimmed}` : imgPlaceholder;
       const outgoingText = trimmed
-        ? `![صورة مرفقة من الطالب](${attachedImage})\n\n${trimmed}`
-        : `![صورة مرفقة من الطالب](${attachedImage})`;
+        ? `![${imgPlaceholder}](${attachedImage})\n\n${trimmed}`
+        : `![${imgPlaceholder}](${attachedImage})`;
       sendTeachMessage(visibleText, undefined, undefined, undefined, undefined, outgoingText);
     } else {
       sendTeachMessage(trimmed);
@@ -4021,8 +4023,8 @@ function SubjectPathChat({
     // bloat / 10MB body overflow). Regenerating from the placeholder would
     // ship a meaningless prompt to the model, so we refuse and tell the
     // student to re-attach.
-    if (lastUserText.includes("📎 [صورة مرفقة]")) {
-      alert("لا يمكن إعادة توليد رسالة تحتوي على صورة مرفقة. أرفق الصورة مرة أخرى وأرسلها من جديد.");
+    if (lastUserText.includes(tr.subject.imageAttachPlaceholder)) {
+      alert(tr.subject.errorRegenImage);
       return;
     }
     const trimmed = cur.slice(0, cut);
@@ -4037,8 +4039,8 @@ function SubjectPathChat({
   // stage — keeping all the state-machine invariants intact.
   const handleRestartStage = useCallback(() => {
     if (isStreaming || sessionPaused) return;
-    if (!confirm("سيُعيد المعلم شرح هذه المرحلة من البداية. هل تريد المتابعة؟")) return;
-    sendTeachMessageRef.current("أعد لي شرح هذه المرحلة من البداية بطريقة مختلفة وأبسط، وكأنني أبدأها لأول مرة.");
+    if (!confirm(tr.subject.confirmRestartStage)) return;
+    sendTeachMessageRef.current(tr.subject.restartStageMsg);
   }, [isStreaming, sessionPaused]);
 
   // ── Re-explain image ──────────────────────────────────────────────────────
@@ -4046,7 +4048,7 @@ function SubjectPathChat({
   // referencing the image so the teacher knows which figure to elaborate on.
   const handleReExplainImage = useCallback((imageUrl: string) => {
     if (isStreaming || sessionPaused) return;
-    sendTeachMessageRef.current(`اشرح لي الصورة التوضيحية التالية مرة أخرى بتفصيل أكبر، واذكر العناصر المرقمة فيها واحداً تلو الآخر:\n\n![صورة من جلستك](${imageUrl})`);
+    sendTeachMessageRef.current(`${tr.subject.reExplainImageMsg}${imageUrl})`);
   }, [isStreaming, sessionPaused]);
 
   // ── Copy share link ──────────────────────────────────────────────────────
@@ -4112,7 +4114,7 @@ function SubjectPathChat({
       pdf.save(`nukhba-${safeName}-${Date.now()}.pdf`);
     } catch (err) {
       console.error("[pdf-export] failed:", err);
-      alert("تعذّر تصدير المحادثة كـ PDF. حاول مرة أخرى.");
+      alert(tr.subject.errorExportPdf);
     } finally {
       target.style.overflow = prevOverflow;
       target.style.height = prevHeight;
@@ -4178,7 +4180,7 @@ function SubjectPathChat({
       || TEXT_EXTENSIONS.test(file.name);
     if (isImage) {
       if (file.size > 4 * 1024 * 1024) {
-        alert("حجم الصورة أكبر من 4MB. اختر صورة أصغر.");
+        alert(tr.subject.errorImageSize);
         return;
       }
       const reader = new FileReader();
@@ -4191,21 +4193,21 @@ function SubjectPathChat({
     }
     if (isText) {
       if (file.size > 256 * 1024) {
-        alert("الملف النصي أكبر من 256KB. الصق المقتطف الذي تريد سؤال المعلم عنه.");
+        alert(tr.subject.errorTextFileSize);
         return;
       }
       const reader = new FileReader();
       reader.onload = () => {
         const txt = typeof reader.result === "string" ? reader.result : "";
         if (!txt) return;
-        const truncated = txt.length > 12000 ? txt.slice(0, 12000) + "\n... [اقتُطع الباقي]" : txt;
-        const block = `📄 محتوى الملف ${file.name}:\n\`\`\`\n${truncated}\n\`\`\`\n\n`;
-        setInput((prev) => (prev ? `${block}${prev}` : `${block}سؤالي عن هذا الملف: `));
+        const truncated = txt.length > 12000 ? txt.slice(0, 12000) + tr.subject.fileTruncated : txt;
+        const block = `${tr.subject.fileContentPrefix} ${file.name}:\n\`\`\`\n${truncated}\n\`\`\`\n\n`;
+        setInput((prev) => (prev ? `${block}${prev}` : `${block}${tr.subject.fileQuestionPrefix}`));
       };
       reader.readAsText(file);
       return;
     }
-    alert("نوع الملف غير مدعوم. ارفع صورة أو ملف نصي (txt, md, json, csv, code...).");
+    alert(tr.subject.errorFileType);
   }, [TEXT_EXTENSIONS]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -4267,15 +4269,16 @@ function SubjectPathChat({
   const welcomeStarters = useMemo(() => {
     const text = `${String(subject?.id || "")} ${String(subject?.name || "")}`.toLowerCase();
     const has = (re: RegExp) => re.test(text);
-    if (has(/cyber|سيبران|أمن.*معلومات|اختراق/)) return ["ابنِ لي بيئة تطبيقية لمحاكاة هجوم تعليمي", "اشرح لي مفهوم XSS بمثال", "أعطني تمرين تشخيص ثغرة"];
-    if (has(/network|شبكات|tcp|ip|router/)) return ["ابنِ لي بيئة لتحليل حزم شبكة", "اشرح TCP handshake خطوة بخطوة", "كيف أصمم شبكة صغيرة؟"];
-    if (has(/program|برمج|code|python|java|javascript|c\+\+/)) return ["ابنِ لي بيئة برمجة لحل مسألة", "اشرح الفرق بين stack و heap", "أعطني تمرين خوارزميات"];
-    if (has(/account|محاسب|مالي/)) return ["ابنِ لي بيئة تدريب على القيود اليومية", "اشرح الميزانية العمومية", "أعطني تمرين ميزان مراجعة"];
-    if (has(/physic|فيزياء/)) return ["ابنِ لي محاكاة لقانون نيوتن الثاني", "اشرح الفرق بين السرعة والتسارع", "أعطني تمرين على الطاقة"];
-    return ["ابنِ لي بيئة تطبيقية تفاعلية", "اشرح لي أهم مفهوم في هذه المادة", "أعطني تمريناً يناسب مستواي"];
+    const s = tr.subject;
+    if (has(/cyber|سيبران|أمن.*معلومات|اختراق/)) return s.startersCyber as unknown as string[];
+    if (has(/network|شبكات|tcp|ip|router/)) return s.startersNetwork as unknown as string[];
+    if (has(/program|برمج|code|python|java|javascript|c\+\+/)) return s.startersProgramming as unknown as string[];
+    if (has(/account|محاسب|مالي/)) return s.startersAccounting as unknown as string[];
+    if (has(/physic|فيزياء/)) return s.startersPhysics as unknown as string[];
+    return s.startersDefault as unknown as string[];
   }, [subject?.id, subject?.name]);
 
-  const modeBadgeText = teachingMode === "professor" ? "📚 منهج الأستاذ" : teachingMode === "custom" ? "🧭 مسار مخصّص" : "جلسة تعليمية";
+  const modeBadgeText = teachingMode === "professor" ? tr.subject.modeProfessor : teachingMode === "custom" ? tr.subject.modeCustom : tr.subject.modeTeaching;
 
   const pickStarter = useCallback((s: string) => {
     setInput(s);
@@ -4406,18 +4409,18 @@ function SubjectPathChat({
         <div className="w-20 h-20 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center mb-6">
           <Lock className="w-10 h-10 text-gold" />
         </div>
-        <h3 className="text-2xl font-bold mb-3">انتهت جواهرك 💎</h3>
+        <h3 className="text-2xl font-bold mb-3">{t.accessDeniedTitle}</h3>
         <p className="text-muted-foreground mb-4 max-w-sm">
-          لقد استنفدت رصيد جواهرك. اشترك في خطة جديدة للاستمرار في التعلم مع جميع التخصصات.
+          {t.accessDeniedDesc}
         </p>
         <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground">
           <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
-          الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية
+          {t.karimiPaymentHint}
         </div>
         <div className="flex flex-col gap-3 w-full max-w-xs">
           <Button onClick={onAccessDenied} className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl">
             <Sparkles className="w-5 h-5 ml-2" />
-            اشترك الآن
+            {t.subscribeNow}
           </Button>
         </div>
       </div>
@@ -4496,7 +4499,7 @@ function SubjectPathChat({
           </p>
           <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground max-w-xs mx-auto">
             <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
-            {lang === "ar" ? "الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية" : "Pay via Karimi transfer — fast, no bank card needed"}
+            {t.karimiPaymentHint}
           </div>
           <div className="flex flex-col gap-3 w-full max-w-xs mx-auto">
             <Button
@@ -4504,7 +4507,7 @@ function SubjectPathChat({
               className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl"
             >
               <Sparkles className="w-5 h-5 ml-2" />
-              جدّد الاشتراك الآن
+              {t.renewNow}
             </Button>
             <Button
               variant="outline"
@@ -4512,7 +4515,7 @@ function SubjectPathChat({
               onClick={() => onSessionComplete ? onSessionComplete() : onAccessDenied()}
             >
               <FileText className="w-4 h-4 ml-2" />
-              عرض الملخصات
+              {t.viewSummaries}
             </Button>
           </div>
         </motion.div>
@@ -4598,10 +4601,10 @@ function SubjectPathChat({
         onClick={() => onReopenDynamicEnv?.()}
         className="fixed bottom-24 md:bottom-6 right-4 z-[70] bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-cyan-300/50"
         style={{ direction: "rtl" }}
-        title={pendingDynamicEnv?.title || "العودة لبيئتك"}
+        title={pendingDynamicEnv?.title || t.returnToEnvTitle}
       >
         <span className="text-lg">🧪</span>
-        <span className="max-w-[160px] truncate">العودة لبيئتك: {pendingDynamicEnv?.title || "البيئة التطبيقية"}</span>
+        <span className="max-w-[160px] truncate">{t.returnToEnvLabel}{pendingDynamicEnv?.title || t.defaultEnvTitle}</span>
       </button>
     )}
     {/* ── Spec compiling overlay — shown while compile-spec is running ─────── */}
@@ -4611,9 +4614,9 @@ function SubjectPathChat({
           <div className="w-16 h-16 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center mx-auto mb-4">
             <Loader2 className="w-8 h-8 text-gold animate-spin" />
           </div>
-          <h3 className="text-white font-bold text-lg mb-2">جاري تجهيز مواصفة بيئتك...</h3>
+          <h3 className="text-white font-bold text-lg mb-2">{t.specCompilingTitle}</h3>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            يحلّل المعلم الذكي إجاباتك ويُصمّم بيئة تطبيقية مخصصة لك
+            {t.specCompilingDesc}
           </p>
         </div>
       </div>
@@ -4626,34 +4629,34 @@ function SubjectPathChat({
           <div className="bg-gradient-to-l from-amber-500/20 to-transparent border-b border-gold/20 px-6 py-4 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/30 flex items-center justify-center text-xl shrink-0">🧪</div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-white font-extrabold text-base leading-tight">مواصفة بيئتك التطبيقية جاهزة</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">راجع التفاصيل ثم اضغط «ابنِ الآن»</p>
+              <h3 className="text-white font-extrabold text-base leading-tight">{t.specReadyTitle}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{t.specReadySubtitle}</p>
             </div>
           </div>
           <div className="p-5 space-y-3 max-h-[50vh] overflow-y-auto">
             {!!compiledSpec.goal && (
               <div className="bg-white/5 rounded-xl p-3">
-                <p className="text-xs text-gold font-bold mb-1">الهدف</p>
+                <p className="text-xs text-gold font-bold mb-1">{t.specGoalLabel}</p>
                 <p className="text-sm text-white leading-relaxed">{String(compiledSpec.goal)}</p>
               </div>
             )}
             <div className="grid grid-cols-2 gap-2">
               {!!compiledSpec.difficulty && (
                 <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-xs text-muted-foreground mb-0.5">الصعوبة</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t.specDifficultyLabel}</p>
                   <p className="text-sm font-bold text-white">{String(compiledSpec.difficulty)}</p>
                 </div>
               )}
               {!!compiledSpec.estimatedMinutes && (
                 <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-xs text-muted-foreground mb-0.5">الوقت المتوقع</p>
-                  <p className="text-sm font-bold text-white">{String(compiledSpec.estimatedMinutes)} دقيقة</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t.specTimeLabel}</p>
+                  <p className="text-sm font-bold text-white">{String(compiledSpec.estimatedMinutes)} {t.specMinuteUnit}</p>
                 </div>
               )}
             </div>
             {Array.isArray(compiledSpec.screens) && compiledSpec.screens.length > 0 && (
               <div className="bg-white/5 rounded-xl p-3">
-                <p className="text-xs text-gold font-bold mb-2">الشاشات ({compiledSpec.screens.length})</p>
+                <p className="text-xs text-gold font-bold mb-2">{t.specScreensLabel} ({compiledSpec.screens.length})</p>
                 <div className="space-y-1">
                   {(compiledSpec.screens as Record<string, unknown>[]).map((sc, i: number) => (
                     <div key={i} className="flex items-start gap-2 text-xs">
@@ -4667,7 +4670,7 @@ function SubjectPathChat({
             )}
             {Array.isArray(compiledSpec.successCriteria) && compiledSpec.successCriteria.length > 0 && (
               <div className="bg-white/5 rounded-xl p-3">
-                <p className="text-xs text-gold font-bold mb-2">معايير النجاح</p>
+                <p className="text-xs text-gold font-bold mb-2">{t.specCriteriaLabel}</p>
                 <ul className="space-y-1">
                   {(compiledSpec.successCriteria as string[]).map((c, i: number) => (
                     <li key={i} className="text-xs text-white flex items-start gap-1.5">
@@ -4693,7 +4696,7 @@ function SubjectPathChat({
               }}
               className="flex-1 px-4 py-3 rounded-xl bg-gold text-slate-900 font-extrabold hover:bg-gold/90 transition-colors text-sm"
             >
-              🚀 ابنِ الآن
+              {t.specBuildNow}
             </button>
             <button
               onClick={() => {
@@ -4710,7 +4713,7 @@ function SubjectPathChat({
               }}
               className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-colors text-sm"
             >
-              عدِّل إجاباتي
+              {t.specEditAnswers}
             </button>
           </div>
         </div>
@@ -4740,10 +4743,10 @@ function SubjectPathChat({
         onClick={() => onReopenAttackSim?.()}
         className="fixed bottom-40 md:bottom-20 right-4 z-[70] bg-red-600 hover:bg-red-500 text-white font-bold rounded-full shadow-2xl px-4 py-3 text-sm flex items-center gap-2 border-2 border-red-400/50"
         style={{ direction: "rtl" }}
-        title={pendingAttackScenario?.title || "العودة لمحاكاة الهجمة"}
+        title={pendingAttackScenario?.title || t.returnToAttackTitle}
       >
         <span className="text-lg">🎯</span>
-        <span className="max-w-[160px] truncate">العودة للمحاكاة</span>
+        <span className="max-w-[160px] truncate">{t.returnToAttackLabel}</span>
       </button>
     )}
     {/* IDE panel — always mounted */}
@@ -4852,9 +4855,9 @@ function SubjectPathChat({
               <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
                 <span className="text-3xl">📚</span>
               </div>
-              <h2 className="text-2xl font-black text-white mb-2">أرفق ملازمك أو كتاب الأستاذ</h2>
+              <h2 className="text-2xl font-black text-white mb-2">{t.profModeUploadTitle}</h2>
               <p className="text-sm text-white/60 leading-relaxed">
-                اخترت <span className="font-bold text-amber-300">منهج الأستاذ</span> — لا أستطيع تدريسك حتى ترفع ملف PDF (ملزمة، فصلاً من كتاب، أو شرحاً) لأشرح لك منه فصلاً بفصل بنفس ترتيبه ومصطلحاته.
+                {lang === "ar" ? <>اخترت <span className="font-bold text-amber-300">{t.profModeUploadDescHighlight}</span> — لا أستطيع تدريسك حتى ترفع ملف PDF (ملزمة، فصلاً من كتاب، أو شرحاً) لأشرح لك منه فصلاً بفصل بنفس ترتيبه ومصطلحاته.</> : <>You chose <span className="font-bold text-amber-300">{t.profModeUploadDescHighlight}</span> — I cannot teach you until you upload a PDF (notes, a book chapter, or lecture slides) so I can explain it chapter by chapter using its exact order and terminology.</>}
               </p>
             </div>
 
@@ -4864,22 +4867,22 @@ function SubjectPathChat({
                 className="w-full p-4 rounded-2xl border-2 border-amber-500/60 hover:border-amber-500 bg-amber-500/15 hover:bg-amber-500/25 transition-all flex items-center justify-center gap-3 group"
               >
                 <BookOpen className="w-5 h-5 text-amber-300 group-hover:text-amber-200" />
-                <span className="text-base font-bold text-amber-200 group-hover:text-white">ارفع ملزمتك الآن</span>
+                <span className="text-base font-bold text-amber-200 group-hover:text-white">{t.uploadMaterialBtn}</span>
               </button>
 
-              <div className="text-center text-xs text-white/30 py-1">— أو —</div>
+              <div className="text-center text-xs text-white/30 py-1">{t.orSeparator}</div>
 
               <button
                 onClick={() => handleChooseMode('custom')}
                 className="w-full p-4 rounded-2xl border-2 border-white/10 hover:border-purple-500/60 bg-white/[0.03] hover:bg-purple-500/10 transition-all flex items-center justify-center gap-3 group"
               >
                 <span className="text-2xl">🧭</span>
-                <span className="text-base font-bold text-white group-hover:text-purple-300">حوّلني إلى المسار المخصّص بدلاً من ذلك</span>
+                <span className="text-base font-bold text-white group-hover:text-purple-300">{t.switchToCustomMode}</span>
               </button>
             </div>
 
             <p className="text-center text-[11px] text-white/30 mt-5">
-              المسار المخصّص لا يحتاج ملازم — المعلم يبني لك خطة كاملة بناءً على مستواك وأهدافك.
+              {t.customModeNoMaterial}
             </p>
           </div>
         </div>
@@ -4907,12 +4910,12 @@ function SubjectPathChat({
               type="button"
               onClick={() => setPathDrawerOpen(true)}
               className="path-drawer-trigger session-action-btn"
-              title="مسار التعلّم"
-              aria-label="عرض مسار التعلّم"
+              title={t.pathDrawerTitle}
+              aria-label={t.viewPathAriaLabel}
               disabled={!customPlan}
             >
               <MapIcon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">المسار</span>
+              <span className="hidden sm:inline">{t.pathBtnLabel}</span>
             </button>
             <div className="hidden xs:flex items-center gap-1 text-[11px] text-white/55">
               <Clock className="w-3 h-3" />
@@ -4943,7 +4946,7 @@ function SubjectPathChat({
               : "bg-amber-500/12 border-amber-500/30 text-amber-200"
             }`}>
               <Gauge className="w-3 h-3" />
-              {difficulty === "easy" ? "مبسّط" : difficulty === "advanced" ? "متقدّم" : "عادي"}
+              {difficulty === "easy" ? t.difficultyEasy : difficulty === "advanced" ? t.difficultyAdvanced : t.difficultyNormal}
             </span>
           </div>
         </div>
@@ -4961,10 +4964,10 @@ function SubjectPathChat({
           className="shrink-0 w-full px-3 py-0.5 border-b border-white/5 bg-white/[0.02] hover:bg-white/[0.05] flex items-center justify-center gap-1 text-[10px] text-white/45 hover:text-amber-200 transition-colors"
           aria-expanded={chromeOpen}
           aria-controls="chat-chrome-strip"
-          title={chromeOpen ? "إخفاء شريط الحالة" : "إظهار شريط الحالة"}
+          title={chromeOpen ? t.hideStatusBarTitle : t.showStatusBarTitle}
         >
           {chromeOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          <span>{chromeOpen ? "إخفاء الحالة" : "إظهار الحالة"}</span>
+          <span>{chromeOpen ? t.hideStatusLabel : t.showStatusLabel}</span>
         </button>
       )}
       <div id="chat-chrome-strip" className={chromeOpen ? "contents" : "hidden"}>
@@ -4974,7 +4977,7 @@ function SubjectPathChat({
           view, while new users still get the richer drawer with progress
           ring + per-stage controls. Hidden until a custom plan exists. */}
       {teachingMode && teachingMode !== 'unset' && customPlan && (() => {
-        const compactStages = parsePlanStages(customPlan);
+        const compactStages = parsePlanStages(customPlan, lang);
         if (compactStages.length === 0) return null;
         const total = compactStages.length;
         const currentIdx = Math.min(currentStage, total - 1);
@@ -4984,8 +4987,8 @@ function SubjectPathChat({
             onClick={() => setPathDrawerOpen(true)}
             className="shrink-0 px-2.5 sm:px-3 py-1 border-b border-white/5 hover:bg-white/[0.03] transition-colors text-right w-full"
             style={{ direction: "rtl" }}
-            title={`المرحلة ${Math.min(currentStage + 1, total)} من ${total} — اضغط لفتح المسار الكامل`}
-            aria-label="عرض شريط المراحل المضغوط — اضغط لفتح المسار الكامل"
+            title={lang === "ar" ? `المرحلة ${Math.min(currentStage + 1, total)} من ${total} — اضغط لفتح المسار الكامل` : `Stage ${Math.min(currentStage + 1, total)} of ${total} — click to open full path`}
+            aria-label={t.stageBarAriaLabel}
           >
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold text-amber-300/80 shrink-0 tabular-nums">
@@ -5008,7 +5011,7 @@ function SubjectPathChat({
                 if (!nextMicro && totalMicro === 0) return null;
                 return (
                   <span className="text-[10px] text-amber-300/55 truncate hidden sm:inline max-w-[120px]">
-                    {totalMicro > 0 ? `· خطوة ${Math.min(doneMicro + 1, totalMicro)} من ${totalMicro}${nextMicro ? `: ${nextMicro}` : ""}` : null}
+                    {totalMicro > 0 ? `· ${lang === "ar" ? "خطوة" : "Step"} ${Math.min(doneMicro + 1, totalMicro)} ${lang === "ar" ? "من" : "of"} ${totalMicro}${nextMicro ? `: ${nextMicro}` : ""}` : null}
                   </span>
                 );
               })()}
@@ -5029,27 +5032,27 @@ function SubjectPathChat({
           <div className="flex items-center gap-1.5 min-w-0" style={{ direction: "rtl" }}>
             {teachingMode === 'professor' ? (
               <>
-                <span className="text-[11px] font-bold text-amber-300 shrink-0">📚 منهج الأستاذ</span>
-                <span className="text-[10px] text-white/40 truncate">{activeMaterialId ? "ملف نشط" : "اختر ملفاً"}</span>
+                <span className="text-[11px] font-bold text-amber-300 shrink-0">📚 {t.modeProfessor}</span>
+                <span className="text-[10px] text-white/40 truncate">{activeMaterialId ? t.activeFileLabel : t.chooseFileLabel}</span>
                 {activeMaterialId && activeMaterialCoverage === "partial" && (
                   <span
                     className="shrink-0 text-[9px] font-bold text-amber-200 bg-amber-500/20 border border-amber-500/40 rounded px-1.5 py-0.5"
-                    title="بعض صفحات هذا الملف لم يُستخرج نصها بدقة — يمكن إعادة المحاولة من نافذة المصادر"
+                    title={t.partialCoverageTitle}
                   >
-                    تغطية جزئية
+                    {t.partialCoverageLabel}
                   </span>
                 )}
                 {activeMaterialId && activeMaterialCoverage === "failed" && (
                   <span
                     className="shrink-0 text-[9px] font-bold text-rose-200 bg-rose-500/20 border border-rose-500/40 rounded px-1.5 py-0.5"
-                    title="تعذّر استخراج نص هذا الملف — افتح نافذة المصادر لإعادة المحاولة"
+                    title={t.failedCoverageTitle}
                   >
-                    فشل التغطية
+                    {t.failedCoverageLabel}
                   </span>
                 )}
               </>
             ) : (
-              <span className="text-[11px] font-bold text-purple-300 shrink-0">🧭 مسار مخصّص</span>
+              <span className="text-[11px] font-bold text-purple-300 shrink-0">🧭 {t.modeCustom}</span>
             )}
           </div>
           <div className="shrink-0 flex items-center gap-1">
@@ -5059,33 +5062,33 @@ function SubjectPathChat({
                 onClick={handleEndSession}
                 disabled={isStreaming}
                 className="session-action-btn flex items-center gap-1 text-[11px] font-bold text-amber-100 bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                title="إنهاء الجلسة وحفظ ملخص لها في لوحتي"
-                aria-label="إنهاء الجلسة وحفظ الملخص"
+                title={t.endSessionTitle}
+                aria-label={t.endSessionAriaLabel}
               >
                 <FileText className="w-3.5 h-3.5" />
-                <span className="hidden xs:inline sm:inline">إنهاء الجلسة</span>
+                <span className="hidden xs:inline sm:inline">{t.endSessionLabel}</span>
               </button>
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   className="session-action-btn flex items-center gap-1 text-[11px] font-bold text-white/80 hover:text-amber-200 bg-white/5 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/40 transition-all"
-                  title="إجراءات الجلسة"
-                  aria-label="إجراءات الجلسة"
+                  title={t.sessionActionsTitle}
+                  aria-label={t.sessionActionsAriaLabel}
                 >
                   <MoreHorizontal className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">الإجراءات</span>
+                  <span className="hidden sm:inline">{t.sessionActionsLabel}</span>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={6} className="w-56" style={{ direction: "rtl" }}>
-                <DropdownMenuLabel className="text-[11px] text-white/50 font-normal">إجراءات الجلسة</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-[11px] text-white/50 font-normal">{t.sessionActionsMenuLabel}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={() => setShowSourcesPanel(true)}
                   className="cursor-pointer gap-2 text-sm"
                 >
                   <BookMarked className="w-4 h-4 text-white/60" />
-                  <span>مصادري</span>
+                  <span>{t.sourcesLabel}</span>
                 </DropdownMenuItem>
                 {teachingMode === 'professor' && activeMaterialId && (
                   <>
@@ -5095,9 +5098,9 @@ function SubjectPathChat({
                       className="cursor-pointer gap-2 text-sm"
                     >
                       <MapIcon className="w-4 h-4 text-amber-300" />
-                      <span>خريطة المنهج</span>
+                      <span>{t.curriculumMapLabel}</span>
                       {curriculumChapters.length > 0 && (
-                        <span className="me-auto text-[10px] text-white/40">{curriculumChapters.length} فصل</span>
+                        <span className="me-auto text-[10px] text-white/40">{curriculumChapters.length} {t.chaptersCountSuffix}</span>
                       )}
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -5105,25 +5108,25 @@ function SubjectPathChat({
                       className="cursor-pointer gap-2 text-sm"
                     >
                       <GraduationCap className="w-4 h-4 text-amber-400" />
-                      <span>اختبرني على هذا الفصل</span>
+                      <span>{t.quizChapterLabel}</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() => setQuizPanel({ open: true, kind: 'exam' })}
                       className="cursor-pointer gap-2 text-sm"
                     >
                       <Trophy className="w-4 h-4 text-purple-400" />
-                      <span>الامتحان النهائي</span>
+                      <span>{t.finalExamLabel}</span>
                     </DropdownMenuItem>
                   </>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-[11px] text-white/50 font-normal">التحكم بالجلسة</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-[11px] text-white/50 font-normal">{t.sessionControlLabel}</DropdownMenuLabel>
                 <DropdownMenuItem
                   onSelect={() => setSessionPaused(p => !p)}
                   className="cursor-pointer gap-2 text-sm"
                 >
                   {sessionPaused ? <Play className="w-4 h-4 text-emerald-400" /> : <Pause className="w-4 h-4 text-white/60" />}
-                  <span>{sessionPaused ? "استئناف الجلسة" : "إيقاف مؤقت"}</span>
+                  <span>{sessionPaused ? t.resumeSessionLabel : t.pauseLabel}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={handleRestartStage}
@@ -5131,23 +5134,23 @@ function SubjectPathChat({
                   className="cursor-pointer gap-2 text-sm"
                 >
                   <RotateCcw className="w-4 h-4 text-white/60" />
-                  <span>إعادة شرح هذه المرحلة</span>
+                  <span>{t.reExplainStageMenu}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger className="cursor-pointer gap-2 text-sm">
                     <Gauge className="w-4 h-4 text-white/60" />
-                    <span>مستوى الصعوبة</span>
-                    <span className="me-auto text-[10px] text-white/40">{difficulty === "easy" ? "مبسّط" : difficulty === "advanced" ? "متقدّم" : "عادي"}</span>
+                    <span>{t.difficultyMenuLabel}</span>
+                    <span className="me-auto text-[10px] text-white/40">{difficulty === "easy" ? t.difficultyEasy : difficulty === "advanced" ? t.difficultyAdvanced : t.difficultyNormal}</span>
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent style={{ direction: "rtl" }}>
                     <DropdownMenuItem onSelect={() => setDifficulty("easy")} className="cursor-pointer gap-2 text-sm">
-                      <span className="text-emerald-400">●</span><span>مبسّط</span>{difficulty === "easy" && <Check className="w-4 h-4 me-auto text-emerald-400" />}
+                      <span className="text-emerald-400">●</span><span>{t.difficultyEasy}</span>{difficulty === "easy" && <Check className="w-4 h-4 me-auto text-emerald-400" />}
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setDifficulty("normal")} className="cursor-pointer gap-2 text-sm">
-                      <span className="text-amber-400">●</span><span>عادي</span>{difficulty === "normal" && <Check className="w-4 h-4 me-auto text-amber-400" />}
+                      <span className="text-amber-400">●</span><span>{t.difficultyNormal}</span>{difficulty === "normal" && <Check className="w-4 h-4 me-auto text-amber-400" />}
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setDifficulty("advanced")} className="cursor-pointer gap-2 text-sm">
-                      <span className="text-rose-400">●</span><span>متقدّم</span>{difficulty === "advanced" && <Check className="w-4 h-4 me-auto text-rose-400" />}
+                      <span className="text-rose-400">●</span><span>{t.difficultyAdvanced}</span>{difficulty === "advanced" && <Check className="w-4 h-4 me-auto text-rose-400" />}
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
@@ -5158,14 +5161,14 @@ function SubjectPathChat({
                   className="cursor-pointer gap-2 text-sm"
                 >
                   {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin text-white/60" /> : <Download className="w-4 h-4 text-white/60" />}
-                  <span>{exportingPdf ? "جاري التصدير..." : "تصدير المحادثة (PDF)"}</span>
+                  <span>{exportingPdf ? t.exportingPdfLabel : t.exportPdfLabel}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={handleCopyShareLink}
                   className="cursor-pointer gap-2 text-sm"
                 >
                   {shareCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4 text-white/60" />}
-                  <span>{shareCopied ? "تم نسخ الرابط ✓" : "نسخ رابط المشاركة"}</span>
+                  <span>{shareCopied ? t.linkCopiedLabel : t.copyShareLinkLabel}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -5193,19 +5196,19 @@ function SubjectPathChat({
             <DrawerHeader className="text-right">
               <DrawerTitle className="flex items-center gap-2">
                 <MapIcon className="w-5 h-5 text-amber-300" />
-                <span>خريطة المنهج</span>
+                <span>{t.curriculumTitle}</span>
                 {activeMaterialFileName && (
                   <span className="text-xs font-normal text-white/50 truncate">— {activeMaterialFileName}</span>
                 )}
               </DrawerTitle>
               <DrawerDescription className="text-right text-xs">
-                ✓ مُكتمل · ▶ نشط · ○ قادم — اضغط "راجع" للعودة لأي فصل سابق.
+                {t.curriculumLegend}
               </DrawerDescription>
             </DrawerHeader>
             <div className="overflow-y-auto px-4 pb-6 space-y-2" style={{ direction: "rtl" }}>
               {curriculumChapters.length === 0 ? (
                 <div className="text-center text-sm text-white/50 py-8">
-                  لا يوجد فهرس مُولَّد لهذا الملف بعد.
+                  {t.curriculumEmpty}
                 </div>
               ) : (
                 curriculumChapters.map((c) => {
@@ -5251,7 +5254,7 @@ function SubjectPathChat({
                             </span>
                             {c.startPage > 0 && c.endPage > 0 && (
                               <span className="text-[10px] text-white/40 shrink-0">
-                                صفحات {c.startPage}–{c.endPage}
+                                {t.curriculumPagesLabel} {c.startPage}–{c.endPage}
                               </span>
                             )}
                           </div>
@@ -5272,7 +5275,7 @@ function SubjectPathChat({
                         <button
                           type="button"
                           className="shrink-0 text-[11px] font-bold px-2 py-1 rounded border border-amber-500/40 text-amber-200 hover:bg-amber-500/15 transition-colors"
-                          title={`أرسل "راجع الفصل ${c.idx + 1}" للمعلّم`}
+                          title={`${t.curriculumReviewBtn} ${c.idx + 1}`}
                           onClick={() => {
                             const text = `راجع الفصل ${c.idx + 1}`;
                             setInput((prev) => (prev && prev.trim().length > 0 ? `${prev}\n${text}` : text));
@@ -5280,7 +5283,7 @@ function SubjectPathChat({
                             setTimeout(() => inputRef.current?.focus(), 80);
                           }}
                         >
-                          راجع
+                          {t.curriculumReviewBtn}
                         </button>
                       </div>
                     </div>
@@ -5368,11 +5371,11 @@ function SubjectPathChat({
           >
             <DrawerHeader className="border-b border-white/10 flex-row items-center justify-between gap-2">
               <div>
-                <DrawerTitle className="text-white text-base">مسار التعلّم</DrawerTitle>
-                <DrawerDescription className="text-[11px] text-white/50">المرحلة {Math.min(currentStage + 1, stages.length || 1)} من {stages.length || 1}</DrawerDescription>
+                <DrawerTitle className="text-white text-base">{t.pathDrawerTitle}</DrawerTitle>
+                <DrawerDescription className="text-[11px] text-white/50">{lang === "ar" ? `المرحلة ${Math.min(currentStage + 1, stages.length || 1)} من ${stages.length || 1}` : `Stage ${Math.min(currentStage + 1, stages.length || 1)} of ${stages.length || 1}`}</DrawerDescription>
               </div>
               <DrawerClose asChild>
-                <button type="button" className="w-10 h-10 sm:w-8 sm:h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white" aria-label="إغلاق">
+                <button type="button" className="w-10 h-10 sm:w-8 sm:h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white" aria-label={t.closeAriaLabel}>
                   <X className="w-4 h-4" />
                 </button>
               </DrawerClose>
@@ -5388,8 +5391,8 @@ function SubjectPathChat({
                   if (isStreaming || sessionPaused) return;
                   setPathDrawerOpen(false);
                   const text = idx < currentStage
-                    ? `أريد مراجعة المرحلة ${idx + 1}: ${title}. ابدأ الشرح من بدايتها.`
-                    : `أريد الانتقال إلى المرحلة ${idx + 1}: ${title}. ابدأ شرحها الآن.`;
+                    ? t.jumpReviewMsg.replace("{num}", String(idx + 1)).replace("{title}", title)
+                    : t.jumpForwardMsg.replace("{num}", String(idx + 1)).replace("{title}", title);
                   sendTeachMessageRef.current(text);
                 }}
               />
@@ -5402,7 +5405,7 @@ function SubjectPathChat({
       {chatPhase === 'diagnostic' && (
         <div className="shrink-0 px-3 py-1 border-b border-purple-500/15 flex items-center justify-center gap-2" style={{ background: "rgba(139,92,246,0.06)" }}>
           <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-          <p className="text-[11px] text-purple-300 font-medium truncate">مرحلة التشخيص — يبني معلمك خطتك التعليمية الشخصية</p>
+          <p className="text-[11px] text-purple-300 font-medium truncate">{t.diagnosticBanner}</p>
         </div>
       )}
 
@@ -5425,15 +5428,15 @@ function SubjectPathChat({
               <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
                 <Pause className="w-6 h-6 text-amber-300" />
               </div>
-              <h4 className="text-lg font-bold text-white mb-1">الجلسة متوقّفة مؤقتاً</h4>
-              <p className="text-[12px] text-white/60 leading-relaxed mb-4">المؤقّت متوقّف وحقل الإدخال معطّل. اضغط "استئناف" للعودة للتعلّم.</p>
+              <h4 className="text-lg font-bold text-white mb-1">{t.pausedTitle}</h4>
+              <p className="text-[12px] text-white/60 leading-relaxed mb-4">{t.pausedDesc}</p>
               <button
                 type="button"
                 onClick={() => setSessionPaused(false)}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 text-black font-bold text-sm hover:from-amber-300 hover:to-amber-500 transition-all"
               >
                 <Play className="w-4 h-4" />
-                استئناف
+                {t.resumeBtn}
               </button>
             </div>
           </div>
@@ -5513,11 +5516,11 @@ function SubjectPathChat({
                       {isLastMsg && !isStreaming && msg.role === 'assistant' && (msg.content || '').length > 80 && (
                         <div className="mt-2 flex flex-wrap gap-1.5" style={{ direction: 'rtl' }}>
                           {[
-                            { label: '🤔 لم أفهم تماماً', msg: 'لم أفهم تماماً، هل يمكنك إعادة الشرح بطريقة أبسط وأكثر تفصيلاً؟' },
-                            { label: '🔁 اشرح بطريقة أخرى', msg: 'اشرح لي نفس الفكرة بطريقة مختلفة كلياً (تشبيه آخر أو مثال آخر).' },
-                            { label: '📝 أعطني مثالاً آخر', msg: 'أعطني مثالاً تطبيقياً آخر مختلفاً عن الذي ذكرته.' },
-                            { label: '✏️ لخّص بنقاط', msg: 'لخّص لي ما شرحته الآن في 3 نقاط مختصرة وواضحة.' },
-                            { label: '🎯 اختبرني', msg: 'اختبرني بسؤال تطبيقي صعب على ما شرحته للتأكد من فهمي.' },
+                            { label: t.quickDontUnderstand, msg: t.quickDontUnderstandMsg },
+                            { label: t.quickExplainDiff, msg: t.quickExplainDiffMsg },
+                            { label: t.quickAnotherExample, msg: t.quickAnotherExampleMsg },
+                            { label: t.quickSummarize, msg: t.quickSummarizeMsg },
+                            { label: t.quickChallenge, msg: t.quickChallengeMsg },
                           ].map((b) => (
                             <button
                               key={b.label}
@@ -5575,7 +5578,7 @@ function SubjectPathChat({
               className="min-h-[40px] sm:min-h-[36px] inline-flex items-center gap-2 text-[11px] sm:text-xs px-4 py-2 sm:py-1.5 rounded-full bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/50 hover:border-amber-400/80 text-amber-200 font-bold transition-all"
             >
               <span aria-hidden="true">🔄</span>
-              <span>أعد توليد الخطة</span>
+              <span>{t.regeneratePlan}</span>
             </button>
           </div>
         )}
@@ -5587,11 +5590,11 @@ function SubjectPathChat({
                 onClick={() => onStartLabEnvIntent()}
                 disabled={sessionPaused}
                 className="quick-launch-chip min-h-[40px] sm:min-h-[36px] text-[11px] sm:text-xs px-3 sm:px-3 py-2 sm:py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400/70 text-amber-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                title="ابنِ بيئة تطبيقية تفاعلية لهذه المادة"
-                aria-label="ابنِ بيئة تطبيقية"
+                title={t.labEnvChipTitle}
+                aria-label={t.labEnvChipLabel}
               >
                 <span aria-hidden="true">🧪</span>
-                <span className="hidden xs:inline sm:inline">بيئة تطبيقية</span>
+                <span className="hidden xs:inline sm:inline">{t.labEnvChipLabel}</span>
               </button>
             )}
             {attackSimEnabled && onOpenAttackIntake && !pendingAttackScenario && (
@@ -5600,11 +5603,11 @@ function SubjectPathChat({
                 onClick={() => onOpenAttackIntake()}
                 disabled={sessionPaused}
                 className="quick-launch-chip min-h-[40px] sm:min-h-[36px] text-[11px] sm:text-xs px-3 sm:px-3 py-2 sm:py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 hover:border-rose-400/70 text-rose-100 font-bold transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                title="ابدأ محاكاة هجمة تعليمية"
-                aria-label="محاكاة هجمة"
+                title={t.attackSimChipTitle}
+                aria-label={t.attackSimChipLabel}
               >
                 <span aria-hidden="true">🎯</span>
-                <span className="hidden xs:inline sm:inline">محاكاة هجمة</span>
+                <span className="hidden xs:inline sm:inline">{t.attackSimChipLabel}</span>
               </button>
             )}
             {/* Suggestions toggle — promoted from a standalone row into this
@@ -5616,10 +5619,10 @@ function SubjectPathChat({
               className="min-h-[40px] sm:min-h-[36px] inline-flex items-center gap-1.5 text-[11px] sm:text-xs px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-white/70 hover:text-amber-200 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all"
               aria-expanded={suggestionsOpen}
               aria-controls="suggestion-chips"
-              title={suggestionsOpen ? "إخفاء الاقتراحات" : "إظهار اقتراحات للأسئلة"}
+              title={suggestionsOpen ? t.hideSuggestionsLabel : t.showSuggestionsTitle}
             >
               <Lightbulb className="w-3 h-3" aria-hidden="true" />
-              <span className="hidden xs:inline sm:inline">{suggestionsOpen ? "إخفاء الاقتراحات" : "اقتراحات"}</span>
+              <span className="hidden xs:inline sm:inline">{suggestionsOpen ? t.hideSuggestionsLabel : t.suggestionsLabel}</span>
               {suggestionsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </button>
           </div>
@@ -5629,7 +5632,7 @@ function SubjectPathChat({
             {isTranscribing ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>جارٍ تفريغ الصوت إلى نص...</span>
+                <span>{t.transcribingLabel}</span>
               </>
             ) : (
               <>
@@ -5644,13 +5647,13 @@ function SubjectPathChat({
                   <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "80%", animationDelay: "360ms" }} />
                   <span className="w-0.5 bg-rose-300 rounded-full animate-pulse" style={{ height: "50%", animationDelay: "480ms" }} />
                 </span>
-                <span>تسجيل... {Math.floor(recordingElapsedMs / 1000)}/60 ث</span>
+                <span>{t.recordingPrefix} {Math.floor(recordingElapsedMs / 1000)}/60 {t.recordingSecsUnit}</span>
                 <button
                   type="button"
                   onClick={handleToggleMic}
                   className="ml-1 px-2 py-0.5 rounded-full bg-rose-500/30 hover:bg-rose-500/50 border border-rose-400/60 text-white text-[10px]"
                 >
-                  إيقاف
+                  {t.stopRecordingBtn}
                 </button>
               </>
             )}
@@ -5801,8 +5804,8 @@ function SubjectPathChat({
           {/* Attached image preview chip */}
           {attachedImage && (
             <div className="self-end flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-amber-500/10 border border-amber-500/30" style={{ direction: "rtl" }}>
-              <img src={attachedImage} alt="معاينة" className="w-12 h-12 rounded-lg object-cover" />
-              <span className="text-[11px] text-amber-200">صورة مرفقة جاهزة للإرسال</span>
+              <img src={attachedImage} alt={tr.subject.imageAttachAlt} className="w-12 h-12 rounded-lg object-cover" />
+              <span className="text-[11px] text-amber-200">{tr.subject.imageAttachReady}</span>
               <button
                 type="button"
                 onClick={() => setAttachedImage(null)}
