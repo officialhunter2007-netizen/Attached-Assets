@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { university, skills } from "@/lib/curriculum";
 import type { Subject } from "@/lib/curriculum";
+import { getSubjectName, getCategoryName } from "@/lib/curriculum-en";
 import { AppLayout } from "@/components/layout/app-layout";
 import { motion } from "framer-motion";
 import { useGetLessonViews } from "@workspace/api-client-react";
@@ -80,7 +81,7 @@ function SubjectCard({ subject, viewedLessonIds, index = 0 }: {
   viewedLessonIds: Set<string>;
   index?: number;
 }) {
-  const { tr } = useLang();
+  const { tr, lang } = useLang();
   const colors = getColors(subject.colorFrom);
 
   return (
@@ -135,7 +136,7 @@ function SubjectCard({ subject, viewedLessonIds, index = 0 }: {
             className="text-sm font-bold relative z-10 leading-snug mb-0.5"
             style={{ color: "rgba(255,255,255,0.95)" }}
           >
-            {subject.name}
+            {getSubjectName(subject.id, subject.name, lang)}
           </h3>
 
           {/* Arrow hint */}
@@ -153,7 +154,7 @@ function SubjectCard({ subject, viewedLessonIds, index = 0 }: {
 
 export default function Learn() {
   const { data: views } = useGetLessonViews();
-  const { tr } = useLang();
+  const { tr, lang } = useLang();
 
   const viewedLessonIds = new Set<string>(
     (views ?? []).map(v => `${v.subjectId}__${v.lessonId}`)
@@ -277,7 +278,7 @@ export default function Learn() {
                         boxShadow: "0 0 10px rgba(99,102,241,0.5)",
                       }}
                     />
-                    <h2 className="text-lg md:text-xl font-bold">{category.name}</h2>
+                    <h2 className="text-lg md:text-xl font-bold">{getCategoryName(category.id, category.name, lang)}</h2>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
                     {category.subjects.map((subject, i) => (

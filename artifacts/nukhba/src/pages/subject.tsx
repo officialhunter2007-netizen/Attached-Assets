@@ -18,6 +18,7 @@ import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/lib/use-auth";
 import { getSubjectById } from "@/lib/curriculum";
+import { getSubjectName } from "@/lib/curriculum-en";
 import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@workspace/api-client-react";
 import { useGetLessonViews } from "@workspace/api-client-react";
@@ -262,7 +263,7 @@ function SubscriptionExpiredWall({
         <div className="mb-6">
           <p className="text-sm font-semibold mb-3 flex items-center gap-2">
             <Calendar className="w-4 h-4 text-gold" />
-            {t.expiredNextLearn.replace("{name}", subject.name)}
+            {t.expiredNextLearn.replace("{name}", getSubjectName(subject.id, subject.name, lang))}
           </p>
           <ul className="space-y-1.5">
             {nextStages.map((stage: string, i: number) => (
@@ -948,7 +949,7 @@ export default function Subject() {
     : subjectRaw;
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const { tr } = useLang();
+  const { tr, lang } = useLang();
   const t = tr.subject;
 
   // If launched with `?sources=<materialId>` (e.g. from the dashboard's
@@ -1145,7 +1146,7 @@ export default function Subject() {
                 {subject.emoji}
               </div>
               <div className="flex-1 min-w-0">
-                <h1 className="text-2xl md:text-3xl font-black">{subject.name}</h1>
+                <h1 className="text-2xl md:text-3xl font-black">{getSubjectName(subject.id, subject.name, lang)}</h1>
                 {lessonViews && lessonViews.length > 0 && (() => {
                   const subjectViews = lessonViews.filter(v => v.subjectId === subject.id);
                   const totalLessons = subject.units.reduce((s, u) => s + u.lessons.length, 0);
@@ -1389,7 +1390,7 @@ export default function Subject() {
                         <span className="text-sm">{subject.emoji}</span>
                       </div>
                       <div className="flex items-center gap-2 min-w-0">
-                        <p className="font-bold text-sm leading-tight truncate max-w-[55vw] sm:max-w-[280px]">{t.teacherOf} {subject.name}</p>
+                        <p className="font-bold text-sm leading-tight truncate max-w-[55vw] sm:max-w-[280px]">{t.teacherOf} {getSubjectName(subject.id, subject.name, lang)}</p>
                         <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                           {t.online}
@@ -3441,6 +3442,7 @@ function SubjectPathChat({
         body: JSON.stringify({
           subjectId: subject.id,
           subjectName: subject.name,
+          uiLang: lang,
           // For attachments, the data URL goes ONCE here; the same blob must NOT
           // also appear in the appended history row, otherwise the JSON request
           // body doubles in size and can blow past express.json's 10MB cap.
@@ -4430,19 +4432,19 @@ function SubjectPathChat({
           </div>
           {expired ? (
             <>
-              <h3 className="text-2xl font-bold mb-2">جلستك التالية جاهزة! 🎉</h3>
+              <h3 className="text-2xl font-bold mb-2">{t.dailyLimitNextTitle}</h3>
               <p className="text-muted-foreground mb-8 max-w-sm text-sm leading-relaxed">
-                مرّ يوم جديد — يمكنك بدء الجلسة التالية الآن ومتابعة المسار من حيث توقفت.
+                {t.dailyLimitNextDesc}
               </p>
             </>
           ) : (
             <>
-              <h3 className="text-2xl font-bold mb-2">أحسنت! أتممت جلستك اليوم 🎯</h3>
+              <h3 className="text-2xl font-bold mb-2">{t.dailyLimitDoneTitle}</h3>
               <p className="text-muted-foreground mb-8 max-w-sm text-sm leading-relaxed">
-                يُفتح لك الدرس التالي تلقائياً في نهاية العد التنازلي — التعلم المنتظم يُرسّخ المعلومة أكثر من الحفظ دفعةً واحدة.
+                {t.dailyLimitDoneDesc}
               </p>
               <div className="mb-8">
-                <p className="text-xs text-muted-foreground mb-4">الجلسة القادمة تبدأ خلال</p>
+                <p className="text-xs text-muted-foreground mb-4">{t.nextSessionIn}</p>
                 <Countdown until={dailyLimitUntil} onExpired={() => setCountdownExpired(true)} />
               </div>
             </>
@@ -4454,7 +4456,7 @@ function SubjectPathChat({
                 className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl"
               >
                 <Sparkles className="w-5 h-5 ml-2" />
-                ابدأ الجلسة التالية الآن
+                {t.startNextSession}
               </Button>
             )}
             <Button
@@ -4463,7 +4465,7 @@ function SubjectPathChat({
               onClick={() => onSessionComplete ? onSessionComplete() : setDailyLimitUntil(null)}
             >
               <FileText className="w-4 h-4 ml-2" />
-              عرض الملخصات
+              {t.viewSummaries}
             </Button>
           </div>
         </motion.div>
@@ -4478,21 +4480,21 @@ function SubjectPathChat({
           <div className="w-24 h-24 rounded-full bg-amber-500/10 border-2 border-amber-500/30 flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(245,158,11,0.15)]">
             <span className="text-4xl">📭</span>
           </div>
-          <h3 className="text-2xl font-bold mb-3">جواهرك نفدت 💎</h3>
+          <h3 className="text-2xl font-bold mb-3">{t.gemsExhaustedTitle}</h3>
           <p className="text-muted-foreground mb-2 max-w-sm text-sm leading-relaxed">
-            استنفدت كامل رصيد جواهرك لهذا الاشتراك في هذه المادة. يمكنك متابعة
-            آخر العمليات في صفحة <a href="/usage" className="text-gold underline">استهلاك الجواهر</a>.
+            {t.gemsExhaustedDesc}{" "}
+            <a href="/usage" className="text-gold underline">{t.gemsUsagePage}</a>.
           </p>
           <p className="text-muted-foreground mb-6 max-w-sm text-sm leading-relaxed">
             {isSummarizing
-              ? "جاري حفظ ملخص جلستك الأخيرة..."
+              ? t.summarySaving
               : summaryError
-                ? "لم يتم حفظ الملخص — تحقق من اتصالك."
-                : "تم حفظ ملخص جلستك الأخيرة في لوحة التحكم ✓"}
+                ? t.summarySaveError
+                : t.summarySaved}
           </p>
           <div className="flex items-center gap-3 mb-8 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-muted-foreground max-w-xs mx-auto">
             <img src="/karimi-logo.png" alt="كريمي" className="w-8 h-8 rounded-lg object-cover shrink-0" />
-            الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية
+            {lang === "ar" ? "الدفع عبر حوالة كريمي — سريع بدون بطاقة بنكية" : "Pay via Karimi transfer — fast, no bank card needed"}
           </div>
           <div className="flex flex-col gap-3 w-full max-w-xs mx-auto">
             <Button
@@ -4523,18 +4525,18 @@ function SubjectPathChat({
           <div className="w-24 h-24 rounded-full bg-emerald/10 border-2 border-emerald/30 flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(16,185,129,0.2)]">
             <Sparkles className="w-12 h-12 text-emerald" />
           </div>
-          <h3 className="text-3xl font-black mb-3 text-emerald">أحسنت! اكتملت الجلسة 🎉</h3>
+          <h3 className="text-3xl font-black mb-3 text-emerald">{t.sessionDone}</h3>
           <p className="text-muted-foreground mb-4 max-w-sm">
-            أتممت جميع مراحل جلسة <strong className="text-foreground">{subject.name}</strong>.
+            {t.sessionDoneDesc} <strong className="text-foreground">{getSubjectName(subject.id, subject.name, lang)}</strong>.
           </p>
           {isSummarizing ? (
             <div className="flex items-center gap-2 justify-center text-gold mb-8">
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">جاري حفظ ملخص الجلسة...</span>
+              <span className="text-sm">{t.summarySaving}</span>
             </div>
           ) : summaryError ? (
             <div className="flex flex-col items-center gap-2 mb-8">
-              <p className="text-sm text-red-400">لم يتم حفظ الملخص — تحقق من اتصالك</p>
+              <p className="text-sm text-red-400">{t.summarySaveError}</p>
               <button
                 onClick={() => {
                   const msgs = messages;
@@ -4543,11 +4545,11 @@ function SubjectPathChat({
                 }}
                 className="text-xs text-gold underline hover:no-underline"
               >
-                إعادة المحاولة
+                {t.summaryRetry}
               </button>
             </div>
           ) : (
-            <p className="text-sm text-emerald mb-8">تم حفظ ملخص الجلسة في لوحة التحكم ✓</p>
+            <p className="text-sm text-emerald mb-8">{t.summarySaved}</p>
           )}
           <div className="flex flex-col gap-3 w-full max-w-xs mx-auto">
             <Button
@@ -4556,7 +4558,7 @@ function SubjectPathChat({
               className="gradient-gold text-primary-foreground font-bold h-12 rounded-xl"
             >
               <Sparkles className="w-5 h-5 ml-2" />
-              {isSummarizing ? "جاري الحفظ..." : "عرض الملخص"}
+              {isSummarizing ? t.summarySavingShort : t.viewSummary}
             </Button>
           </div>
         </motion.div>
@@ -4923,16 +4925,16 @@ function SubjectPathChat({
                       ? "gem-badge-low text-amber-100 bg-amber-500/15 border-amber-500/45"
                       : "text-amber-200/90 bg-amber-500/8 border-amber-500/25"
                 }`}
-                title={`المتبقي اليوم: ${gemState.remaining.toLocaleString("ar-EG")} / ${gemState.daily.toLocaleString("ar-EG")} 💎 — الرصيد الكلي: ${gemState.balance.toLocaleString("ar-EG")}`}
-                aria-label={`الجواهر المتبقية اليوم ${gemState.remaining}`}
+                title={lang === "ar" ? `المتبقي اليوم: ${gemState.remaining.toLocaleString("ar-EG")} / ${gemState.daily.toLocaleString("ar-EG")} 💎 — الرصيد الكلي: ${gemState.balance.toLocaleString("ar-EG")}` : `Today remaining: ${gemState.remaining.toLocaleString()} / ${gemState.daily.toLocaleString()} 💎 — Total balance: ${gemState.balance.toLocaleString()}`}
+                aria-label={lang === "ar" ? `الجواهر المتبقية اليوم ${gemState.remaining}` : `Gems remaining today: ${gemState.remaining}`}
               >
                 <span aria-hidden>💎</span>
-                <span>{gemState.remaining.toLocaleString("ar-EG")}</span>
+                <span>{gemState.remaining.toLocaleString(lang === "ar" ? "ar-EG" : "en-US")}</span>
               </div>
             )}
           </div>
           <div className="min-w-0 flex items-center gap-2 truncate">
-            <span className="text-[12px] font-bold text-white/85 truncate">{subject.name}</span>
+            <span className="text-[12px] font-bold text-white/85 truncate">{getSubjectName(subject.id, subject.name, lang)}</span>
             <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border ${
               difficulty === "easy" ? "bg-emerald-500/12 border-emerald-500/30 text-emerald-200"
               : difficulty === "advanced" ? "bg-rose-500/12 border-rose-500/30 text-rose-200"

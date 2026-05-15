@@ -30,7 +30,7 @@ export default function Lesson() {
   const { user, refreshUser } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { tr } = useLang();
+  const { tr, lang } = useLang();
   const tl = tr.lesson;
 
   const lessonKey = `${subjectId}__${unitId}__${lessonId}`;
@@ -123,7 +123,8 @@ export default function Lesson() {
           lessonTitle: lesson?.title || "درس",
           subjectName: subject?.name || "مادة",
           section: subjectId?.startsWith("skill-") ? "skills" : "university",
-          isSkill: subjectId?.startsWith("skill-")
+          isSkill: subjectId?.startsWith("skill-"),
+          uiLang: lang
         })
       });
 

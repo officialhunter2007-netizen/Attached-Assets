@@ -478,7 +478,7 @@ router.post("/ai/lesson", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectId, unitId, lessonId, lessonTitle, subjectName, section, grade, isSkill } = (req.body ?? {}) as Record<string, any>;
+  const { subjectId, unitId, lessonId, lessonTitle, subjectName, section, grade, isSkill, uiLang } = (req.body ?? {}) as Record<string, any>;
 
   let access: Awaited<ReturnType<typeof getSubjectAccess>>;
   try {
@@ -501,7 +501,35 @@ router.post("/ai/lesson", async (req, res): Promise<void> => {
   const isSecondary = section === "secondary";
   const isTech = isSkill || section === "university";
 
-  const systemPrompt = isSecondary
+  const isLessonEnglish = uiLang === "en";
+  const systemPrompt = isLessonEnglish
+    ? (isSecondary
+      ? `You are a distinguished teacher using a Socratic method that sparks curiosity and lets students discover knowledge themselves.
+Write the lesson in clear, fluent English. The structure:
+
+1. **The Provocative Question** - Start with a question that sparks wonder (e.g. "What if I told you that...?" or "Imagine that..."), don't give the answer yet
+2. **Discover Yourself** - A mental or practical experiment the student can do before the explanation, with: "What do you expect will happen?"
+3. **Gradual Reveal** - Explanation that builds on student expectations step by step, saying: "Now remember your prediction... were you right?"
+4. **Solved Examples** - Easy, intermediate, and exam-style example (each starts with a question before the solution)
+5. **Golden Summary** - 5 unforgettable points (one per line)
+6. **What to Expect in Exams**
+7. **Discovery Challenge** - A question that pushes the student to apply the concept in a new way (with a hidden answer below)
+
+Write everything in HTML inside a single div. No Markdown. No placeholder code.
+Use class="discover-box" for "Discover Yourself" section and class="question-box" for questions.`
+      : `You are a distinguished technical teacher using a Socratic method that sparks curiosity and lets students discover concepts before you explain them.
+Write the content in English. The structure:
+
+1. **The Open Puzzle** - Start with a real problem or exciting scenario that makes the student wonder (don't give the answer), e.g. "Imagine your system was attacked while you were asleep, what would you do if..."
+2. **Discover Yourself** - An experiment that can be run or a thought question: "What do you expect to happen if you write this code?", let the student think before explaining
+3. **Gradual Reveal** - Explanation that builds on the expectation and compares it to reality: "Now try what you expected... did it happen as you planned?"
+4. **Practical Examples** - Basic → Intermediate → Challenge (each starts with: "What do you expect this code to output?"), with real code
+5. **Golden Summary** - 5 core points
+6. **Discovery Challenge** - A question that pushes the student to apply the concept in a new context with its answer
+
+Write everything in HTML inside a single div. Use pre>code for programming code. No Markdown.
+Use class="discover-box" for "Discover Yourself" section and class="question-box" for questions.`)
+    : (isSecondary
     ? `أنت أستاذ يمني متميز تدرّس للطلاب اليمنيين بأسلوب سقراطي يثير الفضول ويجعل الطالب يكتشف المعرفة بنفسه.
 اكتب الدرس بالعربية الفصحى السهلة. استخدم أمثلة من الحياة اليمنية. الهيكل:
 
@@ -526,9 +554,16 @@ router.post("/ai/lesson", async (req, res): Promise<void> => {
 6. **تحدي الاكتشاف** - سؤال يدفع الطالب لتطبيق المفهوم في سياق جديد مع إجابته
 
 اكتب كل شيء بـ HTML داخل div واحد. استخدم pre>code للكود البرمجي. لا Markdown.
-استخدم class="discover-box" لقسم "اكتشف بنفسك" وclass="question-box" للأسئلة.`;
+استخدم class="discover-box" لقسم "اكتشف بنفسك" وclass="question-box" للأسئلة.`);
 
-  const userMessage = `اكتب درساً شاملاً عن:
+  const userMessage = isLessonEnglish
+    ? `Write a comprehensive lesson on:
+Subject: ${subjectName}
+Unit: ${unitId}
+Lesson: ${lessonTitle}
+${grade ? `Grade: ${grade}` : ""}
+Section: ${section}`
+    : `اكتب درساً شاملاً عن:
 المادة: ${subjectName}
 الوحدة: ${unitId}
 الدرس: ${lessonTitle}
@@ -610,13 +645,37 @@ router.post("/ai/interview", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectId, subjectName, userMessage, history, questionCount } = req.body;
+  const { subjectId, subjectName, userMessage, history, questionCount, uiLang: interviewLang } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  const systemPrompt = `أنت محاور تعليمي ذكي تجري مقابلة استكشافية دقيقة مع الطالب لمعرفة مستواه الحقيقي في مادة: ${subjectName}.
+  const isInterviewEnglish = interviewLang === "en";
+  const systemPrompt = isInterviewEnglish
+    ? `You are a smart educational interviewer conducting a precise exploratory interview with a student to assess their real level in the subject: ${subjectName}.
+
+Your goal is not just to know the "general level", but to build an accurate, vivid picture of:
+- **Specific examples the student actually knows** from their own experience (not self-declared level)
+- **Past experiences** with this subject: what did they try? What worked? What confused them?
+- **Their real personal goal**: what problem do they want to solve? What project do they dream of?
+- **Their actual strengths** through what they describe, not how they rate themselves
+
+Interview style (very important):
+- Ask ONE question at a time, phrased so the student gives an example or describes a situation
+- After each answer, use exactly what the student said to dig deeper or move to the next aspect
+- Example good questions: "What's the last thing you tried to do in [subject]?" / "Give me an example of something you fully understood in this subject"
+- Avoid closed questions like: "Are you a beginner?" or "Do you know X?"
+
+Interview rules:
+1. Ask ONE question per message, in friendly, natural English
+2. Don't repeat questions already answered
+3. Be curious and warm, show genuine interest in what the student says
+4. If you've asked 4+ questions and have enough info (clear level + personal goal + specific example + available time), reply with "READY" only
+5. If the picture isn't complete, ask one more question to deepen missing information
+
+Questions asked so far: ${questionCount}`
+    : `أنت محاور تعليمي ذكي تجري مقابلة استكشافية دقيقة مع الطالب لمعرفة مستواه الحقيقي في مادة: ${subjectName}.
 
 هدفك ليس مجرد معرفة "المستوى العام"، بل بناء صورة دقيقة وحيّة عن:
 - **أمثلة محددة يعرفها الطالب فعلاً** من تجربته الخاصة (وليس تصريحه عن نفسه)
@@ -717,13 +776,34 @@ router.post("/ai/build-plan", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectId, subjectName, userName, interviewSummary } = req.body;
+  const { subjectId, subjectName, userName, interviewSummary, uiLang: planLang } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  const systemPrompt = `أنت خبير تربوي يصمم خططاً دراسية مخصصة. أنشئ خطة HTML احترافية وجميلة.
+  const isPlanEnglish = planLang === "en";
+  const systemPrompt = isPlanEnglish
+    ? `You are an expert educational planner designing personalized study plans. Create a professional, beautiful HTML plan.
+
+Requirements:
+- Full HTML with embedded CSS
+- Background: #0f1117
+- Headings: #F59E0B (gold)
+- Details: #10B981 (emerald)
+- Stages: purple
+- Text: #e8d5a3
+- Address the student by name personally
+- Mandatory content:
+  1. Student level analysis
+  2. Stage plan (e.g. 3 stages)
+  3. Detailed weekly schedule
+  4. Daily time allocation
+  5. Suggested resources
+  6. Final goal
+
+Make the design luxurious and motivating. Use the Roboto or Inter font.`
+    : `أنت خبير تربوي يصمم خططاً دراسية مخصصة. أنشئ خطة HTML احترافية وجميلة.
 
 المتطلبات:
 - HTML كامل مع CSS مضمّن
@@ -743,7 +823,13 @@ router.post("/ai/build-plan", async (req, res): Promise<void> => {
 
 اجعل التصميم فاخراً ومحفزاً. استخدم خط Tajawal/Cairo.`;
 
-  const userMessage = `اسم الطالب: ${userName}
+  const userMessage = isPlanEnglish
+    ? `Student name: ${userName}
+Subject: ${subjectName}
+Interview summary: ${interviewSummary}
+
+Create a complete professional HTML study plan.`
+    : `اسم الطالب: ${userName}
 المادة: ${subjectName}
 ملخص المقابلة: ${interviewSummary}
 
@@ -1181,7 +1267,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true, difficultyHint, currentStageContract, isNewStage } = (req.body ?? {}) as Record<string, any>;
+  const { subjectId, subjectName, userMessage, history, planContext, stages, currentStage, isDiagnosticPhase, hasCoding = true, difficultyHint, currentStageContract, isNewStage, uiLang } = (req.body ?? {}) as Record<string, any>;
   // Normalize difficulty hint to one of three buckets. Anything unknown
   // collapses to "normal" so a malformed client value never confuses the
   // system prompt below.
@@ -3360,6 +3446,9 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         role: m.role,
         content: Array.isArray(m.content) ? m.content : (m.content || ""),
       }));
+      if (uiLang === "en") {
+        systemPrompt = `CRITICAL: This is an English-language session. Write ALL your responses in clear, fluent English. No Arabic words anywhere in your output.\n\n` + systemPrompt;
+      }
       const geminiResult = await streamGeminiTeaching({
         systemPrompt,
         messages: geminiMessages,
