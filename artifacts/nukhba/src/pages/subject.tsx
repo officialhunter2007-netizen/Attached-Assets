@@ -206,7 +206,7 @@ function SubscriptionExpiredWall({
   allSummaries: LessonSummary[];
   onRenew: () => void;
 }) {
-  const { tr } = useLang();
+  const { tr, lang } = useLang();
   const t = tr.subject;
   const uniqueSubjects = [...new Set(allSummaries.map(s => s.subjectName))];
   const nextStages = subject.defaultStages?.slice(0, 3) ?? [];
