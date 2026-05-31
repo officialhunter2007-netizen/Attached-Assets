@@ -29,6 +29,7 @@ import { readUserJson, writeUserJson, userKey } from "@/lib/user-storage";
 const FRIENDLY_RETRY_MSG = "تعذّر الوصول للمعلم الآن. تحقّق من اتصالك وحاول مرة أخرى بعد لحظات.";
 
 type ChatMsg = { role: "user" | "assistant"; content: string; image?: string };
+type V4ImageState = { status: "loading" | "ready"; url?: string };
 
 // Cap an attached image at ~4MB (pre-base64) so the SSE turn stays sane.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -85,6 +86,22 @@ function renderImageMarkers(raw: string, loadingLabel = "جارٍ توليد ا�
   return raw.replace(/\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi, (_m, id) =>
     `\n\n<figure class="teach-image teach-image-loading" data-image-id="${id}"><div class="teach-image-spinner"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="label">${loadingLabel}</span></div></figure>\n\n`,
   );
+}
+
+// Bake resolved images into stored content so reloaded sessions render the real
+// picture (the in-memory imageMap is gone after a refresh). A still-loading or
+// unknown id keeps its `[[IMAGE:id]]` marker (re-renders as a spinner). The
+// escaping is minimal because urls are same-origin paths we generate ourselves.
+function inlineReadyImages(content: string, imageMap: Map<string, V4ImageState>): string {
+  if (!content || imageMap.size === 0) return content;
+  return content.replace(/\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi, (m, id) => {
+    const st = imageMap.get(String(id));
+    if (st?.status === "ready" && st.url) {
+      const safeUrl = String(st.url).replace(/"/g, "%22");
+      return `\n\n<figure class="teach-image teach-image-ready" data-image-id="${id}"><img src="${safeUrl}" alt="صورة توضيحية" loading="lazy" /></figure>\n\n`;
+    }
+    return m;
+  });
 }
 
 /* ── VIZ tag → mount placeholder (depth-aware so nested ] survives) ──── */
@@ -262,9 +279,64 @@ ${bodyHtml}
 </body></html>`;
 }
 
-function TeacherBubble({ html, isStreaming }: { html: string; isStreaming: boolean }) {
+function TeacherBubble({ html, isStreaming, imageMap }: { html: string; isStreaming: boolean; imageMap: Map<string, V4ImageState> }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { enhanceTeacherDom(ref.current); }, [html]);
+
+  // FLUX image reconcile — runs on every html/imageMap change (NOT gated on
+  // isStreaming, so the picture appears the instant `imageReady` arrives even
+  // mid-stream). Two jobs: (1) pull a sibling <figcaption> the markdown parser
+  // pushed out of the <figure> back inside it; (2) swap the loading spinner for
+  // the real <img> once the matching id resolves to ready.
+  useEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    const figs = Array.from(root.querySelectorAll<HTMLElement>("figure[data-image-id]"));
+    for (const fig of figs) {
+      // (1) Caption adoption: marked() often emits the figcaption as the figure's
+      // next sibling (sometimes wrapped in a <p>). Move it back inside.
+      if (!fig.querySelector(":scope > figcaption.image-caption")) {
+        const next = fig.nextElementSibling as HTMLElement | null;
+        let cap: HTMLElement | null = null;
+        let wrap: HTMLElement | null = null;
+        if (next) {
+          if (next.tagName === "FIGCAPTION" && next.classList.contains("image-caption")) {
+            cap = next;
+          } else if (
+            next.tagName === "P" &&
+            next.children.length === 1 &&
+            next.firstElementChild instanceof HTMLElement &&
+            next.firstElementChild.tagName === "FIGCAPTION" &&
+            next.firstElementChild.classList.contains("image-caption")
+          ) {
+            cap = next.firstElementChild as HTMLElement;
+            wrap = next;
+          }
+        }
+        if (cap) {
+          fig.appendChild(cap);
+          if (wrap && !wrap.textContent?.trim()) wrap.remove();
+        }
+      }
+      // (2) Spinner → <img> swap once the id resolves.
+      const id = fig.getAttribute("data-image-id") || "";
+      const st = id ? imageMap.get(id) : undefined;
+      if (st?.status === "ready" && st.url) {
+        const existing = fig.querySelector(":scope > img") as HTMLImageElement | null;
+        if (existing && existing.getAttribute("src") === st.url) continue;
+        const cap = fig.querySelector(":scope > figcaption.image-caption") as HTMLElement | null;
+        while (fig.firstChild) fig.removeChild(fig.firstChild);
+        const img = document.createElement("img");
+        img.src = st.url;
+        img.alt = "صورة توضيحية";
+        img.loading = "eager";
+        fig.appendChild(img);
+        if (cap) fig.appendChild(cap);
+        fig.classList.remove("teach-image-loading");
+        fig.classList.add("teach-image-ready");
+      }
+    }
+  }, [html, imageMap]);
 
   // VIZ React-root mounting — only on finalized (non-streaming) HTML so
   // we don't repeatedly mount/unmount during chunk arrival.
@@ -411,6 +483,10 @@ export default function V4Lesson() {
   const userId = user ? String(user.id) : null;
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  // Live FLUX image state, keyed by the id in `[[IMAGE:id]]` markers. The
+  // backend streams `imagePlaceholder` (spinner) then `imageReady` (same-origin
+  // URL); TeacherBubble swaps the real <img> in once a marker's status is ready.
+  const [imageMap, setImageMap] = useState<Map<string, V4ImageState>>(new Map());
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -598,7 +674,15 @@ export default function V4Lesson() {
       const now = Date.now();
       // Never persist the multi-MB base64 thumbnail to localStorage — drop the
       // `image` field; the placeholder text remains so resumed sessions read OK.
-      const persistMessages = messages.map(m => (m.image ? { role: m.role, content: m.content } : m));
+      // For assistant turns, bake any resolved FLUX image (same-origin URL, tiny)
+      // into the stored content so a reloaded session still shows the picture
+      // instead of a stuck spinner (imageMap is in-memory only).
+      const persistMessages = messages.map(m => {
+        if (m.role === "assistant") {
+          return { role: m.role, content: inlineReadyImages(m.content, imageMap) };
+        }
+        return m.image ? { role: m.role, content: m.content } : m;
+      });
       const updated: StoredSession = idx >= 0
         ? { ...prev[idx], messages: persistMessages, updatedAt: now }
         : { id: activeSessionId, createdAt: now, updatedAt: now, messages: persistMessages };
@@ -796,6 +880,25 @@ export default function V4Lesson() {
             }
             if (evt?.error || evt?.friendlyMessage) {
               setError(evt.friendlyMessage || evt.error);
+              continue;
+            }
+            if (evt?.imagePlaceholder?.id) {
+              const id = String(evt.imagePlaceholder.id);
+              setImageMap((prev) => {
+                const next = new Map(prev);
+                next.set(id, { status: "loading" });
+                return next;
+              });
+              continue;
+            }
+            if (evt?.imageReady?.id && typeof evt.imageReady.url === "string") {
+              const id = String(evt.imageReady.id);
+              const url = evt.imageReady.url as string;
+              setImageMap((prev) => {
+                const next = new Map(prev);
+                next.set(id, { status: "ready", url });
+                return next;
+              });
               continue;
             }
             if (typeof evt?.content === "string") {
@@ -1020,7 +1123,7 @@ export default function V4Lesson() {
           {messages.map((m, i) => {
             const isLast = i === messages.length - 1;
             return (
-              <MessageBubble key={i} msg={m} isStreaming={streaming && isLast && m.role === "assistant"} />
+              <MessageBubble key={i} msg={m} isStreaming={streaming && isLast && m.role === "assistant"} imageMap={imageMap} />
             );
           })}
           {streaming && messages[messages.length - 1]?.role === "user" && (
@@ -1199,7 +1302,7 @@ export default function V4Lesson() {
   );
 }
 
-const MessageBubble = ({ msg, isStreaming }: { msg: ChatMsg; isStreaming: boolean }) => {
+const MessageBubble = ({ msg, isStreaming, imageMap }: { msg: ChatMsg; isStreaming: boolean; imageMap: Map<string, V4ImageState> }) => {
   const html = useMemo(() => renderHtml(msg.content), [msg.content]);
   if (msg.role === "user") {
     return (
@@ -1220,7 +1323,7 @@ const MessageBubble = ({ msg, isStreaming }: { msg: ChatMsg; isStreaming: boolea
   return (
     <div className="flex justify-start">
       <div className="max-w-[92%] rounded-3xl rounded-tr-lg bg-white/5 border border-white/10 px-4 py-3">
-        {html ? <TeacherBubble html={html} isStreaming={isStreaming} /> : <Loader2 className="w-4 h-4 animate-spin text-amber-400" />}
+        {html ? <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} /> : <Loader2 className="w-4 h-4 animate-spin text-amber-400" />}
       </div>
     </div>
   );

@@ -601,6 +601,12 @@ export async function buildTeacherSystemPrompt(opts: {
   // process, mechanism, structure, comparison, flow, or algorithm.
   const LSCENE = buildSceneLayer();
 
+  // FLUX.1 [schnell] illustrative still images — the static-visual counterpart
+  // to SCENE. The teacher emits `[[IMAGE: <english prompt>]]`; v4_teach.ts
+  // parses it mid-stream and swaps in a same-origin generated image so lessons
+  // are never a wall of text.
+  const LIMG = buildImageLayer();
+
   // Deterministic weakness-hunter directive (the "genius" loop). Computed
   // server-side from live mastery + chronic weaknesses, it tells the weak
   // teaching model EXACTLY which concept to target this turn and how (probe /
@@ -628,7 +634,7 @@ export async function buildTeacherSystemPrompt(opts: {
         currentLessonCode: lesson.lesson.code,
       });
 
-  const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LSCENE];
+  const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LSCENE, LIMG];
   if (LOPEN) layers.push(LOPEN);
   if (LDIAG) layers.push(LDIAG);
   return layers.join("\n\n");
@@ -658,10 +664,56 @@ export function buildSceneLayer(): string {
     "**قواعد الإدراج**:",
     "- اجعل الوصف **غنيّاً ومحدّداً**: سمِّ العناصر، ورتّبها، واذكر ما الذي يتحرّك/يتغيّر في كل خطوة، والنتيجة، والفكرة المستفادة. كلّما دقّ وصفك، احترف الرسم.",
     "- ضع الوسم في سطر مستقل بين فقرتي شرح، ثم اتبعه بسؤال سقراطي قصير («تابع الرسم… شو تتوقّع يصير بعدها؟»).",
+    "- **بادر تلقائياً**: متى ما أحسستَ أن مفهوماً يصعب فهمه من النصّ وحده ويتّضح كـ«صورة متحرّكة بسيناريو مفهوم»، أصدر الوسم **من نفسك دون انتظار طلب الطالب**. لا تترك المفاهيم البصرية نصّاً جافّاً.",
     "- وسم واحد لكل رسالة على الأكثر. لا تستخدمه في رسالة الافتتاح الإلزامية.",
     "",
     "**مثال**:",
     "[[SCENE: محتال ينتحل صفة موظّف الدعم الفني ويتّصل بموظّفة في شركة. يبدأ ببناء الثقة بذكر اسمها وقسمها، ثم يخلق إحساساً بالطوارئ بأن حسابها سيُغلق، ثم يطلب رمز التحقّق الذي وصلها للتو. الموظّفة تحت الضغط تعطيه الرمز، فيدخل المحتال إلى الحساب. الدرس: لا أحد من الدعم الفني يطلب رمز التحقّق أبداً]]",
+  ].join("\n");
+}
+
+// ─── Illustrative image layer (FLUX.1 schnell infographics) ────────────────
+// The teacher emits `[[IMAGE: <english FLUX prompt>]]` inline. The v4 teach
+// route detects the tag mid-stream, fires FLUX.1 [schnell] generation
+// (fal.ai → Pollinations → local SVG poster — never fails), and swaps a real
+// same-origin <img> into the bubble. FLUX garbles non-Latin scripts, so the
+// prompt MUST be English + "NO TEXT NO LABELS NO WORDS"; the Arabic meaning
+// goes in an HTML <figcaption> directly under the marker.
+export function buildImageLayer(): string {
+  return [
+    "## 13. الصورة التوضيحية الثابتة (IMAGE) — لكي لا يملّ الطالب من النصّ",
+    "تستطيع توليد **صورة/بطاقة معلوماتية بصرية احترافية** عبر نموذج FLUX، باستخدام هذا الوسم:",
+    "```",
+    "[[IMAGE: english FLUX prompt — purely visual, NO TEXT NO LABELS NO WORDS]]",
+    "```",
+    "",
+    "**كيف يعمل**: تكتب وصفاً إنجليزياً غنيّاً بين القوسين فيتولّى النظام توليد الصورة وعرضها داخل فقاعة رسالتك تلقائياً. النصّ العربي لا يُكتَب داخل الصورة أبداً (النموذج يُشوّه الحروف العربية)، بل في `<figcaption>` تحت الوسم مباشرة.",
+    "",
+    "**متى تستخدمه (بادر تلقائياً وبشكل دوريّ في كل درس)**:",
+    "- للمفاهيم **الثابتة البصرية بطبيعتها**: بنية/تشريح (خلية، دائرة كهربائية، مكوّنات نظام)، مقطع عرضي، علاقة مكانية، مقارنة جنباً إلى جنب، استعارة بصرية تختصر شرحاً طويلاً.",
+    "- اجعل الطالب يرى صورة من حين لآخر بدل جدار النصّ — **هدفك ألّا يملّ من القراءة فقط**.",
+    "- **التنسيق مع SCENE**: استخدم SCENE للعمليات والحركة والقصص بين أطراف، واستخدم IMAGE للصور الثابتة. **لا تجمع بين SCENE وIMAGE في الردّ الواحد** — وسمٌ بصريّ واحد كحدّ أقصى لكل ردّ. وزّعهما على مدى الدرس حتى يتنوّع الإيقاع البصري.",
+    "",
+    "**قواعد البرومبت (مهمّة جداً لجودة الصورة)**:",
+    "- ابدأ كل وسم بنواة الجودة هذه حرفياً ثم أكمل بوصف المشهد المحدّد:",
+    "  `professional editorial infographic illustration, isometric flat icons, color-coded sections (soft blue, mint green, warm orange, lavender), subtle gradient background, clear visual hierarchy with thin connector arrows, generous whitespace, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3`",
+    "- صِف العناصر المرئية بدقّة (ما الذي يظهر، كيف يترتّب، الألوان، الأسهم) واربط الأجزاء بدوائر مرقّمة ملوّنة 1 2 3 يشرحها المفتاح العربي تحتها.",
+    "- **ممنوع منعاً باتاً داخل الوسم**: أي كلمة عربية، أي طلب لكتابة نصّ/labels/captions داخل الصورة. الصورة بصرية بحتة فقط.",
+    "- بعد الوسم مباشرةً اكتب المفتاح العربي بهذه الصيغة:",
+    "```html",
+    '<figcaption class="image-caption">',
+    '  <strong class="caption-title">المفتاح: <اسم البطاقة بالعربية></strong>',
+    '  <ol class="caption-legend">',
+    '    <li><span class="num n1">1</span> <شرح الجزء الأول></li>',
+    '    <li><span class="num n2">2</span> <شرح الجزء الثاني></li>',
+    '    <li><span class="num n3">3</span> <شرح الجزء الثالث></li>',
+    "  </ol>",
+    "</figcaption>",
+    "```",
+    "- ضع الوسم في سطر مستقل بين فقرتي شرح. لا تستخدمه في رسالة الافتتاح الإلزامية. وسم IMAGE واحد كحدّ أقصى في الردّ.",
+    "",
+    "**مثال** (دائرة كهربائية بسيطة):",
+    "[[IMAGE: professional editorial infographic illustration, clean schematic of a simple electrical circuit with a battery, a switch, and a lightbulb connected by wires, isometric flat icons, color-coded components (warm orange battery, mint green switch, soft blue bulb), subtle gradient background, thin connector lines, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking each component]]",
   ].join("\n");
 }
 

@@ -56,6 +56,12 @@ import {
   type GeminiMessage,
   type GeminiContentPart,
 } from "../lib/gemini-stream";
+import {
+  generateTeacherImage,
+  resolveTeacherImage,
+  FLUX_SCHNELL_USD_PER_IMAGE,
+  type ImageGenerationResult,
+} from "../lib/image-generation";
 import { emitFriendlyAiFailure } from "./ai";
 
 const router: IRouter = Router();
@@ -374,6 +380,22 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
   let balanceAfter: number | null = null;
   let chargeRequestId = requestId;
 
+  // ── Inline FLUX image generation state (mirrors legacy ai.ts) ─────────────
+  // The teacher emits `[[IMAGE: english prompt]]` tags inline. We detect each
+  // complete tag as it streams, replace it on the wire with a short
+  // `[[IMAGE:id]]` marker (which survives stripProtocolTags untouched), fire
+  // FLUX generation in the background, and emit `imagePlaceholder` / `imageReady`
+  // SSE events so the FE can swap a real same-origin <img> into the bubble.
+  // Capped at one image per reply to bound cost (SCENE is the other visual aid).
+  const MAX_IMAGES_PER_REPLY = 1;
+  let __imageStreamBuffer = "";
+  let __imageCount = 0;
+  // Each entry is the FULL per-image pipeline (generate → bill fal spend →
+  // emit imageReady). We await these before the teaching charge so (a) any
+  // billable fal cost is debited even if the client disconnects mid-stream
+  // and (b) the terminal balanceAfter already reflects image spend.
+  const __imageTasks: Array<Promise<void>> = [];
+
   try {
     // ── 4. Pull recent messages from compression result ───────────────
     const compressed = (req as any)._v4Compressed as {
@@ -441,6 +463,108 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       isFirstTurn: history.length === 0,
       userMessage: message,
     });
+
+    // Sliding-window IMAGE-tag detector. Accumulates streamed text, extracts
+    // each complete `[[IMAGE: prompt]]` tag, replaces it on the wire with a
+    // short `[[IMAGE:id]]` marker, fires FLUX generation, and returns text safe
+    // to forward. Handles tags split across chunks and other `[[XXX:` tags
+    // (flushed normally; only `[[IMAGE:` is held back for completion).
+    const processImageTags = (incoming: string): string => {
+      __imageStreamBuffer += incoming;
+      let safeOutput = "";
+      const MARKER = "[[IMAGE:";
+      while (true) {
+        const tagStart = __imageStreamBuffer.indexOf(MARKER);
+        if (tagStart === -1) {
+          // No started tag yet. Hold back ONLY the longest trailing substring
+          // that could be the BEGINNING of a future `[[IMAGE:` tag, so a tag
+          // split at any boundary survives — including a lone trailing "[" or
+          // "[[IM" (the previous `lastIndexOf("[[")` missed the single-"[" case
+          // and let the second half arrive as unrecognised "[IMAGE:...]]").
+          let hold = 0;
+          const maxK = Math.min(MARKER.length - 1, __imageStreamBuffer.length);
+          for (let k = maxK; k > 0; k--) {
+            if (__imageStreamBuffer.endsWith(MARKER.slice(0, k))) { hold = k; break; }
+          }
+          if (hold > 0) {
+            const cut = __imageStreamBuffer.length - hold;
+            safeOutput += __imageStreamBuffer.slice(0, cut);
+            __imageStreamBuffer = __imageStreamBuffer.slice(cut);
+          } else {
+            safeOutput += __imageStreamBuffer;
+            __imageStreamBuffer = "";
+          }
+          break;
+        }
+        const tagEnd = __imageStreamBuffer.indexOf("]]", tagStart + 8);
+        if (tagEnd === -1) {
+          safeOutput += __imageStreamBuffer.slice(0, tagStart);
+          __imageStreamBuffer = __imageStreamBuffer.slice(tagStart);
+          break;
+        }
+        const promptText = __imageStreamBuffer.slice(tagStart + 8, tagEnd).trim();
+        safeOutput += __imageStreamBuffer.slice(0, tagStart);
+        if (__imageCount >= MAX_IMAGES_PER_REPLY) {
+          logger.warn?.(`[v4/teach/image] dropped IMAGE tag — per-reply cap reached`);
+        } else if (promptText.length === 0) {
+          logger.warn?.("[v4/teach/image] dropped empty IMAGE tag");
+        } else {
+          const imageId = randomBytes(6).toString("hex");
+          __imageCount++;
+          // Emit the id-only marker; the FE turns `[[IMAGE:id]]` into a spinner
+          // figure, then swaps the real <img> in on the matching imageReady.
+          safeOutput += `[[IMAGE:${imageId}]]`;
+          try {
+            if (!res.writableEnded) {
+              res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId } })}\n\n`);
+            }
+          } catch {}
+          // Fire the full per-image pipeline. The store always resolves a
+          // usable same-origin URL (fal → pollinations → local SVG), so every
+          // tag yields exactly one imageReady event (no stuck spinner). Billing
+          // happens HERE, the moment fal spend is confirmed, so a disconnect
+          // before the post-stream teach charge can't grant free paid images.
+          const capturedId = imageId;
+          const task = (async (): Promise<void> => {
+            let gen: ImageGenerationResult | null = null;
+            try {
+              gen = await generateTeacherImage({ userId: uid, subjectId: slug, prompt: promptText });
+            } catch {
+              gen = null;
+            }
+            // Bill fal.ai images immediately + idempotently. requestId is
+            // globally unique (random id) and chargeV4Ai dedupes on it, so this
+            // never double-charges and is independent of the teach-turn charge.
+            if (gen && gen.ok && gen.provider === "fal") {
+              try {
+                await chargeV4Ai({
+                  requestId: `v4img_${capturedId}`,
+                  userId: uid,
+                  subjectId: slug,
+                  costUsd: FLUX_SCHNELL_USD_PER_IMAGE,
+                  source: "v4_ai_image",
+                  model: "flux-schnell",
+                  note: `صورة توضيحية درس ${lessonCode}`,
+                  drainIfInsufficient: true,
+                });
+              } catch {}
+            }
+            // Emit the ready event (best-effort; skipped if the client left).
+            if (res.writableEnded) return;
+            try {
+              const url = gen && gen.ok ? gen.url : (await resolveTeacherImage("")).url;
+              if (!res.writableEnded) {
+                res.write(`data: ${JSON.stringify({ imageReady: { id: capturedId, url } })}\n\n`);
+              }
+            } catch {}
+          })();
+          __imageTasks.push(task);
+        }
+        __imageStreamBuffer = __imageStreamBuffer.slice(tagEnd + 2);
+      }
+      return safeOutput;
+    };
+
     const result = await streamGeminiTeaching({
       systemPrompt,
       messages: geminiMessages,
@@ -452,9 +576,10 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       onChunk: (text) => {
         if (!text) return;
         fullText += text;
-        // Strip in-flight tags from the prose the student sees. Tags are
-        // re-extracted from the full text at the end for effect application.
-        const display = stripProtocolTags(text);
+        // Extract IMAGE tags first (turns `[[IMAGE: prompt]]` → `[[IMAGE:id]]`
+        // and holds back partial tags), THEN strip protocol tags from the prose
+        // the student sees. stripProtocolTags leaves `[[IMAGE:id]]` untouched.
+        const display = stripProtocolTags(processImageTags(text));
         if (display && !res.writableEnded) {
           try {
             res.write(`data: ${JSON.stringify({ content: display })}\n\n`);
@@ -463,7 +588,32 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       },
     });
 
+    // Flush any text held back in the image buffer (an incomplete `[[IMAGE:`
+    // prefix is dropped; everything else is forwarded so no prose is lost).
+    if (__imageStreamBuffer) {
+      const leftover = __imageStreamBuffer.replace(/\[\[IMAGE:[^\]]*$/i, "");
+      __imageStreamBuffer = "";
+      const tailDisplay = stripProtocolTags(leftover);
+      if (tailDisplay && !res.writableEnded) {
+        try {
+          res.write(`data: ${JSON.stringify({ content: tailDisplay })}\n\n`);
+        } catch {}
+      }
+    }
+
+    // Let every per-image pipeline finish: each one self-bills its fal spend
+    // (idempotently) and emits imageReady. Awaiting here means the teaching
+    // charge below reads a balance that already reflects any image debit, and
+    // it bounds the request so generation can't outlive the handler. The store
+    // resolves fast (cache/pollinations/SVG instant; fal ≈ a few seconds).
+    if (__imageTasks.length > 0) {
+      await Promise.allSettled(__imageTasks);
+    }
+
     // ── 6. Charge wallet (post-stream so we know we got a real reply) ─
+    // Teaching tokens only — FLUX image spend is billed separately and
+    // immediately inside each image task (source `v4_ai_image`) so a mid-stream
+    // disconnect can't leak free paid images.
     const usdCost = estimateTeachingCostUsd(result.inputTokens, result.outputTokens);
     if (usdCost > 0) {
       const charge = await chargeV4Ai({
