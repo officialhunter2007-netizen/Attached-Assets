@@ -1,0 +1,75 @@
+{
+  "schema_version": "v4.0",
+  "specialty": {
+    "slug": "example-specialty",
+    "name": "اسم التخصص",
+    "description": "وصف عام للتخصص في سطرين أو ثلاثة",
+    "icon": "📚",
+    "target_persona": "الطالب الذي يستهدفه هذا التخصص",
+    "teacher_tone": "نبرة المعلم المناسبة لهذا التخصص",
+    "yemeni_examples": ["مثال يمني عام ١", "مثال يمني عام ٢"]
+  },
+  "levels": [
+    {
+      "level_index": 1,
+      "name": "اسم المستوى الأول",
+      "goal": "هدف المستوى الأول بوضوح",
+      "exam": { "description": "وصف اختبار المستوى", "pass_threshold_percent": 70 },
+      "stages": [
+        {
+          "stage_index": 1,
+          "name": "اسم المرحلة الأولى",
+          "goal": "هدف المرحلة الأولى",
+          "exam": { "description": "وصف اختبار المرحلة", "pass_threshold_percent": 70 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "اسم الوحدة الأولى",
+              "goal": "هدف الوحدة الأولى بوضوح",
+              "prerequisite_units": [],
+              "enables_units": [],
+              "key_concepts": ["مفهوم رئيسي ١", "مفهوم رئيسي ٢"],
+              "exam": { "description": "وصف اختبار الوحدة", "pass_threshold_percent": 70 },
+              "labs": [
+                {
+                  "lab_index": 1,
+                  "title": "عنوان المعمل",
+                  "scenario": "سيناريو المعمل: قصة كاملة يعيشها الطالب ويتعامل معها",
+                  "questions": [
+                    { "kind": "diagnostic",  "prompt": "سؤال تشخيصي" },
+                    { "kind": "decision",    "prompt": "سؤال قرار" },
+                    { "kind": "application", "prompt": "سؤال تطبيقي" },
+                    { "kind": "analysis",    "prompt": "سؤال تحليلي" },
+                    { "kind": "connection",  "prompt": "سؤال ربط" }
+                  ],
+                  "completion_criterion": "معيار إكمال المعمل"
+                }
+              ],
+              "lessons": [
+                {
+                  "lesson_index": 1,
+                  "name": "اسم الدرس الأول",
+                  "goal": "هدف الدرس الأول",
+                  "bridge_sentence": "جملة الجسر الافتتاحية الإلزامية بطول مناسب لجذب الطالب",
+                  "prerequisite_lessons": [],
+                  "enables_lessons": [],
+                  "concepts": [
+                    { "name": "اسم المفهوم", "explanation": "شرح المفهوم بوضوح", "mastery_criterion": "معيار إتقان المفهوم" }
+                  ],
+                  "common_mistakes": [
+                    { "mistake": "الخطأ الشائع", "correction": "التصحيح الصحيح", "treatment": "علاج هذا الخطأ" }
+                  ],
+                  "yemeni_examples": ["مثال من حياة الطالب اليمني"],
+                  "final_check_question": "سؤال التحقق النهائي",
+                  "session_complete_criterion": "متى تنتهي الجلسة",
+                  "expected_duration_minutes": 30,
+                  "estimated_gem_cost": 5
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

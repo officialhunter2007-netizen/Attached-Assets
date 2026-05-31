@@ -1,0 +1,274 @@
+/**
+ * SceneStepper — polished player for a Claude-Sonnet-authored animated SVG
+ * illustration + an Arabic step-by-step caption track.
+ *
+ * The teaching model emits `[[SCENE: <Arabic description>]]`. The lesson page
+ * turns each marker into a `<SceneMount topic=… />` which lazily POSTs the
+ * description to `/api/v4/scene` (Claude-Sonnet-authored, server-cached) and
+ * renders the returned scene here.
+ *
+ * The scene's `svg` is a self-contained, professionally-designed animated SVG
+ * (SMIL/CSS animation, brand palette, RTL Arabic labels). It is the actual
+ * "drawing" — rendered inline after a DOMPurify SVG-profile sanitize. The
+ * `steps` are a short caption track the student walks through (prev/next +
+ * autoplay) to read the pedagogy alongside the animation.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import DOMPurify from "dompurify";
+import {
+  Loader2, ChevronRight, ChevronLeft, Play, Pause, RotateCcw, AlertTriangle,
+} from "lucide-react";
+
+// ── Types (mirror the server Zod schema) ────────────────────────────────────
+type SceneStep = {
+  title: string;
+  explanation: string;
+  note?: string;
+};
+export type Scene = {
+  title: string;
+  subtitle?: string;
+  svg: string;
+  steps: SceneStep[];
+};
+
+const AUTOPLAY_MS = 4600;
+
+// Sanitize the model-authored SVG for safe inline rendering.
+//
+// The SVG is untrusted. We keep the visual SMIL animation tags (`animate`,
+// `animateTransform`) but lock down the classic SVG-sanitizer bypass: an
+// `<animate attributeName="xlink:href" to="javascript:…">` mutating a link.
+// We do that structurally — forbid every element that can carry a navigable/
+// fetchable target (`a`, `use`, `image`, `foreignObject`) and strip `href`/
+// `xlink:href` everywhere — so an animated attribute has nothing dangerous to
+// point at. We also drop `set`/`animateMotion`/`mpath` (not needed; the
+// generator is told to use animate/animateTransform). Pure visual animation
+// (opacity, transform, fill, geometry…) survives.
+function sanitizeSceneSvg(svg: string): string {
+  try {
+    return DOMPurify.sanitize(svg, {
+      USE_PROFILES: { svg: true, svgFilters: true },
+      ADD_TAGS: ["animate", "animateTransform"],
+      ADD_ATTR: [
+        "attributeName", "attributeType", "dur", "begin", "end", "from", "to",
+        "by", "values", "keyTimes", "keySplines", "calcMode", "repeatCount",
+        "repeatDur", "fill", "restart", "additive", "accumulate", "type",
+        "direction",
+      ],
+      FORBID_TAGS: [
+        "a", "use", "image", "foreignObject", "set", "animateMotion", "mpath",
+        "script", "iframe", "audio", "video",
+      ],
+      FORBID_ATTR: ["href", "xlink:href"],
+    }) as unknown as string;
+  } catch {
+    return "";
+  }
+}
+
+// ── The player ──────────────────────────────────────────────────────────────
+export function SceneStepper({ scene }: { scene: Scene }) {
+  const steps = scene.steps;
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const timer = useRef<number | null>(null);
+
+  const clampedIdx = Math.min(idx, steps.length - 1);
+  const step = steps[clampedIdx];
+  const isLast = clampedIdx >= steps.length - 1;
+
+  const cleanSvg = useMemo(() => sanitizeSceneSvg(scene.svg), [scene.svg]);
+
+  const goNext = useCallback(() => setIdx((i) => Math.min(i + 1, steps.length - 1)), [steps.length]);
+  const goPrev = useCallback(() => setIdx((i) => Math.max(i - 1, 0)), []);
+  const restart = useCallback(() => { setIdx(0); setPlaying(true); }, []);
+
+  // Autoplay loop — advances captions while playing, auto-stops at the last.
+  useEffect(() => {
+    if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
+    if (!playing) return;
+    if (isLast) { setPlaying(false); return; }
+    timer.current = window.setTimeout(() => setIdx((i) => Math.min(i + 1, steps.length - 1)), AUTOPLAY_MS);
+    return () => { if (timer.current) window.clearTimeout(timer.current); };
+  }, [playing, clampedIdx, isLast, steps.length]);
+
+  return (
+    <div
+      dir="rtl"
+      className="my-4 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.04] to-white/[0.01] p-4 shadow-lg"
+    >
+      {/* Header */}
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[13px] font-bold text-amber-300">
+            <span className="text-base">🎬</span>
+            <span className="truncate">{scene.title}</span>
+          </div>
+          {scene.subtitle && (
+            <div className="mt-0.5 text-[11px] text-white/55 line-clamp-2">{scene.subtitle}</div>
+          )}
+        </div>
+        <span className="shrink-0 rounded-full bg-white/8 px-2.5 py-1 text-[11px] font-semibold text-white/70">
+          خطوة {clampedIdx + 1} من {steps.length}
+        </span>
+      </div>
+
+      {/* Animated SVG stage */}
+      {cleanSvg ? (
+        <div
+          className="scene-svg-stage relative w-full overflow-hidden rounded-xl bg-black/25 p-2 [&_svg]:h-auto [&_svg]:w-full"
+          dangerouslySetInnerHTML={{ __html: cleanSvg }}
+        />
+      ) : (
+        <div className="rounded-xl bg-black/25 p-6 text-center text-[12px] text-white/50">
+          تعذّر عرض الرسم
+        </div>
+      )}
+
+      {/* Step explanation */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={clampedIdx}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.28 }}
+          className="mt-3 rounded-xl border border-white/8 bg-white/[0.03] p-3"
+        >
+          <div className="mb-1 flex items-center gap-2">
+            <span className="rounded bg-amber-500/95 px-1.5 py-0.5 text-[9px] font-bold text-amber-950">
+              {clampedIdx + 1}
+            </span>
+            <h4 className="text-[13px] font-bold text-amber-200">{step.title}</h4>
+          </div>
+          <p className="text-[12.5px] leading-relaxed text-white/85">{step.explanation}</p>
+          {step.note && (
+            <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-rose-500/10 p-2 text-[11.5px] text-rose-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{step.note}</span>
+            </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
+
+      {/* Progress dots */}
+      <div className="mt-3 flex items-center justify-center gap-1.5">
+        {steps.map((_, i) => (
+          <button
+            key={i}
+            onClick={() => { setIdx(i); setPlaying(false); }}
+            aria-label={`الذهاب للخطوة ${i + 1}`}
+            className={[
+              "h-1.5 rounded-full transition-all",
+              i === clampedIdx ? "w-5 bg-amber-400" : "w-1.5 bg-white/20 hover:bg-white/40",
+            ].join(" ")}
+          />
+        ))}
+      </div>
+
+      {/* Controls */}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <button
+          onClick={goPrev}
+          disabled={clampedIdx === 0}
+          className="flex items-center gap-1 rounded-lg bg-white/8 px-3 py-1.5 text-[12px] font-semibold text-white/80 transition hover:bg-white/12 disabled:opacity-30"
+        >
+          <ChevronRight className="h-4 w-4" />
+          السابق
+        </button>
+
+        {isLast && !playing ? (
+          <button
+            onClick={restart}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-500/90 px-4 py-1.5 text-[12px] font-bold text-emerald-950 transition hover:bg-emerald-400"
+          >
+            <RotateCcw className="h-4 w-4" />
+            إعادة
+          </button>
+        ) : (
+          <button
+            onClick={() => setPlaying((p) => !p)}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-500/95 px-4 py-1.5 text-[12px] font-bold text-amber-950 transition hover:bg-amber-400"
+          >
+            {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            {playing ? "إيقاف" : "تشغيل"}
+          </button>
+        )}
+
+        <button
+          onClick={goNext}
+          disabled={isLast}
+          className="flex items-center gap-1 rounded-lg bg-white/8 px-3 py-1.5 text-[12px] font-semibold text-white/80 transition hover:bg-white/12 disabled:opacity-30"
+        >
+          التالي
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Lazy mount: fetch the scene, handle loading / error / fallback ──────────
+type FetchState =
+  | { status: "loading" }
+  | { status: "ready"; scene: Scene }
+  | { status: "error"; topic: string };
+
+export function SceneMount({ topic, lessonName }: { topic: string; lessonName?: string }) {
+  const [state, setState] = useState<FetchState>({ status: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const r = await fetch("/api/v4/scene", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+          body: JSON.stringify({ topic, lessonName }),
+          signal: ctrl.signal,
+        });
+        if (!r.ok) throw new Error(`http ${r.status}`);
+        const data = await r.json();
+        if (cancelled) return;
+        if (typeof data?.scene?.svg === "string" && data?.scene?.steps?.length) {
+          setState({ status: "ready", scene: data.scene as Scene });
+        } else {
+          setState({ status: "error", topic });
+        }
+      } catch {
+        if (!cancelled) setState({ status: "error", topic });
+      }
+    })();
+    return () => { cancelled = true; ctrl.abort(); };
+  }, [topic, lessonName]);
+
+  if (state.status === "loading") {
+    return (
+      <div dir="rtl" className="my-4 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-5 text-[12.5px] text-white/65">
+        <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+        جاري تجهيز الرسم التوضيحي المتحرّك…
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    // Graceful degrade — show the description as a simple card so the lesson
+    // is never blocked by a generation failure (e.g. missing API key).
+    return (
+      <div dir="rtl" className="my-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="mb-1.5 flex items-center gap-2 text-[12px] font-bold text-amber-300">
+          <span>🎬</span> مشهد توضيحي
+        </div>
+        <p className="text-[12.5px] leading-relaxed text-white/75">{state.topic}</p>
+      </div>
+    );
+  }
+
+  return <SceneStepper scene={state.scene} />;
+}
+
+export default SceneMount;

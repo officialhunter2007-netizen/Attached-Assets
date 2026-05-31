@@ -1,0 +1,14 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "gNztzoMf3UpolDkV5N7f3"
+uri = "file://attached_assets/uni-cybersecurity-template.json"
+type = "unspecified"
+title = "قالب الأمن السيبراني v4.1 — جاهز للنشر"
+
+[[outputs]]
+id = "Q-yPQ300-zLo9fZs_Xqrt"
+uri = "file://.local/v4-instruction-prompt.md"
+type = "text"
+title = "برومت تعبئة ملف تعليمات نُخبة v4 (للنماذج الذكية)"

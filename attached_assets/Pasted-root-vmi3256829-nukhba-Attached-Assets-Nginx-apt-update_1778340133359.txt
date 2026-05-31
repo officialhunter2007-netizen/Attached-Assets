@@ -1,0 +1,129 @@
+root@vmi3256829:~/nukhba/Attached-Assets# # تثبيت Nginx
+apt update && apt install -y nginx
+
+# إنشاء إعداد الموقع
+cat > /etc/nginx/sites-available/nukhba << 'EOF'
+server {
+    listen 80;
+    server_name learnukhba.com www.learnukhba.com;
+
+    # Frontend (built static files)
+    root /root/nukhba/Attached-Assets/artifacts/nukhba/dist/public;
+    index index.html;
+
+    # API proxy
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+
+ss -tlnp | grep -E ':80|:443'ginx && systemctl enable nginxnabled/
+Hit:1 http://security.ubuntu.com/ubuntu jammy-security InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu jammy InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu jammy-updates InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu jammy-backports InRelease
+Hit:5 https://download.docker.com/linux/ubuntu jammy InRelease
+Hit:6 https://deb.nodesource.com/node_20.x nodistro InRelease
+Hit:7 https://pkg.cloudflare.com/cloudflared any InRelease
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+4 packages can be upgraded. Run 'apt list --upgradable' to see them.
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+The following additional packages will be installed:
+  libnginx-mod-http-geoip2 libnginx-mod-http-image-filter libnginx-mod-http-xslt-filter libnginx-mod-mail
+  libnginx-mod-stream libnginx-mod-stream-geoip2 nginx-common nginx-core
+Suggested packages:
+  fcgiwrap nginx-doc ssl-cert
+The following NEW packages will be installed:
+  libnginx-mod-http-geoip2 libnginx-mod-http-image-filter libnginx-mod-http-xslt-filter libnginx-mod-mail
+  libnginx-mod-stream libnginx-mod-stream-geoip2 nginx nginx-common nginx-core
+0 upgraded, 9 newly installed, 0 to remove and 4 not upgraded.
+Need to get 700 kB of archives.
+After this operation, 2404 kB of additional disk space will be used.
+Get:1 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 nginx-common all 1.18.0-6ubuntu14.10 [40.4 kB]
+Get:2 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libnginx-mod-http-geoip2 amd64 1.18.0-6ubuntu14.10 [12.3 kB]
+Get:3 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libnginx-mod-http-image-filter amd64 1.18.0-6ubuntu14.10 [15.8 kB]
+Get:4 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libnginx-mod-http-xslt-filter amd64 1.18.0-6ubuntu14.10 [14.2 kB]
+Get:5 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libnginx-mod-mail amd64 1.18.0-6ubuntu14.10 [46.2 kB]
+Get:6 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libnginx-mod-stream amd64 1.18.0-6ubuntu14.10 [73.2 kB]
+Get:7 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libnginx-mod-stream-geoip2 amd64 1.18.0-6ubuntu14.10 [10.1 kB]
+Get:8 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 nginx-core amd64 1.18.0-6ubuntu14.10 [484 kB]
+Get:9 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 nginx amd64 1.18.0-6ubuntu14.10 [3884 B]
+Fetched 700 kB in 0s (4489 kB/s)
+Preconfiguring packages ...
+Selecting previously unselected package nginx-common.
+(Reading database ... 158937 files and directories currently installed.)
+Preparing to unpack .../0-nginx-common_1.18.0-6ubuntu14.10_all.deb ...
+Unpacking nginx-common (1.18.0-6ubuntu14.10) ...
+Selecting previously unselected package libnginx-mod-http-geoip2.
+Preparing to unpack .../1-libnginx-mod-http-geoip2_1.18.0-6ubuntu14.10_amd64.deb ...
+Unpacking libnginx-mod-http-geoip2 (1.18.0-6ubuntu14.10) ...
+Selecting previously unselected package libnginx-mod-http-image-filter.
+Preparing to unpack .../2-libnginx-mod-http-image-filter_1.18.0-6ubuntu14.10_amd64.deb ...
+Unpacking libnginx-mod-http-image-filter (1.18.0-6ubuntu14.10) ...
+Selecting previously unselected package libnginx-mod-http-xslt-filter.
+Preparing to unpack .../3-libnginx-mod-http-xslt-filter_1.18.0-6ubuntu14.10_amd64.deb ...
+Unpacking libnginx-mod-http-xslt-filter (1.18.0-6ubuntu14.10) ...
+Selecting previously unselected package libnginx-mod-mail.
+Preparing to unpack .../4-libnginx-mod-mail_1.18.0-6ubuntu14.10_amd64.deb ...
+Unpacking libnginx-mod-mail (1.18.0-6ubuntu14.10) ...
+Selecting previously unselected package libnginx-mod-stream.
+Preparing to unpack .../5-libnginx-mod-stream_1.18.0-6ubuntu14.10_amd64.deb ...
+Unpacking libnginx-mod-stream (1.18.0-6ubuntu14.10) ...
+Selecting previously unselected package libnginx-mod-stream-geoip2.
+Preparing to unpack .../6-libnginx-mod-stream-geoip2_1.18.0-6ubuntu14.10_amd64.deb ...
+Unpacking libnginx-mod-stream-geoip2 (1.18.0-6ubuntu14.10) ...
+Selecting previously unselected package nginx-core.
+Preparing to unpack .../7-nginx-core_1.18.0-6ubuntu14.10_amd64.deb ...
+Unpacking nginx-core (1.18.0-6ubuntu14.10) ...
+Selecting previously unselected package nginx.
+Preparing to unpack .../8-nginx_1.18.0-6ubuntu14.10_amd64.deb ...
+Unpacking nginx (1.18.0-6ubuntu14.10) ...
+Setting up nginx-common (1.18.0-6ubuntu14.10) ...
+Created symlink /etc/systemd/system/multi-user.target.wants/nginx.service → /lib/systemd/system/nginx.service.
+Setting up libnginx-mod-http-xslt-filter (1.18.0-6ubuntu14.10) ...
+Setting up libnginx-mod-http-geoip2 (1.18.0-6ubuntu14.10) ...
+Setting up libnginx-mod-mail (1.18.0-6ubuntu14.10) ...
+Setting up libnginx-mod-http-image-filter (1.18.0-6ubuntu14.10) ...
+Setting up libnginx-mod-stream (1.18.0-6ubuntu14.10) ...
+Setting up libnginx-mod-stream-geoip2 (1.18.0-6ubuntu14.10) ...
+Setting up nginx-core (1.18.0-6ubuntu14.10) ...
+ * Upgrading binary nginx                                                                            [ OK ]
+Setting up nginx (1.18.0-6ubuntu14.10) ...
+Processing triggers for man-db (2.10.2-1) ...
+Processing triggers for ufw (0.36.1-4ubuntu0.1) ...
+Scanning processes...
+Scanning candidates...
+Scanning linux images...
+
+Restarting services...
+ systemctl restart packagekit.service
+Service restarts being deferred:
+ systemctl restart systemd-logind.service
+ systemctl restart user@0.service
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+Synchronizing state of nginx.service with SysV service script with /lib/systemd/systemd-sysv-install.
+Executing: /lib/systemd/systemd-sysv-install enable nginx
+Nginx is running!
+LISTEN 0      511        127.0.0.1:8080       0.0.0.0:*    users:(("node",pid=1208180,fd=22))               
+LISTEN 0      511          0.0.0.0:80         0.0.0.0:*    users:(("nginx",pid=1718487,fd=6),("nginx",pid=1718486,fd=6),("nginx",pid=1718485,fd=6),("nginx",pid=1718484,fd=6),("nginx",pid=1718482,fd=6))
+LISTEN 0      511             [::]:80            [::]:*    users:(("nginx",pid=1718487,fd=7),("nginx",pid=1718486,fd=7),("nginx",pid=1718485,fd=7),("nginx",pid=1718484,fd=7),("nginx",pid=1718482,fd=7))

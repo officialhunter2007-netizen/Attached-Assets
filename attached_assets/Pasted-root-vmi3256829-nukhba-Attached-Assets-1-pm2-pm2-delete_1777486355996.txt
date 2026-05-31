@@ -1,0 +1,70 @@
+root@vmi3256829:~/nukhba/Attached-Assets# # 1. احذف عملية pm2 الحالية بالكامل
+pm2 delete api-server
+
+# 2. اكتب إعداد جديد يشير للمجلد الصحيح
+cat > /root/nukhba/Attached-Assets/ecosystem.config.js << 'EOF'
+module.exports = {
+  apps: [{
+    name: "api-server",
+    script: "./artifacts/api-server/dist/index.mjs",
+    cwd: "/root/nukhba/Attached-Assets",
+    interpreter: "node",
+    interpreter_args: "--enable-source-maps",
+    env: {
+      NODE_ENV: "production",
+      PORT: "8080",
+      OPENROUTER_API_KEY: "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"
+    }
+  }]
+}
+EOF
+
+# 3. تأكد أن الـ dist موجود (يجب أن تكون موجودة لأنك بنيت سابقاً)
+ls -la /root/nukhba/Attached-Assets/artifacts/api-server/dist/index.mjs
+
+# 4. شغّل من الإعداد الجديد
+pm2 start /root/nukhba/Attached-Assets/ecosystem.config.js
+pm2 save
+
+pm2 logs api-server --lines 20 --nostream
+[PM2] Applying action deleteProcessId on app [api-server](ids: [ 0, 1 ])
+[PM2] [api-server](0) ✓
+[PM2] [api-server](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+-rw-r--r-- 1 root root 9882143 Apr 29 20:06 /root/nukhba/Attached-Assets/artifacts/api-server/dist/index.mjs
+[PM2][WARN] Applications api-server not running, starting...
+[PM2] App [api-server] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ api-server         │ fork     │ 0    │ online    │ 0%       │ 18.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /root/.pm2/dump.pm2
+[TAILING] Tailing last 20 lines for [api-server] process (change the value with --lines option)
+/root/.pm2/logs/api-server-out.log last 20 lines:
+/root/.pm2/logs/api-server-error.log last 20 lines:
+0|api-serv |     at node:internal/main/run_main_module:28:49 {
+0|api-serv |   code: 'MODULE_NOT_FOUND',
+0|api-serv |   requireStack: []
+0|api-serv | }
+0|api-serv |
+0|api-serv | Node.js v20.20.2
+0|api-serv | node:internal/modules/cjs/loader:1210
+0|api-serv |   throw err;
+0|api-serv |   ^
+0|api-serv |
+0|api-serv | Error: Cannot find module '/root/nukhba/Attached-Assets/artifacts/api-server/artifacts/api-server/dist/index.mjs'
+0|api-serv |     at Module._resolveFilename (node:internal/modules/cjs/loader:1207:15)
+0|api-serv |     at Module._load (node:internal/modules/cjs/loader:1038:27)
+0|api-serv |     at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:164:12)
+0|api-serv |     at node:internal/main/run_main_module:28:49 {
+0|api-serv |   code: 'MODULE_NOT_FOUND',
+0|api-serv |   requireStack: []
+0|api-serv | }
+0|api-serv |
+0|api-serv | Node.js v20.20.2
+
+root@vmi3256829:~/nukhba/Attached-Assets#

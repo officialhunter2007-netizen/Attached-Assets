@@ -1,0 +1,81 @@
+modules = ["nodejs-20", "web", "bash", "python-3.11", "postgresql-16"]
+
+[[artifacts]]
+id = "artifacts/api-server"
+
+[[artifacts]]
+id = "artifacts/mockup-sandbox"
+
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=5000 pnpm --filter @workspace/nukhba run dev & PORT=8080 pnpm --filter @workspace/api-server run dev"
+waitForPort = 5000
+
+[agent]
+stack = "BEST_EFFORT_FALLBACK"
+expertMode = true
+integrations = ["javascript_openai_ai_integrations:2.0.0", "javascript_anthropic_ai_integrations:2.0.0"]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
+
+[nix]
+channel = "stable-25_05"
+packages = ["nano"]
+
+[userenv]
+
+[userenv.shared]
+GOOGLE_CLIENT_ID = "873806717217-6858lsjej4gaio28m1tdi5ptq95dpppt.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET = "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"
+DEFAULT_OBJECT_STORAGE_BUCKET_ID = "replit-objstore-fc8ff6da-a06f-4933-b5c4-5372ec9b78ab"
+PUBLIC_OBJECT_SEARCH_PATHS = "/replit-objstore-fc8ff6da-a06f-4933-b5c4-5372ec9b78ab/public"
+PRIVATE_OBJECT_DIR = "/replit-objstore-fc8ff6da-a06f-4933-b5c4-5372ec9b78ab/.private"
+ADMIN_EMAILS = "officialhunter2007@gmail.com"
+UNLIMITED_ACCESS_EMAILS = "socanalyst38@gmail.com"
+LOG_LEVEL = "info"
+NODE_ENV = "development"
+OPENROUTER_API_KEY = "REMOVED_KEY"
+
+[userenv.production]
+APP_DOMAIN = "learnukhba.replit.app"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 19388
+externalPort = 3001
+
+[[ports]]
+localPort = 23564
+externalPort = 3000

@@ -1,0 +1,268 @@
+these updates are standard security updates.
+To see these additional updates run: apt list --upgradable
+
+3 additional security updates can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+
+  _____
+ / ___/___  _  _ _____ _   ___  ___
+| |   / _ \| \| |_   _/ \ | _ )/ _ \
+| |__| (_) | .` | | |/ _ \| _ \ (_) |
+ \____\___/|_|\_| |_/_/ \_|___/\___/
+
+Welcome!
+
+This server is hosted by Contabo. If you have any questions or need help,
+please raise a support ticket from your customer control panel.
+Last login: Tue Apr 28 18:10:30 2026 from 31.31.178.254
+root@vmi3256829:~# cd nukhba/Attached-Assets/
+root@vmi3256829:~/nukhba/Attached-Assets# # تأكد إن الحاوية شغّالة محلياً
+docker compose ps db
+
+# تأكد إن الـ volume موجود فعلياً على القرص
+docker volume inspect $(docker compose config --volumes | head -1)_postgres_data
+
+# تأكد إن البيانات داخل الحاوية
+docker compose exec db psql -U nukhba_user -d nukhba -c "\dt"
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+NAME                   IMAGE                COMMAND                  SERVICE   CREATED       STATUS                 PORTS
+attached-assets-db-1   postgres:16-alpine   "docker-entrypoint.s…"   db        4 hours ago   Up 4 hours (healthy)   5432/tcp
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[]
+Error response from daemon: get postgres_data_postgres_data: no such volume
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+                     List of relations
+ Schema |            Name             | Type  |    Owner
+--------+-----------------------------+-------+-------------
+ public | activation_cards            | table | nukhba_user
+ public | activity_events             | table | nukhba_user
+ public | ai_teacher_messages         | table | nukhba_user
+ public | ai_usage_events             | table | nukhba_user
+ public | cached_lessons              | table | nukhba_user
+ public | conversations               | table | nukhba_user
+ public | course_material_blobs       | table | nukhba_user
+ public | course_materials            | table | nukhba_user
+ public | discount_codes              | table | nukhba_user
+ public | lab_reports                 | table | nukhba_user
+ public | learning_paths              | table | nukhba_user
+ public | lesson_summaries            | table | nukhba_user
+ public | lesson_views                | table | nukhba_user
+ public | material_chapter_progress   | table | nukhba_user
+ public | material_chunks             | table | nukhba_user
+ public | messages                    | table | nukhba_user
+ public | quiz_attempts               | table | nukhba_user
+ public | referrals                   | table | nukhba_user
+ public | student_mistakes            | table | nukhba_user
+ public | study_cards                 | table | nukhba_user
+ public | subscription_requests       | table | nukhba_user
+ public | support_messages            | table | nukhba_user
+ public | user_progress               | table | nukhba_user
+ public | user_subject_first_lessons  | table | nukhba_user
+ public | user_subject_plans          | table | nukhba_user
+ public | user_subject_subscriptions  | table | nukhba_user
+ public | user_subject_teaching_modes | table | nukhba_user
+ public | users                       | table | nukhba_user
+(28 rows)
+
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose ps
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+NAME                        IMAGE                    COMMAND                  SERVICE   CREATED       STATUS                          PORTS
+attached-assets-api-1       attached-assets-api      "docker-entrypoint.s…"   api       4 hours ago   Up 4 hours                      8080/tcp
+attached-assets-certbot-1   certbot/certbot:latest   "/bin/sh -c 'trap ex…"   certbot   4 hours ago   Up 4 hours                      80/tcp, 443/tcp
+attached-assets-db-1        postgres:16-alpine       "docker-entrypoint.s…"   db        4 hours ago   Up 4 hours (healthy)            5432/tcp
+attached-assets-nginx-1     attached-assets-nginx    "/docker-entrypoint.…"   nginx     4 hours ago   Restarting (1) 36 seconds ago
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose logs nginx --tail 50
+docker compose logs api --tail 50
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+nginx-1  | /docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+nginx-1  | /docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+nginx-1  | 10-listen-on-ipv6-by-default.sh: info: IPv6 listen already enabled
+nginx-1  | /docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+nginx-1  | /docker-entrypoint.sh: Configuration complete; ready for start up
+nginx-1  | 2026/04/28 19:53:01 [emerg] 1#1: cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx-1  | nginx: [emerg] cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx-1  | /docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+nginx-1  | /docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+nginx-1  | 10-listen-on-ipv6-by-default.sh: info: IPv6 listen already enabled
+nginx-1  | /docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+nginx-1  | /docker-entrypoint.sh: Configuration complete; ready for start up
+nginx-1  | 2026/04/28 19:54:02 [emerg] 1#1: cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx-1  | nginx: [emerg] cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx-1  | /docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+nginx-1  | /docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+nginx-1  | 10-listen-on-ipv6-by-default.sh: info: IPv6 listen already enabled
+nginx-1  | /docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+nginx-1  | /docker-entrypoint.sh: Configuration complete; ready for start up
+nginx-1  | 2026/04/28 19:55:02 [emerg] 1#1: cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx-1  | nginx: [emerg] cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx-1  | /docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+nginx-1  | /docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+nginx-1  | 10-listen-on-ipv6-by-default.sh: info: IPv6 listen already enabled
+nginx-1  | /docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+nginx-1  | /docker-entrypoint.sh: Configuration complete; ready for start up
+nginx-1  | 2026/04/28 19:56:03 [emerg] 1#1: cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx-1  | nginx: [emerg] cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx-1  | /docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+nginx-1  | /docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+nginx-1  | 10-listen-on-ipv6-by-default.sh: info: IPv6 listen already enabled
+nginx-1  | /docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+nginx-1  | /docker-entrypoint.sh: Configuration complete; ready for start up
+nginx-1  | 2026/04/28 19:57:03 [emerg] 1#1: cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx-1  | nginx: [emerg] cannot load certificate "/etc/letsencrypt/live/learnukhba.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/learnukhba.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+api-1  | (node:1) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+api-1  | (Use `node --trace-deprecation ...` to show where the warning was created)
+api-1  | {"level":50,"time":1777392835795,"pid":1,"hostname":"b894af1419dd","table":"ai_usage_events","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"ai_usage_events\" (\n        \"id\" serial PRIMARY KEY,\n        \"user_id\" integer REFERENCES \"users\"(\"id\") ON DELETE SET NULL,\n        \"subject_id\" text,\n        \"route\" text NOT NULL,\n        \"provider\" text NOT NULL,\n        \"model\" text NOT NULL,\n        \"input_tokens\" integer NOT NULL DEFAULT 0,\n        \"output_tokens\" integer NOT NULL DEFAULT 0,\n        \"cached_input_tokens\" integer NOT NULL DEFAULT 0,\n        \"cost_usd\" numeric(14, 8) NOT NULL DEFAULT 0,\n        \"latency_ms\" integer,\n        \"status\" text NOT NULL DEFAULT 'success',\n        \"error_message\" text,\n        \"metadata\" jsonb,\n        \"created_at\" timestamp with time zone NOT NULL DEFAULT NOW()\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+api-1  | {"level":50,"time":1777392835807,"pid":1,"hostname":"b894af1419dd","table":"student_mistakes","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"student_mistakes\" (\n        \"id\" serial PRIMARY KEY,\n        \"user_id\" integer NOT NULL,\n        \"subject_id\" text NOT NULL,\n        \"topic\" text NOT NULL,\n        \"mistake\" text NOT NULL,\n        \"correction\" text,\n        \"resolved\" boolean NOT NULL DEFAULT false,\n        \"resolved_at\" timestamp with time zone,\n        \"created_at\" timestamp with time zone NOT NULL DEFAULT NOW()\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+api-1  | {"level":50,"time":1777392835818,"pid":1,"hostname":"b894af1419dd","table":"study_cards","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"study_cards\" (\n        \"id\" serial PRIMARY KEY,\n        \"user_id\" integer NOT NULL,\n        \"subject_id\" text NOT NULL,\n        \"stage_index\" integer,\n        \"stage_name\" text,\n        \"card_html\" text NOT NULL,\n        \"created_at\" timestamp with time zone NOT NULL DEFAULT NOW()\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+api-1  | {"level":40,"time":1777392835829,"pid":1,"hostname":"b894af1419dd","table":"course_materials","err":"Failed query: \n    SELECT column_name\n    FROM information_schema.columns\n    WHERE table_schema = current_schema()\n      AND table_name = $1\n  \nparams: course_materials","msg":"auto-migrate: could not introspect table; skipping"}
+api-1  | {"level":40,"time":1777392835837,"pid":1,"hostname":"b894af1419dd","table":"material_chapter_progress","err":"Failed query: \n    SELECT column_name\n    FROM information_schema.columns\n    WHERE table_schema = current_schema()\n      AND table_name = $1\n  \nparams: material_chapter_progress","msg":"auto-migrate: could not introspect table; skipping"}
+api-1  | {"level":40,"time":1777392835847,"pid":1,"hostname":"b894af1419dd","table":"users","err":"Failed query: \n    SELECT column_name\n    FROM information_schema.columns\n    WHERE table_schema = current_schema()\n      AND table_name = $1\n  \nparams: users","msg":"auto-migrate: could not introspect table; skipping"}
+api-1  | {"level":40,"time":1777392835856,"pid":1,"hostname":"b894af1419dd","table":"user_subject_subscriptions","err":"Failed query: \n    SELECT column_name\n    FROM information_schema.columns\n    WHERE table_schema = current_schema()\n      AND table_name = $1\n  \nparams: user_subject_subscriptions","msg":"auto-migrate: could not introspect table; skipping"}
+api-1  | {"level":30,"time":1777392835856,"pid":1,"hostname":"b894af1419dd","ms":94,"msg":"auto-migrate: schema is up to date"}
+api-1  | {"level":30,"time":1777392835859,"pid":1,"hostname":"b894af1419dd","port":8080,"msg":"Server listening"}
+root@vmi3256829:~/nukhba/Attached-Assets# sudo ss -tulpn | grep -E ':80|:443'
+root@vmi3256829:~/nukhba/Attached-Assets# sudo ufw status
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+Status: active
+
+To                         Action      From
+--                         ------      ----
+22                         ALLOW       Anywhere
+80                         ALLOW       Anywhere
+443                        ALLOW       Anywhere
+3389                       ALLOW       Anywhere
+22 (v6)                    ALLOW       Anywhere (v6)
+80 (v6)                    ALLOW       Anywhere (v6)
+443 (v6)                   ALLOW       Anywhere (v6)
+3389 (v6)                  ALLOW       Anywhere (v6)
+
+Rule added
+Rule added (v6)
+Rule added
+Rule added (v6)
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose run --rm certbot certonly --webroot -w /var/www/certbot -d learnukhba.com -d www.learnukhba.com --email officialhunter2007@gmail.com@gmail.com --agree-tos --no-eff-email
+docker compose restart nginx
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+Container attached-assets-certbot-run-7313d382cc8a Creating
+Container attached-assets-certbot-run-7313d382cc8a Created
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+No renewals were attempted.
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+^C
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] restart 0/1
+ ⠴ Container attached-assets-nginx-1 Restarting              0.4s
+root@vmi3256829:~/nukhba/Attached-Assets# cd ~/nukhba/Attached-Assets
+
+# اعمل نسخة احتياطية من الإعدادات الحالية
+cp docker/nginx/nginx.conf docker/nginx/nginx.conf.ssl-backup
+
+# استبدل nginx.conf بنسخة HTTP-only (عندك في الريبو ملف مستقل لها)
+git checkout docker/nginx/nginx.conf
+# لو git checkout ما عاد بنفس الملف، انسخها يدوياً من نسخة الريبو الأصلية على Replit
+Updated 1 path from the index
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose build nginx
+docker compose up -d nginx
+
+# تأكد إنه شغّال (لازم يكون Up وليس Restarting)
+docker compose ps nginx
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] Building 3.1s (21/21) FINISHED
+ => [internal] load local bake definitions                 0.0s
+ => => reading from stdin 954B                             0.0s
+ => [internal] load build definition from Dockerfile       0.1s
+ => => transferring dockerfile: 2.00kB                     0.0s
+ => [internal] load metadata for docker.io/library/nginx:  1.5s
+ => [internal] load metadata for docker.io/library/node:2  1.5s
+ => [internal] load .dockerignore                          0.0s
+ => => transferring context: 465B                          0.0s
+ => [builder  1/10] FROM docker.io/library/node:22@sha256  0.1s
+ => => resolve docker.io/library/node:22@sha256:9059d9d7d  0.1s
+ => [internal] load build context                          0.1s
+ => => transferring context: 30.28kB                       0.1s
+ => [stage-1 1/3] FROM docker.io/library/nginx:1.27-alpin  0.1s
+ => => resolve docker.io/library/nginx:1.27-alpine@sha256  0.1s
+ => CACHED [builder  2/10] RUN corepack enable && corepac  0.0s
+ => CACHED [builder  3/10] WORKDIR /app                    0.0s
+ => CACHED [builder  4/10] COPY package.json pnpm-workspa  0.0s
+ => CACHED [builder  5/10] COPY lib/ ./lib/                0.0s
+ => CACHED [builder  6/10] COPY scripts/ ./scripts/        0.0s
+ => CACHED [builder  7/10] COPY artifacts/nukhba/ ./artif  0.0s
+ => CACHED [builder  8/10] COPY attached_assets/ ./attach  0.0s
+ => CACHED [builder  9/10] RUN pnpm install --frozen-lock  0.0s
+ => CACHED [builder 10/10] RUN pnpm --filter @workspace/n  0.0s
+ => CACHED [stage-1 2/3] COPY --from=builder /app/artifac  0.0s
+ => CACHED [stage-1 3/3] COPY docker/nginx/nginx.conf /et  0.0s
+ => exporting to image                                     0.4s
+ => => exporting layers                                    0.0s
+ => => exporting manifest sha256:b2e4a3942df6ed6ab3bd012b  0.0s
+ => => exporting config sha256:c26e5a466da0fedecb9c4411ff  0.0s
+ => => exporting attestation manifest sha256:c91141451d36  0.1s
+ => => exporting manifest list sha256:3c9b12956b50ca17408  0.0s
+ => => naming to docker.io/library/attached-assets-nginx:  0.0s
+ => => unpacking to docker.io/library/attached-assets-ngi  0.1s
+ => resolving provenance for metadata file                 0.0s
+[+] build 1/2
+ ✔ Image attached-assets-nginx Built                        3.4s
+ ⠙ Image attached-assets-api   Building                     3.4s
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] up 3/3
+ ✔ Container attached-assets-db-1    Healthy                1.0s
+ ✔ Container attached-assets-api-1   Running                0.0s
+ ✔ Container attached-assets-nginx-1 Started                1.5s
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+NAME                      IMAGE                   COMMAND                  SERVICE   CREATED         STATUS                  PORTS
+attached-assets-nginx-1   attached-assets-nginx   "/docker-entrypoint.…"   nginx     2 seconds ago   Up Less than a second   0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp
+root@vmi3256829:~/nukhba/Attached-Assets# curl -I http://learnukhba.com
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Date: Tue, 28 Apr 2026 20:12:57 GMT
+Content-Type: text/html
+Content-Length: 904
+Last-Modified: Mon, 27 Apr 2026 21:03:34 GMT
+Connection: keep-alive
+ETag: "69efcf26-388"
+Accept-Ranges: bytes
+
+root@vmi3256829:~/nukhba/Attached-Assets# bash docker/deploy.sh --ssl
+[NUKHBA] إعداد شهادة SSL لـ learnukhba.com...
+[NUKHBA] طلب الشهادة من Let's Encrypt...
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+Container attached-assets-certbot-run-da549f3f03dd Creating
+Container attached-assets-certbot-run-da549f3f03dd Created
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+No renewals were attempted.
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+^C
+root@vmi3256829:~/nukhba/Attached-Assets# curl -I https://learnukhba.com
+docker compose ps   # كل الحاويات لازم تكون Up (مش Restarting)
+curl: (7) Failed to connect to learnukhba.com port 443 after 10 ms: Connection refused
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+NAME                        IMAGE                    COMMAND                  SERVICE   CREATED              STATUS                 PORTS
+attached-assets-api-1       attached-assets-api      "docker-entrypoint.s…"   api       4 hours ago          Up 4 hours             8080/tcp
+attached-assets-certbot-1   certbot/certbot:latest   "/bin/sh -c 'trap ex…"   certbot   4 hours ago          Up 4 hours             80/tcp, 443/tcp
+attached-assets-db-1        postgres:16-alpine       "docker-entrypoint.s…"   db        4 hours ago          Up 4 hours (healthy)   5432/tcp
+attached-assets-nginx-1     attached-assets-nginx    "/docker-entrypoint.…"   nginx     About a minute ago   Up About a minute      0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp
+root@vmi3256829:~/nukhba/Attached-Assets#

@@ -1,0 +1,56 @@
+You are tasked with fixing a critical issue in the Nukhba frontend application. The file `artifacts/nukhba/src/pages/subject.tsx` is causing a blank screen when a user navigates to a subject page. This file is also extremely large (almost 6000 lines), which is a major architectural problem.
+
+Here is a breakdown of the issues and the steps you need to take to fix them:
+
+**1. Root Cause of the Blank Screen:**
+
+The blank screen is most likely caused by a runtime error in the `Subject` component within `subject.tsx`. This is likely due to one of the following:
+
+*   **Corrupted File:** The file might be corrupted due to previous failed attempts to edit it. This could have resulted in syntax errors, such as missing or misplaced brackets, or duplicated code blocks.
+*   **Incomplete Data:** The `subject` object, fetched by `getSubjectById`, might be missing some properties that are expected by the rendering logic. For example, if `subject.units` is not an array, any `.reduce` or `.map` call on it will throw a runtime error, leading to a blank page.
+
+**2. Syntax Errors and Incomplete Functions:**
+
+*   **Broken `.replace()` chains:** There are long chains of `.replace()` calls to sanitize HTML. These are fragile and hard to read. You should replace them with a more robust HTML sanitization library like `DOMPurify` if it's not already used effectively.
+*   **Missing or misplaced brackets:** The file is very large and complex, which makes it prone to syntax errors like missing brackets. You need to carefully check the file for any such errors.
+
+**3. Architectural Problems:**
+
+The `subject.tsx` file is a monolith that contains multiple components and a huge amount of logic. This makes it hard to maintain and debug. You need to refactor this file into smaller, manageable components.
+
+**Step-by-step instructions to fix the issues:**
+
+**Step 1: Fix the Blank Screen Issue**
+
+1.  Carefully examine the `Subject` component in `artifacts/nukhba/src/pages/subject.tsx`.
+2.  Add a `console.log(subject)` right after the `const subject = getSubjectById(subjectId || "");` line to inspect the `subject` object in the browser's console.
+3.  Run the application, navigate to a subject page, and check the console for the output. This will help you to identify if the `subject` object is being loaded correctly.
+4.  If the `subject` object is `undefined`, the "not found" page should be displayed. If you see a blank page instead, it means there is a runtime error. 
+5.  Add a check for `subject.units` before using it in the `.reduce` function at line 1119. If it's not defined, render an error message.
+
+**Step 2: Refactor the `subject.tsx` file**
+
+Once the blank screen issue is fixed, you need to refactor the `subject.tsx` file.
+
+1.  **Identify the components:** The file contains several components that should be extracted into their own files. Here is a list of components to start with:
+    *   `SubjectSummaryCard`
+    *   `SubjectLabReportCard`
+    *   `SubscriptionExpiredWall`
+    *   `LearningContractCard`
+    *   `LearningPathPanel`
+    *   `EnvBuildingOverlay`
+    *   `Countdown`
+    *   `AIMessage`
+    *   `SubjectPathChat` (This is a huge component that needs to be broken down further)
+2.  **Create new files:** For each component, create a new file in the `artifacts/nukhba/src/components` directory. For example, `SubjectSummaryCard.tsx`.
+3.  **Move the code:** Move the component's code from `subject.tsx` to the new file.
+4.  **Handle dependencies:** Make sure to import all the necessary dependencies in the new file.
+5.  **Export the component:** Export the component from the new file.
+6.  **Import the component in `subject.tsx`:** Import the newly created component in `subject.tsx` and use it.
+
+**Step 3: Improve Code Quality**
+
+1.  **Replace `.replace()` chains:** Use `DOMPurify` to sanitize HTML content. The `safeHtml` and `safeFeedback` variables are good candidates for this.
+2.  **Add comments:** Add comments to the code to explain the logic, especially for complex parts.
+
+By following these steps, you will fix the blank screen issue, improve the architecture of the application, and make the code more maintainable.

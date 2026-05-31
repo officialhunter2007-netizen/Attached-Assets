@@ -1,0 +1,54 @@
+root@vmi3256829:~/nukhba/Attached-Assets# curl -v http://localhost
+docker compose logs nginx --tail=50
+*   Trying 127.0.0.1:80...
+* Connected to localhost (127.0.0.1) port 80 (#0)
+> GET / HTTP/1.1
+> Host: localhost
+> User-Agent: curl/7.81.0
+> Accept: */*
+> 
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 200 OK
+< Server: nginx/1.27.5
+< Date: Tue, 12 May 2026 17:31:47 GMT
+< Content-Type: text/html
+< Content-Length: 904
+< Last-Modified: Tue, 12 May 2026 17:24:30 GMT
+< Connection: keep-alive
+< ETag: "6a03624e-388"
+< Accept-Ranges: bytes
+< 
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>نُخبة - المنصة التعليمية</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="/assets/index-DRwZYti3.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CRr6okwl.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+* Connection #0 to host localhost left intact
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+nginx-1  | /docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+nginx-1  | /docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+nginx-1  | 10-listen-on-ipv6-by-default.sh: info: Getting the checksum of /etc/nginx/conf.d/default.conf
+nginx-1  | 10-listen-on-ipv6-by-default.sh: info: Enabled listen on IPv6 in /etc/nginx/conf.d/default.conf
+nginx-1  | /docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+nginx-1  | /docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+nginx-1  | /docker-entrypoint.sh: Configuration complete; ready for start up
+nginx-1  | 185.220.100.246 - [12/May/2026:17:28:25 +0000] "GET /.env HTTP/1.1" 200 904
+nginx-1  | 192.42.116.15 - [12/May/2026:17:28:25 +0000] "POST / HTTP/1.1" 405 157
+nginx-1  | 172.18.0.1 - [12/May/2026:17:31:47 +0000] "GET / HTTP/1.1" 200 904
+root@vmi3256829:~/nukhba/Attached-Assets# 

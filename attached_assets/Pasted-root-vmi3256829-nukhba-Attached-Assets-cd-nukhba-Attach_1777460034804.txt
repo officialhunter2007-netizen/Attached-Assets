@@ -1,0 +1,57 @@
+root@vmi3256829:~/nukhba/Attached-Assets# cd ~/nukhba/Attached-Assets
+
+# اعرض قيمة BASE_URL (آمنة — مش مفتاح سري)
+grep '^AI_INTEGRATIONS_OPENAI_BASE_URL' .env
+
+# اعرض أول 4 أحرف من المفتاح فقط (للتأكد من نوعه: sk-... = OpenAI، sk-or-... = OpenRouter)
+grep '^AI_INTEGRATIONS_OPENAI_API_KEY' .env | cut -c1-50
+
+# الآن: افتح صفحة /admin في المتصفح، أرسل رسالة لمساعد الإدارة، انتظر يطلع الخطأ، ثم نفّذ هذا الأمر فوراً:
+docker compose logs api --tail 100 --since 3m | tail -60
+AI_INTEGRATIONS_OPENAI_BASE_URL=https://openrouter.ai/api/v1
+AI_INTEGRATIONS_OPENAI_API_KEY=sk-or-v1-01b13d0798
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+api-1  | {"level":30,"time":1777459837244,"pid":1,"hostname":"bc48979c4c6a","req":{"id":116,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459837266,"pid":1,"hostname":"bc48979c4c6a","req":{"id":115,"method":"GET","url":"/api/admin/live-users"},"res":{"statusCode":200},"responseTime":27,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459837270,"pid":1,"hostname":"bc48979c4c6a","req":{"id":118,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":23,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459837274,"pid":1,"hostname":"bc48979c4c6a","req":{"id":117,"method":"GET","url":"/api/admin/support/threads"},"res":{"statusCode":304},"responseTime":29,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459837465,"pid":1,"hostname":"bc48979c4c6a","req":{"id":119,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459897204,"pid":1,"hostname":"bc48979c4c6a","req":{"id":122,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459897260,"pid":1,"hostname":"bc48979c4c6a","req":{"id":121,"method":"GET","url":"/api/admin/support/threads"},"res":{"statusCode":304},"responseTime":61,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459897266,"pid":1,"hostname":"bc48979c4c6a","req":{"id":123,"method":"GET","url":"/api/admin/live-users"},"res":{"statusCode":200},"responseTime":59,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459897270,"pid":1,"hostname":"bc48979c4c6a","req":{"id":120,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":77,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459897514,"pid":1,"hostname":"bc48979c4c6a","req":{"id":124,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459919584,"pid":1,"hostname":"bc48979c4c6a","req":{"id":75,"method":"POST","url":"/api/ai/platform-help"},"res":{"statusCode":null},"responseTime":300025,"msg":"request aborted"}
+api-1  | {"level":30,"time":1777459925182,"pid":1,"hostname":"bc48979c4c6a","req":{"id":125,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459925217,"pid":1,"hostname":"bc48979c4c6a","req":{"id":127,"method":"GET","url":"/api/admin/live-users"},"res":{"statusCode":200},"responseTime":19,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459925219,"pid":1,"hostname":"bc48979c4c6a","req":{"id":126,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":23,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459925225,"pid":1,"hostname":"bc48979c4c6a","req":{"id":128,"method":"GET","url":"/api/admin/support/threads"},"res":{"statusCode":304},"responseTime":23,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459925482,"pid":1,"hostname":"bc48979c4c6a","req":{"id":130,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":304},"responseTime":6,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459925502,"pid":1,"hostname":"bc48979c4c6a","req":{"id":129,"method":"GET","url":"/api/admin/stats"},"res":{"statusCode":304},"responseTime":32,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459925645,"pid":1,"hostname":"bc48979c4c6a","req":{"id":131,"method":"GET","url":"/api/admin/subscription-requests"},"res":{"statusCode":304},"responseTime":12,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459925673,"pid":1,"hostname":"bc48979c4c6a","req":{"id":132,"method":"GET","url":"/api/admin/activation-cards"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459925753,"pid":1,"hostname":"bc48979c4c6a","req":{"id":133,"method":"GET","url":"/api/admin/users"},"res":{"statusCode":304},"responseTime":13,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459925914,"pid":1,"hostname":"bc48979c4c6a","req":{"id":134,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":6,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459928679,"pid":1,"hostname":"bc48979c4c6a","req":{"id":135,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":304},"responseTime":6,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459930503,"pid":1,"hostname":"bc48979c4c6a","req":{"id":136,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459930514,"pid":1,"hostname":"bc48979c4c6a","req":{"id":137,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459930548,"pid":1,"hostname":"bc48979c4c6a","req":{"id":138,"method":"GET","url":"/api/admin/support/threads"},"res":{"statusCode":304},"responseTime":8,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459930549,"pid":1,"hostname":"bc48979c4c6a","req":{"id":139,"method":"GET","url":"/api/admin/live-users"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459930561,"pid":1,"hostname":"bc48979c4c6a","req":{"id":141,"method":"GET","url":"/api/admin/subscription-requests"},"res":{"statusCode":304},"responseTime":12,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459930568,"pid":1,"hostname":"bc48979c4c6a","req":{"id":140,"method":"GET","url":"/api/admin/stats"},"res":{"statusCode":304},"responseTime":22,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459930719,"pid":1,"hostname":"bc48979c4c6a","req":{"id":143,"method":"GET","url":"/api/admin/activation-cards"},"res":{"statusCode":304},"responseTime":7,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459930724,"pid":1,"hostname":"bc48979c4c6a","req":{"id":142,"method":"GET","url":"/api/admin/users"},"res":{"statusCode":304},"responseTime":16,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459930755,"pid":1,"hostname":"bc48979c4c6a","req":{"id":144,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":7,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459934147,"pid":1,"hostname":"bc48979c4c6a","req":{"id":145,"method":"GET","url":"/api/admin/insights/courses"},"res":{"statusCode":304},"responseTime":7,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459936507,"pid":1,"hostname":"bc48979c4c6a","req":{"id":146,"method":"POST","url":"/api/track"},"res":{"statusCode":204},"responseTime":7,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459945528,"pid":1,"hostname":"bc48979c4c6a","req":{"id":147,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":10,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459945555,"pid":1,"hostname":"bc48979c4c6a","req":{"id":149,"method":"GET","url":"/api/admin/live-users"},"res":{"statusCode":200},"responseTime":30,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459945556,"pid":1,"hostname":"bc48979c4c6a","req":{"id":148,"method":"GET","url":"/api/admin/support/threads"},"res":{"statusCode":304},"responseTime":35,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459945752,"pid":1,"hostname":"bc48979c4c6a","req":{"id":150,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":4,"msg":"request completed"}
+api-1  | [admin-insights] error: 402 Provider returned error
+api-1  | {"level":30,"time":1777459949072,"pid":1,"hostname":"bc48979c4c6a","req":{"id":151,"method":"POST","url":"/api/admin/ai/insights"},"res":{"statusCode":200},"responseTime":2996,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459955514,"pid":1,"hostname":"bc48979c4c6a","req":{"id":152,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459960528,"pid":1,"hostname":"bc48979c4c6a","req":{"id":153,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":19,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459960529,"pid":1,"hostname":"bc48979c4c6a","req":{"id":154,"method":"GET","url":"/api/admin/support/threads"},"res":{"statusCode":304},"responseTime":19,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459960533,"pid":1,"hostname":"bc48979c4c6a","req":{"id":155,"method":"GET","url":"/api/admin/live-users"},"res":{"statusCode":200},"responseTime":16,"msg":"request completed"}
+api-1  | {"level":30,"time":1777459960789,"pid":1,"hostname":"bc48979c4c6a","req":{"id":156,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":8,"msg":"request completed"}

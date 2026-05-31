@@ -1,0 +1,311 @@
+import { Router, type IRouter } from "express";
+import { eq } from "drizzle-orm";
+import { db, usersTable } from "@workspace/db";
+import { RegisterUserBody, LoginUserBody, UpdateMeBody } from "@workspace/api-zod";
+import { hashPassword, verifyPassword, isLegacyPasswordHash } from "../lib/auth";
+import { signSession } from "../lib/session";
+import { isAdminEmail } from "../lib/admins";
+import { OAuth2Client } from "google-auth-library";
+
+const router: IRouter = Router();
+
+// (Module augmentation removed: `express-serve-static-core` is not directly
+// installed in this workspace, so the `declare module` block failed to
+// resolve. The session helper below already accepts `req: any`, so no
+// global Request shape change is required for the routes in this file.)
+
+function getUserId(req: any): number | null {
+  return req.session?.userId ?? null;
+}
+
+router.get("/auth/me", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+    if (!user) {
+      res.status(401).json({ error: "User not found" });
+      return;
+    }
+    const { passwordHash: _, ...profile } = user;
+    res.json({
+      ...profile,
+      badges: user.badges ?? [],
+    });
+  } catch (err: any) {
+    console.error("[/auth/me] Postgres error:", {
+      message: err?.message,
+      code: err?.code,
+      detail: err?.detail,
+      hint: err?.hint,
+      position: err?.position,
+      table: err?.table,
+      column: err?.column,
+      cause: err?.cause?.message,
+      causeCode: err?.cause?.code,
+      causeDetail: err?.cause?.detail,
+    });
+    res.status(500).json({ error: "internal", code: err?.code });
+  }
+});
+
+router.patch("/auth/me", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const parsed = UpdateMeBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const [currentUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!currentUser) {
+    res.status(401).json({ error: "User not found" });
+    return;
+  }
+
+  const updates: Record<string, unknown> = {};
+  const data = parsed.data;
+
+  // Safe fields — any authenticated user may update these on their own profile.
+  if (data.displayName !== undefined) updates.displayName = data.displayName;
+  if (data.onboardingDone !== undefined) updates.onboardingDone = data.onboardingDone;
+  if (data.region !== undefined) updates.region = data.region;
+  if (data.lastActive !== undefined) updates.lastActive = data.lastActive;
+  if (data.streakDays !== undefined) updates.streakDays = data.streakDays;
+
+  // Privileged fields — only admins may set these via this endpoint.
+  // Students must never be able to self-grant subscription plans, points, or badges.
+  if (currentUser.role === "admin") {
+    if (data.points !== undefined) updates.points = data.points;
+    if (data.badges !== undefined) updates.badges = data.badges;
+    if (data.nukhbaPlan !== undefined) updates.nukhbaPlan = data.nukhbaPlan;
+  }
+
+  const [updated] = await db
+    .update(usersTable)
+    .set(updates)
+    .where(eq(usersTable.id, userId))
+    .returning();
+
+  const { passwordHash: _, ...profile } = updated;
+  res.json({ ...profile, badges: updated.badges ?? [] });
+});
+
+router.post("/auth/register", async (req, res): Promise<void> => {
+  const parsed = RegisterUserBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { email, password, displayName } = parsed.data;
+
+  const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+  if (existing) {
+    res.status(400).json({ error: "البريد الإلكتروني مسجل مسبقاً" });
+    return;
+  }
+
+  const passwordHash = hashPassword(password);
+
+  const [user] = await db.insert(usersTable).values({
+    email,
+    passwordHash,
+    displayName: displayName ?? null,
+    role: isAdminEmail(email) ? "admin" : "user",
+    onboardingDone: false,
+    points: 0,
+    streakDays: 0,
+    badges: [],
+  }).returning();
+
+  (req as any).session = { userId: user.id };
+
+  const { passwordHash: _, ...profile } = user;
+  res.status(201).json({ ...profile, badges: user.badges ?? [] });
+});
+
+router.post("/auth/login", async (req, res): Promise<void> => {
+  const parsed = LoginUserBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { email, password } = parsed.data;
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+
+  if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+    res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
+    return;
+  }
+
+  if (isLegacyPasswordHash(user.passwordHash)) {
+    try {
+      const upgraded = hashPassword(password);
+      await db.update(usersTable).set({ passwordHash: upgraded }).where(eq(usersTable.id, user.id));
+    } catch {
+      // Non-fatal: keep legacy hash if upgrade fails
+    }
+  }
+
+  (req as any).session = { userId: user.id };
+
+  const { passwordHash: _, ...profile } = user;
+  res.json({ ...profile, badges: user.badges ?? [] });
+});
+
+router.post("/auth/logout", async (req, res): Promise<void> => {
+  (req as any).session = null;
+  res.json({ success: true });
+});
+
+router.post("/auth/complete-first-lesson", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await db.update(usersTable)
+    .set({ firstLessonComplete: true })
+    .where(eq(usersTable.id, userId));
+  res.json({ success: true });
+});
+
+function getAppDomain(): string {
+  if (process.env.APP_DOMAIN) return process.env.APP_DOMAIN.trim();
+  const prodDomains = process.env.REPLIT_DOMAINS;
+  if (prodDomains) return prodDomains.split(",")[0].trim();
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) return devDomain;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Could not determine app domain. Please set the APP_DOMAIN environment variable for your deployment.",
+    );
+  }
+
+  return "";
+}
+
+function getGoogleClient() {
+  const callbackUrl = `https://${getAppDomain()}/api/auth/google/callback`;
+  return new OAuth2Client(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    callbackUrl
+  );
+}
+
+function getFrontendUrl(path = "") {
+  return `https://${getAppDomain()}${path}`;
+}
+
+router.get("/auth/google", (req, res): void => {
+  const domain = getAppDomain();
+  const callbackUrl = `https://${domain}/api/auth/google/callback`;
+  console.log("[OAuth] Resolved domain:", domain);
+  console.log("[OAuth] Callback URL:", callbackUrl);
+
+  const client = getGoogleClient();
+
+  const url = client.generateAuthUrl({
+    access_type: "offline",
+    scope: ["profile", "email"],
+    prompt: "select_account",
+  });
+
+  res.redirect(url);
+});
+
+router.get("/auth/google/callback", async (req, res): Promise<void> => {
+  try {
+    const code = req.query.code as string;
+    const errorParam = req.query.error as string | undefined;
+    if (errorParam) {
+      console.error("[OAuth callback] Google returned error:", errorParam, req.query.error_description);
+      res.redirect(getFrontendUrl(`/?auth_error=${encodeURIComponent(errorParam)}`));
+      return;
+    }
+    if (!code) {
+      console.error("[OAuth callback] No code in query params:", req.query);
+      res.redirect(getFrontendUrl("/?auth_error=no_code"));
+      return;
+    }
+    console.log("[OAuth callback] Received code, exchanging for tokens. Domain:", getAppDomain());
+
+    const client = getGoogleClient();
+    const { tokens } = await client.getToken(code);
+    client.setCredentials(tokens);
+
+    const infoRes = await client.request<{
+      id: string;
+      email: string;
+      name: string;
+      picture: string;
+    }>({ url: "https://www.googleapis.com/oauth2/v2/userinfo" });
+    const gUser = infoRes.data;
+
+    let [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.googleId, gUser.id));
+
+    if (user) {
+      if (gUser.picture && user.profileImage !== gUser.picture) {
+        await db.update(usersTable)
+          .set({ profileImage: gUser.picture })
+          .where(eq(usersTable.id, user.id));
+        user = { ...user, profileImage: gUser.picture };
+      }
+    } else if (!user) {
+      const [byEmail] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.email, gUser.email));
+
+      if (byEmail) {
+        [user] = await db
+          .update(usersTable)
+          .set({ googleId: gUser.id, profileImage: gUser.picture || null })
+          .where(eq(usersTable.id, byEmail.id))
+          .returning();
+      } else {
+        [user] = await db
+          .insert(usersTable)
+          .values({
+            email: gUser.email,
+            googleId: gUser.id,
+            displayName: gUser.name,
+            profileImage: gUser.picture || null,
+            role: isAdminEmail(gUser.email) ? "admin" : "user",
+            onboardingDone: false,
+            points: 0,
+            streakDays: 0,
+            badges: [],
+          })
+          .returning();
+
+        (req as any).session = { userId: user.id };
+        res.redirect(getFrontendUrl("/welcome"));
+        return;
+      }
+    }
+
+    (req as any).session = { userId: user.id };
+    console.log("[OAuth callback] Login success for user", user.id, "→ redirecting to", user.onboardingDone ? "/learn" : "/welcome");
+    res.redirect(getFrontendUrl(user.onboardingDone ? "/learn" : "/welcome"));
+  } catch (err: any) {
+    console.error("[OAuth callback] Unexpected error:", err?.message ?? err, err?.stack);
+    res.redirect(getFrontendUrl("/?auth_error=1"));
+  }
+});
+
+export default router;

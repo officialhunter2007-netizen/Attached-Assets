@@ -1,0 +1,21 @@
+- [DB migration in Replit](db-migration-replit.md) — drizzle-kit push is interactive; use raw psql SQL to create missing tables in fresh environments.
+- [v4 wallet parallel to legacy](v4-wallet-parallel-legacy.md) — v4 monthly wallet writes are best-effort post-tx; legacy daily-cap path remains source of truth for student reads until FE cutover.
+- [Express route prefix](express-route-prefix.md) — routes mounted via `app.use("/api", router)` must define paths without `/api/` prefix or they 404.
+- [App-wide CSRF gap](app-wide-csrf-gap.md) — CORS is `origin:true, credentials:true` + prod cookies SameSite=none; any admin mutating endpoint needs local CSRF defense until a global fix lands.
+- [chargeV4Ai NO_OP overload](charge-no-op-overload.md) — `charged:false` with no flag means EITHER ledger dedupe hit OR transient DB error; callers must inspect the ledger to disambiguate or risk granting free work.
+- [Column-before-index migrations](column-before-index-migration.md) — partial-unique indexes that reference columns added via REQUIRED_COLUMNS must be created AFTER ensureRequiredColumns(), not in REQUIRED_TABLES.indexes.
+- [Idempotent prep requestIds](idempotent-prep-request-id-scope.md) — one-shot file-prep requestIds must be scoped by user + subject + full content hash to prevent cross-subject billing suppression and hash-prefix collisions.
+- [pgvector availability is uncertain](pgvector-availability.md) — on managed Postgres, CREATE EXTENSION may fail or silently downgrade; always probe at startup and keep a JSONB fallback path.
+- [v4 labs future vision](v4-labs-future-vision.md) — labs are admin-authored questions now, but planned to become a full real-world simulation env; don't treat the question format as final.
+- [v4 teach billing gaps](v4-teach-billing-gaps.md) — charge-after-stream leaks free turns two ways (low-balance no-drain + concurrent unguarded gate); pre-stream check alone closes neither.
+- [Atomic claim+grant+fund](atomic-claim-grant-fund.md) — consume a one-use token and the paid work it gates in ONE transaction; pre-commit claim with compensating release is not crash-safe.
+- [v4 generator field mapping](v4-generator-field-mapping.md) — bash curriculum generator emits helper field names (*_codes/exam_meta); merge MUST normalize to schema names or prereqs+exam thresholds are silently lost.
+- [v4 diagnostic drill engine](v4-diagnostic-engine.md) — deterministic per-turn weakness-targeting directive (root-cause-first) makes a weak model feel genius; never blind-fallback a missing mastery tag (corrupts probe turns).
+- [VIZ template system](viz-template-system.md) — [[VIZ:]] diagrams need 3 in-sync points (catalog + specialty gating + FE registry); slug keyword gating silently starves specialties (uni-it got regex only).
+- [Live animation sandbox](teacher-anim-sandbox.md) — [[ANIM]] HTML/CSS/JS runs in iframe sandbox=allow-scripts (NO allow-same-origin); isolation is the boundary, never add same-origin or sanitize-instead.
+- [v4 image attachment privacy](v4-image-attachment-privacy.md) — attached-image base64 must reach ONLY the Gemini turn; scrub the shared compressed.recentMessages/layer9 in-place or it leaks to Anthropic memory-capture + localStorage.
+- [jq --argjson size limit](jq-argjson-size-limit.md) — Linux caps one argv string at 128KiB; pass large JSON to jq via temp file + --slurpfile, never --argjson, or merge dies "Argument list too long" on full-size data.
+- [v4 publish must scale](v4-publish-scale.md) — full instruction files are tens of MB / tens of thousands of rows; bulk-insert by natural key + keep body limit above file size, or publish 413s/times out.
+- [Lazy paid-generation endpoints](lazy-paid-generation-endpoints.md) — cache key must include every prompt input; rate-limit ONLY the cache-miss path (after cache+inflight checks) or first-party users force unbounded paid calls.
+- [FE protocol-tag tail-strip](fe-protocol-tag-tail-strip.md) — new [[X:…]] markers must use the precise lookahead tail-strip regex (not greedy `[\s\S]*$`) or a complete trailing tag gets eaten and never renders.
+- [SCENE animated-SVG illustrations](scene-svg-illustrations.md) — illustrative animations are Sonnet-authored inline SVG; allow SMIL only if you also FORBID a/use/image+href or you reopen XSS.

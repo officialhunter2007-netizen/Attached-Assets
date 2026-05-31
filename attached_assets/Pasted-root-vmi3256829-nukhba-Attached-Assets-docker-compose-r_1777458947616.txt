@@ -1,0 +1,62 @@
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose restart api
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+[+] restart 0/1
+ ⠴ Container attached-assets-api-1 Restarting                                                        10.5s
+root@vmi3256829:~/nu khba/Attached-Assets
+root@vmi3256829:~/nukhba/Attached-Assets# cd ~/nukhba/Attached-Assets
+
+# 1. عدّ الأعمدة (لازم تكون 31)
+docker compose exec -T db psql -U nukhba_user -d nukhba -c "SELECT count(*) FROM information_schema.columns WHERE table_name='users' AND table_schema='public';"
+
+# 2. شغّل نفس الكويري التي يشغّلها الـ API بالضبط
+docker compose exec -T db psql -U nukhba_user -d nukhba -c 'SELECT id, email, password_hash, google_id, display_name, profile_image, role, onboarding_done, points, streak_days, last_active, badges, nukhba_plan, region, messages_used, messages_limit, subscription_expires_at, referral_access_until, first_lesson_complete, referral_code, last_session_date, last_session_at, referral_sessions_left, tryhackme_username, sub_page_first_visited_at, sub_page_left_at, welcome_offer_shown_at, welcome_offer_expires_at, welcome_offer_used_at, created_at, updated_at FROM users LIMIT 1;'
+
+# 3. اعرض كل أعمدة جدول users (للتحقق من الأسماء بدقة)
+docker compose exec -T db psql -U nukhba_user -d nukhba -c "SELECT column_name FROM information_schema.columns WHERE table_name='users' AND table_schema='public' ORDER BY ordinal_position;"
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+ count 
+-------
+    31
+(1 row)
+
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+ id |         email         | password_hash |       google_id       | display_name |                                          profile_image                                           | role | onboarding_done | points | streak_days | last_active | badges | nukhba_plan | region | messages_used | messages_limit | subscription_expires_at | referral_access_until | first_lesson_complete | referral_code | last_session_date |      last_session_at       | referral_sessions_left | tryhackme_username | sub_page_first_visited_at | sub_page_left_at | welcome_offer_shown_at | welcome_offer_expires_at | welcome_offer_used_at |          created_at           |         updated_at         
+----+-----------------------+---------------+-----------------------+--------------+--------------------------------------------------------------------------------------------------+------+-----------------+--------+-------------+-------------+--------+-------------+--------+---------------+----------------+-------------------------+-----------------------+-----------------------+---------------+-------------------+----------------------------+------------------------+--------------------+---------------------------+------------------+------------------------+--------------------------+-----------------------+-------------------------------+----------------------------
+  2 | 7amr7ahmed7@gmail.com |               | 103036130810685777538 | Amr Ahmed    | https://lh3.googleusercontent.com/a/ACg8ocLnY8NQJNfeFPFhRqMVArEddyBrE3cDVOBj1QkW6yJgSV1tEw=s96-c | user | t               |     15 |           1 | 2026-04-26  | {}     |             |        |             0 |              0 |                         |                       | t                     |               |                   | 2026-04-26 15:27:45.906+00 |                      0 |                    |                           |                  |                        |                          |                       | 2026-04-26 15:27:08.961974+00 | 2026-04-26 15:27:55.162+00
+(1 row)
+
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+        column_name        
+---------------------------
+ id
+ email
+ password_hash
+ google_id
+ display_name
+ profile_image
+ role
+ onboarding_done
+ points
+ streak_days
+ last_active
+ badges
+ nukhba_plan
+ region
+ messages_used
+ messages_limit
+ subscription_expires_at
+ referral_access_until
+ first_lesson_complete
+ referral_code
+ last_session_date
+ last_session_at
+ referral_sessions_left
+ tryhackme_username
+ created_at
+ updated_at
+ sub_page_first_visited_at
+ welcome_offer_shown_at
+ welcome_offer_expires_at
+ welcome_offer_used_at
+ sub_page_left_at
+(31 rows)

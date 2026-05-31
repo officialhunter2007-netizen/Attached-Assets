@@ -1,0 +1,175 @@
+root@vmi3256829:~/nukhba/Attached-Assets# cd /root/nukhba/Attached-Assets
+pnpm install
+pnpm --filter @workspace/nukhba run build
+pnpm --filter @workspace/api-server run build
+Scope: all 13 workspace projects
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+   ╭─────────────────────────────────────────╮
+   │                                         │
+   │   Update available! 10.33.2 → 11.0.9.   │
+   │   Changelog: https://pnpm.io/v/11.0.9   │
+   │    To update, run: pnpm add -g pnpm     │
+   │                                         │
+   ╰─────────────────────────────────────────╯
+
+. preinstall$ sh -c 'rm -f package-lock.json yarn.lock; case "$npm_config_user_agent" in pnpm/*) ;; *) ec…
+└─ Done in 38ms
+╭ Warning ───────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                            │
+│   Ignored build scripts: core-js@3.49.0.                                                   │
+│   Run "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.   │
+│                                                                                            │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+Done in 6.1s using pnpm v10.33.2
+
+> @workspace/nukhba@0.0.0 build /root/nukhba/Attached-Assets/artifacts/nukhba
+> vite build --config vite.config.ts
+
+vite v7.3.1 building client environment for production...
+src/components/ui/tooltip.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+src/components/ui/progress.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+src/components/ui/label.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+src/components/ui/sheet.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+src/components/ui/dropdown-menu.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+✓ 3434 modules transformed.
+dist/public/index.html                                           0.90 kB │ gzip:     0.50 kB
+dist/public/assets/KaTeX_Size3-Regular-CTq5MqoE.woff             4.42 kB
+dist/public/assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2            4.93 kB
+dist/public/assets/KaTeX_Size2-Regular-Dy4dx90m.woff2            5.21 kB
+dist/public/assets/KaTeX_Size1-Regular-mCD8mA8B.woff2            5.47 kB
+dist/public/assets/KaTeX_Size4-Regular-BF-4gkZK.woff             5.98 kB
+dist/public/assets/KaTeX_Size2-Regular-oD1tc_U0.woff             6.19 kB
+dist/public/assets/KaTeX_Size1-Regular-C195tn64.woff             6.50 kB
+dist/public/assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2      6.91 kB
+dist/public/assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2         6.91 kB
+dist/public/assets/KaTeX_Size3-Regular-DgpXs0kz.ttf              7.59 kB
+dist/public/assets/KaTeX_Caligraphic-Regular-CTRA-rTL.woff       7.66 kB
+dist/public/assets/KaTeX_Caligraphic-Bold-BEiXGLvX.woff          7.72 kB
+dist/public/assets/KaTeX_Script-Regular-D3wIWfF6.woff2           9.64 kB
+dist/public/assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2       10.34 kB
+dist/public/assets/KaTeX_Size4-Regular-DWFBv043.ttf             10.36 kB
+dist/public/assets/KaTeX_Script-Regular-D5yQViql.woff           10.59 kB
+dist/public/assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2         11.32 kB
+dist/public/assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2            11.35 kB
+dist/public/assets/KaTeX_Size2-Regular-B7gKUWhC.ttf             11.51 kB
+dist/public/assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2        12.03 kB
+dist/public/assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2          12.22 kB
+dist/public/assets/KaTeX_Size1-Regular-Dbsnue_I.ttf             12.23 kB
+dist/public/assets/KaTeX_SansSerif-Regular-CS6fqUqJ.woff        12.32 kB
+dist/public/assets/KaTeX_Caligraphic-Regular-wX97UBjC.ttf       12.34 kB
+dist/public/assets/KaTeX_Caligraphic-Bold-ATXxdsX0.ttf          12.37 kB
+dist/public/assets/KaTeX_Fraktur-Regular-Dxdc4cR9.woff          13.21 kB
+dist/public/assets/KaTeX_Fraktur-Bold-BsDP51OF.woff             13.30 kB
+dist/public/assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2      13.57 kB
+dist/public/assets/KaTeX_SansSerif-Italic-DN2j7dab.woff         14.11 kB
+dist/public/assets/KaTeX_SansSerif-Bold-DbIhKOiC.woff           14.41 kB
+dist/public/assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff       16.03 kB
+dist/public/assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2         16.40 kB
+dist/public/assets/KaTeX_Math-Italic-t53AETM-.woff2             16.44 kB
+dist/public/assets/KaTeX_Script-Regular-C5JkGWo-.ttf            16.65 kB
+dist/public/assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2         16.78 kB
+dist/public/assets/KaTeX_Main-Italic-NWA7e6Wa.woff2             16.99 kB
+dist/public/assets/KaTeX_Math-BoldItalic-iY-2wyZ7.woff          18.67 kB
+dist/public/assets/KaTeX_Math-Italic-DA0__PXp.woff              18.75 kB
+dist/public/assets/KaTeX_Main-BoldItalic-SpSLRI95.woff          19.41 kB
+dist/public/assets/KaTeX_SansSerif-Regular-BNo7hRIc.ttf         19.44 kB
+dist/public/assets/KaTeX_Fraktur-Regular-CB_wures.ttf           19.57 kB
+dist/public/assets/KaTeX_Fraktur-Bold-BdnERNNW.ttf              19.58 kB
+dist/public/assets/KaTeX_Main-Italic-BMLOBm91.woff              19.68 kB
+dist/public/assets/KaTeX_SansSerif-Italic-YYjJ1zSn.ttf          22.36 kB
+dist/public/assets/KaTeX_SansSerif-Bold-CFMepnvq.ttf            24.50 kB
+dist/public/assets/KaTeX_Main-Bold-Cx986IdX.woff2               25.32 kB
+dist/public/assets/KaTeX_Main-Regular-B22Nviop.woff2            26.27 kB
+dist/public/assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf        27.56 kB
+dist/public/assets/KaTeX_AMS-Regular-BQhdFMY1.woff2             28.08 kB
+dist/public/assets/KaTeX_Main-Bold-Jm3AIy58.woff                29.91 kB
+dist/public/assets/KaTeX_Main-Regular-Dr94JaBh.woff             30.77 kB
+dist/public/assets/KaTeX_Math-BoldItalic-B3XSjfu4.ttf           31.20 kB
+dist/public/assets/KaTeX_Math-Italic-flOr_0UB.ttf               31.31 kB
+dist/public/assets/KaTeX_Main-BoldItalic-DzxPMmG6.ttf           32.97 kB
+dist/public/assets/KaTeX_AMS-Regular-DMm9YOAa.woff              33.52 kB
+dist/public/assets/KaTeX_Main-Italic-3WenGoN9.ttf               33.58 kB
+dist/public/assets/KaTeX_Main-Bold-waoOVXN0.ttf                 51.34 kB
+dist/public/assets/KaTeX_Main-Regular-ypZvNtVU.ttf              53.58 kB
+dist/public/assets/KaTeX_AMS-Regular-DRggAlZN.ttf               63.63 kB
+dist/public/assets/index-Bxc16lJD.css                          352.66 kB │ gzip:    52.73 kB
+dist/public/assets/income-statement-CkYsBAZJ.js                  4.29 kB │ gzip:     1.56 kB
+dist/public/assets/balance-sheet-DJyX9L71.js                     4.51 kB │ gzip:     1.54 kB
+dist/public/assets/cash-flow-CgFpRVnE.js                         5.50 kB │ gzip:     1.83 kB
+dist/public/assets/t-accounts-BPp7eCb9.js                        6.49 kB │ gzip:     2.11 kB
+dist/public/assets/ratio-analysis-CbreX6_x.js                    6.59 kB │ gzip:     2.04 kB
+dist/public/assets/accounting-cycle-CIGVNWff.js                  7.00 kB │ gzip:     2.70 kB
+dist/public/assets/journal-entries-DDhD519x.js                   7.20 kB │ gzip:     2.14 kB
+dist/public/assets/break-even-91RosNhK.js                        7.36 kB │ gzip:     1.99 kB
+dist/public/assets/adjusting-entries-DmJv9Uz1.js                 7.59 kB │ gzip:     2.42 kB
+dist/public/assets/equation-C9egg5tl.js                          7.77 kB │ gzip:     2.12 kB
+dist/public/assets/depreciation-ZNzL2dPY.js                      8.21 kB │ gzip:     2.54 kB
+dist/public/assets/bank-reconciliation-D2mwFece.js               8.86 kB │ gzip:     2.18 kB
+dist/public/assets/index.es-YXF02ExL.js                        158.83 kB │ gzip:    53.04 kB
+dist/public/assets/html2canvas.esm-DXEQVQnt.js                 201.04 kB │ gzip:    47.43 kB
+dist/public/assets/jspdf.es.min-DoExdY0N.js                    386.04 kB │ gzip:   126.36 kB
+dist/public/assets/index-DmXSWvwH.js                         4,031.04 kB │ gzip: 1,193.61 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 36.48s
+
+> @workspace/api-server@0.0.0 build /root/nukhba/Attached-Assets/artifacts/api-server
+> node ./build.mjs
+
+✘ [ERROR] The symbol "extractPdfTextPerPage" has already been declared
+
+    src/routes/materials.ts:2063:15:
+      2063 │ async function extractPdfTextPerPage(buf: Buffer): Promise<{
+           ╵                ~~~~~~~~~~~~~~~~~~~~~
+
+  The symbol "extractPdfTextPerPage" was originally declared here:
+
+    src/routes/materials.ts:1325:15:
+      1325 │ async function extractPdfTextPerPage(buf: Buffer): Promise<{
+           ╵                ~~~~~~~~~~~~~~~~~~~~~
+
+  Duplicate top-level function declarations are not allowed in an ECMAScript module. This file is
+  considered to be an ECMAScript module because of the "export" keyword here:
+
+    src/routes/materials.ts:4277:0:
+      4277 │ export default router;
+           ╵ ~~~~~~
+
+✘ [ERROR] The symbol "ocrPdfWithGemini" has already been declared
+
+    src/routes/materials.ts:2337:15:
+      2337 │ async function ocrPdfWithGemini(buf: Buffer, pageCount: number, ctx?: AiUsageCtx): Promise<O...
+           ╵                ~~~~~~~~~~~~~~~~
+
+  The symbol "ocrPdfWithGemini" was originally declared here:
+
+    src/routes/materials.ts:1335:15:
+      1335 │ async function ocrPdfWithGemini(buf: Buffer, pageCount: number, ctx?: AiUsageCtx): Promise<{
+           ╵                ~~~~~~~~~~~~~~~~
+
+  Duplicate top-level function declarations are not allowed in an ECMAScript module. This file is
+  considered to be an ECMAScript module because of the "export" keyword here:
+
+    src/routes/materials.ts:4277:0:
+      4277 │ export default router;
+           ╵ ~~~~~~
+
+2 errors
+Error: Build failed with 2 errors:
+src/routes/materials.ts:2063:15: ERROR: The symbol "extractPdfTextPerPage" has already been declared
+src/routes/materials.ts:2337:15: ERROR: The symbol "ocrPdfWithGemini" has already been declared
+    at failureErrorWithLog (/root/nukhba/Attached-Assets/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/lib/main.js:1467:15)
+    at /root/nukhba/Attached-Assets/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/lib/main.js:926:25
+    at /root/nukhba/Attached-Assets/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/lib/main.js:1345:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+  errors: [Getter/Setter],
+  warnings: [Getter/Setter]
+}
+/root/nukhba/Attached-Assets/artifacts/api-server:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/api-server@0.0.0 build: `node ./build.mjs`
+Exit status 1

@@ -1,0 +1,108 @@
+root@vmi3256829:~/nukhba/Attached-Assets# git pull && bash docker/deploy.sh --update
+remote: Enumerating objects: 491, done.
+remote: Counting objects: 100% (491/491), done.
+remote: Compressing objects: 100% (109/109), done.
+remote: Total 451 (delta 343), reused 445 (delta 337), pack-reused 0 (from 0)
+Receiving objects: 100% (451/451), 1.70 MiB | 16.44 MiB/s, done.
+Resolving deltas: 100% (343/343), completed with 36 local objects.
+From https://github.com/officialhunter2007-netizen/Attached-Assets
+   2c59b90..f77126c  main       -> origin/main
+Updating 2c59b90..f77126c
+Fast-forward
+ .env.example                                                         |  56 +--
+ .replit                                                              |  27 +-
+ .../client/replit_integrations/audio/audio-playback-worklet.js       | 112 +++++
+ .../client/replit_integrations/audio/audio-utils.ts                  |  36 ++
+ .replit_integration_files/client/replit_integrations/audio/index.ts  |  45 ++
+ .../client/replit_integrations/audio/useAudioPlayback.ts             | 105 ++++
+ .../client/replit_integrations/audio/useVoiceRecorder.ts             |  52 ++
+ .../client/replit_integrations/audio/useVoiceStream.ts               |  91 ++++
+ .replit_integration_files/server/replit_integrations/audio/client.ts | 274 ++++++++++
+ .replit_integration_files/server/replit_integrations/audio/index.ts  |  14 +
+ .replit_integration_files/server/replit_integrations/audio/routes.ts | 136 +++++
+ .replit_integration_files/server/replit_integrations/batch/index.ts  |   7 +
+ .replit_integration_files/server/replit_integrations/batch/utils.ts  | 182 +++++++
+ .replit_integration_files/server/replit_integrations/chat/index.ts   |   3 +
+ .replit_integration_files/server/replit_integrations/chat/routes.ts  | 118 +++++
+ .replit_integration_files/server/replit_integrations/chat/storage.ts |  43 ++
+ .replit_integration_files/server/replit_integrations/image/client.ts |  59 +++
+ .replit_integration_files/server/replit_integrations/image/index.ts  |   3 +
+ .replit_integration_files/server/replit_integrations/image/routes.ts |  31 ++
+ .replit_integration_files/shared/models/chat.ts                      |  34 ++
+ artifacts/api-server/src/lib/ai-usage.ts                             |  64 ++-
+ artifacts/api-server/src/lib/auto-migrate.ts                         |  48 ++
+ artifacts/api-server/src/lib/cost-cap.ts                             | 274 ++++++++++
+ artifacts/api-server/src/lib/teaching-router.ts                      | 167 +++++++
+ artifacts/api-server/src/lib/yemen-time.ts                           |  32 ++
+ artifacts/api-server/src/routes/admin_insights.ts                    | 121 +++++
+ artifacts/api-server/src/routes/ai.ts                                | 828 ++++++++++++++++++++++++++-----
+ artifacts/api-server/src/routes/ai_usage.ts                          | 170 +++++--
+ artifacts/api-server/src/routes/subscriptions.ts                     | 281 ++++++++++-
+ artifacts/nukhba/package.json                                        |   3 +
+ artifacts/nukhba/src/App.tsx                                         |   2 +
+ artifacts/nukhba/src/components/admin-ai-usage.tsx                   | 239 ++++++---
+ artifacts/nukhba/src/components/admin-db-monitor.tsx                 | 393 +++++++++++++++
+ artifacts/nukhba/src/components/dynamic-env/component-renderer.tsx   |  58 ++-
+ artifacts/nukhba/src/components/welcome-offer-modal.tsx              | 197 ++++++++
+ artifacts/nukhba/src/pages/admin.tsx                                 |  10 +
+ artifacts/nukhba/src/pages/dashboard.tsx                             |  15 +-
+ artifacts/nukhba/src/pages/subject.tsx                               | 444 +++++++++++++++--
+ artifacts/nukhba/src/pages/subscription.tsx                          | 374 +++++++++++---
+ attached_assets/IMG_20260427_195812_1777309108618.jpg                | Bin 0 -> 35293 bytes
+ attached_assets/Pasted---1777286774887_1777286774890.txt             |  96 ++++
+ attached_assets/Screenshot_2026-04-26_154757_1777215000879.png       | Bin 0 -> 163810 bytes
+ attached_assets/Screenshot_2026-04-26_154757_1777215064052.png       | Bin 0 -> 163810 bytes
+ attached_assets/Screenshot_2026-04-26_154757_1777215305667.png       | Bin 0 -> 163810 bytes
+ attached_assets/Screenshot_2026-04-26_154757_1777215386702.png       | Bin 0 -> 163810 bytes
+ ...shot_2026-04-27-15-40-04-658_com.android.chrome_1777293706740.jpg | Bin 0 -> 486930 bytes
+ attached_assets/image_1777224371124.png                              | Bin 0 -> 177302 bytes
+ attached_assets/image_1777231831214.png                              | Bin 0 -> 15494 bytes
+ attached_assets/image_1777300033191.png                              | Bin 0 -> 95402 bytes
+ attached_assets/image_1777300210612.png                              | Bin 0 -> 128393 bytes
+ attached_assets/image_1777318694649.png                              | Bin 0 -> 132827 bytes
+ docker-compose.yml                                                   |  27 +-
+ docker/deploy.sh                                                     |  69 ++-
+ lib/db/src/schema/index.ts                                           |   1 +
+ lib/db/src/schema/student_mistakes.ts                                |  37 ++
+ lib/db/src/schema/subscriptions.ts                                   |   4 +
+ lib/db/src/schema/users.ts                                           |   6 +
+ pnpm-lock.yaml                                                       |  82 +--
+ replit.md                                                            |  26 +-
+ 59 files changed, 4988 insertions(+), 508 deletions(-)
+ create mode 100644 .replit_integration_files/client/replit_integrations/audio/audio-playback-worklet.js
+ create mode 100644 .replit_integration_files/client/replit_integrations/audio/audio-utils.ts
+ create mode 100644 .replit_integration_files/client/replit_integrations/audio/index.ts
+ create mode 100644 .replit_integration_files/client/replit_integrations/audio/useAudioPlayback.ts
+ create mode 100644 .replit_integration_files/client/replit_integrations/audio/useVoiceRecorder.ts
+ create mode 100644 .replit_integration_files/client/replit_integrations/audio/useVoiceStream.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/audio/client.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/audio/index.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/audio/routes.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/batch/index.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/batch/utils.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/chat/index.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/chat/routes.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/chat/storage.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/image/client.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/image/index.ts
+ create mode 100644 .replit_integration_files/server/replit_integrations/image/routes.ts
+ create mode 100644 .replit_integration_files/shared/models/chat.ts
+ create mode 100644 artifacts/api-server/src/lib/cost-cap.ts
+ create mode 100644 artifacts/api-server/src/lib/teaching-router.ts
+ create mode 100644 artifacts/api-server/src/lib/yemen-time.ts
+ create mode 100644 artifacts/nukhba/src/components/admin-db-monitor.tsx
+ create mode 100644 artifacts/nukhba/src/components/welcome-offer-modal.tsx
+ create mode 100644 attached_assets/IMG_20260427_195812_1777309108618.jpg
+ create mode 100644 attached_assets/Pasted---1777286774887_1777286774890.txt
+ create mode 100644 attached_assets/Screenshot_2026-04-26_154757_1777215000879.png
+ create mode 100644 attached_assets/Screenshot_2026-04-26_154757_1777215064052.png
+ create mode 100644 attached_assets/Screenshot_2026-04-26_154757_1777215305667.png
+ create mode 100644 attached_assets/Screenshot_2026-04-26_154757_1777215386702.png
+ create mode 100644 attached_assets/Screenshot_2026-04-27-15-40-04-658_com.android.chrome_1777293706740.jpg
+ create mode 100644 attached_assets/image_1777224371124.png
+ create mode 100644 attached_assets/image_1777231831214.png
+ create mode 100644 attached_assets/image_1777300033191.png
+ create mode 100644 attached_assets/image_1777300210612.png
+ create mode 100644 attached_assets/image_1777318694649.png
+ create mode 100644 lib/db/src/schema/student_mistakes.ts
+[ERROR]  ملف .env غير موجود. انسخ .env.example إلى .env وأكمل القيم.

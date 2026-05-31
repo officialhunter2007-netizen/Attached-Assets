@@ -1,0 +1,55 @@
+root@vmi3256829:~/nukhba/Attached-Assets# # تحقق من الـ firewall
+ufw status
+
+# اختبر HTTPS مباشرة
+curl -v https://localhost --insecure 2>&1 | head -20
+
+# شوف IP السيرفر واختبر المنفذ من الخارج
+curl -v http://$(curl -s ifconfig.me) 2>&1 | head -10
+Status: active
+
+To                         Action      From
+--                         ------      ----
+22                         ALLOW       Anywhere                  
+80                         ALLOW       Anywhere                  
+443                        ALLOW       Anywhere                  
+3389                       ALLOW       Anywhere                  
+80/tcp                     ALLOW       Anywhere                  
+443/tcp                    ALLOW       Anywhere                  
+8080                       ALLOW       Anywhere                  
+22 (v6)                    ALLOW       Anywhere (v6)             
+80 (v6)                    ALLOW       Anywhere (v6)             
+443 (v6)                   ALLOW       Anywhere (v6)             
+3389 (v6)                  ALLOW       Anywhere (v6)             
+80/tcp (v6)                ALLOW       Anywhere (v6)             
+443/tcp (v6)               ALLOW       Anywhere (v6)             
+8080 (v6)                  ALLOW       Anywhere (v6)             
+
+*   Trying 127.0.0.1:443...
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Connected to localhost (127.0.0.1) port 443 (#0)
+* ALPN, offering h2
+* ALPN, offering http/1.1
+* TLSv1.0 (OUT), TLS header, Certificate Status (22):
+} [5 bytes data]
+* TLSv1.3 (OUT), TLS handshake, Client hello (1):
+} [512 bytes data]
+* TLSv1.0 (OUT), TLS header, Unknown (21):
+} [5 bytes data]
+* TLSv1.3 (OUT), TLS alert, decode error (562):
+} [2 bytes data]
+* error:0A000126:SSL routines::unexpected eof while reading
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+* Closing connection 0
+curl: (35) error:0A000126:SSL routines::unexpected eof while reading
+*   Trying 79.143.176.167:80...
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Connected to 79.143.176.167 (79.143.176.167) port 80 (#0)
+> GET / HTTP/1.1
+> Host: 79.143.176.167
+> User-Agent: curl/7.81.0
+> Accept: */*
+> 
+* Mark bundle as not supporting multiuse

@@ -1,0 +1,46 @@
+import { Router, type IRouter } from "express";
+import healthRouter from "./health";
+import authRouter from "./auth";
+import lessonsRouter from "./lessons";
+import progressRouter from "./progress";
+import subscriptionsRouter from "./subscriptions";
+import aiRouter from "./ai";
+import summariesRouter from "./summaries";
+import plansRouter from "./plans";
+import supportRouter from "./support";
+import labReportsRouter from "./lab_reports";
+import { adminInsightsRouter } from "./admin_insights";
+import materialsRouter from "./materials";
+import aiUsageRouter from "./ai_usage";
+import voiceRouter from "./voice";
+import teacherImagesRouter from "./teacher-images";
+import v4AdminInstructionsRouter from "./v4_admin_instructions";
+import v4PathRouter from "./v4_path";
+import v4TeachRouter from "./v4_teach";
+import v4LabExamRouter from "./v4_lab_exam";
+import v4BookletRouter from "./v4_booklet";
+
+const router: IRouter = Router();
+
+router.use(healthRouter);
+router.use(authRouter);
+router.use(lessonsRouter);
+router.use(progressRouter);
+router.use(subscriptionsRouter);
+router.use(aiRouter);
+router.use(summariesRouter);
+router.use(plansRouter);
+router.use(supportRouter);
+router.use(labReportsRouter);
+router.use(adminInsightsRouter);
+router.use(materialsRouter);
+router.use(aiUsageRouter);
+router.use(voiceRouter);
+router.use(teacherImagesRouter);
+router.use(v4AdminInstructionsRouter);
+router.use(v4PathRouter);
+router.use(v4TeachRouter);
+router.use(v4LabExamRouter);
+router.use(v4BookletRouter);
+
+export default router;

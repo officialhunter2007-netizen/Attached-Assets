@@ -1,0 +1,31 @@
+kind = "video"
+previewPath = "/nukhba-promo/"
+title = "نُخبة - فيديو ترويجي"
+version = "1.0.0"
+id = "artifacts/nukhba-promo"
+router = "path"
+
+[[integratedSkills]]
+name = "video-js"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/nukhba-promo/" ]
+localPort = 23564
+
+[services.development]
+run = "pnpm --filter @workspace/nukhba-promo run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/nukhba-promo", "run", "build" ]
+publicDir = "artifacts/nukhba-promo/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23564"
+BASE_PATH = "/nukhba-promo/"

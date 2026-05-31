@@ -1,0 +1,83 @@
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose logs api --tail=80
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+api-1  | {"level":30,"time":1778608558613,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":76,"method":"GET","url":"/api/lessons/views"},"res":{"statusCode":304},"responseTime":4,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608562863,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":77,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":18,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608567896,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":78,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":34,"msg":"request completed"}
+api-1  | [ai/teach] material context error: getActiveMaterialContext is not defined
+api-1  | [ai/teach] DECISION user=1 subject=uni-accounting provider=gemini model=gemini-2.0-flash reason=default_gemini unlimited=false
+api-1  | [gemini-stream:openrouter] → google/gemini-2.0-flash-001 (tag=teach)
+api-1  | [gemini-stream:openrouter] HTTP 401 for model=google/gemini-2.0-flash-001: {"error":{"message":"User not found.","code":401}}
+api-1  | [gemini-stream:teach] auth/credit failure (no retry): GeminiAuthError OpenRouter auth 401: {"error":{"message":"User not found.","code":401}}
+api-1  | [ai/teach] Gemini pre-stream failure (GeminiAuthError): OpenRouter auth 401: {"error":{"message":"User not found.","code":401}}
+api-1  | [ai/teach] gemini stream error after retries: OpenRouter auth 401: {"error":{"message":"User not found.","code":401}}
+api-1  | {"level":30,"time":1778608568908,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":79,"method":"POST","url":"/api/ai/teach"},"res":{"statusCode":200},"responseTime":339,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608569970,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":80,"method":"POST","url":"/api/track"},"res":{"statusCode":204},"responseTime":35,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608577854,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":81,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608577888,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":83,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":27,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608577899,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":82,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":44,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608588350,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":84,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":48,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608593312,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":85,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":12,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608598295,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":86,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":14,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608603292,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":87,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608608434,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":88,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":131,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608608471,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":89,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":139,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608618362,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":90,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":29,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608623303,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":91,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":8,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608628306,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":92,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":12,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608628335,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":93,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":26,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608638353,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":94,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":61,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608638405,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":95,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":93,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608677736,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":98,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608677753,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":97,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":24,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608677764,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":96,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":39,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608737489,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":101,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608737539,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":100,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":56,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608737579,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":99,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":100,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608797671,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":102,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":9,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608797758,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":103,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":85,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608797785,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":104,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":104,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608857852,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":105,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608857961,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":107,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":89,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608857992,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":106,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":136,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608917348,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":110,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608917417,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":109,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":85,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608917445,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":108,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":131,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608977429,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":111,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":111,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608977453,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":112,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":132,"msg":"request completed"}
+api-1  | {"level":30,"time":1778608977727,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":113,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609038141,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":114,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609038184,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":116,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":46,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609038204,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":115,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":68,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609097387,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":119,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609097411,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":118,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":40,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609097419,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":117,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":53,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609099627,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":120,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":18,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609103347,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":121,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":15,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609103360,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":122,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":11,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609108312,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":123,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":10,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609118303,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":124,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":12,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609118318,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":125,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":4,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609128315,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":126,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609128373,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":127,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":57,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609133322,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":128,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":13,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609138336,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":129,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":36,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609148359,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":130,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":43,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609148423,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":131,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":96,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609153423,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":132,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609158430,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":133,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":58,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609217336,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":134,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":27,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609217385,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":135,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":70,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609217618,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":136,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609277329,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":138,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":21,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609277333,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":139,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609277342,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":137,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":37,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609337334,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":142,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609337350,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":140,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":43,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609337365,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":141,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":57,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609397925,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":145,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609398009,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":143,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":110,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609398046,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":144,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":133,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609457361,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":146,"method":"POST","url":"/api/heartbeat"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609457579,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":147,"method":"GET","url":"/api/admin/support/unread-count"},"res":{"statusCode":304},"responseTime":106,"msg":"request completed"}
+api-1  | {"level":30,"time":1778609457586,"pid":1,"hostname":"c0deaa9e89fb","req":{"id":148,"method":"GET","url":"/api/subscriptions/gems-balance"},"res":{"statusCode":304},"responseTime":111,"msg":"request completed"}
+root@vmi3256829:~/nukhba/Attached-Assets# 

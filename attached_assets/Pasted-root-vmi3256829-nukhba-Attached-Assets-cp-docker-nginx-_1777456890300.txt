@@ -1,0 +1,65 @@
+root@vmi3256829:~/nukhba/Attached-Assets# cp docker/nginx/nginx-ssl.conf docker/nginx/nginx.conf
+sed -i "s/DOMAIN_PLACEHOLDER/learnukhba.com/g" docker/nginx/nginx.conf
+
+docker compose build nginx
+docker compose up -d nginx
+
+docker compose ps nginx
+curl -I https://learnukhba.com
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] Building 2.3s (21/21) FINISHED
+ => [internal] load local bake definitions                 0.0s
+ => => reading from stdin 954B                             0.0s
+ => [internal] load build definition from Dockerfile       0.0s
+ => => transferring dockerfile: 2.00kB                     0.0s
+ => [internal] load metadata for docker.io/library/node:2  1.3s
+ => [internal] load metadata for docker.io/library/nginx:  1.3s
+ => [internal] load .dockerignore                          0.0s
+ => => transferring context: 465B                          0.0s
+ => [builder  1/10] FROM docker.io/library/node:22@sha256  0.1s
+ => => resolve docker.io/library/node:22@sha256:9059d9d7d  0.1s
+ => [stage-1 1/3] FROM docker.io/library/nginx:1.27-alpin  0.1s
+ => => resolve docker.io/library/nginx:1.27-alpine@sha256  0.1s
+ => [internal] load build context                          0.1s
+ => => transferring context: 30.91kB                       0.1s
+ => CACHED [builder  2/10] RUN corepack enable && corepac  0.0s
+ => CACHED [builder  3/10] WORKDIR /app                    0.0s
+ => CACHED [builder  4/10] COPY package.json pnpm-workspa  0.0s
+ => CACHED [builder  5/10] COPY lib/ ./lib/                0.0s
+ => CACHED [builder  6/10] COPY scripts/ ./scripts/        0.0s
+ => CACHED [builder  7/10] COPY artifacts/nukhba/ ./artif  0.0s
+ => CACHED [builder  8/10] COPY attached_assets/ ./attach  0.0s
+ => CACHED [builder  9/10] RUN pnpm install --frozen-lock  0.0s
+ => CACHED [builder 10/10] RUN pnpm --filter @workspace/n  0.0s
+ => CACHED [stage-1 2/3] COPY --from=builder /app/artifac  0.0s
+ => CACHED [stage-1 3/3] COPY docker/nginx/nginx.conf /et  0.0s
+ => exporting to image                                     0.3s
+ => => exporting layers                                    0.0s
+ => => exporting manifest sha256:4c626af3c9a9d1bdd5016341  0.0s
+ => => exporting config sha256:31935443cca65b96c1814bcd49  0.0s
+ => => exporting attestation manifest sha256:7e6619f4e557  0.0s
+ => => exporting manifest list sha256:4bcb6207a462d54e537  0.0s
+ => => naming to docker.io/library/attached-assets-nginx:  0.0s
+ => => unpacking to docker.io/library/attached-assets-ngi  0.1s
+ => resolving provenance for metadata file                 0.0s
+[+] build 1/2
+ ⠙ Image attached-assets-api   Building                     2.5s
+ ✔ Image attached-assets-nginx Built                        2.5s
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] up 3/3
+ ✔ Container attached-assets-db-1    Healthy                1.6s
+ ✔ Container attached-assets-api-1   Running                0.0s
+ ✔ Container attached-assets-nginx-1 Started                1.9s
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+NAME                      IMAGE                   COMMAND                  SERVICE   CREATED         STATUS                  PORTS
+attached-assets-nginx-1   attached-assets-nginx   "/docker-entrypoint.…"   nginx     2 seconds ago   Up Less than a second   0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Date: Wed, 29 Apr 2026 09:59:36 GMT
+Content-Type: text/html
+Content-Length: 904
+Last-Modified: Mon, 27 Apr 2026 21:03:34 GMT
+Connection: keep-alive
+ETag: "69efcf26-388"
+Strict-Transport-Security: max-age=63072000
+Accept-Ranges: bytes

@@ -1,0 +1,784 @@
+/**
+ * v4-gem-wallet.ts — Monthly per-subject gem wallet (50/50 split + welcome gift).
+ *
+ * Parallel to the legacy `user_subject_subscriptions` daily-cap wallet (kept
+ * in service until the full FE cutover in task #10). All v4 wallet mutations
+ * go through this module so the accounting story is uniform:
+ *
+ *   purchaseV4Gems        — atomic: split price 50/50, write purchase_gems +
+ *                           platform_revenue rows, merge balance, extend expiry.
+ *                           Carries leftover across the grace window as a
+ *                           `renewal_carryover` audit row when applicable.
+ *   getOrCreateV4Wallet   — first-touch wallet creation + one-shot +100
+ *                           `welcome_gift`. Idempotent on (userId, subjectId).
+ *   chargeV4Ai            — post-AI debit. Idempotent on requestId via the
+ *                           same DB-unique-on-(user_id, request_id) index
+ *                           that powers settleAiCharge.
+ *   refundV4Ai            — reverse a debit by requestId. Idempotent.
+ *   sweepV4ExpiredWallets — cron entry-point: after the 3-day grace window
+ *                           zero out positive balances and audit as
+ *                           `monthly_expiry`.
+ *
+ * Gem economy:
+ *   1 US cent = 10 gems. So 1 USD = 1000 gems.
+ *   gems = floor(usd × 1000) — same exchange used by chargeV4Ai and
+ *   computePricingBreakdown's `gemsGranted` formula, just expressed as
+ *   "cents × 10" there. Both must remain in lock-step.
+ *
+ * Why parallel-to-legacy:
+ *   Removing the legacy daily-cap / midnight-forfeit / free-first-lesson path
+ *   touches dozens of student-facing routes and the entire FE balance widget.
+ *   That cutover is owned by task #10. Until then, both wallets coexist and
+ *   only the v4 wallet is populated for new purchases routed through
+ *   `purchaseV4Gems` (the approve flow calls it AFTER the legacy grant, as a
+ *   best-effort additional write — neither path blocks the other).
+ */
+
+import { and, eq, gt, lt, sql, isNotNull } from "drizzle-orm";
+import {
+  db,
+  studentGemWalletsTable,
+  gemLedgerTable,
+} from "@workspace/db";
+import { logger } from "./logger";
+import {
+  computePricingBreakdown,
+  type PricingBreakdown,
+} from "./pricing-formula";
+import type { GemLedgerSource } from "./gem-ledger";
+
+/** One-time welcome bonus granted on first wallet creation per subject. */
+export const V4_WELCOME_GIFT_GEMS = 100;
+
+/** Days after expiry during which a renewal preserves leftover balance. */
+export const V4_GRACE_DAYS = 3;
+
+/** Monthly subscription window length. */
+export const V4_SUB_DURATION_DAYS = 30;
+
+/**
+ * Convert a USD cost (from the AI billing layer) to gem count.
+ * Single source of truth — every AI charge MUST go through this.
+ */
+export function usdToGems(usd: number): number {
+  if (!Number.isFinite(usd) || usd <= 0) return 0;
+  return Math.max(1, Math.floor(usd * 1000));
+}
+
+export type V4Wallet = {
+  id: number;
+  userId: number;
+  subjectId: string;
+  gemsBalance: number;
+  expiresAt: Date | null;
+  welcomeGiftClaimed: boolean;
+};
+
+/**
+ * Get-or-create a v4 wallet for (userId, subjectId). On first creation grants
+ * a one-shot +100 `welcome_gift`. Idempotent: subsequent calls return the
+ * existing wallet without re-granting the gift.
+ *
+ * Race-safe via INSERT ... ON CONFLICT DO NOTHING — two concurrent first-touch
+ * calls collapse into a single welcome-gift row.
+ */
+export async function getOrCreateV4Wallet(
+  userId: number,
+  subjectId: string,
+): Promise<V4Wallet> {
+  // First-touch: wallet creation AND welcome-gift ledger row must be one
+  // atomic unit. If either side fails, both roll back — we never leave a
+  // +100 wallet balance without a matching audit row (or vice versa).
+  return await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(studentGemWalletsTable)
+      .values({
+        userId,
+        subjectId,
+        gemsBalance: V4_WELCOME_GIFT_GEMS,
+        welcomeGiftClaimed: true,
+        // expiresAt left NULL until first real purchase.
+      })
+      .onConflictDoNothing({
+        target: [studentGemWalletsTable.userId, studentGemWalletsTable.subjectId],
+      })
+      .returning();
+
+    if (inserted.length > 0) {
+      const w = inserted[0];
+      // Same transaction → wallet + ledger commit together. A duplicate
+      // welcome-gift ledger row across racing callers is prevented by the
+      // wallet-row UNIQUE (user_id, subject_id) constraint above — only the
+      // winning insert reaches this branch.
+      await tx.insert(gemLedgerTable).values({
+        userId,
+        subjectId,
+        delta: V4_WELCOME_GIFT_GEMS,
+        balanceAfter: V4_WELCOME_GIFT_GEMS,
+        reason: "welcome_gift",
+        source: "v4_welcome_gift",
+        note: "هدية الترحيب لفتح تخصص جديد",
+        metadata: { walletId: w.id },
+      } as any);
+      return {
+        id: w.id,
+        userId: w.userId,
+        subjectId: w.subjectId,
+        gemsBalance: w.gemsBalance,
+        expiresAt: w.expiresAt,
+        welcomeGiftClaimed: w.welcomeGiftClaimed,
+      };
+    }
+
+    // Already existed (lost the race or returning visitor) — read it.
+    const [existing] = await tx
+      .select()
+      .from(studentGemWalletsTable)
+      .where(and(
+        eq(studentGemWalletsTable.userId, userId),
+        eq(studentGemWalletsTable.subjectId, subjectId),
+      ));
+    return {
+      id: existing.id,
+      userId: existing.userId,
+      subjectId: existing.subjectId,
+      gemsBalance: existing.gemsBalance,
+      expiresAt: existing.expiresAt,
+      welcomeGiftClaimed: existing.welcomeGiftClaimed,
+    };
+  });
+}
+
+export type AffordV4Result = {
+  /** True when the student may take one teaching turn. */
+  ok: boolean;
+  /** Current wallet balance after any first-touch welcome gift. */
+  balance: number;
+  /** True when there is no usable wallet (should not happen after auto-create). */
+  noWallet: boolean;
+  /** True when a wallet exists but is empty or past its grace window. */
+  insufficient: boolean;
+};
+
+/**
+ * PRE-STREAM GATE. Decides whether a student may start a teaching turn BEFORE
+ * any AI tokens (and therefore any OpenRouter cost) are spent.
+ *
+ * Without this gate `/v4/teach` would stream a full reply and only attempt the
+ * charge afterwards — so a student with no/empty/expired wallet would receive
+ * unlimited free AI teaching (the paywall banner is purely cosmetic once the
+ * answer has already streamed). This closes that hole.
+ *
+ * Auto-creates the wallet on first touch (granting the one-time +100 welcome
+ * gift) so brand-new students still get their free trial, exactly as the
+ * post-stream charge path used to.
+ */
+export async function canAffordV4Turn(
+  userId: number,
+  subjectId: string,
+): Promise<AffordV4Result> {
+  // First touch creates the wallet + welcome gift; returning students read it.
+  const wallet = await getOrCreateV4Wallet(userId, subjectId);
+  const balance = wallet.gemsBalance ?? 0;
+
+  // Mirror the grace-window rule enforced by chargeV4Ai: a wallet with no
+  // expiry set yet (welcome-gift-only) is always live; otherwise it must be
+  // within expiresAt + grace.
+  const now = Date.now();
+  const withinGrace = wallet.expiresAt
+    ? now <= wallet.expiresAt.getTime() + V4_GRACE_DAYS * 24 * 60 * 60 * 1000
+    : true;
+
+  // A turn always costs at least 1 gem (usdToGems floors at 1). Requiring a
+  // strictly positive balance is what makes zero-balance == no-stream.
+  const ok = balance >= 1 && withinGrace;
+  return {
+    ok,
+    balance,
+    noWallet: false,
+    insufficient: !ok,
+  };
+}
+
+export type PurchaseV4Opts = {
+  userId: number;
+  subjectId: string;
+  subjectName?: string | null;
+  /** YER paid by the student (post-discount). */
+  paidPriceYer: number;
+  region: string | null | undefined;
+  /** Optional approval bookkeeping for the ledger metadata. */
+  subscriptionRequestId?: number | null;
+  activationCode?: string | null;
+  planType?: string | null;
+};
+
+export type PurchaseV4Result = {
+  walletId: number;
+  breakdown: PricingBreakdown;
+  /** Balance AFTER merging the new purchase. */
+  balanceAfter: number;
+  /** Gems brought over from a previous unexpired window (0 if first purchase or expired past grace). */
+  carriedOver: number;
+  /** New `expires_at` (30 days from now). */
+  expiresAt: Date;
+};
+
+/**
+ * Atomic 50/50 purchase. Writes:
+ *   - `purchase_gems`    (+gemsGranted)
+ *   - `platform_revenue` ( 0 delta, audit-only — platform USD share)
+ *   - `renewal_carryover` if a non-zero balance was preserved from a prior window
+ *
+ * All four operations (wallet upsert + 3 ledger rows) run inside one
+ * transaction. Welcome-gift handling: if this is the first time the wallet
+ * is created via purchase (no prior `getOrCreateV4Wallet` call), the +100
+ * is granted INSIDE this same transaction so the student gets a single
+ * unified balance immediately.
+ *
+ * Renewal semantics:
+ *   - Bought BEFORE expiry → leftover gems are preserved (no carryover row,
+ *     it's a simple merge).
+ *   - Bought DURING the 3-day grace → leftover preserved AND audited as
+ *     `renewal_carryover`.
+ *   - Bought AFTER grace (or wallet never existed) → start fresh.
+ */
+export async function purchaseV4Gems(opts: PurchaseV4Opts): Promise<PurchaseV4Result> {
+  return await db.transaction(async (tx) => purchaseV4GemsTx(tx, opts));
+}
+
+/**
+ * Same as `purchaseV4Gems` but runs inside a caller-supplied transaction so the
+ * purchase can be made ATOMIC with another operation (e.g. the admin approval
+ * flow which writes the legacy grant + activation card in the same tx). If this
+ * throws, the caller's whole transaction rolls back — guaranteeing the student
+ * is never charged-without-gems or granted-without-payment.
+ */
+export async function purchaseV4GemsTx(
+  tx: any,
+  opts: PurchaseV4Opts,
+): Promise<PurchaseV4Result> {
+  const breakdown = computePricingBreakdown({
+    priceYer: opts.paidPriceYer,
+    region: opts.region,
+  });
+  const now = new Date();
+  const newExpiresAt = new Date(now.getTime() + V4_SUB_DURATION_DAYS * 24 * 60 * 60 * 1000);
+
+  {
+    // SELECT FOR UPDATE — serialize against concurrent purchases for the
+    // same (user, subject) so we don't lose a carryover or duplicate a
+    // welcome-gift inside the same race window.
+    const [existing] = await tx
+      .select()
+      .from(studentGemWalletsTable)
+      .where(and(
+        eq(studentGemWalletsTable.userId, opts.userId),
+        eq(studentGemWalletsTable.subjectId, opts.subjectId),
+      ))
+      .for("update");
+
+    let walletId: number;
+    let priorBalance = 0;
+    let priorExpiresAt: Date | null = null;
+    let priorWelcomeClaimed = false;
+    let isFirstTouch = false;
+
+    if (existing) {
+      walletId = existing.id;
+      priorBalance = existing.gemsBalance ?? 0;
+      priorExpiresAt = existing.expiresAt;
+      priorWelcomeClaimed = existing.welcomeGiftClaimed;
+    } else {
+      const [created] = await tx
+        .insert(studentGemWalletsTable)
+        .values({
+          userId: opts.userId,
+          subjectId: opts.subjectId,
+          gemsBalance: 0,
+          welcomeGiftClaimed: false,
+        })
+        .returning();
+      walletId = created.id;
+      isFirstTouch = true;
+    }
+
+    // Compute carryover. Past-grace = lose it; in-window or grace = keep.
+    const graceCutoff = priorExpiresAt
+      ? new Date(priorExpiresAt.getTime() + V4_GRACE_DAYS * 24 * 60 * 60 * 1000)
+      : null;
+    const insideGrace = graceCutoff ? now.getTime() <= graceCutoff.getTime() : false;
+    const insideWindow = priorExpiresAt ? now.getTime() <= priorExpiresAt.getTime() : false;
+    const carriedOver = insideWindow || insideGrace ? priorBalance : 0;
+
+    // Welcome gift (one-time per subject). Added to the same transaction so
+    // the student sees ONE merged balance.
+    const welcomeGift = priorWelcomeClaimed ? 0 : V4_WELCOME_GIFT_GEMS;
+
+    const newBalance = carriedOver + welcomeGift + breakdown.gemsGranted;
+
+    await tx
+      .update(studentGemWalletsTable)
+      .set({
+        gemsBalance: newBalance,
+        expiresAt: newExpiresAt,
+        welcomeGiftClaimed: true,
+        lastRenewalAt: now,
+        updatedAt: now,
+      })
+      .where(eq(studentGemWalletsTable.id, walletId));
+
+    // Ledger rows — written inside the same transaction so the wallet
+    // mutation and the audit trail are atomic.
+    const ledgerMetadata: Record<string, unknown> = {
+      walletId,
+      paidPriceYer: opts.paidPriceYer,
+      region: opts.region ?? null,
+      priceUsd: breakdown.priceUsd,
+      studentShareUsd: breakdown.studentShareUsd,
+      platformShareUsd: breakdown.platformShareUsd,
+      yerToUsdRate: breakdown.yerToUsdRate,
+      gemsGranted: breakdown.gemsGranted,
+      planType: opts.planType ?? null,
+      activationCode: opts.activationCode ?? null,
+      subscriptionRequestId: opts.subscriptionRequestId ?? null,
+    };
+
+    if (welcomeGift > 0) {
+      await tx.insert(gemLedgerTable).values({
+        userId: opts.userId,
+        subjectId: opts.subjectId,
+        delta: welcomeGift,
+        balanceAfter: carriedOver + welcomeGift,
+        reason: "welcome_gift",
+        source: "v4_welcome_gift",
+        note: "هدية الترحيب لفتح تخصص جديد",
+        metadata: { walletId, isFirstTouch },
+      } as any);
+    }
+
+    if (carriedOver > 0 && existing && (insideGrace || insideWindow)) {
+      await tx.insert(gemLedgerTable).values({
+        userId: opts.userId,
+        subjectId: opts.subjectId,
+        delta: 0,
+        balanceAfter: carriedOver + welcomeGift,
+        reason: "renewal_carryover",
+        source: "v4_renewal",
+        note: insideWindow
+          ? `تجديد مبكر — تم ترحيل ${carriedOver} جوهرة من الباقة السابقة`
+          : `تجديد خلال فترة السماح — تم ترحيل ${carriedOver} جوهرة`,
+        metadata: {
+          walletId,
+          carriedOver,
+          priorExpiresAt: priorExpiresAt?.toISOString() ?? null,
+          insideGrace,
+          insideWindow,
+        },
+      } as any);
+    }
+
+    await tx.insert(gemLedgerTable).values({
+      userId: opts.userId,
+      subjectId: opts.subjectId,
+      delta: breakdown.gemsGranted,
+      balanceAfter: newBalance,
+      reason: "purchase_gems",
+      source: "v4_purchase",
+      note: opts.planType ? `شراء باقة ${opts.planType}` : "شراء باقة جواهر",
+      metadata: ledgerMetadata,
+    } as any);
+
+    // Platform-revenue audit row. delta=0 because it does NOT touch the
+    // student's wallet — it's a parallel record of where the OTHER half of
+    // the payment went, so finance reporting can sum platform earnings
+    // directly from the ledger without joining payment_requests.
+    await tx.insert(gemLedgerTable).values({
+      userId: opts.userId,
+      subjectId: opts.subjectId,
+      delta: 0,
+      balanceAfter: newBalance,
+      reason: "platform_revenue",
+      source: "v4_purchase",
+      note: `حصة المنصة: ${breakdown.platformShareUsd.toFixed(4)} دولار`,
+      metadata: {
+        ...ledgerMetadata,
+        platformShareUsd: breakdown.platformShareUsd,
+      },
+    } as any);
+
+    return {
+      walletId,
+      breakdown,
+      balanceAfter: newBalance,
+      carriedOver,
+      expiresAt: newExpiresAt,
+    };
+  }
+}
+
+export type ChargeV4Opts = {
+  /** Unique-per-AI-call id. Same requestId twice = no double-charge. */
+  requestId: string;
+  userId: number;
+  subjectId: string;
+  /** Cost in USD as reported by the AI billing layer. */
+  costUsd: number;
+  source: GemLedgerSource;
+  model?: string | null;
+  note?: string | null;
+  /**
+   * When the wallet has a POSITIVE but insufficient balance (0 < balance <
+   * cost), drain it to zero instead of refusing. This caps free exposure for
+   * streamed AI to a SINGLE partial turn: after the drain the balance is 0, so
+   * the pre-stream gate blocks every subsequent turn. Without this, a student
+   * parked at a low balance whose per-turn cost exceeds it would receive
+   * unlimited replies for free (the charge silently no-ops, balance unchanged).
+   */
+  drainIfInsufficient?: boolean;
+};
+
+export type ChargeV4Result = {
+  charged: boolean;
+  gemsDeducted: number;
+  balanceAfter: number | null;
+  /** Set when the wallet exists but is empty / out-of-grace. */
+  insufficient?: boolean;
+  /** Set when there is no v4 wallet for this (user, subject). */
+  noWallet?: boolean;
+};
+
+const NO_OP: ChargeV4Result = { charged: false, gemsDeducted: 0, balanceAfter: null };
+
+/**
+ * Post-AI debit. Idempotent on requestId via the existing
+ * gem_ledger(user_id, request_id) unique index. Rejects when the wallet is
+ * empty or past its grace window — caller should refund any partial AI cost.
+ */
+export async function chargeV4Ai(opts: ChargeV4Opts): Promise<ChargeV4Result> {
+  const gems = usdToGems(opts.costUsd);
+  if (gems <= 0) return NO_OP;
+  if (!opts.requestId) {
+    logger.error({ userId: opts.userId, source: opts.source }, "chargeV4Ai: missing requestId");
+    return NO_OP;
+  }
+
+  const baseMetadata: Record<string, unknown> = {
+    requestId: opts.requestId,
+    model: opts.model ?? null,
+    costUsd: opts.costUsd,
+  };
+
+  try {
+    return await db.transaction(async (tx) => {
+      // STEP 1 — Claim the requestId by inserting a placeholder ledger row.
+      const inserted = await tx
+        .insert(gemLedgerTable)
+        .values({
+          userId: opts.userId,
+          subjectId: opts.subjectId,
+          delta: -gems,
+          balanceAfter: 0,
+          reason: "debit",
+          source: opts.source,
+          note: opts.note ?? null,
+          metadata: baseMetadata,
+          requestId: opts.requestId,
+        } as any)
+        .onConflictDoNothing({
+          target: [gemLedgerTable.userId, (gemLedgerTable as any).requestId],
+        })
+        .returning({ id: gemLedgerTable.id });
+
+      if (inserted.length === 0) {
+        return NO_OP; // Duplicate — another concurrent settle already won.
+      }
+      const ledgerId = inserted[0].id;
+
+      // STEP 2 — Conditional UPDATE: only debit when the v4 wallet has
+      // enough gems AND is still inside its grace window. If 0 rows return,
+      // throw to roll the placeholder back.
+      const now = new Date();
+      const graceCutoffSql = sql`(${studentGemWalletsTable.expiresAt} + (${V4_GRACE_DAYS} || ' days')::interval)`;
+
+      const [updated] = await tx
+        .update(studentGemWalletsTable)
+        .set({
+          gemsBalance: sql`${studentGemWalletsTable.gemsBalance} - ${gems}`,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(studentGemWalletsTable.userId, opts.userId),
+          eq(studentGemWalletsTable.subjectId, opts.subjectId),
+          sql`${studentGemWalletsTable.gemsBalance} >= ${gems}`,
+          // Either no expiry set yet (welcome-gift-only wallet) OR still
+          // within the grace window.
+          sql`(${studentGemWalletsTable.expiresAt} IS NULL OR ${now} <= ${graceCutoffSql})`,
+        ))
+        .returning({ gemsBalance: studentGemWalletsTable.gemsBalance });
+
+      if (!updated) {
+        if (!opts.drainIfInsufficient) {
+          throw new Error("V4_INSUFFICIENT_OR_EXPIRED");
+        }
+        // DRAIN PATH — the full-cost debit failed. Lock the wallet row and, if
+        // it still has a POSITIVE balance and is inside grace, take everything
+        // that's left (down to zero) rather than serving the turn for free.
+        const [locked] = await tx
+          .select()
+          .from(studentGemWalletsTable)
+          .where(and(
+            eq(studentGemWalletsTable.userId, opts.userId),
+            eq(studentGemWalletsTable.subjectId, opts.subjectId),
+          ))
+          .for("update");
+
+        if (!locked) throw new Error("V4_NO_WALLET");
+
+        const graceMs = V4_GRACE_DAYS * 24 * 60 * 60 * 1000;
+        const withinGrace = locked.expiresAt
+          ? now.getTime() <= locked.expiresAt.getTime() + graceMs
+          : true;
+        const remaining = locked.gemsBalance ?? 0;
+
+        // Nothing to drain (already empty) or out of grace → genuine reject.
+        if (!withinGrace || remaining <= 0) {
+          throw new Error("V4_INSUFFICIENT_OR_EXPIRED");
+        }
+
+        await tx
+          .update(studentGemWalletsTable)
+          .set({ gemsBalance: 0, updatedAt: now })
+          .where(eq(studentGemWalletsTable.id, locked.id));
+
+        // Rewrite the placeholder to reflect the ACTUAL gems taken, not the
+        // full intended cost, so the ledger stays balanced.
+        await tx
+          .update(gemLedgerTable)
+          .set({
+            delta: -remaining,
+            balanceAfter: 0,
+            metadata: { ...baseMetadata, drained: true, intendedGems: gems },
+          })
+          .where(eq(gemLedgerTable.id, ledgerId));
+
+        // charged:true (we DID take their gems) AND insufficient:true (the turn
+        // wasn't fully covered → FE shows the paywall and the next turn is
+        // blocked by the zero-balance gate).
+        return { charged: true, gemsDeducted: remaining, balanceAfter: 0, insufficient: true };
+      }
+
+      // STEP 3 — Fix up the ledger balance_after to the real post-debit value.
+      await tx
+        .update(gemLedgerTable)
+        .set({ balanceAfter: Math.max(0, updated.gemsBalance) })
+        .where(eq(gemLedgerTable.id, ledgerId));
+
+      return { charged: true, gemsDeducted: gems, balanceAfter: updated.gemsBalance };
+    });
+  } catch (err: any) {
+    if (err?.message === "V4_INSUFFICIENT_OR_EXPIRED") {
+      // Read the wallet to disambiguate "no wallet" vs "empty / expired".
+      const [w] = await db
+        .select()
+        .from(studentGemWalletsTable)
+        .where(and(
+          eq(studentGemWalletsTable.userId, opts.userId),
+          eq(studentGemWalletsTable.subjectId, opts.subjectId),
+        ));
+      if (!w) return { ...NO_OP, noWallet: true };
+      return { ...NO_OP, insufficient: true, balanceAfter: w.gemsBalance };
+    }
+    logger.error(
+      { err: err?.message, userId: opts.userId, requestId: opts.requestId, source: opts.source },
+      "chargeV4Ai: transaction failed",
+    );
+    return NO_OP;
+  }
+}
+
+export type RefundV4Opts = {
+  requestId: string;
+  userId: number;
+  subjectId: string;
+  source: GemLedgerSource;
+  reason?: string | null;
+};
+
+/**
+ * Reverse a previous v4 debit by requestId. Idempotent — the refund row is
+ * keyed on `${requestId}:refund` so a double-refund collapses to one.
+ */
+export async function refundV4Ai(opts: RefundV4Opts): Promise<{ refunded: number }> {
+  if (!opts.requestId) return { refunded: 0 };
+  const refundKey = `${opts.requestId}:refund`;
+
+  try {
+    return await db.transaction(async (tx) => {
+      const [debit] = await tx
+        .select()
+        .from(gemLedgerTable)
+        .where(and(
+          eq(gemLedgerTable.userId, opts.userId),
+          eq(gemLedgerTable.reason, "debit"),
+          sql`${(gemLedgerTable as any).requestId} = ${opts.requestId}`,
+        ))
+        .limit(1);
+      if (!debit) return { refunded: 0 };
+
+      const refundGems = Math.abs(debit.delta);
+      if (refundGems <= 0) return { refunded: 0 };
+
+      // Targeting safety: always credit BACK to the same wallet that was
+      // debited. The caller's subjectId is treated as advisory — if it
+      // disagrees with the original debit's subjectId, trust the debit
+      // (cross-subject corruption is worse than a noisy log line).
+      const targetSubjectId = debit.subjectId ?? opts.subjectId;
+      if (debit.subjectId && opts.subjectId && debit.subjectId !== opts.subjectId) {
+        logger.warn(
+          {
+            requestId: opts.requestId,
+            callerSubjectId: opts.subjectId,
+            debitSubjectId: debit.subjectId,
+          },
+          "refundV4Ai: caller subjectId mismatch — using debit's subjectId",
+        );
+      }
+
+      const inserted = await tx
+        .insert(gemLedgerTable)
+        .values({
+          userId: opts.userId,
+          subjectId: targetSubjectId,
+          delta: refundGems,
+          balanceAfter: 0,
+          reason: "refund",
+          source: opts.source,
+          note: opts.reason ?? "استرداد تلقائي (فشل الاستدعاء)",
+          metadata: { requestId: opts.requestId, originalDebitId: debit.id },
+          requestId: refundKey,
+        } as any)
+        .onConflictDoNothing({
+          target: [gemLedgerTable.userId, (gemLedgerTable as any).requestId],
+        })
+        .returning({ id: gemLedgerTable.id });
+      if (inserted.length === 0) return { refunded: 0 };
+
+      const [updated] = await tx
+        .update(studentGemWalletsTable)
+        .set({
+          gemsBalance: sql`${studentGemWalletsTable.gemsBalance} + ${refundGems}`,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(studentGemWalletsTable.userId, opts.userId),
+          eq(studentGemWalletsTable.subjectId, targetSubjectId),
+        ))
+        .returning({ gemsBalance: studentGemWalletsTable.gemsBalance });
+
+      const balanceAfter = updated?.gemsBalance ?? 0;
+      await tx
+        .update(gemLedgerTable)
+        .set({ balanceAfter: Math.max(0, balanceAfter) })
+        .where(eq(gemLedgerTable.id, inserted[0].id));
+
+      return { refunded: refundGems };
+    });
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message, userId: opts.userId, requestId: opts.requestId },
+      "refundV4Ai: transaction failed",
+    );
+    return { refunded: 0 };
+  }
+}
+
+/**
+ * Cron entry-point. For every v4 wallet whose `expires_at + 3 days < now`
+ * AND whose `gems_balance > 0`, zero out the balance and write a
+ * `monthly_expiry` audit row.
+ *
+ * Idempotent: a second pass on the same day finds no positive-balance
+ * past-grace rows and does nothing.
+ */
+export async function sweepV4ExpiredWallets(): Promise<{ swept: number; errors: number }> {
+  const now = new Date();
+  let swept = 0;
+  let errors = 0;
+
+  try {
+    const due = await db
+      .select()
+      .from(studentGemWalletsTable)
+      .where(and(
+        isNotNull(studentGemWalletsTable.expiresAt),
+        gt(studentGemWalletsTable.gemsBalance, 0),
+        lt(
+          sql`(${studentGemWalletsTable.expiresAt} + (${V4_GRACE_DAYS} || ' days')::interval)`,
+          now,
+        ),
+      ));
+
+    for (const w of due) {
+      try {
+        await db.transaction(async (tx) => {
+          // Lock the wallet row INSIDE the transaction and re-read its
+          // current balance — a debit or refund could have landed between
+          // the outer SELECT and now. The ledger delta MUST match the
+          // amount actually burned by this UPDATE, not the snapshot taken
+          // before the lock.
+          const [locked] = await tx
+            .select({
+              id: studentGemWalletsTable.id,
+              gemsBalance: studentGemWalletsTable.gemsBalance,
+              expiresAt: studentGemWalletsTable.expiresAt,
+            })
+            .from(studentGemWalletsTable)
+            .where(eq(studentGemWalletsTable.id, w.id))
+            .for("update");
+          if (!locked || locked.gemsBalance <= 0) return;
+
+          // Re-check expiry under the lock — a renewal during the SELECT
+          // window could have pushed expires_at forward.
+          const graceCutoffMs = locked.expiresAt
+            ? locked.expiresAt.getTime() + V4_GRACE_DAYS * 24 * 60 * 60 * 1000
+            : null;
+          if (!graceCutoffMs || graceCutoffMs >= now.getTime()) return;
+
+          const burned = locked.gemsBalance;
+          await tx
+            .update(studentGemWalletsTable)
+            .set({ gemsBalance: 0, updatedAt: now })
+            .where(eq(studentGemWalletsTable.id, w.id));
+
+          await tx.insert(gemLedgerTable).values({
+            userId: w.userId,
+            subjectId: w.subjectId,
+            delta: -burned,
+            balanceAfter: 0,
+            reason: "monthly_expiry",
+            source: "v4_expiry_sweep",
+            note: `انتهت فترة السماح (${V4_GRACE_DAYS} أيام) — تم تصفير الرصيد`,
+            metadata: {
+              walletId: w.id,
+              expiredBalance: burned,
+              expiresAt: locked.expiresAt?.toISOString() ?? null,
+              graceDays: V4_GRACE_DAYS,
+            },
+          } as any);
+        });
+        swept++;
+      } catch (err: any) {
+        errors++;
+        logger.error(
+          { err: err?.message, walletId: w.id, userId: w.userId, subjectId: w.subjectId },
+          "v4-wallet: expiry sweep failed for one wallet",
+        );
+      }
+    }
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "v4-wallet: expiry sweep query failed");
+  }
+
+  return { swept, errors };
+}

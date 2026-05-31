@@ -1,0 +1,55 @@
+root@vmi3256829:~/nukhba/Attached-Assets# docker logs attached-assets-db-1 --tail 30
+2026-05-29 13:08:14.588 UTC [39] DETAIL:  Could not open extension control file "/usr/local/share/postgresql/extension/vector.control": No such file or directory.
+2026-05-29 13:08:14.588 UTC [39] HINT:  The extension must first be installed on the system where PostgreSQL is running.
+2026-05-29 13:08:14.588 UTC [39] STATEMENT:  CREATE EXTENSION IF NOT EXISTS vector
+2026-05-29 13:13:02.261 UTC [26] LOG:  checkpoint starting: time
+2026-05-29 13:13:04.823 UTC [26] LOG:  checkpoint complete: wrote 27 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.530 s, sync=0.006 s, total=2.563 s; sync files=24, longest=0.003 s, average=0.001 s; distance=128 kB, estimate=128 kB; lsn=0/3B16990, redo lsn=0/3B16958
+2026-05-29 13:31:56.111 UTC [1030] ERROR:  extension "vector" is not available
+2026-05-29 13:31:56.111 UTC [1030] DETAIL:  Could not open extension control file "/usr/local/share/postgresql/extension/vector.control": No such file or directory.
+2026-05-29 13:31:56.111 UTC [1030] HINT:  The extension must first be installed on the system where PostgreSQL is running.
+2026-05-29 13:31:56.111 UTC [1030] STATEMENT:  CREATE EXTENSION IF NOT EXISTS vector
+2026-05-29 13:33:03.115 UTC [26] LOG:  checkpoint starting: time
+2026-05-29 13:33:05.386 UTC [26] LOG:  checkpoint complete: wrote 23 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.239 s, sync=0.005 s, total=2.271 s; sync files=21, longest=0.003 s, average=0.001 s; distance=98 kB, estimate=125 kB; lsn=0/3B2F328, redo lsn=0/3B2F2F0
+2026-05-29 13:43:58.963 UTC [1544] ERROR:  extension "vector" is not available
+2026-05-29 13:43:58.963 UTC [1544] DETAIL:  Could not open extension control file "/usr/local/share/postgresql/extension/vector.control": No such file or directory.
+2026-05-29 13:43:58.963 UTC [1544] HINT:  The extension must first be installed on the system where PostgreSQL is running.
+2026-05-29 13:43:58.963 UTC [1544] STATEMENT:  CREATE EXTENSION IF NOT EXISTS vector
+2026-05-29 13:48:03.572 UTC [26] LOG:  checkpoint starting: time
+2026-05-29 13:48:05.897 UTC [26] LOG:  checkpoint complete: wrote 23 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.248 s, sync=0.023 s, total=2.329 s; sync files=20, longest=0.012 s, average=0.002 s; distance=114 kB, estimate=124 kB; lsn=0/3B4BDE0, redo lsn=0/3B4BDA8
+2026-05-29 13:49:40.650 UTC [1789] ERROR:  extension "vector" is not available
+2026-05-29 13:49:40.650 UTC [1789] DETAIL:  Could not open extension control file "/usr/local/share/postgresql/extension/vector.control": No such file or directory.
+2026-05-29 13:49:40.650 UTC [1789] HINT:  The extension must first be installed on the system where PostgreSQL is running.
+2026-05-29 13:49:40.650 UTC [1789] STATEMENT:  CREATE EXTENSION IF NOT EXISTS vector
+2026-05-29 13:53:03.997 UTC [26] LOG:  checkpoint starting: time
+2026-05-29 13:53:06.430 UTC [26] LOG:  checkpoint complete: wrote 24 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.342 s, sync=0.008 s, total=2.432 s; sync files=20, longest=0.003 s, average=0.001 s; distance=124 kB, estimate=124 kB; lsn=0/3B6AE98, redo lsn=0/3B6AE60
+2026-05-29 14:05:42.603 UTC [1] LOG:  received fast shutdown request
+2026-05-29 14:05:42.614 UTC [1] LOG:  aborting any active transactions
+2026-05-29 14:05:42.621 UTC [1] LOG:  background worker "logical replication launcher" (PID 31) exited with exit code 1
+2026-05-29 14:05:42.627 UTC [26] LOG:  shutting down
+2026-05-29 14:05:42.630 UTC [26] LOG:  checkpoint starting: shutdown immediate
+2026-05-29 14:05:42.679 UTC [26] LOG:  checkpoint complete: wrote 0 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.002 s, sync=0.001 s, total=0.052 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=112 kB; lsn=0/3B6AF48, redo lsn=0/3B6AF48
+2026-05-29 14:05:42.695 UTC [1] LOG:  database system is shut down
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose up -d
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] up 4/4
+ ✔ Container attached-assets-api-1     Running                                                                                   0.0s
+ ✔ Container attached-assets-nginx-1   Running                                                                                   0.0s
+ ✔ Container attached-assets-db-1      Healthy                                                                                  11.6s
+ ✔ Container attached-assets-certbot-1 Started                                                                                   1.2s
+root@vmi3256829:~/nukhba/Attached-Assets# sleep 15 && docker ps -a | grep attached
+e67522cc49b0   attached-assets-nginx    "/docker-entrypoint.…"   11 minutes ago      Up 11 minutes             0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp   attached-assets-nginx-1
+32c70321190d   attached-assets-api      "docker-entrypoint.s…"   11 minutes ago      Up 2 minutes              8080/tcp                                                                       attached-assets-api-1
+6d3be03049c3   postgres:16-alpine       "docker-entrypoint.s…"   About an hour ago   Up 31 seconds (healthy)   5432/tcp                                                                       attached-assets-db-1
+6a7e912d4e47   certbot/certbot:latest   "/bin/sh -c 'trap ex…"   About an hour ago   Up 31 seconds             80/tcp, 443/tcp                                                                attached-assets-certbot-1
+root@vmi3256829:~/nukhba/Attached-Assets# docker logs attached-assets-api-1 --tail 20 2>&1 | grep -E "migrate|listening|error" | tail -10
+{"level":50,"time":1780064371951,"pid":1,"hostname":"32c70321190d","table":"v4_instruction_file_versions","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"v4_instruction_file_versions\" (\n        \"id\" serial PRIMARY KEY,\n        \"specialty_id\" integer NOT NULL,\n        \"version\" integer NOT NULL,\n        \"status\" text NOT NULL DEFAULT 'published',\n        \"raw_json\" jsonb NOT NULL,\n        \"parsed_summary\" jsonb,\n        \"notes\" text,\n        \"published_by_user_id\" integer,\n        \"published_at\" timestamp with time zone NOT NULL DEFAULT NOW()\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+{"level":50,"time":1780064376957,"pid":1,"hostname":"32c70321190d","table":"v4_levels","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"v4_levels\" (\n        \"id\" serial PRIMARY KEY,\n        \"version_id\" integer NOT NULL,\n        \"level_index\" integer NOT NULL,\n        \"name\" text NOT NULL,\n        \"goal\" text NOT NULL,\n        \"exam_meta\" jsonb\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+{"level":50,"time":1780064381964,"pid":1,"hostname":"32c70321190d","table":"v4_stages","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"v4_stages\" (\n        \"id\" serial PRIMARY KEY,\n        \"version_id\" integer NOT NULL,\n        \"level_id\" integer NOT NULL,\n        \"stage_index\" integer NOT NULL,\n        \"code\" text NOT NULL,\n        \"name\" text NOT NULL,\n        \"goal\" text NOT NULL,\n        \"exam_meta\" jsonb\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+{"level":50,"time":1780064386973,"pid":1,"hostname":"32c70321190d","table":"v4_units","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"v4_units\" (\n        \"id\" serial PRIMARY KEY,\n        \"version_id\" integer NOT NULL,\n        \"stage_id\" integer NOT NULL,\n        \"unit_index\" integer NOT NULL,\n        \"code\" text NOT NULL,\n        \"name\" text NOT NULL,\n        \"goal\" text NOT NULL,\n        \"prerequisite_unit_codes\" jsonb NOT NULL DEFAULT '[]'::jsonb,\n        \"enables_unit_codes\" jsonb NOT NULL DEFAULT '[]'::jsonb,\n        \"key_concepts\" jsonb NOT NULL DEFAULT '[]'::jsonb,\n        \"exam_meta\" jsonb\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+{"level":50,"time":1780064391984,"pid":1,"hostname":"32c70321190d","table":"v4_lessons","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"v4_lessons\" (\n        \"id\" serial PRIMARY KEY,\n        \"version_id\" integer NOT NULL,\n        \"unit_id\" integer NOT NULL,\n        \"lesson_index\" integer NOT NULL,\n        \"code\" text NOT NULL,\n        \"name\" text NOT NULL,\n        \"goal\" text NOT NULL,\n        \"bridge_sentence\" text NOT NULL,\n        \"prerequisite_lesson_codes\" jsonb NOT NULL DEFAULT '[]'::jsonb,\n        \"enables_lesson_codes\" jsonb NOT NULL DEFAULT '[]'::jsonb,\n        \"final_check_question\" text NOT NULL,\n        \"session_complete_criterion\" text NOT NULL,\n        \"yemeni_examples\" jsonb NOT NULL DEFAULT '[]'::jsonb,\n        \"expected_duration_minutes\" integer,\n        \"estimated_gem_cost\" integer\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+{"level":50,"time":1780064396999,"pid":1,"hostname":"32c70321190d","table":"v4_lesson_concepts","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"v4_lesson_concepts\" (\n        \"id\" serial PRIMARY KEY,\n        \"version_id\" integer NOT NULL,\n        \"lesson_id\" integer NOT NULL,\n        \"concept_index\" integer NOT NULL,\n        \"name\" text NOT NULL,\n        \"explanation\" text NOT NULL,\n        \"mastery_criterion\" text NOT NULL\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+{"level":50,"time":1780064402006,"pid":1,"hostname":"32c70321190d","table":"v4_lesson_common_mistakes","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"v4_lesson_common_mistakes\" (\n        \"id\" serial PRIMARY KEY,\n        \"version_id\" integer NOT NULL,\n        \"lesson_id\" integer NOT NULL,\n        \"mistake_index\" integer NOT NULL,\n        \"mistake\" text NOT NULL,\n        \"correction\" text NOT NULL,\n        \"treatment\" text NOT NULL\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+{"level":50,"time":1780064407034,"pid":1,"hostname":"32c70321190d","table":"v4_lab_scenarios","err":"Failed query: \n      CREATE TABLE IF NOT EXISTS \"v4_lab_scenarios\" (\n        \"id\" serial PRIMARY KEY,\n        \"version_id\" integer NOT NULL,\n        \"unit_id\" integer NOT NULL,\n        \"lab_index\" integer NOT NULL,\n        \"code\" text NOT NULL,\n        \"title\" text NOT NULL,\n        \"scenario\" text NOT NULL,\n        \"completion_criterion\" text NOT NULL\n      )\n    \nparams: ","msg":"auto-migrate: failed to create table"}
+{"level":30,"time":1780064410566,"pid":1,"hostname":"32c70321190d","ms":118827,"msg":"auto-migrate: schema is up to date"}
+{"level":30,"time":1780064410580,"pid":1,"hostname":"32c70321190d","port":8080,"msg":"Server listening"}
+root@vmi3256829:~/nukhba/Attached-Assets#

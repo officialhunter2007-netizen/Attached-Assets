@@ -1,0 +1,2202 @@
+import React, { useState, useMemo, useEffect } from "react";
+import { AppLayout } from "@/components/layout/app-layout";
+import { useAuth } from "@/lib/use-auth";
+import { useLocation } from "wouter";
+import {
+  useGetAdminStats,
+  useGetAdminSubscriptionRequests,
+  useGetActivationCards,
+  useApproveSubscriptionRequest,
+  useRejectSubscriptionRequest,
+  useMarkIncompleteSubscriptionRequest,
+  useGetAdminUsers,
+  useCancelUserSubscription,
+  getGetAdminSubscriptionRequestsQueryKey,
+  getGetAdminStatsQueryKey,
+  getGetAdminUsersQueryKey,
+} from "@workspace/api-client-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Check, X, ShieldAlert, Users, CreditCard, Ticket,
+  Copy, Plus, Filter, RefreshCw, AlertTriangle, Ban,
+  Zap, Star, Gem, MessageCircle, Activity, Search,
+  BookOpen, Gift, Trash2, Clock, CalendarDays, ChevronDown, Brain,
+  Percent, Eye, Power, Loader2,
+} from "lucide-react";
+import { AdminInsightsChat } from "@/components/admin-insights-chat";
+import { AdminDiscountCodes } from "@/components/admin-discount-codes";
+import { AdminAiUsage } from "@/components/admin-ai-usage";
+import { AdminDbMonitor } from "@/components/admin-db-monitor";
+import { AdminPlanPrices } from "@/components/admin-plan-prices";
+import { AdminExchangeRates } from "@/components/admin-exchange-rates";
+import { AdminConversations } from "@/components/admin-conversations";
+import { AdminAlerts } from "@/components/admin-alerts";
+import { AdminGemLedger } from "@/components/admin-gem-ledger";
+import { AdminPaymentSettings } from "@/components/admin-payment-settings";
+import { AdminV4Instructions } from "@/components/admin-v4-instructions";
+import { AdminV4Booklets } from "@/components/admin-v4-booklets";
+import { useQueryClient } from "@tanstack/react-query";
+import { university, skills } from "@/lib/curriculum";
+
+const allSubjectsFlat = [
+  ...university.map(s => ({ id: s.id, name: s.name, emoji: s.emoji })),
+  ...skills.flatMap(cat => cat.subjects.map(s => ({ id: s.id, name: s.name, emoji: s.emoji }))),
+];
+
+// ── Local types for admin-only fetches ───────────────────────────────────────
+// The admin page hits a handful of bespoke admin-only endpoints that are NOT
+// in the auto-generated client. Typing these explicitly (instead of `any`)
+// keeps the JSX safe from typos and lets TS catch shape changes server-side.
+type SupportMessage = {
+  id: number;
+  isFromAdmin: boolean;
+  userName?: string | null;
+  subject: string;
+  message: string;
+  createdAt: string;
+};
+type SupportThread = {
+  userId: number;
+  userName?: string | null;
+  userEmail: string;
+  unreadCount: number;
+  lastSubject: string;
+  lastAt: string;
+  totalMessages: number;
+  messages: SupportMessage[];
+};
+type LiveUser = {
+  userId: number;
+  email: string;
+  name?: string | null;
+  page: string;
+  profileImage?: string | null;
+};
+type SubjectSub = {
+  id: number;
+  userId: number;
+  userEmail?: string;
+  userName?: string | null;
+  subjectId: string;
+  subjectName?: string | null;
+  plan: string;
+  region?: string;
+  expiresAt: string;
+  gemsBalance?: number | null;
+  gemsDailyLimit?: number | null;
+  messagesLimit: number;
+  messagesUsed: number;
+  status?: string;
+};
+// Local extensions for fields the server returns that aren't in the generated schema yet.
+type AdminUserRow = import("@workspace/api-client-react").AdminUser & {
+  messagesLimit?: number | null;
+  activeSubjectSubscriptionsCount?: number | null;
+};
+type AdminRequestRow = import("@workspace/api-client-react").SubscriptionRequest & {
+  userName?: string | null;
+  userEmail?: string;
+  subjectId?: string | null;
+  subjectName?: string | null;
+  accountName?: string | null;
+  notes?: string | null;
+  adminNote?: string | null;
+  discountCode?: string | null;
+  discountPercent?: number | null;
+  basePrice?: number | null;
+  finalPrice?: number | null;
+};
+type AdminStatsRow = import("@workspace/api-client-react").AdminStats & {
+  recentlyExpiredSubscriptions?: number;
+};
+
+// Format a server-supplied date safely; returns fallback for null/Invalid Date.
+// Avoids the literal "Invalid Date" string the UI used to render when the server returned an
+// unexpected timestamp shape.
+const formatDateSafe = (
+  value: unknown,
+  options?: { fallback?: string; locale?: string; mode?: "date" | "datetime" },
+): string => {
+  const fallback = options?.fallback ?? "—";
+  const locale = options?.locale ?? "ar-YE";
+  if (value === null || value === undefined || value === "") return fallback;
+  const d = new Date(value as string | number | Date);
+  if (Number.isNaN(d.getTime())) return fallback;
+  if (options?.mode === "datetime") {
+    return d.toLocaleString(locale, { dateStyle: "short", timeStyle: "short" });
+  }
+  return d.toLocaleDateString(locale);
+};
+
+// Returns true only if `value` parses to a real Date — used to gate
+// arithmetic comparisons (e.g. expiresAt > now) so a bad timestamp doesn't
+// silently flip rows into "expired" / "active" by accident.
+const parseDateOrNull = (value: unknown): Date | null => {
+  if (value === null || value === undefined || value === "") return null;
+  const d = new Date(value as string | number | Date);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+export default function Admin() {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "approved" | "rejected" | "incomplete">("pending");
+  const [approvedUser, setApprovedUser] = useState<{ planType: string; userName: string } | null>(null);
+  const [showCreateCard, setShowCreateCard] = useState(false);
+  const [newCardPlan, setNewCardPlan] = useState<"bronze" | "silver" | "gold">("silver");
+  const [createdCard, setCreatedCard] = useState<{ code: string; planType: string } | null>(null);
+  const [isCreatingCard, setIsCreatingCard] = useState(false);
+
+  const [incompleteTarget, setIncompleteTarget] = useState<{ id: number; userName: string } | null>(null);
+  const [incompleteNote, setIncompleteNote] = useState("");
+
+  const [cancelTarget, setCancelTarget] = useState<{ id: number; name: string } | null>(null);
+  const [userSearch, setUserSearch] = useState("");
+
+  // Per-subject subscription management
+  const [grantTarget, setGrantTarget] = useState<{ userId: number; name: string } | null>(null);
+  const [grantPlan, setGrantPlan] = useState<"bronze" | "silver" | "gold">("silver");
+  const [grantSubjectId, setGrantSubjectId] = useState("");
+  const [grantSubjectName, setGrantSubjectName] = useState("");
+  const [grantRegion, setGrantRegion] = useState<"north" | "south">("north");
+  const [isGranting, setIsGranting] = useState(false);
+  const [userSubjectSubs, setUserSubjectSubs] = useState<Record<number, SubjectSub[]>>({});
+  const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
+
+  // All subject subscriptions tab
+  const [allSubjectSubs, setAllSubjectSubs] = useState<SubjectSub[] | null>(null);
+  const [isLoadingAllSubs, setIsLoadingAllSubs] = useState(false);
+  // Tracks the most recent fetch failure for the all-subscriptions tab so we
+  // can show a real error state instead of the misleading "no subscriptions"
+  // empty row that previously appeared on a network/API failure.
+  const [allSubsError, setAllSubsError] = useState<string | null>(null);
+  const [subjectFilter, setSubjectFilter] = useState("");
+  const [extendDialog, setExtendDialog] = useState<{ subId: number; userName: string; subjectName: string } | null>(null);
+  const [extendDays, setExtendDays] = useState(14);
+  const [isExtending, setIsExtending] = useState(false);
+
+  // Gem refund/grant dialog (per subject subscription). delta > 0 grants,
+  // delta < 0 refunds (clamped server-side to [0, messagesLimit]). The
+  // reason is REQUIRED — every adjustment is recorded in the gem ledger
+  // for audit, so we make it impossible to submit without one.
+  const [gemAdjustDialog, setGemAdjustDialog] = useState<{
+    subId: number;
+    userName: string;
+    subjectName: string;
+    currentBalance: number;
+  } | null>(null);
+  const [gemAdjustDelta, setGemAdjustDelta] = useState<string>("");
+  const [gemAdjustReason, setGemAdjustReason] = useState("");
+  const [isGemAdjusting, setIsGemAdjusting] = useState(false);
+
+  // Card creation subject
+  const [newCardSubjectId, setNewCardSubjectId] = useState("");
+  const [newCardSubjectName, setNewCardSubjectName] = useState("");
+  const [cardSubjectSearch, setCardSubjectSearch] = useState("");
+  const [showCardSubjectPicker, setShowCardSubjectPicker] = useState(false);
+
+  // Grant subject picker
+  const [grantSubjectSearch, setGrantSubjectSearch] = useState("");
+  const [showGrantSubjectPicker, setShowGrantSubjectPicker] = useState(false);
+
+  // Support messages
+  const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
+  const [supportInitialLoading, setSupportInitialLoading] = useState(true);
+  const [supportError, setSupportError] = useState<string | null>(null);
+  const [supportUnread, setSupportUnread] = useState(0);
+  const [unresolvedAlertsCount, setUnresolvedAlertsCount] = useState(0);
+  const [selectedThread, setSelectedThread] = useState<SupportThread | null>(null);
+  const [replyMessage, setReplyMessage] = useState("");
+  const [isSendingReply, setIsSendingReply] = useState(false);
+
+  // Live users
+  const [liveUsersList, setLiveUsersList] = useState<LiveUser[]>([]);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    // Per-stream polling health. Tracking support and live-users
+    // independently is critical: previously a healthy support cycle could
+    // reset the shared counter and mask a sustained live-users outage,
+    // so admins might never see "live users" data go stale.
+    type StreamState = { failures: number; alerted: boolean; arabicLabel: string };
+    const streams: Record<"support" | "live", StreamState> = {
+      support: { failures: 0, alerted: false, arabicLabel: "خدمة الدعم والإشعارات" },
+      live:    { failures: 0, alerted: false, arabicLabel: "قائمة المتصلين الآن" },
+    };
+    const onStreamFailure = (key: "support" | "live", err: unknown) => {
+      const s = streams[key];
+      // eslint-disable-next-line no-console
+      console.error(`[admin polling] ${key} failed`, err);
+      s.failures += 1;
+      // Fire ONCE on the second consecutive failure so a single blip
+      // doesn't spam the admin, but a real outage does get surfaced.
+      if (s.failures === 2 && !s.alerted) {
+        s.alerted = true;
+        toast({
+          variant: "destructive",
+          title: `تعذّر تحديث ${s.arabicLabel}`,
+          description: "البيانات قد تكون قديمة. سنعيد المحاولة تلقائياً.",
+        });
+      }
+    };
+    const onStreamSuccess = (key: "support" | "live") => {
+      const s = streams[key];
+      if (s.failures > 0 && s.alerted) {
+        toast({
+          title: `تمّت استعادة ${s.arabicLabel}`,
+          className: "bg-emerald-600 text-white border-none",
+        });
+      }
+      s.failures = 0;
+      s.alerted = false;
+    };
+    const fetchSupportData = () => {
+      return Promise.all([
+        fetch("/api/admin/support/threads", { credentials: "include" })
+          .then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (Array.isArray(d)) setSupportThreads(d as SupportThread[]);
+          }),
+        fetch("/api/admin/support/unread-count", { credentials: "include" })
+          .then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (d) setSupportUnread(Number(d.count ?? 0));
+          }),
+        // Operational alerts (OpenRouter outage etc.) — same poll cadence
+        // as support so admins notice an outage within ~15s.
+        fetch("/api/admin/alerts?resolved=false&limit=1", { credentials: "include" })
+          .then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (d) setUnresolvedAlertsCount(Number(d.unresolvedCount ?? 0));
+          }),
+      ])
+        .then(() => { onStreamSuccess("support"); setSupportError(null); })
+        .catch(err => {
+          onStreamFailure("support", err);
+          setSupportError(extractServerError(err) ?? (err as { message?: string } | null)?.message ?? "تعذّر تحميل المحادثات");
+        })
+        .finally(() => setSupportInitialLoading(false));
+    };
+    const fetchLiveUsers = () => {
+      fetch("/api/admin/live-users", { credentials: "include" })
+        .then(async r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const d = await r.json();
+          if (Array.isArray(d)) setLiveUsersList(d as LiveUser[]);
+          onStreamSuccess("live");
+        })
+        .catch(err => onStreamFailure("live", err));
+    };
+    fetchSupportData();
+    fetchLiveUsers();
+    const interval = setInterval(() => { fetchSupportData(); fetchLiveUsers(); }, 15000);
+    return () => clearInterval(interval);
+  }, [user?.role, toast]);
+
+  const handleSupportReply = async (userId: number, subject: string) => {
+    if (!replyMessage.trim()) return;
+    setIsSendingReply(true);
+    try {
+      const replyRes = await fetch("/api/admin/support/reply", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+        body: JSON.stringify({ userId, subject, message: replyMessage.trim() }),
+      });
+      if (!replyRes.ok) {
+        let serverMsg: string | null = null;
+        try {
+          const errBody = await replyRes.json();
+          serverMsg = typeof errBody?.error === "string"
+            ? errBody.error
+            : typeof errBody?.message === "string"
+              ? errBody.message
+              : null;
+        } catch {}
+        throw new Error(serverMsg ?? `HTTP ${replyRes.status}`);
+      }
+      setReplyMessage("");
+      toast({ title: "تم الرد", description: "تم إرسال الرد بنجاح", className: "bg-emerald-600 border-none text-white" });
+      try {
+        const res = await fetch("/api/admin/support/threads", { credentials: "include" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          const threads = data as SupportThread[];
+          setSupportThreads(threads);
+          const updated = threads.find(t => t.userId === userId);
+          if (updated) setSelectedThread(updated);
+        }
+      } catch (refreshErr) {
+        toastServerError(refreshErr, "تم الإرسال ولكن تعذّر تحديث المحادثات");
+      }
+      try {
+        const r = await fetch("/api/admin/support/unread-count", { credentials: "include" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        if (d) setSupportUnread(Number(d.count ?? 0));
+      } catch (unreadErr) {
+        toastServerError(unreadErr, "تعذّر تحديث عدد الرسائل غير المقروءة");
+      }
+    } catch (err) {
+      toastServerError(err, "تعذّر إرسال الرد");
+    } finally {
+      setIsSendingReply(false);
+    }
+  };
+
+  const { data: statsRaw, isLoading: statsLoading, isError: statsError, error: statsErrorObj, refetch: refetchStats } = useGetAdminStats();
+  const { data: requestsRaw, isLoading: requestsLoading, isError: requestsError, error: requestsErrorObj, refetch: refetchRequests } = useGetAdminSubscriptionRequests();
+  const { data: cardsRaw, isLoading: cardsLoading, isError: cardsError, error: cardsErrorObj, refetch: refetchCards } = useGetActivationCards();
+  const { data: allUsersRaw, isLoading: usersLoading, isError: usersError, error: usersErrorObj, refetch: refetchUsers } = useGetAdminUsers();
+  const stats = statsRaw as AdminStatsRow | undefined;
+  const requests: AdminRequestRow[] = Array.isArray(requestsRaw) ? (requestsRaw as AdminRequestRow[]) : [];
+  const cards = Array.isArray(cardsRaw) ? cardsRaw : [];
+  const allUsers: AdminUserRow[] = Array.isArray(allUsersRaw) ? (allUsersRaw as AdminUserRow[]) : [];
+
+  const approveMutation = useApproveSubscriptionRequest();
+  const rejectMutation = useRejectSubscriptionRequest();
+  const incompleteMutation = useMarkIncompleteSubscriptionRequest();
+  const cancelSubMutation = useCancelUserSubscription();
+
+  if (user?.role !== 'admin') {
+    return (
+      <AppLayout>
+        <div className="container mx-auto py-20 text-center flex flex-col items-center">
+          <ShieldAlert className="w-20 h-20 text-destructive mb-6" />
+          <h1 className="text-3xl font-bold mb-2">غير مصرح</h1>
+          <p className="text-muted-foreground mb-6">ليس لديك صلاحية للوصول إلى هذه الصفحة</p>
+          <Button onClick={() => setLocation("/")}>العودة للرئيسية</Button>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  const planLabels: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
+  const regionLabels: Record<string, string> = { north: "شمال", south: "جنوب" };
+
+  const planIcons: Record<string, React.ReactNode> = {
+    bronze: <Zap className="w-3.5 h-3.5 text-orange-400" />,
+    silver: <Star className="w-3.5 h-3.5 text-slate-300" />,
+    gold: <Gem className="w-3.5 h-3.5 text-gold" />,
+  };
+
+  const pendingCount = requests.filter(r => r.status === 'pending').length;
+  const filteredRequests: AdminRequestRow[] = filterStatus === 'all'
+    ? requests
+    : requests.filter(r => r.status === filterStatus);
+
+  const filteredUsers: AdminUserRow[] = allUsers.filter(u => {
+    if (!userSearch.trim()) return true;
+    const q = userSearch.toLowerCase();
+    return (
+      u.email.toLowerCase().includes(q) ||
+      (u.displayName ?? "").toLowerCase().includes(q)
+    );
+  });
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: getGetAdminSubscriptionRequestsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
+    refetchRequests();
+    refetchStats();
+  };
+
+  // Extract a server-supplied Arabic error from orval/axios/fetch errors.
+  const extractServerError = (err: unknown): string | null => {
+    const e = err as { data?: { error?: unknown; message?: unknown }; response?: { data?: { error?: unknown; message?: unknown } }; message?: unknown } | null | undefined;
+    const candidates = [e?.data, e?.response?.data];
+    for (const data of candidates) {
+      const errVal = data?.error;
+      if (typeof errVal === "string" && errVal.trim()) return errVal.trim();
+      const msgVal = data?.message;
+      if (typeof msgVal === "string" && msgVal.trim()) return msgVal.trim();
+    }
+    const m = e?.message;
+    if (typeof m === "string" && m.trim() && m !== "Network Error") {
+      const cleaned = m.replace(/^HTTP\s+\d+\s+[^:]+:\s*/i, "").trim();
+      return cleaned || m;
+    }
+    return null;
+  };
+
+  const handleApprove = async (req: AdminRequestRow) => {
+    try {
+      await approveMutation.mutateAsync({ id: req.id });
+      toast({ title: "تم تفعيل الاشتراك مباشرة", className: "bg-emerald-600 text-white border-none" });
+      setApprovedUser({ planType: req.planType, userName: req.userName ?? req.userEmail ?? "—" });
+      invalidateAll();
+      refetchCards();
+    } catch (err) {
+      toastServerError(err, "حدث خطأ أثناء القبول");
+    }
+  };
+
+  const handleReject = async (id: number) => {
+    try {
+      await rejectMutation.mutateAsync({ id });
+      toast({ title: "تم رفض الطلب" });
+      invalidateAll();
+    } catch (err) {
+      toastServerError(err, "تعذّر رفض الطلب");
+    }
+  };
+
+  const handleIncompleteOpen = (req: AdminRequestRow) => {
+    setIncompleteTarget({ id: req.id, userName: req.userName ?? req.userEmail ?? "—" });
+    setIncompleteNote("");
+  };
+
+  const toastServerError = (err: unknown, title: string) => {
+    const msg = extractServerError(err) ?? (err as { message?: string } | null)?.message ?? null;
+    toast({
+      variant: "destructive",
+      title,
+      description: msg ?? "تعذّر إكمال العملية. تحقق من الاتصال وأعد المحاولة.",
+    });
+  };
+
+  const handleIncompleteSubmit = async () => {
+    if (!incompleteTarget || !incompleteNote.trim()) return;
+    try {
+      await incompleteMutation.mutateAsync({
+        id: incompleteTarget.id,
+        data: { adminNote: incompleteNote.trim() },
+      });
+      toast({ title: "تم إرسال إشعار المبلغ الناقص", className: "bg-orange-500 text-white border-none" });
+      setIncompleteTarget(null);
+      setIncompleteNote("");
+      invalidateAll();
+    } catch (err) {
+      toastServerError(err, "تعذّر إرسال الإشعار");
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!cancelTarget) return;
+    try {
+      await cancelSubMutation.mutateAsync({ id: cancelTarget.id });
+      toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
+      const cancelledUserId = cancelTarget.id;
+      setCancelTarget(null);
+      queryClient.invalidateQueries({ queryKey: getGetAdminUsersQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
+      setUserSubjectSubs(prev => ({ ...prev, [cancelledUserId]: [] }));
+      setAllSubjectSubs(prev => prev?.filter(s => s.userId !== cancelledUserId) ?? null);
+    } catch (err) {
+      toastServerError(err, "تعذّر إلغاء الاشتراك");
+    }
+  };
+
+  const resetCreateCardForm = () => {
+    setCreatedCard(null);
+    setNewCardSubjectId("");
+    setNewCardSubjectName("");
+    setCardSubjectSearch("");
+    setShowCardSubjectPicker(false);
+    setNewCardPlan("silver");
+  };
+
+  const handleCreateCard = async () => {
+    setIsCreatingCard(true);
+    try {
+      const res = await fetch('/api/admin/cards/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Nukhba-Csrf': '1' },
+        credentials: 'include',
+        body: JSON.stringify({ planType: newCardPlan, subjectId: newCardSubjectId, subjectName: newCardSubjectName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${res.status}`);
+      setCreatedCard({ code: data.activationCode, planType: data.planType });
+      refetchCards();
+    } catch (err) {
+      toastServerError(err, "تعذّر إنشاء البطاقة");
+    } finally {
+      setIsCreatingCard(false);
+    }
+  };
+
+  const copyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    toast({ title: "تم النسخ!", className: "bg-black border-white/10 text-white" });
+  };
+
+  const handleRefreshAll = () => {
+    refetchStats(); refetchRequests(); refetchCards(); refetchUsers();
+    toast({ title: "تم التحديث", className: "bg-black border-white/10 text-white" });
+  };
+
+  // Loading/error banner for the per-tab queries. Returns null on success.
+  const renderQueryStatus = (opts: {
+    isLoading: boolean;
+    isError: boolean;
+    error?: unknown;
+    onRetry: () => void;
+    label: string;
+  }) => {
+    if (opts.isLoading) {
+      return (
+        <div className="glass rounded-2xl border-white/5 p-4 mb-3 flex items-center gap-3 text-muted-foreground text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          جاري تحميل {opts.label}...
+        </div>
+      );
+    }
+    if (opts.isError) {
+      const msg = extractServerError(opts.error) ?? (opts.error as { message?: string } | undefined)?.message ?? "تعذّر التحميل";
+      return (
+        <div className="glass rounded-2xl border border-red-500/30 bg-red-500/5 p-4 mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-red-200 text-sm">
+            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <span>فشل تحميل {opts.label}: {msg}</span>
+          </div>
+          <Button size="sm" variant="outline" className="border-red-400/40 text-red-200 hover:bg-red-500/10" onClick={opts.onRetry}>
+            إعادة المحاولة
+          </Button>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const loadUserSubjectSubs = async (userId: number) => {
+    if (userSubjectSubs[userId]) return;
+    try {
+      const r = await fetch(`/api/admin/subject-subscriptions/${userId}`, { credentials: "include" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error ?? body?.message ?? `HTTP ${r.status}`);
+      }
+      const data = await r.json();
+      setUserSubjectSubs(prev => ({ ...prev, [userId]: Array.isArray(data) ? data : [] }));
+    } catch (err) {
+      setUserSubjectSubs(prev => ({ ...prev, [userId]: [] }));
+      toastServerError(err, "تعذّر تحميل اشتراكات المستخدم");
+    }
+  };
+
+  const handleToggleExpand = (userId: number) => {
+    if (expandedUserId === userId) {
+      setExpandedUserId(null);
+    } else {
+      setExpandedUserId(userId);
+      loadUserSubjectSubs(userId);
+    }
+  };
+
+  const handleGrantSubjectSubscription = async () => {
+    if (!grantTarget || !grantSubjectId.trim()) return;
+    setIsGranting(true);
+    try {
+      const r = await fetch(`/api/admin/users/${grantTarget.userId}/grant-gems`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+        credentials: "include",
+        body: JSON.stringify({
+          subjectId: grantSubjectId.trim(),
+          subjectName: grantSubjectName.trim() || grantSubjectId.trim(),
+          planType: grantPlan,
+          region: grantRegion,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${r.status}`);
+      toast({ title: "تم منح الاشتراك بنجاح", className: "bg-emerald-600 text-white border-none" });
+      const targetUserId = grantTarget.userId;
+      setGrantTarget(null);
+      setGrantSubjectId("");
+      setGrantSubjectName("");
+      try {
+        const r2 = await fetch(`/api/admin/subject-subscriptions/${targetUserId}`, { credentials: "include" });
+        if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+        const data = await r2.json();
+        setUserSubjectSubs(prev => ({ ...prev, [targetUserId]: Array.isArray(data) ? data as SubjectSub[] : [] }));
+      } catch (refreshErr) {
+        console.error("[admin] post-grant refetch failed", refreshErr);
+        toastServerError(refreshErr, "تم المنح ولكن تعذّر تحديث القائمة");
+      }
+      queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
+      if (allSubjectSubs !== null) loadAllSubjectSubs();
+    } catch (err) {
+      toastServerError(err, "تعذّر منح الاشتراك");
+    } finally {
+      setIsGranting(false);
+    }
+  };
+
+  const handleRevokeSubjectSubscription = async (subId: number, userId: number) => {
+    try {
+      const r = await fetch(`/api/admin/revoke-subject-subscription/${subId}`, {
+        method: "DELETE",
+        headers: { "X-Nukhba-Csrf": "1" },
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error ?? body?.message ?? `HTTP ${r.status}`);
+      }
+      toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
+      setUserSubjectSubs(prev => ({
+        ...prev,
+        [userId]: (prev[userId] ?? []).filter(s => s.id !== subId),
+      }));
+      setAllSubjectSubs(prev => prev?.filter(s => s.id !== subId) ?? null);
+      queryClient.invalidateQueries({ queryKey: getGetAdminStatsQueryKey() });
+    } catch (err) {
+      toastServerError(err, "تعذّر إلغاء الاشتراك");
+    }
+  };
+
+  const loadAllSubjectSubs = async () => {
+    setIsLoadingAllSubs(true);
+    setAllSubsError(null);
+    try {
+      const r = await fetch("/api/admin/all-subject-subscriptions", { credentials: "include" });
+      if (!r.ok) {
+        let serverMsg: string | null = null;
+        try {
+          const errBody = await r.json();
+          serverMsg = typeof errBody?.error === "string"
+            ? errBody.error
+            : typeof errBody?.message === "string"
+              ? errBody.message
+              : null;
+        } catch {}
+        throw new Error(serverMsg ?? `HTTP ${r.status}`);
+      }
+      const data = await r.json();
+      setAllSubjectSubs(Array.isArray(data) ? data as SubjectSub[] : []);
+    } catch (err) {
+      const msg = extractServerError(err) ?? (err as { message?: string } | null)?.message ?? "تعذّر تحميل اشتراكات المواد.";
+      setAllSubsError(msg);
+      setAllSubjectSubs(null);
+      toastServerError(err, "فشل تحميل اشتراكات المواد");
+    } finally {
+      setIsLoadingAllSubs(false);
+    }
+  };
+
+  const handleExtendSubscription = async () => {
+    if (!extendDialog) return;
+    setIsExtending(true);
+    try {
+      const r = await fetch(`/api/admin/subject-subscriptions/${extendDialog.subId}/extend`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+        credentials: "include",
+        body: JSON.stringify({ days: extendDays }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${r.status}`);
+      toast({ title: `تم تمديد الاشتراك ${extendDays} يوماً`, className: "bg-emerald-600 text-white border-none" });
+      setExtendDialog(null);
+      loadAllSubjectSubs();
+    } catch (err) {
+      toastServerError(err, "تعذّر تمديد الاشتراك");
+    } finally {
+      setIsExtending(false);
+    }
+  };
+
+  const handleGemAdjust = async () => {
+    if (!gemAdjustDialog) return;
+    const delta = parseInt(gemAdjustDelta, 10);
+    if (!Number.isFinite(delta) || delta === 0) {
+      toast({ variant: "destructive", title: "أدخل رقماً غير صفر (موجب للمنح، سالب للسحب)" });
+      return;
+    }
+    if (Math.abs(delta) > 100000) {
+      toast({ variant: "destructive", title: "الحد الأقصى لكل عملية ١٠٠٬٠٠٠ جوهرة" });
+      return;
+    }
+    const reason = gemAdjustReason.trim();
+    if (reason.length < 3) {
+      toast({ variant: "destructive", title: "السبب إلزامي (٣ أحرف على الأقل)" });
+      return;
+    }
+    setIsGemAdjusting(true);
+    try {
+      const r = await fetch(`/api/admin/subject-subscriptions/${gemAdjustDialog.subId}/refund-gems`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+        credentials: "include",
+        body: JSON.stringify({ delta, reason }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error ?? data?.message ?? "فشلت العملية");
+      toast({
+        title: delta > 0 ? `تم منح ${delta.toLocaleString("ar-EG")} جوهرة` : `تم سحب ${Math.abs(delta).toLocaleString("ar-EG")} جوهرة`,
+        className: "bg-emerald-600 text-white border-none",
+      });
+      setGemAdjustDialog(null);
+      setGemAdjustDelta("");
+      setGemAdjustReason("");
+      if (allSubjectSubs !== null) loadAllSubjectSubs();
+    } catch (err) {
+      toastServerError(err, "تعذّر تعديل الجواهر");
+    } finally {
+      setIsGemAdjusting(false);
+    }
+  };
+
+  const handleRevokeFromAllTab = async (subId: number) => {
+    try {
+      const r = await fetch(`/api/admin/revoke-subject-subscription/${subId}`, {
+        method: "DELETE",
+        headers: { "X-Nukhba-Csrf": "1" },
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error ?? body?.message ?? `HTTP ${r.status}`);
+      }
+      toast({ title: "تم إلغاء الاشتراك", className: "bg-red-600 text-white border-none" });
+      setAllSubjectSubs(prev => prev ? prev.filter(s => s.id !== subId) : prev);
+    } catch (err) {
+      toastServerError(err, "تعذّر إلغاء الاشتراك");
+    }
+  };
+
+  const filteredAllSubs = useMemo(() => {
+    if (!allSubjectSubs) return [];
+    if (!subjectFilter) return allSubjectSubs;
+    return allSubjectSubs.filter(s => s.subjectId === subjectFilter);
+  }, [allSubjectSubs, subjectFilter]);
+
+  const uniqueSubjectIds = useMemo(() => {
+    if (!allSubjectSubs) return [];
+    const seen = new Set<string>();
+    const result: Array<{ id: string; name: string }> = [];
+    for (const s of allSubjectSubs) {
+      if (!seen.has(s.subjectId)) {
+        seen.add(s.subjectId);
+        result.push({ id: s.subjectId, name: s.subjectName ?? s.subjectId });
+      }
+    }
+    return result;
+  }, [allSubjectSubs]);
+
+  const filteredCardSubjects = useMemo(() => {
+    const q = cardSubjectSearch.toLowerCase();
+    if (!q) return allSubjectsFlat;
+    return allSubjectsFlat.filter(s => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
+  }, [cardSubjectSearch]);
+
+  const filteredGrantSubjects = useMemo(() => {
+    const q = grantSubjectSearch.toLowerCase();
+    if (!q) return allSubjectsFlat;
+    return allSubjectsFlat.filter(s => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
+  }, [grantSubjectSearch]);
+
+  const filterOptions = [
+    { value: 'pending', label: 'معلق' },
+    { value: 'incomplete', label: 'ناقص' },
+    { value: 'approved', label: 'مقبول' },
+    { value: 'rejected', label: 'مرفوض' },
+    { value: 'all', label: 'الكل' },
+  ] as const;
+
+  return (
+    <AppLayout>
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-black flex items-center gap-3">
+            <ShieldAlert className="w-8 h-8 text-gold" />
+            لوحة الإدارة
+          </h1>
+          <Button variant="outline" size="sm" className="border-white/10 gap-2" onClick={handleRefreshAll}>
+            <RefreshCw className="w-4 h-4" />
+            تحديث
+          </Button>
+        </div>
+
+        {renderQueryStatus({ isLoading: statsLoading && !stats, isError: statsError, error: statsErrorObj, onRetry: () => refetchStats(), label: "الإحصائيات" })}
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="glass p-6 rounded-2xl border-white/5 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-orange-500/20 flex items-center justify-center text-orange-500 relative">
+              <CreditCard />
+              {pendingCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-orange-500 text-white text-xs flex items-center justify-center font-bold">
+                  {pendingCount}
+                </span>
+              )}
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">طلبات معلقة</p>
+              <p className={`text-2xl font-bold ${pendingCount > 0 ? 'text-orange-400' : ''}`}>{stats?.pendingRequests || 0}</p>
+            </div>
+          </div>
+          <div className="glass p-6 rounded-2xl border-white/5 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-500"><Check /></div>
+            <div><p className="text-sm text-muted-foreground">اشتراكات فعالة</p><p className="text-2xl font-bold">{stats?.activeSubscriptions || 0}</p></div>
+          </div>
+          <div className="glass p-6 rounded-2xl border-white/5 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-500"><Users /></div>
+            <div><p className="text-sm text-muted-foreground">إجمالي المستخدمين</p><p className="text-2xl font-bold">{stats?.totalUsers || 0}</p></div>
+          </div>
+          <div className="glass p-6 rounded-2xl border-white/5 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center text-purple-500"><Ticket /></div>
+            <div><p className="text-sm text-muted-foreground">إجمالي البطاقات</p><p className="text-2xl font-bold">{stats?.totalCards || 0}</p></div>
+          </div>
+        </div>
+
+        {((stats?.recentlyExpiredSubscriptions ?? 0) > 0) && (
+          <div className="mb-6 rounded-2xl border-2 border-red-500/30 bg-red-500/5 p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-red-400" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-red-300 text-sm">اشتراكات منتهية مؤخراً</p>
+              <p className="text-xs text-red-200/60">{stats?.recentlyExpiredSubscriptions} اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل</p>
+            </div>
+          </div>
+        )}
+
+        {liveUsersList.length > 0 && (
+          <div className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                متصلون الآن ({liveUsersList.length})
+              </h3>
+              <span className="text-[10px] text-muted-foreground">يتحدث كل ١٥ ثانية</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {liveUsersList.map(u => {
+                const pageNames: Record<string, string> = {
+                  '/': 'الرئيسية', '/learn': 'التعلّم', '/dashboard': 'لوحتي',
+                  '/subscription': 'الاشتراك', '/support': 'الدعم', '/admin': 'الإدارة',
+                };
+                const pageName = pageNames[u.page] || (u.page.startsWith('/subject/') ? 'جلسة تعلّم' : u.page);
+                return (
+                  <div key={u.userId} className="flex items-center gap-2 bg-black/30 rounded-xl px-3 py-2 border border-white/5">
+                    {u.profileImage ? (
+                      <img src={u.profileImage} className="w-6 h-6 rounded-full border border-emerald-500/30" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+                        <Users className="w-3 h-3 text-emerald-400" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold truncate max-w-[120px]">{u.name || u.email}</p>
+                      <p className="text-[10px] text-emerald-400">{pageName}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <Tabs defaultValue="requests" className="w-full">
+          <TabsList className="mb-6 bg-glass border border-white/10 flex-wrap h-auto gap-1">
+            <TabsTrigger value="requests" className="relative">
+              طلبات الاشتراك
+              {pendingCount > 0 && (
+                <span className="mr-2 bg-orange-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold">{pendingCount}</span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="users" className="flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" />
+              المستخدمون
+            </TabsTrigger>
+            <TabsTrigger
+              value="subject-subs"
+              className="flex items-center gap-1.5"
+              onClick={() => { if (!allSubjectSubs && !isLoadingAllSubs) loadAllSubjectSubs(); }}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              اشتراكات المواد
+            </TabsTrigger>
+            <TabsTrigger value="cards">بطاقات التفعيل</TabsTrigger>
+            <TabsTrigger value="support" className="relative flex items-center gap-1.5">
+              <MessageCircle className="w-3.5 h-3.5" />
+              الرسائل
+              {supportUnread > 0 && (
+                <span className="mr-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold animate-pulse">{supportUnread}</span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="discount-codes" className="flex items-center gap-1.5">
+              <Percent className="w-3.5 h-3.5" />
+              أكواد الخصم
+            </TabsTrigger>
+            <TabsTrigger value="plan-prices" className="flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5 text-gold" />
+              أسعار الباقات
+            </TabsTrigger>
+            <TabsTrigger value="exchange-rates" className="flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+              أسعار الصرف
+            </TabsTrigger>
+            <TabsTrigger value="ai-insights" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/15 to-purple-500/10 data-[state=active]:from-amber-500/30 data-[state=active]:to-purple-500/20 data-[state=active]:border-amber-400/40">
+              <Brain className="w-3.5 h-3.5" />
+              مساعد ذكي
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gradient-to-l from-amber-500 to-purple-500 text-white">AI</span>
+            </TabsTrigger>
+            <TabsTrigger value="ai-usage" className="flex items-center gap-1.5">
+              <Brain className="w-3.5 h-3.5 text-emerald-400" />
+              تكاليف الذكاء الاصطناعي
+            </TabsTrigger>
+            <TabsTrigger value="db-monitor" className="flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-sky-400" />
+              قاعدة البيانات
+            </TabsTrigger>
+            <TabsTrigger value="conversations" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-sky-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-sky-500/20">
+              <MessageCircle className="w-3.5 h-3.5 text-amber-400" />
+              محادثات المعلم
+            </TabsTrigger>
+            <TabsTrigger value="alerts" className="relative flex items-center gap-1.5 bg-gradient-to-l from-red-500/10 to-amber-500/10 data-[state=active]:from-red-500/25 data-[state=active]:to-amber-500/20 data-[state=active]:border-red-500/40">
+              <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+              تنبيهات النظام
+              {unresolvedAlertsCount > 0 && (
+                <span className="absolute -top-1 -left-1 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1 leading-none">
+                  {unresolvedAlertsCount > 99 ? "99+" : unresolvedAlertsCount}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="gem-ledger" className="flex items-center gap-1.5">
+              <Gem className="w-3.5 h-3.5 text-emerald-400" />
+              سجل الجواهر
+            </TabsTrigger>
+            <TabsTrigger value="payment-settings" className="flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5 text-gold" />
+              إعدادات الدفع
+            </TabsTrigger>
+            <TabsTrigger value="v4-instructions" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-emerald-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-emerald-500/20 data-[state=active]:border-amber-400/40">
+              <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+              ملفات التعليمات (v4)
+            </TabsTrigger>
+            <TabsTrigger value="v4-booklets" className="flex items-center gap-1.5 bg-gradient-to-l from-emerald-500/10 to-amber-500/10 data-[state=active]:from-emerald-500/25 data-[state=active]:to-amber-500/20 data-[state=active]:border-emerald-400/40">
+              <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
+              ملازم (v4)
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Requests Tab */}
+          <TabsContent value="requests">
+            {/* Karimi accounts reference */}
+            <div className="mb-5 flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 flex items-center gap-3 bg-black/30 border border-gold/20 rounded-xl px-4 py-3">
+                <img src="/karimi-logo.png" alt="كريمي" className="w-7 h-7 rounded-md object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground mb-0.5">المحافظات الشمالية (ريال يمني)</p>
+                  <p className="font-mono font-bold text-gold text-sm tracking-widest" dir="ltr">3165778412</p>
+                  <p className="text-xs text-muted-foreground">باسم: عمرو خالد عبد المولى</p>
+                </div>
+              </div>
+              <div className="flex-1 flex items-center gap-3 bg-black/30 border border-gold/20 rounded-xl px-4 py-3">
+                <img src="/karimi-logo.png" alt="كريمي" className="w-7 h-7 rounded-md object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground mb-0.5">المحافظات الجنوبية (عملة جنوبية)</p>
+                  <p className="font-mono font-bold text-gold text-sm tracking-widest" dir="ltr">3167076083</p>
+                  <p className="text-xs text-muted-foreground">باسم: عمرو خالد عبد المولى</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              <Filter className="w-4 h-4 text-muted-foreground" />
+              {filterOptions.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setFilterStatus(opt.value)}
+                  className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                    filterStatus === opt.value
+                      ? 'bg-gold text-primary-foreground'
+                      : 'bg-white/5 text-muted-foreground hover:bg-white/10'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {renderQueryStatus({ isLoading: requestsLoading, isError: requestsError, error: requestsErrorObj, onRetry: () => refetchRequests(), label: "الطلبات" })}
+            <div className="glass rounded-3xl border-white/5 overflow-hidden">
+              <Table>
+                <TableHeader className="bg-black/40">
+                  <TableRow className="border-white/5">
+                    <TableHead className="text-right">المستخدم</TableHead>
+                    <TableHead className="text-right">الخطة</TableHead>
+                    <TableHead className="text-right">المادة</TableHead>
+                    <TableHead className="text-right">المنطقة</TableHead>
+                    <TableHead className="text-right">اسم الحساب المرسل</TableHead>
+                    <TableHead className="text-right">ملاحظات</TableHead>
+                    <TableHead className="text-right">التاريخ</TableHead>
+                    <TableHead className="text-right">الحالة</TableHead>
+                    <TableHead className="text-center">إجراءات</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {!filteredRequests?.length ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                        {filterStatus === 'pending' ? 'لا توجد طلبات معلقة 🎉' : 'لا توجد طلبات'}
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredRequests.map((req) => (
+                    <TableRow
+                      key={req.id}
+                      className={`border-white/5 transition-colors ${
+                        req.status === 'pending' ? 'bg-orange-500/5 hover:bg-orange-500/10' :
+                        req.status === 'incomplete' ? 'bg-yellow-500/5 hover:bg-yellow-500/10' :
+                        'hover:bg-white/3'
+                      }`}
+                    >
+                      <TableCell>
+                        <div className="font-bold text-sm">{req.userName || 'بدون اسم'}</div>
+                        <div className="text-xs text-muted-foreground">{req.userEmail}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="border-gold text-gold text-xs">
+                          {planLabels[req.planType] || req.planType}
+                        </Badge>
+                        {req.discountCode && (
+                          <div className="mt-1 flex items-center gap-1 flex-wrap">
+                            <Badge variant="outline" className="border-purple-500/40 text-purple-300 text-[10px] font-mono">
+                              {req.discountCode} −{req.discountPercent}%
+                            </Badge>
+                            {req.finalPrice != null && req.basePrice != null && (
+                              <span className="text-[10px] text-emerald-400">
+                                {Number(req.finalPrice).toLocaleString("ar-EG")}
+                                <span className="text-muted-foreground line-through mr-1">
+                                  {Number(req.basePrice).toLocaleString("ar-EG")}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {req.subjectName ? (
+                          <div className="flex items-center gap-1.5">
+                            <BookOpen className="w-3.5 h-3.5 text-gold shrink-0" />
+                            <span className="text-xs font-medium">{req.subjectName}</span>
+                          </div>
+                        ) : req.subjectId && req.subjectId !== 'all' ? (
+                          <div className="flex items-center gap-1.5">
+                            <BookOpen className="w-3.5 h-3.5 text-gold shrink-0" />
+                            <code className="text-xs font-mono text-muted-foreground">{req.subjectId}</code>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-yellow-400">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                            <span className="text-xs font-medium">عام (قديم)</span>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">{regionLabels[req.region] || req.region}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm font-medium text-foreground">
+                            {req.accountName || '—'}
+                          </span>
+                          {req.accountName && (
+                            <button
+                              onClick={() => copyCode(req.accountName)}
+                              className="text-muted-foreground hover:text-gold transition-colors"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs text-muted-foreground max-w-[140px]">
+                          {req.adminNote
+                            ? <span className="text-orange-400 font-medium">{req.adminNote}</span>
+                            : req.notes || '—'}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatDateSafe(req.createdAt)}
+                      </TableCell>
+                      <TableCell>
+                        {req.status === 'pending' && <Badge className="bg-orange-500/20 text-orange-400 border-0">معلق</Badge>}
+                        {req.status === 'approved' && <Badge className="bg-emerald-500/20 text-emerald-400 border-0">مقبول</Badge>}
+                        {req.status === 'rejected' && <Badge className="bg-red-500/20 text-red-400 border-0">مرفوض</Badge>}
+                        {req.status === 'incomplete' && <Badge className="bg-yellow-500/20 text-yellow-400 border-0">ناقص</Badge>}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {(req.status === 'pending' || req.status === 'incomplete') && (
+                          <div className="flex items-center justify-center gap-1.5">
+                            <Button
+                              size="sm"
+                              className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 gap-1 h-8 text-xs"
+                              disabled={approveMutation.isPending}
+                              onClick={() => handleApprove(req)}
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              قبول
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border border-yellow-500/30 gap-1 h-8 text-xs"
+                              disabled={incompleteMutation.isPending}
+                              onClick={() => handleIncompleteOpen(req)}
+                            >
+                              <AlertTriangle className="w-3 h-3" />
+                              ناقص
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className="w-8 h-8 text-red-500 border-red-500/30 hover:bg-red-500/10"
+                              disabled={rejectMutation.isPending}
+                              onClick={() => handleReject(req.id)}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
+                        {req.status === 'approved' && (
+                          <span className="text-xs text-emerald-400 font-medium">✓ مفعّل</span>
+                        )}
+                        {req.status === 'rejected' && (
+                          <span className="text-xs text-red-400">✗ مرفوض</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          {/* Users Tab */}
+          <TabsContent value="users">
+            <div className="mb-4">
+              <div className="relative max-w-sm">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="بحث بالاسم أو البريد..."
+                  className="bg-black/40 pr-10"
+                  value={userSearch}
+                  onChange={e => setUserSearch(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {renderQueryStatus({ isLoading: usersLoading, isError: usersError, error: usersErrorObj, onRetry: () => refetchUsers(), label: "المستخدمين" })}
+            <div className="glass rounded-3xl border-white/5 overflow-hidden">
+              <Table>
+                <TableHeader className="bg-black/40">
+                  <TableRow className="border-white/5">
+                    <TableHead className="text-right">المستخدم</TableHead>
+                    <TableHead className="text-right">الاشتراك</TableHead>
+                    <TableHead className="text-right">
+                      <div className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" /> الرسائل</div>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <div className="flex items-center gap-1"><Activity className="w-3.5 h-3.5" /> النشاط</div>
+                    </TableHead>
+                    <TableHead className="text-right">الطلبات</TableHead>
+                    <TableHead className="text-right">تاريخ التسجيل</TableHead>
+                    <TableHead className="text-center">إجراءات</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {!filteredUsers?.length ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                        {userSearch ? 'لا توجد نتائج' : 'لا يوجد مستخدمون'}
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredUsers.map((u) => {
+                    return (
+                    <React.Fragment key={u.id}>
+                    <TableRow className="border-white/5 hover:bg-white/3">
+                      <TableCell>
+                        <div className="font-bold text-sm">{u.displayName || 'بدون اسم'}</div>
+                        <div className="text-xs text-muted-foreground">{u.email}</div>
+                        {u.role === 'admin' && (
+                          <Badge className="bg-gold/20 text-gold border-0 text-xs mt-0.5">مشرف</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {(u.activeSubjectSubscriptionsCount ?? 0) > 0 ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-emerald-400 text-sm font-bold">{u.activeSubjectSubscriptionsCount}</span>
+                            <span className="text-xs text-muted-foreground">اشتراك نشط</span>
+                          </div>
+                        ) : u.firstLessonComplete ? (
+                          <span className="text-xs text-amber-400">بحاجة للاشتراك</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">بدون اشتراك</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {(u.messagesLimit ?? 0) > 0 ? (
+                          <div className="text-sm">
+                            <span className={`font-bold ${(u.messagesLeft ?? 0) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {u.messagesLeft ?? 0}
+                            </span>
+                            <span className="text-muted-foreground text-xs"> / {u.messagesLimit ?? 0}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs space-y-0.5">
+                          <div className="text-muted-foreground">نقاط: <span className="text-foreground font-medium">{u.points}</span></div>
+                          <div className="text-muted-foreground">تتابع: <span className="text-foreground font-medium">{u.streakDays} يوم</span></div>
+                          {u.lastActive && parseDateOrNull(u.lastActive) && (
+                            <div className="text-muted-foreground">آخر نشاط: <span className="text-foreground">{formatDateSafe(u.lastActive)}</span></div>
+                          )}
+                          {u.firstLessonComplete && (
+                            <Badge className="bg-emerald-500/10 text-emerald-400 border-0 text-xs">أكمل الدرس الأول</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs space-y-0.5">
+                          <div className="text-muted-foreground">الإجمالي: <span className="text-foreground font-medium">{u.totalSubscriptionRequests}</span></div>
+                          {u.lastRequestStatus && (
+                            <div>
+                              {u.lastRequestStatus === 'approved' && <Badge className="bg-emerald-500/20 text-emerald-400 border-0 text-xs">مقبول</Badge>}
+                              {u.lastRequestStatus === 'pending' && <Badge className="bg-orange-500/20 text-orange-400 border-0 text-xs">معلق</Badge>}
+                              {u.lastRequestStatus === 'rejected' && <Badge className="bg-red-500/20 text-red-400 border-0 text-xs">مرفوض</Badge>}
+                              {u.lastRequestStatus === 'incomplete' && <Badge className="bg-yellow-500/20 text-yellow-400 border-0 text-xs">ناقص</Badge>}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatDateSafe(u.createdAt)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex flex-col gap-1.5 items-center">
+                          {u.role !== 'admin' && (
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs bg-gold/10 text-gold border border-gold/30 hover:bg-gold/20 gap-1"
+                              onClick={() => {
+                                setGrantTarget({ userId: u.id, name: u.displayName || u.email });
+                                setGrantPlan("silver");
+                                setGrantSubjectId("");
+                                setGrantSubjectName("");
+                              }}
+                            >
+                              <Gift className="w-3 h-3" />
+                              منح اشتراك مادة
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs border-white/10 text-muted-foreground hover:text-white gap-1"
+                            onClick={() => handleToggleExpand(u.id)}
+                          >
+                            <BookOpen className="w-3 h-3" />
+                            {expandedUserId === u.id ? "إخفاء المواد" : "عرض المواد"}
+                          </Button>
+                          {u.nukhbaPlan && u.role !== 'admin' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10 gap-1"
+                              onClick={() => setCancelTarget({ id: u.id, name: u.displayName || u.email })}
+                            >
+                              <Ban className="w-3 h-3" />
+                              إلغاء العالمي
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {/* Expanded subject subscriptions row */}
+                    {expandedUserId === u.id && (
+                      <TableRow className="border-white/5 bg-black/20">
+                        <TableCell colSpan={7} className="py-3 px-6">
+                          <div className="text-sm font-semibold text-gold mb-2 flex items-center gap-2">
+                            <BookOpen className="w-4 h-4" />
+                            اشتراكات المواد الخاصة بـ {u.displayName || u.email}
+                          </div>
+                          {!userSubjectSubs[u.id] ? (
+                            <p className="text-xs text-muted-foreground">جاري التحميل...</p>
+                          ) : userSubjectSubs[u.id].length === 0 ? (
+                            <p className="text-xs text-muted-foreground">لا توجد اشتراكات مواد لهذا المستخدم</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {userSubjectSubs[u.id].map((s) => {
+                                const expiresAt = parseDateOrNull(s.expiresAt);
+                                // If the timestamp is malformed treat the
+                                // sub as expired rather than crashing the
+                                // row or — worse — defaulting to "active"
+                                // and inflating the balance summary.
+                                const isActive = !!expiresAt && expiresAt > new Date() && (
+                                  typeof s.gemsBalance === "number"
+                                    ? s.gemsBalance > 0
+                                    : s.messagesUsed < s.messagesLimit
+                                );
+                                return (
+                                  <div key={s.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs ${isActive ? "border-gold/30 bg-gold/5" : "border-white/10 bg-white/3 opacity-60"}`}>
+                                    <span className="font-medium">{s.subjectName ?? s.subjectId}</span>
+                                    <span className={`font-bold ${s.plan === "gold" ? "text-gold" : s.plan === "silver" ? "text-slate-300" : "text-orange-400"}`}>
+                                      {planLabels[s.plan] ?? s.plan}
+                                    </span>
+                                    <span className="text-muted-foreground">{
+                                      typeof s.gemsBalance === "number"
+                                        ? `${Math.max(0, s.gemsBalance)} 💎`
+                                        : `${s.messagesLimit - s.messagesUsed}/${s.messagesLimit}`
+                                    }</span>
+                                    {!isActive && <span className="text-red-400">منتهي</span>}
+                                    <button
+                                      className="text-red-400 hover:text-red-300 ml-1"
+                                      onClick={() => handleRevokeSubjectSubscription(s.id, u.id)}
+                                      title="إلغاء هذا الاشتراك"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </React.Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          {/* Subject Subscriptions Tab */}
+          <TabsContent value="subject-subs">
+            <div className="flex flex-col sm:flex-row gap-3 mb-4 items-center justify-between">
+              <div className="flex items-center gap-3">
+                <select
+                  className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-right"
+                  value={subjectFilter}
+                  onChange={e => setSubjectFilter(e.target.value)}
+                >
+                  <option value="">كل المواد</option>
+                  {uniqueSubjectIds.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <span className="text-sm text-muted-foreground">
+                  {filteredAllSubs.length} اشتراك
+                </span>
+              </div>
+              <Button size="sm" variant="outline" className="border-white/10 gap-2" onClick={loadAllSubjectSubs} disabled={isLoadingAllSubs}>
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAllSubs ? 'animate-spin' : ''}`} />
+                تحديث
+              </Button>
+            </div>
+
+            {allSubsError ? (
+              <div className="text-center py-16 rounded-3xl border border-red-500/20 bg-red-500/5">
+                <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
+                <p className="font-bold text-red-300 mb-2">تعذّر تحميل اشتراكات المواد</p>
+                <p className="text-xs text-muted-foreground mb-4">{allSubsError}</p>
+                <Button size="sm" variant="outline" className="border-red-500/30 text-red-300 hover:bg-red-500/10 gap-2" onClick={loadAllSubjectSubs} disabled={isLoadingAllSubs}>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAllSubs ? 'animate-spin' : ''}`} />
+                  أعد المحاولة
+                </Button>
+              </div>
+            ) : allSubjectSubs === null ? (
+              <div className="text-center py-16 text-muted-foreground">جاري تحميل الاشتراكات...</div>
+            ) : (
+              <div className="glass rounded-3xl border-white/5 overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-black/40">
+                    <TableRow className="border-white/5">
+                      <TableHead className="text-right">المستخدم</TableHead>
+                      <TableHead className="text-right">المادة</TableHead>
+                      <TableHead className="text-right">الباقة</TableHead>
+                      <TableHead className="text-right">الرسائل</TableHead>
+                      <TableHead className="text-right">تاريخ الانتهاء</TableHead>
+                      <TableHead className="text-right">الحالة</TableHead>
+                      <TableHead className="text-center">إجراءات</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredAllSubs.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">لا توجد اشتراكات</TableCell>
+                      </TableRow>
+                    ) : filteredAllSubs.map(s => {
+                      const now = new Date();
+                      const expiresAt = parseDateOrNull(s.expiresAt);
+                      // Malformed expiresAt → treat as expired so the row
+                      // surfaces clearly instead of silently defaulting to
+                      // "active" with a stale wallet underneath.
+                      const isExpired = !expiresAt || expiresAt < now;
+                      // The gems-based wallet is the source of truth: a sub
+                      // is "exhausted" when its gemsBalance hits zero, not
+                      // when the legacy messagesUsed counter was bumped
+                      // (which the gems system doesn't update).
+                      const isExhausted = typeof s.gemsBalance === "number"
+                        ? s.gemsBalance <= 0
+                        : s.messagesUsed >= s.messagesLimit;
+                      // Derive the visible status from the SAME signals
+                      // the student-side gating uses (expiresAt + gem
+                      // balance), not the legacy `s.status` column which
+                      // isn't kept in sync once a sub silently runs out
+                      // of gems mid-window. Order: expired beats
+                      // exhausted (a row that's both gets the more
+                      // informative "منتهي" label).
+                      const statusLabel = isExpired
+                        ? "منتهي"
+                        : isExhausted
+                          ? "مُستنفد"
+                          : "نشط";
+                      const statusColor = (!isExpired && !isExhausted)
+                        ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                        : isExpired
+                          ? "text-red-400 bg-red-500/10 border-red-500/20"
+                          : "text-amber-300 bg-amber-500/10 border-amber-500/20";
+                      return (
+                        <TableRow key={s.id} className="border-white/5 hover:bg-white/3">
+                          <TableCell>
+                            <div className="font-semibold text-sm">{s.userName ?? "—"}</div>
+                            <div className="text-xs text-muted-foreground">{s.userEmail}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium text-sm">{s.subjectName ?? s.subjectId}</div>
+                            <code className="text-xs text-muted-foreground font-mono">{s.subjectId}</code>
+                          </TableCell>
+                          <TableCell>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                              s.plan === "gold" ? "bg-gold/20 text-gold" :
+                              s.plan === "silver" ? "bg-slate-500/20 text-slate-300" :
+                              "bg-orange-500/20 text-orange-400"
+                            }`}>
+                              {planLabels[s.plan] ?? s.plan}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {/* Display the gem wallet balance — what AI usage
+                                actually decrements. The legacy
+                                messagesLimit-messagesUsed pair is left
+                                untouched by the gems flow so showing it would
+                                falsely report "full". */}
+                            {typeof s.gemsBalance === "number" ? (
+                              <>
+                                <span className="text-sm font-bold">{Math.max(0, s.gemsBalance)}</span>
+                                <span className="text-xs text-muted-foreground"> 💎 (يومياً {s.gemsDailyLimit ?? 0})</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-sm font-bold">{s.messagesLimit - s.messagesUsed}</span>
+                                <span className="text-xs text-muted-foreground"> / {s.messagesLimit}</span>
+                              </>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {formatDateSafe(s.expiresAt)}
+                          </TableCell>
+                          <TableCell>
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${statusColor}`}>
+                              {statusLabel}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1.5 justify-center flex-wrap">
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 gap-1"
+                                onClick={() => setExtendDialog({ subId: s.id, userName: s.userName ?? s.userEmail ?? "—", subjectName: s.subjectName ?? s.subjectId })}
+                              >
+                                <CalendarDays className="w-3 h-3" />
+                                تمديد
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 gap-1"
+                                onClick={() => setGemAdjustDialog({
+                                  subId: s.id,
+                                  userName: s.userName ?? s.userEmail ?? "—",
+                                  subjectName: s.subjectName ?? s.subjectId,
+                                  // Backend shape uses gemsBalance / messagesLimit interchangeably during the migration window.
+                                  currentBalance: typeof s.gemsBalance === "number" ? s.gemsBalance : Math.max(0, (s.messagesLimit ?? 0) - (s.messagesUsed ?? 0)),
+                                })}
+                                title="منح أو سحب جواهر — يُسجَّل في سجل الجواهر"
+                              >
+                                <Gem className="w-3 h-3" />
+                                جواهر
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 gap-1"
+                                onClick={() => handleRevokeFromAllTab(s.id)}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                إلغاء
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Cards Tab */}
+          <TabsContent value="cards">
+            <div className="flex justify-between items-center mb-4">
+              <p className="text-sm text-muted-foreground">إجمالي البطاقات: {cards?.length ?? 0}</p>
+              <Button
+                className="gradient-gold text-primary-foreground gap-2 h-9"
+                onClick={() => { resetCreateCardForm(); setShowCreateCard(true); }}
+              >
+                <Plus className="w-4 h-4" />
+                إنشاء بطاقة جديدة
+              </Button>
+            </div>
+
+            {renderQueryStatus({ isLoading: cardsLoading, isError: cardsError, error: cardsErrorObj, onRetry: () => refetchCards(), label: "البطاقات" })}
+            <div className="glass rounded-3xl border-white/5 overflow-hidden">
+              <Table>
+                <TableHeader className="bg-black/40">
+                  <TableRow className="border-white/5">
+                    <TableHead className="text-right">الكود</TableHead>
+                    <TableHead className="text-right">الخطة</TableHead>
+                    <TableHead className="text-right">الحالة</TableHead>
+                    <TableHead className="text-right">تاريخ الانتهاء</TableHead>
+                    <TableHead className="text-right">تاريخ الاستخدام</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {!cards?.length ? (
+                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">لا توجد بطاقات</TableCell></TableRow>
+                  ) : cards.map((card) => (
+                    <TableRow key={card.id} className="border-white/5">
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <code className="font-mono tracking-widest text-sm" dir="ltr">{card.activationCode}</code>
+                          <button onClick={() => copyCode(card.activationCode)} className="text-muted-foreground hover:text-gold transition-colors">
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="border-emerald text-emerald">{planLabels[card.planType] || card.planType}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {card.isUsed
+                          ? <Badge className="bg-slate-500/20 text-slate-400 border-0">مستخدمة</Badge>
+                          : <Badge className="bg-emerald-500/20 text-emerald-400 border-0">متاحة</Badge>}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDateSafe(card.expiresAt, { fallback: 'لا يوجد' })}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDateSafe(card.usedAt)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          {/* Support Messages Tab */}
+          <TabsContent value="support">
+            {supportInitialLoading && supportThreads.length === 0 && (
+              <div className="glass rounded-2xl border-white/5 p-4 mb-3 flex items-center gap-3 text-muted-foreground text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                جاري تحميل المحادثات...
+              </div>
+            )}
+            {supportError && (
+              <div className="glass rounded-2xl border border-red-500/30 bg-red-500/5 p-4 mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-red-200 text-sm">
+                  <AlertTriangle className="w-4 h-4 text-red-400" />
+                  <span>فشل تحميل المحادثات: {supportError}</span>
+                </div>
+                <Button size="sm" variant="outline" className="border-red-400/40 text-red-200 hover:bg-red-500/10" onClick={() => { setSupportError(null); }}>
+                  تجاهل
+                </Button>
+              </div>
+            )}
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="md:col-span-1 space-y-2 max-h-[600px] overflow-y-auto">
+                <h3 className="font-bold text-sm text-muted-foreground mb-3">المحادثات ({supportThreads.length})</h3>
+                {supportThreads.length === 0 ? (
+                  <div className="text-center py-10 text-muted-foreground text-sm">{supportInitialLoading ? '...' : 'لا توجد رسائل بعد'}</div>
+                ) : (
+                  supportThreads.map(thread => (
+                    <button
+                      key={thread.userId}
+                      onClick={() => setSelectedThread(thread)}
+                      className={`w-full text-right p-4 rounded-2xl border transition-all ${
+                        selectedThread?.userId === thread.userId
+                          ? 'border-gold/40 bg-gold/5'
+                          : 'border-white/5 glass hover:border-gold/20'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-sm truncate">{thread.userName || 'مستخدم'}</span>
+                        {thread.unreadCount > 0 && (
+                          <span className="bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-bold">{thread.unreadCount}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{thread.userEmail}</p>
+                      <p className="text-xs text-gold/80 mt-1 truncate">{thread.lastSubject}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        {formatDateSafe(thread.lastAt, { locale: 'ar-SA' })} — {thread.totalMessages} رسالة
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <div className="md:col-span-2">
+                {!selectedThread ? (
+                  <div className="glass rounded-3xl border border-white/5 flex items-center justify-center h-[400px] text-muted-foreground text-center">
+                    <div>
+                      <MessageCircle className="w-12 h-12 mx-auto mb-3 text-white/10" />
+                      <p className="font-bold">اختر محادثة من القائمة</p>
+                      <p className="text-xs mt-1">لعرض الرسائل والرد عليها</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="glass rounded-3xl border border-white/5 overflow-hidden">
+                    <div className="p-4 border-b border-white/5 bg-black/20">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-bold">{selectedThread.userName || 'مستخدم'}</p>
+                          <p className="text-xs text-muted-foreground">{selectedThread.userEmail}</p>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{selectedThread.totalMessages} رسالة</span>
+                      </div>
+                    </div>
+
+                    <div className="max-h-[350px] overflow-y-auto p-4 space-y-3">
+                      {/* Defensive copy + reverse: if the server ever sends
+                          a thread without a `messages` array (truncated
+                          response, schema drift) the spread used to throw
+                          and crash the whole admin page. Falling back to
+                          an empty list keeps the rest of the UI alive. */}
+                      {(Array.isArray(selectedThread.messages) ? [...selectedThread.messages] : []).reverse().map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={`flex ${msg.isFromAdmin ? 'justify-start' : 'justify-end'}`}
+                        >
+                          <div className={`max-w-[80%] rounded-2xl p-3 ${
+                            msg.isFromAdmin
+                              ? 'bg-emerald-500/10 border border-emerald-500/20 rounded-tr-sm'
+                              : 'bg-blue-500/10 border border-blue-500/20 rounded-tl-sm'
+                          }`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-xs font-bold ${msg.isFromAdmin ? 'text-emerald-400' : 'text-blue-400'}`}>
+                                {msg.isFromAdmin ? 'أنت (المشرف)' : msg.userName || 'المستخدم'}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {formatDateSafe(msg.createdAt, { locale: 'ar-SA', mode: 'datetime' })}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gold/80 mb-1 font-bold">{msg.subject}</p>
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="p-4 border-t border-white/5 bg-black/20 space-y-3">
+                      <Textarea
+                        placeholder="اكتب ردك هنا..."
+                        className="bg-black/40 min-h-[80px]"
+                        dir="rtl"
+                        value={replyMessage}
+                        onChange={e => setReplyMessage(e.target.value)}
+                      />
+                      <Button
+                        className="w-full gradient-gold text-primary-foreground font-bold h-11 rounded-xl"
+                        disabled={!replyMessage.trim() || isSendingReply}
+                        onClick={() => handleSupportReply(selectedThread.userId, selectedThread.lastSubject)}
+                      >
+                        {isSendingReply ? "جاري الإرسال..." : "إرسال الرد"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Discount Codes Tab */}
+          <TabsContent value="discount-codes">
+            <AdminDiscountCodes />
+          </TabsContent>
+
+          {/* Plan Prices Tab */}
+          <TabsContent value="plan-prices">
+            <AdminPlanPrices />
+          </TabsContent>
+
+          {/* Exchange Rates Tab */}
+          <TabsContent value="exchange-rates">
+            <AdminExchangeRates />
+          </TabsContent>
+
+          {/* AI Insights Tab */}
+          <TabsContent value="ai-insights">
+            <AdminInsightsChat />
+          </TabsContent>
+
+          {/* AI Usage / Cost Tracking Tab */}
+          <TabsContent value="ai-usage">
+            <AdminAiUsage />
+          </TabsContent>
+
+          {/* DB Monitor Tab */}
+          <TabsContent value="db-monitor">
+            <AdminDbMonitor />
+          </TabsContent>
+
+          {/* Conversations Tab */}
+          <TabsContent value="conversations">
+            <AdminConversations />
+          </TabsContent>
+
+          {/* System Alerts Tab */}
+          <TabsContent value="alerts">
+            <AdminAlerts />
+          </TabsContent>
+
+          {/* Gem Ledger Tab */}
+          <TabsContent value="gem-ledger">
+            <AdminGemLedger />
+          </TabsContent>
+
+          {/* Payment Settings Tab */}
+          <TabsContent value="payment-settings">
+            <AdminPaymentSettings />
+          </TabsContent>
+
+          {/* v4 Instruction Files Tab */}
+          <TabsContent value="v4-instructions">
+            <AdminV4Instructions />
+          </TabsContent>
+
+          <TabsContent value="v4-booklets">
+            <AdminV4Booklets />
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {/* Approval Success Dialog */}
+      <Dialog open={!!approvedUser} onOpenChange={() => setApprovedUser(null)}>
+        <DialogContent className="glass border-emerald/30 max-w-sm text-center" hideCloseButton>
+          <DialogTitle className="sr-only">تم القبول</DialogTitle>
+          <div className="p-6">
+            <div className="w-16 h-16 rounded-full bg-emerald/10 border-2 border-emerald/30 flex items-center justify-center mx-auto mb-4">
+              <Check className="w-8 h-8 text-emerald" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">تم تفعيل الاشتراك!</h3>
+            <p className="text-sm text-muted-foreground mb-5">
+              تم قبول طلب <strong className="text-foreground">{approvedUser?.userName}</strong> وتفعيل باقة{" "}
+              <strong className="text-gold">{planLabels[approvedUser?.planType ?? ''] ?? ''}</strong> مباشرةً على حسابه.
+            </p>
+            <Button className="w-full gradient-gold text-primary-foreground font-bold" onClick={() => setApprovedUser(null)}>
+              إغلاق
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Incomplete Payment Dialog */}
+      <Dialog open={!!incompleteTarget} onOpenChange={(open) => { if (!open) setIncompleteTarget(null); }}>
+        <DialogContent className="glass border-yellow-500/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-yellow-400" />
+            إشعار مبلغ ناقص
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              سيتلقى <strong className="text-foreground">{incompleteTarget?.userName}</strong> إشعاراً بأن مبلغه ناقص مع رسالتك أدناه.
+            </p>
+            <div className="space-y-2">
+              <Label>الرسالة للمستخدم</Label>
+              <Textarea
+                placeholder="مثال: المبلغ المرسل ١٠٠٠ ريال فقط، والمطلوب ٢٠٠٠ ريال. يرجى إكمال المبلغ وإرسال طلب جديد."
+                className="bg-black/40 min-h-[100px]"
+                value={incompleteNote}
+                onChange={(e) => setIncompleteNote(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30 font-bold"
+                disabled={!incompleteNote.trim() || incompleteMutation.isPending}
+                onClick={handleIncompleteSubmit}
+              >
+                {incompleteMutation.isPending ? "جاري الإرسال..." : "إرسال الإشعار"}
+              </Button>
+              <Button variant="outline" className="border-white/10" onClick={() => setIncompleteTarget(null)}>
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel Subscription Confirm Dialog */}
+      <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <DialogContent className="glass border-red-500/30 max-w-sm text-center">
+          <DialogTitle className="sr-only">إلغاء الاشتراك</DialogTitle>
+          <div className="p-4">
+            <div className="w-16 h-16 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center mx-auto mb-4">
+              <Ban className="w-8 h-8 text-red-400" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">إلغاء الاشتراك</h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              هل أنت متأكد من إلغاء اشتراك <strong className="text-foreground">{cancelTarget?.name}</strong>؟ سيفقد المستخدم الوصول فوراً.
+            </p>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-bold"
+                disabled={cancelSubMutation.isPending}
+                onClick={handleCancelSubscription}
+              >
+                {cancelSubMutation.isPending ? "جاري الإلغاء..." : "تأكيد الإلغاء"}
+              </Button>
+              <Button variant="outline" className="flex-1 border-white/10" onClick={() => setCancelTarget(null)}>
+                تراجع
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Grant Subject Subscription Dialog */}
+      <Dialog open={!!grantTarget} onOpenChange={(open) => { if (!open) setGrantTarget(null); }}>
+        <DialogContent className="glass border-gold/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <Gift className="w-5 h-5 text-gold" />
+            منح اشتراك مادة
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              سيحصل <strong className="text-foreground">{grantTarget?.name}</strong> على وصول لمادة معينة.
+            </p>
+            <div className="space-y-2">
+              <Label>المادة (إلزامي)</Label>
+              {grantSubjectId ? (
+                <div className="flex items-center gap-2 bg-gold/5 border border-gold/30 rounded-xl px-4 py-3">
+                  <span className="font-bold text-gold flex-1 text-sm">{grantSubjectName || grantSubjectId}</span>
+                  <button onClick={() => { setGrantSubjectId(""); setGrantSubjectName(""); setShowGrantSubjectPicker(true); }} className="text-xs text-muted-foreground hover:text-white">تغيير</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowGrantSubjectPicker(p => !p)}
+                  className="w-full flex items-center justify-between gap-2 bg-black/30 border border-white/10 hover:border-gold/30 rounded-xl px-4 py-3 text-sm text-muted-foreground"
+                >
+                  اختر المادة...
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              )}
+              {showGrantSubjectPicker && (
+                <div className="bg-black/90 border border-white/10 rounded-2xl p-3 max-h-56 overflow-y-auto">
+                  <div className="relative mb-2">
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder="بحث..."
+                      className="bg-black/60 h-8 pr-9 text-xs"
+                      value={grantSubjectSearch}
+                      onChange={e => setGrantSubjectSearch(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-1">
+                    {filteredGrantSubjects.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => { setGrantSubjectId(s.id); setGrantSubjectName(s.name); setShowGrantSubjectPicker(false); setGrantSubjectSearch(""); }}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-white/5 text-sm text-right"
+                      >
+                        <span>{s.emoji}</span>
+                        <span>{s.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>الباقة</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {(['bronze', 'silver', 'gold'] as const).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setGrantPlan(p)}
+                    className={`py-2 rounded-xl text-sm font-bold border transition-all ${
+                      grantPlan === p
+                        ? 'border-gold bg-gold/10 text-gold'
+                        : 'border-white/10 text-muted-foreground hover:border-white/20'
+                    }`}
+                  >
+                    {planLabels[p]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>المنطقة (لضبط سقف تكلفة الذكاء الاصطناعي)</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { v: 'north' as const, label: 'الشمال' },
+                  { v: 'south' as const, label: 'الجنوب' },
+                ]).map(r => (
+                  <button
+                    key={r.v}
+                    onClick={() => setGrantRegion(r.v)}
+                    className={`py-2 rounded-xl text-sm font-bold border transition-all ${
+                      grantRegion === r.v
+                        ? 'border-gold bg-gold/10 text-gold'
+                        : 'border-white/10 text-muted-foreground hover:border-white/20'
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 gradient-gold text-primary-foreground font-bold"
+                disabled={!grantSubjectId.trim() || isGranting}
+                onClick={handleGrantSubjectSubscription}
+              >
+                {isGranting ? "جاري المنح..." : "منح الاشتراك"}
+              </Button>
+              <Button variant="outline" className="border-white/10" onClick={() => { setGrantTarget(null); setShowGrantSubjectPicker(false); }}>
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Gem Adjust (Refund / Grant) Dialog — reason is REQUIRED for audit */}
+      <Dialog open={!!gemAdjustDialog} onOpenChange={(open) => { if (!open) { setGemAdjustDialog(null); setGemAdjustDelta(""); setGemAdjustReason(""); } }}>
+        <DialogContent className="glass border-amber-500/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <Gem className="w-5 h-5 text-amber-400" />
+            تعديل جواهر اشتراك
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              <strong className="text-foreground">{gemAdjustDialog?.userName}</strong> — مادة{" "}
+              <strong className="text-foreground">{gemAdjustDialog?.subjectName}</strong>
+            </p>
+            <div className="rounded-xl bg-black/40 border border-white/5 p-3 text-center">
+              <p className="text-[11px] text-muted-foreground">الرصيد الحالي</p>
+              <p className="text-2xl font-bold text-amber-300">
+                {(gemAdjustDialog?.currentBalance ?? 0).toLocaleString("ar-EG")} 💎
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">المقدار (موجب للمنح، سالب للسحب)</Label>
+              <Input
+                type="number"
+                placeholder="مثال: +500 أو -200"
+                className="bg-black/40 text-center text-lg font-bold"
+                value={gemAdjustDelta}
+                onChange={e => setGemAdjustDelta(e.target.value)}
+                dir="ltr"
+              />
+              <div className="flex gap-1 justify-between">
+                {[-500, -100, 100, 500, 1000].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setGemAdjustDelta(String(v))}
+                    className={`flex-1 text-[11px] py-1 rounded-md border ${v > 0 ? "border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10" : "border-red-500/30 text-red-400 hover:bg-red-500/10"}`}
+                  >
+                    {v > 0 ? `+${v}` : v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">السبب (إلزامي — يُسجَّل في سجل الجواهر)</Label>
+              <Textarea
+                placeholder="مثال: تعويض عن انقطاع خدمة في 2026-04-30"
+                className="bg-black/40 min-h-[70px]"
+                value={gemAdjustReason}
+                onChange={e => setGemAdjustReason(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                {gemAdjustReason.trim().length}/3 حرف كحد أدنى
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 gradient-gold text-primary-foreground font-bold"
+                disabled={isGemAdjusting || gemAdjustReason.trim().length < 3}
+                onClick={handleGemAdjust}
+              >
+                {isGemAdjusting ? "جاري الحفظ..." : "تأكيد"}
+              </Button>
+              <Button variant="outline" className="border-white/10" onClick={() => { setGemAdjustDialog(null); setGemAdjustDelta(""); setGemAdjustReason(""); }}>
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Card Dialog */}
+      <Dialog open={showCreateCard} onOpenChange={(open) => { setShowCreateCard(open); if (!open) resetCreateCardForm(); }}>
+        <DialogContent className="glass border-white/10 max-w-sm">
+          <DialogTitle className="text-lg font-bold">إنشاء بطاقة تفعيل جديدة</DialogTitle>
+          {createdCard ? (
+            <div className="text-center py-4">
+              <div className="w-14 h-14 rounded-full bg-gold/10 border-2 border-gold/30 flex items-center justify-center mx-auto mb-4">
+                <Ticket className="w-7 h-7 text-gold" />
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">تم إنشاء بطاقة {planLabels[createdCard.planType]} — شارك الكود مع المستخدم:</p>
+              <div className="bg-black/50 border border-gold/20 rounded-xl p-4 mb-5 flex items-center justify-between gap-3">
+                <code className="font-mono text-gold text-lg tracking-widest" dir="ltr">{createdCard.code}</code>
+                <button onClick={() => copyCode(createdCard.code)} className="text-muted-foreground hover:text-gold transition-colors">
+                  <Copy className="w-4 h-4" />
+                </button>
+              </div>
+              <Button className="w-full" variant="outline" onClick={() => { setShowCreateCard(false); resetCreateCardForm(); }}>
+                إغلاق
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-5 pt-2">
+              <div>
+                <Label className="mb-2 block">المادة (إلزامي)</Label>
+                {newCardSubjectId ? (
+                  <div className="flex items-center gap-2 bg-gold/5 border border-gold/30 rounded-xl px-4 py-3">
+                    <span className="font-bold text-gold flex-1">{newCardSubjectName || newCardSubjectId}</span>
+                    <button onClick={() => { setNewCardSubjectId(""); setNewCardSubjectName(""); setShowCardSubjectPicker(true); }} className="text-xs text-muted-foreground hover:text-white">تغيير</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCardSubjectPicker(p => !p)}
+                    className="w-full flex items-center justify-between gap-2 bg-black/30 border border-white/10 hover:border-gold/30 rounded-xl px-4 py-3 text-sm text-muted-foreground"
+                  >
+                    اختر المادة...
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                )}
+                {showCardSubjectPicker && (
+                  <div className="mt-2 bg-black/90 border border-white/10 rounded-2xl p-3 max-h-64 overflow-y-auto">
+                    <div className="relative mb-2">
+                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="بحث..."
+                        className="bg-black/60 h-8 pr-9 text-xs"
+                        value={cardSubjectSearch}
+                        onChange={e => setCardSubjectSearch(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-1">
+                      {filteredCardSubjects.map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => { setNewCardSubjectId(s.id); setNewCardSubjectName(s.name); setShowCardSubjectPicker(false); setCardSubjectSearch(""); }}
+                          className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-white/5 text-sm text-right"
+                        >
+                          <span>{s.emoji}</span>
+                          <span>{s.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <Label className="mb-2 block">نوع الباقة</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['bronze', 'silver', 'gold'] as const).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setNewCardPlan(p)}
+                      className={`py-2 rounded-xl text-sm font-bold border transition-all ${
+                        newCardPlan === p
+                          ? 'border-gold bg-gold/10 text-gold'
+                          : 'border-white/10 text-muted-foreground hover:border-white/20'
+                      }`}
+                    >
+                      {planLabels[p]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground bg-black/30 rounded-xl p-3 border border-white/5">
+                ستُنشئ بطاقة غير مستخدمة يمكن للمستخدم تفعيلها بنفسه عبر حقل "تفعيل عبر كود" في صفحة الاشتراك.
+              </p>
+              <Button
+                className="w-full gradient-gold text-primary-foreground font-bold h-11"
+                onClick={handleCreateCard}
+                disabled={isCreatingCard || !newCardSubjectId}
+              >
+                {isCreatingCard ? "جاري الإنشاء..." : "إنشاء البطاقة"}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      {/* Extend Subscription Dialog */}
+      <Dialog open={!!extendDialog} onOpenChange={(open) => { if (!open) setExtendDialog(null); }}>
+        <DialogContent className="glass border-emerald-500/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <CalendarDays className="w-5 h-5 text-emerald-400" />
+            تمديد الاشتراك
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              تمديد اشتراك <strong className="text-foreground">{extendDialog?.userName}</strong> في مادة{" "}
+              <strong className="text-foreground">{extendDialog?.subjectName}</strong>
+            </p>
+            <div className="space-y-2">
+              <Label>عدد أيام التمديد</Label>
+              <div className="flex gap-2">
+                {[7, 14, 30].map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setExtendDays(d)}
+                    className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${
+                      extendDays === d ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-white/10 text-muted-foreground hover:border-white/20'
+                    }`}
+                  >
+                    {d} يوم
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 font-bold"
+                onClick={handleExtendSubscription}
+                disabled={isExtending}
+              >
+                {isExtending ? "جاري التمديد..." : `تمديد ${extendDays} يوم`}
+              </Button>
+              <Button variant="outline" className="border-white/10" onClick={() => setExtendDialog(null)}>إلغاء</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </AppLayout>
+  );
+}

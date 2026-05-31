@@ -1,0 +1,49 @@
+root@vmi3256829:~/nukhba/Attached-Assets# # 1. اسحب آخر التعديلات
+git pull
+
+# 2. ابنِ api-server
+cd artifacts/api-server
+pnpm install
+pnpm run build
+
+# 3. أعِد تشغيل الخادم (حسب طريقة تشغيلك — مثال PM2)
+pm2 restart api-server
+# أو إن كنت تستخدم systemctl:
+# sudo systemctl restart nukhba-api
+remote: Enumerating objects: 58, done.
+remote: Counting objects: 100% (58/58), done.
+remote: Compressing objects: 100% (8/8), done.
+remote: Total 43 (delta 35), reused 43 (delta 35), pack-reused 0 (from 0)
+Unpacking objects: 100% (43/43), 174.97 KiB | 1006.00 KiB/s, done.
+From https://github.com/officialhunter2007-netizen/Attached-Assets
+   4a4091b..a356a72  main       -> origin/main
+Updating 4a4091b..a356a72
+Fast-forward
+ artifacts/api-server/src/lib/ai-pricing.ts      |  10 +
+ artifacts/api-server/src/lib/gemini-stream.ts   | 432 ++++++++++++++++++++++++++++++++
+ artifacts/api-server/src/lib/teaching-router.ts | 132 ++++++----
+ artifacts/api-server/src/routes/ai.ts           | 691 +++++++++++++++++++++++++++++++++++++++++++---------
+ artifacts/nukhba/src/pages/subject.tsx          |  13 +-
+ attached_assets/image_1777479409945.png         | Bin 0 -> 159604 bytes
+ replit.md                                       |   6 +-
+ 7 files changed, 1124 insertions(+), 160 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/gemini-stream.ts
+ create mode 100644 attached_assets/image_1777479409945.png
+Command 'pnpm' not found, did you mean:
+  command 'npm' from deb npm (8.5.1~ds-1)
+Try: apt install <deb name>
+Command 'pnpm' not found, did you mean:
+  command 'npm' from deb npm (8.5.1~ds-1)
+Try: apt install <deb name>
+Command 'pm2' not found, did you mean:
+  command 'pm' from deb powerman (2.3.5-1build2)
+  command 'wm2' from deb wm2 (4+svn20090216-4build1)
+  command 'pmg' from deb python3-pymatgen (2022.0.17+dfsg1-1build1)
+  command 'gm2' from deb gm2 (4:11.2.0-1ubuntu1)
+  command 'pmi' from deb powermanagement-interface (0.3.21)
+  command 'tpm2' from deb tpm2-tools (5.2-1build1)
+  command 'pmc' from deb linuxptp (3.1.1-3)
+  command 'pmw' from deb pmw (1:4.50-1)
+  command 'pom2' from deb libpod-pom-perl (2.01-3)
+  command 'pms' from deb pms (0.42-1build4)
+Try: apt install <deb name>

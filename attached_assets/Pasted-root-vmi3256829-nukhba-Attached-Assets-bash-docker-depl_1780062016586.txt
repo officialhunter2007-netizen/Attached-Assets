@@ -1,0 +1,72 @@
+root@vmi3256829:~/nukhba/Attached-Assets# bash docker/deploy.sh --update
+[INFO]   FAL_KEY غير معرّف — سيتم استخدام Pollinations.ai المجاني (أبطأ قليلاً، نفس النتيجة)
+[NUKHBA] إعادة بناء الصور وتحديث الخدمات...
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] Building 122.3s (35/36)
+ => [internal] load local bake definitions                                                                                      0.0s
+ => => reading from stdin 1.02kB                                                                                                0.0s
+ => [nginx internal] load build definition from Dockerfile                                                                      0.0s
+ => => transferring dockerfile: 2.00kB                                                                                          0.0s
+ => [api internal] load build definition from Dockerfile                                                                        0.1s
+ => => transferring dockerfile: 2.32kB                                                                                          0.0s
+ => [nginx internal] load metadata for docker.io/library/nginx:1.27-alpine                                                      0.9s
+ => [api internal] load metadata for docker.io/library/node:22                                                                  0.9s
+ => [api internal] load metadata for docker.io/library/node:22-alpine                                                           0.9s
+ => [nginx internal] load .dockerignore                                                                                         0.0s
+ => => transferring context: 465B                                                                                               0.0s
+ => CACHED [api production 1/4] FROM docker.io/library/node:22-alpine@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711  0.1s
+ => => resolve docker.io/library/node:22-alpine@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920         0.1s
+ => CACHED [nginx builder 1/9] FROM docker.io/library/node:22@sha256:1031993481795705055273f2eef0c24597abdcb277d6e058c82f78cbb  0.1s
+ => => resolve docker.io/library/node:22@sha256:1031993481795705055273f2eef0c24597abdcb277d6e058c82f78cbbdef92a6                0.1s
+ => [api internal] load build context                                                                                           0.1s
+ => => transferring context: 17.94kB                                                                                            0.1s
+ => [nginx internal] load build context                                                                                         0.1s
+ => => transferring context: 43.35kB                                                                                            0.1s
+ => CACHED [nginx stage-1 1/3] FROM docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a5  0.1s
+ => => resolve docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10      0.1s
+ => [nginx builder 2/9] RUN corepack enable && corepack prepare pnpm@10 --activate                                              9.3s
+ => [api production 2/4] RUN apk add --no-cache     python3     py3-pip     gcc     g++     musl-dev     openjdk21-jdk     ba  26.9s
+ => [api builder 3/9] WORKDIR /app                                                                                              0.1s
+ => [nginx builder 4/9] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./                              0.1s
+ => [api builder 5/9] COPY lib/ ./lib/                                                                                          0.2s
+ => [nginx builder 6/9] COPY scripts/ ./scripts/                                                                                0.1s
+ => CACHED [nginx builder  4/10] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./                     0.0s
+ => CACHED [nginx builder  5/10] COPY lib/ ./lib/                                                                               0.0s
+ => CACHED [nginx builder  6/10] COPY scripts/ ./scripts/                                                                       0.0s
+ => [nginx builder  7/10] COPY artifacts/nukhba/ ./artifacts/nukhba/                                                            0.9s
+ => [api builder 7/9] COPY artifacts/api-server/ ./artifacts/api-server/                                                        0.6s
+ => [api builder 8/9] RUN pnpm install --no-frozen-lockfile                                                                    23.0s
+ => [nginx builder  8/10] COPY attached_assets/ ./attached_assets/                                                              1.2s
+ => [nginx builder  9/10] RUN pnpm install --no-frozen-lockfile                                                                28.9s
+ => [api production 3/4] WORKDIR /app                                                                                           1.1s
+ => [api builder 9/9] RUN pnpm --filter @workspace/api-server run build                                                         7.0s
+ => [api production 4/4] COPY --from=builder /app/artifacts/api-server/dist/ ./dist/                                            0.5s
+ => [nginx builder 10/10] RUN pnpm --filter @workspace/nukhba run build                                                        44.7s
+ => [api] exporting to image                                                                                                   73.0s
+ => => exporting layers                                                                                                        57.1s
+ => => exporting manifest sha256:bb0e0b5550a7ad22f0d30b558558d9b8a00e5efe9137ad0e5643f5dc4c8564f1                               0.1s
+ => => exporting config sha256:070d97787dfbeceacb55bd31d876415b20a2baf9ae3777215154b3843d8ddd2f                                 0.0s
+ => => exporting attestation manifest sha256:1d95f7f6d4100764f7bf459a8c2e10e6b7ac99424b79081e2bbacff0c91fa2c5                   0.0s
+ => => exporting manifest list sha256:87cf9c6d32d43c74e80fd94f16412224434bdd08b8c43b56a6ecff3653ae1000                          0.0s
+ => => naming to docker.io/library/attached-assets-api:latest                                                                   0.0s
+ => => unpacking to docker.io/library/attached-assets-api:latest                                                               15.5s
+ => [nginx stage-1 2/3] COPY --from=builder /app/artifacts/nukhba/dist/public/ /usr/share/nginx/html/                           0.3s
+ => [nginx stage-1 3/3] COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf                                                      0.4s
+ => [nginx] exporting to image                                                                                                  1.3s
+ => => exporting layers                                                                                                         0.7s
+ => => exporting manifest sha256:8c0b3f6060fbb86fed77e88c6ee5a417c462d439e1bcf6daae21388088b1b2a3                               0.0s
+ => => exporting config sha256:35c97ceb52bd1cfc260f8889f8939051b783b62290d6d1fb36fb190c532df8a4                                 0.0s
+ => => exporting attestation manifest sha256:7fab773e79b5e52552b32fbc78308b1e6f1c37d4f1384ede156a387b16617a55                   0.1s
+ => => exporting manifest list sha256:8e7d51d0233bcc8e27572c791df0c8f5efadbdcac52ccb977d718210b06f4228                          0.0s
+ => => naming to docker.io/library/attached-assets-nginx:latest                                                                 0.0s
+ => => unpacking to docker.io/library/attached-assets-nginx:latest                                                              0.4s
+ => [nginx] resolving provenance for metadata file                                                                              0.0s
+ => [api] resolving provenance for metadata file                                                                                5.2s
+[+] build 2/2
+ ✔ Image attached-assets-nginx Built                                                                                           122.6s
+ ✔ Image attached-assets-api   Built                                                                                           122.6s
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] up 1/2
+ ✔ Container attached-assets-api-1   Started                                                                                    14.6s
+ ⠹ Container attached-assets-nginx-1 Starting                                                                                    1.9s
+Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint attached-assets-nginx-1 (add2aa553855590789ca682be5281cbfdeb58e8e0d2945272fbcf3e8fc171506): failed to bind host port 0.0.0.0:80/tcp: address already in use

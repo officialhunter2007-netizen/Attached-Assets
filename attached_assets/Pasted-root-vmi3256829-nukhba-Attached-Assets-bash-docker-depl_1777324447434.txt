@@ -1,0 +1,164 @@
+root@vmi3256829:~/nukhba/Attached-Assets# bash docker/deploy.sh --ssl
+[NUKHBA] إعداد شهادة SSL لـ learnukhba.com...
+[WARN]   الدومين learnukhba.com يشير إلى 79.143.176.167 لكن IP السيرفر هو 2a02:c207:2325:6829::1
+[WARN]   تأكّد من إعداد A Record في لوحة استضافتك قبل المتابعة
+هل تريد المتابعة رغم ذلك؟ (y/N): y
+[NUKHBA] طلب الشهادة من Let's Encrypt...
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+Image certbot/certbot:latest Pulling
+eac39555de92 Pulling fs layer 0B
+1d7a63b094ee Pulling fs layer 0B
+b2ee67ef6cca Pulling fs layer 0B
+de19b7a249e5 Pulling fs layer 0B
+d4954f48dcc7 Pulling fs layer 0B
+0a9a5dfd008f Pulling fs layer 0B
+bde296103a2e Pulling fs layer 0B
+8be8a68a3e49 Pulling fs layer 0B
+1799ce2dd17e Pulling fs layer 0B
+61535b7ba0cb Pulling fs layer 0B
+4bd2d3896265 Pulling fs layer 0B
+1d7a63b094ee Download complete 0B
+8be8a68a3e49 Downloading 1.049MB
+8be8a68a3e49 Downloading 3.146MB
+d4954f48dcc7 Download complete 0B
+8be8a68a3e49 Downloading 5.243MB
+b2ee67ef6cca Download complete 0B
+eac39555de92 Download complete 0B
+bde296103a2e Download complete 0B
+8be8a68a3e49 Downloading 6.291MB
+8be8a68a3e49 Downloading 8.389MB
+1799ce2dd17e Download complete 0B
+8be8a68a3e49 Downloading 9.437MB
+0a9a5dfd008f Downloading 1.049MB
+de19b7a249e5 Downloading 1.049MB
+61535b7ba0cb Download complete 0B
+8be8a68a3e49 Downloading 11.53MB
+4bd2d3896265 Downloading 1.049MB
+0a9a5dfd008f Downloading 1.049MB
+de19b7a249e5 Downloading 1.049MB
+8be8a68a3e49 Downloading 12.58MB
+8be8a68a3e49 Download complete 0B
+4bd2d3896265 Downloading 1.049MB
+0a9a5dfd008f Downloading 1.049MB
+de19b7a249e5 Downloading 1.049MB
+4bd2d3896265 Downloading 1.049MB
+0a9a5dfd008f Downloading 2.097MB
+de19b7a249e5 Downloading 2.097MB
+0a9a5dfd008f Downloading 2.097MB
+de19b7a249e5 Downloading 2.097MB
+4bd2d3896265 Downloading 2.097MB
+4bd2d3896265 Downloading 2.097MB
+0a9a5dfd008f Downloading 3.146MB
+de19b7a249e5 Downloading 3.146MB
+0a9a5dfd008f Download complete 0B
+de19b7a249e5 Downloading 3.146MB
+4bd2d3896265 Downloading 3.146MB
+0a9a5dfd008f Extracting 1B
+de19b7a249e5 Downloading 4.194MB
+4bd2d3896265 Downloading 4.194MB
+0a9a5dfd008f Extracting 1B
+4bd2d3896265 Downloading 6.291MB
+de19b7a249e5 Downloading 5.243MB
+0a9a5dfd008f Extracting 1B
+4bd2d3896265 Downloading 7.425MB
+de19b7a249e5 Downloading 6.291MB
+4bd2d3896265 Download complete 0B
+de19b7a249e5 Downloading 8.389MB
+1799ce2dd17e Extracting 1B
+0a9a5dfd008f Pull complete 0B
+de19b7a249e5 Downloading 9.437MB
+1799ce2dd17e Extracting 1B
+de19b7a249e5 Downloading 11.53MB
+1799ce2dd17e Extracting 1B
+de19b7a249e5 Downloading 13.63MB
+1799ce2dd17e Extracting 1B
+de19b7a249e5 Downloading 15.73MB
+de19b7a249e5 Downloading 18.75MB
+1799ce2dd17e Pull complete 0B
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 20.97MB
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 23.07MB
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 26.21MB
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 28.31MB
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 30.41MB
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 33.55MB
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 35.65MB
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 37.75MB
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 40.89MB
+8be8a68a3e49 Extracting 1B
+de19b7a249e5 Downloading 42.99MB
+8be8a68a3e49 Extracting 2B
+de19b7a249e5 Downloading 45.09MB
+8be8a68a3e49 Extracting 2B
+de19b7a249e5 Downloading 48.23MB
+8be8a68a3e49 Extracting 2B
+de19b7a249e5 Downloading 50.33MB
+8be8a68a3e49 Pull complete 0B
+de19b7a249e5 Downloading 52.43MB
+1d7a63b094ee Pull complete 0B
+b2ee67ef6cca Pull complete 0B
+de19b7a249e5 Downloading 55.57MB
+eac39555de92 Pull complete 0B
+de19b7a249e5 Downloading 57.67MB
+d4954f48dcc7 Pull complete 0B
+bde296103a2e Pull complete 0B
+61535b7ba0cb Extracting 1B
+de19b7a249e5 Downloading 60.35MB
+61535b7ba0cb Extracting 1B
+de19b7a249e5 Downloading 62.91MB
+61535b7ba0cb Extracting 1B
+de19b7a249e5 Downloading 65.01MB
+61535b7ba0cb Pull complete 0B
+4bd2d3896265 Extracting 1B
+de19b7a249e5 Download complete 0B
+4bd2d3896265 Extracting 1B
+4bd2d3896265 Extracting 1B
+4bd2d3896265 Pull complete 0B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 1B
+de19b7a249e5 Extracting 2B
+de19b7a249e5 Extracting 2B
+de19b7a249e5 Extracting 2B
+de19b7a249e5 Extracting 2B
+de19b7a249e5 Extracting 2B
+de19b7a249e5 Extracting 2B
+de19b7a249e5 Extracting 2B
+de19b7a249e5 Extracting 2B
+de19b7a249e5 Extracting 2B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 3B
+de19b7a249e5 Extracting 4B
+de19b7a249e5 Pull complete 0B
+Image certbot/certbot:latest Pulled
+Container attached-assets-certbot-run-f72f3b6d43b8 Creating
+Container attached-assets-certbot-run-f72f3b6d43b8 Created
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+No renewals were attempted.
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1,0 +1,340 @@
+# نُخبة v4 — وثيقة المهام المتبقية (التفصيل الكامل)
+
+> **السياق**: بعد فحص شامل للكود، تبيّن أنّ ~٩٠٪ من وثيقة v4.0 منفّذ فعلاً (المخطّط الهرمي، parser المشرف، الذاكرة الموحّدة، الجواهر، قفل النماذج، الخريطة البصرية، نواة المعمل، الاختبارات، التوليد الكسول، الوسوم البروتوكولية). هذه الوثيقة تُوثّق **فقط ما تبقّى** وتُقسّمه إلى ٧ مهام تنفيذية مفصّلة.
+>
+> **حالة Task #1 السابقة (الأساس)**: ✅ منفّذة فعلياً تحت بادئة `v4_*`. يُوصى بأرشفتها لا تنفيذها.
+>
+> **القاعدة الذهبية**: كل مهمة هنا مستقلة عن الأخرى قدر الإمكان، يمكن تنفيذها بترتيب الأولوية المذكور أو بالتوازي حيث يُسمح.
+
+---
+
+## فهرس المهام
+
+| رقم | العنوان | الأولوية | تعتمد على | الأثر على المستخدم |
+|---|---|---|---|---|
+| R1 | إكمال واجهة مسار الملازم | 🔴 عالية | — | الطلاب يصلون لميزة مدفوعة جزئياً |
+| R2 | مسار المهارة كمسار ثالث صريح | 🟡 متوسطة | — | تجربة المهارات تختلط حالياً بالتخصصات |
+| R3 | نظام الأنميشن البصري (الجزء ٢٢) | 🟡 متوسطة | — | تجربة تعليمية أكثر وضوحاً |
+| R4 | ربط محرّر الكود بحقل DB بدل الـheuristic | 🔴 عالية | — | يمنع ظهوراً خاطئاً للمحرّر |
+| R5 | إكمال معالج الوسوم البروتوكولية (LAB/EXAM_MASTERED) | 🔴 عالية | — | بدونها لا تكتمل المعامل والاختبارات في الخريطة |
+| R6 | اختبارات end-to-end + مراقبة | 🟢 منخفضة لكن ضرورية قبل الإطلاق | R1, R4, R5 | يمنع الانهيارات الصامتة |
+| R7 | تنظيف placeholders + تحديث الوثيقة | 🟢 منخفضة | R1-R6 | نظافة الكود + توثيق |
+
+---
+
+# R1 — إكمال واجهة مسار الملازم
+
+## ١.١ Why
+الـbackend جاهز بالكامل (`v4_booklet.ts`, `v4-booklet.ts`, RAG، pgvector، استخراج صفحات، embeddings)، لكن واجهة الطالب نصف مبنية. النتيجة: الطالب يرفع ملزمة، النظام يعالجها، ثم يصطدم بصفحة جلسة فارغة. هذه أهم فجوة وظيفية الآن.
+
+## ١.٢ Done looks like
+- الطالب يرفع PDF → يرى **شريط معالجة مباشر** (استخراج → تقسيم → embedding → ربط بالدروس) مع نسبة مئوية.
+- بعد المعالجة، يرى **جدول هيكلي**: المستويات والوحدات والدروس المكتشفة + لكل درس أيقونة "✓ مربوط بصفحات ٤-١٢" أو "⚠️ بحاجة لمراجعة" (إن فشل الربط).
+- يضغط درساً → تفتح صفحة جلسة الملازم تحتوي:
+  - شريط رأسي يعرض اسم الدرس + رقم الصفحات المربوطة (مثلاً "ص ٤-١٢").
+  - منطقة المحادثة المعتادة لكن **كل استشهاد من المعلم يحوي شارة `📄 ص ٧` قابلة للنقر**.
+  - النقر على الشارة يفتح Drawer جانبي يعرض **نص الـchunk الفعلي** + رقم الصفحة + رابط لعرض الصفحة الأصلية من الـPDF.
+  - زر "أرني الصفحة" يفتح صورة الصفحة (إن كانت محفوظة في `book_unit_images`).
+- في أي صفحة تخصص يوجد زرّان واضحان في الأعلى: **"المسار المخصص"** | **"مسار ملزمتي"**، النشط منهما مُظلَّل.
+- لو فشل الـAI في ربط بعض الدروس بصفحات، يظهر **banner للمشرف** في لوحته: "ملزمة الطالب X لديها ٣ دروس بحاجة لمراجعة يدوية" مع زر يفتح أداة الربط اليدوي.
+
+## ١.٣ Out of scope
+- إعادة بناء نظام الـRAG أو الـembeddings — موجودان ويعملان.
+- توليد ملف تعليمات v4 من الـPDF تلقائياً — موجود.
+- دعم تنسيقات غير الـPDF (Word, PowerPoint) — تأجيل.
+- التحرير اليدوي لـchunks بعد المعالجة من قبل الطالب — تأجيل.
+
+## ١.٤ Steps
+1. **بناء صفحة `booklet-session.tsx` من الصفر** — نسخ تخطيط `lesson.tsx` كقاعدة، ثم استبدال مصدر system prompt بنقطة الـRAG الموجودة في `v4_booklet.ts`. ضبط الـstreaming ليعرض الاستشهادات كمكوّن React مخصّص لا كنص خام.
+2. **مكوّن `CitationBadge`** — يقرأ pattern `[ص:N]` أو `[chunk:N]` من نص المعلم ويُحوّله لشارة قابلة للنقر. النقر يطلب من `GET /api/v4/booklets/:bookletId/chunks/:chunkId` ويعرض في Drawer.
+3. **نقطة API جديدة لجلب chunk محدد** — تُرجع نص الـchunk + رقم الصفحة + (اختيارياً) مسار صورة الصفحة. تُضاف إلى `v4_booklet.ts`.
+4. **شريط المعالجة المباشر** — استخدام SSE من نقطة الرفع الموجودة (إن كانت ترسل أحداثاً) أو polling كل ثانية لـ`GET /api/v4/booklets/:id/status` يُرجع `{stage, percent, errors}`. يُعرض كـprogress bar بأربع مراحل.
+5. **عرض الهيكل بعد المعالجة** — استخدام نفس مكوّن الشجرة المستخدم في `admin-v4-instructions.tsx` لعرض البنية الهرمية. كل درس له شارة حالة (`✓ مربوط` / `⚠️ يحتاج مراجعة` / `🔄 جاري`).
+6. **زر تبديل المسار** — مكوّن `PathSwitcher` يُحقَن في رأس `subject.tsx` و`v4-map.tsx` و`booklet-session.tsx`. يقرأ المسارات المتاحة للطالب من `GET /api/v4/student/paths` ويعرض tabs.
+7. **Badge بحاجة لمراجعة في لوحة المشرف** — تبويب "ملازم بحاجة لمراجعة" يستعلم عن سجلات `v4_booklet_lessons` حيث `binding_status='needs_review'`. أداة الربط اليدوي تعرض الدرس + قائمة الـchunks وتدع المشرف يربط يدوياً.
+8. **اختبار يدوي بـPDF حقيقي** — رفع كتاب جامعي قصير، التحقّق من: ظهور الشريط، الهيكل صحيح، الجلسة تستشهد بأرقام صفحات، الـDrawer يفتح، التبديل بين المسارين سلس.
+
+## ١.٥ Relevant files
+- `artifacts/nukhba/src/pages/booklet-session.tsx`
+- `artifacts/nukhba/src/pages/path-booklet.tsx`
+- `artifacts/nukhba/src/pages/path-choice.tsx`
+- `artifacts/nukhba/src/pages/lesson.tsx`
+- `artifacts/nukhba/src/pages/subject.tsx`
+- `artifacts/nukhba/src/pages/v4-map.tsx`
+- `artifacts/api-server/src/routes/v4_booklet.ts`
+- `artifacts/api-server/src/lib/v4-booklet.ts`
+- `artifacts/nukhba/src/components/admin-v4-instructions.tsx`
+- `lib/db/src/schema/v4_booklet.ts`
+
+---
+
+# R2 — مسار المهارة كمسار ثالث صريح
+
+## ٢.١ Why
+حالياً المهارات (`kind='skill'` في `v4_specialties`) تستخدم نفس قالب التخصص الجامعي (٥ مستويات × ٧ مراحل × ٩ وحدات × ١٠ دروس = ٣١٥٠ درس). للمهارة قصيرة الأمد (تعلّم React في شهر) هذا مبالغ فيه ومُربك. الوثيقة (Part 3) تنصّ على أنّ مسار المهارة يجب أن يكون أخفّ وأكثر مرونة.
+
+## ٢.٢ Done looks like
+- المهارات تظهر في صفحة اختيار المسار **بقسم منفصل بصرياً** عن التخصصات الجامعية (لون مختلف، أيقونة مختلفة، tagline "تعلّم سريع، تطبيقي").
+- بنية المهارة مرنة: **مستوى واحد فقط، عدد مراحل حر (٣-٥)، عدد وحدات حر (٤-٧) لكل مرحلة**. الـparser يقبل هذا الاختلاف لو `kind='skill'`.
+- الخريطة البصرية للمهارة تختلف: **شكل أفقي زمني** (timeline) بدل التعرّج العمودي الـDuolingo. اللون السائد أخضر زمرّدي بدل البنفسجي.
+- اختبار تحديد المستوى للمهارة **أقصر** (٥ أسئلة بدل ١٠) أو يُلغى إن كانت المهارة مبتدئة بالكامل (يُحدّده المشرف في ملف التعليمات بحقل `placement_required: false`).
+- وجود مفهوم **"المهارات المتقاطعة"**: المهارة تستطيع الإشارة في ملف تعليماتها إلى `prerequisites_from_specialty: [...]` يعني "هذه المهارة تفترض إتقان مفهوم Y من تخصص Z". إن لم يُتقنه الطالب، تظهر له ملاحظة "ننصحك بمراجعة Y أولاً".
+
+## ٢.٣ Out of scope
+- إعادة هيكلة جداول `v4_*` — الـschema يدعم المرونة عبر `kind`.
+- ترجمة كل التخصصات الموجودة إلى مهارات.
+- نظام شهادات مستقل للمهارات.
+
+## ٢.٤ Steps
+1. **توسيع schema بدون كسر** — إضافة عمودين nullable إلى `v4_specialties`: `placement_required boolean default true`, `skill_layout_hint enum('vertical_duolingo', 'horizontal_timeline') default 'vertical_duolingo'`. لا migration كاسرة.
+2. **تخفيف قيود الـparser للـskills** — في `v4-instruction-validator.ts`، إن كان `kind='skill'` يُسمح بـ١ مستوى، ٣-٥ مراحل، ٤-٧ وحدات. الترقيمات تبقى صارمة، الأرقام الإلزامية تتغيّر.
+3. **مكوّن `SkillMap`** — جديد، يعرض المراحل في timeline أفقي مع عقد دائرية مرتبطة بخطوط منحنية. يُستدعى من `v4-map.tsx` لو `specialty.kind === 'skill' && skill_layout_hint === 'horizontal_timeline'`.
+4. **ثيم لوني للمهارات** — في tailwind config أو CSS variables، تعريف `--skill-primary: hsl(160, 60%, 50%)` (زمرّدي). تطبيقه على جميع مكوّنات المهارة عبر `data-kind="skill"`.
+5. **قسم منفصل في `path-choice.tsx`** — تقسيم القائمة إلى "تخصصات أكاديمية" و"مهارات تطبيقية" مع وصف لكلٍّ.
+6. **منطق المهارات المتقاطعة** — حقل JSON `cross_prerequisites` في `v4_specialties` يحوي `[{specialty_id, concept_id}]`. عند دخول الطالب المهارة، نستعلم من `concept_mastery_scores` ونعرض banner ناعماً.
+7. **تخصيص محرّك الـplacement** — في `v4-path-engine.ts`، فرع جديد للـskills يُولّد اختباراً أقصر أو يتجاوزه كلياً.
+8. **اختبار يدوي** — إنشاء ملف تعليمات لمهارة وهمية "React الأساسيات" (٤ مراحل × ٥ وحدات)، التأكّد من النشر، عرض الخريطة الأفقية، عمل الـplacement المختصر.
+
+## ٢.٥ Relevant files
+- `lib/db/src/schema/v4.ts`
+- `artifacts/api-server/src/lib/v4-instruction-validator.ts`
+- `artifacts/api-server/src/lib/v4-path-engine.ts`
+- `artifacts/nukhba/src/pages/v4-map.tsx`
+- `artifacts/nukhba/src/pages/path-choice.tsx`
+- `artifacts/nukhba/src/components/admin-v4-instructions.tsx`
+
+---
+
+# R3 — نظام الأنميشن البصري (الجزء ٢٢ من وثيقة v4)
+
+## ٣.١ Why
+الجزء ٢٢ من الوثيقة وعد بـ**قوالب VIZ** لكل تخصص (مثلاً: محاكاة packet flow للشبكات، تتبّع تنفيذ Python خطوة-خطوة للبرمجة، حركة قيود محاسبية، إلخ). حالياً الأنميشن مقتصر على framer-motion لـfade/slide. هذه فجوة جذّابة وتميّز المنصة، لكنها ليست حرجة وظيفياً.
+
+## ٣.٢ Done looks like
+- معلم الذكاء الاصطناعي يستطيع إصدار وسم جديد `[[VIZ: template=python_trace, payload={code, stdin}]]` أو `[[VIZ: template=packet_flow, payload={src, dst, hops}]]`.
+- الـfrontend يقرأ الوسم، يبحث في **سجلّ قوالب VIZ** عن المطابق، ويعرض المكوّن المناسب مدمجاً في فقاعة محادثة المعلم.
+- ٥ قوالب VIZ مبدئية مبنية:
+  - `python_trace`: محرر يعرض الكود + مؤشّر متحرّك على السطر الجاري + لوحة جانبية للمتغيّرات تتحدّث خطوة بخطوة (يستخدم Wandbox للتنفيذ الحقيقي).
+  - `js_trace`: نفس الفكرة للـJavaScript مع AST بسيط.
+  - `packet_flow`: SVG لشبكة من ٣-٥ عقد مع packet متحرّك حسب الـpayload.
+  - `accounting_t_account`: حساب T متحرّك يضيف القيود واحدة واحدة.
+  - `regex_match`: نص يُمسح بمؤشر يُبرز التطابقات.
+- مكتبة `viz-templates/` معزولة، كل قالب ملف React مستقل، يُلغى/يُضاف بدون كسر بقية النظام.
+- أنميشن انتقال بين مستويات الخريطة: عند إكمال مستوى، انفجار جسيمات + zoom out يكشف المستوى التالي.
+- المعلم يتلقّى في system prompt قائمة بقوالب VIZ المتاحة لتخصصه فقط (لا منطق لجمع قوالب لا علاقة لها).
+
+## ٣.٣ Out of scope
+- إعادة بناء محرّر الكود (Monaco يبقى).
+- محاكاة فيزيائية ثقيلة (Three.js، WebGL) — تبقى محظورة بسبب الإنترنت اليمني.
+- قوالب لكل تخصص ممكن (نكتفي بـ٥ كبداية).
+- تحرير القوالب من لوحة المشرف.
+
+## ٣.٤ Steps
+1. **عقد VIZ Protocol** — توسيع `v4-protocol-tags.ts` بـ`[[VIZ: template=X, payload=JSON]]`. الـparser يستخرجها قبل عرض النص.
+2. **سجل قوالب** — ملف `viz-registry.ts` يخرّج `{ [templateName]: ReactComponent }`. كل مكوّن يستقبل `props.payload` فقط.
+3. **بناء القوالب الخمسة** كل قالب في ملف منفصل تحت `artifacts/nukhba/src/components/viz/`:
+   - `python-trace.tsx` — يُنفّذ الكود عبر `/api/ai/run-code` ويعرض trace خطوة-خطوة.
+   - `js-trace.tsx` — استخدام `acorn` أو `@babel/parser` لـAST + walker.
+   - `packet-flow.tsx` — SVG + framer-motion للحركة على المسارات.
+   - `accounting-t-account.tsx` — جدولان (مدين/دائن) مع framer أمنيشن للقيود.
+   - `regex-match.tsx` — يستخدم `RegExp.exec` مع تأخير لإبراز كل match.
+4. **دمج في المحادثة** — في مكوّن الرسالة، استبدال وسوم VIZ بمكوّن React من السجل قبل التقديم.
+5. **system prompt للمعلم** — في `v4-teaching-core.ts`، إضافة قسم "قوالب VIZ المتاحة لك" مع وصف ومخطّط الـpayload لكل واحد، مفلتراً حسب تخصص الدرس. خريطة `specialty.code → [template names]` ثابتة في الكود.
+6. **أنميشن انتقال الخريطة** — في `v4-map.tsx`، عند تغيّر `currentLevel`، تفعيل overlay من جسيمات framer-motion ثم zoom CSS transform.
+7. **اختبار يدوي** — درس برمجة مبنيّ، التحقّق أنّ المعلم يستطيع إصدار `[[VIZ: template=python_trace, ...]]` ويظهر تنفيذ بصري. درس محاسبة → `accounting_t_account`. درس شبكات → `packet_flow`.
+
+## ٣.٥ Relevant files
+- `artifacts/api-server/src/lib/v4-protocol-tags.ts`
+- `artifacts/api-server/src/lib/v4-teaching-core.ts`
+- `artifacts/nukhba/src/components/code-editor-panel.tsx`
+- `artifacts/nukhba/src/pages/v4-map.tsx`
+- `artifacts/nukhba/src/pages/lesson.tsx`
+- `artifacts/api-server/src/routes/ai.ts` (نقطة `/run-code`)
+- `.local/tasks/nukhba_redesign_v4_full_spec.md:879+` (الجزء ٢٢)
+
+---
+
+# R4 — ربط محرّر الكود بحقل DB بدل الـheuristic
+
+## ٤.١ Why
+في `lesson.tsx` (السطر ~٢٦٠)، ظهور `CodeEditorPanel` يعتمد على **كلمات مفتاحية** في نص الدرس (heuristic) لا على بيانات الـDB. النتيجة: قد يظهر المحرّر في دروس لا تحتاجه أو يختفي حين يجب أن يكون موجوداً. هذا bug صامت يُضعف تجربة الدروس البرمجية.
+
+## ٤.٢ Done looks like
+- جدول `v4_lessons` يحوي عموداً `lesson_kind enum('theory', 'code', 'lab_prep', 'mixed') default 'theory'`.
+- ملف تعليمات المشرف يُلزم بتحديد النوع لكل درس عبر سطر `**نوع الدرس:** [theory|code|lab_prep|mixed]`، الـparser يرفض القيم غير الصحيحة.
+- `lesson.tsx` يقرأ `lesson.kind` ويُظهر المحرّر فقط لـ`code` و`mixed`.
+- المحرّر يقرأ **اللغة الافتراضية** من حقل آخر `code_language` (مثل `python`, `js`, `sql`) ويُهيّئ Monaco والـsyntax highlighting.
+- في الدروس التي `kind='lab_prep'`، يظهر زر "ادخل المعمل" بدل المحرّر.
+
+## ٤.٣ Out of scope
+- إعادة كتابة `CodeEditorPanel`.
+- دعم تشغيل لغات جديدة في Wandbox.
+
+## ٤.٤ Steps
+1. **migration توسيع `v4_lessons`** — إضافة عمودي `lesson_kind` و`code_language` (nullable للأخير). default `theory` للأول.
+2. **توسيع parser** — في `v4-instruction-validator.ts`، استخراج السطر، التحقّق من القيمة، خطأ حرج عند قيمة غير صحيحة.
+3. **تحديث القالب الفارغ** — في صفحة "تنزيل قالب" للمشرف، إضافة السطر مع تعليق توضيحي.
+4. **تعديل `lesson.tsx`** — إزالة الـheuristic، استبدالها بـ`lesson.kind === 'code' || lesson.kind === 'mixed'`. تمرير `lesson.code_language` كـprop للمحرّر.
+5. **سكربت backfill** — للدروس الموجودة بـ`lesson_kind=null`، تطبيق نفس الـheuristic السابقة مرة واحدة لتعبئة القيمة، ثم تحويل العمود لـ`NOT NULL`. تنبيه المشرف بقائمة الدروس التي خُمّن نوعها لمراجعة.
+6. **اختبار** — درس برمجة يظهر فيه المحرّر، درس نظري لا يظهر، درس مختلط يظهر مع زر للتقرير، درس تحضير معمل يظهر زر دخول المعمل.
+
+## ٤.٥ Relevant files
+- `lib/db/src/schema/v4.ts`
+- `artifacts/api-server/src/lib/v4-instruction-validator.ts`
+- `artifacts/nukhba/src/pages/lesson.tsx`
+- `artifacts/nukhba/src/components/code-editor-panel.tsx`
+- `artifacts/nukhba/src/components/admin-v4-instructions.tsx`
+
+---
+
+# R5 — إكمال معالج الوسوم البروتوكولية (LAB_MASTERED, EXAM_MASTERED)
+
+## ٥.١ Why
+`v4-protocol-tags.ts` يُعالج `[LESSON_MASTERED]` و`[SESSION_COMPLETE]` و`[MASTERY: …]`، لكن **لا يعالج** `[LAB_MASTERED]` و`[EXAM_MASTERED]`. النتيجة: المعمل أو الاختبار يكتمل في الـbackend لكن **الخريطة البصرية لا تُحدّث** ولا تُفتح العقد التالية. bug ظاهر للطالب.
+
+## ٥.٢ Done looks like
+- محرّك التقييم في `v4-lab-exam-engine.ts` يُصدر `[LAB_MASTERED: lab_id=X, score=Y]` عند نجاح الطالب في معمل، و`[EXAM_MASTERED: exam_id=X, kind=unit|stage|level, score=Y]` لاختبار.
+- `v4-protocol-tags.ts` يستقبل هذه الوسوم ويقوم بـ:
+  - تسجيل في `v4_lab_completions` أو `v4_exam_attempts` (موجود) — التحقّق أنّ الإدراج يتمّ.
+  - تحديث `student_paths.progress` ليُعلِم الخريطة بفتح العقدة التالية.
+  - بثّ SSE للـfrontend `event: node_unlocked, data: {node_id}`.
+- الخريطة تستمع للحدث وتُحدّث العقدة فوراً (تأثير ضوء + تحويل اللون).
+- اختبار الوحدة يُكمل ⇒ الخريطة تفتح أول درس من الوحدة التالية + شارة تهنئة.
+- اختبار المرحلة يُكمل ⇒ بوّابة المرحلة التالية تُفتح + أنميشن احتفالي.
+- اختبار المستوى يُكمل ⇒ بوّابة كبرى تُفتح + صفحة احتفال خاصة.
+
+## ٥.٣ Out of scope
+- بناء الاختبارات نفسها (موجودة).
+- إعادة تصميم الخريطة.
+
+## ٥.٤ Steps
+1. **توسيع `v4-protocol-tags.ts`** — إضافة handlers للوسمين الجديدين. كل handler: parse الـattributes، تحديث الجداول، إصدار SSE.
+2. **تحديث `v4-lab-exam-engine.ts`** — في نقطة نهاية كل تقييم، إصدار الوسم المناسب في الـSSE stream.
+3. **SSE channel جديد** — `node_unlocked` و`celebration` events. مُعرَّفة في `v4-teaching-core.ts` أو ملف SSE موحّد.
+4. **listener في `v4-map.tsx`** — `useEffect` يفتح EventSource على `/api/v4/student/progress/stream`، يستقبل الأحداث، يُحدّث state الخريطة.
+5. **مكوّن `CelebrationOverlay`** — overlay كامل الشاشة بأنميشن (confetti، تأثير ضوئي، رسالة "أتممت المستوى الأول 👑"). يُطلق من listener حسب نوع الحدث.
+6. **اختبار** — إكمال معمل يدوياً، التحقّق من ظهور التحديث في الخريطة دون refresh. نفس الشيء للاختبارات الثلاثة.
+
+## ٥.٥ Relevant files
+- `artifacts/api-server/src/lib/v4-protocol-tags.ts`
+- `artifacts/api-server/src/lib/v4-lab-exam-engine.ts`
+- `artifacts/api-server/src/lib/v4-teaching-core.ts`
+- `artifacts/nukhba/src/pages/v4-map.tsx`
+- `artifacts/nukhba/src/pages/v4-lab.tsx`
+- `lib/db/src/schema/v4.ts` (تحقّق `v4_lab_completions`, `v4_exam_attempts`)
+
+---
+
+# R6 — اختبارات end-to-end + مراقبة
+
+## ٦.١ Why
+الكود v4 ضخم (~٢٠ ملف `v4-*.ts`) وحرج (مال الطلاب يُخصم من الجواهر). لا توجد اختبارات تكامل تغطّيه. أي تغيير في المستقبل قد يُكسر مساراً صامتاً ولا يُكتشف إلا بعد شكاوى الطلاب. أيضاً لا توجد metrics لرصد بطء الـRAG أو دقّة ربط الصفحات.
+
+## ٦.٢ Done looks like
+- اختبارات تكامل بـVitest تُغطّي ٧ سيناريوهات حرجة:
+  1. مسار طالب جديد كامل: تسجيل → اختيار تخصص → diagnostic → placement → خريطة → درس أول → إكمال → فتح الدرس الثاني.
+  2. خصم جواهر صحيح بعد رسالة معلم (التحقّق من `gem_ledger`).
+  3. بوّابة الإتقان: محاولة إصدار `[LESSON_MASTERED]` بدون اكتمال المفاهيم → رفض.
+  4. parser ملف تعليمات: ملف صحيح يمرّ، ملف بـ`[فارغ]` يفشل، ملف بترقيم خطأ يفشل.
+  5. RAG ملازم: استعلام يُرجع chunks مرتبطة برقم صفحة.
+  6. اختبار وحدة → `[EXAM_MASTERED]` → فتح وحدة تالية في `student_paths`.
+  7. ربط معمل بـSonnet: محاكاة استدعاء وتخزين الناتج في `v4_lab_scenarios`.
+- structured logging موحّد لكل المراحل الـcritical (gem deduction، model call، RAG retrieval، tag processing) بصيغة JSON مع `request_id` و`student_id` و`duration_ms`.
+- لوحة `admin-v4-metrics.tsx` جديدة تعرض:
+  - متوسط زمن الاستجابة لكل نموذج (آخر ٢٤س / ٧ أيام).
+  - عدد الجواهر المخصومة يومياً + تكلفة الـAI الحقيقية + الفرق (الربح).
+  - عدد الملازم بـ`needs_review` لكل مشرف.
+  - أعلى الدروس استهلاكاً للجواهر (لرصد المعلم المسرف).
+- alerts بسيطة عند: تكلفة AI تتجاوز ٥٠٪ من الإيراد، أكثر من ٥ ملازم تفشل في الـRAG في يوم.
+
+## ٦.٣ Out of scope
+- إعداد CI/CD خارجي.
+- استخدام أداة APM خارجية (Datadog، NewRelic).
+- اختبارات أداء حمل (load testing).
+
+## ٦.٤ Steps
+1. **إعداد Vitest** للـserver — إن لم يكن، تثبيت + config أساسي. يُشغَّل عبر `pnpm --filter @workspace/api-server test`.
+2. **سكربتات بذور للاختبارات** — `tests/fixtures/`: ملف تعليمات تجريبي، طالب وهمي، تخصص وهمي. يُعاد ضبط DB قبل كل اختبار (transaction rollback أو schema reset).
+3. **اختبارات ٧ سيناريوهات** — كل سيناريو ملف منفصل تحت `artifacts/api-server/src/lib/__tests__/v4-flow-*.test.ts`. استخدام `supertest` لاستدعاء routes الـExpress مباشرة.
+4. **logger موحّد** — توسيع `logger.ts` الموجود بدوال `logModelCall`, `logGemTx`, `logRagQuery`, `logTagProcessed`. كل واحدة تكتب JSON line. مُجمّعة تحت namespace `v4`.
+5. **endpoint metrics للأدمن** — `GET /api/admin/v4/metrics` يستعلم من `gem_ledger` و`ai_usage` ويُرجع البيانات المجمّعة.
+6. **مكوّن `admin-v4-metrics.tsx`** — تبويب جديد، charts بسيطة (recharts إن متاحة) لكل metric.
+7. **نظام alerts** — جدول `v4_alerts` بسيط، cron يومي يحسب القيم ويُدرج تنبيهات. تُعرض في تبويب الـalerts الموجود.
+
+## ٦.٥ Relevant files
+- `artifacts/api-server/package.json` (إضافة vitest)
+- `artifacts/api-server/src/lib/__tests__/` (موجود — توسيع)
+- `artifacts/api-server/src/lib/logger.ts`
+- `artifacts/api-server/src/lib/v4-gem-wallet.ts`
+- `artifacts/api-server/src/lib/v4-teaching-core.ts`
+- `artifacts/api-server/src/lib/v4-booklet.ts`
+- `artifacts/nukhba/src/components/admin-alerts.tsx`
+- `artifacts/nukhba/src/components/admin-ai-usage.tsx`
+
+---
+
+# R7 — تنظيف placeholders + تحديث الوثيقة
+
+## ٧.١ Why
+في الكود placeholders مثل `v4-path.ts:18 "placeholder; booklet flow ships in #8"` وأجزاء كانت معطّلة بكلمة "قريباً" ثم فُعّلت بدون تنظيف. أيضاً وثيقة v4.0 الأصلية لم تُحدَّث لتعكس الإضافات الثلاث (CSRF، بوابة الإتقان المشدّدة، بادئة `v4_`). أي مطوّر جديد سيقرأ الوثيقة ويبني افتراضات خاطئة.
+
+## ٧.٢ Done looks like
+- جميع تعليقات `placeholder`, `TODO`, `FIXME`, `coming soon` في ملفات `v4-*.ts` و`v4-*.tsx` و`booklet-*.tsx` إمّا منفّذة أو محذوفة أو مُحوّلة إلى issue موثّق.
+- وثيقة `.local/tasks/nukhba_redesign_v4_full_spec.md` تحوي قسماً جديداً في النهاية: **"الجزء الثالث والعشرون: ما نُفّذ فعلياً + الانحرافات"** يوثّق:
+  - حالة كل جزء (٪ تنفيذ + ملف رئيسي).
+  - الانحرافات الثلاث (CSRF، بوابة الإتقان، بادئة `v4_`) مع التبرير.
+  - أي قرارات أُتّخذت أثناء التنفيذ ولم تكن في الوثيقة الأصلية.
+- ملف `.txt` نظيف مُحدَّث ومُقدَّم.
+- ملف `replit.md` يُحدَّث بقسم "ما نُفّذ من v4" مختصر.
+
+## ٧.٣ Out of scope
+- إعادة كتابة الوثيقة من الصفر.
+- ترجمة الوثيقة للإنجليزية.
+
+## ٧.٤ Steps
+1. **مسح placeholders** — `rg "placeholder|TODO|FIXME|coming soon|قريباً" artifacts/`، لكل نتيجة: نفّذ أو احذف أو حوّل لـissue.
+2. **إضافة الجزء ٢٣ للوثيقة** — كتابة قسم تنفيذي مع جدول الحالة + قسم الانحرافات + قائمة قرارات.
+3. **تحديث `.txt` النظيف** — إعادة توليد من `.md`.
+4. **تحديث `replit.md`** — إضافة "ما نُفّذ من v4" في القسم المناسب.
+5. **مراجعة نهائية** — قراءة كاملة للوثيقة المُحدّثة من الجزء ١ للجزء ٢٣ للتأكّد من الاتساق.
+
+## ٧.٥ Relevant files
+- `.local/tasks/nukhba_redesign_v4_full_spec.md`
+- `.local/tasks/nukhba_redesign_v4_full_spec.txt`
+- `replit.md`
+- `artifacts/api-server/src/routes/v4_path.ts`
+- `artifacts/nukhba/src/pages/path-choice.tsx`
+- أيّ ملف `v4-*` آخر يحوي placeholder
+
+---
+
+## ملحق: ترتيب التنفيذ المقترح
+
+```
+Phase 1 (حرج، متوازي):
+  R1 (الملازم UI)  ─┐
+  R4 (محرّر/DB)    ─┼─→ R5 (الوسوم) ─→ R6 (اختبارات) ─→ R7 (تنظيف وتوثيق)
+  R5 (LAB/EXAM)    ─┘
+
+Phase 2 (تحسينات، متوازي):
+  R2 (المهارة)     ─┐
+  R3 (الأنميشن)    ─┴─→ (يُدمج في R6 و R7)
+```
+
+- **R1, R4, R5** يجب أن تسبق أي إطلاق علني.
+- **R6** يجب أن تُكمل قبل أي إعلان واسع.
+- **R2, R3** تحسينات قيّمة لكنّها لا تمنع الإطلاق التجريبي.
+- **R7** آخر مهمة قبل تجميد الـcodebase للإطلاق.
+
+## ملحق: تقدير الجهد التقريبي
+
+| مهمة | جهد تقريبي (أيام عمل) | تعقيد |
+|---|---|---|
+| R1 | ٤-٦ | متوسط (frontend ثقيل) |
+| R2 | ٣-٤ | منخفض (schema موجود) |
+| R3 | ٧-١٠ | عالٍ (٥ قوالب + بنية) |
+| R4 | ١-٢ | منخفض جداً |
+| R5 | ٢-٣ | متوسط (SSE coordination) |
+| R6 | ٥-٧ | متوسط (٧ سيناريوهات) |
+| R7 | ١-٢ | منخفض |
+| **الإجمالي** | **٢٣-٣٤ يوم عمل** | — |
