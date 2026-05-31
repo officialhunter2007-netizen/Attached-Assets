@@ -141,7 +141,7 @@ export const v4LessonSchema = z.object({
   final_check_question: reqText(5, "سؤال التحقق النهائي"),
   session_complete_criterion: reqText(5, "معيار اكتمال الجلسة"),
   expected_duration_minutes: z.number().int().min(1).max(240).optional(),
-  estimated_gem_cost: z.number().int().min(0).max(100).optional(),
+  estimated_gem_cost: z.number().int().min(0).max(500).optional(),
   // v4.1 — pedagogical extras (all optional, additive).
   motivation_hook: reqText(15, "خطّاف التحفيز").optional(),
   learning_objectives: z.array(v4LearningObjectiveSchema).optional(),
