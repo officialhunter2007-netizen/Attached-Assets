@@ -1,0 +1,52 @@
+# ── Build outputs (never useful to read) ──────────────────────────────
+artifacts/api-server/dist/
+artifacts/nukhba/dist/
+artifacts/nukhba-promo/dist/
+artifacts/mockup-sandbox/dist/
+**/dist/
+**/*.mjs.map
+**/*.map
+
+# ── Dependencies ──────────────────────────────────────────────────────
+**/node_modules/
+
+# ── Logs & temp ──────────────────────────────────────────────────────
+**/*.log
+**/logs/
+.local/state/
+/tmp/
+
+# ── Generated / cached teacher images ────────────────────────────────
+artifacts/api-server/data/
+
+# ── Compiled lib output ───────────────────────────────────────────────
+lib/db/dist/
+lib/api-client-react/dist/
+lib/integrations-openai-ai-server/dist/
+lib/*/dist/
+
+# ── Promo site (separate project, not v4 platform) ───────────────────
+artifacts/nukhba-promo/src/
+artifacts/nukhba-promo/public/
+
+# ── Mockup sandbox (design exploration only) ─────────────────────────
+artifacts/mockup-sandbox/src/
+
+# ── Lock files & package metadata ────────────────────────────────────
+pnpm-lock.yaml
+**/package-lock.json
+**/.pnpm-store/
+
+# ── Git history ───────────────────────────────────────────────────────
+.git/
+
+# ── IDE & OS noise ───────────────────────────────────────────────────
+.vscode/
+.idea/
+**/.DS_Store
+**/*.swp
+
+# ── Skills (agent-only context, not code) ────────────────────────────
+.local/skills/
+.local/state/
+.agents/
