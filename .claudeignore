@@ -1,52 +1,42 @@
-# ── Build outputs (never useful to read) ──────────────────────────────
-artifacts/api-server/dist/
-artifacts/nukhba/dist/
-artifacts/nukhba-promo/dist/
-artifacts/mockup-sandbox/dist/
-**/dist/
-**/*.mjs.map
-**/*.map
+# NOTE: Claude Code does NOT natively read .claudeignore.
+# The authoritative block list lives in .claude/settings.json (permissions.deny).
+# Claude Code also auto-respects .gitignore in search (ripgrep).
+# This file is kept as human-readable documentation of what to skip.
 
-# ── Dependencies ──────────────────────────────────────────────────────
+# ── Build outputs (compiled, never read source here) ─────────────────
+**/dist/
+**/*.map
+**/*.tsbuildinfo
+/out/
+
+# ── Dependencies ─────────────────────────────────────────────────────
 **/node_modules/
+
+# ── Lock files (huge, rarely needed) ─────────────────────────────────
+pnpm-lock.yaml
+**/package-lock.json
+
+# ── Runtime caches / generated assets ────────────────────────────────
+artifacts/api-server/data/      # teacher-image + v4-scene disk cache
+.cache/
 
 # ── Logs & temp ──────────────────────────────────────────────────────
 **/*.log
-**/logs/
-.local/state/
-/tmp/
+tmp/
 
-# ── Generated / cached teacher images ────────────────────────────────
-artifacts/api-server/data/
-
-# ── Compiled lib output ───────────────────────────────────────────────
-lib/db/dist/
-lib/api-client-react/dist/
-lib/integrations-openai-ai-server/dist/
-lib/*/dist/
-
-# ── Promo site (separate project, not v4 platform) ───────────────────
-artifacts/nukhba-promo/src/
-artifacts/nukhba-promo/public/
-
-# ── Mockup sandbox (design exploration only) ─────────────────────────
-artifacts/mockup-sandbox/src/
-
-# ── Lock files & package metadata ────────────────────────────────────
-pnpm-lock.yaml
-**/package-lock.json
-**/.pnpm-store/
-
-# ── Git history ───────────────────────────────────────────────────────
+# ── Git internals (use `git` via bash instead of reading .git/) ──────
 .git/
 
-# ── IDE & OS noise ───────────────────────────────────────────────────
+# ── Replit-only internals (irrelevant on your VPS) ───────────────────
+.local/
+.agents/
+
+# ── IDE / OS noise ───────────────────────────────────────────────────
 .vscode/
 .idea/
 **/.DS_Store
-**/*.swp
 
-# ── Skills (agent-only context, not code) ────────────────────────────
-.local/skills/
-.local/state/
-.agents/
+# ── KEPT INTENTIONALLY (do NOT ignore — real source you may edit) ────
+# artifacts/nukhba-promo/src/   ← promo marketing site (real project)
+# artifacts/mockup-sandbox/src/ ← component preview (real project)
+# lib/*/src/                    ← shared package SOURCE (db schema lives here)

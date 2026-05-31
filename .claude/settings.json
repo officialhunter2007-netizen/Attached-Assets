@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./node_modules/**)",
+      "Read(./**/node_modules/**)",
+      "Read(./**/dist/**)",
+      "Read(./**/*.map)",
+      "Read(./**/*.tsbuildinfo)",
+      "Read(./pnpm-lock.yaml)",
+      "Read(./**/package-lock.json)",
+      "Read(./.git/**)",
+      "Read(./.cache/**)",
+      "Read(./.local/**)",
+      "Read(./.agents/**)",
+      "Read(./out/**)",
+      "Read(./artifacts/api-server/data/**)"
+    ]
+  }
+}
