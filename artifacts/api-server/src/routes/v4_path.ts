@@ -903,4 +903,29 @@ router.post("/v4/scene", requireUser, requireSameOriginCsrf, async (req, res) =>
   }
 });
 
+// ── TEMP DEV-ONLY: scene generation self-test (no auth) ─────────────────────
+// Lets us observe real Sonnet scene output/errors without a Gmail login.
+// Remove after debugging.
+if (process.env.NODE_ENV !== "production") {
+  router.get("/v4/scene-selftest", async (req, res) => {
+    const topic =
+      typeof req.query.topic === "string" && req.query.topic.trim().length >= 3
+        ? req.query.topic
+        : "كيف يخدع المهندس الاجتماعي موظف الدعم الفني لينتزع رمز التحقق ويخترق الحساب";
+    try {
+      const scene = await generateScene(topic, { lessonName: "فن عمرو خالد الرقمي" });
+      res.json({
+        ok: true,
+        htmlLen: scene.html.length,
+        steps: scene.steps.length,
+        title: scene.title,
+        htmlHead: scene.html.slice(0, 600),
+      });
+    } catch (e) {
+      const reason = e instanceof SceneGenerationError ? e.reason : "internal";
+      res.status(500).json({ ok: false, reason, message: String((e as any)?.message ?? e) });
+    }
+  });
+}
+
 export default router;
