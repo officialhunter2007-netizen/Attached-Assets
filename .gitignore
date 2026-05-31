@@ -55,3 +55,6 @@ Thumbs.db
 
 # v4 instruction generator output
 /out/
+
+# v4 generated scene cache (regenerated at runtime, never commit)
+artifacts/api-server/data/v4-scenes/

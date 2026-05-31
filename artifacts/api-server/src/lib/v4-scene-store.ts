@@ -54,7 +54,7 @@ const SCENE_MODEL = (process.env.SCENE_MODEL || "anthropic/claude-sonnet-4.5").t
 
 const SCENE_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.V4_SCENE_TIMEOUT_MS ?? "", 10);
-  return Number.isFinite(raw) && raw >= 5_000 && raw <= 120_000 ? raw : 45_000;
+  return Number.isFinite(raw) && raw >= 5_000 && raw <= 120_000 ? raw : 70_000;
 })();
 
 // ── Schema ────────────────────────────────────────────────────────────────

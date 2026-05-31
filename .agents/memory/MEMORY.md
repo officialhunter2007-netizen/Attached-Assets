@@ -10,6 +10,7 @@
 - [v4 teach billing gaps](v4-teach-billing-gaps.md) — charge-after-stream leaks free turns two ways (low-balance no-drain + concurrent unguarded gate); pre-stream check alone closes neither.
 - [Atomic claim+grant+fund](atomic-claim-grant-fund.md) — consume a one-use token and the paid work it gates in ONE transaction; pre-commit claim with compensating release is not crash-safe.
 - [v4 generator field mapping](v4-generator-field-mapping.md) — bash curriculum generator emits helper field names (*_codes/exam_meta); merge MUST normalize to schema names or prereqs+exam thresholds are silently lost.
+- [OpenRouter key shadowing](openrouter-key-shadowing.md) — a scrubbed placeholder key in .replit [userenv.shared] silently 401s every AI call; symptom is a misleading text/error fallback. Check the key first.
 - [v4 diagnostic drill engine](v4-diagnostic-engine.md) — deterministic per-turn weakness-targeting directive (root-cause-first) makes a weak model feel genius; never blind-fallback a missing mastery tag (corrupts probe turns).
 - [VIZ template system](viz-template-system.md) — [[VIZ:]] diagrams need 3 in-sync points (catalog + specialty gating + FE registry); slug keyword gating silently starves specialties (uni-it got regex only).
 - [Live animation sandbox](teacher-anim-sandbox.md) — [[ANIM]] HTML/CSS/JS runs in iframe sandbox=allow-scripts (NO allow-same-origin); isolation is the boundary, never add same-origin or sanitize-instead.
