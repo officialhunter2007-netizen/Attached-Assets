@@ -58,10 +58,11 @@ const SCENE_TIMEOUT_MS = (() => {
 })();
 
 // ── Schema ────────────────────────────────────────────────────────────────
-// A scene is a PROFESSIONAL, self-contained ANIMATED SVG illustration authored
-// by Claude Sonnet, plus a short ordered caption track the student steps
-// through. The SVG carries the actual "drawing" (the part that used to be a
-// weak emoji row); `steps` carry the pedagogy (per-step Arabic explanation).
+// A scene is a PROFESSIONAL, self-contained ANIMATED HTML/CSS/JS motion graphic
+// authored by Claude Sonnet, plus a short ordered caption track the student
+// steps through. The `html` carries the actual moving illustration (smooth,
+// video-like — far richer than the old SMIL-SVG); `steps` carry the pedagogy
+// (per-step Arabic explanation).
 const SceneStepSchema = z.object({
   title: z.string().min(1).max(90),
   explanation: z.string().min(1).max(700),
@@ -72,12 +73,14 @@ export const SceneSchema = z.object({
   title: z.string().min(1).max(120),
   subtitle: z.string().max(220).optional(),
   /**
-   * Self-contained animated SVG markup. MUST start with `<svg …>` and contain
-   * no `<script>` and no external references — it is rendered inline after a
-   * DOMPurify SVG-profile sanitize on the client, with a defensive server-side
-   * strip in normalizeScene().
+   * Self-contained body-only HTML/CSS/JS animation markup (no DOCTYPE/html/
+   * head/body wrappers — the FE wraps it in a themed document). It is rendered
+   * inside a sandboxed `<iframe srcdoc>` (allow-scripts, NO allow-same-origin),
+   * so the untrusted markup runs at an opaque origin and cannot touch cookies,
+   * storage, or the parent DOM. Isolation — not sanitization — is the security
+   * boundary, which is why JS animation is allowed here (unlike inline SVG).
    */
-  svg: z.string().min(40).max(60_000),
+  html: z.string().min(40).max(90_000),
   steps: z.array(SceneStepSchema).min(2).max(10),
 });
 
@@ -221,74 +224,81 @@ async function maybeEvict(): Promise<void> {
 // ── Prompt ──────────────────────────────────────────────────────────────────
 function buildSystemPrompt(): string {
   return [
-    "أنت مصمّم رسوم معلوماتية متحرّكة محترف (Senior Motion / Infographic Designer) للمنصّة التعليمية اليمنية «نُخبة».",
-    "مهمّتك: تحويل وصفِ مفهومٍ أو عمليةٍ تعليمية إلى **رسم SVG متحرّك احترافي** يشرح الفكرة بصرياً بدقّة ومنطق — وليس مجرّد رموز تعبيرية (emoji) أو فقاعات نص.",
-    "النتيجة تُعرض داخل بطاقة عربية (RTL) في درس، مع شريط خطوات أسفلها (سابق/تالي/تشغيل تلقائي) يقرأه الطالب بالتوازي مع الرسم.",
+    "أنت مخرج رسوم متحرّكة ومصمّم موشن جرافيك محترف (Senior Motion Graphics Director) للمنصّة التعليمية اليمنية «نُخبة».",
+    "مهمّتك: تحويل وصفِ مفهومٍ أو عمليةٍ تعليمية إلى **رسم متحرّك احترافي بلغة HTML + CSS + JavaScript** يعمل كأنّه مقطع فيديو قصير سلس داخل الدرس — حركة ناعمة، انتقالات راقية، توقيت مدروس — وليس مجرّد رموز تعبيرية (emoji) أو فقاعات نص أو أشكال جامدة.",
+    "أنت من يملك كامل الإخراج الإبداعي: الوصف الذي يصلك مجرّد فكرة؛ أنت من يقرّر التصميم، والإيقاع، والعناصر، والحركة، ويرفع الجودة إلى مستوى استوديو محترف.",
+    "النتيجة تُعرض داخل بطاقة عربية (RTL) في درس، مع شريط خطوات أسفلها (سابق/تالي/تشغيل تلقائي) يقرأه الطالب بالتوازي مع الحركة.",
     "",
     "أعِد **JSON فقط** (بدون أي نص خارج JSON، وبدون أسوار ```) بهذا الشكل بالضبط:",
     "{",
     '  "title": "عنوان قصير جذّاب",',
     '  "subtitle": "سطر واحد اختياري يلخّص الفكرة",',
-    '  "svg": "<svg ...>…رسم متحرّك مكتفٍ ذاتياً…</svg>",',
+    '  "html": "…محتوى الجسم: عناصر HTML + <style> + <script> لرسمٍ متحرّك مكتفٍ ذاتياً…",',
     '  "steps": [',
     '    {"title":"عنوان الخطوة","explanation":"شرح عالي الجودة بجملتين إلى أربع جمل، عربية مبسّطة بنبرة يمنية ودودة، يفسّر ماذا يحدث ولماذا ويبرز الفكرة أو الخطر","note":"تنبيه اختياري قصير"}',
     "  ]",
     "}",
     "",
-    "=== قواعد الرسم (svg) — هذا هو جوهر الجودة ===",
-    "- ابدأ بـ `<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 460\" ...>` واجعله **متجاوباً** (لا تضع width/height ثابتين بالبكسل؛ اكتفِ بـ viewBox). نسبة الأبعاد المفضّلة عريضة (مثل 800×460).",
-    "- **مكتفٍ ذاتياً تماماً**: لا `<script>`، لا روابط خارجية، لا صور إنترنت، لا خطوط CDN، لا أي طلب شبكة. أشكال متجهة خالصة فقط (rect, circle, path, line, polygon, text, g).",
-    "- **الحركة عبر SMIL داخل الـ SVG**: استخدم عناصر `<animate>` و`<animateTransform>` و`<animateMotion>` بـ `repeatCount=\"indefinite\"` لتدور الحركة باستمرار (تدفّق أسهم/حُزَم، ظهور تدريجي، نبض، انتقال). تجنّب الاعتماد على CSS keyframes (قد تُزال عند التعقيم) — اجعل الحركة الأساسية بـ SMIL.",
-    "- **التصميم احترافي ومنطقي**: مثّل العناصر الحقيقية للمفهوم بأشكال واضحة (صناديق مُعنونة، عُقَد، طبقات، أسهم اتجاه، مكدّس، شبكة، خط زمني…) مرتّبة منطقياً تعكس العملية فعلاً. مسافات مريحة، محاذاة منتظمة، حواف دائرية، تباين جيّد.",
-    "- **الثيم (إلزامي)**: خلفية داكنة شفّافة أو `#0d1117`، نص فاتح `#e9edf5`، واللونان الأساسيان ذهبي `#F59E0B` وزمرّدي `#10B981` للإبراز، ورمادي هادئ `#9aa4b2` للثانوي.",
-    "- **كل النصوص داخل الرسم بالعربية** وبخط واضح: `font-family=\"Tajawal, Cairo, sans-serif\"`، واضبط الاتجاه `direction=\"rtl\"` و`text-anchor` المناسب حتى تظهر التسميات صحيحة. ضع تسمية عربية على كل عنصر أو خطوة مهمّة بحيث يُفهَم الرسم وحده.",
-    "- اجعله **توضيحياً لا زخرفياً**: كل شكل وكل حركة يجب أن يحمل معنى تعليمياً يخدم فهم المفهوم.",
-    "- أبقِه نظيفاً ومتقَناً (عشرات العناصر لا مئات) وبلا أخطاء في صيغة XML — سيُعرَض كما هو.",
+    "=== قواعد الرسم المتحرّك (html) — هذا هو جوهر الجودة ===",
+    "- اكتب **محتوى الجسم فقط**: عناصر HTML و`<style>` و`<script>`. لا تكتب `<!DOCTYPE>` ولا `<html>` ولا `<head>` ولا `<body>` — النظام يغلّفها تلقائياً في مستند بالثيم نفسه.",
+    "- **مكتفٍ ذاتياً تماماً**: لا روابط خارجية، لا صور إنترنت، لا مكتبات CDN، لا خطوط خارجية، ولا أيّ طلب شبكة (البيئة معزولة تماماً ولن يعمل أي اتصال). استخدم HTML وCSS وSVG وCanvas وJavaScript خالصة فقط.",
+    "- **حركة احترافية سلسة وتلقائية ومتكرّرة**: ابدأ الحركة فور التحميل واجعلها تدور في حلقة (loop) لا تتوقّف. استخدم `@keyframes` و`transition` مع `cubic-bezier` لانسيابية راقية، أو `requestAnimationFrame` للحركة الدقيقة، أو رسم Canvas. تجنّب القفزات الحادّة — اجعل الإيقاع ناعماً ومدروساً (ease-in-out، تأخير متدرّج بين العناصر staggered).",
+    "- **سرد بصري متدرّج**: اجعل الحركة تحكي العملية خطوة بخطوة (ظهور العناصر بالترتيب، تدفّق أسهم/حُزَم بين الأطراف، إبراز العنصر الفاعل في كل لحظة) بحيث يفهم الطالب القصّة من الحركة وحدها.",
+    "- **تصميم احترافي ومنطقي**: مثّل عناصر المفهوم الحقيقية بأشكال واضحة (صناديق مُعنونة، عُقَد، طبقات، أسهم اتجاه، مكدّس، طابور، شبكة، خط زمني…) مرتّبة منطقياً تعكس العملية فعلاً. مسافات مريحة، محاذاة منتظمة، حواف دائرية، ظلال خفيفة، تباين جيّد، وتوهّج لطيف عند الإبراز.",
+    "- **الثيم (إلزامي)**: خلفية شفّافة (النظام داكن خلفها)، نص فاتح `#e9edf5`، واللونان الأساسيان ذهبي `#F59E0B` وزمرّدي `#10B981` للإبراز، ورمادي هادئ `#9aa4b2` للثانوي.",
+    "- **كل النصوص بالعربية** واتجاه RTL وبخط `Tajawal, Cairo, sans-serif`. ضع تسمية عربية واضحة على كل عنصر أو خطوة مهمّة بحيث يُفهَم الرسم وحده.",
+    "- **المقاس**: العرض 100% تلقائياً؛ اجعل الارتفاع المنطقي بين ~240 و ~430 بكسل. لا تستخدم `position:fixed` ولا نوافذ منبثقة ولا تمرير (scroll).",
+    "- اجعله **توضيحياً لا زخرفياً**: كل عنصر وكل حركة يجب أن يحمل معنى تعليمياً يخدم فهم المفهوم.",
+    "- أبقِه نظيفاً ومتقَناً وبلا أخطاء برمجية — الكود يُنفَّذ كما هو داخل إطار معزول.",
     "",
     "=== قواعد الخطوات (steps) ===",
-    "- عدد الخطوات بين 3 و 7 (لا تتجاوز 10)، مرتّبة منطقياً من البداية حتى النتيجة، وتشرح ما يجري في الرسم بلغة الطالب.",
+    "- عدد الخطوات بين 3 و 7 (لا تتجاوز 10)، مرتّبة منطقياً من البداية حتى النتيجة، وتشرح ما يجري في الحركة بلغة الطالب.",
     "- explanation دقيق وتعليمي ومحدّد (لا عبارات عامة)، يُبرز «لماذا» و«ما الفائدة/الخطر» حين يناسب. كل النصوص عربية فصحى مبسّطة بنبرة يمنية ودودة.",
     "",
-    "التزم تماماً ببنية JSON أعلاه ولا تُضِف حقولاً غير معرّفة. الأولوية القصوى: رسم SVG **احترافي ومنطقي وواضح** — لا شيء ضعيف أو طفولي.",
+    "التزم تماماً ببنية JSON أعلاه ولا تُضِف حقولاً غير معرّفة. الأولوية القصوى: رسم متحرّك **احترافي وسلس وواضح كأنّه فيديو استوديو** — لا شيء ضعيف أو طفولي أو جامد.",
   ].join("\n");
 }
 
 function buildUserPrompt(topic: string, lessonName?: string): string {
   const ctx = lessonName ? `سياق الدرس: «${lessonName}».\n` : "";
-  return `${ctx}صمّم رسم SVG متحرّكاً احترافياً يشرح ما يلي بوضوح ومنطق، مع شريط خطوات مرافق، والتزم تماماً ببنية JSON المطلوبة:\n\n«${topic.trim()}»`;
+  return `${ctx}أخرِج رسماً متحرّكاً احترافياً (HTML/CSS/JS) سلساً كأنّه مقطع فيديو قصير يشرح ما يلي بوضوح ومنطق، مع شريط خطوات مرافق، والتزم تماماً ببنية JSON المطلوبة:\n\n«${topic.trim()}»`;
 }
 
 // ── Normalization ───────────────────────────────────────────────────────────
 /**
- * Defensively strip anything unsafe or non-renderable from the model's SVG
- * before we persist/serve it. The client DOMPurify (SVG profile) is the real
- * security boundary; this is belt-and-suspenders + cleans up common model
- * wrapping (code fences, stray prose) so the inline render is crisp.
+ * Clean up the model's body-only HTML/CSS/JS before we persist/serve it.
+ *
+ * IMPORTANT: this is NOT a security sanitizer. The animation is rendered inside
+ * a sandboxed `<iframe srcdoc>` (allow-scripts, NO allow-same-origin) — the
+ * opaque origin is the real security boundary, exactly like the existing ANIM
+ * path. We deliberately KEEP `<script>` and CSS animation (that is the whole
+ * point — smooth JS/CSS motion the old inline-SVG path couldn't do). This
+ * function only unwraps common model wrapping (code fences, a full-document
+ * shell, stray prose) so the iframe renders cleanly.
  */
-function sanitizeSvgServer(raw: string): string {
+function sanitizeAnimHtml(raw: string): string {
   let s = (raw || "").trim();
   // Unwrap accidental code fences.
-  s = s.replace(/^```(?:svg|xml|html)?\s*/i, "").replace(/```\s*$/i, "").trim();
-  // Keep only the <svg>…</svg> span (drop any prose the model leaked around it).
-  const lower = s.toLowerCase();
-  const start = lower.indexOf("<svg");
-  const end = lower.lastIndexOf("</svg>");
-  if (start >= 0 && end > start) s = s.slice(start, end + "</svg>".length);
-  // Remove scripts, inline event handlers (any quoting), and ALL href/xlink:href
-  // attributes (the client also forbids them — an animated attribute then has no
-  // navigable/fetchable target). The client DOMPurify SVG profile remains the
-  // real security boundary; this just keeps the cached payload clean.
-  s = s.replace(/<script[\s\S]*?<\/script>/gi, "");
-  s = s.replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  s = s.replace(/\s(?:xlink:href|href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  // Neutralize dangerous URL schemes anywhere (e.g. an animated `to="javascript:…"`
-  // the attribute strip above can't see). Belt-and-suspenders only.
-  s = s.replace(/javascript:/gi, "blocked:").replace(/data:text\/html/gi, "blocked:");
+  s = s.replace(/^```(?:html|xml|svg)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  // If the model leaked a full document despite instructions, keep only the
+  // <body> inner content.
+  const bodyOpen = s.match(/<body[^>]*>/i);
+  if (bodyOpen) {
+    const startIdx = s.toLowerCase().indexOf(bodyOpen[0].toLowerCase()) + bodyOpen[0].length;
+    const endIdx = s.toLowerCase().lastIndexOf("</body>");
+    if (endIdx > startIdx) s = s.slice(startIdx, endIdx);
+  }
+  // Strip any DOCTYPE / <html> / <head> wrappers that survived (we re-wrap on FE).
+  s = s
+    .replace(/<!doctype[^>]*>/gi, "")
+    .replace(/<\/?html[^>]*>/gi, "")
+    .replace(/<head[\s\S]*?<\/head>/gi, "")
+    .replace(/<\/?body[^>]*>/gi, "");
   return s.trim();
 }
 
 function normalizeScene(scene: Scene): Scene {
-  return { ...scene, svg: sanitizeSvgServer(scene.svg) };
+  return { ...scene, html: sanitizeAnimHtml(scene.html) };
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -374,11 +384,11 @@ export async function generateScene(
     }
 
     const scene = normalizeScene(validated.data);
-    // Post-sanitize guard: if cleaning left an empty/invalid SVG, treat it as
+    // Post-clean guard: if unwrapping left empty/no-markup HTML, treat it as
     // bad output rather than caching a scene that renders the "تعذّر عرض الرسم"
     // fallback forever.
-    if (!scene.svg || scene.svg.length < 40 || !/<svg[\s>]/i.test(scene.svg)) {
-      throw new SceneGenerationError("scene SVG empty/invalid after sanitize", "bad_output");
+    if (!scene.html || scene.html.length < 40 || !/<[a-z]/i.test(scene.html)) {
+      throw new SceneGenerationError("scene HTML empty/invalid after clean", "bad_output");
     }
     await writeCached(hash, scene);
     return scene;

@@ -18,4 +18,4 @@
 - [v4 publish must scale](v4-publish-scale.md) — full instruction files are tens of MB / tens of thousands of rows; bulk-insert by natural key + keep body limit above file size, or publish 413s/times out.
 - [Lazy paid-generation endpoints](lazy-paid-generation-endpoints.md) — cache key must include every prompt input; rate-limit ONLY the cache-miss path (after cache+inflight checks) or first-party users force unbounded paid calls.
 - [FE protocol-tag tail-strip](fe-protocol-tag-tail-strip.md) — new [[X:…]] markers must use the precise lookahead tail-strip regex (not greedy `[\s\S]*$`) or a complete trailing tag gets eaten and never renders.
-- [SCENE animated-SVG illustrations](scene-svg-illustrations.md) — illustrative animations are Sonnet-authored inline SVG; allow SMIL only if you also FORBID a/use/image+href or you reopen XSS.
+- [SCENE animated illustrations](scene-svg-illustrations.md) — in-lesson animations are Sonnet-authored HTML/CSS/JS in a sandboxed iframe (allow-scripts, NO same-origin) + strict CSP connect-src 'none'; the `[[SCENE:]]` marker never changes, only the medium.

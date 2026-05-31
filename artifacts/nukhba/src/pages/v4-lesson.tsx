@@ -234,6 +234,7 @@ function renderHtml(raw: string): string {
 function buildAnimDoc(bodyHtml: string): string {
   return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <style>
   :root{--gold:#F59E0B;--emerald:#10B981;--bg:#0d1117;--card:#141a24;--ink:#e9edf5;}
   *{box-sizing:border-box;}
@@ -355,7 +356,7 @@ function TeacherBubble({ html, isStreaming }: { html: string; isStreaming: boole
       // Reject anything else so a real cross-origin page can't spoof a resize.
       if (e.origin !== "null") return;
       const d = e.data;
-      if (!d || d.__nukhbaAnim !== true || typeof d.height !== "number") return;
+      if (!d || d.__nukhbaAnim !== true || !Number.isFinite(d.height)) return;
       for (const frame of animFramesRef.current.keys()) {
         if (frame.contentWindow === e.source) {
           const h = Math.min(Math.max(d.height, 80), 1400);

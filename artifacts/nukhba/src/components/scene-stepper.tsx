@@ -1,21 +1,23 @@
 /**
- * SceneStepper — polished player for a Claude-Sonnet-authored animated SVG
- * illustration + an Arabic step-by-step caption track.
+ * SceneStepper — polished player for a Claude-Sonnet-authored animated
+ * HTML/CSS/JS motion graphic + an Arabic step-by-step caption track.
  *
  * The teaching model emits `[[SCENE: <Arabic description>]]`. The lesson page
  * turns each marker into a `<SceneMount topic=… />` which lazily POSTs the
  * description to `/api/v4/scene` (Claude-Sonnet-authored, server-cached) and
  * renders the returned scene here.
  *
- * The scene's `svg` is a self-contained, professionally-designed animated SVG
- * (SMIL/CSS animation, brand palette, RTL Arabic labels). It is the actual
- * "drawing" — rendered inline after a DOMPurify SVG-profile sanitize. The
- * `steps` are a short caption track the student walks through (prev/next +
- * autoplay) to read the pedagogy alongside the animation.
+ * The scene's `html` is a self-contained, professionally-designed animated
+ * HTML/CSS/JS motion graphic (smooth CSS/JS animation, brand palette, RTL
+ * Arabic labels) — far richer and smoother than the old SMIL-SVG. It runs
+ * inside a sandboxed `<iframe srcdoc>` (allow-scripts, NO allow-same-origin):
+ * the opaque origin is the security boundary, so the untrusted markup cannot
+ * read cookies, storage, or the parent DOM. The `steps` are a short caption
+ * track the student walks through (prev/next + autoplay) to read the pedagogy
+ * alongside the animation.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import DOMPurify from "dompurify";
 import {
   Loader2, ChevronRight, ChevronLeft, Play, Pause, RotateCcw, AlertTriangle,
 } from "lucide-react";
@@ -29,43 +31,76 @@ type SceneStep = {
 export type Scene = {
   title: string;
   subtitle?: string;
-  svg: string;
+  html: string;
   steps: SceneStep[];
 };
 
 const AUTOPLAY_MS = 4600;
 
-// Sanitize the model-authored SVG for safe inline rendering.
-//
-// The SVG is untrusted. We keep the visual SMIL animation tags (`animate`,
-// `animateTransform`) but lock down the classic SVG-sanitizer bypass: an
-// `<animate attributeName="xlink:href" to="javascript:…">` mutating a link.
-// We do that structurally — forbid every element that can carry a navigable/
-// fetchable target (`a`, `use`, `image`, `foreignObject`) and strip `href`/
-// `xlink:href` everywhere — so an animated attribute has nothing dangerous to
-// point at. We also drop `set`/`animateMotion`/`mpath` (not needed; the
-// generator is told to use animate/animateTransform). Pure visual animation
-// (opacity, transform, fill, geometry…) survives.
-function sanitizeSceneSvg(svg: string): string {
-  try {
-    return DOMPurify.sanitize(svg, {
-      USE_PROFILES: { svg: true, svgFilters: true },
-      ADD_TAGS: ["animate", "animateTransform"],
-      ADD_ATTR: [
-        "attributeName", "attributeType", "dur", "begin", "end", "from", "to",
-        "by", "values", "keyTimes", "keySplines", "calcMode", "repeatCount",
-        "repeatDur", "fill", "restart", "additive", "accumulate", "type",
-        "direction",
-      ],
-      FORBID_TAGS: [
-        "a", "use", "image", "foreignObject", "set", "animateMotion", "mpath",
-        "script", "iframe", "audio", "video",
-      ],
-      FORBID_ATTR: ["href", "xlink:href"],
-    }) as unknown as string;
-  } catch {
-    return "";
-  }
+// Wrap the model's body-only HTML/CSS/JS in a full RTL dark document that
+// matches the Nukhba theme and auto-reports its height to the parent via
+// postMessage so the iframe never clips or leaves a dead gap.
+function buildSceneDoc(bodyHtml: string): string {
+  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<style>
+  :root{--gold:#F59E0B;--emerald:#10B981;--bg:#0d1117;--card:#141a24;--ink:#e9edf5;--muted:#9aa4b2;}
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:transparent;color:var(--ink);
+    font-family:'Tajawal','Cairo',system-ui,-apple-system,sans-serif;}
+  body{padding:10px;overflow:hidden;}
+  a{color:var(--gold);}
+  ::-webkit-scrollbar{width:0;height:0;}
+</style></head><body>
+${bodyHtml}
+<script>
+  (function(){
+    function report(){
+      var h = Math.max(
+        document.documentElement.scrollHeight||0,
+        document.body ? document.body.scrollHeight : 0
+      );
+      try{ parent.postMessage({__nukhbaScene:true, height:h}, "*"); }catch(e){}
+    }
+    window.addEventListener("load", report);
+    if (window.ResizeObserver){ try{ new ResizeObserver(report).observe(document.body); }catch(e){} }
+    [120,400,900,1800].forEach(function(t){ setTimeout(report, t); });
+  })();
+</script>
+</body></html>`;
+}
+
+// Isolated animation surface. The sandboxed srcdoc frame has an opaque origin
+// (e.origin === "null"); we only accept resize messages from our own frame's
+// contentWindow so a real cross-origin page can't spoof a resize.
+function SceneAnimFrame({ html }: { html: string }) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(300);
+
+  useEffect(() => {
+    function onMsg(e: MessageEvent) {
+      if (e.origin !== "null") return;
+      const d: any = e.data;
+      if (!d || d.__nukhbaScene !== true || !Number.isFinite(d.height)) return;
+      if (frameRef.current && frameRef.current.contentWindow === e.source) {
+        setHeight(Math.min(Math.max(d.height, 120), 1400) + 4);
+      }
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  return (
+    <iframe
+      ref={frameRef}
+      title="رسم متحرك توضيحي"
+      loading="lazy"
+      sandbox="allow-scripts"
+      srcDoc={buildSceneDoc(html)}
+      style={{ width: "100%", height, border: "0", display: "block" }}
+    />
+  );
 }
 
 // ── The player ──────────────────────────────────────────────────────────────
@@ -78,8 +113,6 @@ export function SceneStepper({ scene }: { scene: Scene }) {
   const clampedIdx = Math.min(idx, steps.length - 1);
   const step = steps[clampedIdx];
   const isLast = clampedIdx >= steps.length - 1;
-
-  const cleanSvg = useMemo(() => sanitizeSceneSvg(scene.svg), [scene.svg]);
 
   const goNext = useCallback(() => setIdx((i) => Math.min(i + 1, steps.length - 1)), [steps.length]);
   const goPrev = useCallback(() => setIdx((i) => Math.max(i - 1, 0)), []);
@@ -115,12 +148,11 @@ export function SceneStepper({ scene }: { scene: Scene }) {
         </span>
       </div>
 
-      {/* Animated SVG stage */}
-      {cleanSvg ? (
-        <div
-          className="scene-svg-stage relative w-full overflow-hidden rounded-xl bg-black/25 p-2 [&_svg]:h-auto [&_svg]:w-full"
-          dangerouslySetInnerHTML={{ __html: cleanSvg }}
-        />
+      {/* Animated HTML/CSS/JS stage (sandboxed iframe) */}
+      {scene.html ? (
+        <div className="scene-anim-stage relative w-full overflow-hidden rounded-xl bg-black/25">
+          <SceneAnimFrame html={scene.html} />
+        </div>
       ) : (
         <div className="rounded-xl bg-black/25 p-6 text-center text-[12px] text-white/50">
           تعذّر عرض الرسم
@@ -234,7 +266,7 @@ export function SceneMount({ topic, lessonName }: { topic: string; lessonName?: 
         if (!r.ok) throw new Error(`http ${r.status}`);
         const data = await r.json();
         if (cancelled) return;
-        if (typeof data?.scene?.svg === "string" && data?.scene?.steps?.length) {
+        if (typeof data?.scene?.html === "string" && data?.scene?.steps?.length) {
           setState({ status: "ready", scene: data.scene as Scene });
         } else {
           setState({ status: "error", topic });
