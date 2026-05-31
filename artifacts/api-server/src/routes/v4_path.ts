@@ -907,6 +907,12 @@ router.post("/v4/scene", requireUser, requireSameOriginCsrf, async (req, res) =>
 // Lets us observe real Sonnet scene output/errors without a Gmail login.
 // Remove after debugging.
 if (process.env.NODE_ENV !== "production") {
+  router.get("/v4/key-selftest", async (_req, res) => {
+    const { diagnoseOpenRouterKey, pingOpenRouter } = await import("../lib/openrouter-key");
+    const diag = diagnoseOpenRouterKey();
+    const ping = await pingOpenRouter(8000);
+    res.json({ diag, ping });
+  });
   router.get("/v4/scene-selftest", async (req, res) => {
     const topic =
       typeof req.query.topic === "string" && req.query.topic.trim().length >= 3

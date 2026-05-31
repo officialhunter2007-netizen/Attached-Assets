@@ -63,7 +63,6 @@ ADMIN_EMAILS = "officialhunter2007@gmail.com"
 UNLIMITED_ACCESS_EMAILS = "socanalyst38@gmail.com"
 LOG_LEVEL = "info"
 NODE_ENV = "development"
-OPENROUTER_API_KEY = "REMOVED_KEY"
 
 [userenv.production]
 APP_DOMAIN = "learnukhba.replit.app"
