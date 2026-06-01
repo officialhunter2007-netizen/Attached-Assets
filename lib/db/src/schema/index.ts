@@ -13,6 +13,7 @@ export * from "./quiz_attempts";
 export * from "./ai_usage";
 export * from "./student_mistakes";
 export * from "./admin_alerts";
+export * from "./ai_teacher_provider";
 export * from "./book_units";
 export * from "./v4";
 export * from "./v4_booklet";

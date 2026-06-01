@@ -251,6 +251,31 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     indexes: [],
   },
   {
+    // Admin-configurable AI provider for the v4 smart teacher ONLY.
+    // Singleton row (id=1). Keys are NEVER stored here — only the NAME of
+    // the .env var that holds the key. When disabled/misconfigured the
+    // teacher falls back to the default OpenRouter+Gemini channel.
+    table: "ai_teacher_provider_settings",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "ai_teacher_provider_settings" (
+        "id" integer PRIMARY KEY DEFAULT 1,
+        "enabled" boolean NOT NULL DEFAULT false,
+        "base_url" text NOT NULL DEFAULT '',
+        "api_key_env" text NOT NULL DEFAULT '',
+        "model" text NOT NULL DEFAULT '',
+        "updated_by_user_id" integer,
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        CONSTRAINT "ai_teacher_provider_singleton" CHECK ("id" = 1)
+      )
+    `,
+    // Seed the singleton row (id=1) idempotently. Runs as its own
+    // statement because the node-postgres extended protocol rejects
+    // multiple commands in one db.execute call.
+    indexes: [
+      `INSERT INTO "ai_teacher_provider_settings" ("id") VALUES (1) ON CONFLICT ("id") DO NOTHING`,
+    ],
+  },
+  {
     // Operational alerts surfaced to the admin panel (OpenRouter credit
     // exhausted, auth failures, repeated transient errors, etc.). The
     // helper recordAdminAlert() de-dupes by `type` over a 30-min window.

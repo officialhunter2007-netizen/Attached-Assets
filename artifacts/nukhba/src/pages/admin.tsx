@@ -29,7 +29,7 @@ import {
   Copy, Plus, Filter, RefreshCw, AlertTriangle, Ban,
   Zap, Star, Gem, MessageCircle, Activity, Search,
   BookOpen, Gift, Trash2, Clock, CalendarDays, ChevronDown, Brain,
-  Percent, Eye, Power, Loader2,
+  Percent, Eye, Power, Loader2, Cpu,
 } from "lucide-react";
 import { AdminInsightsChat } from "@/components/admin-insights-chat";
 import { AdminDiscountCodes } from "@/components/admin-discount-codes";
@@ -41,6 +41,7 @@ import { AdminConversations } from "@/components/admin-conversations";
 import { AdminAlerts } from "@/components/admin-alerts";
 import { AdminGemLedger } from "@/components/admin-gem-ledger";
 import { AdminPaymentSettings } from "@/components/admin-payment-settings";
+import { AdminAiTeacherProvider } from "@/components/admin-ai-teacher-provider";
 import { AdminV4Instructions } from "@/components/admin-v4-instructions";
 import { AdminV4Booklets } from "@/components/admin-v4-booklets";
 import { useQueryClient } from "@tanstack/react-query";
@@ -986,6 +987,10 @@ export default function Admin() {
               <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
               ملازم (v4)
             </TabsTrigger>
+            <TabsTrigger value="ai-teacher-provider" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-sky-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-sky-500/20 data-[state=active]:border-amber-400/40">
+              <Cpu className="w-3.5 h-3.5 text-sky-400" />
+              مزوّد المعلم (AI)
+            </TabsTrigger>
           </TabsList>
 
           {/* Requests Tab */}
@@ -1793,6 +1798,10 @@ export default function Admin() {
 
           <TabsContent value="v4-booklets">
             <AdminV4Booklets />
+          </TabsContent>
+
+          <TabsContent value="ai-teacher-provider">
+            <AdminAiTeacherProvider />
           </TabsContent>
         </Tabs>
       </div>

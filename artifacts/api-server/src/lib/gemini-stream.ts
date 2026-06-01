@@ -158,6 +158,13 @@ export type StreamGeminiArgs = {
   signal?: AbortSignal;
   onChunk: (text: string) => void;
   logTag?: string;
+  /**
+   * Admin-configured custom provider override (v4 teacher only). When set,
+   * the request is routed to this OpenAI-compatible endpoint with this key
+   * and model verbatim — bypassing OpenRouter and the Gemini model lock.
+   * When null/undefined the default OpenRouter + Gemini channel is used.
+   */
+  provider?: { endpoint: string; apiKey: string; model: string } | null;
 };
 
 export type StreamGeminiResult = {
@@ -270,7 +277,7 @@ function buildOpenRouterRequestBody(args: StreamGeminiArgs): string {
     })),
   ];
   return JSON.stringify({
-    model: toOpenRouterModel(args.model),
+    model: args.provider ? args.provider.model : toOpenRouterModel(args.model),
     messages,
     temperature: args.temperature ?? 0.6,
     top_p: args.topP ?? 0.95,
@@ -281,8 +288,8 @@ function buildOpenRouterRequestBody(args: StreamGeminiArgs): string {
 }
 
 async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promise<AttemptResult> {
-  const url = "https://openrouter.ai/api/v1/chat/completions";
-  const orModel = toOpenRouterModel(args.model);
+  const url = args.provider ? args.provider.endpoint : "https://openrouter.ai/api/v1/chat/completions";
+  const orModel = args.provider ? args.provider.model : toOpenRouterModel(args.model);
 
   // Always log the exact OpenRouter model we are about to call so that
   // anyone reading `docker compose logs api` can verify in seconds that
@@ -516,6 +523,15 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
 const TEACHING_MODEL_LOCK = "gemini-2.0-flash" as const;
 
 export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<StreamGeminiResult> {
+  // Custom-provider path: the admin chose the provider + model explicitly,
+  // so we bypass the Gemini model lock and use the provider's key directly.
+  if (args.provider) {
+    console.log(
+      `[gemini-stream] CUSTOM PROVIDER${args.logTag ? `:${args.logTag}` : ""}: endpoint=${args.provider.endpoint} model=${args.provider.model}`,
+    );
+    return runOpenRouterStream(args, args.provider.apiKey);
+  }
+
   // Hard lock: refuse to honor any non-2.0-Flash caller value. We log a
   // warning so the regression is visible in `docker compose logs api`.
   if (args.model !== TEACHING_MODEL_LOCK) {
@@ -542,6 +558,16 @@ export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<Stre
     );
   }
 
+  return runOpenRouterStream(args, apiKey);
+}
+
+/**
+ * Run the streaming chat-completions request with one in-channel retry for
+ * pre-stream transients. Shared by BOTH the default OpenRouter+Gemini path
+ * and the admin custom-provider path (the endpoint/model/key differences
+ * are carried on `args.provider` and the passed `apiKey`).
+ */
+async function runOpenRouterStream(args: StreamGeminiArgs, apiKey: string): Promise<StreamGeminiResult> {
   let attempts = 0;
   let lastErr: any = null;
   let result: AttemptResult | null = null;

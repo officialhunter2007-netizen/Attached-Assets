@@ -44,6 +44,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { generateGeminiJson, GenerateGeminiError } from "./openrouter-generate";
+import { getTeacherProviderOverride } from "./ai-teacher-provider";
 import { chargeV4Ai } from "./v4-gem-wallet";
 import { buildMemoryLayer4, getStudentMemory, type V4StudentMemoryBundle } from "./v4-memory";
 import { buildDiagnosticDirective } from "./v4-diagnostic-engine";
@@ -241,7 +242,26 @@ export async function getOrGenerateLessonContent(opts: GetOrGenerateOpts): Promi
   const claimedId = claimed[0].id;
 
   // ── Winner path: do the expensive work, then update + charge ────────
-  assertGeminiForTeaching(V4_CONTENT_GEN_MODEL);
+  // Admin custom-provider override (teacher content-gen only). When active,
+  // lesson content is generated on the admin's provider/model and the Gemini
+  // lock is bypassed. When null, the default channel is used + lock enforced.
+  let contentProvider: { endpoint: string; apiKey: string; model: string } | null = null;
+  try {
+    const override = await getTeacherProviderOverride();
+    if (override) {
+      contentProvider = {
+        endpoint: override.endpoint,
+        apiKey: override.apiKey,
+        model: override.model,
+      };
+    }
+  } catch (e) {
+    logger.warn?.(`[v4-content-gen] provider override resolution failed; using default channel: ${String((e as any)?.message ?? e)}`);
+    contentProvider = null;
+  }
+  if (!contentProvider) {
+    assertGeminiForTeaching(V4_CONTENT_GEN_MODEL);
+  }
   const sys = [
     "أنت مولّد محتوى تعليمي لمنصة نُخبة اليمنية. أنتج JSON صرف يطابق المخطط المطلوب بدون أي شرح إضافي.",
     "اللغة: عربية فصيحة بسيطة قابلة للقراءة من قبل طلاب يمنيين.",
@@ -258,6 +278,7 @@ export async function getOrGenerateLessonContent(opts: GetOrGenerateOpts): Promi
       systemPrompt: sys,
       userPrompt,
       model: V4_CONTENT_GEN_MODEL,
+      provider: contentProvider,
       temperature: 0.4,
       // Raised from 2400 so the deeper intro / micro-explanations / examples
       // / analogies (full paragraphs, not one-liners) aren't truncated. This

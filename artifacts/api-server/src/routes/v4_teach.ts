@@ -56,6 +56,7 @@ import {
   type GeminiMessage,
   type GeminiContentPart,
 } from "../lib/gemini-stream";
+import { getTeacherProviderOverride } from "../lib/ai-teacher-provider";
 import {
   generateTeacherImage,
   resolveTeacherImage,
@@ -172,13 +173,37 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     return;
   }
 
-  // Model lock guard — defends against future regressions wiring this route
-  // to anything other than Gemini Flash.
+  // Admin custom-provider override (teacher only). When configured + active,
+  // the teacher runs on the admin's OpenAI-compatible provider/model and the
+  // Gemini model lock is bypassed. When null, the default OpenRouter+Gemini
+  // channel is used and the lock is enforced (zero behaviour change).
+  let teacherProvider: { endpoint: string; apiKey: string; model: string } | null = null;
   try {
-    assertGeminiForTeaching(V4_TEACHING_MODEL);
+    const override = await getTeacherProviderOverride();
+    if (override) {
+      teacherProvider = {
+        endpoint: override.endpoint,
+        apiKey: override.apiKey,
+        model: override.model,
+      };
+    }
   } catch (e) {
-    emitV4FriendlyFailure(res, "v4/teach:model-lock", e);
-    return;
+    // Never let an override-resolution failure break teaching — fall back to
+    // the default channel.
+    console.warn("[v4/teach] provider override resolution failed; using default channel:", e);
+    teacherProvider = null;
+  }
+
+  // Model lock guard — defends against future regressions wiring this route
+  // to anything other than Gemini Flash. Skipped when a custom provider is
+  // active (the admin chose the model explicitly).
+  if (!teacherProvider) {
+    try {
+      assertGeminiForTeaching(V4_TEACHING_MODEL);
+    } catch (e) {
+      emitV4FriendlyFailure(res, "v4/teach:model-lock", e);
+      return;
+    }
   }
 
   // ── 1. Resolve specialty + verify enrolment + lesson unlock ─────────
@@ -570,6 +595,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       messages: geminiMessages,
       maxOutputTokens: turnTier.maxOutputTokens,
       model: V4_TEACHING_MODEL,
+      provider: teacherProvider,
       temperature: 0.7,
       signal: abort.signal,
       logTag: `v4-teach:${slug}:${lessonCode}`,

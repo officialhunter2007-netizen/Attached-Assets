@@ -73,6 +73,13 @@ export type GenerateGeminiArgs = {
   timeoutMs?: number;
   /** Used in log lines so the operator can grep per-route. */
   logTag?: string;
+  /**
+   * Admin-configured custom provider override (v4 teacher content-gen only).
+   * When set, the request goes to this OpenAI-compatible endpoint with this
+   * key and model verbatim. When null/undefined the default OpenRouter +
+   * Gemini channel is used.
+   */
+  provider?: { endpoint: string; apiKey: string; model: string } | null;
 };
 
 export type GeminiUsageRaw = {
@@ -220,8 +227,8 @@ async function attemptOpenRouter(
   args: GenerateGeminiArgs,
   apiKey: string,
 ): Promise<GenerateGeminiResult> {
-  const url = "https://openrouter.ai/api/v1/chat/completions";
-  const orModel = toOpenRouterModel(args.model);
+  const url = args.provider ? args.provider.endpoint : "https://openrouter.ai/api/v1/chat/completions";
+  const orModel = args.provider ? args.provider.model : toOpenRouterModel(args.model);
   const messages: { role: string; content: any }[] = [];
   if (args.systemPrompt) messages.push({ role: "system", content: args.systemPrompt });
   messages.push({ role: "user", content: partsToOpenRouterContent(args.userParts) });
@@ -372,7 +379,7 @@ function getOpenRouterKey(): string | undefined {
  *  - GenerateGeminiError with `badOutput: true` (status 200) → SAFETY/empty.
  */
 export async function generateGemini(args: GenerateGeminiArgs): Promise<GenerateGeminiResult> {
-  const apiKey = getOpenRouterKey();
+  const apiKey = args.provider ? args.provider.apiKey : getOpenRouterKey();
   if (!apiKey) {
     void recordAdminAlert({
       type: "openrouter_key_missing",
@@ -465,6 +472,7 @@ export async function generateGeminiJson(opts: {
   signal?: AbortSignal;
   timeoutMs?: number;
   logTag?: string;
+  provider?: { endpoint: string; apiKey: string; model: string } | null;
 }): Promise<GenerateGeminiResult> {
   return generateGemini({
     systemPrompt: opts.systemPrompt,
@@ -476,5 +484,6 @@ export async function generateGeminiJson(opts: {
     signal: opts.signal,
     timeoutMs: opts.timeoutMs,
     logTag: opts.logTag,
+    provider: opts.provider,
   });
 }
