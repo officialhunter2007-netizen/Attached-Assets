@@ -294,10 +294,15 @@ export async function getOrGenerateLessonContent(opts: GetOrGenerateOpts): Promi
   } catch (e) {
     generationFailed = true;
     const err = e as any;
+    // Tag the failure with the active channel so the operator knows whether
+    // to look at their custom provider config or the default OpenRouter key.
+    const chan = contentProvider
+      ? `CUSTOM-PROVIDER(endpoint=${contentProvider.endpoint} model=${contentProvider.model})`
+      : "default(OpenRouter+Gemini)";
     if (err instanceof GenerateGeminiError && err.creditsExhausted) {
-      logger.warn?.(`[v4-content-gen] credits exhausted lesson=${lesson.code} — using placeholder`);
+      logger.warn?.(`[v4-content-gen] credits exhausted lesson=${lesson.code} channel=${chan} — using placeholder`);
     } else {
-      logger.warn?.(`[v4-content-gen] failed lesson=${lesson.code}: ${String(err?.message ?? err)}`);
+      logger.warn?.(`[v4-content-gen] failed lesson=${lesson.code} channel=${chan}: ${String(err?.message ?? err)}`);
     }
     // Keep placeholder content in the cache row — no UPDATE needed.
   }

@@ -526,10 +526,17 @@ export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<Stre
   // Custom-provider path: the admin chose the provider + model explicitly,
   // so we bypass the Gemini model lock and use the provider's key directly.
   if (args.provider) {
+    // Tag every downstream failure log with CUSTOM-PROVIDER so that when a
+    // turn fails the operator instantly knows the custom provider config is
+    // the cause (wrong model name, provider down, bad key) — NOT OpenRouter
+    // or Gemini. There is deliberately no cross-channel fallback: the admin
+    // chose this provider, so a failure surfaces as the friendly apology +
+    // gem refund and stays loud in the logs for them to fix.
+    const provTag = `CUSTOM-PROVIDER${args.logTag ? `:${args.logTag}` : ""}`;
     console.log(
-      `[gemini-stream] CUSTOM PROVIDER${args.logTag ? `:${args.logTag}` : ""}: endpoint=${args.provider.endpoint} model=${args.provider.model}`,
+      `[gemini-stream] ${provTag}: endpoint=${args.provider.endpoint} model=${args.provider.model} (Gemini model lock bypassed)`,
     );
-    return runOpenRouterStream(args, args.provider.apiKey);
+    return runOpenRouterStream({ ...args, logTag: provTag }, args.provider.apiKey);
   }
 
   // Hard lock: refuse to honor any non-2.0-Flash caller value. We log a
