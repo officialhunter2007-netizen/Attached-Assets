@@ -26,6 +26,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # يحقن كامل متغيّرات ملف .env داخل الحاوية. هذا يسمح للمعلّم الذكي
+    # المخصّص بقراءة أي مفتاح يسمّيه الأدمن (مثل FREEMODEL_API_KEY) دون
+    # الحاجة لتعديل هذا الملف عند كل مزوّد جديد. القيم في environment أدناه
+    # لها الأولوية على ما في .env عند تطابق الاسم.
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       PORT: 8080
