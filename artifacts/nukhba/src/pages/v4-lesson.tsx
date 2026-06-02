@@ -468,7 +468,7 @@ function TeacherBubble({ html, isStreaming, imageMap }: { html: string; isStream
   return (
     <div
       ref={ref}
-      className="ai-msg prose prose-invert prose-sm max-w-none leading-relaxed text-white/90"
+      className="ai-msg"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -1322,7 +1322,7 @@ const MessageBubble = ({ msg, isStreaming, imageMap }: { msg: ChatMsg; isStreami
   }
   return (
     <div className="flex justify-start">
-      <div className="max-w-[92%] rounded-3xl rounded-tr-lg bg-white/5 border border-white/10 px-4 py-3">
+      <div className="max-w-[92%] rounded-3xl rounded-tr-lg bg-white/[0.06] border border-white/[0.08] px-5 py-4 shadow-sm">
         {html ? <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} /> : <Loader2 className="w-4 h-4 animate-spin text-amber-400" />}
       </div>
     </div>
