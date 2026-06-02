@@ -1,0 +1,14 @@
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose exec api sh -c 'curl -s https://openrouter.ai/api/v1/auth/key -H "Authorization: Bearer $OPENROUTER_API_KEY"'
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+sh: curl: not found
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose exec api node -e 'fetch("https://openrouter.ai/api/v1/auth/key",{headers:{Authorization:"Bearer "+process.env.OPENROUTER_API_KEY}}).then(async r=>{console.log("HTTP",r.status);console.log(await r.text())}).catch(e=>console.log("ERR",e.message))'
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+HTTP 200
+{"data":{"label":"sk-or-v1-de1...c73","is_management_key":false,"is_provisioning_key":false,"limit":null,"limit_reset":null,"limit_remaining":null,"include_byok_in_limit":false,"usage":0.0700726,"usage_daily":0.0700726,"usage_weekly":0.0700726,"usage_monthly":0.0700726,"byok_usage":0,"byok_usage_daily":0,"byok_usage_weekly":0,"byok_usage_monthly":0,"is_free_tier":false,"expires_at":null,"creator_user_id":"user_3Cw7bGLwEzgPDSn078gitUK6Ot3","rate_limit":{"requests":-1,"interval":"10s","note":"This field is deprecated and safe to ignore."}}}
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose exec api node -e 'fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:"Bearer "+process.env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:"google/gemini-2.0-flash-001",messages:[{role:"user",content:"قل مرحبا بالعربية"}]})}).then(async r=>{console.log("HTTP",r.status);console.log(await r.text())}).catch(e=>console.log("ERR",e.message))'
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+HTTP 404
+{"error":{"message":"No endpoints found for google/gemini-2.0-flash-001.","code":404},"user_id":"user_3Cw7bGLwEzgPDSn078gitUK6Ot3"}
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose exec api node -e 'const k=process.env.OPENROUTER_API_KEY||"";console.log("len="+k.length,"prefix="+k.slice(0,7),"tail=..."+k.slice(-4))'
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+len=73 prefix=sk-or-v tail=...bc73
