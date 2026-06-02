@@ -54,7 +54,7 @@ import type { CostCapStatus } from "./cost-cap";
  */
 
 export type RouterDecision = {
-  model: "gemini-2.5-flash";
+  model: "gemini-2.5-flash-lite";
   provider: "gemini";
   /** Why this model was picked — surfaces in logs/metadata for analysis. */
   reason: string;
@@ -90,13 +90,14 @@ export type RouterInput = {
   isUnlimited: boolean;
 };
 
-// Locked to gemini-2.5-flash. The 2.0 generation was RETIRED from OpenRouter
-// (June 2026) — every 2.0 slug now returns 404/400, so 2.5-flash is the lowest
-// available Gemini Flash generation. It is also stronger on Arabic. This is the
-// single canonical teaching-model constant; gemini-stream.ts's runtime lock
-// must agree with it. Mapping to OpenRouter's `google/gemini-2.5-flash` is
-// handled in lib/gemini-stream.ts → toOpenRouterModel().
-const GEMINI = "gemini-2.5-flash" as const;
+// Locked to gemini-2.5-flash-lite. The 2.0 generation was RETIRED from
+// OpenRouter (June 2026); 2.5-flash-lite is the chosen default replacement —
+// it is priced IDENTICALLY to the old 2.0 Flash ($0.10 in / $0.40 out per 1M
+// tok) yet is stronger on Arabic. This is the single canonical teaching-model
+// constant; gemini-stream.ts's runtime lock must agree with it. Mapping to
+// OpenRouter's `google/gemini-2.5-flash-lite` is handled in
+// lib/gemini-stream.ts → toOpenRouterModel().
+const GEMINI = "gemini-2.5-flash-lite" as const;
 
 /**
  * Pick the AI model for a /ai/teach call.

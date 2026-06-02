@@ -33,3 +33,16 @@ that must all be updated together when a slug dies:
 Defensive pattern added: both `toOpenRouterModel` functions now redirect retired
 full 2.0 slugs → 2.5 at the return, so a stray hardcoded slug degrades instead of
 404ing. But the allow-list + the lock constant still need manual updates.
+
+**Default-model decision (June 2026):** the student teacher default was set to
+`gemini-2.5-flash-lite`, NOT plain `gemini-2.5-flash`. **Why:** lite is priced
+IDENTICALLY to the retired 2.0 Flash ($0.10 in / $0.40 out per 1M tok) — so it
+restores the old per-turn cost the operator wanted — while being stronger on
+Arabic. Plain 2.5-flash is ~4× more expensive on output ($2.50/M).
+**Billing trap:** the per-turn gem charge is computed by `costForUsage({model})`
+where `model` flows from `geminiResult.model` (= the lock-forced id). The
+teacher-turn telemetry `recordAiUsage({model:"..."})` literals in `routes/ai.ts`
+ALSO feed `costForUsage` for the cost-cap analytics — so when you change the lock
+you MUST update those short-name literals too, or the cap overcounts ~4×. Leave
+the full-slug `google/gemini-2.5-flash` calls (ai/lesson|interview|build-plan)
+and `V4_CONTENT_GEN_MODEL` on plain flash — only the *teaching* path is lite.

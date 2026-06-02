@@ -3645,7 +3645,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // and exactly one model. We keep `__success` as a sentinel and capture
   // any error in `__lastErr` for the failure path. `__geminiAttempts` is
   // 1 on first-try success, 2 if the helper's internal retry fired.
-  // `__activeModel` is the literal model used (always "gemini-2.5-flash"
+  // `__activeModel` is the literal model used (always "gemini-2.5-flash-lite"
   // after `chosenModel`, but we keep a separate variable so telemetry can
   // pick up the helper's `geminiResult.model` value verbatim).
   let __success = false;
@@ -4048,7 +4048,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   }
 
   // ── Success path: record usage telemetry ────────────────────────────────
-  // One row per turn, always `provider="gemini"` and `model="gemini-2.5-flash"`
+  // One row per turn, always `provider="gemini"` and `model="gemini-2.5-flash-lite"`
   // per the strict-Gemini directive. `geminiAttempts` is the helper's internal
   // retry count (1 on first-try success, 2 if retry fired).
   if (__success) {
@@ -4382,7 +4382,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         const cardRes = await generateGemini({
           systemPrompt: cardSystem,
           userParts: [{ type: "text", text: cardUser }],
-          model: "gemini-2.5-flash",
+          model: "gemini-2.5-flash-lite",
           temperature: 0.3,
           maxOutputTokens: 600,
           timeoutMs: 30_000,
@@ -4404,7 +4404,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           subjectId: cardSubjectId,
           route: "ai/teach:study-card",
           provider: "gemini",
-          model: "gemini-2.5-flash",
+          model: "gemini-2.5-flash-lite",
           inputTokens: cu.inputTokens,
           outputTokens: cu.outputTokens,
           cachedInputTokens: cu.cachedInputTokens,
@@ -4898,7 +4898,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
     const result = await streamGeminiTeaching({
       systemPrompt,
       messages: cleanMessages.map((m) => ({ role: m.role, content: m.content })),
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite",
       maxOutputTokens: 1024,
       temperature: 0.6,
       topP: 0.95,
@@ -4947,7 +4947,7 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
       subjectId: null,
       route: "ai/platform-help",
       provider: "gemini",
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite",
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - __aiStart,
@@ -6036,7 +6036,7 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
         const result = await generateGeminiJson({
           systemPrompt: variantSystem + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح.`,
           userPrompt: `هذه البيئة الأصلية (JSON). أنشئ نسخة جديدة بنفس الشكل بالضبط لكن بمحتوى مختلف بحسب التعليمات:\n\n${JSON.stringify(shape, null, 2).slice(0, 18000)}\n\nأرجع JSON فقط.`,
-          model: "gemini-2.5-flash",
+          model: "gemini-2.5-flash-lite",
           temperature: 0.5,
           maxOutputTokens: 16000,
           timeoutMs: 90_000,
@@ -6049,7 +6049,7 @@ router.post("/ai/lab/generate-variant", async (req, res): Promise<any> => {
             subjectId: subjectId ?? null,
             route: "ai/lab/generate-variant",
             provider: "gemini",
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash-lite",
             inputTokens: __u.inputTokens,
             outputTokens: __u.outputTokens,
             cachedInputTokens: __u.cachedInputTokens,
@@ -6297,7 +6297,7 @@ ${intakeAnswers.map((a, i) => `${i + 1}. السؤال: ${a.q || "—"}\n   ال�
       const result = await generateGeminiJson({
         systemPrompt: SPEC_COMPILER_SYSTEM,
         userPrompt: userPrompt + "\n\nأصدر JSON صالحاً فقط مباشرة بلا شرح.",
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-flash-lite",
         temperature: 0.2,
         maxOutputTokens: 3000,
         timeoutMs: 45_000,
@@ -6318,7 +6318,7 @@ ${intakeAnswers.map((a, i) => `${i + 1}. السؤال: ${a.q || "—"}\n   ال�
           subjectId: subjectId ?? null,
           route: "ai/lab/compile-spec",
           provider: "gemini",
-          model: "gemini-2.5-flash",
+          model: "gemini-2.5-flash-lite",
           inputTokens: u.inputTokens,
           outputTokens: u.outputTokens,
           cachedInputTokens: u.cachedInputTokens,
@@ -6864,7 +6864,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
           const result = await generateGeminiJson({
             systemPrompt: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً فقط — بدون markdown أو شرح. ابقَ بسيطاً وآمناً: شاشة 1-2 و2-5 مكونات.`,
             userPrompt: `التخصص: ${kindLabel} (${kind})\nالموضوع/المتطلب: ${description}\n\nأنشئ بيئة كاملة تفاعلية مطابقة لهذا الطلب. أرجع JSON صالحاً فقط.`,
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash-lite",
             temperature: 0.4,
             maxOutputTokens: 16000,
             timeoutMs: 90_000,
@@ -6877,7 +6877,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
               subjectId: subjectId ?? null,
               route: "ai/lab/build-env",
               provider: "gemini",
-              model: "gemini-2.5-flash",
+              model: "gemini-2.5-flash-lite",
               inputTokens: __u.inputTokens,
               outputTokens: __u.outputTokens,
               cachedInputTokens: __u.cachedInputTokens,
@@ -6915,7 +6915,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
         const result4 = await generateGeminiJson({
           systemPrompt: DYNAMIC_ENV_SYSTEM + specializationAddendum(kind) + `\n\n⚠️ أرجع كائن JSON واحداً صالحاً — شاشة واحدة أو اثنتان، بدون markdown.`,
           userPrompt: `التخصص: ${kindLabel} (${kind})\n${simplifiedDesc}`,
-          model: "gemini-2.5-flash",
+          model: "gemini-2.5-flash-lite",
           temperature: 0.3,
           maxOutputTokens: 10000,
           timeoutMs: 60_000,
@@ -6928,7 +6928,7 @@ router.post("/ai/lab/build-env", async (req, res): Promise<any> => {
             subjectId: subjectId ?? null,
             route: "ai/lab/build-env",
             provider: "gemini",
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash-lite",
             inputTokens: __u4.inputTokens,
             outputTokens: __u4.outputTokens,
             cachedInputTokens: __u4.cachedInputTokens,
@@ -7390,7 +7390,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
       const result = await generateGeminiJson({
         systemPrompt: ATTACK_SIM_BUILD_SYSTEM,
         userPrompt,
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-flash-lite",
         temperature: 0.6,
         maxOutputTokens: 6000,
         timeoutMs: 90_000,
@@ -7404,7 +7404,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
           subjectId: subjectId ?? null,
           route: "ai/attack-sim/build",
           provider: "gemini",
-          model: "gemini-2.5-flash",
+          model: "gemini-2.5-flash-lite",
           inputTokens: __u.inputTokens,
           outputTokens: __u.outputTokens,
           cachedInputTokens: __u.cachedInputTokens,
@@ -7427,7 +7427,7 @@ ${subjectId ? `معرّف المادة: ${subjectId}` : ""}
         subjectId: subjectId ?? null,
         route: "ai/attack-sim/build",
         provider: "gemini",
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-flash-lite",
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - __gStart,

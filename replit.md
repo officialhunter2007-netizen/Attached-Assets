@@ -33,7 +33,7 @@ Nukhba is an AI-powered Yemeni educational platform offering personalized learni
 - **Gamification**: 5 levels, points for lessons/challenges, badges, and streaks.
 - **Paywall**: One free lesson per subject, followed by per-subject subscriptions.
 - **Admin Panel**: Tools for managing subscription requests, activation cards, and platform statistics. New admin tabs for `gem-ledger` and `payment-settings`.
-- **AI Cost Protection**: Server-side enforcement of free lesson limits, cost caps (AI cost never exceeds 50% of subscription payment), and strict model locking to Gemini 2.0 Flash for all student-facing teaching.
+- **AI Cost Protection**: Server-side enforcement of free lesson limits, cost caps (AI cost never exceeds 50% of subscription payment), and strict model locking to Gemini 2.5 Flash Lite for all student-facing teaching (Gemini 2.0 Flash was retired from OpenRouter; Lite is priced identically — $0.10 in / $0.40 out per 1M tokens — and stronger on Arabic).
 - **AI Route Reliability**: All student-facing AI routes include robust `try/catch` blocks and a `emitFriendlyAiFailure` helper to gracefully handle errors with Arabic apology messages instead of bare 500s.
 
 ### v4.0 Instruction Files (Task #1 — Foundation)
@@ -97,7 +97,7 @@ Nukhba is an AI-powered Yemeni educational platform offering personalized learni
 - **Validation**: Zod
 - **Build Tool**: esbuild
 - **Frontend**: React, Vite, Tailwind CSS, Framer Motion
-- **AI (Teaching)**: Gemini 2.0 Flash via OpenRouter (primary and only model for student teaching).
+- **AI (Teaching)**: Gemini 2.5 Flash Lite via OpenRouter (primary and only model for student teaching; Gemini 2.0 Flash was retired from OpenRouter, Lite is the same-priced replacement).
 - **AI (Teacher Illustrations)**: FLUX.1 [schnell] via fal.ai for inline diagram generation.
 - **AI (Lesson/Interview/Plan)**: GPT-4o via OpenRouter.
 - **AI (Summaries)**: Claude Sonnet 4.6 via OpenRouter.
