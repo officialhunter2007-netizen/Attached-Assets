@@ -50,14 +50,14 @@ import { buildMemoryLayer4, getStudentMemory, type V4StudentMemoryBundle } from 
 import { buildDiagnosticDirective } from "./v4-diagnostic-engine";
 
 /** Locked teaching model. Any other value throws at module use sites. */
-export const V4_TEACHING_MODEL = "gemini-2.0-flash" as const;
+export const V4_TEACHING_MODEL = "gemini-2.5-flash" as const;
 
 /** Locked lesson-content generation model. */
-export const V4_CONTENT_GEN_MODEL = "gemini-2.0-flash" as const;
+export const V4_CONTENT_GEN_MODEL = "gemini-2.5-flash" as const;
 
 /** Exclusive allow-list — STRICT equality, no Pro/non-Flash leak. */
 const V4_ALLOWED_TEACHING_MODELS = new Set<string>([
-  "gemini-2.0-flash",
+  "gemini-2.5-flash",
 ]);
 
 /**

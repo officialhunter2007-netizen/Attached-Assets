@@ -56,12 +56,24 @@ function toOpenRouterModel(model: string): string {
     "gemini-2.5-flash":      "google/gemini-2.5-flash",
     "gemini-2.5-flash-lite": "google/gemini-2.5-flash-lite",
     "gemini-2.5-pro":        "google/gemini-2.5-pro",
-    "gemini-2.0-flash":      "google/gemini-2.0-flash-001",
-    "gemini-2.0-flash-lite": "google/gemini-2.0-flash-lite-001",
+    // Gemini 2.0 was retired from OpenRouter (the slug now 404s / 400s). Any
+    // lingering caller that still passes the old internal name is redirected
+    // to 2.5-flash so it keeps working instead of hard-failing.
+    "gemini-2.0-flash":      "google/gemini-2.5-flash",
+    "gemini-2.0-flash-lite": "google/gemini-2.5-flash-lite",
     "gemini-1.5-flash":      "google/gemini-flash-1.5",
     "gemini-1.5-pro":        "google/gemini-pro-1.5",
   };
-  return map[model] ?? (model.includes("/") ? model : `google/${model}`);
+  const resolved = map[model] ?? (model.includes("/") ? model : `google/${model}`);
+  // Defensive: any caller still passing a retired full 2.0 slug gets
+  // redirected too, so it never 404s on OpenRouter.
+  const RETIRED: Record<string, string> = {
+    "google/gemini-2.0-flash-001": "google/gemini-2.5-flash",
+    "google/gemini-2.0-flash-lite-001": "google/gemini-2.5-flash-lite",
+    "google/gemini-2.0-flash": "google/gemini-2.5-flash",
+    "google/gemini-2.0-flash-lite": "google/gemini-2.5-flash-lite",
+  };
+  return RETIRED[resolved] ?? resolved;
 }
 
 export type GeminiPartial = {
@@ -530,7 +542,11 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
  * from `lib/openrouter-generate.ts`, NOT this helper, so the lock here
  * does not affect 2.5-Flash/2.5-Pro accuracy work for the admin side.
  */
-const TEACHING_MODEL_LOCK = "gemini-2.0-flash" as const;
+// NOTE: Gemini 2.0 Flash was removed from OpenRouter's catalog (every 2.0
+// slug now returns 400/404). 2.5 Flash is the lowest available Gemini Flash
+// generation and is both cheaper-per-quality and stronger on Arabic, so the
+// student-teaching lock is pinned to it.
+const TEACHING_MODEL_LOCK = "gemini-2.5-flash" as const;
 
 export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<StreamGeminiResult> {
   // Custom-provider path: the admin chose the provider + model explicitly,

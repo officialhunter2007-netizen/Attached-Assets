@@ -42,12 +42,22 @@ function toOpenRouterModel(model: string): string {
     "gemini-2.5-flash":      "google/gemini-2.5-flash",
     "gemini-2.5-flash-lite": "google/gemini-2.5-flash-lite",
     "gemini-2.5-pro":        "google/gemini-2.5-pro",
-    "gemini-2.0-flash":      "google/gemini-2.0-flash-001",
-    "gemini-2.0-flash-lite": "google/gemini-2.0-flash-lite-001",
+    // Gemini 2.0 was retired from OpenRouter — redirect to 2.5-flash.
+    "gemini-2.0-flash":      "google/gemini-2.5-flash",
+    "gemini-2.0-flash-lite": "google/gemini-2.5-flash-lite",
     "gemini-1.5-flash":      "google/gemini-flash-1.5",
     "gemini-1.5-pro":        "google/gemini-pro-1.5",
   };
-  return map[model] ?? (model.includes("/") ? model : `google/${model}`);
+  const resolved = map[model] ?? (model.includes("/") ? model : `google/${model}`);
+  // Defensive: any caller still passing a retired full 2.0 slug gets
+  // redirected too, so it never 404s on OpenRouter.
+  const RETIRED: Record<string, string> = {
+    "google/gemini-2.0-flash-001": "google/gemini-2.5-flash",
+    "google/gemini-2.0-flash-lite-001": "google/gemini-2.5-flash-lite",
+    "google/gemini-2.0-flash": "google/gemini-2.5-flash",
+    "google/gemini-2.0-flash-lite": "google/gemini-2.5-flash-lite",
+  };
+  return RETIRED[resolved] ?? resolved;
 }
 
 /** A single content part: text or an inline file (e.g. PDF base64). */

@@ -1,0 +1,27 @@
+root@vmi3256829:~/nukhba/Attached-Assets# docker compose exec api node -e 'fetch("https://openrouter.ai/api/v1/models").then(r=>r.json()).then(d=>{const g=d.data.filter(m=>/google\/gemini.*flash/i.test(m.id)).map(m=>m.id);console.log(g.join("\n"))}).catch(e=>console.log("ERR",e.message))'
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+google/gemini-3.5-flash
+google/gemini-3.1-flash-lite
+~google/gemini-flash-latest
+google/gemini-3.1-flash-lite-preview
+google/gemini-3.1-flash-image-preview
+google/gemini-3-flash-preview
+google/gemini-2.5-flash-image
+google/gemini-2.5-flash-lite-preview-09-2025
+google/gemini-2.5-flash-lite
+google/gemini-2.5-flash
+root@vmi3256829:~/nukhba/Attached-Assets# for M in google/gemini-2.0-flash google/gemini-2.0-flash-exp google/gemini-flash-1.5 google/gemini-2.5-flash; do echo "=== $M ==="; docker compose exec api node -e 'fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:"Bearer "+process.env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:process.argv[1],messages:[{role:"user",content:"مرحبا"}],max_tokens:20})}).then(async r=>console.log("HTTP",r.status,(await r.text()).slice(0,120))).catch(e=>console.log("ERR",e.message))' "$M"; done
+=== google/gemini-2.0-flash ===
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+HTTP 400 {"error":{"message":"google/gemini-2.0-flash is not a valid model ID","code":400},"user_id":"user_3Cw7bGLwEzgPDSn078gitU
+=== google/gemini-2.0-flash-exp ===
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+HTTP 404 {"error":{"message":"No endpoints found for google/gemini-2.0-flash-exp.","code":404},"user_id":"user_3Cw7bGLwEzgPDSn078
+=== google/gemini-flash-1.5 ===
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+HTTP 404 {"error":{"message":"No endpoints found for google/gemini-flash-1.5.","code":404},"user_id":"user_3Cw7bGLwEzgPDSn078gitU
+=== google/gemini-2.5-flash ===
+WARN[0000] /root/nukhba/Attached-Assets/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+HTTP 200
+
+{"id":"gen-1780427244-YOP8wFjk3HXlCi1wr43n","object":"chat.completion","created":1780427244,"model":"google/g

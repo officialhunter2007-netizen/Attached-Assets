@@ -21,3 +21,4 @@
 - [Lazy paid-generation endpoints](lazy-paid-generation-endpoints.md) — cache key must include every prompt input; rate-limit ONLY the cache-miss path (after cache+inflight checks) or first-party users force unbounded paid calls.
 - [FE protocol-tag tail-strip](fe-protocol-tag-tail-strip.md) — new [[X:…]] markers must use the precise lookahead tail-strip regex (not greedy `[\s\S]*$`) or a complete trailing tag gets eaten and never renders.
 - [SCENE animated illustrations](scene-svg-illustrations.md) — in-lesson animations are Sonnet-authored HTML/CSS/JS in a sandboxed iframe (allow-scripts, NO same-origin) + strict CSP connect-src 'none'; the `[[SCENE:]]` marker never changes, only the medium.
+- [OpenRouter model slug decay](openrouter-model-slug-decay.md) — OpenRouter retires slugs (Gemini 2.0 now 404/400); teaching model id lives at 4 independent sync points; symptom is friendly-failure on every turn with a valid key.
