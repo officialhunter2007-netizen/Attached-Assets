@@ -869,26 +869,25 @@
      containers — this block is the single source of truth.
 ═══════════════════════════════════════════════ */
 .ai-msg {
-  color: #ebebeb;
-  font-family: 'Tajawal', 'Cairo', system-ui, sans-serif;
-  font-size: 15.5px;
-  line-height: 2.05;
+  color: #e6e7ea;
+  font-family: 'Tajawal', 'Cairo', system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.95;
   direction: rtl;
   text-align: right;
-  word-break: break-word;
+  word-break: normal;
   overflow-wrap: break-word;
-  word-spacing: 0.04em;
-  letter-spacing: 0.01em;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   min-width: 0;
   max-width: 100%;
   overflow-x: hidden;
 }
 @media (max-width: 640px) {
   .ai-msg {
-    font-size: 14.5px;
-    line-height: 1.95;
+    font-size: 15px;
+    line-height: 1.9;
   }
 }
 
@@ -901,68 +900,46 @@
   max-width: 100%;
 }
 
-/* ── Headings ── */
+/* ── Headings — calm, ChatGPT/Claude-style hierarchy ── */
 .ai-msg h1 {
-  color: #fbbf24;
-  font-size: 1.25em;
-  font-weight: 900;
-  margin: 22px 0 10px;
-  line-height: 1.5;
-  padding: 0 14px 8px 0;
-  border-bottom: 1px solid rgba(245,158,11,0.28);
-  position: relative;
+  color: #f4f4f6;
+  font-size: 1.32em;
+  font-weight: 800;
+  margin: 26px 0 12px;
+  line-height: 1.45;
 }
 .ai-msg h2 {
-  color: #fcd34d;
-  font-size: 1.12em;
-  font-weight: 800;
-  margin: 20px 0 9px;
-  line-height: 1.5;
-  padding: 0 12px 6px 0;
-  border-bottom: 1px solid rgba(245,158,11,0.20);
-  position: relative;
+  color: #f0f0f3;
+  font-size: 1.18em;
+  font-weight: 700;
+  margin: 22px 0 10px;
+  line-height: 1.45;
 }
 .ai-msg h3 {
-  color: #fde68a;
-  font-size: 1.04em;
-  font-weight: 800;
-  margin: 16px 0 7px;
-  line-height: 1.5;
-  padding-right: 10px;
-  position: relative;
+  color: #ededf0;
+  font-size: 1.07em;
+  font-weight: 700;
+  margin: 18px 0 8px;
+  line-height: 1.45;
 }
 .ai-msg h4, .ai-msg h5, .ai-msg h6 {
-  color: #fef3c7;
-  font-size: 0.98em;
+  color: #e6e7ea;
+  font-size: 1em;
   font-weight: 700;
-  margin: 13px 0 6px;
-  line-height: 1.5;
+  margin: 14px 0 6px;
+  line-height: 1.45;
 }
-/* Gold accent bar on headings */
-.ai-msg h1::before,
-.ai-msg h2::before,
-.ai-msg h3::before {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3.5px;
-  height: 0.75em;
-  background: linear-gradient(180deg, #fbbf24, #f59e0b);
-  border-radius: 4px;
-}
+.ai-msg h1:first-child, .ai-msg h2:first-child, .ai-msg h3:first-child { margin-top: 0; }
 
-/* ── Emphasis ── */
+/* ── Emphasis — bold is brighter white (not a loud color) ── */
 .ai-msg strong,
 .ai-msg b {
-  color: #fcd34d;
-  font-weight: 800;
+  color: #ffffff;
+  font-weight: 700;
 }
 .ai-msg em,
 .ai-msg i {
   font-style: italic;
-  color: #6ee7b7;
 }
 
 /* ── Paragraphs ── */
@@ -987,8 +964,8 @@
   overflow-wrap: break-word;
 }
 .ai-msg li:last-child { margin-bottom: 0; }
-.ai-msg ul > li::marker { color: #f59e0b; content: "◆ "; font-size: 0.65em; }
-.ai-msg ol > li::marker { color: #fbbf24; font-weight: 700; }
+.ai-msg ul > li::marker { color: #9ca3af; }
+.ai-msg ol > li::marker { color: #9ca3af; font-weight: 600; }
 /* Nested lists */
 .ai-msg ul ul, .ai-msg ol ol,
 .ai-msg ul ol, .ai-msg ol ul {
@@ -997,17 +974,17 @@
 
 /* ── Inline code ── */
 .ai-msg code {
-  background: rgba(255,255,255,0.09);
-  color: #a5f3fc;
-  padding: 1px 6px;
-  border-radius: 4px;
+  background: rgba(255,255,255,0.08);
+  color: #e6c07b;
+  padding: 1.5px 6px;
+  border-radius: 5px;
   font-family: 'Fira Code', 'Consolas', ui-monospace, monospace;
-  font-size: 0.875em;
+  font-size: 0.86em;
   direction: ltr;
   display: inline;
   word-break: break-all;
   overflow-wrap: anywhere;
-  border: 1px solid rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.08);
 }
 @media (max-width: 640px) {
   .ai-msg code { font-size: 0.82em; }
@@ -1069,13 +1046,13 @@
   table-layout: fixed;
 }
 .ai-msg th {
-  background: rgba(245,158,11,0.12) !important;
-  border: 1px solid rgba(245,158,11,0.22) !important;
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
   padding: 8px 12px;
   text-align: right;
-  color: #fef3c7 !important;
+  color: #f4f4f6 !important;
   font-weight: 700;
-  font-size: 0.9em;
+  font-size: 0.92em;
 }
 .ai-msg td {
   border: 1px solid rgba(255,255,255,0.08) !important;
@@ -1111,21 +1088,20 @@
    (💡 tip / ⚠️ warn / ✅ key / 🎯 goal / 📌 note). */
 .ai-msg blockquote {
   border: none !important;
-  border-right: 4px solid #fbbf24 !important;
-  background: linear-gradient(90deg, rgba(245,158,11,0.10), rgba(245,158,11,0.02)) !important;
-  border-radius: 12px;
-  padding: 12px 16px 12px 12px;
+  border-right: 3px solid rgba(255,255,255,0.20) !important;
+  background: rgba(255,255,255,0.04) !important;
+  border-radius: 10px;
+  padding: 12px 16px 12px 14px;
   margin: 14px 0;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .ai-msg blockquote p { margin: 5px 0; }
 .ai-msg blockquote p:first-child { margin-top: 0; }
 .ai-msg blockquote p:last-child  { margin-bottom: 0; }
-.ai-msg blockquote.callout-tip  { border-right-color: #34d399 !important; background: linear-gradient(90deg, rgba(16,185,129,0.12), rgba(16,185,129,0.02)) !important; }
-.ai-msg blockquote.callout-warn { border-right-color: #fb923c !important; background: linear-gradient(90deg, rgba(251,146,60,0.13), rgba(251,146,60,0.02)) !important; }
-.ai-msg blockquote.callout-key  { border-right-color: #fbbf24 !important; background: linear-gradient(90deg, rgba(245,158,11,0.14), rgba(245,158,11,0.02)) !important; }
-.ai-msg blockquote.callout-goal { border-right-color: #60a5fa !important; background: linear-gradient(90deg, rgba(96,165,250,0.12), rgba(96,165,250,0.02)) !important; }
-.ai-msg blockquote.callout-note { border-right-color: #a78bfa !important; background: linear-gradient(90deg, rgba(167,139,250,0.12), rgba(167,139,250,0.02)) !important; }
+.ai-msg blockquote.callout-tip  { border-right-color: #34d399 !important; background: rgba(16,185,129,0.07) !important; }
+.ai-msg blockquote.callout-warn { border-right-color: #fb923c !important; background: rgba(251,146,60,0.08) !important; }
+.ai-msg blockquote.callout-key  { border-right-color: #fbbf24 !important; background: rgba(245,158,11,0.08) !important; }
+.ai-msg blockquote.callout-goal { border-right-color: #60a5fa !important; background: rgba(96,165,250,0.07) !important; }
+.ai-msg blockquote.callout-note { border-right-color: #a78bfa !important; background: rgba(167,139,250,0.07) !important; }
 
 /* ═══════════════════════════════════════════════
    LEARNING PATH CARD
