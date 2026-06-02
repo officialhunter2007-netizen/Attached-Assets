@@ -276,14 +276,24 @@ function buildOpenRouterRequestBody(args: StreamGeminiArgs): string {
       content: m.content,
     })),
   ];
+  // Anti-repetition penalties: weak custom models (esp. free tiers) often
+  // fall into degenerate repetition on Arabic ("نهانهانها") and drop spaces.
+  // frequency/presence penalties + a mild repetition_penalty (OpenRouter
+  // extension) curb the token-looping. We apply these ONLY when a custom
+  // provider is active — the default Gemini channel handles Arabic cleanly
+  // and must keep its exact, validated behaviour.
+  const antiRepetition = args.provider
+    ? { frequency_penalty: 0.5, presence_penalty: 0.4, repetition_penalty: 1.15 }
+    : {};
   return JSON.stringify({
     model: args.provider ? args.provider.model : toOpenRouterModel(args.model),
     messages,
-    temperature: args.temperature ?? 0.6,
+    temperature: args.provider ? (args.temperature ?? 0.4) : (args.temperature ?? 0.6),
     top_p: args.topP ?? 0.95,
     max_tokens: args.maxOutputTokens,
     stream: true,
     stream_options: { include_usage: true },
+    ...antiRepetition,
   });
 }
 
