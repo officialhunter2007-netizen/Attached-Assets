@@ -8,27 +8,32 @@
  */
 
 /**
- * Fix common Arabic spacing errors where words are stuck together.
- * Handles two classes of bugs:
- *   1. Known prefixes/prepositions fused to the following word
- *      (e.g. "علىالشاشه" → "على الشاشه").
- *   2. Empty HTML tags (span/div/p) that were stripped without preserving the
- *      word boundary they represented.
+ * Fix the one common Arabic spacing error the AI teacher actually produces:
+ * a preposition / demonstrative / كان-family word fused to a FOLLOWING DEFINITE
+ * NOUN, i.e. prefix + "ال…"  (e.g. "علىالشاشة" → "على الشاشة",
+ * "عندالباب" → "عند الباب", "هذاالكتاب" → "هذا الكتاب").
  *
- * This is intentionally conservative — it only inserts a space when a known
- * standalone prefix is immediately followed by an Arabic letter, and the
- * resulting prefix is ≥ 2 chars. It does NOT split legitimate single-word
- * forms like "بالكتاب" (بـ + ال + كتاب).
+ * KEY DESIGN — split ONLY when the prefix is immediately followed by the
+ * definite article "ال" plus at least one more letter. This is deliberately
+ * narrow because it is the highest-precision signal of a real fusion:
+ *   • Every genuine fusion the model emits is prefix + الـ (definite nouns are
+ *     overwhelmingly what follows a preposition in real text).
+ *   • It eliminates the entire false-positive class that a "prefix + any Arabic
+ *     letter" rule mangles: عنصر (element!) → "عن صر", منهج → "من هج",
+ *     منطق، عنوان، منطقة، منتج، عندك، منه، بينهم، هذان، يكونوا … all survive,
+ *     because none of them have "ال" right after the prefix.
+ *   • Valid words that ARE prefix+ال with nothing after (e.g. the name/word
+ *     "منال") are spared by requiring a letter after the article.
+ * The only thing sacrificed is the rare indefinite fusion ("منهاتف"); the model
+ * almost never produces those, so the trade strongly favours precision.
  */
 export function normalizeArabicText(text: string): string {
   if (!text) return text;
 
-  // Known prefixes that the model frequently fails to separate.
-  // MUST be sorted longest-first so that "عندما" matches before "عند",
-  // "عند" before "عن", "منذ" before "من", "ليست" before "ليس", etc.
-  // A shorter prefix that is also a substring of a longer one would
-  // otherwise consume the start of the longer prefix and leave a broken
-  // remnant (e.g. "عن" matching first in "عندالباب" → "عن دالباب").
+  // Words that get fused to a following "الـ" noun. Sorted longest-first so the
+  // alternation prefers the longer match (عندما before عند, عند before عن,
+  // منذ before من, ليست before ليس) — though the required "ال" boundary already
+  // resolves most overlaps on its own.
   const prefixes = [
     "عندما", "هؤلاء", "أولئك",
     "هذه", "ذلك", "تلك", "هذا",
@@ -38,53 +43,17 @@ export function normalizeArabicText(text: string): string {
     "كانت", "كان", "يكون",
     "سوف", "بعض",
     "عن", "من", "إلى",
-    "هل", "قد", "لا", "ما", "أي",
   ];
 
-  // NOTE — the following common prefix-like words are intentionally removed
-  // because the AI model (Gemini) consistently separates them with spaces,
-  // making the "fused" case vanishingly rare. Keeping them caused visible
-  // false positives inside valid single words:
-  //   "بعد"  — breaks "بعدين" (then)        | "بعدالدرس" ≈ never
-  //   "مع"   — breaks "معلومة" (information) | "معالدرس"  ≈ never
-  //   "لن"   — breaks "لنا" (for us)         | "لنيذهب"   ≈ never
-  //   "لم"   — breaks "لما" (when)          | "لميذهب"   ≈ never
-  //   "في"   — breaks "فيه" (inside it)     | "فيالدرس"  ≈ never
-  //   "كل"   — breaks "كلام" (speech)       | "كلطالب"   ≈ never
-  //
-  // The negative lookbehind ignores internal substrings (e.g. "أهلاً" →
-  // "هل" preceded by "أ" → skip). The single-pass alternation ensures
-  // "عند" always wins over "عن" (longer alternative tested first).
-
-  let result = text;
-
-  // Build a single alternation regex with ALL prefixes joined by |.
-  // Because the array is sorted longest-first, the regex engine tries the
-  // longest alternatives first (ECMAScript leftmost-alternation rule).
-  // A single-pass replace avoids the destructive chain where a shorter
-  // prefix (e.g. "عن") re-matches inside the output of a longer one
-  // (e.g. "عند الباب" → "عن د الباب").
-  //
-  // The replace callback also guards against "prefix chain" breakage:
-  // when a shorter prefix matches because the longer one was followed by
-  // a non-Arabic character (e.g. "عندما" followed by space, causing
-  // "عند" to match inside "عندما"), we check whether prefix+nextChar
-  // starts a longer known prefix and skip the match if it does.
+  // Require: (word boundary) prefix + "ال" + (a noun letter). The leading
+  // negative lookbehind keeps us at a real word start (so "أهلاً" isn't touched);
+  // the trailing letter after "ال" prevents splitting "منال" → "من ال".
   const megare = new RegExp(
-    `(?<![\\u0621-\\u064a\\u0660-\\u06ff])(${prefixes.join("|")})([\\u0621-\\u064a\\u0660-\\u06ff])`,
+    `(?<![\\u0621-\\u064a\\u0660-\\u06ff])(${prefixes.join("|")})(ال[\\u0621-\\u064a\\u0660-\\u06ff])`,
     "g",
   );
-  result = result.replace(megare, (match, prefix, nextChar) => {
-    const candidate = prefix + nextChar;
-    for (const p of prefixes) {
-      if (p.length > prefix.length && p.startsWith(candidate)) {
-        return match;
-      }
-    }
-    return prefix + " " + nextChar;
-  });
 
-  return result;
+  return text.replace(megare, (_m, prefix, rest) => `${prefix} ${rest}`);
 }
 
 export type AskOptionsResult = {
