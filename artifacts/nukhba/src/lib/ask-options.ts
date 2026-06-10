@@ -182,52 +182,47 @@ export function extractAskOptions(content: string): AskOptionsResult {
   const tagIndex = content.indexOf(m[0]);
 
   // Strategy (a): extract text between the last sentence break before the
-  // tag and the tag itself. If it looks like an option (starts with
-  // إن/بأن/أي/لازم etc. or is a complete sentence), move it into options.
+  // tag and the tag itself. If the text between the last double-newline (or
+  // start-of-content) and the [[ASK_OPTIONS]] tag is a short standalone line
+  // that looks like an option — regardless of which word it starts with —
+  // move it into the options array.
   if (tagIndex > 0) {
     const before = content.slice(0, tagIndex);
-    // Find the last sentence boundary (period, question mark, newline, or
-    // HTML block tag) before the tag.
-    const lastBreak = Math.max(
-      before.lastIndexOf("\n"),
-      before.lastIndexOf(". "),
-      before.lastIndexOf("؟ "),
-      before.lastIndexOf("? "),
-      before.lastIndexOf("<br"),
+    // Look for the last "paragraph break": two consecutive newlines, or a
+    // newline preceded by sentence-ending punctuation. This catches orphaned
+    // options that the model wrote as their own line before the tag.
+    const paraBreak = Math.max(
+      before.lastIndexOf("\n\n"),
+      before.lastIndexOf(".\n"),
+      before.lastIndexOf("؟\n"),
     );
-    const candidateStart = lastBreak >= 0 ? lastBreak + 1 : 0;
+    const candidateStart = paraBreak >= 0 ? paraBreak + 1 : 0;
     let candidate = before.slice(candidateStart).trim();
-    // Strip trailing punctuation/spaces that glue it to the tag.
-    candidate = candidate.replace(/[.؟،!\s]+$/, "").trim();
+    // Strip trailing punctuation / spaces / emoji that glue it to the tag.
+    candidate = candidate.replace(/[.؟،!\s\u{1F300}-\u{1FAFF}]+$/u, "").trim();
+
+    // Conditions for a valid orphan:
+    //   - Reasonable length (3-120 chars)
+    //   - Not identical to the question inside the tag
+    //   - The original content had fewer than 26 chars per line on average
+    //     (a long paragraph is unlikely to be a standalone option)
+    const candidateLines = candidate.split("\n").filter(Boolean);
+    const isShortLine =
+      candidateLines.length <= 3 &&
+      candidateLines.every((l) => l.length <= 120);
 
     if (
-      candidate.length >= 6 &&
-      /^(?:إنَّ?|بأنَّ?|أي|يعني|لازم|يجب|م(?:ن|ا)|هذا|هذه|ذلك|تلك|لأن|فإن|قد|سـ|لا|لن|لم|هل|عندما|إذا|كل|بعض)[\s\u0600-\u06ffa-zA-Z0-9`'"()[\]{}=+\-*/<>!@#$%^&|\\.,;:?_~]/.test(candidate) &&
-      candidate !== questionRaw.trim()
+      candidate.length >= 3 &&
+      candidate.length <= 120 &&
+      candidate !== questionRaw.trim() &&
+      isShortLine
     ) {
+      // Escape for regex replacement of the candidate in the stripped output.
+      const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       strippedOut = strippedOut
-        .replace(new RegExp(candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*", "g"), "")
+        .replace(new RegExp(escaped + "\\s*", "g"), "")
         .trim();
       options = [normAr(decodeHtmlEntities(candidate)), ...options];
-    }
-  }
-
-  // Strategy (b): trailing-text fallback — broader than before, now accepts
-  // Latin + digits so options containing English/code are caught.
-  if (options.length > 0) {
-    const orphanMatch2 = strippedOut.match(
-      /(?:^|\n)\s*((?:إنَّ?|بأنَّ?|أي|يعني|لازم|يجب|م(?:ن|ا)|هذا|هذه|ذلك|لأن|فإن)\s[\u0600-\u06ffa-zA-Z0-9`'"()[\]{}=+\-*/<>\s.,;:!?_~]+?)(?:\s*)$/,
-    );
-    if (orphanMatch2) {
-      const orphan2 = orphanMatch2[1].trim();
-      if (orphan2.length >= 6 && orphan2 !== questionRaw.trim()) {
-        strippedOut = strippedOut.replace(orphanMatch2[0], "").trim();
-        // Only add if not already captured by strategy (a)
-        const alreadyAdded = options.some((o) => o.indexOf(orphan2) >= 0 || orphan2.indexOf(o) >= 0);
-        if (!alreadyAdded) {
-          options = [normAr(decodeHtmlEntities(orphan2)), ...options];
-        }
-      }
     }
   }
 
