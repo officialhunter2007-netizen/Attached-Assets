@@ -186,6 +186,11 @@ export function extractAskOptions(content: string): AskOptionsResult {
   // start-of-content) and the [[ASK_OPTIONS]] tag is a short standalone line
   // that looks like an option — regardless of which word it starts with —
   // move it into the options array.
+  //
+  // Special case: if the pre-tag line looks like a QUESTION (contains ؟ or
+  // starts with a question word) and the in-tag question is a trivial
+  // placeholder (≤ 3 chars, e.g. just "؟"), the model wrote the real question
+  // outside the tag. We promote it to be the question instead of an option.
   if (tagIndex > 0) {
     const before = content.slice(0, tagIndex);
     // Look for the last "paragraph break": two consecutive newlines, or a
@@ -211,18 +216,47 @@ export function extractAskOptions(content: string): AskOptionsResult {
       candidateLines.length <= 3 &&
       candidateLines.every((l) => l.length <= 120);
 
+    // Detect if the candidate looks like a question sentence rather than an
+    // option label. A question-like candidate should NEVER be shown as a
+    // clickable option button — it is always either the actual question or
+    // the teacher's transition sentence.
+    const candidateLooksLikeQuestion =
+      candidate.includes("؟") ||
+      candidate.includes("?") ||
+      /^(هل|ما\s|شو|كيف|لماذا|من\s|أين|متى|الحين|خليني|دعني|ما\s+هو|ما\s+هي|ماذا|أيّ|أي\s)/u.test(candidate);
+
+    // Detect if the in-tag question is a trivial placeholder (e.g. just "؟").
+    // This happens when the model writes the real question as narration before
+    // the tag and only puts a stub inside it.
+    const questionIsPlaceholder = questionRaw.trim().length <= 3;
+
+    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
     if (
       candidate.length >= 3 &&
       candidate.length <= 120 &&
       candidate !== questionRaw.trim() &&
       isShortLine
     ) {
-      // Escape for regex replacement of the candidate in the stripped output.
-      const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      strippedOut = strippedOut
-        .replace(new RegExp(escaped + "\\s*", "g"), "")
-        .trim();
-      options = [normAr(decodeHtmlEntities(candidate)), ...options];
+      if (candidateLooksLikeQuestion) {
+        // The pre-tag sentence is the real question — use it as the question.
+        // If the in-tag question was already a real question, keep the better
+        // one (the longer / more informative of the two).
+        if (questionIsPlaceholder || candidate.length > question.length) {
+          question = normAr(decodeHtmlEntities(candidate));
+        }
+        // Always remove the candidate from the stripped narrative text.
+        strippedOut = strippedOut
+          .replace(new RegExp(escaped + "\\s*", "g"), "")
+          .trim();
+        // Do NOT add it to options.
+      } else {
+        // Original orphan recovery — add as first option.
+        strippedOut = strippedOut
+          .replace(new RegExp(escaped + "\\s*", "g"), "")
+          .trim();
+        options = [normAr(decodeHtmlEntities(candidate)), ...options];
+      }
     }
   }
 
