@@ -260,5 +260,51 @@ export function extractAskOptions(content: string): AskOptionsResult {
     }
   }
 
+  // ── FINAL GUARD: rescue a mis-slotted first option ──────────────────────
+  // The segment before the first `|||` is parsed as `question`. But the model
+  // very frequently writes the real question in the narrative body and then
+  // starts the tag directly with the options, so `question` ends up holding the
+  // FIRST OPTION (often the correct answer). Symptom the user reported: the
+  // first option ALWAYS renders as a non-clickable highlighted label instead of
+  // a button, and the option-letter badges (أ ب ج) start from the 2nd option.
+  //
+  // Detection (deliberately conservative to avoid eating a real question):
+  //   1. `question` does NOT read like a question (no ؟/? and doesn't start
+  //      with an Arabic question/imperative word), AND
+  //   2. the body already ends with a question — i.e. the real question is
+  //      shown above the buttons.
+  // When both hold, demote `question` to the first option and clear the slot so
+  // every option (including the first) becomes a proper clickable button and
+  // the duplicate gold label disappears.
+  const readsLikeQuestion = (s: string): boolean => {
+    const t = (s || "").trim();
+    if (!t) return false;
+    if (/[؟?]/.test(t)) return true;
+    // A stem ending with a colon ("…النظام يسمى:") is a fill-in prompt, not an
+    // option — never demote it to a button.
+    if (/[:：]$/.test(t)) return true;
+    return /^(هل|شو|كيف|كيفية|لماذا|ليش|وين|أين|متى|ماذا|أيّ|أيُّ|أي\s|ما\s|ماهو|ما\s*هو|ما\s*هي|كم\s|اختر|اختَر|أكمل|حدّد|حدد|صنّف|صنف|رتّب|رتب|اذكر|عرّف|عرف|أيّهما|أيهما)/u.test(t);
+  };
+
+  // Strip tags then check whether the body's final sentence is a question.
+  // Tolerate trailing markdown emphasis (**bold**, _italic_, `code`), quotes,
+  // brackets and emoji after the mark, since the model frequently ends its
+  // question that way ("**شو تتوقع؟**", "شو تتوقع؟ 🤔") — without this the guard
+  // misses and the first option silently relapses into a label.
+  const bodyTail = strippedOut
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(
+      /[\s*_`~"'«»()\[\]\u{2600}-\u{27BF}\u{FE0F}\u{1F000}-\u{1FAFF}]+$/u,
+      "",
+    );
+  const bodyEndsWithQuestion = /[؟?]$/.test(bodyTail);
+
+  if (question && !readsLikeQuestion(question) && bodyEndsWithQuestion) {
+    options = [question, ...options];
+    question = "";
+  }
+
   return { stripped: strippedOut, ask: { question, options, allowOther } };
 }

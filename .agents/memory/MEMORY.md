@@ -23,3 +23,4 @@
 - [SCENE animated illustrations](scene-svg-illustrations.md) — in-lesson animations are Sonnet-authored HTML/CSS/JS in a sandboxed iframe (allow-scripts, NO same-origin) + strict CSP connect-src 'none'; the `[[SCENE:]]` marker never changes, only the medium.
 - [OpenRouter model slug decay](openrouter-model-slug-decay.md) — OpenRouter retires slugs (Gemini 2.0 now 404/400); teaching model id lives at 4 independent sync points; symptom is friendly-failure on every turn with a valid key.
 - [Dual teaching prompts](dual-teaching-prompts.md) — teacher system prompt is built per-path in v4-teaching-core.ts (v4) AND routes/ai.ts (legacy /subject); teaching/ASK_OPTIONS rule changes must be mirrored in both.
+- [ASK_OPTIONS question-slot pitfall](ask-options-question-slot.md) — model often puts the question in the body + starts the tag at the options, so option[0] renders as a non-clickable label; fix with a parser guard, not the prompt.
