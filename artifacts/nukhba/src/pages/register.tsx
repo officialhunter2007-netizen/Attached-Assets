@@ -1,9 +1,12 @@
+import { useState, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { NukhbaLogo } from "@/components/nukhba-logo";
-import { Link } from "wouter";
-import { Check, Brain, GraduationCap, Terminal } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { Check, Brain, GraduationCap, Terminal, Mail, Lock, Eye, EyeOff, User, Loader2 } from "lucide-react";
 import { useLang } from "@/lib/lang-context";
+import { useRegisterUser } from "@workspace/api-client-react";
+import { useAuth } from "@/lib/use-auth";
 
 function GoogleIcon() {
   return (
@@ -29,12 +32,52 @@ function Particle({ x, y, color, size, delay }: { x: string; y: string; color: s
 
 export default function Register() {
   const { tr } = useLang();
+  const { setUser } = useAuth();
+  const [, navigate] = useLocation();
+
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+
+  const registerMutation = useRegisterUser();
 
   const benefits = [
     { icon: Brain, text: tr.register.benefit1, color: "#F59E0B" },
     { icon: GraduationCap, text: tr.register.benefit2, color: "#10B981" },
     { icon: Terminal, text: tr.register.benefit3, color: "#3B82F6" },
   ];
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (!email.trim() || !password.trim()) return;
+    if (password.trim().length < 8) {
+      setError("كلمة المرور يجب أن تكون 8 أحرف على الأقل");
+      return;
+    }
+
+    try {
+      const user = await registerMutation.mutateAsync({
+        data: {
+          email: email.trim(),
+          password,
+          displayName: displayName.trim() || undefined,
+        },
+      });
+      setUser(user);
+      navigate("/welcome");
+    } catch (err: any) {
+      const msg = err?.data?.error || err?.body?.error || err?.message || "";
+      if (msg.includes("مسجل مسبقاً") || msg.includes("already")) {
+        setError(tr.register.emailTaken);
+      } else {
+        setError(msg || tr.register.emailTaken);
+      }
+    }
+  };
 
   const handleGoogleRegister = () => {
     const url = `${window.location.origin}/api/auth/google`;
@@ -46,6 +89,8 @@ export default function Register() {
       window.location.href = url;
     }
   };
+
+  const isSubmitting = registerMutation.isPending;
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-background p-4 relative overflow-hidden">
@@ -132,19 +177,145 @@ export default function Register() {
             </motion.p>
           </div>
 
+          {/* ── Email/Password Form ─────────────────────────────────── */}
+          <motion.form
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            onSubmit={handleSubmit}
+            className="space-y-3 mb-5"
+          >
+            {/* Display Name */}
+            <div className="relative">
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <User className="w-4 h-4 text-white/30" />
+              </div>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder={tr.register.namePlaceholder}
+                className="w-full bg-black/30 border border-white/10 rounded-xl py-3 pr-10 pl-4 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-emerald/50 transition-colors"
+                autoComplete="name"
+                disabled={isSubmitting}
+              />
+            </div>
+
+            {/* Email */}
+            <div className="relative">
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <Mail className="w-4 h-4 text-white/30" />
+              </div>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={tr.register.emailPlaceholder}
+                dir="ltr"
+                className="w-full bg-black/30 border border-white/10 rounded-xl py-3 pr-10 pl-4 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-emerald/50 transition-colors"
+                autoComplete="email"
+                disabled={isSubmitting}
+              />
+            </div>
+
+            {/* Password */}
+            <div className="relative">
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <Lock className="w-4 h-4 text-white/30" />
+              </div>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={tr.register.passwordPlaceholder}
+                dir="ltr"
+                className="w-full bg-black/30 border border-white/10 rounded-xl py-3 pr-10 pl-12 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-emerald/50 transition-colors"
+                autoComplete="new-password"
+                disabled={isSubmitting}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute inset-y-0 left-0 flex items-center pl-3 text-white/30 hover:text-white/60 transition-colors"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* Error */}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 text-center"
+              >
+                {error}
+              </motion.div>
+            )}
+
+            {/* Submit */}
+            <Button
+              type="submit"
+              disabled={isSubmitting || !email.trim() || !password.trim()}
+              className="w-full h-12 rounded-xl text-sm font-bold bg-gradient-to-l from-emerald-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-300 text-black flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-emerald-500/20"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {tr.register.registering}
+                </>
+              ) : (
+                tr.register.submitBtn
+              )}
+            </Button>
+          </motion.form>
+
+          {/* Divider */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            className="flex items-center gap-3 mb-5"
+          >
+            <div className="flex-1 h-px bg-white/10" />
+            <span className="text-xs text-white/30">{tr.register.orDivider}</span>
+            <div className="flex-1 h-px bg-white/10" />
+          </motion.div>
+
+          {/* Google button */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            <Button
+              type="button"
+              onClick={handleGoogleRegister}
+              disabled={isSubmitting}
+              className="w-full h-14 rounded-2xl text-base font-bold bg-white hover:bg-gray-50 text-gray-800 flex items-center justify-center gap-3 shadow-lg transition-all disabled:opacity-50"
+              style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1)" }}
+            >
+              <GoogleIcon />
+              {tr.register.googleBtn}
+            </Button>
+          </motion.div>
+
           {/* Benefits */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.45 }}
-            className="space-y-2 mb-7"
+            transition={{ delay: 0.55 }}
+            className="space-y-2 mt-5"
           >
             {benefits.map(({ icon: Icon, text, color }, i) => (
               <motion.div
                 key={i}
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.5 + i * 0.1 }}
+                transition={{ delay: 0.6 + i * 0.1 }}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
                 style={{
                   background: `${color}08`,
@@ -168,24 +339,6 @@ export default function Register() {
                 </div>
               </motion.div>
             ))}
-          </motion.div>
-
-          {/* Google button */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6 }}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <Button
-              onClick={handleGoogleRegister}
-              className="w-full h-14 rounded-2xl text-base font-bold bg-white hover:bg-gray-50 text-gray-800 flex items-center justify-center gap-3 shadow-lg transition-all"
-              style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1)" }}
-            >
-              <GoogleIcon />
-              {tr.register.googleBtn}
-            </Button>
           </motion.div>
 
           <div className="mt-6 text-center text-sm text-muted-foreground">

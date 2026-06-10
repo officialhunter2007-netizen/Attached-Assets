@@ -48,6 +48,7 @@ import type { AttackScenario } from "@/components/attack-sim/types";
 import { DynamicEnvShell } from "@/components/dynamic-env/dynamic-env-shell";
 import { MobileDesktopHint } from "@/components/mobile-desktop-hint";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
+import { extractAskOptions, normalizeArabicText } from "@/lib/ask-options";
 import { CourseMaterialsPanel, TeachingModeChoiceCard } from "@/components/course-materials-panel";
 import { QuizPanel, type QuizKind } from "@/components/quiz-panel";
 import { PathwayPanel } from "@/components/pathway-panel";
@@ -2024,64 +2025,6 @@ function expandLabEnvTags(html: string, buildEnvLabel = "⚡ ابنِ هذه ا�
 // the message body would render them as real elements instead of text); we
 // must therefore decode them back when surfacing those same strings as
 // React text nodes that don't go through the browser's HTML parser.
-// Runs decoding twice to handle the rare double-escaped case (e.g. when
-// the model writes `&amp;lt;p&amp;gt;`).
-function decodeHtmlEntities(s: string): string {
-  if (!s) return s;
-  if (typeof document === "undefined") {
-    // SSR fallback — handle the common entities only.
-    return s
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&");
-  }
-  const ta = document.createElement("textarea");
-  ta.innerHTML = s;
-  let out = ta.value;
-  if (out.includes("&") && /&(?:lt|gt|amp|quot|#\d+|#x[0-9a-f]+);/i.test(out)) {
-    ta.innerHTML = out;
-    out = ta.value;
-  }
-  return out;
-}
-
-// Extracts [[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| غير ذلك]] from content
-// Uses ||| as delimiter so question/options can safely contain a single |
-// Uses [\s\S]+? (non-greedy any-char) so single `]` inside the question or
-// options (e.g. programming examples like `arr[0]`) doesn't break the parser —
-// the `]]` closing fence is what terminates the match.
-function extractAskOptions(content: string): { stripped: string; ask: { question: string; options: string[]; allowOther: boolean } | null } {
-  const m = content.match(/\[\[ASK_OPTIONS:\s*([\s\S]+?)\]\]/);
-  if (!m) return { stripped: content, ask: null };
-  // Prefer ||| delimiter; fall back to single | only if ||| not present
-  const raw = m[1];
-  const parts = (raw.includes("|||") ? raw.split("|||") : raw.split("|"))
-    .map((s) => s.trim())
-    .filter(Boolean);
-  // After stripping the tag, also collapse any wrapper tags it left empty
-  // (e.g. the model put it inside its own <p>...</p> or <div>...</div>).
-  const cleanStripped = (raw0: string) =>
-    raw0
-      .replace(m[0], "")
-      .replace(/<(p|div|span)[^>]*>\s*<\/\1>/gi, "")
-      .replace(/(\s*<br\s*\/?>\s*){2,}/gi, "<br/>")
-      .trim();
-  if (parts.length < 2) return { stripped: cleanStripped(content), ask: null };
-  const [questionRaw, ...rawOpts] = parts;
-  const allowOther = rawOpts.some((o) => /غير\s*ذلك/i.test(o) || /^other$/i.test(o));
-  // Decode HTML entities in question + each option so labels containing
-  // tag examples (e.g. `وسم <p> (فقرة عادية)`) render readable text instead
-  // of raw `&lt;p&gt;` escape sequences in the buttons.
-  const question = decodeHtmlEntities(questionRaw);
-  const options = rawOpts
-    .filter((o) => !(/غير\s*ذلك/i.test(o) || /^other$/i.test(o)))
-    .map(decodeHtmlEntities);
-  return { stripped: cleanStripped(content), ask: { question, options, allowOther } };
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Session-UI helpers: elapsed timer hook, per-message action toolbar,
 // welcome empty-state, and unified error state. Purely presentational —
@@ -2405,7 +2348,8 @@ const AIMessage = memo(function AIMessage({ content, isStreaming, onCreateLabEnv
   const [lightboxZoom, setLightboxZoom] = useState<number>(1);
   const [lightboxPan, setLightboxPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  const { stripped, ask } = !isStreaming ? extractAskOptions(content) : { stripped: content, ask: null };
+  const normalized = normalizeArabicText(content);
+  const { stripped, ask } = !isStreaming ? extractAskOptions(normalized) : { stripped: normalized, ask: null };
 
   if (!isStreaming) {
     // Run the lab-env tag expansion *first* (it inserts a real <button> with

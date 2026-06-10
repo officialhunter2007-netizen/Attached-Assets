@@ -234,7 +234,27 @@ function renderHtml(raw: string): string {
   // extractMathBlocks returns `{ text, blocks }` — destructuring it as
   // `stripped` left marked() with undefined input and crashed the page.
   const { text: stripped, blocks } = extractMathBlocks(withViz);
-  const html = marked.parse(stripped ?? "", { async: false }) as string;
+
+  // Normalise markdown code fences: the AI sometimes places the closing ```
+  // on the same line as the last code line or immediately before text, which
+  // causes marked to render the backticks as literal content.
+  const withFences = stripped
+    // Closing fence followed by text on same line
+    .replace(/```([^\s\n])/g, "```\n$1")
+    // Code/text followed by closing fence on same line  
+    .replace(/([^\s\n])```/g, "$1\n```");
+
+  const html0 = marked.parse(withFences ?? "", { async: false }) as string;
+
+  // Strip leaked language tags from code blocks — when the AI writes
+  // ```python immediately followed by code (no newline), marked leaves
+  // the language tag as literal content inside <code>.
+  // Use a whitelist of known language identifiers to avoid stripping
+  // legitimate code tokens (e.g. "print" is not a language, but "python" is).
+  const knownLangs = /^(?:python|javascript|typescript|js|ts|html|css|bash|sh|shell|cpp|c\+\+|c|java|ruby|go|rust|sql|json|yaml|xml|php|swift|kotlin|scala|r|dart|lua|perl|matlab|powershell|dockerfile|makefile|nginx|ini|toml|diff|markdown|md|text|plaintext)$/;
+  const html = html0
+    .replace(/<code>([a-zA-Z0-9+#_-]+)\n/g, (_m: string, tag: string) => knownLangs.test(tag) ? "<code>" : _m)
+    .replace(/<code>([a-zA-Z0-9+#_-]+)([a-zA-Z0-9\u0621-\u064a])/g, (_m: string, tag: string, ch: string) => knownLangs.test(tag) ? `<code>${ch}` : _m);
   const withMath = restoreMathPlaceholders(html, blocks);
   return DOMPurify.sanitize(withMath, {
     ADD_ATTR: ["target", "data-image-id", "loading", "data-viz-mount", "data-viz-template", "data-viz-payload", "data-anim-mount", "data-anim-html", "data-scene-mount", "data-scene-topic"],

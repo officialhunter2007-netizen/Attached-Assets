@@ -61,6 +61,14 @@ async function isAdmin(userId: number | null): Promise<boolean> {
   return u?.role === "admin";
 }
 
+function csrfGuard(req: any, res: any): boolean {
+  if (!req.headers["x-nukhba-csrf"]) {
+    res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
+    return false;
+  }
+  return true;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/track — batch ingest of activity events from the client
 // ─────────────────────────────────────────────────────────────────────────────
@@ -730,6 +738,7 @@ router.get("/admin/diagnostics/storage", async (req, res): Promise<any> => {
 // defined in the ADMIN_AI_MODEL constant at the top of this file.
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/admin/ai/insights", async (req, res): Promise<any> => {
+  if (!csrfGuard(req, res)) return;
   const adminId = getUserId(req);
   if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
 
@@ -1279,6 +1288,7 @@ router.get("/admin/insights/teacher-length-stats", async (req, res): Promise<any
 // Delete conversation messages for a specific user+subject pair.
 // ─────────────────────────────────────────────────────────────────────────────
 router.delete("/admin/conversation-logs", async (req, res): Promise<any> => {
+  if (!csrfGuard(req, res)) return;
   const adminId = getUserId(req);
   if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
 
@@ -1313,6 +1323,7 @@ router.delete("/admin/conversation-logs", async (req, res): Promise<any> => {
 // Bulk-purge conversation messages older than N days.
 // ─────────────────────────────────────────────────────────────────────────────
 router.delete("/admin/conversation-logs/bulk", async (req, res): Promise<any> => {
+  if (!csrfGuard(req, res)) return;
   const adminId = getUserId(req);
   if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
 
@@ -1438,6 +1449,7 @@ router.get("/admin/alerts", async (req, res): Promise<any> => {
 // POST /api/admin/alerts/:id/resolve — mark a specific alert as resolved
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/admin/alerts/:id/resolve", async (req, res): Promise<any> => {
+  if (!csrfGuard(req, res)) return;
   const adminId = getUserId(req);
   if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
 

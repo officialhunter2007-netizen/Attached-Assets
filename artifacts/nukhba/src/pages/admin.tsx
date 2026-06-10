@@ -27,7 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Check, X, ShieldAlert, Users, CreditCard, Ticket,
   Copy, Plus, Filter, RefreshCw, AlertTriangle, Ban,
-  Zap, Star, Gem, MessageCircle, Activity, Search,
+  Zap, Star, Gem, MessageCircle, Activity, Search, Key,
   BookOpen, Gift, Trash2, Clock, CalendarDays, ChevronDown, Brain,
   Percent, Eye, Power, Loader2, Cpu,
 } from "lucide-react";
@@ -186,6 +186,9 @@ export default function Admin() {
   const [extendDialog, setExtendDialog] = useState<{ subId: number; userName: string; subjectName: string } | null>(null);
   const [extendDays, setExtendDays] = useState(14);
   const [isExtending, setIsExtending] = useState(false);
+
+  // Password reset
+  const [resetPwDialog, setResetPwDialog] = useState<{ email: string; tempPassword: string } | null>(null);
 
   // Gem refund/grant dialog (per subject subscription). delta > 0 grants,
   // delta < 0 refunds (clamped server-side to [0, messagesLimit]). The
@@ -460,6 +463,29 @@ export default function Admin() {
   const handleIncompleteOpen = (req: AdminRequestRow) => {
     setIncompleteTarget({ id: req.id, userName: req.userName ?? req.userEmail ?? "—" });
     setIncompleteNote("");
+  };
+
+  const handleResetPassword = async (targetId: number, email: string) => {
+    if (!confirm(`تعيين كلمة مرور مؤقتة للمستخدم ${email}؟\n\nسيُعرض لك كلمة المرور مرة واحدة فقط.`)) return;
+    try {
+      const res = await fetch(`/api/admin/users/${targetId}/reset-password`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "فشل تعيين كلمة المرور");
+      }
+      const data = await res.json();
+      setResetPwDialog({ email: data.email, tempPassword: data.tempPassword });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "فشل تعيين كلمة المرور",
+        description: err?.message ?? "تحقق من الاتصال وأعد المحاولة.",
+      });
+    }
   };
 
   const toastServerError = (err: unknown, title: string) => {
@@ -1204,6 +1230,7 @@ export default function Admin() {
                 <TableHeader className="bg-black/40">
                   <TableRow className="border-white/5">
                     <TableHead className="text-right">المستخدم</TableHead>
+                    <TableHead className="text-right">الدخول</TableHead>
                     <TableHead className="text-right">الاشتراك</TableHead>
                     <TableHead className="text-right">
                       <div className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" /> الرسائل</div>
@@ -1219,7 +1246,7 @@ export default function Admin() {
                 <TableBody>
                   {!filteredUsers?.length ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
                         {userSearch ? 'لا توجد نتائج' : 'لا يوجد مستخدمون'}
                       </TableCell>
                     </TableRow>
@@ -1233,6 +1260,23 @@ export default function Admin() {
                         {u.role === 'admin' && (
                           <Badge className="bg-gold/20 text-gold border-0 text-xs mt-0.5">مشرف</Badge>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          {u.googleId && (
+                            <Badge className="bg-blue-500/15 text-blue-300 border-blue-400/30 text-[10px]">
+                              Google
+                            </Badge>
+                          )}
+                          {u.hasPassword && (
+                            <Badge className="bg-amber-500/15 text-amber-300 border-amber-400/30 text-[10px]">
+                              بريد
+                            </Badge>
+                          )}
+                          {!u.googleId && !u.hasPassword && (
+                            <span className="text-[10px] text-muted-foreground">—</span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         {(u.activeSubjectSubscriptionsCount ?? 0) > 0 ? (
@@ -1301,6 +1345,17 @@ export default function Admin() {
                             >
                               <Gift className="w-3 h-3" />
                               منح اشتراك مادة
+                            </Button>
+                          )}
+                          {u.role !== 'admin' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs text-blue-400 border-blue-500/30 hover:bg-blue-500/10 gap-1"
+                              onClick={() => handleResetPassword(u.id, u.email)}
+                            >
+                              <Key className="w-3 h-3" />
+                              تعيين كلمة مرور
                             </Button>
                           )}
                           <Button
@@ -2203,6 +2258,36 @@ export default function Admin() {
               </Button>
               <Button variant="outline" className="border-white/10" onClick={() => setExtendDialog(null)}>إلغاء</Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Password Reset Result Dialog */}
+      <Dialog open={!!resetPwDialog} onOpenChange={(open) => { if (!open) setResetPwDialog(null); }}>
+        <DialogContent className="glass border-blue-500/30 max-w-sm">
+          <DialogTitle className="text-lg font-bold flex items-center gap-2">
+            <Key className="w-5 h-5 text-blue-400" />
+            تم تعيين كلمة المرور
+          </DialogTitle>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              كلمة مرور مؤقتة للمستخدم{" "}
+              <strong className="text-foreground">{resetPwDialog?.email}</strong>
+            </p>
+            <div className="bg-black/40 border border-blue-500/30 rounded-xl p-4 text-center">
+              <div className="text-xs text-blue-300/70 mb-1">كلمة المرور المؤقتة</div>
+              <div className="text-2xl font-mono font-black text-blue-300 tracking-widest select-all" dir="ltr">
+                {resetPwDialog?.tempPassword}
+              </div>
+            </div>
+            <p className="text-xs text-rose-300/80 text-center">
+              ⚠️ انسخ كلمة المرور الآن — لن تظهر مرة أخرى. يجب على الطالب تغييرها بعد الدخول.
+            </p>
+            <Button
+              className="w-full"
+              onClick={() => setResetPwDialog(null)}
+            >
+              فهمت
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

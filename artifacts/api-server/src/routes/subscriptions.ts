@@ -24,7 +24,7 @@ import {
   MarkIncompleteSubscriptionRequestBody,
   MarkIncompleteSubscriptionRequestParams,
 } from "@workspace/api-zod";
-import { generateActivationCode } from "../lib/auth";
+import { generateActivationCode, hashPassword } from "../lib/auth";
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { writeGemLedger } from "../lib/gem-ledger";
 import { purchaseV4GemsTx } from "../lib/v4-gem-wallet";
@@ -1773,6 +1773,7 @@ router.get("/admin/users", async (req, res): Promise<void> => {
 
   const result = users.map(u => {
     const { passwordHash: _, ...safe } = u;
+    const hasPassword = !!u.passwordHash;
     const userRequests = allRequests.filter(r => r.userId === u.id);
     const lastRequest = userRequests.sort((a, b) =>
       new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
@@ -1797,6 +1798,7 @@ router.get("/admin/users", async (req, res): Promise<void> => {
 
     return {
       ...safe,
+      hasPassword,
       totalSubscriptionRequests: userRequests.length,
       lastRequestStatus: lastRequest?.status ?? null,
       lastRequestPlan: lastRequest?.planType ?? null,
@@ -2835,6 +2837,39 @@ router.post("/admin/users/:id/grant-gems", requireSameOriginCsrf, async (req, re
     plan: sub.plan,
     gemsGranted: sub.gemsBalance,
     expiresAt: sub.expiresAt,
+  });
+});
+
+// ── Admin: reset user password ──────────────────────────────────────────────
+// Generates a temporary password and hashes it for the user. Returns the
+// cleartext password ONCE so the admin can share it with the student.
+// The student should change it immediately after logging in.
+router.post("/admin/users/:id/reset-password", requireSameOriginCsrf, async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const targetId = parseInt(req.params.id, 10);
+  if (isNaN(targetId)) { res.status(400).json({ error: "Invalid user id" }); return; }
+
+  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, targetId));
+  if (!target) { res.status(404).json({ error: "User not found" }); return; }
+
+  // Generate a random readable temporary password
+  const { randomBytes } = await import("crypto");
+  const tempPassword = "Nukhba" + randomBytes(4).toString("hex");
+  const passwordHash = hashPassword(tempPassword);
+
+  await db.update(usersTable)
+    .set({ passwordHash, updatedAt: new Date() })
+    .where(eq(usersTable.id, targetId));
+
+  res.json({
+    ok: true,
+    email: target.email,
+    tempPassword,
+    message: `تم تعيين كلمة مرور مؤقتة للمستخدم ${target.email}. انسخ كلمة المرور الآن — لن تظهر مرة أخرى.`,
   });
 });
 

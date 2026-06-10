@@ -1,9 +1,12 @@
-import { Link } from "wouter";
+import { useState, FormEvent } from "react";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { NukhbaLogo } from "@/components/nukhba-logo";
-import { Brain, Zap } from "lucide-react";
+import { Brain, Zap, Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useLang } from "@/lib/lang-context";
+import { useLoginUser } from "@workspace/api-client-react";
+import { useAuth } from "@/lib/use-auth";
 
 function GoogleIcon() {
   return (
@@ -29,6 +32,37 @@ function Particle({ x, y, color, size, delay }: { x: string; y: string; color: s
 
 export default function Login() {
   const { tr } = useLang();
+  const { setUser } = useAuth();
+  const [, navigate] = useLocation();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+
+  const loginMutation = useLoginUser();
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (!email.trim() || !password.trim()) return;
+
+    try {
+      const user = await loginMutation.mutateAsync({ data: { email: email.trim(), password } });
+      setUser(user);
+      // Match Google OAuth behaviour: onboardingDone → /learn, otherwise → /welcome
+      navigate(user.onboardingDone ? "/learn" : "/welcome");
+    } catch (err: any) {
+      // ApiError stores the parsed JSON body in `.data` (matching admin page's extractServerError).
+      const msg = err?.data?.error || err?.body?.error || err?.message || "";
+      if (msg.includes("غير صحيحة") || msg.includes("Invalid")) {
+        setError(tr.login.invalidCredentials);
+      } else {
+        setError(msg || tr.login.invalidCredentials);
+      }
+    }
+  };
 
   const handleGoogleLogin = () => {
     const apiUrl = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
@@ -55,6 +89,8 @@ export default function Login() {
       alert(tr.login.iframeAlert);
     }
   };
+
+  const isSubmitting = loginMutation.isPending;
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-background p-4 relative overflow-hidden">
@@ -145,7 +181,7 @@ export default function Login() {
           />
 
           {/* Logo */}
-          <div className="text-center mb-8">
+          <div className="text-center mb-7">
             <motion.div
               initial={{ scale: 0.5, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -187,6 +223,96 @@ export default function Login() {
             </motion.p>
           </div>
 
+          {/* ── Email/Password Form ─────────────────────────────────── */}
+          <motion.form
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.45 }}
+            onSubmit={handleSubmit}
+            className="space-y-3 mb-5"
+          >
+            {/* Email */}
+            <div className="relative">
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <Mail className="w-4 h-4 text-white/30" />
+              </div>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={tr.login.emailPlaceholder}
+                dir="ltr"
+                className="w-full bg-black/30 border border-white/10 rounded-xl py-3 pr-10 pl-4 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-gold/50 transition-colors"
+                autoComplete="email"
+                disabled={isSubmitting}
+              />
+            </div>
+
+            {/* Password */}
+            <div className="relative">
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <Lock className="w-4 h-4 text-white/30" />
+              </div>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={tr.login.passwordPlaceholder}
+                dir="ltr"
+                className="w-full bg-black/30 border border-white/10 rounded-xl py-3 pr-10 pl-12 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-gold/50 transition-colors"
+                autoComplete="current-password"
+                disabled={isSubmitting}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute inset-y-0 left-0 flex items-center pl-3 text-white/30 hover:text-white/60 transition-colors"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* Error */}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 text-center"
+              >
+                {error}
+              </motion.div>
+            )}
+
+            {/* Submit */}
+            <Button
+              type="submit"
+              disabled={isSubmitting || !email.trim() || !password.trim()}
+              className="w-full h-12 rounded-xl text-sm font-bold bg-gradient-to-l from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-amber-500/20"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {tr.login.loggingIn}
+                </>
+              ) : (
+                tr.login.submitBtn
+              )}
+            </Button>
+          </motion.form>
+
+          {/* Divider */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            className="flex items-center gap-3 mb-5"
+          >
+            <div className="flex-1 h-px bg-white/10" />
+            <span className="text-xs text-white/30">{tr.login.orDivider}</span>
+            <div className="flex-1 h-px bg-white/10" />
+          </motion.div>
+
           {/* Google button */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -196,8 +322,10 @@ export default function Login() {
             whileTap={{ scale: 0.98 }}
           >
             <Button
+              type="button"
               onClick={handleGoogleLogin}
-              className="w-full h-14 rounded-2xl text-base font-bold bg-white hover:bg-gray-50 text-gray-800 flex items-center justify-center gap-3 shadow-lg transition-all"
+              disabled={isSubmitting}
+              className="w-full h-14 rounded-2xl text-base font-bold bg-white hover:bg-gray-50 text-gray-800 flex items-center justify-center gap-3 shadow-lg transition-all disabled:opacity-50"
               style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1)" }}
             >
               <GoogleIcon />
@@ -205,7 +333,7 @@ export default function Login() {
             </Button>
           </motion.div>
 
-          {/* Divider */}
+          {/* Bottom link */}
           <div className="mt-8 text-center text-sm text-muted-foreground">
             {tr.login.noAccount}{" "}
             <Link href="/register" className="text-gold font-bold hover:underline transition-colors">
