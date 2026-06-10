@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // v4 admin routes — list specialties, fetch instruction-file versions,
-// validate-without-publish, publish a new version, hard-delete a version.
+// validate-without-publish, autofix-all-errors, publish a new version,
+// hard-delete a version.
 //
 // All endpoints require `role = 'admin'` on the calling user (cookie session).
 // Mounted under /api by app.ts, so route paths here are relative to /api.
@@ -28,7 +29,11 @@ import {
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { validateV4InstructionFile } from "../lib/v4-instruction-validator";
+import type { V4ValidationReport } from "../lib/v4-instruction-validator";
 import { publishV4InstructionFile, deleteV4InstructionVersion } from "../lib/v4-instruction-normalizer";
+import { autoFixV4InstructionFile, type AutoFixResult } from "../lib/v4-instruction-autofix";
+import { cacheValidatedDoc, getValidatedDoc, dropValidatedDoc } from "../lib/v4-instruction-cache";
+import type { PublishProgress } from "../lib/v4-instruction-normalizer";
 
 const router: IRouter = Router();
 
@@ -203,22 +208,88 @@ router.get("/admin/v4/versions/:id", requireAdmin, async (req: Request, res: Res
 
 // ── POST /admin/v4/validate ────────────────────────────────────────────────
 // Validate without persisting. Body: { json: <instruction file> }.
+// Caches the Zod-parsed document so a subsequent publish can skip
+// re-parse + re-validate — critical for multi-MB files.
 router.post("/admin/v4/validate", requireAdmin, requireSameOriginCsrf, rawGzipBody, decodeInstructionBody, async (req: Request, res: Response): Promise<void> => {
   const body: any = req.body ?? {};
   const raw = body.json ?? body; // accept either {json:…} or the raw doc.
   const report = validateV4InstructionFile(raw);
+  let cacheToken: string | undefined;
+  if (report.ok && report.parsed) {
+    cacheToken = cacheValidatedDoc(report.parsed, report);
+  }
   res.json({
     ok: report.ok,
     summary: report.summary,
     issues: report.issues,
+    ...(cacheToken ? { cacheToken } : {}),
+  });
+});
+
+// ── POST /admin/v4/autofix ──────────────────────────────────────────────────
+// One-click "Fix ALL Errors" — deterministic repair of every Zod + cross-ref
+// issue. Returns the fixed JSON, a human-readable Arabic change log, and a
+// cache token so the admin can publish with one more click (no re-parse).
+router.post("/admin/v4/autofix", requireAdmin, requireSameOriginCsrf, rawGzipBody, decodeInstructionBody, async (req: Request, res: Response): Promise<void> => {
+  const body: any = req.body ?? {};
+  const raw = body.json ?? body;
+  let result: AutoFixResult;
+  try {
+    result = autoFixV4InstructionFile(raw);
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "v4: autofix failed (input may be unparseable)");
+    res.status(400).json({ ok: false, error: "تعذّر الإصلاح التلقائي — الملف قد يكون تالفاً أو غير قابل للقراءة." });
+    return;
+  }
+  const cacheToken = cacheValidatedDoc(result.fixedDoc, result.report);
+  res.json({
+    ok: result.report.ok,
+    fixedJson: result.fixedDoc,
+    changes: result.changes,
+    summary: result.report.summary,
+    issues: result.report.issues,
+    cacheToken,
   });
 });
 
 // ── POST /admin/v4/publish ─────────────────────────────────────────────────
 // Validate + (if ok) publish a new version atomically.
+// Accepts an optional `cacheToken` from a prior /validate or /autofix call.
+// When present, the cached Zod-parsed document is used DIRECTLY — no re-inflate,
+// no re-parse, no re-validate. Saves tens of seconds on multi-MB files.
 router.post("/admin/v4/publish", requireAdmin, requireSameOriginCsrf, rawGzipBody, decodeInstructionBody, async (req: Request, res: Response): Promise<void> => {
   const body: any = req.body ?? {};
   const raw = body.json ?? body;
+
+  // Fast-path: use cached validated doc if the client passed a valid token.
+  const cacheToken: string | undefined = body.cacheToken;
+  if (cacheToken) {
+    const cached = getValidatedDoc(cacheToken);
+    if (cached) {
+      try {
+        const result = await publishV4InstructionFile(cached.parsed, (req as any).adminUserId);
+        dropValidatedDoc(cacheToken);
+        logger.info(
+          { specialtyId: result.specialtyId, version: result.version, summary: result.summary },
+          "v4: published instruction file (cached fast-path)",
+        );
+        res.json({ ok: true, ...result });
+        return;
+      } catch (e: any) {
+        if (e?.report) {
+          res.status(400).json({ ok: false, error: "Validation failed", report: e.report });
+          return;
+        }
+        logger.error({ err: e?.message }, "v4: publish failed (cached path)");
+        res.status(500).json({ ok: false, error: e?.message ?? "Unknown error" });
+        return;
+      }
+    }
+    // Token expired / invalid — fall through to the slow path.
+    logger.warn("v4: publish cache token expired, falling back to slow path");
+  }
+
+  // Slow-path: full parse + validate + publish (the original flow).
   try {
     const result = await publishV4InstructionFile(raw, (req as any).adminUserId);
     logger.info(
@@ -238,6 +309,56 @@ router.post("/admin/v4/publish", requireAdmin, requireSameOriginCsrf, rawGzipBod
     logger.error({ err: e?.message }, "v4: publish failed");
     res.status(500).json({ ok: false, error: e?.message ?? "Unknown error" });
   }
+});
+
+// ── POST /admin/v4/publish-stream ───────────────────────────────────────────
+// SSE (Server-Sent Events) version of publish. Streams real-time progress events
+// as the normalizer inserts each phase of rows. Use when the admin wants to see
+// live feedback during a large publish. Falls back to regular publish on error.
+router.post("/admin/v4/publish-stream", requireAdmin, requireSameOriginCsrf, rawGzipBody, decodeInstructionBody, async (req: Request, res: Response): Promise<void> => {
+  const body: any = req.body ?? {};
+  const raw = body.json ?? body;
+
+  // SSE headers
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no", // disable nginx buffering
+  });
+  res.flushHeaders();
+
+  const send = (event: string, data: any) => {
+    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {}
+  };
+
+  // Fast-path: use cached validated doc if available.
+  const cacheToken: string | undefined = body.cacheToken;
+  let parsedDoc: any = null;
+  if (cacheToken) {
+    const cached = getValidatedDoc(cacheToken);
+    if (cached) {
+      parsedDoc = cached.parsed;
+      dropValidatedDoc(cacheToken);
+    }
+  }
+
+  try {
+    const onProgress = (p: PublishProgress) => send("progress", p);
+    const result = await publishV4InstructionFile(
+      parsedDoc ?? raw,
+      (req as any).adminUserId,
+      onProgress,
+    );
+    send("done", { ok: true, ...result });
+  } catch (e: any) {
+    if (e?.report) {
+      send("error", { ok: false, error: "Validation failed", report: e.report });
+    } else {
+      send("error", { ok: false, error: e?.message ?? "Unknown error" });
+    }
+  }
+  res.end();
 });
 
 // ── DELETE /admin/v4/versions/:id ──────────────────────────────────────────

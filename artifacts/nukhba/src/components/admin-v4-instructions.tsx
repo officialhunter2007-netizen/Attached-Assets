@@ -24,7 +24,7 @@ import Editor from "@monaco-editor/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { BookOpen, CheckCircle2, AlertTriangle, XCircle, FileJson, Rocket, RotateCcw, Trash2, Download, Loader2, Sparkles, Upload } from "lucide-react";
+import { BookOpen, CheckCircle2, AlertTriangle, XCircle, FileJson, Rocket, RotateCcw, Trash2, Download, Loader2, Sparkles, Upload, Wrench } from "lucide-react";
 import { university, skills } from "@/lib/curriculum";
 
 // Flat catalog of every legacy specialty/skill the platform knows about,
@@ -203,6 +203,9 @@ export function AdminV4Instructions() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [validating, setValidating] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [autoFixing, setAutoFixing] = useState(false);
+  const [cacheToken, setCacheToken] = useState<string | null>(null);
+  const [autofixChanges, setAutofixChanges] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const errorCount = useMemo(() => issues.filter((i) => i.severity === "error").length, [issues]);
@@ -277,6 +280,8 @@ export function AdminV4Instructions() {
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setIssues(data.issues ?? []);
       setLastSummary(data.summary ?? null);
+      setAutofixChanges([]);
+      if (data.cacheToken) setCacheToken(data.cacheToken); else setCacheToken(null);
       toast({
         title: data.ok ? "ملف صالح ✓" : `بحاجة إصلاحات`,
         description: data.ok ? `جاهز للنشر — ${data.summary.lessons} درساً` : `${data.issues.filter((i: Issue) => i.severity === "error").length} أخطاء`,
@@ -286,6 +291,44 @@ export function AdminV4Instructions() {
       toast({ title: "فشل التحقق", description: e.message, variant: "destructive" });
     } finally {
       setValidating(false);
+    }
+  }
+
+  // ── Autofix all errors ───────────────────────────────────────────────────
+  async function runAutofix() {
+    setAutoFixing(true);
+    setIssues([]);
+    setAutofixChanges([]);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(editorJson);
+    } catch (e: any) {
+      setIssues([{ severity: "error", path: "(root)", message: `JSON غير صالح: ${e.message}` }]);
+      setAutoFixing(false);
+      return;
+    }
+    try {
+      const res = await postInstructionFile("/api/admin/v4/autofix", parsed);
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      // Replace editor content with the fixed JSON.
+      setEditorJson(JSON.stringify(data.fixedJson, null, 2));
+      setIssues(data.issues ?? []);
+      setLastSummary(data.summary ?? null);
+      setCacheToken(data.cacheToken ?? null);
+      setAutofixChanges(data.changes ?? []);
+      const changeCount = (data.changes ?? []).length;
+      toast({
+        title: data.report?.ok ? "✓ تم الإصلاح التلقائي" : "تم الإصلاح — راجع التحذيرات",
+        description: changeCount > 0
+          ? `${changeCount} إصلاحات — اضغط "نشر إصدار جديد" مباشرةً`
+          : "الملف كان صالحاً بالفعل — لم تُجرَ أي إصلاحات",
+        variant: "default",
+      });
+    } catch (e: any) {
+      toast({ title: "فشل الإصلاح التلقائي", description: e.message, variant: "destructive" });
+    } finally {
+      setAutoFixing(false);
     }
   }
 
@@ -301,7 +344,40 @@ export function AdminV4Instructions() {
       return;
     }
     try {
-      const res = await postInstructionFile("/api/admin/v4/publish", parsed);
+      // Wrap the parsed JSON with cacheToken if we have one from a prior
+      // validate/autofix call — lets the server skip re-parse+re-validate.
+      const publishPayload: any = { json: parsed };
+      if (cacheToken) publishPayload.cacheToken = cacheToken;
+      const payloadStr = JSON.stringify(publishPayload);
+      const CS: any = (globalThis as any).CompressionStream;
+      let res: Response;
+      if (typeof CS === "function") {
+        try {
+          const compressed = await new Response(
+            new Blob([payloadStr]).stream().pipeThrough(new CS("gzip")),
+          ).blob();
+          res = await fetch("/api/admin/v4/publish", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/gzip", "X-Nukhba-Csrf": "1" },
+            body: compressed,
+          });
+        } catch {
+          res = await fetch("/api/admin/v4/publish", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+            body: payloadStr,
+          });
+        }
+      } else {
+        res = await fetch("/api/admin/v4/publish", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+          body: payloadStr,
+        });
+      }
       // A 413 (payload too large) or a proxy/gateway timeout returns plain
       // text/HTML, not JSON — guard the parse so the admin sees a clear
       // message instead of a cryptic "Unexpected token" error.
@@ -320,6 +396,8 @@ export function AdminV4Instructions() {
       toast({ title: "نُشر الإصدار ✓", description: `الإصدار رقم ${data.version} — ${data.summary.lessons} درساً`, variant: "default" });
       setIssues([]);
       setLastSummary(data.summary);
+      setCacheToken(null);
+      setAutofixChanges([]);
       await loadList();
       if (selectedSlug) await selectSpecialty(selectedSlug);
     } catch (e: any) {
@@ -597,14 +675,18 @@ export function AdminV4Instructions() {
             </h3>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={validating || publishing} title="رفع ملف JSON من جهازك">
+              <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={validating || publishing || autoFixing} title="رفع ملف JSON من جهازك">
               <Upload className="w-3.5 h-3.5 ml-1" /> رفع ملف
             </Button>
-            <Button size="sm" variant="outline" onClick={runValidate} disabled={validating || publishing}>
+            <Button size="sm" variant="outline" onClick={runValidate} disabled={validating || publishing || autoFixing}>
               {validating ? <Loader2 className="w-3.5 h-3.5 animate-spin ml-1" /> : <CheckCircle2 className="w-3.5 h-3.5 ml-1" />}
               تحقق
             </Button>
-            <Button size="sm" onClick={publish} disabled={validating || publishing} className="bg-emerald-600 hover:bg-emerald-700">
+            <Button size="sm" variant="outline" onClick={runAutofix} disabled={validating || publishing || autoFixing} className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10">
+              {autoFixing ? <Loader2 className="w-3.5 h-3.5 animate-spin ml-1" /> : <Wrench className="w-3.5 h-3.5 ml-1" />}
+              إصلاح كل الأخطاء
+            </Button>
+            <Button size="sm" onClick={publish} disabled={validating || publishing || autoFixing} className="bg-emerald-600 hover:bg-emerald-700">
               {publishing ? <Loader2 className="w-3.5 h-3.5 animate-spin ml-1" /> : <Rocket className="w-3.5 h-3.5 ml-1" />}
               نشر إصدار جديد
             </Button>
@@ -686,6 +768,23 @@ export function AdminV4Instructions() {
                       <div className="text-foreground">{iss.message}</div>
                     </div>
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Autofix changes log — shown after running "إصلاح كل الأخطاء" */}
+        {autofixChanges.length > 0 && (
+          <div className="border border-amber-500/30 rounded-lg overflow-hidden">
+            <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs">
+              <Wrench className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-amber-300 font-semibold">الإصلاحات التلقائية ({autofixChanges.length})</span>
+            </div>
+            <div className="max-h-[160px] overflow-y-auto">
+              {autofixChanges.map((ch, i) => (
+                <div key={i} className="px-3 py-1.5 text-xs border-b border-amber-500/10 bg-amber-500/5 text-foreground">
+                  {ch}
                 </div>
               ))}
             </div>

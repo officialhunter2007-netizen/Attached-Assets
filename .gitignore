@@ -58,3 +58,4 @@ Thumbs.db
 
 # v4 generated scene cache (regenerated at runtime, never commit)
 artifacts/api-server/data/v4-scenes/
+gcp-key.json

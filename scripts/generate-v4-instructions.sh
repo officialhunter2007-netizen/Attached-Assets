@@ -280,6 +280,7 @@ read -r -d '' SYS_BASE <<'EOF' || true
 8. أنواع أسئلة المعمل الخمسة: diagnostic | decision | application | analysis | connection — معمل = 5 أسئلة، واحد من كل نوع، بدون تكرار.
 9. bloom_focus: remember|understand|apply|analyze|evaluate|create — يتدرّج صعوداً مع المستويات.
 10. لا تختصر داخل العنصر الذي تكتبه. إذا كانت السعة محدودة، أبلغني صراحة بدلاً من اختزال المحتوى.
+11. **ممنوع استخدام نصوص قالبية أو عامة** مثل "خطأ شائع متوقّع في هذا الدرس" أو "التصحيح الصحيح" أو "عالج الخطأ بمثال موجَّه". كل خطأ common_mistake يجب أن يكون خطأً حقيقياً محدداً مرتبطاً بمحتوى الدرس (مثلاً: "الخلط بين = و == في بايثون"). إذا لم تستطع كتابة خطأ حقيقي، فالأفضل أن تكتب درساً أقل عدداً من الدروس بدلاً من ملء الباقي بنصوص قالبية.
 
 أسلوب الكتابة المطلوب:
 - جمل واضحة، لا حشو ولا تكرار. تعليمات تشغيلية للمعلم الذكي، لكن المحتوى التعليمي نفسه يجب أن يكون عميقاً لا سطحياً.
@@ -627,9 +628,19 @@ phase_merge() {
   local tmp_pl="$OUT_DIR/.tmp_placement.json"
 
   # ابني خريطة { code -> {lessons, labs} } من ملفات الوحدات
-  jq -s '
-    map({(.code): {lessons: .lessons, labs: .labs}}) | add // {}
-  ' "$OUT_DIR"/units/*.json > "$tmp_units_map" 2>/dev/null || echo '{}' > "$tmp_units_map"
+  # (نبنيه تدريجياً ملفاً ملفاً لتجنّب فشل jq -s مع عدد كبير من ملفات الوحدات)
+  echo '{}' > "$tmp_units_map"
+  for f in "$OUT_DIR"/units/*.json; do
+    [[ -f "$f" ]] || continue
+    jq -s '
+      .[0] as $map | .[1] as $unit |
+      $map + {($unit.code): {lessons: $unit.lessons, labs: $unit.labs}}
+    ' "$tmp_units_map" "$f" > "${tmp_units_map}.tmp" 2>/dev/null || {
+      warn "فشل دمج $f — تخطّي"
+      continue
+    }
+    mv "${tmp_units_map}.tmp" "$tmp_units_map"
+  done
 
   # ادمج تفاصيل الوحدات داخل الهيكل + طبّع أسماء الحقول لتطابق مخطّط المنصّة.
   # المُولِّد يُخرج أسماء مساعدة (code / *_codes / exam_meta) للربط الداخلي، لكن

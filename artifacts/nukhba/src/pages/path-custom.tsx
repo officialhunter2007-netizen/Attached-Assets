@@ -10,12 +10,13 @@
 // Network: all mutating calls send X-Nukhba-Csrf:1 to satisfy the v4 CSRF
 // middleware (custom header pattern; same-origin enforced server-side).
 // ─────────────────────────────────────────────────────────────────────────────
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useLocation, useRoute } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Loader2, ChevronLeft, Send, Rocket, Target, Check, X as XIcon, Trophy, RefreshCw,
+  Loader2, ChevronLeft, Send, Rocket, Target, Check, X as XIcon, Trophy, RefreshCw, Sparkles, MessageCircle,
 } from "lucide-react";
+import { extractAskOptions } from "@/lib/ask-options";
 
 type Phase = "loading" | "diagnostic" | "start-choice" | "placement" | "result" | "error";
 
@@ -107,10 +108,13 @@ export default function PathCustom() {
   }, [slug]);
 
   // ─── Diagnostic ────────────────────────────────────────────────────────────
-  async function submitDiagAnswer() {
-    if (!diag || !diagInput.trim() || diagBusy) return;
+  /** Send a diagnostic answer — either from text input or from an option click. */
+  async function submitDiagAnswer(optionText?: string) {
+    if (!diag || diagBusy) return;
+    const answerText = optionText ?? diagInput.trim();
+    if (!answerText) return;
     const sentQ = diag.currentQuestion;
-    const sentA = diagInput.trim();
+    const sentA = answerText;
     setDiagBusy(true);
     setTranscript((t) => [...t, { q: sentQ, a: sentA }]);
     setDiagInput("");
@@ -133,8 +137,7 @@ export default function PathCustom() {
       }
     } catch (e: any) {
       setErrMsg("ما قدرنا نحفظ جوابك. حاول مجدداً.");
-      // restore input so user doesn't lose what they wrote
-      setDiagInput(sentA);
+      if (!optionText) setDiagInput(sentA);
       setTranscript((t) => t.slice(0, -1));
     } finally {
       setDiagBusy(false);
@@ -266,50 +269,15 @@ export default function PathCustom() {
         )}
 
         {phase === "diagnostic" && diag && (
-          <div className="space-y-4">
-            <div ref={scrollerRef} className="space-y-3 max-h-[55vh] overflow-y-auto py-2 pr-1">
-              {transcript.map((m, i) => (
-                <div key={i} className="space-y-2">
-                  <div className="bg-white/[0.04] border border-white/10 rounded-2xl rounded-tr-sm p-3 text-sm leading-relaxed">
-                    <div className="text-[11px] text-gold/70 mb-1">السؤال {i + 1}</div>
-                    {m.q}
-                  </div>
-                  <div className="bg-gold/10 border border-gold/30 rounded-2xl rounded-tl-sm p-3 text-sm leading-relaxed mr-8">
-                    {m.a}
-                  </div>
-                </div>
-              ))}
-              <motion.div
-                key={diag.currentIndex}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white/[0.04] border border-white/10 rounded-2xl rounded-tr-sm p-3 text-sm leading-relaxed"
-              >
-                <div className="text-[11px] text-gold/70 mb-1">السؤال {diag.currentIndex + 1} من {diag.totalQuestions}</div>
-                {diag.currentQuestion}
-              </motion.div>
-            </div>
-            <div className="flex items-end gap-2 bg-white/[0.04] border border-white/10 rounded-2xl p-2">
-              <textarea
-                value={diagInput}
-                onChange={(e) => setDiagInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitDiagAnswer(); } }}
-                placeholder="اكتب إجابتك…"
-                rows={2}
-                disabled={diagBusy}
-                className="flex-1 bg-transparent outline-none text-sm resize-none placeholder:text-white/30"
-                autoFocus
-              />
-              <button
-                onClick={submitDiagAnswer}
-                disabled={diagBusy || !diagInput.trim()}
-                className="px-3 py-2 rounded-xl bg-gold text-black font-bold text-sm hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-              >
-                {diagBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                إرسال
-              </button>
-            </div>
-          </div>
+          <DiagnosticChat
+            diag={diag}
+            diagBusy={diagBusy}
+            diagInput={diagInput}
+            transcript={transcript}
+            scrollerRef={scrollerRef}
+            setDiagInput={setDiagInput}
+            submitDiagAnswer={submitDiagAnswer}
+          />
         )}
 
         {phase === "start-choice" && (
@@ -441,6 +409,233 @@ export default function PathCustom() {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DiagnosticChat — full polished diagnostic Q&A UI with clickable options,
+// progress tracker, chat transcript, and sticky input. Extracted as a named
+// component so state variables stay stable across re-renders.
+// ─────────────────────────────────────────────────────────────────────────────
+function DiagnosticChat({
+  diag,
+  diagBusy,
+  diagInput,
+  transcript,
+  scrollerRef,
+  setDiagInput,
+  submitDiagAnswer,
+}: {
+  diag: DiagState;
+  diagBusy: boolean;
+  diagInput: string;
+  transcript: { q: string; a: string }[];
+  scrollerRef: RefObject<HTMLDivElement | null>;
+  setDiagInput: (v: string) => void;
+  submitDiagAnswer: (optionText?: string) => void;
+}) {
+  // Parse [[ASK_OPTIONS]] from current question for clickable buttons
+  const diagAsk = useMemo(() => extractAskOptions(diag.currentQuestion), [diag.currentQuestion]);
+  const progressPct = Math.round(((diag.currentIndex + 1) / diag.totalQuestions) * 100);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  return (
+    <div className="flex flex-col overflow-y-auto" style={{ maxHeight: "calc(100dvh - 9rem)" }}>
+      {/* ── Header banner ──────────────────────────────────────────────────── */}
+      <div className="shrink-0 text-center py-3 mb-1">
+        <motion.div
+          animate={{ scale: [1, 1.05, 1] }}
+          transition={{ duration: 2.5, repeat: Infinity }}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-violet-500/10 via-gold/10 to-amber-400/10 border border-gold/20"
+        >
+          <span className="text-lg">🤖</span>
+          <span className="text-sm text-white/80 font-bold">نتعرّف عليك</span>
+          <Sparkles className="w-3.5 h-3.5 text-gold" />
+          <span className="text-[11px] text-white/40 tabular-nums">{progressPct}%</span>
+        </motion.div>
+      </div>
+
+      {/* ── Progress stepper ───────────────────────────────────────────────── */}
+      <div className="shrink-0 flex items-center justify-center gap-1.5 mb-3 px-2">
+        {Array.from({ length: diag.totalQuestions }, (_, i) => {
+          const isDone = i < diag.currentIndex;
+          const isCurrent = i === diag.currentIndex;
+          return (
+            <div key={i} className="flex items-center gap-1.5">
+              <motion.div
+                animate={isCurrent ? { scale: [1, 1.2, 1] } : {}}
+                transition={{ duration: 1.5, repeat: Infinity }}
+                className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold border transition-all ${
+                  isDone
+                    ? "bg-emerald/20 border-emerald/40 text-emerald"
+                    : isCurrent
+                    ? "bg-gold/20 border-gold/40 text-gold shadow-[0_0_12px_rgba(245,158,11,0.3)]"
+                    : "bg-white/[0.03] border-white/10 text-white/30"
+                }`}
+              >
+                {isDone ? <Check className="w-4 h-4" /> : i + 1}
+              </motion.div>
+              {i < diag.totalQuestions - 1 && (
+                <div className={`w-6 h-0.5 rounded-full ${i < diag.currentIndex ? "bg-emerald/40" : "bg-white/10"}`} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Chat transcript (scrollable) ───────────────────────────────────── */}
+      <div ref={scrollerRef} className="flex-1 min-h-[8rem] overflow-y-auto px-1 pb-1 space-y-3">
+        <AnimatePresence>
+          {transcript.map((m, i) => {
+            const thisQ = extractAskOptions(m.q);
+            return (
+              <motion.div
+                key={`transcript-${i}`}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, height: 0 }}
+                className="space-y-2"
+              >
+                {/* Question bubble */}
+                <div className="bg-white/[0.04] border border-white/10 rounded-2xl rounded-tr-sm p-3 text-sm leading-relaxed">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">🤖</span>
+                    <span className="text-[11px] text-gold/60">سؤال {i + 1}</span>
+                  </div>
+                  <div className="whitespace-pre-wrap text-white/85">
+                    {thisQ.stripped || m.q}
+                  </div>
+                </div>
+                {/* Answer bubble */}
+                <div className="bg-gradient-to-bl from-gold/10 to-violet-500/10 border border-gold/20 rounded-2xl rounded-tl-sm p-3 text-sm leading-relaxed ml-10">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">🧑‍🎓</span>
+                    <span className="text-[11px] text-gold/40">إجابتك</span>
+                  </div>
+                  <div className="whitespace-pre-wrap text-white/90">{m.a}</div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+
+        {/* Current question */}
+        <motion.div
+          key={`q-${diag.currentIndex}`}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 200, damping: 22 }}
+          className="relative overflow-hidden"
+        >
+          <div className="absolute -inset-1 bg-gradient-to-br from-violet-500/10 via-gold/10 to-transparent rounded-2xl blur-sm pointer-events-none" />
+          <div className="relative bg-white/[0.05] border border-gold/30 rounded-2xl rounded-tr-sm p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <motion.span
+                animate={{ rotate: [0, 12, -12, 0] }}
+                transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 4 }}
+                className="text-xl"
+              >🤖</motion.span>
+              <span className="text-[11px] text-gold/80 font-bold">
+                سؤال {diag.currentIndex + 1} من {diag.totalQuestions}
+              </span>
+              <span className="flex-1" />
+              <span className="flex items-center gap-1 text-[10px] text-violet-300/60 bg-violet-500/10 px-2 py-0.5 rounded-full">
+                <Sparkles className="w-3 h-3" /> اختر أو اكتب
+              </span>
+            </div>
+            {/* Question body — show stripped content, fallback to the ask question, fallback to raw question */}
+            <div className="whitespace-pre-wrap text-white/90 text-sm leading-relaxed">
+              {diagAsk.stripped || diagAsk.ask?.question || diag.currentQuestion.replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, "").trim()}
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* ── Clickable options ──────────────────────────────────────────────── */}
+      {diagAsk.ask && !diagBusy && (
+        <motion.div
+          key={`opts-${diag.currentIndex}`}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="shrink-0 space-y-2 px-1 pt-3 pb-1 border-t border-white/[0.06] relative z-10"
+        >
+          {diagAsk.ask.options.map((opt, i) => {
+            // Strip emoji prefix from the option text (keeps the emoji visible in the button)
+            const label = opt.replace(/^[^\s]+\s/, "");
+            const emoji = opt.match(/^(\S+)/)?.[1] ?? "";
+            // Only use emoji if it's actually a single/double emoji character
+            const hasEmoji = /^[\p{Emoji}]{1,2}$/u.test(emoji);
+            return (
+              <motion.button
+                key={`opt-${i}`}
+                initial={{ opacity: 0, x: -16 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.22 + i * 0.06 }}
+                onClick={() => submitDiagAnswer(opt)}
+                className="w-full text-right px-4 py-3 rounded-xl border bg-white/[0.02] hover:bg-gold/10 hover:border-gold/50 text-white/85 text-sm transition-all active:scale-[0.98] flex items-center gap-3 border-white/10 hover:shadow-[0_0_20px_rgba(245,158,11,0.08)]"
+              >
+                <span className="w-7 h-7 rounded-lg bg-gold/10 border border-gold/25 flex items-center justify-center text-sm shrink-0">
+                  {hasEmoji ? emoji : i + 1}
+                </span>
+                <span className="flex-1 leading-snug">{label}</span>
+                <ChevronLeft className="w-3.5 h-3.5 text-white/15 shrink-0" />
+              </motion.button>
+            );
+          })}
+          {/* Write-your-own */}
+          {diagAsk.ask.allowOther && (
+            <motion.button
+              initial={{ opacity: 0, x: -16 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.22 + diagAsk.ask.options.length * 0.06 }}
+              onClick={() => { setDiagInput(""); setTimeout(() => inputRef.current?.focus(), 50); }}
+              className="w-full text-right px-4 py-2.5 rounded-xl border border-dashed border-violet-400/25 bg-violet-500/[0.04] hover:bg-violet-500/10 hover:border-violet-400/50 text-violet-200/70 text-xs transition-all active:scale-[0.98] flex items-center gap-3"
+            >
+              <span className="w-7 h-7 rounded-lg bg-violet-500/10 border border-violet-400/20 flex items-center justify-center text-sm shrink-0">✏️</span>
+              <span className="flex-1">غير ذلك — أكتب إجابتي بنفسي</span>
+              <MessageCircle className="w-3 h-3 text-violet-300/30 shrink-0" />
+            </motion.button>
+          )}
+        </motion.div>
+      )}
+
+      {/* ── Sticky text input ───────────────────────────────────────────────── */}
+      <div className="shrink-0 pt-2">
+        <div className="flex items-end gap-2 bg-white/[0.05] border border-white/10 rounded-2xl p-2 shadow-[0_-8px_20px_rgba(0,0,0,0.3)]">
+          <textarea
+            ref={inputRef}
+            value={diagInput}
+            onChange={(e) => setDiagInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submitDiagAnswer();
+              }
+            }}
+            placeholder="أو اكتب إجابتك هنا…"
+            rows={2}
+            disabled={diagBusy}
+            className="flex-1 bg-transparent outline-none text-sm resize-none placeholder:text-white/25"
+            autoFocus
+          />
+          <button
+            onClick={() => submitDiagAnswer()}
+            disabled={diagBusy || !diagInput.trim()}
+            className="shrink-0 px-4 py-2 rounded-xl bg-gold text-black font-bold text-sm hover:bg-amber-400 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1.5"
+          >
+            {diagBusy ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                إرسال
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -1,0 +1,32 @@
+# --- المجلدات الخارجية / Dependencies ---
+node_modules/
+vendor/
+dist/
+
+# --- Git ---
+.git/
+
+# --- السجلات / Logs ---
+*.log
+
+# --- assets المرفوعة (لقطات شاشة وصور غير مرتبطة بالكود) ---
+attached_assets/
+
+# --- أدوات منصة Replit ---
+.replit
+.replitignore
+replit.md
+.replit_integration_files/
+
+# --- Canvas / Design tool cache ---
+.canvas/
+
+# --- ملفات النسخ الاحتياطية ---
+*.backup
+*.bak
+*.sql
+
+# --- Lockfiles (ضخمة وغير مفيدة للقراءة) ---
+pnpm-lock.yaml
+package-lock.json
+yarn.lock

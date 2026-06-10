@@ -52,6 +52,14 @@ export type PublishResult = {
   summary: V4ValidationReport["summary"];
 };
 
+export type PublishProgress = {
+  phase: string;
+  /** Count of rows or items being inserted in this phase. */
+  count?: number;
+  /** Human-readable label for the phase. */
+  label?: string;
+};
+
 // Rows per INSERT statement. Postgres caps bound parameters at 65535; our
 // widest table (lessons / exam questions) is ~16 columns, so 500 rows ≈ 8000
 // params — comfortably under the limit with room for wider rows.
@@ -179,6 +187,7 @@ async function nextVersion(tx: typeof db, specialtyId: number): Promise<number> 
 export async function publishV4InstructionFile(
   rawJson: unknown,
   publishedByUserId: number | null,
+  onProgress?: (p: PublishProgress) => void,
 ): Promise<PublishResult> {
   const report = validateV4InstructionFile(rawJson);
   if (!report.ok || !report.parsed) {
@@ -230,6 +239,7 @@ export async function publishV4InstructionFile(
     const levelIdByIndex = new Map<number, number>(
       insertedLevels.map((r: any) => [r.levelIndex as number, r.id as number]),
     );
+    onProgress?.({ phase: "inserted:levels", count: levelValues.length, label: "المستويات" });
 
     // ── Stages (bulk) ──────────────────────────────────────────────────────
     const stageValues: any[] = [];
@@ -257,6 +267,7 @@ export async function publishV4InstructionFile(
     const stageIdByCode = new Map<string, number>(
       insertedStages.map((r: any) => [r.code as string, r.id as number]),
     );
+    onProgress?.({ phase: "inserted:stages", count: stageValues.length, label: "المراحل" });
 
     // ── Units (bulk) ───────────────────────────────────────────────────────
     const unitValues: any[] = [];
@@ -290,6 +301,7 @@ export async function publishV4InstructionFile(
     const unitIdByCode = new Map<string, number>(
       insertedUnits.map((r: any) => [r.code as string, r.id as number]),
     );
+    onProgress?.({ phase: "inserted:units", count: unitValues.length, label: "الوحدات" });
 
     // ── Labs + Lessons (bulk) ──────────────────────────────────────────────
     // Both hang off units, so build their value arrays in one walk, then
@@ -351,20 +363,24 @@ export async function publishV4InstructionFile(
         });
       });
     }
-    const insertedLabs = await chunkedInsertReturning(tx, v4LabScenariosTable, labValues, {
-      id: v4LabScenariosTable.id,
-      code: v4LabScenariosTable.code,
-    });
+    // Labs and Lessons are independent of each other — run in parallel.
+    const [insertedLabs, insertedLessons] = await Promise.all([
+      chunkedInsertReturning(tx, v4LabScenariosTable, labValues, {
+        id: v4LabScenariosTable.id,
+        code: v4LabScenariosTable.code,
+      }),
+      chunkedInsertReturning(tx, v4LessonsTable, lessonValues, {
+        id: v4LessonsTable.id,
+        code: v4LessonsTable.code,
+      }),
+    ]);
     const labIdByCode = new Map<string, number>(
       insertedLabs.map((r: any) => [r.code as string, r.id as number]),
     );
-    const insertedLessons = await chunkedInsertReturning(tx, v4LessonsTable, lessonValues, {
-      id: v4LessonsTable.id,
-      code: v4LessonsTable.code,
-    });
     const lessonIdByCode = new Map<string, number>(
       insertedLessons.map((r: any) => [r.code as string, r.id as number]),
     );
+    onProgress?.({ phase: "inserted:labs_lessons", count: labValues.length + lessonValues.length, label: "المعامل والدروس" });
 
     // ── Lab questions + lesson concepts + common mistakes (bulk) ───────────
     const labQuestionValues: any[] = [];
@@ -424,9 +440,13 @@ export async function publishV4InstructionFile(
         });
       });
     }
-    await chunkedInsert(tx, v4LabQuestionsTable, labQuestionValues);
-    await chunkedInsert(tx, v4LessonConceptsTable, conceptValues);
-    await chunkedInsert(tx, v4LessonCommonMistakesTable, mistakeValues);
+    // All three child tables are independent — insert in parallel.
+    await Promise.all([
+      chunkedInsert(tx, v4LabQuestionsTable, labQuestionValues),
+      chunkedInsert(tx, v4LessonConceptsTable, conceptValues),
+      chunkedInsert(tx, v4LessonCommonMistakesTable, mistakeValues),
+    ]);
+    onProgress?.({ phase: "inserted:children", count: labQuestionValues.length + conceptValues.length + mistakeValues.length, label: "أسئلة المعامل والمفاهيم والأخطاء" });
 
     // ── Exam banks (bulk) ──────────────────────────────────────────────────
     const examValues: any[] = [];
@@ -514,8 +534,6 @@ export async function publishV4InstructionFile(
         }
       }
     }
-    await chunkedInsert(tx, v4ExamQuestionsTable, examValues);
-
     // ── Placement test questions (bulk) ────────────────────────────────────
     const placementValues: any[] = [];
     if (parsed.placement_test_questions) {
@@ -532,7 +550,13 @@ export async function publishV4InstructionFile(
         });
       });
     }
-    await chunkedInsert(tx, v4PlacementTestQuestionsTable, placementValues);
+
+    // Exam questions and placement questions are independent — insert in parallel.
+    await Promise.all([
+      chunkedInsert(tx, v4ExamQuestionsTable, examValues),
+      chunkedInsert(tx, v4PlacementTestQuestionsTable, placementValues),
+    ]);
+    onProgress?.({ phase: "inserted:exams", count: examValues.length + placementValues.length, label: "أسئلة الامتحانات وتحديد المستوى" });
 
     // ── Activate the new version ──────────────────────────────────────────
     await tx

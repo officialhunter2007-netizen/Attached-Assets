@@ -1,0 +1,27 @@
+- generic [ref=e2]:
+  - generic [ref=e8327]:
+    - generic [ref=e8606]:
+      - button "رجوع للخريطة" [ref=e8607]:
+        - img [ref=e8608]
+      - generic [ref=e8610]: 📚
+      - generic [ref=e8611]:
+        - generic [ref=e8612]: درس · 1.1.1.2
+        - generic [ref=e8613]: طباعة الأرقام والعمليات الحسابية
+      - button "96" [ref=e8614]:
+        - img [ref=e8615]
+        - generic [ref=e8618]: "96"
+      - button "محرر الأكواد" [ref=e8619]:
+        - img [ref=e8620]
+      - button "الجلسات السابقة" [ref=e8625]:
+        - img [ref=e8626]
+    - generic [ref=e8631]:
+      - generic [ref=e8633]: ابدأ معي شرح الدرس بأسلوبك التفاعلي.
+      - img [ref=e8636]
+    - generic [ref=e8640]:
+      - button "إرفاق صورة" [disabled] [ref=e8641]:
+        - img [ref=e8642]
+      - textbox "اكتب ردّك للمعلم..." [disabled] [ref=e8646]
+      - button "إرسال" [disabled] [ref=e8647]:
+        - img [ref=e8648]
+  - region "Notifications (F8)":
+    - list

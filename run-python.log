@@ -1,0 +1,1166 @@
+nohup: ignoring input
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → skeleton.json
+[32m✓[0m حُفظ: ./out/skill-python/skeleton.json (150522 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.1.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.1.1.json (77884 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.1.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.1.2.json (93468 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.1.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.1.3.json (85049 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.1.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.1.4.json (82380 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.1.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.1.5.json (79905 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.1.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.1.6.json (90817 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.1.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.1.7.json (103003 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.1.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.1.8.json (87489 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.1.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.1.9.json (87329 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.2.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.2.1.json (84776 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.2.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.2.2.json (95510 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-flash] محاولة 1/5 → 1.2.3.json
+[33m⚠[0m النموذج 'gemini-2.5-flash' استُنفدت حصته (429) — التحويل تلقائياً إلى 'gemini-2.5-pro' ومتابعة التوليد.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.2.3.json (87787 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.4.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "1.2.4",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "1.2.4.1",
+      "name": "هل هذا يساوي ذاك؟ عامل المساو...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.2.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.2.4.json (55906 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.5.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.2.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.2.5.json (72306 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.2.6.json (103268 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.7.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "1.2.7",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "1.2.7.1",
+      "name": "حاسبة الخصم في الدكان",
+      "goal...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.2.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.2.7.json (86856 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.2.8.json (66631 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.2.9.json (78484 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.3.1.json (73360 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.3.2.json (75542 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.3.3.json (78725 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.3.4.json (69176 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.3.5.json (70593 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.6.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource has been exhausted (e.g. check quota).
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.3.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.3.6.json (95745 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.7.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.3.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.3.7.json (77752 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.3.8.json (79312 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.3.9.json (90549 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.4.1.json (85268 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.4.2.json (96845 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.4.3.json (80126 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.4.4.json (91326 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.4.5.json (75780 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.4.6.json (93485 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.4.7.json (92771 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.4.8.json (91484 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.4.9.json (92913 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.5.1.json (94818 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.5.2.json (76824 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.5.3.json (87478 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.5.4.json (96168 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.5.5.json (87454 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.6.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.5.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.5.6.json (86647 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.7.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "1.5.7",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "1.5.7.1",
+      "name": "إدخال استهلاك الكهرباء وحساب...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.5.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.5.7.json (75192 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.5.8.json (92387 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.9.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "1.5.9",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "1.5.9.1",
+      "name": "تجهيز قائمة الأسعار: استخدام ...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.5.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.5.9.json (87251 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.6.1.json (91727 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.6.2.json (82150 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.6.3.json (68981 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.6.4.json (90240 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.6.5.json (94796 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.6.6.json (91999 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.6.7.json (88187 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.6.8.json (94522 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.6.9.json (89852 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.7.1.json (95308 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.7.2.json (85040 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.7.3.json (87135 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.7.4.json (90181 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.7.5.json (108931 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.7.6.json (89990 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.7.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "1.7.7",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "1.7.7.1",
+      "name": "فكرة المشروع وأول عملية تحوي�...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.7.7.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "1.7.7",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "1.7.7.1",
+      "name": "تخطيط المشروع وتثبيت أسعار ا�...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 1.7.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.7.7.json (88478 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.7.8.json (91101 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/1.7.9.json (94922 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.1.1.json (91240 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.1.2.json (72682 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.1.3.json (90187 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.4.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.1.4.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 2.1.4.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 4/5 → 2.1.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.1.4.json (71000 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.1.5.json (65416 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.1.6.json (77995 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.1.7.json (94975 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.8.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "2.1.8",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "2.1.8.1",
+      "name": "مقدمة إلى التوابل (Tuples)",
+      "go...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.1.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.1.8.json (76131 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.1.9.json (98812 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.1.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.2.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.2.1.json (82599 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.2.2.json (85159 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.2.3.json (81160 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.2.4.json (59975 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.2.5.json (85073 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.2.6.json (86624 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.2.7.json (92142 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.2.8.json (97165 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.9.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "2.2.9",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "2.2.9.1",
+      "name": "تمثيل الطالب: أول قاموس بيانا...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.2.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.2.9.json (97503 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.3.1.json (88162 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.3.2.json (90964 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.3.3.json (92432 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.3.4.json (77685 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.3.5.json (64027 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.3.6.json (101959 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.3.7.json (101351 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.3.8.json (84813 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.3.9.json (96524 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.1.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.4.1.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 2.4.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.4.1.json (80528 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.4.2.json (95003 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.3.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "2.4.3",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "2.4.3.1",
+      "name": "إنشاء ملفك الأول والكتابة في�...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.4.3.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 2.4.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.4.3.json (84451 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.4.4.json (81367 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.4.5.json (92810 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.4.6.json (83170 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.4.7.json (95552 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.4.8.json (98827 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.4.9.json (115260 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.5.1.json (90145 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.2.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.5.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.5.2.json (76579 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.3.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.5.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.5.3.json (73648 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.4.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "2.5.4",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "2.5.4.1",
+      "name": "كتلة else: ماذا يحدث عندما لا يق...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.5.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.5.4.json (82696 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.5.5.json (73771 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.5.6.json (100094 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.5.7.json (90860 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.5.8.json (86277 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.5.9.json (92820 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.6.1.json (90527 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.6.2.json (75958 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.6.3.json (80752 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.6.4.json (85416 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.6.5.json (82508 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.6.6.json (85544 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.6.7.json (93785 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.6.8.json (82256 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.9.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.6.9.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 2.6.9.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 4/5 → 2.6.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.6.9.json (98594 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.7.1.json (95953 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.7.2.json (94877 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.3.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "2.7.3",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "2.7.3.1",
+      "name": "مراجعة أساسيات الدوال: تنظيم ...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.7.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.7.3.json (106888 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.7.4.json (91646 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.7.5.json (82775 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.7.6.json (91510 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.7.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.7.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.7.7.json (94736 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.7.8.json (104101 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.9.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.7.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/2.7.9.json (81717 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.1.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.1.1.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 3.1.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.1.1.json (93203 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.1.2.json (78338 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.3.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.1.3.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 3.1.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.1.3.json (98708 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.1.4.json (73568 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.1.5.json (101606 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.1.6.json (82784 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.1.7.json (104117 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.1.8.json (111695 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.1.9.json (104407 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.2.1.json (78146 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.2.2.json (83062 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.3.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.2.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.2.3.json (104110 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.2.4.json (84768 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.2.5.json (96938 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.2.6.json (95430 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.2.7.json (87311 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.2.8.json (98359 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.2.9.json (65251 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.3.1.json (103385 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.2.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.3.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.3.2.json (106036 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.3.3.json (110940 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.3.4.json (83531 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.3.5.json (90478 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.3.6.json (102869 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.7.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.3.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.3.7.json (74509 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.3.8.json (94501 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.3.9.json (107877 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.1.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "3.4.1",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "3.4.1.1",
+      "name": "لماذا نقسم الكود؟ مقدمة للوح�...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.4.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.4.1.json (112790 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.4.2.json (83603 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.4.3.json (104605 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.4.4.json (93619 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.4.5.json (90279 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.4.6.json (92014 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.7.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "3.4.7",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "3.4.7.1",
+      "name": "مشكلة البرنامج ذي الملف الوا�...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.4.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.4.7.json (102159 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.4.8.json (96060 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.4.9.json (96557 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.5.1.json (88359 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.5.2.json (96060 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.5.3.json (88927 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.5.4.json (88576 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.5.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "3.5.5",
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "code": "3.5.5.1",
+      "name": "طلبك الأول من الإنترنت: استير...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.5.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.5.5.json (95350 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.5.6.json (98973 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.5.7.json (94909 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.5.8.json (102577 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.5.9.json (101096 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.6.1.json (85790 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.6.2.json (108989 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.6.3.json (102399 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.6.4.json (86039 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.6.5.json (107982 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.6.6.json (105403 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.6.7.json (100145 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.6.8.json (105147 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.6.9.json (108582 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.1.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.7.1.json (106452 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.2.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.7.2.json (95696 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.3.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.7.3.json (100969 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.4.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.7.4.json (99652 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.5.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.7.5.json (101970 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.6.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.7.6.json (102758 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.7.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.7.7.json (98174 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.8.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.7.8.json (100189 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.9.json
+[32m✓[0m حُفظ: ./out/skill-python/units/3.7.9.json (107833 بايت)
+[32m✓[0m اكتملت مرحلة الوحدات.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.1.1.json (24038 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.1.2.json (23056 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.1.3.json (28343 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.1.4.json (31158 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.1.5.json (21713 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.1.6.json (31123 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.1.7.json (31678 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.8.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.1.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.1.8.json (32207 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.1.9.json (33080 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.2.1.json (26478 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.2.2.json (27306 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.2.3.json (32542 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.2.4.json (25612 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.2.5.json (26069 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.2.6.json (35796 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.2.7.json (31286 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.2.8.json (26913 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.2.9.json (31327 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.3.1.json (26653 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.3.2.json (25884 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.3.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.3.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.3.3.json (35732 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.3.4.json (35067 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.3.5.json (33420 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.3.6.json (32596 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.3.7.json (36326 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.3.8.json (34014 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.9.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.3.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.3.9.json (31743 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.1.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.4.1.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 1.4.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.4.1.json (32690 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.4.2.json (32889 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.4.3.json (28635 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.4.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.4.4.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 1.4.4.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 4/5 → 1.4.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.4.4.json (31455 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.4.5.json (35020 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.4.6.json (55100 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.4.7.json (29939 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.4.8.json (37502 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.4.9.json (38250 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.5.1.json (28652 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.5.2.json (36542 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.5.3.json (39189 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.5.4.json (37979 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.5.5.json (31718 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.5.6.json (37892 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.5.7.json (33603 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.5.8.json (35965 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.5.9.json (31358 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.6.1.json (29895 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.6.2.json (27099 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.6.3.json (38668 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.6.4.json (31892 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.6.5.json (34724 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.6.6.json (32898 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.6.7.json (35849 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.6.8.json (33534 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.9.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "1.6.9.exam",
+  "scope": "unit",
+  "variants": [
+    [
+      {
+        "question_index": 1,
+        "kind": "mcq",
+        "prompt": "لديك نظ�...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.6.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.6.9.json (34887 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.7.1.json (29177 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.7.2.json (28836 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.3.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.7.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.7.3.json (27733 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.7.4.json (32580 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.7.5.json (34799 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.7.6.json (34851 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.7.7.json (32790 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.8.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "1.7.8",
+  "scope": "unit",
+  "variants": [
+    [
+      {
+        "question_index": 1,
+        "kind": "mcq",
+        "prompt": "ما هو ناتج ...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.7.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.7.8.json (29063 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/1.7.9.json (30912 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.1.1.json (22903 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.1.2.json (30260 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.1.3.json (26746 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.1.4.json (27054 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.5.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "2.1.5.exam",
+  "scope": "unit",
+  "variants": [
+    [
+      {
+        "question_index": 1,
+        "kind": "mcq",
+        "prompt": "ما هو ال...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.1.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.1.5.json (33510 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.1.6.json (31941 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.1.7.json (29460 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.1.8.json (30095 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.1.9.json (29904 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.2.1.json (24156 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.2.2.json (29993 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.2.3.json (33719 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.4.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.2.4.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource has been exhausted (e.g. check quota).
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 2.2.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.2.4.json (31836 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.2.5.json (27407 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.2.6.json (29992 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.2.7.json (32931 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.2.8.json (37587 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.2.9.json (31100 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.3.1.json (30525 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.3.2.json (30314 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.3.3.json (29035 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.3.4.json (33287 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.3.5.json (26975 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.3.6.json (32197 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.3.7.json (33531 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.3.8.json (42714 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.3.9.json (37652 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.4.1.json (30993 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.4.2.json (31793 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.4.3.json (31191 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.4.4.json (35706 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.4.5.json (35492 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.4.6.json (29934 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.7.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.4.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.4.7.json (45953 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.4.8.json (40648 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.4.9.json (33228 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.5.1.json (35653 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.2.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.5.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.5.2.json (38297 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.3.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.5.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.5.3.json (37707 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.5.4.json (33414 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.5.5.json (38816 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.5.6.json (35818 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.5.7.json (37610 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.5.8.json (35818 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.5.9.json (40104 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.6.1.json (35435 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.6.2.json (30244 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.6.3.json (27193 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.6.4.json (29020 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.6.5.json (35497 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.6.6.json (38535 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.6.7.json (34473 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.6.8.json (24179 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.6.9.json (43274 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.7.1.json (33031 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.7.2.json (35374 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.7.3.json (28653 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.7.4.json (32764 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.7.5.json (32499 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.7.6.json (26604 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.7.7.json (45010 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.7.8.json (33507 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/2.7.9.json (36226 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.1.1.json (34458 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.2.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.1.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.1.2.json (31087 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.1.3.json (35373 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.1.4.json (37230 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.1.5.json (43363 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.1.6.json (44732 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.1.7.json (36106 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.1.8.json (35681 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.1.9.json (38102 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.2.1.json (28682 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.2.2.json (34158 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.2.3.json (33479 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.2.4.json (28773 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.5.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "3.2.5.exam",
+  "scope": "unit",
+  "variants": [
+    [
+      {
+        "question_index": 1,
+        "kind": "mcq",
+        "prompt": "ما هو خر...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.2.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.2.5.json (44805 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.2.6.json (34943 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.2.7.json (30755 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.2.8.json (36756 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.2.9.json (41517 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.3.1.json (32402 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.3.2.json (29904 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.3.3.json (35574 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.3.4.json (33271 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.3.5.json (42237 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.3.6.json (32679 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.3.7.json (38548 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.8.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "3.3.8.exam",
+  "scope": "unit",
+  "variants": [
+    [
+      {
+        "question_index": 1,
+        "kind": "mcq",
+        "prompt": "لديك قا�...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.3.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.3.8.json (34365 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.3.9.json (40579 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.4.1.json (40602 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.4.2.json (35961 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.4.3.json (29293 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.4.4.json (40252 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.4.5.json (32625 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.4.6.json (31592 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.4.7.json (40369 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.4.8.json (33252 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.4.9.json (35624 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.5.1.json (28423 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.5.2.json (31432 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.5.3.json (31775 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.5.4.json (35107 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.5.5.json (37181 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.5.6.json (33854 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.5.7.json (34845 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.5.8.json (28003 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.5.9.json (37619 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.6.1.json (36903 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.6.2.json (39862 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.3.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.6.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.6.3.json (39601 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.6.4.json (48380 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.6.5.json (50209 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.6.6.json (40886 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.6.7.json (41756 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.6.8.json (36135 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.6.9.json (47182 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.7.1.json (35775 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.7.2.json (33289 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.7.3.json (40152 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.4.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "3.7.4",
+  "scope": "unit",
+  "variants": [
+    [
+      {
+        "question_index": 1,
+        "kind": "mcq",
+        "prompt": "وفقًا لدلي...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.7.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.7.4.json (35005 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.7.5.json (38348 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.7.6.json (46040 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.7.7.json (46096 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.8.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.7.8.json (36954 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.9.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/unit/3.7.9.json (41586 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/1.1.json (36720 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.2.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 1.2.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 3/5 → 1.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/1.2.json (40362 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/1.3.json (45045 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/1.4.json (45189 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/1.5.json (51173 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/1.6.json (50633 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/1.7.json (53021 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.1.json
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "2.1.exam",
+  "scope": "stage",
+  "variants": [
+    [
+      {
+        "question_index": 1,
+        "kind": "mcq",
+        "prompt": "لديك قائ...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 2.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/2.1.json (39929 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/2.2.json (52985 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/2.3.json (44232 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/2.4.json (51508 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/2.5.json (54889 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/2.6.json (48334 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/2.7.json (53963 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/3.1.json (56514 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.2.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/3.2.json (52459 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/3.3.json (47124 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.4.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/3.4.json (62629 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.5.json
+[33m⚠[0m حصة/حدّ معدّل (429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.
+[33m⚠[0m النموذج 'gemini-2.5-pro' استُنفدت حصته أيضاً. الحلول: انتظر إعادة تعيين الحصة، أو فعّل الفوترة لمشروعك، أو جرّب FALLBACK_MODEL=نموذج-آخر.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.5.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/3.5.json (49797 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.6.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/3.6.json (52157 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.7.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/stage/3.7.json (47917 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 1.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/level/1.json (58543 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 2.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/level/2.json (69247 بايت)
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → 3.json
+[33m⚠[0m الردّ بلغ سقف التوكنز (قد يكون مبتوراً) — سيُعاد إن لم يكن JSON صالحاً.
+[33m⚠[0m JSON غير صالح/مبتور، عيّنة: {
+  "code": "3",
+  "scope": "level",
+  "variants": [
+    [
+      {
+        "question_index": 1,
+        "kind": "mcq",
+        "prompt": "في البرمجة ك...
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 2/5 → 3.json
+[32m✓[0m حُفظ: ./out/skill-python/exams/level/3.json (78064 بايت)
+[32m✓[0m اكتملت مرحلة الامتحانات.
+[36m▸[0m → نداء [vertex:gemini-2.5-pro] محاولة 1/5 → placement.json
+[32m✓[0m حُفظ: ./out/skill-python/placement.json (14612 بايت)
+[36m▸[0m تجميع الهيكل + الوحدات...
+[36m▸[0m تجميع بنوك الامتحانات...
+[32m✓[0m 🎉 الملف النهائي جاهز: ./out/skill-python/final.json
+
+📊 إحصائيات:
+{
+  "schema_version": "v4.1",
+  "levels": 3,
+  "stages": 21,
+  "units": 189,
+  "lessons": 0,
+  "labs": 0,
+  "unit_exams": 189,
+  "stage_exams": 21,
+  "level_exams": 3,
+  "placement": 18
+}
+[36m▸[0m فحص سلامة ./out/skill-python/final.json ...
+[31m✗[0m وُجدت مشاكل في الملف:
+❌ وحدات بلا دروس: 1.1.1, 1.1.2, 1.1.3, 1.1.4, 1.1.5, 1.1.6, 1.1.7, 1.1.8, 1.1.9, 1.2.1, 1.2.2, 1.2.3, 1.2.4, 1.2.5, 1.2.6, 1.2.7, 1.2.8, 1.2.9, 1.3.1, 1.3.2, 1.3.3, 1.3.4, 1.3.5, 1.3.6, 1.3.7, 1.3.8, 1.3.9, 1.4.1, 1.4.2, 1.4.3, 1.4.4, 1.4.5, 1.4.6, 1.4.7, 1.4.8, 1.4.9, 1.5.1, 1.5.2, 1.5.3, 1.5.4, 1.5.5, 1.5.6, 1.5.7, 1.5.8, 1.5.9, 1.6.1, 1.6.2, 1.6.3, 1.6.4, 1.6.5, 1.6.6, 1.6.7, 1.6.8, 1.6.9, 1.7.1, 1.7.2, 1.7.3, 1.7.4, 1.7.5, 1.7.6, 1.7.7, 1.7.8, 1.7.9, 2.1.1, 2.1.2, 2.1.3, 2.1.4, 2.1.5, 2.1.6, 2.1.7, 2.1.8, 2.1.9, 2.2.1, 2.2.2, 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7, 2.2.8, 2.2.9, 2.3.1, 2.3.2, 2.3.3, 2.3.4, 2.3.5, 2.3.6, 2.3.7, 2.3.8, 2.3.9, 2.4.1, 2.4.2, 2.4.3, 2.4.4, 2.4.5, 2.4.6, 2.4.7, 2.4.8, 2.4.9, 2.5.1, 2.5.2, 2.5.3, 2.5.4, 2.5.5, 2.5.6, 2.5.7, 2.5.8, 2.5.9, 2.6.1, 2.6.2, 2.6.3, 2.6.4, 2.6.5, 2.6.6, 2.6.7, 2.6.8, 2.6.9, 2.7.1, 2.7.2, 2.7.3, 2.7.4, 2.7.5, 2.7.6, 2.7.7, 2.7.8, 2.7.9, 3.1.1, 3.1.2, 3.1.3, 3.1.4, 3.1.5, 3.1.6, 3.1.7, 3.1.8, 3.1.9, 3.2.1, 3.2.2, 3.2.3, 3.2.4, 3.2.5, 3.2.6, 3.2.7, 3.2.8, 3.2.9, 3.3.1, 3.3.2, 3.3.3, 3.3.4, 3.3.5, 3.3.6, 3.3.7, 3.3.8, 3.3.9, 3.4.1, 3.4.2, 3.4.3, 3.4.4, 3.4.5, 3.4.6, 3.4.7, 3.4.8, 3.4.9, 3.5.1, 3.5.2, 3.5.3, 3.5.4, 3.5.5, 3.5.6, 3.5.7, 3.5.8, 3.5.9, 3.6.1, 3.6.2, 3.6.3, 3.6.4, 3.6.5, 3.6.6, 3.6.7, 3.6.8, 3.6.9, 3.7.1, 3.7.2, 3.7.3, 3.7.4, 3.7.5, 3.7.6, 3.7.7, 3.7.8, 3.7.9
+[36m▸[0m العدّ: مستويات=3 مراحل=21 وحدات=189 دروس=0
+[31m✗[0m أصلح المشاكل أعلاه: احذف ملف الجزء المعيب من ./out/skill-python (مثل units/<code>.json) ثم أعد توليده + merge + validate.
+[33m⚠[0m الملف أُنشئ لكن فيه ملاحظات — راجعها قبل النشر.

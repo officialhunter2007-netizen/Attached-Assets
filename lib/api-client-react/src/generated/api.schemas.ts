@@ -314,6 +314,10 @@ export interface AdminUser {
   email: string;
   displayName?: string | null;
   role: string;
+  /** null = registered via email/password, non-null = Google OAuth id */
+  googleId?: string | null;
+  /** true if the user has an email/password login set */
+  hasPassword: boolean;
   nukhbaPlan?: string | null;
   messagesLeft?: number | null;
   points: number;

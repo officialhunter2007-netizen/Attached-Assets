@@ -1,0 +1,19 @@
+
+# ── Logs & temp ──────────────────────────────────────────────────────
+**/*.log
+tmp/
+
+# ── Git internals (use `git` via bash instead of reading .git/) ──────
+.git/
+
+# ── Replit-only internals (irrelevant on your VPS) ───────────────────
+.local/
+.agents/
+
+# ── IDE / OS noise ───────────────────────────────────────────────────
+.vscode/
+.idea/
+**/.DS_Store
+
+# ── KEPT INTENTIONALLY (do NOT ignore — real source you may edit) ────
+artifacts/nukhba-promo/

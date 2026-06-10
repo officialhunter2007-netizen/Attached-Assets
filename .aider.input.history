@@ -1,0 +1,374 @@
+
+# 2026-05-06 15:06:39.361745
++kd
+
+# 2026-05-06 15:09:57.748857
++y
+
+# 2026-05-06 15:11:26.105182
++n
+
+# 2026-05-06 15:11:59.841414
++/quit
++
+
+# 2026-05-06 19:35:28.584325
++n
+
+# 2026-05-06 19:36:02.120198
++hi
+
+# 2026-05-06 19:38:07.025035
++check that evrything work with out mistakes in the platform 
+
+# 2026-05-06 19:38:53.743097
++d
+
+# 2026-05-06 19:39:06.260759
++y
+
+# 2026-05-06 19:39:10.276396
++a
+
+# 2026-05-06 19:41:04.701512
++but do
+
+# 2026-05-06 19:47:20.099099
++d
+
+# 2026-05-06 19:48:15.500721
++whare we were
+
+# 2026-05-06 19:50:48.830826
++deploy the platform i don't want to see any mistake
+
+# 2026-05-06 19:51:18.430687
++a
+
+# 2026-05-06 19:55:25.335611
++n
+
+# 2026-05-06 19:55:35.538337
++y
+
+# 2026-05-06 19:55:35.547529
++/run nano .env
+
+# 2026-05-06 19:55:35.547605
++/run nano .env
+
+# 2026-05-06 19:55:58.055570
++y
+
+# 2026-05-06 19:56:05.835346
++/run pnpm run deploy
+
+# 2026-05-06 19:56:05.835979
++/run pnpm run deploy
+
+# 2026-05-06 20:08:25.616439
++y
+
+# 2026-05-06 20:08:29.224323
++/run pnpm run deploy:ssl
+
+# 2026-05-06 20:08:29.224376
++/run pnpm run deploy:ssl
+
+# 2026-05-06 20:08:54.776974
++y
+
+# 2026-05-06 20:08:59.082757
++/run pnpm run health
+
+# 2026-05-06 20:08:59.082827
++/run pnpm run health
+
+# 2026-05-06 20:09:07.144684
++y
+
+# 2026-05-06 20:09:31.009507
++do
+
+# 2026-05-06 20:36:49.913079
++n
+
+# 2026-05-06 20:36:53.139503
++hi
+
+# 2026-05-06 20:37:36.095835
++fix evry mistake in the platform
+
+# 2026-05-06 20:38:31.218467
++a
+
+# 2026-05-06 20:45:34.553124
++n
+
+# 2026-05-06 20:45:37.146614
++hi
+
+# 2026-05-06 20:46:34.590040
++quit
+
+# 2026-05-06 20:47:05.845470
++n
+
+# 2026-05-06 20:47:10.912015
++hi
+
+# 2026-05-06 20:50:23.111711
++n
+
+# 2026-05-06 20:50:24.991247
++hi
+
+# 2026-05-06 20:50:57.902063
++n
+
+# 2026-05-06 20:51:00.792391
++hi
+
+# 2026-05-06 20:54:29.955558
++n
+
+# 2026-05-06 20:54:33.981999
++hi
+
+# 2026-05-06 20:56:23.902900
++check that evrything work with out mistakes entairly .don't modify any thing
+
+# 2026-05-06 20:56:40.355579
++y
+
+# 2026-05-06 20:56:40.365122
++/run npm test
+
+# 2026-05-06 20:56:40.365221
++/run npm test
+
+# 2026-05-06 20:56:42.476243
++/run npm run build
+
+# 2026-05-06 20:56:42.476308
++/run npm run build
+
+# 2026-05-06 20:56:59.825412
++/run npm start
+
+# 2026-05-06 20:56:59.825543
++/run npm start
+
+# 2026-05-06 20:57:07.167208
++k
+
+# 2026-05-06 20:57:09.917947
++d
+
+# 2026-05-06 20:57:42.636425
++what did you know
+
+# 2026-05-06 20:58:08.636903
++yes
+
+# 2026-05-06 20:59:31.502075
++deploy the platform
+
+# 2026-05-07 12:43:09.799707
++n
+
+# 2026-05-07 12:43:13.401644
++hi
+
+# 2026-05-07 12:49:32.000149
++n
+
+# 2026-05-07 12:49:50.854971
++hi
+
+# 2026-05-09 21:01:09.318148
++why the project doesn't work when i sighn in
+
+# 2026-05-09 21:02:13.401284
++look to the files of the project
+
+# 2026-05-09 21:02:20.835933
++n
+
+# 2026-05-09 21:02:31.108350
++a
+
+# 2026-05-09 21:03:15.836268
++not to the main page but 401
+
+# 2026-05-09 21:04:51.921453
++the proplem form the server fix evrything
+
+# 2026-05-09 21:05:35.678024
++don't speak with me just do evrything
+
+# 2026-05-09 21:06:05.678777
++search for that your self
+
+# 2026-05-09 21:13:02.634803
++fix evry thing 
+
+# 2026-05-09 21:14:06.021436
++fix evry mistake in nukhba project
+
+# 2026-05-09 21:14:21.707109
++check yourself
+
+# 2026-05-09 21:14:33.618127
++by
+
+# 2026-05-09 21:14:42.158465
++quit
+
+# 2026-05-10 18:16:35.283468
++n
+
+# 2026-05-10 18:16:46.126976
++y
+
+# 2026-05-10 18:17:31.262377
++n
+
+# 2026-05-10 18:17:37.659033
++hi
+
+# 2026-05-10 18:19:55.383710
++n
+
+# 2026-05-10 18:20:04.900152
++hi
+
+# 2026-05-10 18:23:49.689994
++n
+
+# 2026-05-10 18:23:52.018657
++hi
+
+# 2026-05-10 18:26:45.480014
++n
+
+# 2026-05-10 18:26:48.068297
++hi
+
+# 2026-05-10 18:27:56.147045
++n
+
+# 2026-05-10 18:27:58.298576
++hi
+
+# 2026-05-10 18:58:00.623216
++n
+
+# 2026-05-10 18:58:02.259038
++hi
+
+# 2026-05-10 19:02:13.583190
++When I sign in to my platform Buy Google and collect my email it doesn't direct me to the page it should direct me to it just send four zero one error 
+
+# 2026-05-10 19:02:59.166648
++a
+
+# 2026-05-10 19:06:02.443577
++what shoud i do now
+
+# 2026-05-10 19:08:01.896214
++a
+
+# 2026-05-10 19:10:31.254613
++If the project or the platform ready to deploy deploy it right now 
+
+# 2026-05-10 19:12:24.910337
++have you deployed the platform or not yet
+
+# 2026-05-11 16:50:42.265475
++hi
+
+# 2026-05-11 16:52:30.098319
++When I typed my project's domain nothing appeared Fix the mistakes and problems and deploy the project to be seen on the prowser
+
+# 2026-05-11 16:53:53.704602
++y
+
+# 2026-05-11 16:54:53.641764
++is everything ready to deploy now with no mistakes
+
+# 2026-05-11 16:55:20.034842
++y
+
+# 2026-05-11 16:56:38.338192
++Ionem not talking about promotion I am talking about the project itself is everything reachable to the users 
+
+# 2026-05-11 16:58:07.057871
++You have an access to every file in the project so do the best and fix everything 
+
+# 2026-05-11 17:14:26.225747
++/add artifacts
+
+# 2026-05-11 17:15:46.963898
++ When I typed my project's domain nothing appeared Fix the mistakes and problems and deploy the project to
++> be seen on the prowser
+
+# 2026-05-11 17:19:59.668951
++n
+
+# 2026-05-11 17:20:50.150541
++/drop artifacts/nukhba-promo
+
+# 2026-05-11 17:21:26.378760
++When I typed my project's domain nothing appeared Fix the mistakes and problems and deploy the project to
++> be seen on the prowser
+
+# 2026-05-11 17:30:04.475044
++y
+
+# 2026-05-11 17:31:38.473818
++n
+
+# 2026-05-11 17:32:57.786432
++/drop artifacts/nukhba-promo
+
+# 2026-05-11 17:33:09.067200
++When I typed my project's domain nothing appeared Fix the mistakes and problems and deploy the project to
++> be seen on the prowser
+
+# 2026-05-11 17:33:18.664779
++n
+
+# 2026-05-11 17:33:43.124031
++/drop artifacts/mockup-sandbox
+
+# 2026-05-11 17:34:07.106459
++When I typed my project's domain nothing appeared Fix the mistakes and problems and deploy the project to
++> be seen on the prowser
+
+# 2026-05-11 18:04:15.357631
++n
+
+# 2026-05-11 18:05:45.757293
++hi
+
+# 2026-05-11 18:07:50.683348
++/clear
+
+# 2026-05-11 18:08:24.348538
++/add artifacts/api-server
+
+# 2026-05-11 18:09:17.944841
++When I tied my project domain nothing appeared so we want you to check everything and fix every mistake and when the platform ready deploy it 
+
+# 2026-05-11 18:14:05.167624
++y
+
+# 2026-05-11 18:16:17.651667
++But I use Doker containers to deploy this project 
+
+# 2026-05-11 18:16:26.889359
++n
+
+# 2026-05-11 18:16:41.438109
++ But I use Doker containers to deploy this project
