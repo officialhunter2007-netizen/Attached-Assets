@@ -23,6 +23,8 @@ import { SceneMount } from "@/components/scene-stepper";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { useAuth } from "@/lib/use-auth";
 import { readUserJson, writeUserJson, userKey } from "@/lib/user-storage";
+import { extractAskOptions, normalizeArabicText } from "@/lib/ask-options";
+import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 
 // Generic, student-friendly Arabic fallback for technical/network failures so
 // the chat never surfaces raw strings like "http_500" or "Failed to fetch".
@@ -209,19 +211,16 @@ function sanitizeProtocolNoise(raw: string): string {
     // Strip partial bracketed protocol fragments at the END of the buffer.
     // We're conservative: only strip if the buffer is "tailed" by a
     // dangling bracket sequence that hasn't closed yet.
-    // An ANIM block that hasn't received its [[/ANIM]] terminator yet must be
-    // hidden during streaming (raw HTML/JS would otherwise flash as text).
     .replace(/\[\[ANIM\]\](?:(?!\[\[\/ANIM\]\])[\s\S])*$/g, "")
-    // Hide an unterminated SCENE tail (no closing `]]` yet) so the raw marker
-    // never flashes as text mid-stream. A complete tag is left intact.
     .replace(/\[\[SCENE:(?:(?!\]\])[\s\S])*$/g, "")
     .replace(/\[\[VIZ:[\s\S]*$/g, "")
     .replace(/\[\[IMAGE:[a-f0-9]*$/i, "")
     .replace(/\[(MASTERY|NEEDS_REVIEW|CREATE_LAB_ENV|LAB_MASTERED|EXAM_MASTERED|LESSON_MASTERED|SESSION_COMPLETE|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE|DIFFICULTY_UP|DIFFICULTY_DOWN)?$/i, "")
-    // Strip COMPLETE simple/param protocol tags (server already strips most,
-    // but be defensive in case a chunk boundary sliced one through).
     .replace(/\[(LESSON_MASTERED|SESSION_COMPLETE|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE|DIFFICULTY_UP|DIFFICULTY_DOWN)\]/g, "")
-    .replace(/\[(?:MASTERY|NEEDS_REVIEW|CREATE_LAB_ENV|LAB_MASTERED|EXAM_MASTERED)[^\]]*\]/g, "");
+    .replace(/\[(?:MASTERY|NEEDS_REVIEW|CREATE_LAB_ENV|LAB_MASTERED|EXAM_MASTERED)[^\]]*\]/g, "")
+    // Safety net: strip raw [[ASK_OPTIONS:...]] that escaped the parser so
+    // students never see the tag as plain text, even if extractAskOptions fails.
+    .replace(/\[\[ASK_OPTIONS:\s*[^\]]*\]\]/g, "");
 }
 
 function renderHtml(raw: string): string {
@@ -1143,7 +1142,17 @@ export default function V4Lesson() {
           {messages.map((m, i) => {
             const isLast = i === messages.length - 1;
             return (
-              <MessageBubble key={i} msg={m} isStreaming={streaming && isLast && m.role === "assistant"} imageMap={imageMap} />
+              <MessageBubble
+                key={i}
+                msg={m}
+                isStreaming={streaming && isLast && m.role === "assistant"}
+                imageMap={imageMap}
+                onAnswerOption={
+                  isLast && m.role === "assistant" && !streaming
+                    ? (ans: string) => void sendMessage(ans)
+                    : undefined
+                }
+              />
             );
           })}
           {streaming && messages[messages.length - 1]?.role === "user" && (
@@ -1322,12 +1331,37 @@ export default function V4Lesson() {
   );
 }
 
-const MessageBubble = ({ msg, isStreaming, imageMap }: { msg: ChatMsg; isStreaming: boolean; imageMap: Map<string, V4ImageState> }) => {
-  const html = useMemo(() => renderHtml(msg.content), [msg.content]);
+const MessageBubble = ({
+  msg,
+  isStreaming,
+  imageMap,
+  onAnswerOption,
+}: {
+  msg: ChatMsg;
+  isStreaming: boolean;
+  imageMap: Map<string, V4ImageState>;
+  onAnswerOption?: (answer: string) => void;
+}) => {
+  // Normalise Arabic text (stuck words, missing spaces) on assistant messages.
+  const normalizedContent = useMemo(() => {
+    if (msg.role !== "assistant") return msg.content;
+    return normalizeArabicText(msg.content);
+  }, [msg.content, msg.role]);
+
+  // Parse [[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| غير ذلك]] protocol tag.
+  const askResult = useMemo(() => {
+    if (msg.role !== "assistant" || isStreaming)
+      return { stripped: normalizedContent, ask: null as ReturnType<typeof extractAskOptions>["ask"] };
+    return extractAskOptions(normalizedContent);
+  }, [normalizedContent, msg.role, isStreaming]);
+
+  // Render the stripped content (question text without the ASK_OPTIONS tag) as HTML.
+  const html = useMemo(() => renderHtml(askResult.stripped), [askResult.stripped]);
+
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-3xl rounded-tl-lg bg-gradient-to-bl from-violet-500/30 to-violet-700/20 border border-violet-400/30 px-4 py-3 text-sm text-white/95 leading-relaxed whitespace-pre-wrap">
+        <div className="max-w-[85%] rounded-3xl rounded-bl-none bg-[#4c1d95] border border-violet-400/20 px-4 py-3 text-sm text-white/95 leading-relaxed whitespace-pre-wrap shadow-lg">
           {msg.image && (
             <img
               src={msg.image}
@@ -1340,10 +1374,28 @@ const MessageBubble = ({ msg, isStreaming, imageMap }: { msg: ChatMsg; isStreami
       </div>
     );
   }
+
+  // Assistant bubble: rendered HTML + optional clickable options below.
+  const hasOptions = askResult.ask && onAnswerOption;
+
   return (
     <div className="flex justify-start">
-      <div className="max-w-[92%] rounded-3xl rounded-tr-lg bg-white/[0.06] border border-white/[0.08] px-5 py-4 shadow-sm">
-        {html ? <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} /> : <Loader2 className="w-4 h-4 animate-spin text-amber-400" />}
+      <div className="max-w-[92%] rounded-3xl rounded-br-none bg-[#1f2937] border border-gray-700/50 p-5 shadow-sm leading-relaxed">
+        {html ? (
+          <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} />
+        ) : (
+          <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+        )}
+        {hasOptions && (
+          <div className="mt-6">
+            <OptionsQuestion
+              question={askResult.ask!.question}
+              options={askResult.ask!.options}
+              allowOther={askResult.ask!.allowOther}
+              onAnswer={(ans) => onAnswerOption?.(ans)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
