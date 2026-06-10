@@ -1,9 +1,45 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and } from "drizzle-orm";
-import sanitizeHtml from "sanitize-html";
+import xss from "xss";
 import { db, labReportsTable } from "@workspace/db";
 
 const router: IRouter = Router();
+
+const xssOptions = {
+  whiteList: {
+    div: ["class", "dir"],
+    p: ["class", "dir"],
+    span: ["class", "dir"],
+    br: [],
+    hr: [],
+    h1: ["class", "dir"],
+    h2: ["class", "dir"],
+    h3: ["class", "dir"],
+    h4: ["class", "dir"],
+    h5: ["class", "dir"],
+    h6: ["class", "dir"],
+    ul: ["class", "dir"],
+    ol: ["class", "dir"],
+    li: ["class", "dir"],
+    strong: ["class", "dir"],
+    b: ["class", "dir"],
+    em: ["class", "dir"],
+    i: ["class", "dir"],
+    u: ["class", "dir"],
+    s: ["class", "dir"],
+    code: ["class", "dir"],
+    pre: ["class", "dir"],
+    blockquote: ["class", "dir"],
+    table: ["class", "dir"],
+    thead: ["class", "dir"],
+    tbody: ["class", "dir"],
+    tr: ["class", "dir"],
+    th: ["class", "dir"],
+    td: ["class", "dir"],
+  },
+  stripIgnoreTag: true,
+  stripIgnoreTagBody: ["script"],
+};
 
 // Strict allowlist for AI-generated teacher feedback HTML. Matches the kinds
 // of tags/attrs the teaching prompts produce (h3/h4, headings, lists, code,
@@ -11,23 +47,7 @@ const router: IRouter = Router();
 // deliberately disallow scripts, event handlers, javascript: URLs, style
 // attributes, iframes, and arbitrary attributes.
 function sanitizeFeedbackHtml(html: string): string {
-  return sanitizeHtml(html, {
-    allowedTags: [
-      "div", "p", "span", "br", "hr",
-      "h1", "h2", "h3", "h4", "h5", "h6",
-      "ul", "ol", "li",
-      "strong", "b", "em", "i", "u", "s",
-      "code", "pre",
-      "blockquote",
-      "table", "thead", "tbody", "tr", "th", "td",
-    ],
-    allowedAttributes: {
-      "*": ["class", "dir"],
-    },
-    allowedSchemes: [],
-    disallowedTagsMode: "discard",
-    allowProtocolRelative: false,
-  });
+  return xss(html, xssOptions);
 }
 
 function getUserId(req: any): number | null {
