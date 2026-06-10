@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+// Arabic ordinal letters used as option badges (أ، ب، ج، د …).
+const OPTION_LETTERS = ["أ", "ب", "ج", "د", "هـ", "و", "ز", "ح"];
+
 export function OptionsQuestion({
   question,
   options,
@@ -11,87 +14,85 @@ export function OptionsQuestion({
   allowOther: boolean;
   onAnswer: (answer: string) => void;
 }) {
+  // When the model returns fewer than two real options (e.g. only "لا أعرف"
+  // or none at all), a lonely button looks broken and discourages thinking.
+  // In that case skip the buttons entirely and invite a free-text answer.
+  const tooFewOptions = options.length < 2;
+
   const [picked, setPicked] = useState<string | null>(null);
-  const [showOther, setShowOther] = useState(false);
+  const [showOther, setShowOther] = useState(tooFewOptions);
   const [otherText, setOtherText] = useState("");
 
-  // ── After selection: show options with the chosen one highlighted ───────
-  if (picked) {
-    return (
-      <div className="my-3">
-        <div className="text-sm text-white/90 mb-3 font-medium leading-relaxed">
-          {question}
+  // Nothing meaningful to render — no question and no usable options.
+  if (!question && options.length === 0) return null;
+
+  const locked = picked !== null;
+  // A custom ("other") answer is one the student typed that isn't in options.
+  const pickedIsCustom = locked && picked !== null && !options.includes(picked);
+
+  return (
+    <div className="opt-block">
+      {question && (
+        <div className="opt-question">
+          <span className="opt-question-icon">؟</span>
+          <span className="opt-question-text">{question}</span>
         </div>
-        <div className="space-y-2">
-          {options.map((opt) => {
+      )}
+
+      {!tooFewOptions && (
+        <div className="opt-list">
+          {options.map((opt, i) => {
             const isSelected = opt === picked;
+            const dimmed = locked && !isSelected;
             return (
               <button
                 key={opt}
-                disabled
-                className={`block w-full text-right text-sm rounded-xl p-4 border transition-colors flex items-center justify-between ${
-                  isSelected
-                    ? "bg-[#4c1d95] border-purple-400/50 text-white"
-                    : "bg-[#1f2937] border-gray-700/30 text-white/50 opacity-50"
-                }`}
+                type="button"
+                disabled={locked}
+                onClick={() => {
+                  if (locked) return;
+                  setPicked(opt);
+                  onAnswer(opt);
+                }}
+                className={[
+                  "opt-btn",
+                  isSelected ? "opt-btn-selected" : "",
+                  dimmed ? "opt-btn-dimmed" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                style={{ animationDelay: `${i * 55}ms` }}
               >
-                <span>{opt}</span>
-                {isSelected && (
-                  <span className="text-purple-200 shrink-0 mr-3 text-lg">
-                    ✓
-                  </span>
-                )}
+                <span className="opt-badge">{OPTION_LETTERS[i] ?? String(i + 1)}</span>
+                <span className="opt-text">{opt}</span>
+                {isSelected && <span className="opt-check">✓</span>}
               </button>
             );
           })}
         </div>
-        {allowOther && (
-          <button
-            type="button"
-            onClick={() => {
-              setPicked(null);
-              setShowOther(true);
-            }}
-            className="mt-2 block w-full text-right text-sm border border-dashed border-gray-500 text-gray-400 hover:text-white hover:border-gray-400 rounded-xl p-3 transition-colors"
-          >
-            ✏️ غير ذلك (اكتب بنفسك)
-          </button>
-        )}
-      </div>
-    );
-  }
+      )}
 
-  // ── Not yet selected — clickable options ─────────────────────────────────
-  return (
-    <div className="my-3">
-      <div className="text-sm text-white/90 mb-3 font-medium leading-relaxed">
-        {question}
-      </div>
-      <div className="space-y-2">
-        {options.map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => {
-              setPicked(opt);
-              onAnswer(opt);
-            }}
-            className="block w-full text-right text-sm bg-[#1f2937] hover:bg-gray-700 hover:border-gray-500 border border-gray-600 text-white/90 rounded-xl p-4 transition-colors"
-          >
-            {opt}
-          </button>
-        ))}
-      </div>
-      {allowOther && !showOther && (
+      {/* Show the typed custom answer as a selected pill once submitted. */}
+      {pickedIsCustom && (
+        <div className="opt-btn opt-btn-selected opt-btn-custom">
+          <span className="opt-badge">✎</span>
+          <span className="opt-text">{picked}</span>
+          <span className="opt-check">✓</span>
+        </div>
+      )}
+
+      {allowOther && !showOther && !locked && !tooFewOptions && (
         <button
           type="button"
           onClick={() => setShowOther(true)}
-          className="mt-2 block w-full text-right text-sm border border-dashed border-gray-500 text-gray-400 hover:text-white hover:border-gray-400 rounded-xl p-3 transition-colors"
+          className="opt-other-trigger"
         >
-          ✏️ غير ذلك (اكتب بنفسك)
+          <span className="opt-other-pencil">✏️</span>
+          <span>غير ذلك (اكتب بنفسك)</span>
         </button>
       )}
-      {showOther && (
+
+      {showOther && !locked && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -100,28 +101,35 @@ export function OptionsQuestion({
             setPicked(v);
             onAnswer(v);
           }}
-          className="mt-3 space-y-2"
+          className="opt-other-form"
         >
           <textarea
             value={otherText}
             onChange={(e) => setOtherText(e.target.value)}
-            placeholder="اكتب تفاصيل ما تريد تعلّمه أو تجربته بالضبط..."
+            placeholder={
+              tooFewOptions
+                ? "اكتب إجابتك هنا..."
+                : "اكتب تفاصيل ما تريد تعلّمه أو تجربته بالضبط..."
+            }
             rows={3}
-            className="w-full bg-black/30 border border-white/15 rounded-xl p-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-purple-400/50 resize-none"
+            className="opt-other-input"
             autoFocus
           />
-          <div className="flex items-center gap-2">
+          <div className="opt-other-actions">
             <button
               type="submit"
               disabled={!otherText.trim()}
-              className="bg-purple-500 hover:bg-purple-400 disabled:bg-white/10 text-white text-sm font-bold rounded-xl px-5 py-2.5 transition-colors disabled:cursor-not-allowed"
+              className="opt-other-submit"
             >
               إرسال
             </button>
             <button
               type="button"
-              onClick={() => setShowOther(false)}
-              className="text-white/50 hover:text-white text-sm px-3 py-2.5 transition-colors"
+              onClick={() => {
+                setShowOther(false);
+                setOtherText("");
+              }}
+              className="opt-other-cancel"
             >
               إلغاء
             </button>
