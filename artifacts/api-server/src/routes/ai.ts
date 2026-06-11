@@ -7863,4 +7863,116 @@ router.post("/ai/run-code", async (req, res): Promise<any> => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/ai/explain-code  —  "شرح سطر بسطر"
+// Returns an EXTREMELY simplified, word-by-word / symbol-by-symbol Arabic
+// explanation of every non-blank line of the student's current code. ALL lines
+// are returned in ONE call so the in-IDE Next/Previous navigation is instant.
+// Auth mirrors /ai/run-code (getUserId, no CSRF).
+// ─────────────────────────────────────────────────────────────────────────────
+const EXPLAIN_CODE_SYSTEM = `أنت معلّم برمجة يمني ودود ومرِح جداً، تشرح الكود لطالب مبتدئ تماماً لم يبرمج في حياته من قبل.
+
+مهمتك: اشرح كل سطر فيه كود شرحاً مبسّطاً جداً وممتعاً — **كلمة بكلمة ورمزاً برمز**. تخيّل أنك تشرح لطفل ذكي عمره ١٢ سنة يرى البرمجة لأول مرة.
+
+قواعد الشرح (مهمة جداً):
+- ابدأ بفكرة السطر في جملة واحدة بسيطة، ثم فكّكه: اشرح كل كلمة، وكل قوس ( )، وكل علامة (= ، : ، " " ، . ، +)، وكل رمز على حدة ووظيفته.
+- استخدم تشبيهات من الحياة اليومية اليمنية (دكان، صندوق، كراسة، شاي، رفّ...).
+- لغة عربية سهلة دارجة، جُمل قصيرة جداً، بلا أي مصطلحات معقدة. إن اضطررت لكلمة إنجليزية اشرح معناها فوراً بين قوسين.
+- اجعله ممتعاً وحماسياً، وأضف رموزاً تعبيرية بسيطة باعتدال (📦 ✨ 👈 🎯) دون مبالغة.
+- لا تشرح الأسطر الفارغة أو أسطر التعليقات الفارغة.
+- اشرح الكود الموجود فقط، لا تخترع كوداً غير مكتوب.
+- البساطة هي الأهم: لو احتار الطالب فأنت أخفقت.
+
+أرجع JSON فقط بهذا الشكل بالضبط، بدون أي نص خارج الـJSON:
+{
+  "lines": [
+    { "n": 1, "explanation": "شرح السطر رقم ١ المبسّط جداً، جُمل قصيرة تفكّك كل كلمة ورمز." },
+    { "n": 2, "explanation": "..." }
+  ]
+}
+
+- "n" = رقم السطر تماماً كما هو مكتوب قبل الرمز │.
+- اشرح فقط الأسطر التي تحتوي على كود فعلي (تجاهل الأسطر الفارغة).`;
+
+router.post("/ai/explain-code", async (req: any, res: any): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const { code, language, subjectId } = (req.body ?? {}) as {
+    code?: string;
+    language?: string;
+    subjectId?: string;
+  };
+  if (!code || typeof code !== "string" || code.trim().length === 0) {
+    return res.status(400).json({ error: "اكتب بعض الكود أولاً ✍️" });
+  }
+  if (code.length > 100_000) {
+    return res.status(413).json({ error: "الكود طويل جداً للشرح" });
+  }
+  const lang = typeof language === "string" && language ? language : "python";
+
+  // Cap line count to keep token cost bounded — explain the first N lines.
+  const MAX_LINES = 120;
+  const rawLines = code.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const limited = rawLines.slice(0, MAX_LINES);
+  const numbered = limited.map((l, i) => `${i + 1}\u2502${l}`).join("\n");
+
+  if (!hasGeminiProvider()) {
+    return res.status(503).json({ error: "خدمة الشرح غير متاحة حالياً، حاول لاحقاً" });
+  }
+
+  const __start = Date.now();
+  try {
+    const result = await generateGeminiJson({
+      systemPrompt: EXPLAIN_CODE_SYSTEM,
+      userPrompt: `اللغة: ${lang}\n\nالكود (كل سطر مسبوق برقمه ثم الرمز │):\n\n${numbered}\n\nأرجع JSON فقط.`,
+      model: "gemini-2.5-flash-lite",
+      temperature: 0.4,
+      maxOutputTokens: 4000,
+      timeoutMs: 45_000,
+      logTag: "explain-code",
+    });
+
+    const parsed: any = robustJsonParse(result.text, "[explain-code]");
+    const rawOut: any[] = Array.isArray(parsed?.lines) ? parsed.lines : [];
+    const out = rawOut
+      .map((it: any) => ({
+        n: Number(it?.n),
+        explanation: String(it?.explanation ?? "").trim(),
+      }))
+      .filter((it) => Number.isFinite(it.n) && it.n >= 1 && it.n <= limited.length && it.explanation.length > 0)
+      .map((it) => ({
+        n: it.n,
+        code: (limited[it.n - 1] ?? "").replace(/\s+$/, ""),
+        explanation: it.explanation,
+      }))
+      .filter((it) => it.code.trim().length > 0)
+      .sort((a, b) => a.n - b.n);
+
+    try {
+      const u = extractGeminiUsage(result.usageMetadata);
+      void recordAiUsage({
+        userId,
+        subjectId: subjectId ?? null,
+        route: "ai/explain-code",
+        provider: "gemini",
+        model: "gemini-2.5-flash-lite",
+        inputTokens: u.inputTokens,
+        outputTokens: u.outputTokens,
+        cachedInputTokens: u.cachedInputTokens,
+        latencyMs: Date.now() - __start,
+        metadata: { channel: result.channel, lines: out.length },
+      });
+    } catch {}
+
+    if (out.length === 0) {
+      return res.status(500).json({ error: "تعذّر توليد الشرح، حاول مرة أخرى" });
+    }
+    return res.json({ lines: out });
+  } catch (err: any) {
+    console.error("[explain-code] error:", err?.message || err);
+    return res.status(500).json({ error: "تعذّر توليد الشرح حالياً، حاول مرة أخرى بعد قليل" });
+  }
+});
+
 export default router;

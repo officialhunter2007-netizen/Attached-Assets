@@ -6,8 +6,9 @@ import {
   Play, RotateCcw, Terminal, Circle, X, Plus, FileCode, Zap, Check, Eye,
   AlertTriangle, Maximize2, Monitor, Smartphone, Tablet, Globe, ArrowLeft,
   ArrowRight, Lock, Share2, Layers, Home, FolderOpen, Folder, FolderPlus,
-  ChevronRight, PanelLeftClose, PanelLeft, Keyboard, Code2,
+  ChevronRight, ChevronLeft, PanelLeftClose, PanelLeft, Keyboard, Code2,
   Copy, Trash2, MessageSquare, Expand, Minimize, ZoomIn, ZoomOut, Search,
+  BookOpen, Lightbulb, Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -1168,6 +1169,15 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const runningRef = useRef(running);
   runningRef.current = running;
 
+  // ── "شرح سطر بسطر" (line-by-line explanation) ──
+  const [explainOpen, setExplainOpen] = useState(false);
+  const [explainLoading, setExplainLoading] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
+  const [explainLines, setExplainLines] = useState<{ n: number; code: string; explanation: string }[]>([]);
+  const [explainIdx, setExplainIdx] = useState(0);
+  const explainDecoRef = useRef<string[]>([]);
+  const explainActiveRowRef = useRef<HTMLDivElement | null>(null);
+
   const canPreview = isWebSubject(subjectId) || hasWebFiles(files);
   const htmlPages = useMemo(() => getHtmlFiles(files), [files]);
   const canGoBack = navIndex > 0;
@@ -1607,6 +1617,106 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     setOutput(null);
     setShowOutput(false);
   };
+
+  // ── "شرح سطر بسطر" handlers ──
+  const clearExplainDeco = useCallback(() => {
+    const editor = editorRef.current;
+    if (editor) {
+      if (explainDecoRef.current.length) {
+        try { editor.deltaDecorations(explainDecoRef.current, []); } catch {}
+        explainDecoRef.current = [];
+      }
+      try { editor.updateOptions({ glyphMargin: false }); } catch {}
+    }
+  }, []);
+
+  const closeExplain = useCallback(() => {
+    setExplainOpen(false);
+    clearExplainDeco();
+  }, [clearExplainDeco]);
+
+  const handleExplainCode = async () => {
+    const file = activeFileRef.current;
+    if (explainLoading) return;
+    if (!file || !file.content || file.content.trim().length === 0) {
+      setExplainOpen(true);
+      setExplainLines([]);
+      setExplainIdx(0);
+      setExplainLoading(false);
+      setExplainError("اكتب بعض الكود أولاً ✍️");
+      return;
+    }
+    setExplainOpen(true);
+    setExplainLoading(true);
+    setExplainError(null);
+    setExplainLines([]);
+    setExplainIdx(0);
+    try {
+      const res = await fetch("/api/ai/explain-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ code: file.content, language: file.language, subjectId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.lines) || data.lines.length === 0) {
+        setExplainError(data?.error || "تعذّر توليد الشرح، حاول مرة أخرى");
+        return;
+      }
+      setExplainLines(data.lines);
+      setExplainIdx(0);
+    } catch {
+      setExplainError("تعذّر الاتصال بالخادم، تحقّق من الإنترنت وحاول مجدداً");
+    } finally {
+      setExplainLoading(false);
+    }
+  };
+
+  const explainNext = useCallback(() => {
+    setExplainIdx(i => Math.min(i + 1, explainLines.length - 1));
+  }, [explainLines.length]);
+  const explainPrev = useCallback(() => {
+    setExplainIdx(i => Math.max(i - 1, 0));
+  }, []);
+
+  // Sync the real Monaco editor (desktop): reveal + arrow-highlight the active line.
+  useEffect(() => {
+    if (!explainOpen || explainLines.length === 0) return;
+    const ln = explainLines[explainIdx]?.n;
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco || !ln) return;
+    try {
+      editor.updateOptions({ glyphMargin: true });
+      editor.revealLineInCenter(ln);
+      explainDecoRef.current = editor.deltaDecorations(explainDecoRef.current, [{
+        range: new monaco.Range(ln, 1, ln, 1),
+        options: {
+          isWholeLine: true,
+          className: "nukhba-explain-line",
+          glyphMarginClassName: "nukhba-explain-glyph",
+        },
+      }]);
+    } catch {}
+  }, [explainOpen, explainIdx, explainLines]);
+
+  // Auto-scroll the active row into view inside the drawer's code list.
+  useEffect(() => {
+    if (!explainOpen) return;
+    explainActiveRowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [explainIdx, explainOpen, explainLines]);
+
+  // Keyboard navigation while the drawer is open.
+  useEffect(() => {
+    if (!explainOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { closeExplain(); }
+      else if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); explainNext(); }
+      else if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); explainPrev(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [explainOpen, closeExplain, explainNext, explainPrev]);
 
   const sharePreview = () => {
     if (!onShareWithTeacher) return;
@@ -2509,6 +2619,18 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
           </button>
         )}
         <button
+          onClick={handleExplainCode}
+          disabled={explainLoading}
+          title="شرح الكود سطراً بسطر بطريقة مبسّطة"
+          className="explain-btn-pulse flex items-center gap-1.5 sm:gap-2 font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all text-xs sm:text-sm shadow-lg bg-gradient-to-l from-violet-600 to-indigo-600 text-white hover:from-violet-500 hover:to-indigo-500 shadow-violet-600/30 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+          style={{ direction: "rtl" }}
+        >
+          {explainLoading
+            ? <><div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /><span>جاري الشرح...</span></>
+            : <><BookOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4" /><span>شرح سطر بسطر</span></>
+          }
+        </button>
+        <button
           onClick={handleReset}
           className="flex items-center gap-1.5 sm:gap-2 text-[#6e6a86] hover:text-white/70 transition-colors text-xs sm:text-sm px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl hover:bg-white/5"
         >
@@ -2782,6 +2904,171 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       </AnimatePresence>
       <AnimatePresence>
         {savedToast && savedToastEl}
+      </AnimatePresence>
+      <AnimatePresence>
+        {explainOpen && (
+          <motion.div
+            className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            dir="rtl"
+          >
+            <motion.div
+              className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+              onClick={closeExplain}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+            <motion.div
+              className="relative w-full sm:w-[92%] sm:max-w-2xl bg-[#0d1017] border-t-2 sm:border-2 border-[#F59E0B]/30 rounded-t-3xl sm:rounded-3xl shadow-2xl shadow-[#F59E0B]/10 overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[85vh]"
+              initial={{ y: "100%", opacity: 0.6, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
+              transition={{ type: "spring", damping: 32, stiffness: 320 }}
+            >
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1">
+                <div className="w-10 h-1.5 rounded-full bg-white/15" />
+              </div>
+
+              <div className="flex items-center gap-3 px-4 sm:px-6 pt-3 sm:pt-5 pb-3 border-b border-white/5 shrink-0">
+                <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-violet-500/25 to-indigo-500/25 border border-violet-400/30 shrink-0">
+                  <BookOpen className="w-5 h-5 text-violet-300" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 text-white font-extrabold text-base sm:text-lg">
+                    شرح سطر بسطر
+                    <Sparkles className="w-4 h-4 text-[#F59E0B]" />
+                  </div>
+                  <div className="text-[11px] sm:text-xs text-[#8b88a3]">نفهم الكود كلمة كلمة، رمز رمز ✨</div>
+                </div>
+                <button
+                  onClick={closeExplain}
+                  className="flex items-center justify-center w-9 h-9 rounded-xl text-[#8b88a3] hover:text-white hover:bg-white/5 transition-colors shrink-0"
+                  aria-label="إغلاق"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {explainLoading ? (
+                <div className="flex flex-col items-center justify-center gap-4 py-16 px-6">
+                  <div className="relative w-12 h-12">
+                    <div className="w-12 h-12 rounded-full border-2 border-violet-500/20 border-t-violet-400 animate-spin" />
+                    <Lightbulb className="w-5 h-5 text-[#F59E0B] absolute inset-0 m-auto" />
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white font-bold text-sm">جاري تحضير الشرح المبسّط...</div>
+                    <div className="text-[11px] text-[#8b88a3] mt-1">نفكّك الكود لك سطراً سطراً 🧩</div>
+                  </div>
+                </div>
+              ) : explainError ? (
+                <div className="flex flex-col items-center justify-center gap-4 py-14 px-6 text-center">
+                  <div className="w-12 h-12 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center">
+                    <AlertTriangle className="w-6 h-6 text-red-400" />
+                  </div>
+                  <div className="text-white/90 text-sm font-medium max-w-xs">{explainError}</div>
+                  <button
+                    onClick={handleExplainCode}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold transition-colors"
+                  >
+                    <RotateCcw className="w-4 h-4" /> حاول مرة أخرى
+                  </button>
+                </div>
+              ) : explainLines.length > 0 ? (
+                <>
+                  <div className="px-4 sm:px-6 pt-3 shrink-0">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] sm:text-xs font-bold text-[#F59E0B]">
+                        السطر {explainIdx + 1} من {explainLines.length}
+                      </span>
+                      <span className="text-[11px] sm:text-xs text-[#8b88a3] font-mono" dir="ltr">
+                        {Math.round(((explainIdx + 1) / explainLines.length) * 100)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <motion.div
+                        className="h-full rounded-full bg-gradient-to-l from-violet-400 to-[#F59E0B]"
+                        initial={false}
+                        animate={{ width: `${((explainIdx + 1) / explainLines.length) * 100}%` }}
+                        transition={{ type: "spring", damping: 30, stiffness: 300 }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="px-4 sm:px-6 pt-3 shrink-0">
+                    <div className="rounded-xl bg-[#070910] border border-white/5 overflow-hidden">
+                      <div className="max-h-[26vh] overflow-y-auto py-1.5" dir="ltr">
+                        {explainLines.map((l, i) => {
+                          const active = i === explainIdx;
+                          return (
+                            <div
+                              key={l.n}
+                              ref={active ? explainActiveRowRef : undefined}
+                              onClick={() => setExplainIdx(i)}
+                              className={`flex items-stretch gap-2 px-2 py-0.5 cursor-pointer transition-colors ${active ? "bg-[#F59E0B]/[0.12]" : "hover:bg-white/[0.03]"}`}
+                            >
+                              <span className={`shrink-0 w-7 text-right pr-1 select-none font-mono text-[11px] leading-6 ${active ? "text-[#F59E0B] font-bold" : "text-[#4b5563]"}`}>{l.n}</span>
+                              <span className={`shrink-0 w-4 flex items-center justify-center ${active ? "text-[#F59E0B]" : "text-transparent"}`}>
+                                {active && (
+                                  <motion.span layoutId="explain-arrow" initial={{ x: 4, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
+                                    <ArrowRight className="w-3.5 h-3.5" />
+                                  </motion.span>
+                                )}
+                              </span>
+                              <code className={`flex-1 font-mono text-[12px] sm:text-[13px] leading-6 whitespace-pre overflow-x-auto ${active ? "text-white" : "text-[#7d8597]"}`}>{l.code || " "}</code>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3" dir="rtl">
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={explainIdx}
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.22 }}
+                        className="rounded-2xl p-4 sm:p-5 bg-gradient-to-br from-violet-500/10 to-[#F59E0B]/[0.06] border border-violet-400/20"
+                      >
+                        <div className="flex items-center gap-2 mb-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-[#F59E0B]/15 border border-[#F59E0B]/30 flex items-center justify-center shrink-0">
+                            <Lightbulb className="w-4 h-4 text-[#F59E0B]" />
+                          </div>
+                          <div className="text-[#F59E0B] font-bold text-sm">شرح السطر {explainLines[explainIdx].n}</div>
+                        </div>
+                        <code className="block font-mono text-[12px] sm:text-[13px] text-emerald-300 bg-black/30 rounded-lg px-3 py-2 mb-3 whitespace-pre-wrap break-words" dir="ltr">{explainLines[explainIdx].code}</code>
+                        <p className="text-[#e5e3ee] text-[14px] sm:text-[15px] leading-[2] whitespace-pre-wrap">{explainLines[explainIdx].explanation}</p>
+                      </motion.div>
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="flex items-center gap-2 sm:gap-3 px-4 sm:px-6 py-3 border-t border-white/5 bg-[#0a0c14] shrink-0">
+                    <button
+                      onClick={explainPrev}
+                      disabled={explainIdx === 0}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-sm transition-all bg-white/5 text-white/80 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed active:scale-95"
+                    >
+                      <ChevronRight className="w-4 h-4" /> السابق
+                    </button>
+                    <button
+                      onClick={explainIdx === explainLines.length - 1 ? closeExplain : explainNext}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-sm transition-all bg-gradient-to-l from-violet-600 to-indigo-600 text-white hover:from-violet-500 hover:to-indigo-500 active:scale-95 shadow-lg shadow-violet-600/20"
+                    >
+                      {explainIdx === explainLines.length - 1
+                        ? <><Check className="w-4 h-4" /> تمام، فهمت!</>
+                        : <>التالي <ChevronLeft className="w-4 h-4" /></>}
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </>
   );

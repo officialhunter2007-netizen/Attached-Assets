@@ -27,3 +27,4 @@
 - [Dual teaching prompts](dual-teaching-prompts.md) — teacher system prompt is built per-path in v4-teaching-core.ts (v4) AND routes/ai.ts (legacy /subject); teaching/ASK_OPTIONS rule changes must be mirrored in both.
 - [ASK_OPTIONS question-slot pitfall](ask-options-question-slot.md) — model often puts the question in the body + starts the tag at the options, so option[0] renders as a non-clickable label; fix with a parser guard, not the prompt.
 - [Arabic spacing normalization](arabic-spacing-normalization.md) — normalizeArabicText must split a prefix off only when followed by "ال"+letter; "prefix+any letter" mangles عنصر/منهج/عندك. Test keep-set + split-set via tsx.
+- [api-server dev bundle + restart](api-server-dev-bundle-restart.md) — dev is esbuild bundle (no watch); new route 404 until rebuild+restart of the workflow holding 8080; standalone "failed" = benign stepped-aside duplicate.
