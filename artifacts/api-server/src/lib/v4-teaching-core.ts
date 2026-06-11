@@ -41,13 +41,16 @@ import {
   type V4Lesson,
   type V4LessonConcept,
   type V4LessonCommonMistake,
+  type V4ConceptFacets,
+  type V4FacetKey,
 } from "@workspace/db";
 import { logger } from "./logger";
 import { generateGeminiJson, GenerateGeminiError } from "./openrouter-generate";
 import { getTeacherProviderOverride } from "./ai-teacher-provider";
 import { chargeV4Ai } from "./v4-gem-wallet";
 import { buildMemoryLayer4, getStudentMemory, type V4StudentMemoryBundle } from "./v4-memory";
-import { buildDiagnosticDirective } from "./v4-diagnostic-engine";
+import { buildDiagnosticDirective, decideDiagnosticMove, type FacetDirectiveContent } from "./v4-diagnostic-engine";
+import { getOrGenerateConceptFacets } from "./v4-concept-facets-engine";
 
 /** Locked teaching model. Any other value throws at module use sites. */
 export const V4_TEACHING_MODEL = "gemini-2.5-flash-lite" as const;
@@ -547,6 +550,9 @@ export function classifyV4Turn(opts: {
 export async function buildTeacherSystemPrompt(opts: {
   student: V4PromptStudent;
   subjectSlug: string;
+  /** Active specialty version — keys the facet-nugget cache (with lessonId +
+   *  conceptIndex) for lazy W2/W3 generation in the diagnostic directive. */
+  versionId: number;
   subjectName?: string;
   lesson: V4PromptLesson;
   /** Optional override for the language layer (defaults to Arabic). */
@@ -568,9 +574,13 @@ export async function buildTeacherSystemPrompt(opts: {
    *  with a warm motivating frame + objectives + concept roadmap instead of
    *  jumping straight into a Socratic question. */
   isFirstTurn?: boolean;
-}): Promise<string> {
+}): Promise<{ systemPrompt: string; askedFacet: { conceptIndex: number; facet: V4FacetKey } | null }> {
   const { student, lesson } = opts;
   const lang = opts.language ?? "ar";
+  // The W2/W3 facet this turn's directive actually asks (null otherwise). The
+  // route uses it to mark `pending` for next turn's isolated grader — derived
+  // from the PROMPT-TIME decision so it matches what the student really sees.
+  let askedFacet: { conceptIndex: number; facet: V4FacetKey } | null = null;
 
   // Read live mastery scores for this lesson's concepts (used by L2 + L8).
   const masteryRows = await db
@@ -586,6 +596,10 @@ export async function buildTeacherSystemPrompt(opts: {
   // decision so each concept gets exactly one "التطبيق العملي" offer.
   const appliedByConcept = new Set<number>();
   for (const r of masteryRows) if (r.appliedAt) appliedByConcept.add(r.conceptIndex);
+  // Per-concept middle-facet (W2/W3) coverage — drives the diagnostic engine's
+  // RATIONALE/BOUNDARY moves for important (weight>1) concepts.
+  const facetsByConcept = new Map<number, V4ConceptFacets>();
+  for (const r of masteryRows) facetsByConcept.set(r.conceptIndex, r.facets);
 
   // L3 needs unit / stage / level context. One small join chain on PKs.
   const unitStageLevel = await loadUnitStageLevel(lesson.lesson.unitId);
@@ -604,7 +618,7 @@ export async function buildTeacherSystemPrompt(opts: {
   const L5 = buildSessionHistoryLayer(opts.compressedHistoryLayer9 ?? "");
   const L6 = buildReferenceMaterialPlaceholderLayer();
   const L7 = buildUnitLabsPlaceholderLayer();
-  const L8 = buildDifficultyLayer(lesson.concepts, masteryByConcept);
+  const L8 = buildDifficultyLayer(lesson.concepts, masteryByConcept, facetsByConcept);
   const L9 = buildLanguageLayer(lang);
   // Task #3 (R3): per-specialty visual-animation catalog. Filtered by slug
   // keyword so only relevant templates are advertised to the teacher.
@@ -645,17 +659,73 @@ export async function buildTeacherSystemPrompt(opts: {
   // Skipped on the first turn — the opening contract owns that message and no
   // student answer exists to diagnose yet. Pushed LAST so it's the freshest
   // (most-obeyed) instruction the model reads.
+  // Build the diagnostic concepts once — used to compute the decision (to drive
+  // lazy facet-nugget generation) and to author the directive itself.
+  const diagConcepts = lesson.concepts.map((c) => ({
+    conceptIndex: c.conceptIndex,
+    name: c.name,
+    masteryCriterion: c.masteryCriterion,
+    weight: Math.max(1, ((c as any).weight ?? 1) as number),
+  }));
+
+  // Facet depth (W2/W3): when THIS turn's move is a facet move (rationale /
+  // boundary — only ever chosen for weight>1 concepts) we lazily generate +
+  // cache the concept's facet nugget and feed its STUDENT-FACING fields into
+  // the directive. rubric/solutionOutline stay server-side for the isolated
+  // grader. Failure is non-fatal — the directive then authors generic facet
+  // coverage itself.
+  let facetContent: FacetDirectiveContent | null = null;
+  if (!opts.isFirstTurn) {
+    const diagDecision = decideDiagnosticMove({
+      concepts: diagConcepts,
+      masteryByConcept,
+      appliedByConcept,
+      facetsByConcept,
+    });
+    if (
+      (diagDecision.move === "rationale" || diagDecision.move === "boundary") &&
+      diagDecision.target &&
+      diagDecision.facet
+    ) {
+      // Record the facet this turn's directive asks (independent of lazy-gen
+      // success — the directive authors generic facet coverage even when the
+      // nugget fetch fails). The route persists this as `pending` AFTER a
+      // successful stream so next turn's grader scores the right facet.
+      askedFacet = { conceptIndex: diagDecision.target.conceptIndex, facet: diagDecision.facet };
+      try {
+        const nuggets = await getOrGenerateConceptFacets({
+          versionId: opts.versionId,
+          lessonId: lesson.lesson.id,
+          conceptIndex: diagDecision.target.conceptIndex,
+        });
+        if (nuggets) {
+          facetContent =
+            diagDecision.facet === "w2"
+              ? { facet: "w2", predictPrompt: nuggets.w2.predictPrompt, rationale: nuggets.w2.rationale }
+              : {
+                  facet: "w3",
+                  predictPrompt: nuggets.w3.predictPrompt,
+                  variesFreely: nuggets.w3.variesFreely,
+                  breaks: nuggets.w3.breaks,
+                  errorAndWhy: nuggets.w3.errorAndWhy,
+                };
+        }
+      } catch (e) {
+        logger.warn?.(
+          `[v4-facets] lazy-gen failed lesson=${lesson.lesson.id} concept=${diagDecision.target.conceptIndex}: ${String((e as any)?.message ?? e)}`,
+        );
+      }
+    }
+  }
+
   const LDIAG = opts.isFirstTurn
     ? ""
     : buildDiagnosticDirective({
-        concepts: lesson.concepts.map((c) => ({
-          conceptIndex: c.conceptIndex,
-          name: c.name,
-          masteryCriterion: c.masteryCriterion,
-          weight: Math.max(1, ((c as any).weight ?? 1) as number),
-        })),
+        concepts: diagConcepts,
         masteryByConcept,
         appliedByConcept,
+        facetsByConcept,
+        facetContent,
         mistakes: lesson.mistakes.map((m) => ({
           mistake: m.mistake,
           correction: m.correction,
@@ -669,7 +739,7 @@ export async function buildTeacherSystemPrompt(opts: {
   const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LSCENE, LIMG];
   if (LOPEN) layers.push(LOPEN);
   if (LDIAG) layers.push(LDIAG);
-  return layers.join("\n\n");
+  return { systemPrompt: layers.join("\n\n"), askedFacet };
 }
 
 // ─── Scene layer (structured actor stories) ───────────────────────────────
@@ -1368,10 +1438,18 @@ export function buildUnitLabsPlaceholderLayer(): string {
   ].join("\n");
 }
 
-// ─── L8: Difficulty hint ────────────────────────────────────────────────
+// ─── L8: Difficulty + pacing hint ───────────────────────────────────────
+/** Mirrors FACET_PASS in v4-concept-facets-engine. Kept local on purpose to
+ *  avoid a circular import (the facets engine already imports from this file).
+ *  A facet counts toward pacing velocity only when cleared ON MERIT (score ≥
+ *  this), so a facet "covered" merely by hitting the 2-attempt cap never
+ *  inflates the pace. */
+const FACET_VELOCITY_PASS = 70;
+
 function buildDifficultyLayer(
   concepts: V4LessonConcept[],
   mastery: Map<number, number>,
+  facetsByConcept?: Map<number, V4ConceptFacets>,
 ): string {
   if (concepts.length === 0) {
     return "## 8. الصعوبة\n- ابدأ بمستوى متوسط ثم اضبط بناءً على تجاوب الطالب.";
@@ -1391,12 +1469,43 @@ function buildDifficultyLayer(
   if (avg >= 70) hint = "ارفع الصعوبة: أسئلة تطبيقية متشعّبة، أمثلة أعمق، وقتٌ أقل للتلميح.";
   else if (avg >= 35) hint = "حافظ على مستوى متوسط: مزيج من السؤال المباشر والسيناريو التطبيقي.";
   else hint = "خفّض الصعوبة: ابدأ بأسئلة استرجاع، ثم استنتاج، قبل التطبيق.";
-  return [
-    "## 8. الصعوبة الموصى بها",
+
+  // Facet-clearance velocity (T6) — DETERMINISTIC pacing replaces the old
+  // model-issued [DIFFICULTY_UP/DOWN] self-adjustment. velocity = facets cleared
+  // on merit ÷ attempts spent on them: fast first-try clears (→1.0) mean compress
+  // the pace, many attempts per clear (→0) mean slow down. Pending/ungraded
+  // facets have attempts=0 and never skew the signal.
+  let totalAttempts = 0;
+  let meritCleared = 0;
+  if (facetsByConcept) {
+    for (const f of facetsByConcept.values()) {
+      for (const key of ["w2", "w3"] as const) {
+        const st = f?.[key];
+        if (!st) continue;
+        const attempts = st.attempts ?? 0;
+        if (attempts <= 0) continue;
+        totalAttempts += attempts;
+        if (st.covered === true && (st.score ?? 0) >= FACET_VELOCITY_PASS) meritCleared += 1;
+      }
+    }
+  }
+
+  const lines = [
+    "## 8. الصعوبة والإيقاع الموصى بهما",
     `- متوسط الإتقان الحالي: ${avg.toFixed(0)}/100`,
     `- التوجيه: ${hint}`,
-    "- يمكنك إصدار [DIFFICULTY_UP] أو [DIFFICULTY_DOWN] بعد رسالة الطالب إذا تطلّب الواقع تعديلاً.",
-  ].join("\n");
+  ];
+  if (totalAttempts > 0) {
+    const velocity = meritCleared / totalAttempts;
+    let pace: string;
+    if (velocity >= 0.8) pace = "اضغط الإيقاع: ادمج الأوجه المترابطة، قلّل الأمثلة التمهيدية، وانتقل أسرع للتطبيق.";
+    else if (velocity <= 0.4) pace = "خفّض الإيقاع: جزّئ المفهوم لخطوات أصغر، أكثِر الأمثلة الملموسة، وتحقّق بعد كل خطوة.";
+    else pace = "حافظ على الإيقاع الحالي: تابع بنفس درجة التفصيل.";
+    lines.push(
+      `- سرعة استيعاب الأوجه: ${(velocity * 100).toFixed(0)}% (${meritCleared}/${totalAttempts}) — ${pace}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 // ─── L9: Language directives ────────────────────────────────────────────

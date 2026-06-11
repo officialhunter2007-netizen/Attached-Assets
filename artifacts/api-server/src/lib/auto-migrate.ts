@@ -749,6 +749,28 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    // Facet nugget cache (4-facet teaching model: W2 «لماذا» + W3 «الحدود»).
+    // One row per (version, lesson, concept). Lazily generated once by the
+    // facet engine, reused across all students + turns. `nuggets` holds both
+    // middle-facet payloads (rationale/boundary + rubric/solution); the
+    // rubric/solution stay server-side, mirroring the hands-on cache.
+    table: "v4_concept_facets",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "v4_concept_facets" (
+        "id" serial PRIMARY KEY,
+        "version_id" integer NOT NULL,
+        "lesson_id" integer NOT NULL,
+        "concept_index" integer NOT NULL,
+        "nuggets" jsonb NOT NULL,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_facets_version_lesson_concept" ON "v4_concept_facets" ("version_id", "lesson_id", "concept_index")`,
+      `CREATE INDEX IF NOT EXISTS "idx_v4_facets_lesson" ON "v4_concept_facets" ("lesson_id")`,
+    ],
+  },
+  {
     // v4 task #6 — cross-subject student profile (personal dictionary,
     // warmth anchors, learning style). One row per user; injected into
     // Layer 4 of the teaching system prompt.
@@ -1219,9 +1241,13 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     // Hands-on application timestamp — set once after the first graded
     // hands-on attempt so the diagnostic engine fires APPLY exactly once per
     // concept. NULL on legacy rows = never applied.
+    // `facets` — per-facet coverage state for the 4-facet teaching model (w2
+    // «لماذا» / w3 «الحدود» / pending). Defaults to '{}' so legacy rows behave
+    // exactly as before (W1=score, W4=applied_at; middle facets absent).
     table: "v4_concept_mastery",
     columns: [
       { name: "applied_at", ddl: "timestamp with time zone" },
+      { name: "facets", ddl: "jsonb NOT NULL DEFAULT '{}'::jsonb" },
     ],
   },
 ];

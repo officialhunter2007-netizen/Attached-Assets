@@ -13,6 +13,7 @@
 - [AI teacher custom provider](ai-teacher-custom-provider.md) — admin-set OpenAI-compatible provider for teacher only; key by env-var NAME (never in DB); only fallback is unconfigured→default, NO cross-channel fallback on live failure.
 - [OpenRouter key shadowing](openrouter-key-shadowing.md) — a scrubbed placeholder key in .replit [userenv.shared] silently 401s every AI call; symptom is a misleading text/error fallback. Check the key first.
 - [v4 diagnostic drill engine](v4-diagnostic-engine.md) — deterministic per-turn weakness-targeting directive (root-cause-first) makes a weak model feel genius; never blind-fallback a missing mastery tag (corrupts probe turns).
+- [v4 facet coverage layer](v4-facet-coverage.md) — deterministic W1-W4 coverage; "what we asked" signals (markFacetPending) MUST use the PROMPT-TIME decision, not the post-effects recompute, or the transition turn phantom-grades.
 - [v4 hands-on practice](v4-handson-practice.md) — proactive "produce a real task" layer; trigger is server-computed via SSE `done` (NOT a model marker), mastery monotonicity enforced in-SQL with GREATEST, APPLY fires once via applied_at.
 - [VIZ template system](viz-template-system.md) — [[VIZ:]] diagrams need 3 in-sync points (catalog + specialty gating + FE registry); slug keyword gating silently starves specialties (uni-it got regex only).
 - [Live animation sandbox](teacher-anim-sandbox.md) — [[ANIM]] HTML/CSS/JS runs in iframe sandbox=allow-scripts (NO allow-same-origin); isolation is the boundary, never add same-origin or sanitize-instead.

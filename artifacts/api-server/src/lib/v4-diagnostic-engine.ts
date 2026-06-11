@@ -26,12 +26,41 @@
  *
  * No DB writes, no schema changes — it reads signals that v4-protocol-tags.ts
  * and v4-memory.ts already persist.
+ *
+ * 4-FACET DEPTH: a concept isn't "done" at a single mastery score. Practical
+ * mastery has four facets — W1 «ماذا» (behavior = the mastery `score`), W2
+ * «لماذا» (rationale), W3 «الحدود» (boundary/break), W4 «طبّقه» (application =
+ * the hands-on `appliedAt`). The two middle facets (W2/W3) are tracked per
+ * concept in `facetsByConcept`. Depth is WEIGHTED: an IMPORTANT concept
+ * (weight>1) must clear all four facets; an ordinary concept (weight=1) only
+ * needs W1+W4 — so we go deep where it matters and stay light elsewhere
+ * ("دون مبالغة"). The decision ladder inserts RATIONALE (W2) and BOUNDARY (W3)
+ * moves between DRILL (W1) and APPLY (W4) for important concepts only.
  */
+
+import type { V4ConceptFacets, V4FacetKey } from "@workspace/db";
 
 /** Concept mastery thresholds (kept in sync with the L2/L8 flags + the
  *  task #6 mastery gate of 75). */
 const MASTERED_AT = 75;
 const WEAK_BELOW = 50;
+
+/**
+ * A middle facet (W2/W3) counts as covered once its coverage state has the
+ * `covered` flag set — written by the isolated grader (score recorded) OR by
+ * the 2-attempt cap (exposure-covered, score null). Absent/legacy `{}` facets
+ * read as not-covered, so important concepts surface their W2/W3 gap.
+ */
+function facetCovered(facets: V4ConceptFacets | undefined, key: V4FacetKey): boolean {
+  const st = facets?.[key];
+  return !!st && st.covered === true;
+}
+
+/** Important concepts (weight>1) require the two middle facets; ordinary
+ *  concepts (weight=1) only need W1 (score) + W4 (applied). */
+function requiresMiddleFacets(weight: number): boolean {
+  return weight > 1;
+}
 
 export type DiagnosticConcept = {
   conceptIndex: number;
@@ -63,9 +92,33 @@ export type DiagnosticDirectiveInput = {
    *  العملي") attempt for. Drives the disjoint APPLY decision so each concept
    *  gets exactly one hands-on offer, then the engine moves on. */
   appliedByConcept?: Set<number>;
+  /** Per-concept coverage of the two middle facets (W2/W3). Drives the
+   *  RATIONALE/BOUNDARY moves for important (weight>1) concepts. */
+  facetsByConcept?: Map<number, V4ConceptFacets>;
+  /** STUDENT-FACING content for THIS turn's facet move (rationale/boundary),
+   *  lazily generated + cached by the caller. Absent when the move isn't a
+   *  facet move, or when generation failed — the directive then falls back to
+   *  generic, model-authored facet coverage. The rubric/solutionOutline are
+   *  NEVER passed here; they stay server-side for the isolated grader. */
+  facetContent?: FacetDirectiveContent | null;
   mistakes: DiagnosticMistake[];
   chronicWeaknesses?: ChronicWeakness[];
   currentLessonCode: string;
+};
+
+/** The student-facing slice of a facet nugget the directive may reveal. */
+export type FacetDirectiveContent = {
+  facet: V4FacetKey;
+  /** Predict-then-reveal question to ASK before revealing. */
+  predictPrompt: string;
+  /** W2 only — the rationale to reveal after the student tries. */
+  rationale?: string;
+  /** W3 only — what may change without breaking it. */
+  variesFreely?: string;
+  /** W3 only — the deviation that breaks it. */
+  breaks?: string;
+  /** W3 only — the resulting error and why it happens. */
+  errorAndWhy?: string;
 };
 
 type ConceptState = "untested" | "weak" | "shaky" | "mastered";
@@ -101,7 +154,14 @@ function pickTopMistake(mistakes: DiagnosticMistake[]): DiagnosticMistake | null
   return [...mistakes].sort((a, b) => rank(a) - rank(b))[0];
 }
 
-export type DiagnosticMove = "probe" | "drill" | "apply" | "reinforce" | "advance";
+export type DiagnosticMove =
+  | "probe"
+  | "drill"
+  | "rationale"
+  | "boundary"
+  | "apply"
+  | "reinforce"
+  | "advance";
 
 export type DiagnosticTarget = {
   conceptIndex: number;
@@ -113,29 +173,47 @@ export type DiagnosticTarget = {
 
 export type DiagnosticDecision = {
   move: DiagnosticMove;
-  /** null only when move === "advance" (all concepts mastered + applied). */
+  /** null only when move === "advance" (all required facets cleared for all
+   *  concepts). */
   target: DiagnosticTarget | null;
+  /** Which middle facet a facet move targets. Set ONLY for "rationale" (w2)
+   *  and "boundary" (w3); null for every other move. */
+  facet: V4FacetKey | null;
 };
 
 /**
  * The single source of truth for "what should happen with which concept THIS
- * turn". A disjoint, strict-priority decision (exactly one move per turn):
+ * turn". A disjoint, strict-priority decision (exactly one move per turn). The
+ * ladder is breadth-first by facet — finish a facet across the whole lesson
+ * before the next deepens — so foundations come before depth:
  *
- *   1. earliest untested|weak  → PROBE / DRILL   (fix the foundation first)
- *   2. else earliest grasped (≥50) but NOT yet applied → APPLY (hands-on)
- *   3. else earliest shaky that IS applied → REINFORCE (nudge it over 75)
- *   4. else (all mastered + applied) → ADVANCE
+ *   1. earliest untested|weak                         → PROBE / DRILL  (W1)
+ *   2. else earliest IMPORTANT(weight>1) grasped concept missing W2 → RATIONALE (W2)
+ *   3. else earliest IMPORTANT grasped concept W2-covered missing W3 → BOUNDARY  (W3)
+ *   4. else earliest grasped (≥50) but NOT yet applied → APPLY        (W4)
+ *   5. else earliest shaky that IS applied            → REINFORCE     (nudge >75)
+ *   6. else (every required facet cleared everywhere) → ADVANCE
+ *
+ * Weighted depth: steps 2–3 fire ONLY for weight>1 concepts, so ordinary
+ * concepts skip straight from W1 to W4 (no overkill). For weight>1 concepts
+ * APPLY (step 4) can't fire until W2+W3 are covered, because steps 2–3 sit
+ * above it — guaranteeing no facet is skipped.
  *
  * Pure + side-effect-free so it can be reused verbatim by (a) the prompt
  * builder to author the directive and (b) v4_teach.ts to recompute the
- * hands-on offer over POST-effects mastery for the `done` SSE event.
+ * hands-on offer over POST-effects mastery for the `done` SSE event. When
+ * `facetsByConcept` is omitted (or weights are all 1) it degrades EXACTLY to
+ * the pre-facet probe→apply→reinforce→advance ladder.
  */
 export function decideDiagnosticMove(input: {
   concepts: DiagnosticConcept[];
   masteryByConcept: Map<number, number>;
   appliedByConcept?: Set<number>;
+  /** Per-concept coverage of the two middle facets (W2/W3). Absent = legacy. */
+  facetsByConcept?: Map<number, V4ConceptFacets>;
 }): DiagnosticDecision {
   const applied = input.appliedByConcept ?? new Set<number>();
+  const facetsByConcept = input.facetsByConcept ?? new Map<number, V4ConceptFacets>();
   const withState = [...input.concepts]
     .sort((a, b) => a.conceptIndex - b.conceptIndex)
     .map((c) => ({ concept: c, ...classify(c.conceptIndex, input.masteryByConcept) }));
@@ -147,23 +225,43 @@ export function decideDiagnosticMove(input: {
     state: x.state,
     score: x.score,
   });
+  const grasped = (s: ConceptState) => s === "shaky" || s === "mastered";
 
-  // 1. earliest untested|weak → PROBE/DRILL (a real gap blocks everything).
+  // 1. earliest untested|weak → PROBE/DRILL (a real W1 gap blocks everything).
   const gap = withState.find((c) => c.state === "untested" || c.state === "weak");
-  if (gap) return { move: gap.state === "untested" ? "probe" : "drill", target: mk(gap) };
+  if (gap) return { move: gap.state === "untested" ? "probe" : "drill", target: mk(gap), facet: null };
 
-  // 2. else earliest grasped (shaky|mastered) but not yet hands-on applied → APPLY.
-  const toApply = withState.find(
-    (c) => (c.state === "shaky" || c.state === "mastered") && !applied.has(c.concept.conceptIndex),
+  // 2. else earliest IMPORTANT concept that's grasped but missing W2 → RATIONALE.
+  const w2gap = withState.find(
+    (c) =>
+      requiresMiddleFacets(c.concept.weight) &&
+      grasped(c.state) &&
+      !facetCovered(facetsByConcept.get(c.concept.conceptIndex), "w2"),
   );
-  if (toApply) return { move: "apply", target: mk(toApply) };
+  if (w2gap) return { move: "rationale", target: mk(w2gap), facet: "w2" };
 
-  // 3. else earliest shaky (already applied) → REINFORCE over the 75 line.
+  // 3. else earliest IMPORTANT concept that's grasped, W2-covered, missing W3 → BOUNDARY.
+  const w3gap = withState.find(
+    (c) =>
+      requiresMiddleFacets(c.concept.weight) &&
+      grasped(c.state) &&
+      facetCovered(facetsByConcept.get(c.concept.conceptIndex), "w2") &&
+      !facetCovered(facetsByConcept.get(c.concept.conceptIndex), "w3"),
+  );
+  if (w3gap) return { move: "boundary", target: mk(w3gap), facet: "w3" };
+
+  // 4. else earliest grasped (shaky|mastered) but not yet hands-on applied → APPLY.
+  const toApply = withState.find(
+    (c) => grasped(c.state) && !applied.has(c.concept.conceptIndex),
+  );
+  if (toApply) return { move: "apply", target: mk(toApply), facet: null };
+
+  // 5. else earliest shaky (already applied) → REINFORCE over the 75 line.
   const toReinforce = withState.find((c) => c.state === "shaky");
-  if (toReinforce) return { move: "reinforce", target: mk(toReinforce) };
+  if (toReinforce) return { move: "reinforce", target: mk(toReinforce), facet: null };
 
-  // 4. else everything is mastered AND applied → advance.
-  return { move: "advance", target: null };
+  // 6. else every required facet is cleared everywhere → advance.
+  return { move: "advance", target: null, facet: null };
 }
 
 /**
@@ -193,6 +291,7 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
     concepts: input.concepts,
     masteryByConcept: input.masteryByConcept,
     appliedByConcept: input.appliedByConcept,
+    facetsByConcept: input.facetsByConcept,
   });
   const target = decision.target;
 
@@ -230,6 +329,38 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
           `  ⚠️ الفخّ الأكثر خطورة المتوقّع: «${top.mistake}» — الصواب: ${top.correction}؛ العلاج: ${top.treatment}. استبق هذا الفخّ في تدريبك.`,
         );
       }
+    } else if (decision.move === "rationale") {
+      // W2 «لماذا» — the student knows WHAT the concept does; cement WHY.
+      lines.push(
+        "- **الحركة المطلوبة: ترسيخ العلّة (RATIONALE — وجه «لماذا»).** الطالب يعرف «ماذا» يفعل هذا المفهوم، لكن لم تترسّخ عنده «لماذا» هو هكذا. اطرح أولاً سؤال التوقّع ودعه يحاول، ثم اكشف العلّة بإيجاز محسوس بلغته (جملة أو جملتان، دون مبالغة):",
+      );
+      if (input.facetContent && input.facetContent.facet === "w2") {
+        lines.push(
+          `  • سؤال التوقّع (اطرحه أولاً، ولا تكشف الجواب قبل محاولته): ${input.facetContent.predictPrompt}`,
+          `  • العلّة (اكشفها بأسلوبك بعد محاولته): ${input.facetContent.rationale ?? ""}`,
+        );
+      } else {
+        lines.push(
+          "  • اطرح سؤال «لماذا» يقود الطالب لاكتشاف علّة هذا المفهوم بنفسه، ثم اكشف العلّة بإيجاز محسوس.",
+        );
+      }
+    } else if (decision.move === "boundary") {
+      // W3 «الحدود» — the student grasped WHAT + WHY; cement where it breaks.
+      lines.push(
+        "- **الحركة المطلوبة: استكشاف الحدود (BOUNDARY — وجه «الحدود»).** الطالب فهم المفهوم وعلّته؛ الآن رسّخ حدوده: ما الذي يتغيّر بحرية، وما الذي يكسره، والخطأ الناتج ولماذا. اطرح أولاً سؤال «توقّع: وش يصير لو…» ثم اكشف بإيجاز:",
+      );
+      if (input.facetContent && input.facetContent.facet === "w3") {
+        lines.push(
+          `  • سؤال التوقّع (اطرحه أولاً): ${input.facetContent.predictPrompt}`,
+          `  • يتغيّر بحرية (لا يكسره): ${input.facetContent.variesFreely ?? ""}`,
+          `  • يكسره: ${input.facetContent.breaks ?? ""}`,
+          `  • الخطأ الناتج وسببه: ${input.facetContent.errorAndWhy ?? ""}`,
+        );
+      } else {
+        lines.push(
+          "  • اطرح سؤال «ماذا لو/توقّع» يكشف حدّ المفهوم (ما الذي يكسره والخطأ الناتج)، ثم اكشف الحدّ بإيجاز.",
+        );
+      }
     } else if (decision.move === "apply") {
       lines.push(
         `- **الحركة المطلوبة: تطبيق عملي (APPLY).** الطالب استوعب هذا المفهوم نظرياً، والآن وقت أن يطبّقه بيده. مهّد بجملة واحدة دافئة تُحمّسه للانتقال إلى تطبيق عملي حقيقي على «${target.name}» (مثل: «ممتاز، خلّنا نطبّق اللي فهمته على أرض الواقع الحين»). **لا تطرح أنت سؤالاً ولا تمريناً منفصلاً** — بطاقة «التطبيق العملي» ستظهر للطالب تلقائياً وفيها المهمة كاملة.`,
@@ -241,10 +372,18 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
       );
     }
 
-    // Signal capture applies to every move EXCEPT apply — the hands-on card
-    // grades + writes mastery server-side, so a model-emitted tag would
-    // double-count (and the weak model can't be trusted to grade production).
-    if (decision.move !== "apply") {
+    // Signal capture. Two move classes write mastery server-side, so the model
+    // must NOT emit a tag for them (it would double-count, and the weak model
+    // can't be trusted to grade): (1) APPLY — the hands-on card grades; (2) the
+    // facet moves RATIONALE/BOUNDARY — the isolated grader scores the facet
+    // from the student's next reply.
+    const facetMove = decision.move === "rationale" || decision.move === "boundary";
+    if (facetMove) {
+      lines.push(
+        `- **لا تُصدر [MASTERY] ولا [NEEDS_REVIEW] للمفهوم ${target.conceptIndex} هذا الدور** — هذا الوجه يُقيَّم آلياً من ردّ الطالب. اكتفِ بطرح سؤال التوقّع ثم الكشف القصير.`,
+        "- **اجعل الذكاء مرئياً (بلطف):** اربط السؤال بنقطة الضعف بإشارة دافئة طبيعية مرّة واحدة — دون لهجة آلية ولا كشف أنّ هناك «نظام» يحسب لك.",
+      );
+    } else if (decision.move !== "apply") {
       lines.push(
         `- **التقاط الإشارة (إلزامي):** بعد ردّ الطالب على سؤالك، أصدر في نهاية رسالتك حكماً للمفهوم ${target.conceptIndex}: إمّا \`[MASTERY: concept=${target.conceptIndex} value=<0..100>]\` (قدّر فهمه بصدق) أو \`[NEEDS_REVIEW: concept=${target.conceptIndex}]\` إن أخطأ أو تردّد. لا تترك الدور بلا حكم على الهدف.`,
         "- **اجعل الذكاء مرئياً (بلطف):** اربط السؤال بنقطة الضعف بإشارة دافئة طبيعية مرّة واحدة (مثل «خلّنا نثبّت هذي النقطة بالذات…») — دون لهجة آلية ولا كشف أنّ هناك «نظام» يحسب لك.",

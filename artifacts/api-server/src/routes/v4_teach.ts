@@ -30,10 +30,13 @@ import {
   v4LessonCommonMistakesTable,
   v4DiagnosticSessionsTable,
   v4ConceptMasteryTable,
+  type V4ConceptFacets,
+  type V4FacetKey,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { resolveActiveSpecialty, getStudentPath, syncStudentPathToActiveVersion } from "../lib/v4-path-engine";
 import { decideDiagnosticMove } from "../lib/v4-diagnostic-engine";
+import { gradePendingFacet, markFacetPending } from "../lib/v4-concept-facets-engine";
 import {
   getOrGenerateLessonContent,
   buildTeacherSystemPrompt,
@@ -327,6 +330,11 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
 
   // ── 3. Build 9-layer system prompt ──────────────────────────────────
   let systemPrompt: string;
+  // The facet (W2/W3) this turn's directive ACTUALLY asked, per the PROMPT-TIME
+  // diagnostic decision. Captured here (handler scope) so the post-effects block
+  // can mark it pending for next turn's grader — see the comment there for why
+  // the post-effects recomputed decision must NOT be used for this.
+  let promptTimeFacet: { conceptIndex: number; facet: V4FacetKey } | null = null;
   try {
     const [concepts, mistakes, diagnostic] = await Promise.all([
       db.select().from(v4LessonConceptsTable).where(eq(v4LessonConceptsTable.lessonId, lesson.id)),
@@ -348,6 +356,30 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         }))
       : [];
 
+    // Facet signal (T5): if the student is answering a facet question we asked
+    // last turn, grade it with the isolated grader BEFORE building the prompt so
+    // THIS turn's diagnostic decision sees the fresh W2/W3 coverage (advance to
+    // the next facet on a pass, re-ask once on a miss, stop at the 2-attempt
+    // cap). Runs inside the per-turn lock; wrapped so a grader/DB failure never
+    // blocks the teaching turn. Skipped on the first turn (nothing pending yet).
+    if (history.length > 0) {
+      try {
+        await gradePendingFacet({
+          userId: uid,
+          versionId: resolved.versionId,
+          lessonId: lesson.id,
+          studentMessage: message,
+          concepts: concepts.map((c) => ({
+            conceptIndex: c.conceptIndex,
+            name: c.name,
+            masteryCriterion: c.masteryCriterion,
+          })),
+        });
+      } catch (e) {
+        logger.warn?.(`[v4/teach] facet grade failed user=${uid} lesson=${lesson.id}: ${String((e as any)?.message ?? e)}`);
+      }
+    }
+
     // Compress before building the prompt so Layer 9 is populated when needed.
     const compressed = compressHistory([...history, { role: "user", content: message }]);
     // Defensive: the layer9 summary text feeds the system prompt and other
@@ -367,13 +399,14 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       logger.warn?.(`[v4/teach] memory fetch failed user=${uid}: ${String((memErr as any)?.message ?? memErr)}`);
     }
 
-    systemPrompt = await buildTeacherSystemPrompt({
+    const built = await buildTeacherSystemPrompt({
       student: {
         userId: uid,
         startingLevelLabel: `المستوى ${studentPath.startingLevelIndex}`,
         diagnosticAnswers,
       },
       subjectSlug: slug,
+      versionId: resolved.versionId,
       subjectName: resolved.specialty.name,
       lesson: { lesson, concepts, mistakes, content },
       compressedHistoryLayer9: compressed.layer9Text,
@@ -385,6 +418,8 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       // contract (warm motivating frame + objectives + concept roadmap).
       isFirstTurn: history.length === 0,
     });
+    systemPrompt = built.systemPrompt;
+    promptTimeFacet = built.askedFacet;
   } catch (e) {
     inflightTeachTurns.delete(turnLockKey);
     emitV4FriendlyFailure(res, "v4/teach:prompt", e);
@@ -690,6 +725,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
             conceptIndex: v4ConceptMasteryTable.conceptIndex,
             score: v4ConceptMasteryTable.score,
             appliedAt: v4ConceptMasteryTable.appliedAt,
+            facets: v4ConceptMasteryTable.facets,
           })
           .from(v4ConceptMasteryTable)
           .where(and(
@@ -699,9 +735,11 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       ]);
       const masteryByConcept = new Map<number, number>();
       const appliedByConcept = new Set<number>();
+      const facetsByConcept = new Map<number, V4ConceptFacets>();
       for (const r of masteryRows) {
         masteryByConcept.set(r.conceptIndex, r.score);
         if (r.appliedAt) appliedByConcept.add(r.conceptIndex);
+        facetsByConcept.set(r.conceptIndex, r.facets);
       }
       const decision = decideDiagnosticMove({
         concepts: conceptRows.map((c) => ({
@@ -712,9 +750,26 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         })),
         masteryByConcept,
         appliedByConcept,
+        facetsByConcept,
       });
       if (decision.move === "apply" && decision.target) {
         handsOnOffer = { conceptIndex: decision.target.conceptIndex, conceptName: decision.target.name };
+      }
+      // Mark the facet ACTUALLY ASKED this turn (the PROMPT-TIME decision) as
+      // pending so next turn grades the student's answer (gradePendingFacet). We
+      // must NOT use the post-effects `decision` here: on the probe→rationale
+      // transition turn THIS turn's [MASTERY] tag flips the recomputed decision
+      // to a facet move that was never asked, which would phantom-grade an
+      // unrelated reply next turn and burn the 2-attempt cap. This block runs
+      // only after a successful stream, so pending is gated on the question
+      // actually being delivered.
+      if (promptTimeFacet) {
+        await markFacetPending({
+          userId: uid,
+          lessonId: lesson.id,
+          conceptIndex: promptTimeFacet.conceptIndex,
+          facet: promptTimeFacet.facet,
+        });
       }
     } catch (e) {
       logger.warn?.(`[v4/teach] hands-on offer compute failed user=${uid} lesson=${lesson.id}: ${String((e as any)?.message ?? e)}`);
