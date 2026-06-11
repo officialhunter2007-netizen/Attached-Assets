@@ -43,6 +43,7 @@ export function normalizeArabicText(text: string): string {
     "كانت", "كان", "يكون",
     "سوف", "بعض",
     "عن", "من", "إلى",
+    "مع", "في", "لكن",
   ];
 
   // Require: (word boundary) prefix + "ال" + (a noun letter). The leading
@@ -53,7 +54,18 @@ export function normalizeArabicText(text: string): string {
     "g",
   );
 
-  return text.replace(megare, (_m, prefix, rest) => `${prefix} ${rest}`);
+  let out = text.replace(megare, (_m, prefix, rest) => `${prefix} ${rest}`);
+
+  // Pass 2: common standalone adverbs (always end with tanwin, never a suffix
+  // of a larger word) fused to a preceding Arabic word without a space.
+  // e.g. "مهمجداً" → "مهم جداً", "صحيحأيضاً" → "صحيح أيضاً".
+  // The leading Arabic char group ensures we only split when there is no space.
+  out = out.replace(
+    /([\u0621-\u064a\u0660-\u06ff])(جداً|أيضاً|تماماً|قليلاً|مثلاً|أحياناً|فعلاً|عموماً|أساساً|كثيراً|سريعاً|دائماً|حقاً|فوراً|أخيراً|عادةً|غالباً)/g,
+    "$1 $2",
+  );
+
+  return out;
 }
 
 export type AskOptionsResult = {
