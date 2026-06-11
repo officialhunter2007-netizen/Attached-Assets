@@ -21,6 +21,7 @@ import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@
 import { getVizComponent } from "@/components/viz/registry";
 import { SceneMount } from "@/components/scene-stepper";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
+import { CodeInputArea, detectCodeTask } from "@/components/code-input-area";
 import { useAuth } from "@/lib/use-auth";
 import { readUserJson, writeUserJson, userKey } from "@/lib/user-storage";
 import { extractAskOptions, normalizeArabicText } from "@/lib/ask-options";
@@ -529,7 +530,9 @@ export default function V4Lesson() {
   const [sessions, setSessions] = useState<StoredSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionsOpen, setSessionsOpen] = useState(false);
-  const [ideOpen, setIdeOpen] = useState(false);
+  const [ideOpen, setIdeOpen]       = useState(false);
+  const [codeMode, setCodeMode]     = useState(false);
+  const [codeInput, setCodeInput]   = useState("");
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -1191,17 +1194,37 @@ export default function V4Lesson() {
           {handsOnOffer && (
             <button
               onClick={() => setHandsOnPanel(handsOnOffer)}
-              className="w-full text-right rounded-2xl border border-amber-400/40 bg-gradient-to-l from-amber-500/15 to-amber-400/5 p-4 flex items-center gap-3 hover:border-amber-400/70 transition-colors"
+              className="hands-on-pin w-full text-right flex items-center gap-3 transition-all duration-300"
+              style={{
+                padding: "14px 16px",
+                borderRadius: "18px",
+                border: "1.5px solid rgba(245,158,11,0.45)",
+                background: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(245,158,11,0.04) 100%)",
+                boxShadow: "0 4px 32px rgba(245,158,11,0.12), inset 0 1px 0 rgba(255,255,255,0.06)",
+              }}
             >
-              <div className="shrink-0 w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 grid place-items-center">
-                <Wrench className="w-5 h-5 text-amber-300" />
+              {/* Animated icon */}
+              <div
+                className="shrink-0 w-11 h-11 rounded-xl grid place-items-center"
+                style={{
+                  background: "linear-gradient(135deg, rgba(245,158,11,0.25), rgba(245,158,11,0.12))",
+                  border: "1px solid rgba(245,158,11,0.35)",
+                  boxShadow: "0 0 16px rgba(245,158,11,0.2)",
+                }}
+              >
+                <Wrench className="w-5 h-5 text-amber-300 hands-on-pin-wrench" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-[11px] text-amber-300/90 font-bold">تطبيق عملي جاهز</div>
-                <div className="text-sm text-white font-black truncate">طبّق الآن: «{handsOnOffer.conceptName}»</div>
-                <div className="text-[11px] text-white/60 mt-0.5">أنتج ناتجاً حقيقياً يُصحَّح فوراً ويرفع إتقانك.</div>
+                <div className="text-[10px] text-amber-400 font-black tracking-widest uppercase mb-0.5">⚙ تطبيق عملي</div>
+                <div className="text-sm text-white font-black truncate leading-snug">«{handsOnOffer.conceptName}»</div>
+                <div className="text-[11px] text-white/50 mt-0.5 leading-tight">أنتج ناتجاً حقيقياً • يُصحَّح فوراً • يرفع إتقانك</div>
               </div>
-              <ArrowLeft className="w-4 h-4 text-amber-300 shrink-0" />
+              <div
+                className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)" }}
+              >
+                <ArrowLeft className="w-4 h-4 text-amber-300" />
+              </div>
             </button>
           )}
 
@@ -1275,69 +1298,129 @@ export default function V4Lesson() {
       </div>
 
       {/* Composer */}
-      <form
-        onSubmit={onSubmit}
-        className="shrink-0 border-t border-white/5 bg-background/95 backdrop-blur-md"
-      >
+      <div className="shrink-0 border-t border-white/5 bg-background/95 backdrop-blur-md">
         <div className="max-w-2xl mx-auto px-4 py-3">
-          {attachedImage && (
-            <div className="mb-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-2 w-fit">
-              <img src={attachedImage} alt="الصورة المرفقة" className="w-12 h-12 rounded-lg object-cover" />
-              <span className="text-xs text-white/70">صورة مرفقة</span>
+          {/* ── Code-mode editor (shown when student switches to code input) ── */}
+          {codeMode ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-amber-300/80 font-bold flex items-center gap-1.5">
+                  <Code2 className="w-3.5 h-3.5" />
+                  وضع كتابة الكود
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setCodeMode(false); setCodeInput(""); }}
+                  className="text-[11px] text-white/40 hover:text-rose-300 flex items-center gap-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  إلغاء
+                </button>
+              </div>
+              <CodeInputArea
+                value={codeInput}
+                onChange={setCodeInput}
+                disabled={streaming}
+                defaultLang={(() => {
+                  const last = [...messages].reverse().find(m => m.role === "assistant");
+                  return last ? detectCodeTask([last.content]).lang : "python";
+                })()}
+              />
               <button
                 type="button"
-                onClick={() => setAttachedImage(null)}
-                className="text-white/50 hover:text-rose-300 p-1 rounded-lg hover:bg-white/5"
-                title="إزالة الصورة"
+                disabled={streaming || !codeInput.trim()}
+                onClick={() => {
+                  const lang = (() => {
+                    const last = [...messages].reverse().find(m => m.role === "assistant");
+                    return last ? detectCodeTask([last.content]).lang : "python";
+                  })();
+                  const msg = `\`\`\`${lang}\n${codeInput.trim()}\n\`\`\``;
+                  setCodeMode(false);
+                  setCodeInput("");
+                  void sendMessage(msg);
+                }}
+                className="w-full py-3 rounded-2xl bg-gradient-to-l from-amber-500 to-amber-400 text-black font-black text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
               >
-                <X className="w-4 h-4" />
+                {streaming
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> يُرسَل…</>
+                  : <><Send className="w-4 h-4" /> إرسال الكود للمعلم</>
+                }
               </button>
             </div>
+          ) : (
+            /* ── Normal text composer ── */
+            <form onSubmit={onSubmit}>
+              {attachedImage && (
+                <div className="mb-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-2 w-fit">
+                  <img src={attachedImage} alt="الصورة المرفقة" className="w-12 h-12 rounded-lg object-cover" />
+                  <span className="text-xs text-white/70">صورة مرفقة</span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachedImage(null)}
+                    className="text-white/50 hover:text-rose-300 p-1 rounded-lg hover:bg-white/5"
+                    title="إزالة الصورة"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={onPickImage}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={streaming}
+                  className="shrink-0 h-12 w-12 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-300 hover:border-amber-400/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="إرفاق صورة"
+                  aria-label="إرفاق صورة"
+                >
+                  <ImagePlus className="w-5 h-5" />
+                </button>
+                {/* Code-mode toggle — always visible for quick switch */}
+                <button
+                  type="button"
+                  onClick={() => setCodeMode(true)}
+                  disabled={streaming}
+                  className="shrink-0 h-12 w-12 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-emerald-300 hover:border-emerald-400/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="كتابة كود"
+                  aria-label="كتابة كود"
+                >
+                  <Code2 className="w-5 h-5" />
+                </button>
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!streaming) void sendMessage(input, attachedImage ?? undefined);
+                    }
+                  }}
+                  disabled={streaming}
+                  rows={1}
+                  placeholder="اكتب ردّك للمعلم..."
+                  className="flex-1 resize-none bg-black/30 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50 disabled:opacity-60 max-h-40"
+                  style={{ minHeight: 48 }}
+                />
+                <button
+                  type="submit"
+                  disabled={streaming || (!input.trim() && !attachedImage)}
+                  className="shrink-0 h-12 w-12 rounded-2xl bg-gradient-to-l from-amber-500 to-amber-400 text-black flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
+                  title="إرسال"
+                >
+                  {streaming ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                </button>
+              </div>
+            </form>
           )}
-          <div className="flex items-end gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={onPickImage}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={streaming}
-              className="shrink-0 h-12 w-12 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-300 hover:border-amber-400/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-              title="إرفاق صورة"
-              aria-label="إرفاق صورة"
-            >
-              <ImagePlus className="w-5 h-5" />
-            </button>
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (!streaming) void sendMessage(input, attachedImage ?? undefined);
-                }
-              }}
-              disabled={streaming}
-              rows={1}
-              placeholder="اكتب ردّك للمعلم..."
-              className="flex-1 resize-none bg-black/30 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50 disabled:opacity-60 max-h-40"
-              style={{ minHeight: 48 }}
-            />
-            <button
-              type="submit"
-              disabled={streaming || (!input.trim() && !attachedImage)}
-              className="shrink-0 h-12 w-12 rounded-2xl bg-gradient-to-l from-amber-500 to-amber-400 text-black flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
-              title="إرسال"
-            >
-              {streaming ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            </button>
-          </div>
         </div>
-      </form>
+      </div>
 
       {/* Nukhba IDE overlay — Monaco editor + run + share-with-teacher */}
       {ideOpen && (

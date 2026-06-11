@@ -10,11 +10,18 @@
  * produce-task instead of a 3-question drill, and it fires onApplied as soon as
  * the first attempt is graded (the concept is marked applied server-side then).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, X, Wrench } from "lucide-react";
+import { CodeInputArea, detectCodeTask } from "@/components/code-input-area";
 
 type HandsOnTask = { title: string; scenario: string; deliverable: string; steps: string[] };
 type Phase = "loading" | "answer" | "grading" | "result" | "error";
+
+/** Switched to CodeInputArea when task clearly requires writing code. */
+function resolveCodeInfo(task: HandsOnTask | null): { isCode: boolean; lang: string } {
+  if (!task) return { isCode: false, lang: "python" };
+  return detectCodeTask([task.title, task.deliverable, ...task.steps]);
+}
 
 export function HandsOnPanel({
   slug, lessonCode, conceptIndex, conceptName, onBalance, onApplied, onClose,
@@ -31,8 +38,9 @@ export function HandsOnPanel({
   const [phase, setPhase] = useState<Phase>("loading");
   const [errMsg, setErrMsg] = useState("");
   const [task, setTask] = useState<HandsOnTask | null>(null);
-  const [submission, setSubmission] = useState("");
+  const [submission, setSubmission]   = useState("");
   const [scoreBefore, setScoreBefore] = useState(0);
+  const codeInfo = useMemo(() => resolveCodeInfo(task), [task]);
   const [nonce, setNonce] = useState("");
   const [result, setResult] = useState<
     { scoreAfter: number; passed: boolean; verdict: string; explanation: string } | null
@@ -185,14 +193,23 @@ export function HandsOnPanel({
               )}
             </div>
 
-            <textarea
-              value={submission}
-              onChange={(e) => setSubmission(e.target.value)}
-              disabled={phase === "grading"}
-              rows={6}
-              placeholder="اكتب ناتجك هنا (الخطة / التصميم / الحساب / الكود / التحليل…)"
-              className="w-full resize-none bg-black/30 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50 disabled:opacity-60 leading-relaxed"
-            />
+            {codeInfo.isCode ? (
+              <CodeInputArea
+                value={submission}
+                onChange={setSubmission}
+                disabled={phase === "grading"}
+                defaultLang={codeInfo.lang}
+              />
+            ) : (
+              <textarea
+                value={submission}
+                onChange={(e) => setSubmission(e.target.value)}
+                disabled={phase === "grading"}
+                rows={6}
+                placeholder="اكتب إجابتك هنا (الخطة / التصميم / الحساب / التحليل…)"
+                className="w-full resize-none bg-black/30 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50 disabled:opacity-60 leading-relaxed"
+              />
+            )}
             {errMsg && <div className="text-xs text-rose-300">{errMsg}</div>}
             <button
               onClick={submit}
