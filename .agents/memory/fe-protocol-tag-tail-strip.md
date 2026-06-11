@@ -30,3 +30,33 @@ message would be eaten by the greedy form and never render.
 into a `<div data-x-mount …>` in `renderHtml` BEFORE `marked.parse`, and gate the
 React-root mount effect on `!isStreaming`. Server `stripProtocolTags` leaves these
 double-bracket markers intact so they reach the FE.
+
+## Bracket-ending payloads need a tempered CLOSE, not just a tempered tail
+
+A separate gotcha from the tail-strip: if a `[[X: payload]]` payload can itself END in `]`
+(e.g. a code task whose requirement names an array `[3, 9, 5]`), the stream tail is `]]]`.
+A plain non-greedy close `…\]\]` (or tempered `(?:(?!\]\])[\s\S])*?\]\]`) closes on the
+FIRST `]]`, which truncates the payload AND leaks a stray `]` into prose. Fix: temper the
+CLOSE with `\]\](?!\])` so it skips to the LAST `]]`:
+
+```
+/\[\[\s*X\s*:\s*([\s\S]*?)\]\](?!\])/g   // extraction + complete-strip
+```
+
+This is used by the CODE_TASK marker (teacher-pushes-a-coding-task signal): the marker is
+stripped from prose on BOTH server (`stripProtocolTags`) and FE (`sanitizeProtocolNoise`,
+complete-strip before tail-strip), and the requirement is delivered to the FE via the
+`done` SSE event, never rendered inline. The earlier VIZ form `[^\]]*?(?:\][^\]]*?)*?` does
+NOT solve this — being non-greedy it still closes on the first `]]`.
+
+**Why:** any marker whose human-authored payload can legitimately contain a trailing `]`
+will silently truncate + leak without the `(?!\])` close. Residual extreme edge (payload
+containing `]]` mid-text followed by more prose) is accepted — natural requirements don't.
+
+## Marker predicate parity (server advertises ⇄ FE renders)
+
+When a teaching-prompt layer tells the model about a UI control (e.g. the `</>` محرّر نُخبة
+editor) and that control is gated by a FE predicate, the server's "should I advertise this"
+predicate MUST be identical to the FE's render predicate (same regex, same input — slug
+only). A broader server predicate makes the teacher describe a button the student can't see
+and emit markers that never surface. Both are tagged KEEP-IN-SYNC in the source.

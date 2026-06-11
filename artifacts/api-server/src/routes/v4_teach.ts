@@ -49,6 +49,7 @@ import {
   parseProtocolTags,
   applyTagEffects,
   stripProtocolTags,
+  extractCodeTask,
 } from "../lib/v4-protocol-tags";
 import { chargeV4Ai, refundV4Ai, canAffordV4Turn } from "../lib/v4-gem-wallet";
 import {
@@ -775,6 +776,13 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       logger.warn?.(`[v4/teach] hands-on offer compute failed user=${uid} lesson=${lesson.id}: ${String((e as any)?.message ?? e)}`);
     }
 
+    // ── 7c. Code-task push — teacher-driven (the [[CODE_TASK]] marker) ─
+    // When the teacher emits `[[CODE_TASK: ...]]` it wants the student to
+    // write code in محرّر نُخبة. We deliver the requirement here (not as a
+    // raw marker — stripProtocolTags removes it from the prose) so the FE can
+    // light up the editor button and show a designed popup when it opens.
+    const codeTask = extractCodeTask(fullText);
+
     // ── 8. Terminal event ────────────────────────────────────────────
     if (!res.writableEnded) {
       try {
@@ -793,6 +801,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
             labEnvRequests: effects.labEnvRequests,
             masteryGateBlocked: effects.masteryGateBlocked ?? null,
             handsOnOffer,
+            codeTask,
             charged,
             insufficientGems,
             noWallet,

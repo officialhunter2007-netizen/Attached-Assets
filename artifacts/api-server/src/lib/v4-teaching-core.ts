@@ -652,6 +652,20 @@ export async function buildTeacherSystemPrompt(opts: {
   // are never a wall of text.
   const LIMG = buildImageLayer();
 
+  // Nukhba code editor (محرّر نُخبة) — only advertised for programming-ish
+  // specialties, since the editor button (</>) only renders for them in the
+  // lesson UI. Teaches the model HOW to explain the feature to the student and
+  // WHEN/HOW to push a real coding task via the `[[CODE_TASK: ...]]` marker.
+  // KEEP IN SYNC with `isProgramming` in artifacts/nukhba/src/pages/v4-lesson.tsx
+  // — same regex, same input (slug only). If the server advertises the editor
+  // but the FE doesn't render the button, the teacher describes a control the
+  // student can't see (and CODE_TASK pushes are invisible).
+  const isCodingSpecialty =
+    /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp)/i.test(
+      opts.subjectSlug,
+    );
+  const LCODE = isCodingSpecialty ? buildCodeEditorLayer() : "";
+
   // Deterministic weakness-hunter directive (the "genius" loop). Computed
   // server-side from live mastery + chronic weaknesses, it tells the weak
   // teaching model EXACTLY which concept to target this turn and how (probe /
@@ -737,6 +751,7 @@ export async function buildTeacherSystemPrompt(opts: {
       });
 
   const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LSCENE, LIMG];
+  if (LCODE) layers.push(LCODE);
   if (LOPEN) layers.push(LOPEN);
   if (LDIAG) layers.push(LDIAG);
   return { systemPrompt: layers.join("\n\n"), askedFacet };
@@ -1090,6 +1105,35 @@ export function buildVizCatalogLayer(
     lines.push(`  • مثال: ${t.example}`);
   }
   return lines.join("\n");
+}
+
+// ─── Nukhba code-editor layer (محرّر نُخبة + CODE_TASK marker) ──────────────
+// Only injected for programming-ish specialties (the editor button renders
+// only for them). Two jobs: (1) teach the model to EXPLAIN the editor to the
+// student in plain words, (2) give it the `[[CODE_TASK: ...]]` marker so it can
+// push a concrete coding task whenever IT decides — full freedom on timing.
+export function buildCodeEditorLayer(): string {
+  return [
+    "## 14. محرّر الأكواد (محرّر نُخبة) — بيئة كتابة الكود للطالب",
+    "لدى الطالب محرّر أكواد احترافيّ مدمج في الواجهة، زرّه «</>» في الأعلى بجانب زرّ السجلّ (🕘).",
+    "",
+    "**اشرح الميزة للطالب بكلماتك حين يكون السياق برمجياً** (مرّة عند أوّل حاجة لها يكفي):",
+    "- أنّ زر «محرّر نُخبة» (</>) في الأعلى يفتح محرّراً حقيقياً يكتب فيه كوده.",
+    "- أنّه يختار لغة البرمجة من أعلى المحرّر ثم يكتب الكود.",
+    "- أنّه يضغط **الزرّ الأخضر** ليُشغّل كوده ويُشارك الكود ونتيجته معك مباشرةً في المحادثة، فتراها وتعلّق عليها.",
+    "",
+    "**لك الحرّية الكاملة في تحديد متى توجّه الطالب لكتابة كود**: عند التطبيق العملي، أو تجربة فكرة، أو حلّ تمرين، أو رؤية مخرجات حقيقية، أو تصحيح خطأ — متى رأيت أنّ الكتابة الفعلية للكود أفيد من الكلام.",
+    "",
+    "**كيف تطلب منه مهمّة برمجية — الوسم [[CODE_TASK: ...]]**:",
+    "- حين تقرّر دفع الطالب فعلياً لكتابة كود: اشرح له بإيجاز ما تريد، ثم أصدِر الوسم في سطرٍ مستقلّ في نهاية رسالتك:",
+    "  `[[CODE_TASK: lang=python | المطلوب بدقّة: اكتب دالة تستقبل قائمة أرقام وتُعيد أكبرها، ثم جرّبها على [3, 9, 5]]]`",
+    "- بمجرّد إصدار الوسم سيُضيء زرّ المحرّر للطالب، وعند فتحه ستظهر له بطاقة أنيقة تعرض هذا المطلوب بوضوح — فلا حاجة لتكرار المطلوب نصّياً في كل رسالة.",
+    "- اكتب المطلوب واضحاً ومحدّداً (المدخلات، المُخرَج المتوقّع، أي قيد) في جملة أو جملتين قصيرتين.",
+    "- `lang=` اختياريّ؛ اجعلها لغة المهمّة (python/javascript/html/css/sql/bash). إن لم تذكرها استُنتجت تلقائياً.",
+    "- لا تستخدم الوسم في رسالة الافتتاح الإلزامية، ولا تُصدره مكرّراً لنفس المهمّة — مرّة واحدة عند طلب المهمّة تكفي.",
+    "",
+    "**بعد أن يشارك الطالب كوده ونتيجته**: علّق كمعلّم — صحّح، اسأل سقراطياً، اقترح تحسيناً، ثم حدّث الإتقان كالمعتاد.",
+  ].join("\n");
 }
 
 async function loadUnitStageLevel(unitId: number): Promise<{

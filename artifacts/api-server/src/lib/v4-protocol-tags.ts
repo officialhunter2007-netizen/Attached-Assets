@@ -113,6 +113,42 @@ export function extractVizMarkers(text: string): Array<{ template: string; paylo
   return out;
 }
 
+// CODE_TASK marker — emitted by the teacher when it wants to PUSH the student
+// to write code in the Nukhba editor. Pure UI-signal (no DB side-effect): the
+// FE captures the requirement and, when the student opens محرّر نُخبة, shows it
+// as a designed popup. Format: `[[CODE_TASK: lang=python | <requirement>]]`
+// (the `lang=` prefix is optional). Stripped from prose by stripProtocolTags
+// so the raw marker never reaches the student; the requirement is delivered to
+// the FE via the `done` SSE event instead.
+// The closing `]](?!\])` is tempered so a requirement that itself ends in a
+// bracket (e.g. `... جرّبها على [3, 9, 5]`) closes on the LAST `]]` — otherwise
+// the requirement would be truncated and a stray `]` would leak into prose.
+const CODE_TASK_TAG_RE = /\[\[\s*CODE_TASK\s*:\s*([\s\S]*?)\]\](?!\])/g;
+
+/** Extract the LAST CODE_TASK marker from a chunk of teacher prose. Returns
+ *  null when none present. `lang` is the optional `lang=` prefix (lowercased)
+ *  or null — callers may infer the language from the requirement otherwise. */
+export function extractCodeTask(
+  text: string,
+): { requirement: string; lang: string | null } | null {
+  if (!text) return null;
+  const re = new RegExp(CODE_TASK_TAG_RE.source, "g");
+  let m: RegExpExecArray | null;
+  let last: { requirement: string; lang: string | null } | null = null;
+  while ((m = re.exec(text)) !== null) {
+    let body = (m[1] ?? "").trim();
+    if (!body) continue;
+    let lang: string | null = null;
+    const langMatch = body.match(/^lang\s*=\s*([a-zA-Z0-9_+#-]+)\s*[|\n]?/);
+    if (langMatch) {
+      lang = langMatch[1].toLowerCase();
+      body = body.slice(langMatch[0].length).trim();
+    }
+    if (body) last = { requirement: body, lang };
+  }
+  return last;
+}
+
 /** Extract all v4 protocol tags from a chunk of teacher prose.
  *
  * Tag ORDER matters: `[MASTERY ...]` emitted BEFORE `[LESSON_MASTERED]` in
@@ -531,6 +567,7 @@ async function advanceLessonPointer(ctx: TagEffectsContext): Promise<{
 export function stripProtocolTags(text: string): string {
   if (!text) return text;
   return text
+    .replace(CODE_TASK_TAG_RE, "")
     .replace(LAB_TAG_RE, "")
     .replace(LAB_MASTERED_TAG_RE, "")
     .replace(EXAM_MASTERED_TAG_RE, "")

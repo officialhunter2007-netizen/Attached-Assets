@@ -14,14 +14,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, createElement } from "react";
 import { useRoute, useLocation } from "wouter";
 import { createRoot, type Root } from "react-dom/client";
-import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, Wrench } from "lucide-react";
+import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, Wrench, ClipboardList, Minus, Play } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@/lib/teacher-render";
 import { getVizComponent } from "@/components/viz/registry";
 import { SceneMount } from "@/components/scene-stepper";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
-import { CodeInputArea, detectCodeTask } from "@/components/code-input-area";
+import { detectCodeTask } from "@/components/code-input-area";
 import { useAuth } from "@/lib/use-auth";
 import { readUserJson, writeUserJson, userKey } from "@/lib/user-storage";
 import { extractAskOptions, normalizeArabicText } from "@/lib/ask-options";
@@ -52,6 +52,10 @@ type TerminalEffects = {
   // each turn over real applied_at; carries the earliest grasped-but-unapplied
   // concept (or null). The FE pins ONE "تطبيق عملي" card from it.
   handsOnOffer?: { conceptIndex: number; conceptName: string } | null;
+  // Teacher-driven coding task (the [[CODE_TASK]] marker). The requirement is
+  // delivered here (NOT as a raw marker — the server strips it from prose) so
+  // the FE can light up the editor button + show a designed popup on open.
+  codeTask?: { requirement: string; lang: string | null } | null;
 };
 
 type MapLessonRef = { code: string; name: string };
@@ -219,6 +223,14 @@ function sanitizeProtocolNoise(raw: string): string {
     // dangling bracket sequence that hasn't closed yet.
     .replace(/\[\[ANIM\]\](?:(?!\[\[\/ANIM\]\])[\s\S])*$/g, "")
     .replace(/\[\[SCENE:(?:(?!\]\])[\s\S])*$/g, "")
+    // CODE_TASK — never rendered inline (consumed via the `done` event). Strip
+    // complete markers first: the `]](?!\])` close is tempered so a requirement
+    // ending in a bracket (e.g. `[3, 9, 5]`) closes on the LAST `]]` and never
+    // leaves a stray `]`. Then strip any unterminated tail mid-stream with the
+    // precise lookahead form (NOT greedy `[\s\S]*$`) so a complete trailing tag
+    // survives. `\s*CODE_TASK\s*` mirrors the server's whitespace tolerance.
+    .replace(/\[\[\s*CODE_TASK\s*:[\s\S]*?\]\](?!\])/g, "")
+    .replace(/\[\[\s*CODE_TASK\s*:(?:(?!\]\])[\s\S])*$/g, "")
     .replace(/\[\[VIZ:[\s\S]*$/g, "")
     .replace(/\[\[IMAGE:[a-f0-9]*$/i, "")
     .replace(/\[(MASTERY|NEEDS_REVIEW|CREATE_LAB_ENV|LAB_MASTERED|EXAM_MASTERED|LESSON_MASTERED|SESSION_COMPLETE|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE|DIFFICULTY_UP|DIFFICULTY_DOWN)?$/i, "")
@@ -531,8 +543,11 @@ export default function V4Lesson() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [ideOpen, setIdeOpen]       = useState(false);
-  const [codeMode, setCodeMode]     = useState(false);
-  const [codeInput, setCodeInput]   = useState("");
+  // Teacher-pushed coding task (the [[CODE_TASK]] marker, delivered via `done`).
+  // When set, the editor button lights up; opening محرّر نُخبة shows it as a card.
+  const [pendingCodeTask, setPendingCodeTask] =
+    useState<{ requirement: string; lang: string } | null>(null);
+  const [codeTaskCardCollapsed, setCodeTaskCardCollapsed] = useState(false);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -540,6 +555,10 @@ export default function V4Lesson() {
   // Show the integrated Nukhba code editor only for code-oriented specialties
   // (programming / web / cyber / ERP…). Accounting / food specialties keep the
   // plain chat composer. Keyword-matched on the specialty slug.
+  // KEEP IN SYNC with `isCodingSpecialty` in
+  // artifacts/api-server/src/lib/v4-teaching-core.ts — the teacher only explains
+  // the </> editor / emits [[CODE_TASK]] when this exact predicate is true, so a
+  // mismatch makes it describe a button the student can't see.
   const isProgramming = useMemo(
     () => /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp)/i.test(slug),
     [slug],
@@ -565,6 +584,7 @@ export default function V4Lesson() {
       setTerminal(null);
       setHandsOnOffer(null);
       setHandsOnPanel(null);
+      setPendingCodeTask(null);
       completedHandsOnRef.current = new Set();
       setError(null);
       setInsufficientGems(false);
@@ -631,6 +651,7 @@ export default function V4Lesson() {
     setTerminal(null);
     setHandsOnOffer(null);
     setHandsOnPanel(null);
+    setPendingCodeTask(null);
     completedHandsOnRef.current = new Set();
     setError(null);
     setInsufficientGems(false);
@@ -923,6 +944,17 @@ export default function V4Lesson() {
                 setHandsOnOffer(t.handsOnOffer);
               }
               if (t.lessonMastered) setHandsOnOffer(null);
+              // Teacher pushed a coding task → light up the editor button and
+              // arm the in-IDE requirement card (expanded for a fresh task).
+              if (t.codeTask?.requirement) {
+                const lang = (
+                  t.codeTask.lang ||
+                  detectCodeTask([t.codeTask.requirement]).lang ||
+                  "python"
+                ).toLowerCase();
+                setPendingCodeTask({ requirement: t.codeTask.requirement, lang });
+                setCodeTaskCardCollapsed(false);
+              }
               continue;
             }
             if (evt?.error || evt?.friendlyMessage) {
@@ -1026,6 +1058,9 @@ export default function V4Lesson() {
     const label = langLabels[language] || language;
     const msg = `راجع معي الكود اللي كتبته بلغة ${label}:\n\`\`\`${language}\n${codeStr}\n\`\`\`\nالناتج:\n${output || "(لا يوجد ناتج)"}`;
     setIdeOpen(false);
+    // The student answered the teacher's coding task → clear the pending push
+    // so the editor button stops glowing and the in-IDE card disappears.
+    setPendingCodeTask(null);
     sendMessageRef.current(msg);
   }, []);
 
@@ -1094,10 +1129,18 @@ export default function V4Lesson() {
           {isProgramming && (
             <button
               onClick={() => setIdeOpen(true)}
-              className="text-white/50 hover:text-white p-1.5 rounded-lg hover:bg-white/5"
-              title="محرر الأكواد"
+              className={`relative p-1.5 rounded-lg hover:bg-white/5 transition-colors ${
+                pendingCodeTask ? "text-amber-300" : "text-white/50 hover:text-white"
+              }`}
+              title={pendingCodeTask ? "محرّر نُخبة — لديك مهمّة برمجية بانتظارك" : "محرر الأكواد"}
             >
               <Code2 className="w-4 h-4" />
+              {pendingCodeTask && (
+                <span className="absolute -top-0.5 -left-0.5 flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400/70 animate-ping" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-background" />
+                </span>
+              )}
             </button>
           )}
 
@@ -1300,125 +1343,65 @@ export default function V4Lesson() {
       {/* Composer */}
       <div className="shrink-0 border-t border-white/5 bg-background/95 backdrop-blur-md">
         <div className="max-w-2xl mx-auto px-4 py-3">
-          {/* ── Code-mode editor (shown when student switches to code input) ── */}
-          {codeMode ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-amber-300/80 font-bold flex items-center gap-1.5">
-                  <Code2 className="w-3.5 h-3.5" />
-                  وضع كتابة الكود
-                </span>
+          {/* ── Text composer ── */}
+          <form onSubmit={onSubmit}>
+            {attachedImage && (
+              <div className="mb-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-2 w-fit">
+                <img src={attachedImage} alt="الصورة المرفقة" className="w-12 h-12 rounded-lg object-cover" />
+                <span className="text-xs text-white/70">صورة مرفقة</span>
                 <button
                   type="button"
-                  onClick={() => { setCodeMode(false); setCodeInput(""); }}
-                  className="text-[11px] text-white/40 hover:text-rose-300 flex items-center gap-1"
+                  onClick={() => setAttachedImage(null)}
+                  className="text-white/50 hover:text-rose-300 p-1 rounded-lg hover:bg-white/5"
+                  title="إزالة الصورة"
                 >
-                  <X className="w-3.5 h-3.5" />
-                  إلغاء
+                  <X className="w-4 h-4" />
                 </button>
               </div>
-              <CodeInputArea
-                value={codeInput}
-                onChange={setCodeInput}
-                disabled={streaming}
-                defaultLang={(() => {
-                  const last = [...messages].reverse().find(m => m.role === "assistant");
-                  return last ? detectCodeTask([last.content]).lang : "python";
-                })()}
+            )}
+            <div className="flex items-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={onPickImage}
               />
               <button
                 type="button"
-                disabled={streaming || !codeInput.trim()}
-                onClick={() => {
-                  const lang = (() => {
-                    const last = [...messages].reverse().find(m => m.role === "assistant");
-                    return last ? detectCodeTask([last.content]).lang : "python";
-                  })();
-                  const msg = `\`\`\`${lang}\n${codeInput.trim()}\n\`\`\``;
-                  setCodeMode(false);
-                  setCodeInput("");
-                  void sendMessage(msg);
-                }}
-                className="w-full py-3 rounded-2xl bg-gradient-to-l from-amber-500 to-amber-400 text-black font-black text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={streaming}
+                className="shrink-0 h-12 w-12 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-300 hover:border-amber-400/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                title="إرفاق صورة"
+                aria-label="إرفاق صورة"
               >
-                {streaming
-                  ? <><Loader2 className="w-4 h-4 animate-spin" /> يُرسَل…</>
-                  : <><Send className="w-4 h-4" /> إرسال الكود للمعلم</>
-                }
+                <ImagePlus className="w-5 h-5" />
+              </button>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!streaming) void sendMessage(input, attachedImage ?? undefined);
+                  }
+                }}
+                disabled={streaming}
+                rows={1}
+                placeholder="اكتب ردّك للمعلم..."
+                className="flex-1 resize-none bg-black/30 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50 disabled:opacity-60 max-h-40"
+                style={{ minHeight: 48 }}
+              />
+              <button
+                type="submit"
+                disabled={streaming || (!input.trim() && !attachedImage)}
+                className="shrink-0 h-12 w-12 rounded-2xl bg-gradient-to-l from-amber-500 to-amber-400 text-black flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
+                title="إرسال"
+              >
+                {streaming ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               </button>
             </div>
-          ) : (
-            /* ── Normal text composer ── */
-            <form onSubmit={onSubmit}>
-              {attachedImage && (
-                <div className="mb-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-2 w-fit">
-                  <img src={attachedImage} alt="الصورة المرفقة" className="w-12 h-12 rounded-lg object-cover" />
-                  <span className="text-xs text-white/70">صورة مرفقة</span>
-                  <button
-                    type="button"
-                    onClick={() => setAttachedImage(null)}
-                    className="text-white/50 hover:text-rose-300 p-1 rounded-lg hover:bg-white/5"
-                    title="إزالة الصورة"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-              <div className="flex items-end gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={onPickImage}
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={streaming}
-                  className="shrink-0 h-12 w-12 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-300 hover:border-amber-400/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="إرفاق صورة"
-                  aria-label="إرفاق صورة"
-                >
-                  <ImagePlus className="w-5 h-5" />
-                </button>
-                {/* Code-mode toggle — always visible for quick switch */}
-                <button
-                  type="button"
-                  onClick={() => setCodeMode(true)}
-                  disabled={streaming}
-                  className="shrink-0 h-12 w-12 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-emerald-300 hover:border-emerald-400/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="كتابة كود"
-                  aria-label="كتابة كود"
-                >
-                  <Code2 className="w-5 h-5" />
-                </button>
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (!streaming) void sendMessage(input, attachedImage ?? undefined);
-                    }
-                  }}
-                  disabled={streaming}
-                  rows={1}
-                  placeholder="اكتب ردّك للمعلم..."
-                  className="flex-1 resize-none bg-black/30 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50 disabled:opacity-60 max-h-40"
-                  style={{ minHeight: 48 }}
-                />
-                <button
-                  type="submit"
-                  disabled={streaming || (!input.trim() && !attachedImage)}
-                  className="shrink-0 h-12 w-12 rounded-2xl bg-gradient-to-l from-amber-500 to-amber-400 text-black flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
-                  title="إرسال"
-                >
-                  {streaming ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                </button>
-              </div>
-            </form>
-          )}
+          </form>
         </div>
       </div>
 
@@ -1441,6 +1424,54 @@ export default function V4Lesson() {
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {/* Teacher-pushed coding task — floating, non-crowding, collapsible */}
+          {pendingCodeTask && (
+            <div
+              className="absolute z-[85] top-[52px] left-1/2 -translate-x-1/2 w-[min(92%,560px)]"
+              style={{ direction: "rtl" }}
+            >
+              {codeTaskCardCollapsed ? (
+                <button
+                  onClick={() => setCodeTaskCardCollapsed(false)}
+                  className="mx-auto flex items-center gap-2 rounded-full bg-amber-500/15 backdrop-blur-xl border border-amber-400/40 px-4 py-2 text-amber-200 text-xs font-bold shadow-lg shadow-amber-950/40 hover:bg-amber-500/25 transition-colors"
+                >
+                  <ClipboardList className="w-4 h-4" />
+                  عرض المطلوب من معلّمك
+                </button>
+              ) : (
+                <div className="code-task-card overflow-hidden rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-950/85 via-zinc-900/90 to-zinc-900/90 backdrop-blur-2xl shadow-2xl shadow-amber-950/50">
+                  <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-amber-400/20 bg-amber-500/10">
+                    <div className="flex items-center gap-2 text-amber-200 text-sm font-black">
+                      <ClipboardList className="w-4 h-4" />
+                      المطلوب من معلّمك
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-amber-300/90 bg-amber-400/10 border border-amber-400/30 rounded-full px-2 py-0.5 uppercase tracking-wide">
+                        {pendingCodeTask.lang}
+                      </span>
+                      <button
+                        onClick={() => setCodeTaskCardCollapsed(true)}
+                        className="text-amber-200/60 hover:text-amber-100 p-1 rounded-lg hover:bg-amber-400/10"
+                        title="إخفاء"
+                      >
+                        <Minus className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="px-4 py-3">
+                    <p className="text-[13px] leading-relaxed text-amber-50/90 whitespace-pre-wrap">
+                      {pendingCodeTask.requirement}
+                    </p>
+                    <div className="mt-3 flex items-center gap-1.5 text-[11px] text-emerald-300/85 bg-emerald-500/5 border border-emerald-400/15 rounded-xl px-3 py-2">
+                      <Play className="w-3.5 h-3.5 shrink-0" />
+                      اكتب الحلّ ثمّ اضغط الزرّ الأخضر لمشاركة الكود والنتيجة مع معلّمك.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0">
             <div className="p-3 sm:p-4 w-full min-w-0">
               <CodeEditorPanel
