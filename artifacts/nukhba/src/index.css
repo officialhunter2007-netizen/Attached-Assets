@@ -1786,6 +1786,47 @@
   background: transparent !important;
   padding: 0 !important;
 }
+/* ── Explicit hljs token colours (github-dark palette) ──────────────────
+   Specificity 0-2-0 (.ai-msg .hljs-*) beats the 0-1-0 rules in the
+   imported github-dark.css regardless of CSS load order or Tailwind v4
+   preflight interference.  Values mirror github-dark.css exactly. */
+.ai-msg .hljs-keyword,
+.ai-msg .hljs-template-tag,
+.ai-msg .hljs-type,
+.ai-msg .hljs-variable.language_ { color: #ff7b72; }
+.ai-msg .hljs-title,
+.ai-msg .hljs-title.class_,
+.ai-msg .hljs-title.class_.inherited__,
+.ai-msg .hljs-title.function_ { color: #d2a8ff; }
+.ai-msg .hljs-attr,
+.ai-msg .hljs-attribute,
+.ai-msg .hljs-literal,
+.ai-msg .hljs-meta,
+.ai-msg .hljs-number,
+.ai-msg .hljs-operator,
+.ai-msg .hljs-variable,
+.ai-msg .hljs-selector-attr,
+.ai-msg .hljs-selector-class,
+.ai-msg .hljs-selector-id { color: #79c0ff; }
+.ai-msg .hljs-regexp,
+.ai-msg .hljs-string,
+.ai-msg .hljs-meta .hljs-string { color: #a5d6ff; }
+.ai-msg .hljs-built_in,
+.ai-msg .hljs-symbol { color: #ffa657; }
+.ai-msg .hljs-comment,
+.ai-msg .hljs-code,
+.ai-msg .hljs-formula { color: #8b949e; }
+.ai-msg .hljs-name,
+.ai-msg .hljs-quote,
+.ai-msg .hljs-selector-tag,
+.ai-msg .hljs-selector-pseudo { color: #7ee787; }
+.ai-msg .hljs-subst { color: #c9d1d9; }
+.ai-msg .hljs-section { color: #1f6feb; font-weight: 700; }
+.ai-msg .hljs-bullet { color: #f2cc60; }
+.ai-msg .hljs-emphasis { color: #c9d1d9; font-style: italic; }
+.ai-msg .hljs-strong { color: #c9d1d9; font-weight: 700; }
+.ai-msg .hljs-deletion { color: #ffdcd7; background: rgba(255,123,114,0.15); }
+.ai-msg .hljs-addition { color: #aff5b4; background: rgba(63,185,80,0.15); }
 .ai-msg pre[data-lang]::before {
   content: attr(data-lang);
   display: block;

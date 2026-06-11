@@ -319,6 +319,15 @@ ${bodyHtml}
 function TeacherBubble({ html, isStreaming, imageMap }: { html: string; isStreaming: boolean; imageMap: Map<string, V4ImageState> }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { enhanceTeacherDom(ref.current); }, [html]);
+  // Run once more when streaming ends — the final `html` string is often
+  // identical to the last streaming chunk so the [html] effect above does not
+  // re-fire, but the VIZ/ANIM effects that also run on isStreaming can mutate
+  // adjacent DOM nodes.  rAF defers until after all sibling effects commit.
+  useEffect(() => {
+    if (isStreaming) return;
+    const id = requestAnimationFrame(() => { enhanceTeacherDom(ref.current); });
+    return () => cancelAnimationFrame(id);
+  }, [isStreaming]);
 
   // FLUX image reconcile — runs on every html/imageMap change (NOT gated on
   // isStreaming, so the picture appears the instant `imageReady` arrives even
