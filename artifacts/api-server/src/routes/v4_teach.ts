@@ -29,9 +29,11 @@ import {
   v4LessonConceptsTable,
   v4LessonCommonMistakesTable,
   v4DiagnosticSessionsTable,
+  v4ConceptMasteryTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { resolveActiveSpecialty, getStudentPath, syncStudentPathToActiveVersion } from "../lib/v4-path-engine";
+import { decideDiagnosticMove } from "../lib/v4-diagnostic-engine";
 import {
   getOrGenerateLessonContent,
   buildTeacherSystemPrompt,
@@ -673,6 +675,51 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       tags,
     );
 
+    // ── 7b. Hands-on ("التطبيق العملي") offer — server-driven trigger ──
+    // Recompute the disjoint diagnostic decision over POST-effects mastery so
+    // the offer reflects the score/applied changes this turn just produced.
+    // Delivered via the `done` event (NOT a model-emitted marker — the weak
+    // teaching model can't be trusted to emit one reliably). When the decision
+    // is APPLY, the FE pins a hands-on card for that concept.
+    let handsOnOffer: { conceptIndex: number; conceptName: string } | null = null;
+    try {
+      const [conceptRows, masteryRows] = await Promise.all([
+        db.select().from(v4LessonConceptsTable).where(eq(v4LessonConceptsTable.lessonId, lesson.id)),
+        db
+          .select({
+            conceptIndex: v4ConceptMasteryTable.conceptIndex,
+            score: v4ConceptMasteryTable.score,
+            appliedAt: v4ConceptMasteryTable.appliedAt,
+          })
+          .from(v4ConceptMasteryTable)
+          .where(and(
+            eq(v4ConceptMasteryTable.userId, uid),
+            eq(v4ConceptMasteryTable.lessonId, lesson.id),
+          )),
+      ]);
+      const masteryByConcept = new Map<number, number>();
+      const appliedByConcept = new Set<number>();
+      for (const r of masteryRows) {
+        masteryByConcept.set(r.conceptIndex, r.score);
+        if (r.appliedAt) appliedByConcept.add(r.conceptIndex);
+      }
+      const decision = decideDiagnosticMove({
+        concepts: conceptRows.map((c) => ({
+          conceptIndex: c.conceptIndex,
+          name: c.name,
+          masteryCriterion: c.masteryCriterion,
+          weight: Math.max(1, ((c as any).weight ?? 1) as number),
+        })),
+        masteryByConcept,
+        appliedByConcept,
+      });
+      if (decision.move === "apply" && decision.target) {
+        handsOnOffer = { conceptIndex: decision.target.conceptIndex, conceptName: decision.target.name };
+      }
+    } catch (e) {
+      logger.warn?.(`[v4/teach] hands-on offer compute failed user=${uid} lesson=${lesson.id}: ${String((e as any)?.message ?? e)}`);
+    }
+
     // ── 8. Terminal event ────────────────────────────────────────────
     if (!res.writableEnded) {
       try {
@@ -690,6 +737,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
             difficultyAdjustments: effects.difficultyAdjustments,
             labEnvRequests: effects.labEnvRequests,
             masteryGateBlocked: effects.masteryGateBlocked ?? null,
+            handsOnOffer,
             charged,
             insufficientGems,
             noWallet,

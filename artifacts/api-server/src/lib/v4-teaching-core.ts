@@ -582,6 +582,10 @@ export async function buildTeacherSystemPrompt(opts: {
     ));
   const masteryByConcept = new Map<number, number>();
   for (const r of masteryRows) masteryByConcept.set(r.conceptIndex, r.score);
+  // Concepts already hands-on applied — drives the diagnostic engine's APPLY
+  // decision so each concept gets exactly one "التطبيق العملي" offer.
+  const appliedByConcept = new Set<number>();
+  for (const r of masteryRows) if (r.appliedAt) appliedByConcept.add(r.conceptIndex);
 
   // L3 needs unit / stage / level context. One small join chain on PKs.
   const unitStageLevel = await loadUnitStageLevel(lesson.lesson.unitId);
@@ -651,6 +655,7 @@ export async function buildTeacherSystemPrompt(opts: {
           weight: Math.max(1, ((c as any).weight ?? 1) as number),
         })),
         masteryByConcept,
+        appliedByConcept,
         mistakes: lesson.mistakes.map((m) => ({
           mistake: m.mistake,
           correction: m.correction,

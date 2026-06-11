@@ -59,6 +59,10 @@ export type DiagnosticDirectiveInput = {
   /** Only concepts the student has an actual stored score for are present —
    *  absence = "never tested" (treated very differently from a real 0). */
   masteryByConcept: Map<number, number>;
+  /** Concepts the student has already done a graded hands-on ("التطبيق
+   *  العملي") attempt for. Drives the disjoint APPLY decision so each concept
+   *  gets exactly one hands-on offer, then the engine moves on. */
+  appliedByConcept?: Set<number>;
   mistakes: DiagnosticMistake[];
   chronicWeaknesses?: ChronicWeakness[];
   currentLessonCode: string;
@@ -97,6 +101,71 @@ function pickTopMistake(mistakes: DiagnosticMistake[]): DiagnosticMistake | null
   return [...mistakes].sort((a, b) => rank(a) - rank(b))[0];
 }
 
+export type DiagnosticMove = "probe" | "drill" | "apply" | "reinforce" | "advance";
+
+export type DiagnosticTarget = {
+  conceptIndex: number;
+  name: string;
+  masteryCriterion: string;
+  state: ConceptState;
+  score: number | null;
+};
+
+export type DiagnosticDecision = {
+  move: DiagnosticMove;
+  /** null only when move === "advance" (all concepts mastered + applied). */
+  target: DiagnosticTarget | null;
+};
+
+/**
+ * The single source of truth for "what should happen with which concept THIS
+ * turn". A disjoint, strict-priority decision (exactly one move per turn):
+ *
+ *   1. earliest untested|weak  → PROBE / DRILL   (fix the foundation first)
+ *   2. else earliest grasped (≥50) but NOT yet applied → APPLY (hands-on)
+ *   3. else earliest shaky that IS applied → REINFORCE (nudge it over 75)
+ *   4. else (all mastered + applied) → ADVANCE
+ *
+ * Pure + side-effect-free so it can be reused verbatim by (a) the prompt
+ * builder to author the directive and (b) v4_teach.ts to recompute the
+ * hands-on offer over POST-effects mastery for the `done` SSE event.
+ */
+export function decideDiagnosticMove(input: {
+  concepts: DiagnosticConcept[];
+  masteryByConcept: Map<number, number>;
+  appliedByConcept?: Set<number>;
+}): DiagnosticDecision {
+  const applied = input.appliedByConcept ?? new Set<number>();
+  const withState = [...input.concepts]
+    .sort((a, b) => a.conceptIndex - b.conceptIndex)
+    .map((c) => ({ concept: c, ...classify(c.conceptIndex, input.masteryByConcept) }));
+
+  const mk = (x: (typeof withState)[number]): DiagnosticTarget => ({
+    conceptIndex: x.concept.conceptIndex,
+    name: x.concept.name,
+    masteryCriterion: x.concept.masteryCriterion,
+    state: x.state,
+    score: x.score,
+  });
+
+  // 1. earliest untested|weak → PROBE/DRILL (a real gap blocks everything).
+  const gap = withState.find((c) => c.state === "untested" || c.state === "weak");
+  if (gap) return { move: gap.state === "untested" ? "probe" : "drill", target: mk(gap) };
+
+  // 2. else earliest grasped (shaky|mastered) but not yet hands-on applied → APPLY.
+  const toApply = withState.find(
+    (c) => (c.state === "shaky" || c.state === "mastered") && !applied.has(c.concept.conceptIndex),
+  );
+  if (toApply) return { move: "apply", target: mk(toApply) };
+
+  // 3. else earliest shaky (already applied) → REINFORCE over the 75 line.
+  const toReinforce = withState.find((c) => c.state === "shaky");
+  if (toReinforce) return { move: "reinforce", target: mk(toReinforce) };
+
+  // 4. else everything is mastered AND applied → advance.
+  return { move: "advance", target: null };
+}
+
 /**
  * Build the deterministic per-turn diagnostic directive. Returns "" only when
  * there are no indexed concepts at all (skeletal lesson) — in every other case
@@ -118,12 +187,14 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
     .join(" · ");
   const masteredCount = withState.filter((c) => c.state === "mastered").length;
 
-  // Root-cause-first target selection: earliest (lowest-index) concept that
-  // is untested or weak; else earliest shaky; else null (all mastered).
-  const target =
-    withState.find((c) => c.state === "untested" || c.state === "weak") ??
-    withState.find((c) => c.state === "shaky") ??
-    null;
+  // Disjoint per-turn decision (the single source of truth — also used by
+  // v4_teach.ts post-effects to fire the hands-on offer).
+  const decision = decideDiagnosticMove({
+    concepts: input.concepts,
+    masteryByConcept: input.masteryByConcept,
+    appliedByConcept: input.appliedByConcept,
+  });
+  const target = decision.target;
 
   const lines: string[] = [
     "## 14. موجّه التشخيص الذكي — خطة هذا الدور (إلزامية، نفّذها بدقّة)",
@@ -131,10 +202,10 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
     `- خريطة الإتقان الحالية (مفهوم:سكور): ${mapLine}  →  متقن ${masteredCount}/${withState.length}`,
   ];
 
-  if (!target) {
-    // Everything ≥ 75 — drive toward the final check + mastery, don't re-teach.
+  if (decision.move === "advance" || !target) {
+    // Everything ≥ 75 AND already applied — drive toward final check + mastery.
     lines.push(
-      "- **الحالة: كل المفاهيم متقنة.** لا تُعد شرح ما أُتقن. انتقل إلى **سؤال التحقق النهائي** (القسم ٢) كتحدٍّ تطبيقي واحد متشعّب.",
+      "- **الحالة: كل المفاهيم متقنة ومُطبَّقة عملياً.** لا تُعد شرح ما أُتقن. انتقل إلى **سؤال التحقق النهائي** (القسم ٢) كتحدٍّ تطبيقي واحد متشعّب.",
       "- إذا أجاب صحيحاً، أصدر [MASTERY] لأي مفهوم لم يصل ١٠٠ ثم [LESSON_MASTERED]. إذا تعثّر، اهبط فوراً للمفهوم الذي ظهر فيه التعثّر ودرّبه.",
     );
   } else {
@@ -145,11 +216,11 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
       `  معيار إتقانه: ${target.masteryCriterion}`,
     );
 
-    if (target.state === "untested") {
+    if (decision.move === "probe") {
       lines.push(
         "- **الحركة المطلوبة: تشخيص (PROBE).** اطرح سؤالاً واحداً دقيقاً يكشف هل يفهم هذا المفهوم فعلاً — سؤال «لماذا/ماذا لو» لا استرجاع تعريف. لا تشرح قبل أن يحاول.",
       );
-    } else if (target.state === "weak") {
+    } else if (decision.move === "drill") {
       const top = pickTopMistake(input.mistakes);
       lines.push(
         "- **الحركة المطلوبة: علاج جذري (DRILL).** الطالب ضعيف هنا وهذا أبكر مفهوم غير متقن (أساس لِما بعده). صحّح الفهم بمثال مضادّ صغير محسوس، ثم اطرح **سؤال ممارسة جديداً** يستهدف نفس الزلّة بالضبط — لا تكرّر نفس السؤال السابق.",
@@ -159,16 +230,26 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
           `  ⚠️ الفخّ الأكثر خطورة المتوقّع: «${top.mistake}» — الصواب: ${top.correction}؛ العلاج: ${top.treatment}. استبق هذا الفخّ في تدريبك.`,
         );
       }
+    } else if (decision.move === "apply") {
+      lines.push(
+        `- **الحركة المطلوبة: تطبيق عملي (APPLY).** الطالب استوعب هذا المفهوم نظرياً، والآن وقت أن يطبّقه بيده. مهّد بجملة واحدة دافئة تُحمّسه للانتقال إلى تطبيق عملي حقيقي على «${target.name}» (مثل: «ممتاز، خلّنا نطبّق اللي فهمته على أرض الواقع الحين»). **لا تطرح أنت سؤالاً ولا تمريناً منفصلاً** — بطاقة «التطبيق العملي» ستظهر للطالب تلقائياً وفيها المهمة كاملة.`,
+        `- **لا تُصدر [MASTERY] ولا [NEEDS_REVIEW] للمفهوم ${target.conceptIndex} هذا الدور** — تقييم التطبيق العملي يُحتسب آلياً ويحدّث الإتقان بنفسه. اكتفِ بالتمهيد الدافئ القصير ثم سلّم للبطاقة.`,
+      );
     } else {
       lines.push(
-        "- **الحركة المطلوبة: ترسيخ (REINFORCE).** الطالب قريب من الإتقان. اطرح **تطبيقاً ألطف بدرجة** (سيناريو أو «ماذا لو») يرفعه فوق ٧٥ بدل إعادة الأساسيات.",
+        "- **الحركة المطلوبة: ترسيخ (REINFORCE).** الطالب قريب من الإتقان وقد طبّق المفهوم عملياً. اطرح **تطبيقاً ألطف بدرجة** (سيناريو أو «ماذا لو») يرفعه فوق ٧٥ بدل إعادة الأساسيات.",
       );
     }
 
-    lines.push(
-      `- **التقاط الإشارة (إلزامي):** بعد ردّ الطالب على سؤالك، أصدر في نهاية رسالتك حكماً للمفهوم ${target.conceptIndex}: إمّا \`[MASTERY: concept=${target.conceptIndex} value=<0..100>]\` (قدّر فهمه بصدق) أو \`[NEEDS_REVIEW: concept=${target.conceptIndex}]\` إن أخطأ أو تردّد. لا تترك الدور بلا حكم على الهدف.`,
-      "- **اجعل الذكاء مرئياً (بلطف):** اربط السؤال بنقطة الضعف بإشارة دافئة طبيعية مرّة واحدة (مثل «خلّنا نثبّت هذي النقطة بالذات…») — دون لهجة آلية ولا كشف أنّ هناك «نظام» يحسب لك.",
-    );
+    // Signal capture applies to every move EXCEPT apply — the hands-on card
+    // grades + writes mastery server-side, so a model-emitted tag would
+    // double-count (and the weak model can't be trusted to grade production).
+    if (decision.move !== "apply") {
+      lines.push(
+        `- **التقاط الإشارة (إلزامي):** بعد ردّ الطالب على سؤالك، أصدر في نهاية رسالتك حكماً للمفهوم ${target.conceptIndex}: إمّا \`[MASTERY: concept=${target.conceptIndex} value=<0..100>]\` (قدّر فهمه بصدق) أو \`[NEEDS_REVIEW: concept=${target.conceptIndex}]\` إن أخطأ أو تردّد. لا تترك الدور بلا حكم على الهدف.`,
+        "- **اجعل الذكاء مرئياً (بلطف):** اربط السؤال بنقطة الضعف بإشارة دافئة طبيعية مرّة واحدة (مثل «خلّنا نثبّت هذي النقطة بالذات…») — دون لهجة آلية ولا كشف أنّ هناك «نظام» يحسب لك.",
+      );
+    }
   }
 
   // Spaced cross-lesson callback: weave a quick check on a chronic weakness

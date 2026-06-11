@@ -405,6 +405,11 @@ export const v4ConceptMasteryTable = pgTable("v4_concept_mastery", {
   conceptIndex: integer("concept_index").notNull(),
   // 0..100; 100 = fully mastered.
   score: integer("score").notNull().default(0),
+  // Timestamp of the FIRST graded hands-on ("التطبيق العملي") attempt for this
+  // concept. NULL = never applied. Set once by the hands-on grade route and
+  // read by the diagnostic engine's disjoint per-turn decision so APPLY fires
+  // exactly once per concept, then the engine moves on (REINFORCE/ADVANCE).
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("uq_v4_cmastery_user_lesson_concept").on(t.userId, t.lessonId, t.conceptIndex),
@@ -415,6 +420,29 @@ export type V4LessonContentCache = typeof v4LessonContentCacheTable.$inferSelect
 export type InsertV4LessonContentCache = typeof v4LessonContentCacheTable.$inferInsert;
 export type V4ConceptMastery = typeof v4ConceptMasteryTable.$inferSelect;
 export type InsertV4ConceptMastery = typeof v4ConceptMasteryTable.$inferInsert;
+
+// ── Hands-on "produce/do" task cache (التطبيق العملي) ───────────────────────
+// One cached task per (versionId, lessonId, conceptIndex). Generated once by
+// the hands-on engine (Gemini), then reused across every student + retry so
+// the task is deterministic and generation is paid for once. `task` holds the
+// full produce-task spec (scenario, deliverable, steps, rubric,
+// solutionOutline). The rubric/solutionOutline never leave the server — only
+// the student-facing fields are sent to the client (mirrors the lab/exam
+// "answers stay server-side" rule).
+export const v4ConceptHandsOnTable = pgTable("v4_concept_hands_on", {
+  id: serial("id").primaryKey(),
+  versionId: integer("version_id").notNull(),
+  lessonId: integer("lesson_id").notNull(),
+  conceptIndex: integer("concept_index").notNull(),
+  task: jsonb("task").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("uq_v4_handson_version_lesson_concept").on(t.versionId, t.lessonId, t.conceptIndex),
+  index("idx_v4_handson_lesson").on(t.lessonId),
+]);
+
+export type V4ConceptHandsOn = typeof v4ConceptHandsOnTable.$inferSelect;
+export type InsertV4ConceptHandsOn = typeof v4ConceptHandsOnTable.$inferInsert;
 
 // ── v4 task #7 — Lab completions ────────────────────────────────────────────
 // One row per (user, lab) — upsert on retry so the map always reflects the

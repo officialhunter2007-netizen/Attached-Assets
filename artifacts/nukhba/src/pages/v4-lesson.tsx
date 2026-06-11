@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, createElement } from "react";
 import { useRoute, useLocation } from "wouter";
 import { createRoot, type Root } from "react-dom/client";
-import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus } from "lucide-react";
+import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, Wrench } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@/lib/teacher-render";
@@ -25,6 +25,7 @@ import { useAuth } from "@/lib/use-auth";
 import { readUserJson, writeUserJson, userKey } from "@/lib/user-storage";
 import { extractAskOptions, normalizeArabicText } from "@/lib/ask-options";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
+import { HandsOnPanel } from "@/components/hands-on-panel";
 
 // Generic, student-friendly Arabic fallback for technical/network failures so
 // the chat never surfaces raw strings like "http_500" or "Failed to fetch".
@@ -46,6 +47,10 @@ type TerminalEffects = {
   insufficientGems?: boolean;
   noWallet?: boolean;
   balanceAfter?: number | null;
+  // PROACTIVE hands-on offer — server recomputes the disjoint APPLY decision
+  // each turn over real applied_at; carries the earliest grasped-but-unapplied
+  // concept (or null). The FE pins ONE "تطبيق عملي" card from it.
+  handsOnOffer?: { conceptIndex: number; conceptName: string } | null;
 };
 
 type MapLessonRef = { code: string; name: string };
@@ -512,6 +517,12 @@ export default function V4Lesson() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [lessonMeta, setLessonMeta] = useState<MapLessonRef | null>(null);
   const [terminal, setTerminal] = useState<TerminalEffects | null>(null);
+  // Pinned "تطبيق عملي" card (the outstanding offer) + the open grading panel.
+  // completedHandsOnRef tracks concepts already applied this session so a
+  // re-offer (or a stale done event) never re-pins a finished task.
+  const [handsOnOffer, setHandsOnOffer] = useState<{ conceptIndex: number; conceptName: string } | null>(null);
+  const [handsOnPanel, setHandsOnPanel] = useState<{ conceptIndex: number; conceptName: string } | null>(null);
+  const completedHandsOnRef = useRef<Set<number>>(new Set());
   const [insufficientGems, setInsufficientGems] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [walletExists, setWalletExists] = useState<boolean | null>(null);
@@ -549,6 +560,9 @@ export default function V4Lesson() {
       setSessions([]);
       setActiveSessionId(null);
       setTerminal(null);
+      setHandsOnOffer(null);
+      setHandsOnPanel(null);
+      completedHandsOnRef.current = new Set();
       setError(null);
       setInsufficientGems(false);
       setWalletBalance(null);
@@ -612,6 +626,9 @@ export default function V4Lesson() {
     setSessions([]);
     setActiveSessionId(null);
     setTerminal(null);
+    setHandsOnOffer(null);
+    setHandsOnPanel(null);
+    completedHandsOnRef.current = new Set();
     setError(null);
     setInsufficientGems(false);
     setStreaming(false);
@@ -895,6 +912,14 @@ export default function V4Lesson() {
                 setWalletBalance(t.balanceAfter);
                 setWalletExists(true);
               }
+              // Persist the pinned hands-on card until completed: only SET on a
+              // non-null offer for a not-yet-applied concept. A null offer (this
+              // turn prioritized a probe/drill) must NOT clear an outstanding
+              // pin. Lesson-mastered means everything's applied → drop it.
+              if (t.handsOnOffer && !completedHandsOnRef.current.has(t.handsOnOffer.conceptIndex)) {
+                setHandsOnOffer(t.handsOnOffer);
+              }
+              if (t.lessonMastered) setHandsOnOffer(null);
               continue;
             }
             if (evt?.error || evt?.friendlyMessage) {
@@ -1163,6 +1188,23 @@ export default function V4Lesson() {
             </div>
           )}
 
+          {handsOnOffer && (
+            <button
+              onClick={() => setHandsOnPanel(handsOnOffer)}
+              className="w-full text-right rounded-2xl border border-amber-400/40 bg-gradient-to-l from-amber-500/15 to-amber-400/5 p-4 flex items-center gap-3 hover:border-amber-400/70 transition-colors"
+            >
+              <div className="shrink-0 w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 grid place-items-center">
+                <Wrench className="w-5 h-5 text-amber-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[11px] text-amber-300/90 font-bold">تطبيق عملي جاهز</div>
+                <div className="text-sm text-white font-black truncate">طبّق الآن: «{handsOnOffer.conceptName}»</div>
+                <div className="text-[11px] text-white/60 mt-0.5">أنتج ناتجاً حقيقياً يُصحَّح فوراً ويرفع إتقانك.</div>
+              </div>
+              <ArrowLeft className="w-4 h-4 text-amber-300 shrink-0" />
+            </button>
+          )}
+
           {terminal?.masteryGateBlocked && (
             <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
               المعلم حاول إنهاء الدرس، لكن بعض المفاهيم لم تُتقن بعد
@@ -1326,6 +1368,22 @@ export default function V4Lesson() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* PROACTIVE hands-on grading panel ("التطبيق العملي") */}
+      {handsOnPanel && (
+        <HandsOnPanel
+          slug={slug}
+          lessonCode={code}
+          conceptIndex={handsOnPanel.conceptIndex}
+          conceptName={handsOnPanel.conceptName}
+          onBalance={(b) => { setWalletBalance(b); setWalletExists(true); }}
+          onApplied={(ci) => {
+            completedHandsOnRef.current.add(ci);
+            setHandsOnOffer((cur) => (cur && cur.conceptIndex === ci ? null : cur));
+          }}
+          onClose={() => setHandsOnPanel(null)}
+        />
       )}
     </div>
   );

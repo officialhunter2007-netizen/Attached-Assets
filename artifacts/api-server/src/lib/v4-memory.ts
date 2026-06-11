@@ -289,6 +289,32 @@ export async function bumpWeakness(opts: {
   }
 }
 
+/**
+ * Clear a per-(user, lesson, concept) weakness once the student has mastered
+ * it (score ≥ 75) via targeted practice or a hands-on application. Deletes the
+ * tracker row so it no longer surfaces as a chronic weakness in cross-lesson
+ * callbacks. No-op (and never throws) when there is no row.
+ */
+export async function clearWeakness(opts: {
+  userId: number;
+  lessonId: number;
+  conceptIndex: number;
+}): Promise<void> {
+  try {
+    await db
+      .delete(v4WeaknessTrackerTable)
+      .where(and(
+        eq(v4WeaknessTrackerTable.userId, opts.userId),
+        eq(v4WeaknessTrackerTable.lessonId, opts.lessonId),
+        eq(v4WeaknessTrackerTable.conceptIndex, opts.conceptIndex),
+      ));
+  } catch (e) {
+    logger.warn?.(
+      `[v4-memory] clearWeakness failed user=${opts.userId} lesson=${opts.lessonId} concept=${opts.conceptIndex}: ${String((e as any)?.message ?? e)}`,
+    );
+  }
+}
+
 export type MasteryGateResult = {
   allMastered: boolean;
   /** Concepts that are still below the threshold — empty when allMastered. */

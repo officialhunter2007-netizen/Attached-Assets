@@ -728,6 +728,27 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    // Hands-on "produce/do" task cache — one row per (version, lesson,
+    // concept). Generated once by the hands-on engine, reused across all
+    // students + retries. `task` holds the full spec (scenario, deliverable,
+    // steps, rubric, solution_outline); rubric/solution stay server-side.
+    table: "v4_concept_hands_on",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "v4_concept_hands_on" (
+        "id" serial PRIMARY KEY,
+        "version_id" integer NOT NULL,
+        "lesson_id" integer NOT NULL,
+        "concept_index" integer NOT NULL,
+        "task" jsonb NOT NULL,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_handson_version_lesson_concept" ON "v4_concept_hands_on" ("version_id", "lesson_id", "concept_index")`,
+      `CREATE INDEX IF NOT EXISTS "idx_v4_handson_lesson" ON "v4_concept_hands_on" ("lesson_id")`,
+    ],
+  },
+  {
     // v4 task #6 — cross-subject student profile (personal dictionary,
     // warmth anchors, learning style). One row per user; injected into
     // Layer 4 of the teaching system prompt.
@@ -1192,6 +1213,15 @@ const REQUIRED_COLUMNS: TableSpec[] = [
       { name: "discount_percent", ddl: "integer" },
       { name: "base_price", ddl: "integer" },
       { name: "final_price", ddl: "integer" },
+    ],
+  },
+  {
+    // Hands-on application timestamp — set once after the first graded
+    // hands-on attempt so the diagnostic engine fires APPLY exactly once per
+    // concept. NULL on legacy rows = never applied.
+    table: "v4_concept_mastery",
+    columns: [
+      { name: "applied_at", ddl: "timestamp with time zone" },
     ],
   },
 ];

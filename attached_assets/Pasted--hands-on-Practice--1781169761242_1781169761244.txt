@@ -1,0 +1,259 @@
+نضام hands on Practice في المحادثات يجب ان يكون حاضرا من اول درس التطبيق العملي هو اهم ما يميز نخبه قم بانشاء النضام بذكاء عالي خوارزميات عبقريه الان
+
+20 minutes ago
+
+Show less
+Optimized Agent memory
+
+Planning integrated practice system (15 seconds)
+This is a major feature. Before building, I need to deeply understand the existing v4 teaching flow and what interactive/practice infrastructure already exists, so the new "hands-on practice" system fits cleanly rather than duplicating drills, labs, VIZ/ANIM/SCENE, or the IDE. Let me explore in parallel.
+
+
+Show less
+
+Described v4 teaching system flow and markers
+
+Cataloged interactive practice infrastructure
+I'll wait for both exploration jobs to complete before designing the approach.
+
+
+Show less
+Waited 1 minute 5 seconds for background jobs to complete
+
+Planning proactive practice integration (68 seconds)
+I now have a complete picture. There's already rich infrastructure (IDE, playgrounds, labs, simulators, VIZ/ANIM/SCENE, and the reactive gap-sealing drills I just built). What's genuinely missing is what you're asking for: a proactive hands-on practice beat woven into the chat from lesson #1 — the student does, not just reads — for every subject, graded instantly and feeding mastery.
+
+My plan: build a deterministic Practice (تطبيق عملي) system as a sibling to the drill system, reusing its proven grading/billing/atomic-claim infrastructure. Let me read the exact extension points before writing.
+
+
+Show less
+
+Opened v4-drill-builder.ts
+
+Opened v4-protocol-tags.ts
+
+Ran cd
+
+Planning practice system integration (42 seconds)
+I have the drill template and the protocol/tag system mapped. The cleanest, lowest-risk architecture is to generalize the just-merged drill infrastructure (session table + the hardened grade endpoint with its atomic-claim/ownership/billing code) to also serve a new proactive Practice mode — rather than copy-pasting 360 lines of concurrency-critical code. Let me read the remaining exact pieces: the drill session schema, the trigger, the SSE emit block, the full grade endpoint, and the FE card.
+
+
+Show less
+
+Ran cd
+
+Analyzing drill functionality
+
+Opened v4.ts
+
+Opened v4-diagnostic-engine.ts
+
+Opened v4_teach.ts
+
+Deciding on architectural approach (33 seconds)
+The grade endpoint is generic enough to grade any session row by id. Let me read the full grade endpoint, the FE card + SSE handler, and confirm where concepts/deliverables and the migration columns live, so I can generalize cleanly.
+
+
+Show less
+
+Opened v4_teach.ts
+
+Ran cd
+
+Planning practice session generalization (63 seconds)
+I now have the complete architecture mapped. The grade endpoint is fully generic (grades any session row by id, bills idempotently, finalizes mastery via the single writer, never lowers). The cleanest design: store proactive Practice sessions in the same v4_drill_sessions table behind a session_kind discriminator, reusing 100% of the hardened claim/ownership/billing/mastery code — only the trigger (proactive vs reactive) and the builder (produce/do vs quiz) are new. Let me read the auto-migrate column section to mirror it, then build.
+
+
+Show less
+
+Opened auto-migrate.ts
+
+Opened v4-lesson.tsx
+
+Planning implementation and frontend updates (4 seconds)
+Let me read the FE SSE handler and the DrillCard render/component so I can make precise edits.
+
+
+Show less
+
+Opened v4-lesson.tsx
+
+Opened v4-lesson.tsx
+
+Opened v4-lesson.tsx
+
+Planning practice and drill conflict resolution (48 seconds)
+I have the full picture of the FE card and grade flow. Let me verify the exact import block and cooldown helpers in v4_teach.ts before editing.
+
+
+Show less
+
+Opened v4_teach.ts
+
+Opened v4_teach.ts
+
+Planning practice module integration (8 seconds)
+All extension points confirmed. selectDrillTarget lives in v4-diagnostic-engine.ts, so the new proactive trigger goes there too. Now I'll write the session plan and implement the backend (new builder + trigger + schema/migration) in one batch.
+
+
+Proposed plan
+
+Show less
+
+Created v4-practice-builder.ts
+
+Edited v4.ts
+
+Edited auto-migrate.ts
+Now the diagnostic engine trigger and the v4_teach.ts wiring (imports + cooldown + emit block + drillEmitted flag).
+
+
+Show less
+
+Edited v4-diagnostic-engine.ts
+Optimized Agent memory
+
+Planning v4_teach.ts file updates
+Now the v4_teach.ts wiring — imports, practice cooldown, and the emit block with a drillEmitted flag.
+
+
+Show less
+
+Edited v4_teach.ts
+
+Edited v4_teach.ts
+
+Planning SSE drill block emission (7 seconds)
+Now the drillEmitted flag and the practice emit block in the teach route.
+
+
+Show less
+
+Edited v4_teach.ts
+
+Edited v4_teach.ts
+
+Edited v4_teach.ts
+
+Deciding on DrillState variant property
+Backend complete. Now the FE: add variant to state, handle the practice SSE event, and render practice framing in DrillCard.
+
+
+Show less
+
+Edited v4-lesson.tsx
+
+Edited v4-lesson.tsx
+
+Deciding on action button styling (36 seconds)
+Now make the DrillCard variant-aware (header, colors, seal label, CTAs).
+
+
+Show less
+
+Edited v4-lesson.tsx
+
+Edited v4-lesson.tsx
+
+Edited v4-lesson.tsx
+
+Edited v4-lesson.tsx
+
+Verifying application startup and migration
+All edits done. Let me restart the app and verify a clean boot + that the migration adds the column.
+
+
+Show less
+
+Restarted Start application
+
+Analyzing API server startup logs
+
+Ran cd
+Let me use the proper log refresh tool to verify the boot.
+
+
+Show less
+Checked console and system logs
+
+Checking TypeScript for errors
+Clean boot — auto-migrate added the session_kind column (addedCount: 1), server listening on 8080. The FAILED API Server workflow is the known harmless dup-port-8080. Let me typecheck to confirm my changes introduce no new TS errors (scanning for my touched files).
+
+
+Show less
+
+Ran cd
+
+Planning API server schema update (9 seconds)
+A type error at the practice insert. Let me inspect the exact line and how @workspace/db types resolve.
+
+
+Show less
+
+Opened v4_teach.ts
+
+Ran cd
+
+Analyzing TypeScript import resolution (11 seconds)
+The @workspace/db types resolve via stale project-reference declarations in lib/db/dist (built before my schema edit), so sessionKind isn't yet in the emitted .d.ts. Runtime is fine (esbuild reads src), but tsc needs the declarations rebuilt. Let me rebuild the db package and re-typecheck.
+
+
+Show less
+
+Ran cd
+
+Analyzing db package build process (9 seconds)
+The db package has no build script yet stale dist/*.d.ts exist — tsc resolves the referenced project's declarations from there. Let me check how those declarations get generated.
+
+
+Show less
+
+Ran cd
+
+Rebuilding TypeScript declarations
+It uses tsc --build for composite libs. Let me rebuild the lib declarations, then re-typecheck my touched file.
+
+
+Show less
+
+Ran cd
+
+Determining lib/db build status (8 seconds)
+The lib rebuild emitted db declarations (the v4_teach.ts(867) error is gone — the remaining src/index.ts(59) TS2769 is pre-existing and unrelated to my files). The tsc -b overall failure is from pre-existing errors in the integration libs, not mine. Let me confirm the db declaration now has session_kind and that v4_teach.ts is fully clean.
+
+
+Show less
+
+Ran cd
+
+Planning architect code review
+Backend is clean and db declarations now include session_kind. The index.ts:59 listen typing error is pre-existing. Let me confirm the FE typechecks clean, then run the architect review.
+
+
+Show less
+
+Ran cd
+Optimized Agent memory
+Everything typechecks clean and boots cleanly. Now the architect review with the git diff.
+
+
+Show less
+
+Architect review completed
+
+Reviewing new Arabic lesson practice feature
+
+Diagnosing drill target selection logic
+The architect found one real blocker: the trigger isn't truly disjoint — selectDrillTarget treats needsReview as an unconditional drill trigger regardless of mastery, so a turn with both needsReview + mastery≥50 for the same concept lets drill suppress practice. Let me read the engine to fix it precisely.
+
+
+Show less
+
+Opened v4-diagnostic-engine.ts
+
+Evaluating needs_review drill logic (15 seconds)
+Clear fix: in selectDrillTarget, a fresh same-turn grasp (mastery ≥ WEAK_BELOW) must override a stale needs_review flag on the same concept, so that concept goes to practice, not drill. This makes the two triggers truly disjoint.
+
+
+Edited v4-diagnostic-engine.ts
+The ability to use Replit Agent has been disabled by your admin.
