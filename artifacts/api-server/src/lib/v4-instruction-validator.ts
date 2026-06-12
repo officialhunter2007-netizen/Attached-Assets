@@ -481,6 +481,58 @@ export function validateV4InstructionFile(rawJson: unknown): V4ValidationReport 
 
   summary.placementQuestions = parsed.placement_test_questions?.length ?? 0;
 
+  // ─── Stage 5: placement question targeting checks ───────────────────────
+  // Verify high-precision stage/unit targets reference real codes, and that a
+  // unit-tagged question's level matches the unit's level. Legacy level-only
+  // questions (no target_unit_code) are untouched.
+  if (parsed.placement_test_questions) {
+    parsed.placement_test_questions.forEach((q, i) => {
+      const path = `placement_test_questions[${i}]`;
+      if (q.target_unit_code) {
+        if (!unitCodes.has(q.target_unit_code)) {
+          issues.push({
+            severity: "error",
+            path,
+            message: `سؤال تحديد المستوى يشير لوحدة غير موجودة: ${q.target_unit_code}`,
+          });
+        } else {
+          const lvFromUnit = Number(q.target_unit_code.split(".")[0]);
+          if (Number.isInteger(lvFromUnit) && lvFromUnit !== q.target_level_index) {
+            issues.push({
+              severity: "error",
+              path,
+              message: `سؤال تحديد المستوى: target_level_index (${q.target_level_index}) لا يطابق مستوى الوحدة ${q.target_unit_code}`,
+            });
+          }
+        }
+      }
+      if (q.target_stage_code && !stageCodes.has(q.target_stage_code)) {
+        issues.push({
+          severity: "error",
+          path,
+          message: `سؤال تحديد المستوى يشير لمرحلة غير موجودة: ${q.target_stage_code}`,
+        });
+      }
+    });
+
+    // WARN about coverage gaps only when the file actually uses unit targeting.
+    const coveredUnits = new Set(
+      parsed.placement_test_questions
+        .map((q) => q.target_unit_code)
+        .filter((c): c is string => !!c),
+    );
+    if (coveredUnits.size > 0) {
+      const uncovered = [...unitCodes].filter((c) => !coveredUnits.has(c));
+      if (uncovered.length > 0) {
+        issues.push({
+          severity: "warning",
+          path: "placement_test_questions",
+          message: `${uncovered.length} وحدة بدون أسئلة تحديد مستوى — ستقل دقة التحديد داخل هذه الوحدات`,
+        });
+      }
+    }
+  }
+
   const hasError = issues.some((i) => i.severity === "error");
   return { ok: !hasError, parsed, issues, summary };
 }

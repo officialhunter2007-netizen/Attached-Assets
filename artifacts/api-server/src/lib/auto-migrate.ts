@@ -641,6 +641,32 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    // v4 placement-accuracy — server-authoritative adaptive placement run.
+    // Every probe graded server-side; finalize recomputes from `probes`,
+    // ignoring any client-supplied level. `pending` holds the single
+    // question awaiting an answer so the client never picks which question
+    // it answered. Mirrors the diagnostic-sessions reuse-latest-in_progress
+    // pattern.
+    table: "v4_placement_sessions",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "v4_placement_sessions" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "subject_id" text NOT NULL,
+        "version_id" integer NOT NULL,
+        "status" text NOT NULL DEFAULT 'in_progress',
+        "probes" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "pending" jsonb,
+        "result" jsonb,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "completed_at" timestamp with time zone
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_v4_placement_sess_user_subject" ON "v4_placement_sessions" ("user_id", "subject_id")`,
+    ],
+  },
+  {
     // v4 task #7 — lab completions (one row per user/lab, upsert on retry).
     table: "v4_lab_completions",
     createSql: `
@@ -987,6 +1013,14 @@ async function seedPaymentSettings(): Promise<void> {
 
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
+    // High-precision adaptive placement — stage/unit targeting columns.
+    table: "v4_placement_test_questions",
+    columns: [
+      { name: "target_stage_code", ddl: "text" },
+      { name: "target_unit_code", ddl: "text" },
+    ],
+  },
+  {
     table: "course_materials",
     columns: [
       { name: "structured_outline", ddl: "text" },
@@ -1116,6 +1150,17 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     table: "v4_student_paths",
     columns: [
       { name: "lesson_stars", ddl: "jsonb NOT NULL DEFAULT '{}'::jsonb" },
+    ],
+  },
+  {
+    // High-precision placement anchor. Holds the boundary unit code "L.S.U"
+    // when the student was placed INSIDE a level via unit-tagged questions,
+    // so a later re-publish recomputes the unlock set unit-precisely instead
+    // of falling back to whole-level granularity. NULL for from_zero /
+    // legacy level-only placements (backfills cleanly).
+    table: "v4_student_paths",
+    columns: [
+      { name: "placement_unit_code", ddl: "text" },
     ],
   },
   {

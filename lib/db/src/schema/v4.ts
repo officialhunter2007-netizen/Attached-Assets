@@ -287,6 +287,12 @@ export const v4PlacementTestQuestionsTable = pgTable("v4_placement_test_question
   // Which level this question maps to (1..5). Used by task #3's diagnostic
   // to land the student at a specific starting level.
   targetLevelIndex: integer("target_level_index").notNull(),
+  // High-precision targeting (adaptive placement). When present the question
+  // probes a specific STAGE ("L.S") and/or UNIT ("L.S.U") so the engine can
+  // place the student INSIDE a level, not just at its top. NULL = legacy
+  // level-only question (target_level_index stays authoritative).
+  targetStageCode: text("target_stage_code"),
+  targetUnitCode: text("target_unit_code"),
   kind: text("kind").notNull().default("mcq"),
   prompt: text("prompt").notNull(),
   choices: jsonb("choices"),
@@ -320,6 +326,12 @@ export const v4StudentPathsTable = pgTable("v4_student_paths", {
   bookletId: integer("booklet_id"),
   startMode: text("start_mode").notNull(),
   startingLevelIndex: integer("starting_level_index").notNull().default(1),
+  // High-precision placement anchor (adaptive descent). When the student was
+  // placed INSIDE a level via unit-tagged questions this holds the boundary
+  // unit code "L.S.U" so a later re-publish can recompute the unlock set
+  // unit-precisely instead of falling back to whole-level granularity. NULL
+  // for from_zero / legacy level-only placements.
+  placementUnitCode: text("placement_unit_code"),
   currentLessonCode: text("current_lesson_code"),
   unlockedLessonCodes: jsonb("unlocked_lesson_codes").notNull().default([]),
   // Maps lesson_code → star count (1|2|3). Persisted server-side so
@@ -350,6 +362,34 @@ export const v4DiagnosticSessionsTable = pgTable("v4_diagnostic_sessions", {
   index("idx_v4_diag_user_subject").on(t.userId, t.subjectId),
 ]);
 
+// ── placement_sessions: server-authoritative adaptive placement run ─────────
+// Closes the integrity gap where the old flow trusted a client-supplied
+// startingLevelIndex. Every probe is graded SERVER-SIDE and appended to
+// `probes`; the single question currently awaiting an answer is held in
+// `pending` (so the client never decides which question it answered); the
+// final precise placement is recomputed server-side into `result`. One
+// in_progress row per (userId, subjectId) is reused on refresh; a re-take
+// opens a fresh row.
+//
+// probes  : [{ questionId, scope:'level'|'stage'|'unit', scopeCode, targetLevelIndex, correct }]
+// pending : { questionId, scope, scopeCode, targetLevelIndex } | null
+// result  : { startMode, startingLevelIndex, levelIndex, stageCode, unitCode,
+//             currentLessonCode, precision:'unit'|'level', reason }
+export const v4PlacementSessionsTable = pgTable("v4_placement_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  subjectId: text("subject_id").notNull(),
+  versionId: integer("version_id").notNull(),
+  status: text("status").notNull().default("in_progress"),
+  probes: jsonb("probes").notNull().default([]),
+  pending: jsonb("pending"),
+  result: jsonb("result"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (t) => [
+  index("idx_v4_placement_sess_user_subject").on(t.userId, t.subjectId),
+]);
+
 // ── Inferred types ──────────────────────────────────────────────────────────
 export type V4Specialty = typeof v4SpecialtiesTable.$inferSelect;
 export type V4InstructionFileVersion = typeof v4InstructionFileVersionsTable.$inferSelect;
@@ -367,6 +407,8 @@ export type V4StudentPath = typeof v4StudentPathsTable.$inferSelect;
 export type InsertV4StudentPath = typeof v4StudentPathsTable.$inferInsert;
 export type V4DiagnosticSession = typeof v4DiagnosticSessionsTable.$inferSelect;
 export type InsertV4DiagnosticSession = typeof v4DiagnosticSessionsTable.$inferInsert;
+export type V4PlacementSession = typeof v4PlacementSessionsTable.$inferSelect;
+export type InsertV4PlacementSession = typeof v4PlacementSessionsTable.$inferInsert;
 
 // ── v4 task #5 — Teaching core ──────────────────────────────────────────────
 // Per-lesson generated content cache. Keyed on (versionId, lessonId, language)

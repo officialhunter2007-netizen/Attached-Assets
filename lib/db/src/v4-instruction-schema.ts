@@ -266,6 +266,11 @@ export const v4ExamBanksSchema = z.object({
 // ── Placement test bank (per-specialty) ────────────────────────────────────
 export const v4PlacementQuestionSchema = z.object({
   target_level_index: z.number().int().min(1).max(5),
+  // High-precision targeting (additive, optional). "L.S" stage / "L.S.U" unit.
+  // When target_unit_code is present the adaptive engine probes that exact unit;
+  // omitted = legacy level-only question. Cross-ref validator FK-checks the codes.
+  target_stage_code: z.string().trim().optional(),
+  target_unit_code: z.string().trim().optional(),
   kind: z.enum(["mcq", "practical", "short_answer"]).default("mcq"),
   prompt: reqText(5, "نص سؤال تحديد المستوى"),
   choices: z.array(reqText(1)).optional(),

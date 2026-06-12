@@ -1,22 +1,54 @@
 ---
-name: v4 placement test accuracy
-description: Why the v4 placement test (اختبار تحديد المستوى) can fail to determine a student's real level — design + content + integrity constraints.
+name: v4 high-precision placement
+description: How the v4 placement test places students at level+stage+unit precision, the AI-authoring fragment contract, and the code-ordering trap it exposed.
 ---
 
-# v4 placement test — accuracy constraints
+# v4 high-precision placement (level + stage + unit)
 
-The placement flow (path-custom.tsx → `/v4/path/:slug/placement/{next,finalize}` → v4-path-engine.ts → `/v4/path/:slug/map`) is mechanically correct for the honest happy path: it adaptively walks levels 1→5, stops on 2 consecutive fails or level exhaustion, sets `currentLessonCode` = first lesson of the placed level, unlocks levels 1..N, and the map opens directly at that level with the first lesson "active". The "direct jump to the placed level" works.
+## Algorithm = hierarchical descent (NOT binary search)
+Find the boundary LEVEL (best-of-3: 2 passes promotes / 2 fails stops), then within it the
+boundary STAGE (1-pass / 2-fail), then the boundary UNIT (1-pass / 2-fail). Place the student
+at the FIRST lesson of the boundary unit; everything before it is unlocked.
+Exhaustion counts as fail only when zero correct (conservative — under-placement is the safe error).
 
-But three constraints limit how accurately it places a real student:
+**Why:** under-placing a student (making them review) is pedagogically safe; over-placing (skipping
+material they don't know) is not. Every ambiguous boundary resolves downward on purpose.
 
-1. **Granularity is LEVEL-only — never stage/unit (by design).** Placement questions carry only `targetLevelIndex`; `computeStartingLevel` returns a level; `computeUnlocked` always sets `currentLessonCode` to the FIRST lesson of the level (first stage / first unit). There is no within-level placement. A request for "land them on the right level AND stage AND unit" is NOT satisfiable without adding stage/unit targeting to the question bank + engine.
+## Legacy level-only flow MUST survive untouched
+The descent path is gated on whether the active instruction version has any unit-tagged
+placement questions (rows with a non-NULL `target_unit_code`). All pre-existing banks are
+NULL-tagged → they route to the level-only evaluator with the original semantics
+(starting level = highest level with a correct answer, default 1). Never assume unit targeting;
+always branch on the presence of unit tags.
 
-2. **Silently capped by missing placement questions.** `pickNextPlacementQuestion` returns `finalize: "exhausted"` the moment a target level has no authored placement questions. So if the admin only authored level-1 questions, EVERY student caps at level 1 regardless of ability — placement becomes a no-op equivalent to `from_zero` (just unlocks all of level 1 instead of only the first lesson). Always verify `v4_placement_test_questions` has rows for every level before claiming placement "works". NOTE: what's PUBLISHED in the Replit-cloud DB is often a short temporary stub (e.g. `skill-python` = 1 level only); the REAL full curriculum lives in instruction JSON files (`out/*.json`, `attached_assets/final_*.json`) and is published to the standalone server later. The real `uni-it` file has 5 levels × 7 stages + 4 placement MCQs per level (all 5 levels), so on real content placement DOES discriminate level correctly. Audit the JSON files, not just the dev DB.
+**How to apply:** any change to placement grading must keep both branches and keep the
+descent unit tests (`v4-placement-descent.test.ts`) green — they lock the legacy semantics.
 
-2b. **Only ONE question per level is asked in the happy path.** The engine advances to level N+1 on the FIRST correct answer at level N (`orderBy(difficulty, questionIndex)` then `.find` first unasked). The other 3 authored questions per level are only consumed as re-draws AFTER a wrong answer. So a confident student's entire placement rests on a single ~25%-guessable MCQ per level — one lucky guess over-places, one slip (plus a slip on the re-draw) under-places. The author writing 4 questions/level does NOT mean 4 are used.
+## AI authoring emits a JSON FRAGMENT — it must NOT write placement rows to the DB
+The admin "generate placement questions" endpoint reads the active version's
+units/lessons/concepts, generates per-unit MCQs, and returns a `placement_test_questions`
+fragment for the admin to merge into the instruction file in Monaco and **re-publish**.
+It deliberately performs NO DB write.
 
-3. **`finalize` trusts the client.** The `answered[]` history lives client-side and is POSTed back each `next` call (server only grades the single in-flight answer); `finalize` accepts whatever `startingLevelIndex` the client sends (clamped 1-5) without re-deriving it from server-graded answers or proving a test was taken. Honest students are placed accurately, but the test is bypassable (POST finalize with startingLevelIndex=5).
+**Why:** the publish normalizer DELETE+reinserts every placement row on each publish. Any row
+written straight to the DB (bypassing the instruction file) is silently wiped on the next
+publish / git-push. The instruction file is the single source of truth for curriculum content.
 
-**Why this matters:** the headline symptom — "the placement test puts everyone at level 1" — is usually a CONTENT gap (no questions/levels authored above 1), not an engine bug. The replit.md spec promises 5 levels × 7 stages per specialty, but published content can be far thinner. Check the DB before assuming the curriculum exists.
+**How to apply:** anything that should persist across publishes must live in the instruction
+file and flow through the normalizer — never a side-channel DB insert into a normalizer-managed
+table.
 
-**Secondary:** v4-map.tsx has no `scrollIntoView` to the active node — fine for placement (active = first lesson, top of level) but a returning student deep in a level must scroll manually.
+## Code-ordering trap: segment codes sort lexicographically, NOT numerically
+Unit/lesson codes look like `L.S.U.Lesson` (e.g. `1.1.1.10`). Plain string/`asc(code)` sort
+puts `1.1.1.10` BEFORE `1.1.1.2`. Use the numeric-segment comparator (`compareCodes` in
+`v4-path-engine.ts`) EVERYWHERE ordering matters (tree build, unlock computation, "highest
+preserved code" on version sync, descent question ordering).
+
+**Why:** "first lesson of a unit" and "everything before unlocked" both depend on correct
+numeric ordering; the lexicographic default silently mis-orders any unit with ≥10 lessons.
+
+## Paid endpoint guardrails
+The generate endpoint is admin + same-origin-CSRF gated, caps perUnit (≤5) and maxUnits (≤60),
+runs a concurrency pool (4), 90s per-call timeout, collects per-unit failures into `unitsFailed`
+instead of failing the whole request, and records usage via `recordAiUsage`. Keep these bounds
+when extending — it is a first-party paid fan-out surface.

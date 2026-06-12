@@ -24,7 +24,7 @@ import Editor from "@monaco-editor/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { BookOpen, CheckCircle2, AlertTriangle, XCircle, FileJson, Rocket, RotateCcw, Trash2, Download, Loader2, Sparkles, Upload, Wrench } from "lucide-react";
+import { BookOpen, CheckCircle2, AlertTriangle, XCircle, FileJson, Rocket, RotateCcw, Trash2, Download, Loader2, Sparkles, Upload, Wrench, Wand2 } from "lucide-react";
 import { university, skills } from "@/lib/curriculum";
 
 // Flat catalog of every legacy specialty/skill the platform knows about,
@@ -206,6 +206,9 @@ export function AdminV4Instructions() {
   const [autoFixing, setAutoFixing] = useState(false);
   const [cacheToken, setCacheToken] = useState<string | null>(null);
   const [autofixChanges, setAutofixChanges] = useState<string[]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [genLevel, setGenLevel] = useState<string>("");
+  const [genPerUnit, setGenPerUnit] = useState<number>(2);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const errorCount = useMemo(() => issues.filter((i) => i.severity === "error").length, [issues]);
@@ -329,6 +332,74 @@ export function AdminV4Instructions() {
       toast({ title: "فشل الإصلاح التلقائي", description: e.message, variant: "destructive" });
     } finally {
       setAutoFixing(false);
+    }
+  }
+
+  // ── Generate placement questions (AI authoring) ──────────────────────────
+  // Reads the units of the specialty's ACTIVE published version and asks Gemini
+  // for per-unit MCQs tagged by target_unit_code. The returned fragment is
+  // merged into the editor's `placement_test_questions` so the admin can review
+  // it in Monaco and re-publish. Nothing is written to the DB by the endpoint —
+  // the instruction file stays the single source of truth (a publish DELETE+
+  // reinserts placement rows, so DB-only questions would be wiped).
+  async function generatePlacement() {
+    if (!selectedSlug) {
+      toast({ title: "اختر تخصصاً أولاً", description: "يجب اختيار تخصص له إصدار منشور لتوليد أسئلة التحديد.", variant: "destructive" });
+      return;
+    }
+    setGenerating(true);
+    try {
+      const body: any = { perUnit: genPerUnit };
+      if (genLevel) body.levelIndex = Number(genLevel);
+      const data = await api(
+        `/api/admin/v4/specialties/${encodeURIComponent(selectedSlug)}/generate-placement`,
+        { method: "POST", body: JSON.stringify(body) },
+      );
+      const fragment: any[] = Array.isArray(data.placement_test_questions) ? data.placement_test_questions : [];
+      if (fragment.length === 0) {
+        toast({
+          title: "لم تُولَّد أي أسئلة",
+          description: data.unitsFailed?.length
+            ? `فشلت ${data.unitsFailed.length} وحدة — حاول مجدداً.`
+            : "تحقّق من وجود وحدات في الإصدار المنشور حالياً.",
+          variant: "destructive",
+        });
+        return;
+      }
+      let parsed: any;
+      try {
+        parsed = JSON.parse(editorJson);
+      } catch {
+        toast({ title: "JSON غير صالح في المحرر", description: "أصلح صيغة JSON قبل دمج الأسئلة.", variant: "destructive" });
+        return;
+      }
+      const existing: any[] = Array.isArray(parsed.placement_test_questions) ? parsed.placement_test_questions : [];
+      let merged: any[];
+      if (existing.length > 0) {
+        const replace = confirm(
+          `يوجد ${existing.length} سؤال تحديد مستوى في الملف حالياً.\n\n"موافق" = استبدالها بالكامل بـ ${fragment.length} سؤالاً مولّداً.\n"إلغاء" = إضافة الجديدة فوق القديمة.`,
+        );
+        merged = replace ? fragment : [...existing, ...fragment];
+      } else {
+        merged = fragment;
+      }
+      parsed.placement_test_questions = merged;
+      setEditorJson(JSON.stringify(parsed, null, 2));
+      setSelectedVersionId(null);
+      setIssues([]);
+      setCacheToken(null);
+      const notes: string[] = [`${data.generated} سؤالاً من ${data.unitsRequested} وحدة`];
+      if (data.skipped) notes.push(`${data.skipped} رُفضت`);
+      if (data.unitsFailed?.length) notes.push(`${data.unitsFailed.length} وحدة فشلت`);
+      if (data.truncated) notes.push("اقتُطعت القائمة");
+      toast({
+        title: "✓ تم توليد أسئلة التحديد",
+        description: `${notes.join(" · ")} — راجعها في المحرر ثم اضغط "نشر إصدار جديد".`,
+      });
+    } catch (e: any) {
+      toast({ title: "فشل توليد الأسئلة", description: e.message, variant: "destructive" });
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -675,23 +746,69 @@ export function AdminV4Instructions() {
             </h3>
           </div>
           <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={validating || publishing || autoFixing} title="رفع ملف JSON من جهازك">
+              <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={validating || publishing || autoFixing || generating} title="رفع ملف JSON من جهازك">
               <Upload className="w-3.5 h-3.5 ml-1" /> رفع ملف
             </Button>
-            <Button size="sm" variant="outline" onClick={runValidate} disabled={validating || publishing || autoFixing}>
+            <Button size="sm" variant="outline" onClick={runValidate} disabled={validating || publishing || autoFixing || generating}>
               {validating ? <Loader2 className="w-3.5 h-3.5 animate-spin ml-1" /> : <CheckCircle2 className="w-3.5 h-3.5 ml-1" />}
               تحقق
             </Button>
-            <Button size="sm" variant="outline" onClick={runAutofix} disabled={validating || publishing || autoFixing} className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10">
+            <Button size="sm" variant="outline" onClick={runAutofix} disabled={validating || publishing || autoFixing || generating} className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10">
               {autoFixing ? <Loader2 className="w-3.5 h-3.5 animate-spin ml-1" /> : <Wrench className="w-3.5 h-3.5 ml-1" />}
               إصلاح كل الأخطاء
             </Button>
-            <Button size="sm" onClick={publish} disabled={validating || publishing || autoFixing} className="bg-emerald-600 hover:bg-emerald-700">
+            <Button size="sm" onClick={publish} disabled={validating || publishing || autoFixing || generating} className="bg-emerald-600 hover:bg-emerald-700">
               {publishing ? <Loader2 className="w-3.5 h-3.5 animate-spin ml-1" /> : <Rocket className="w-3.5 h-3.5 ml-1" />}
               نشر إصدار جديد
             </Button>
           </div>
         </div>
+
+        {/* ── Placement-question generator (AI authoring) ─────────────────── */}
+        {selectedSlug && (
+          <div className="flex items-center gap-2 flex-wrap rounded-lg border border-purple-500/30 bg-purple-500/5 px-3 py-2">
+            <Wand2 className="w-4 h-4 text-purple-300 shrink-0" />
+            <span className="text-xs text-purple-200 font-semibold">توليد أسئلة تحديد المستوى (AI)</span>
+            <span className="text-[11px] text-muted-foreground">المستوى:</span>
+            <select
+              value={genLevel}
+              onChange={(e) => setGenLevel(e.target.value)}
+              disabled={generating}
+              className="text-xs bg-background border border-white/10 rounded px-2 py-1 focus:outline-none focus:border-purple-500/60"
+              dir="rtl"
+            >
+              <option value="">الكل</option>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={String(n)}>المستوى {n}</option>
+              ))}
+            </select>
+            <span className="text-[11px] text-muted-foreground">لكل وحدة:</span>
+            <select
+              value={String(genPerUnit)}
+              onChange={(e) => setGenPerUnit(Number(e.target.value))}
+              disabled={generating}
+              className="text-xs bg-background border border-white/10 rounded px-2 py-1 focus:outline-none focus:border-purple-500/60"
+              dir="rtl"
+            >
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={String(n)}>{n}</option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={generatePlacement}
+              disabled={generating || publishing || validating || autoFixing}
+              className="border-purple-500/40 text-purple-200 hover:bg-purple-500/10"
+            >
+              {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin ml-1" /> : <Wand2 className="w-3.5 h-3.5 ml-1" />}
+              توليد
+            </Button>
+            <span className="text-[10px] text-muted-foreground basis-full sm:basis-auto">
+              يقرأ وحدات الإصدار المنشور حالياً ويُولّد أسئلة موسومة بالوحدة، ثم يدمجها في المحرر للمراجعة قبل النشر.
+            </span>
+          </div>
+        )}
 
         {/* Summary strip */}
         {lastSummary && (

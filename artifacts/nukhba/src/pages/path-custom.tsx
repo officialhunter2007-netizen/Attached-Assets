@@ -22,7 +22,14 @@ type Phase = "loading" | "diagnostic" | "start-choice" | "placement" | "result" 
 
 type DiagState = { sessionId: number; currentIndex: number; currentQuestion: string; totalQuestions: number; done: boolean };
 
-type PlacementAnswered = { questionId: number; targetLevelIndex: number; correct: boolean };
+type PlacementScope = "level" | "stage" | "unit";
+type PlacementProgress = {
+  phase: PlacementScope | "done";
+  answered: number;
+  levelProbes: number;
+  stageProbes: number;
+  unitProbes: number;
+};
 type PlacementQuestion = {
   id: number;
   targetLevelIndex: number;
@@ -30,11 +37,48 @@ type PlacementQuestion = {
   prompt: string;
   choices: string[] | null;
 };
+// Server-graded final placement (recomputed from the authoritative session).
+type PlacementResult = {
+  startMode: "placement";
+  startingLevelIndex: number;
+  levelIndex: number;
+  stageCode: string | null;
+  unitCode: string | null;
+  currentLessonCode: string | null;
+  precision: "unit" | "level";
+  reason: string;
+};
 type PlacementState =
-  | { kind: "ask"; question: PlacementQuestion; answered: PlacementAnswered[] }
-  | { kind: "finalize"; startingLevelIndex: number; answered: PlacementAnswered[] };
+  | {
+      kind: "ask";
+      sessionId: number;
+      scope: PlacementScope;
+      scopeCode: string;
+      phaseLabel: string;
+      progress: PlacementProgress;
+      question: PlacementQuestion;
+    }
+  | { kind: "finalize"; sessionId: number; progress: PlacementProgress; result: PlacementResult };
 
-type FinalizeResponse = { ok: boolean; path: { startingLevelIndex: number; unlockedLessonCodes: string[] } };
+type PlacementFinalizeInfo = {
+  precision: "unit" | "level";
+  levelIndex: number;
+  stageCode: string | null;
+  unitCode: string | null;
+  currentLessonCode: string | null;
+  reason: string;
+};
+type FinalizeResponse = {
+  ok: boolean;
+  path: {
+    startMode: string;
+    startingLevelIndex: number;
+    placementUnitCode: string | null;
+    currentLessonCode: string | null;
+    unlockedLessonCodes: string[];
+  };
+  placement: PlacementFinalizeInfo | null;
+};
 
 const CSRF_HEADERS = { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" };
 
@@ -69,6 +113,7 @@ export default function PathCustom() {
   const [placementShortAnswer, setPlacementShortAnswer] = useState("");
   const [finalLevel, setFinalLevel] = useState<number | null>(null);
   const [unlockedCount, setUnlockedCount] = useState(0);
+  const [finalPlacement, setFinalPlacement] = useState<PlacementFinalizeInfo | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -154,6 +199,7 @@ export default function PathCustom() {
       );
       setFinalLevel(fr.path.startingLevelIndex);
       setUnlockedCount(Array.isArray(fr.path.unlockedLessonCodes) ? fr.path.unlockedLessonCodes.length : 0);
+      setFinalPlacement(fr.placement);
       setPhase("result");
     } catch (e: any) {
       setErrMsg("تعذّر حفظ اختيارك. حاول مجدداً.");
@@ -165,7 +211,9 @@ export default function PathCustom() {
   async function startPlacement() {
     setPlacementBusy(true);
     try {
-      const r = await postJson<PlacementState>(`/api/v4/path/${encodeURIComponent(slug)}/placement/next`, { answered: [] });
+      // First call carries no answer — the server creates/reopens the session
+      // and returns the first probe (questionId held server-side in `pending`).
+      const r = await postJson<PlacementState>(`/api/v4/path/${encodeURIComponent(slug)}/placement/next`, {});
       handlePlacementResponse(r);
       setPhase("placement");
     } catch (e: any) {
@@ -194,23 +242,24 @@ export default function PathCustom() {
     }
     setPlacementBusy(true);
     try {
+      // Server-authoritative: it grades the pending probe it issued, appends to
+      // the session, and returns the next probe (or a finalize verdict). We send
+      // only the raw answer — never the questionId or a running tally.
       const r = await postJson<PlacementState>(
         `/api/v4/path/${encodeURIComponent(slug)}/placement/next`,
-        {
-          answered: placement.answered,
-          previousQuestionId: q.id,
-          previousRawAnswer: rawAnswer,
-        },
+        { rawAnswer },
       );
       handlePlacementResponse(r);
       if (r.kind === "finalize") {
-        // Auto-finalize the path on the server with the computed level.
+        // Commit the path. The server IGNORES any client level and recomputes
+        // the precise placement (level + stage + unit) from the graded session.
         const fr = await postJson<FinalizeResponse>(
           `/api/v4/path/${encodeURIComponent(slug)}/placement/finalize`,
-          { startMode: "placement", startingLevelIndex: r.startingLevelIndex },
+          { startMode: "placement" },
         );
         setFinalLevel(fr.path.startingLevelIndex);
         setUnlockedCount(Array.isArray(fr.path.unlockedLessonCodes) ? fr.path.unlockedLessonCodes.length : 0);
+        setFinalPlacement(fr.placement ?? r.result);
         setPhase("result");
       }
     } catch (e: any) {
@@ -318,8 +367,33 @@ export default function PathCustom() {
 
         {phase === "placement" && placement?.kind === "ask" && (
           <div className="space-y-5 py-2">
-            <div className="text-xs text-gold/70">
-              أسئلة المستوى {placement.question.targetLevelIndex} • أجبت على {placement.answered.length} حتى الآن
+            {/* Descent phase pills: نُحدّد المستوى → المرحلة → الوحدة */}
+            <div className="flex items-center justify-center gap-1.5">
+              {(["level", "stage", "unit"] as const).map((sc, i) => {
+                const labels = { level: "المستوى", stage: "المرحلة", unit: "الوحدة" } as const;
+                const active = placement.scope === sc;
+                const order = { level: 0, stage: 1, unit: 2 } as const;
+                const done = order[placement.scope] > order[sc];
+                return (
+                  <div key={sc} className="flex items-center gap-1.5">
+                    <div
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${
+                        active
+                          ? "bg-gold/20 border-gold/50 text-gold shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+                          : done
+                          ? "bg-emerald/15 border-emerald/40 text-emerald"
+                          : "bg-white/[0.03] border-white/10 text-white/35"
+                      }`}
+                    >
+                      {done ? "✓ " : ""}{labels[sc]}
+                    </div>
+                    {i < 2 && <div className={`w-4 h-0.5 rounded-full ${done ? "bg-emerald/40" : "bg-white/10"}`} />}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="text-center text-xs text-gold/70">
+              {placement.phaseLabel} • أجبت على {placement.progress.answered} سؤالاً
             </div>
             <div className="glass rounded-2xl border border-white/10 p-4 text-sm leading-relaxed">
               {placement.question.prompt}
@@ -375,11 +449,29 @@ export default function PathCustom() {
               <Trophy className="w-12 h-12 text-black" />
             </motion.div>
             <h1 className="text-3xl font-black">جهّزنا مسارك!</h1>
-            <p className="text-white/70 text-sm">
-              {finalLevel === 1
-                ? "ستبدأ من الدرس الأول. خطوة خطوة بإذن الله."
-                : `ستبدأ من المستوى ${finalLevel}. فتحنا لك كل الدروس من المستوى ١ حتى ${finalLevel} (${unlockedCount} درساً).`}
-            </p>
+            {/* Unit-precise placement (descent) vs. level-only / from-zero copy. */}
+            {finalPlacement && finalPlacement.precision === "unit" && finalPlacement.unitCode ? (
+              <div className="space-y-3">
+                <p className="text-white/70 text-sm">
+                  حدّدنا نقطة بدايتك بدقة — المستوى{" "}
+                  <span className="text-gold font-bold">{finalPlacement.levelIndex}</span>، المرحلة{" "}
+                  <span className="text-gold font-bold">{finalPlacement.stageCode}</span>، الوحدة{" "}
+                  <span className="text-gold font-bold">{finalPlacement.unitCode}</span>.
+                </p>
+                <div className="glass rounded-2xl border border-emerald/30 bg-emerald/5 p-4 text-sm">
+                  <div className="text-emerald font-bold mb-1">🎯 تبدأ من الدرس {finalPlacement.currentLessonCode}</div>
+                  <p className="text-white/60 text-xs leading-relaxed">
+                    فتحنا لك كل ما قبله للمراجعة وقت ما تحب ({unlockedCount} درساً)، وما بعده يُفتح تباعاً مع تقدّمك.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-white/70 text-sm">
+                {finalLevel === 1
+                  ? "ستبدأ من الدرس الأول. خطوة خطوة بإذن الله."
+                  : `ستبدأ من المستوى ${finalLevel}. فتحنا لك كل الدروس من المستوى ١ حتى ${finalLevel} (${unlockedCount} درساً).`}
+              </p>
+            )}
             <div className="glass rounded-2xl border border-gold/30 bg-gold/5 p-4 text-xs text-gold/80">
               💎 استلمت ١٠٠ جوهرة هدية ترحيب — تكفي لبدء أول جلسات التعلّم.
             </div>

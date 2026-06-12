@@ -26,6 +26,7 @@ import {
   v4ExamQuestionsTable,
   v4PlacementTestQuestionsTable,
   v4StudentBookletsTable,
+  v4PlacementQuestionSchema,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { validateV4InstructionFile } from "../lib/v4-instruction-validator";
@@ -34,6 +35,9 @@ import { publishV4InstructionFile, deleteV4InstructionVersion } from "../lib/v4-
 import { autoFixV4InstructionFile, type AutoFixResult } from "../lib/v4-instruction-autofix";
 import { cacheValidatedDoc, getValidatedDoc, dropValidatedDoc } from "../lib/v4-instruction-cache";
 import type { PublishProgress } from "../lib/v4-instruction-normalizer";
+import { generateGeminiJson, hasGeminiProvider, GenerateGeminiError } from "../lib/openrouter-generate";
+import { compareCodes } from "../lib/v4-path-engine";
+import { recordAiUsage, extractGeminiUsage } from "../lib/ai-usage";
 
 const router: IRouter = Router();
 
@@ -635,5 +639,285 @@ router.get("/admin/v4/template", requireAdmin, async (_req: Request, res: Respon
   };
   res.json({ ok: true, template });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/v4/specialties/:slug/generate-placement — AI authoring tool.
+//
+// Generates per-unit placement MCQs from the active instruction version's
+// units/lessons/concepts, tagged by target_unit_code so the adaptive descent
+// engine (task #3) can place a student at UNIT precision, not just level.
+//
+// Output is a `placement_test_questions` JSON FRAGMENT the admin reviews in
+// Monaco, merges into the instruction file, and re-publishes. We deliberately
+// do NOT write to the DB here: the normalizer DELETE+reinserts placement rows
+// on every publish, so DB-only questions would be silently wiped. The
+// instruction file stays the single source of truth.
+//
+// Bounded by design — caps units per call and runs a small concurrency pool so
+// a single request can't fan out into hundreds of paid Gemini calls.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function stripJsonFence(s: string): string {
+  const t = String(s ?? "").trim();
+  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  return m ? m[1].trim() : t;
+}
+
+type UnitGenContext = {
+  code: string; // "L.S.U"
+  name: string;
+  goal: string;
+  keyConcepts: string[];
+  lessons: { name: string; goal: string }[];
+  concepts: { name: string; explanation: string }[];
+};
+
+function buildPlacementUnitPrompt(u: UnitGenContext, perUnit: number): string {
+  const lessonsBlock = u.lessons
+    .map((l, i) => `${i + 1}. ${l.name} — ${l.goal}`)
+    .join("\n")
+    .slice(0, 4000);
+  const conceptsBlock = u.concepts
+    .map((c) => `- ${c.name}: ${c.explanation}`)
+    .join("\n")
+    .slice(0, 4000);
+  const keyBlock = (u.keyConcepts || []).filter(Boolean).join("، ");
+  return `أنت خبير مناهج تعليمية تُعدّ أسئلة "اختبار تحديد المستوى" لتخصص يمني.
+الهدف: قياس ما إذا كان الطالب يُتقن وحدة محددة مسبقاً (فيتجاوزها) أم يحتاج دراستها.
+
+الوحدة المستهدفة (الكود ${u.code}):
+- الاسم: ${u.name}
+- الهدف: ${u.goal}
+${keyBlock ? `- المفاهيم المفتاحية: ${keyBlock}` : ""}
+
+دروس الوحدة:
+${lessonsBlock || "(لا توجد دروس مُفصّلة)"}
+${conceptsBlock ? `\nتفاصيل المفاهيم:\n${conceptsBlock}` : ""}
+
+المطلوب: أنشئ ${perUnit} سؤال اختيار من متعدد (MCQ) بالعربية الفصحى تقيس إتقان هذه الوحدة بالتحديد — لا أسهل ولا أصعب من مستواها.
+
+أعد JSON فقط — بدون أي شرح أو أسوار markdown — بهذا الشكل بالضبط:
+{
+  "questions": [
+    {
+      "prompt": "نص السؤال",
+      "choices": ["خيار 1", "خيار 2", "خيار 3", "خيار 4"],
+      "correct_index": 0,
+      "difficulty": 2
+    }
+  ]
+}
+
+قواعد صارمة:
+- لكل سؤال 4 خيارات بالضبط، وخيار واحد فقط صحيح.
+- correct_index هو فهرس الخيار الصحيح ويبدأ من 0.
+- difficulty عدد من 1 (سهل) إلى 3 (صعب) يعكس صعوبة الوحدة.
+- الأسئلة من صميم محتوى الوحدة، لا عامة ولا من خارجها.
+- تجنّب الأسئلة المكرّرة أو التافهة أو التي تُحلّ بالحدس.`;
+}
+
+type ParsedGenQuestion = { prompt: string; choices: string[]; correct_index: number; difficulty: number };
+
+function parsePlacementGenJson(txt: string): ParsedGenQuestion[] {
+  let parsed: any;
+  try { parsed = JSON.parse(stripJsonFence(txt)); } catch { return []; }
+  const arr = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  const out: ParsedGenQuestion[] = [];
+  for (const q of arr) {
+    const prompt = String(q?.prompt ?? "").trim();
+    const choices = Array.isArray(q?.choices)
+      ? q.choices.map((c: any) => String(c ?? "").trim()).filter(Boolean)
+      : [];
+    const ci = Number(q?.correct_index);
+    let diff = Number(q?.difficulty);
+    if (!Number.isInteger(diff) || diff < 1 || diff > 3) diff = 2;
+    if (!prompt || choices.length < 2) continue;
+    if (!Number.isInteger(ci) || ci < 0 || ci >= choices.length) continue;
+    out.push({ prompt, choices, correct_index: ci, difficulty: diff });
+  }
+  return out;
+}
+
+// Minimal concurrency pool — caps simultaneous in-flight Gemini calls.
+async function runGenPool<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function runner(): Promise<void> {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) break;
+      results[i] = await worker(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => runner()));
+  return results;
+}
+
+router.post(
+  "/admin/v4/specialties/:slug/generate-placement",
+  requireAdmin,
+  requireSameOriginCsrf,
+  async (req: Request, res: Response): Promise<void> => {
+    if (!hasGeminiProvider()) {
+      res.status(503).json({ ok: false, error: "مولّد الذكاء الاصطناعي غير مهيأ (المفتاح غير متوفر)." });
+      return;
+    }
+
+    const body: any = req.body ?? {};
+    let perUnit = Number(body.perUnit);
+    if (!Number.isInteger(perUnit) || perUnit < 1) perUnit = 2;
+    if (perUnit > 5) perUnit = 5;
+
+    const MAX_UNITS = 60;
+    let maxUnits = Number(body.maxUnits);
+    if (!Number.isInteger(maxUnits) || maxUnits < 1) maxUnits = 24;
+    if (maxUnits > MAX_UNITS) maxUnits = MAX_UNITS;
+
+    const onlyLevel = Number.isInteger(Number(body.levelIndex)) ? Number(body.levelIndex) : null;
+    const onlyUnitCodes: Set<string> | null =
+      Array.isArray(body.unitCodes) && body.unitCodes.length
+        ? new Set(body.unitCodes.map((c: any) => String(c).trim()).filter(Boolean))
+        : null;
+
+    const [sp] = await db.select().from(v4SpecialtiesTable).where(eq(v4SpecialtiesTable.slug, req.params.slug));
+    if (!sp) { res.status(404).json({ ok: false, error: "Specialty not found" }); return; }
+    if (!sp.activeInstructionVersionId) {
+      res.status(400).json({ ok: false, error: "لا يوجد إصدار منشور لهذا التخصص." });
+      return;
+    }
+    const versionId = sp.activeInstructionVersionId;
+
+    const [units, lessons, concepts] = await Promise.all([
+      db.select().from(v4UnitsTable).where(eq(v4UnitsTable.versionId, versionId)),
+      db.select().from(v4LessonsTable).where(eq(v4LessonsTable.versionId, versionId)),
+      db.select().from(v4LessonConceptsTable).where(eq(v4LessonConceptsTable.versionId, versionId)),
+    ]);
+    if (units.length === 0) {
+      res.status(400).json({ ok: false, error: "لا توجد وحدات في الإصدار النشط." });
+      return;
+    }
+
+    // Group lessons by unitId, then concepts by their lesson's unitId.
+    const lessonsByUnit = new Map<number, any[]>();
+    const lessonIdToUnit = new Map<number, number>();
+    for (const l of lessons) {
+      lessonIdToUnit.set(l.id, l.unitId);
+      const arr = lessonsByUnit.get(l.unitId) ?? [];
+      arr.push(l);
+      lessonsByUnit.set(l.unitId, arr);
+    }
+    const conceptsByUnit = new Map<number, any[]>();
+    for (const c of concepts) {
+      const uId = lessonIdToUnit.get(c.lessonId);
+      if (uId == null) continue;
+      const arr = conceptsByUnit.get(uId) ?? [];
+      arr.push(c);
+      conceptsByUnit.set(uId, arr);
+    }
+
+    // Select → filter → order → cap target units.
+    let targetUnits = units.slice();
+    if (onlyLevel != null) {
+      targetUnits = targetUnits.filter((u) => (parseInt(String(u.code).split(".")[0], 10) || 0) === onlyLevel);
+    }
+    if (onlyUnitCodes) {
+      targetUnits = targetUnits.filter((u) => onlyUnitCodes.has(u.code));
+    }
+    targetUnits.sort((a, b) => compareCodes(a.code, b.code));
+    const truncated = targetUnits.length > maxUnits;
+    targetUnits = targetUnits.slice(0, maxUnits);
+    if (targetUnits.length === 0) {
+      res.status(400).json({ ok: false, error: "لا توجد وحدات مطابقة للمعايير." });
+      return;
+    }
+
+    const failedUnits: string[] = [];
+    const adminUserId = (req as any).adminUserId as number;
+    const perUnitResults = await runGenPool(targetUnits, 4, async (u) => {
+      const ctx: UnitGenContext = {
+        code: u.code,
+        name: u.name,
+        goal: u.goal,
+        keyConcepts: Array.isArray(u.keyConcepts) ? (u.keyConcepts as any[]).map(String) : [],
+        lessons: (lessonsByUnit.get(u.id) ?? [])
+          .slice()
+          .sort((a, b) => compareCodes(a.code, b.code))
+          .map((l) => ({ name: l.name, goal: l.goal })),
+        concepts: (conceptsByUnit.get(u.id) ?? []).map((c) => ({ name: c.name, explanation: c.explanation })),
+      };
+      const startedAt = Date.now();
+      try {
+        const result = await generateGeminiJson({
+          userPrompt: buildPlacementUnitPrompt(ctx, perUnit),
+          model: "gemini-2.5-flash",
+          temperature: 0.5,
+          maxOutputTokens: 4096,
+          timeoutMs: 90_000,
+          logTag: "v4-placement-gen",
+        });
+        const usage = extractGeminiUsage(result.usageMetadata);
+        void recordAiUsage({
+          userId: adminUserId ?? null,
+          subjectId: sp.slug,
+          route: "admin/v4/generate-placement",
+          provider: "gemini",
+          model: "gemini-2.5-flash",
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cachedInputTokens: usage.cachedInputTokens,
+          latencyMs: Date.now() - startedAt,
+          metadata: { unitCode: u.code, channel: result.channel },
+        });
+        return { unit: u, questions: parsePlacementGenJson(result.text) };
+      } catch (e: any) {
+        const status = e instanceof GenerateGeminiError ? e.status : 0;
+        logger.warn({ unit: u.code, status, err: e?.message }, "v4: placement gen failed for unit");
+        failedUnits.push(u.code);
+        return { unit: u, questions: [] as ParsedGenQuestion[] };
+      }
+    });
+
+    // Map → schema-shaped placement questions, zod-validate each.
+    const fragment: any[] = [];
+    let skipped = 0;
+    for (const r of perUnitResults) {
+      const segs = String(r.unit.code).split(".");
+      const levelIndex = (parseInt(segs[0] ?? "1", 10) || 1);
+      const stageCode = segs.length >= 2 ? `${segs[0]}.${segs[1]}` : undefined;
+      for (const q of r.questions) {
+        const candidate = {
+          target_level_index: levelIndex,
+          target_stage_code: stageCode,
+          target_unit_code: r.unit.code,
+          kind: "mcq" as const,
+          prompt: q.prompt,
+          choices: q.choices,
+          correct_index: q.correct_index,
+          difficulty: q.difficulty,
+        };
+        const parsed = v4PlacementQuestionSchema.safeParse(candidate);
+        if (parsed.success) fragment.push(parsed.data);
+        else skipped++;
+      }
+    }
+
+    logger.info(
+      { slug: sp.slug, versionId, units: targetUnits.length, generated: fragment.length, skipped, failed: failedUnits.length },
+      "v4: generated placement questions",
+    );
+
+    res.json({
+      ok: true,
+      slug: sp.slug,
+      versionId,
+      unitsRequested: targetUnits.length,
+      unitsFailed: failedUnits,
+      truncated,
+      generated: fragment.length,
+      skipped,
+      placement_test_questions: fragment,
+    });
+  },
+);
 
 export default router;

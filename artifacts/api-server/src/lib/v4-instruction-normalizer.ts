@@ -538,10 +538,18 @@ export async function publishV4InstructionFile(
     const placementValues: any[] = [];
     if (parsed.placement_test_questions) {
       parsed.placement_test_questions.forEach((q, i) => {
+        const unitCode = q.target_unit_code ?? null;
+        // Derive the stage code from the unit code when the author only tagged
+        // the unit, so the engine always has a stage to probe within.
+        const stageCode =
+          q.target_stage_code ??
+          (unitCode ? unitCode.split(".").slice(0, 2).join(".") : null);
         placementValues.push({
           versionId,
           questionIndex: i + 1,
           targetLevelIndex: q.target_level_index,
+          targetStageCode: stageCode,
+          targetUnitCode: unitCode,
           kind: q.kind,
           prompt: q.prompt,
           choices: q.choices as any,

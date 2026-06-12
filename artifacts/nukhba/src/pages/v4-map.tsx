@@ -659,6 +659,11 @@ export default function V4Map() {
   // R5 — transient highlight for newly-unlocked lessons (yellow ring on
   // the node for ~2.5s) so the student notices what just became playable.
   const [flashCodes, setFlashCodes] = useState<Set<string>>(new Set());
+  // Scroll-to-active: after a precise placement the student's current node can
+  // sit deep in the map (e.g. unit 3.2.1). Center it on first load so they land
+  // exactly where they start instead of at the top of the curriculum.
+  const activeRef = useRef<HTMLDivElement | null>(null);
+  const didCenterRef = useRef(false);
 
   useEffect(() => {
     if (!slug || isDemo) return;
@@ -777,6 +782,21 @@ export default function V4Map() {
     // down and reopen the stream.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, isDemo, data !== null]);
+
+  // Center the active node once, after the first map render. A short delay
+  // lets the zigzag layout + images settle so scrollIntoView lands accurately.
+  useEffect(() => {
+    if (loading || !data || didCenterRef.current) return;
+    const code = data.studentPath?.currentLessonCode;
+    if (!code) return;
+    const t = setTimeout(() => {
+      if (activeRef.current) {
+        activeRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        didCenterRef.current = true;
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [loading, data]);
 
   function handleNodeClick(node: FlatNode, _index: number, _total: number) {
     if (node.status === "locked") {
@@ -969,8 +989,10 @@ export default function V4Map() {
                     <UnitLabel unitIndex={node.unitStart.unitIndex} name={node.unitStart.unitName} />
                   )}
 
-                  {/* Node wrapper with zigzag offset */}
+                  {/* Node wrapper with zigzag offset. The active node carries
+                      activeRef so the map can auto-center the student's start. */}
                   <div
+                    ref={node.status === "active" ? activeRef : undefined}
                     className={`my-2 transition-transform duration-300 ${flashCodes.has(node.id) ? "rounded-full ring-4 ring-amber-300/70 ring-offset-2 ring-offset-background animate-pulse" : ""}`}
                     style={{ transform: `translateX(${xOff}px)` }}
                   >

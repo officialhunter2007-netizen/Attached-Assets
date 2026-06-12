@@ -33,6 +33,8 @@ import {
   v4InstructionFileVersionsTable,
   v4DiagnosticSessionsTable,
   v4PlacementTestQuestionsTable,
+  v4PlacementSessionsTable,
+  type V4PlacementSession,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import {
@@ -41,9 +43,11 @@ import {
   getStudentPath,
   syncStudentPathToActiveVersion,
   createOrReplaceStudentPath,
-  pickNextPlacementQuestion,
+  nextPlacementStep,
   gradePlacementAnswer,
-  type PlacementAnswered,
+  type PlacementProbe,
+  type PlacementPending,
+  type PlacementResult,
 } from "../lib/v4-path-engine";
 import { capturePersonalDictionaryFromDiagnostic } from "../lib/v4-memory";
 import { subscribeProgressEvents } from "../lib/v4-progress-events";
@@ -323,10 +327,85 @@ router.post("/v4/path/:slug/diagnostic/finish", requireUser, requireSameOriginCs
   }
 });
 
+// ── placement-session helpers ──────────────────────────────────────────────
+// The placement run is SERVER-AUTHORITATIVE. The client never decides which
+// question it answered (the questionId lives in session.pending) nor what
+// level it lands on (finalize recomputes from the server-graded probes).
+async function getInProgressPlacementSession(
+  uid: number,
+  slug: string,
+): Promise<V4PlacementSession | null> {
+  const [row] = await db
+    .select()
+    .from(v4PlacementSessionsTable)
+    .where(and(
+      eq(v4PlacementSessionsTable.userId, uid),
+      eq(v4PlacementSessionsTable.subjectId, slug),
+      eq(v4PlacementSessionsTable.status, "in_progress"),
+    ))
+    .orderBy(desc(v4PlacementSessionsTable.id))
+    .limit(1);
+  return row ?? null;
+}
+
+async function getPlacementSessionById(id: number): Promise<V4PlacementSession | null> {
+  const [row] = await db
+    .select()
+    .from(v4PlacementSessionsTable)
+    .where(eq(v4PlacementSessionsTable.id, id));
+  return row ?? null;
+}
+
+async function getLatestCompletedPlacementSession(
+  uid: number,
+  slug: string,
+  versionId: number,
+): Promise<V4PlacementSession | null> {
+  const [row] = await db
+    .select()
+    .from(v4PlacementSessionsTable)
+    .where(and(
+      eq(v4PlacementSessionsTable.userId, uid),
+      eq(v4PlacementSessionsTable.subjectId, slug),
+      eq(v4PlacementSessionsTable.versionId, versionId),
+      eq(v4PlacementSessionsTable.status, "completed"),
+    ))
+    .orderBy(desc(v4PlacementSessionsTable.id))
+    .limit(1);
+  return row ?? null;
+}
+
+function placementProgress(probes: PlacementProbe[], phase: "level" | "stage" | "unit" | "done") {
+  return {
+    phase,
+    answered: probes.length,
+    levelProbes: probes.filter((p) => p.scope === "level").length,
+    stageProbes: probes.filter((p) => p.scope === "stage").length,
+    unitProbes: probes.filter((p) => p.scope === "unit").length,
+  };
+}
+
+function serializePath(row: any) {
+  return {
+    pathType: row.pathType,
+    startMode: row.startMode,
+    startingLevelIndex: row.startingLevelIndex,
+    placementUnitCode: row.placementUnitCode ?? null,
+    currentLessonCode: row.currentLessonCode,
+    unlockedLessonCodes: row.unlockedLessonCodes,
+  };
+}
+
 // ── POST /v4/path/:slug/placement/next ─────────────────────────────────────
-// Body: { answered: PlacementAnswered[], previousQuestionId?, previousRawAnswer? }
-// Returns either { kind: 'ask', question, answeredSoFar } or
-// { kind: 'finalize', startingLevelIndex }.
+// Server-authoritative adaptive-descent placement.
+// Body: { rawAnswer?: string | number, restart?: boolean }
+//   - First call (no rawAnswer): opens/resumes a session, returns the first
+//     question (or resumes the pending one).
+//   - Subsequent calls (rawAnswer present): the server grades the question it
+//     is holding in `session.pending` (the client cannot lie about which
+//     question it answered), appends a probe, then advances the descent.
+// Returns { kind:'ask', sessionId, question, scope, scopeCode, phaseLabel,
+//           progress } or { kind:'finalize', sessionId, result }.
 router.post("/v4/path/:slug/placement/next", requireUser, requireSameOriginCsrf, async (req, res) => {
   const uid: number = (req as any).userId;
   const slug = String(req.params.slug);
@@ -334,49 +413,125 @@ router.post("/v4/path/:slug/placement/next", requireUser, requireSameOriginCsrf,
     const resolved = await resolveActiveSpecialty(slug);
     if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
 
-    const body: any = req.body ?? {};
-    const answered: PlacementAnswered[] = Array.isArray(body.answered) ? body.answered : [];
+    const questions = await db
+      .select()
+      .from(v4PlacementTestQuestionsTable)
+      .where(eq(v4PlacementTestQuestionsTable.versionId, resolved.versionId));
 
-    // Grade an in-flight answer if the caller provided one (so the engine
-    // sees the freshly-graded result before picking the next question).
-    if (body.previousQuestionId && body.previousRawAnswer !== undefined) {
-      const [prev] = await db
+    const body: any = req.body ?? {};
+    const hasAnswer = body.rawAnswer !== undefined && body.rawAnswer !== null;
+    const wantRestart = body.restart === true;
+
+    // Server-authoritative session lookup (client cannot pick the session).
+    let session = await getInProgressPlacementSession(uid, slug);
+
+    // Start / restart: open a fresh session if none in progress, or if the
+    // client explicitly asked to retake. Pin it to the active version so a
+    // mid-run re-publish can't corrupt the probe scope codes.
+    if (!session || wantRestart || session.versionId !== resolved.versionId) {
+      if (session) {
+        await db
+          .update(v4PlacementSessionsTable)
+          .set({ status: "abandoned", completedAt: new Date() })
+          .where(eq(v4PlacementSessionsTable.id, session.id));
+      }
+      const [created] = await db
+        .insert(v4PlacementSessionsTable)
+        .values({
+          userId: uid,
+          subjectId: slug,
+          versionId: resolved.versionId,
+          status: "in_progress",
+          probes: [],
+          pending: null,
+        })
+        .returning();
+      session = created;
+    }
+
+    // Grade an in-flight answer. The questionId comes from session.pending,
+    // NOT the client. Grade OUTSIDE the tx (the Haiku call can be slow), then
+    // append the probe atomically with a FOR UPDATE re-read so a concurrent
+    // double-submit can't record the same question twice.
+    if (hasAnswer && session.pending) {
+      const pending = session.pending as PlacementPending;
+      const [q] = await db
         .select()
         .from(v4PlacementTestQuestionsTable)
         .where(and(
-          eq(v4PlacementTestQuestionsTable.id, Number(body.previousQuestionId)),
+          eq(v4PlacementTestQuestionsTable.id, pending.questionId),
           eq(v4PlacementTestQuestionsTable.versionId, resolved.versionId),
         ));
-      if (prev) {
-        const graded = await gradePlacementAnswer({ question: prev, rawAnswer: body.previousRawAnswer });
-        answered.push({
-          questionId: prev.id,
-          targetLevelIndex: prev.targetLevelIndex,
-          correct: graded.correct,
+      if (q) {
+        const graded = await gradePlacementAnswer({ question: q, rawAnswer: body.rawAnswer });
+        await db.transaction(async (tx) => {
+          const [fresh] = await tx
+            .select()
+            .from(v4PlacementSessionsTable)
+            .where(eq(v4PlacementSessionsTable.id, session!.id))
+            .for("update");
+          if (!fresh || fresh.status !== "in_progress") return;
+          const curPending = fresh.pending as PlacementPending | null;
+          if (!curPending || curPending.questionId !== pending.questionId) return; // already consumed
+          const probes = Array.isArray(fresh.probes) ? (fresh.probes as PlacementProbe[]) : [];
+          probes.push({
+            questionId: pending.questionId,
+            scope: pending.scope,
+            scopeCode: pending.scopeCode,
+            targetLevelIndex: pending.targetLevelIndex,
+            correct: graded.correct,
+          });
+          await tx
+            .update(v4PlacementSessionsTable)
+            .set({ probes, pending: null })
+            .where(eq(v4PlacementSessionsTable.id, session!.id));
         });
+        session = (await getPlacementSessionById(session.id)) ?? session;
       }
     }
 
-    const decision = await pickNextPlacementQuestion(resolved.versionId, answered);
-    if (decision.kind === "ask") {
+    const probes = Array.isArray(session!.probes) ? (session!.probes as PlacementProbe[]) : [];
+    const step = nextPlacementStep(resolved, questions, probes);
+
+    if (step.kind === "ask") {
+      const pending: PlacementPending = {
+        questionId: step.question.id,
+        scope: step.scope,
+        scopeCode: step.scopeCode,
+        targetLevelIndex: step.targetLevelIndex,
+      };
+      await db
+        .update(v4PlacementSessionsTable)
+        .set({ pending })
+        .where(eq(v4PlacementSessionsTable.id, session!.id));
       res.json({
         kind: "ask",
-        answered,
+        sessionId: session!.id,
+        scope: step.scope,
+        scopeCode: step.scopeCode,
+        phaseLabel: step.phaseLabel,
+        progress: placementProgress(probes, step.scope),
         question: {
-          id: decision.question.id,
-          targetLevelIndex: decision.question.targetLevelIndex,
-          kind: decision.question.kind,
-          prompt: decision.question.prompt,
-          choices: decision.question.choices ?? null,
+          id: step.question.id,
+          targetLevelIndex: step.question.targetLevelIndex,
+          kind: step.question.kind,
+          prompt: step.question.prompt,
+          choices: step.question.choices ?? null,
         },
       });
       return;
     }
+
+    // done — persist the recomputed result and complete the session.
+    await db
+      .update(v4PlacementSessionsTable)
+      .set({ pending: null, result: step.result, status: "completed", completedAt: new Date() })
+      .where(eq(v4PlacementSessionsTable.id, session!.id));
     res.json({
       kind: "finalize",
-      answered,
-      startingLevelIndex: decision.startingLevelIndex,
-      reason: decision.reason,
+      sessionId: session!.id,
+      progress: placementProgress(probes, "done"),
+      result: step.result,
     });
   } catch (e) {
     logger.error?.(`[v4/placement/next] user=${uid}: ${String((e as any)?.message ?? e)}`);
@@ -385,37 +540,60 @@ router.post("/v4/path/:slug/placement/next", requireUser, requireSameOriginCsrf,
 });
 
 // ── POST /v4/path/:slug/placement/finalize ─────────────────────────────────
-// Body: { startMode: 'from_zero' | 'placement', startingLevelIndex?: number }
-// Creates/replaces the student_paths row and triggers the welcome-gift
-// wallet bootstrap. Returns the resulting unlocked snapshot for the FE.
+// Body: { startMode: 'from_zero' | 'placement' }
+// Creates/replaces the student_paths row and triggers the welcome-gift wallet
+// bootstrap. For placement mode the starting level + unit boundary are read
+// from the SERVER-graded session result — the client cannot inject a level.
 router.post("/v4/path/:slug/placement/finalize", requireUser, requireSameOriginCsrf, async (req, res) => {
   const uid: number = (req as any).userId;
   const slug = String(req.params.slug);
   const body: any = req.body ?? {};
   const startMode: "from_zero" | "placement" = body.startMode === "placement" ? "placement" : "from_zero";
-  const startingLevelIndex = startMode === "placement"
-    ? Math.max(1, Math.min(5, Number(body.startingLevelIndex ?? 1)))
-    : 1;
   try {
     const resolved = await resolveActiveSpecialty(slug);
     if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
 
+    if (startMode === "from_zero") {
+      const row = await createOrReplaceStudentPath({
+        userId: uid,
+        subjectSlug: slug,
+        resolved,
+        pathType: "custom",
+        startMode: "from_zero",
+        startingLevelIndex: 1,
+      });
+      res.json({ ok: true, path: serializePath(row), placement: null });
+      return;
+    }
+
+    // placement: read the SERVER-graded result; any client-supplied level is
+    // ignored. Requires a completed placement session for the active version.
+    const session = await getLatestCompletedPlacementSession(uid, slug, resolved.versionId);
+    if (!session || !session.result) {
+      res.status(409).json({ error: "no_completed_placement" });
+      return;
+    }
+    const result = session.result as PlacementResult;
+    const boundaryUnitCode = result.precision === "unit" ? (result.unitCode ?? null) : null;
     const row = await createOrReplaceStudentPath({
       userId: uid,
       subjectSlug: slug,
       resolved,
       pathType: "custom",
-      startMode,
-      startingLevelIndex,
+      startMode: "placement",
+      startingLevelIndex: result.startingLevelIndex,
+      boundaryUnitCode,
     });
     res.json({
       ok: true,
-      path: {
-        pathType: row.pathType,
-        startMode: row.startMode,
-        startingLevelIndex: row.startingLevelIndex,
-        currentLessonCode: row.currentLessonCode,
-        unlockedLessonCodes: row.unlockedLessonCodes,
+      path: serializePath(row),
+      placement: {
+        precision: result.precision,
+        levelIndex: result.levelIndex,
+        stageCode: result.stageCode,
+        unitCode: result.unitCode,
+        currentLessonCode: result.currentLessonCode,
+        reason: result.reason,
       },
     });
   } catch (e) {

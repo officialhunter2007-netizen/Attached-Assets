@@ -73,12 +73,53 @@ export type DiagnosticAnswer = { question: string; answer: string };
 
 // ── Specialty + lesson lookups ──────────────────────────────────────────────
 
+/** One unit node of the resolved tree, derived from lesson codes alone. */
+export type ResolvedUnit = {
+  /** "L.S.U" */
+  unitCode: string;
+  /** "L.S" */
+  stageCode: string;
+  levelIndex: number;
+  stageIndex: number;
+  unitIndex: number;
+  /** Lesson codes in this unit, NUMERICALLY sorted. */
+  lessonCodes: string[];
+};
+
 export type ResolvedSpecialty = {
   specialty: V4Specialty;
   versionId: number;
   /** Per-level ordered list of every lesson code in that level. */
   levelLessonCodes: string[][];
+  /** Every lesson code, NUMERICALLY sorted (not lexicographic). */
+  orderedLessonCodes: string[];
+  /** Every unit, numerically sorted by (level, stage, unit). */
+  units: ResolvedUnit[];
+  /** Number of declared levels (from v4_levels). */
+  levelCount: number;
 };
+
+/**
+ * Numeric, segment-wise comparator for dotted codes ("L.S.U.Lesson").
+ *
+ * The latent bug this fixes: PostgreSQL `asc(code)` and JS `Array#sort()` are
+ * LEXICOGRAPHIC, so "1.1.1.10" sorts BEFORE "1.1.1.2". Every place that needs
+ * the true learning order (first lesson of a unit/level, "highest unlocked
+ * code", unit ordering for descent) must use this instead.
+ */
+export function compareCodes(a: string, b: string): number {
+  const pa = String(a).split(".");
+  const pb = String(b).split(".");
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const x = parseInt(pa[i] ?? "0", 10);
+    const y = parseInt(pb[i] ?? "0", 10);
+    const xv = Number.isFinite(x) ? x : 0;
+    const yv = Number.isFinite(y) ? y : 0;
+    if (xv !== yv) return xv - yv;
+  }
+  return 0;
+}
 
 /**
  * Load a specialty by slug AND only return it if it has a currently-active
@@ -113,17 +154,55 @@ export async function resolveActiveSpecialty(slug: string): Promise<ResolvedSpec
     .where(eq(v4LessonsTable.versionId, ver.id))
     .orderBy(asc(v4LessonsTable.code));
 
-  // Build "level i → lesson codes whose first dotted segment === i"
-  // (canonical numbering L.S.U.Lesson is documented on v4_lessons.code).
+  // Canonical numbering is "L.S.U.Lesson" on v4_lessons.code. We derive the
+  // whole level→stage→unit→lesson tree from the codes alone (no extra
+  // queries) and sort everything NUMERICALLY (compareCodes) so "1.1.1.10"
+  // lands after "1.1.1.2" — see the comparator note above.
+  const allCodes = lessons
+    .map((l: any) => String(l.code))
+    .filter((c: string) => c.length > 0)
+    .sort(compareCodes);
+
+  // level i → lesson codes (numeric order).
   const byLevel: string[][] = [];
   for (const lvl of levels) {
-    const codes = lessons
-      .filter((l: any) => parseInt(String(l.code).split(".")[0] || "0", 10) === lvl.levelIndex)
-      .map((l: any) => l.code as string);
+    const codes = allCodes.filter(
+      (c) => parseInt(c.split(".")[0] || "0", 10) === lvl.levelIndex,
+    );
     byLevel.push(codes);
   }
 
-  return { specialty: sp, versionId: ver.id, levelLessonCodes: byLevel };
+  // Group lessons into units keyed by "L.S.U" (first three segments).
+  const unitMap = new Map<string, ResolvedUnit>();
+  for (const code of allCodes) {
+    const seg = code.split(".");
+    if (seg.length < 3) continue; // non-canonical — has no unit slot
+    const unitCode = `${seg[0]}.${seg[1]}.${seg[2]}`;
+    let u = unitMap.get(unitCode);
+    if (!u) {
+      u = {
+        unitCode,
+        stageCode: `${seg[0]}.${seg[1]}`,
+        levelIndex: parseInt(seg[0] || "0", 10) || 0,
+        stageIndex: parseInt(seg[1] || "0", 10) || 0,
+        unitIndex: parseInt(seg[2] || "0", 10) || 0,
+        lessonCodes: [],
+      };
+      unitMap.set(unitCode, u);
+    }
+    u.lessonCodes.push(code);
+  }
+  const units = Array.from(unitMap.values()).sort((a, b) => compareCodes(a.unitCode, b.unitCode));
+  for (const u of units) u.lessonCodes.sort(compareCodes);
+
+  return {
+    specialty: sp,
+    versionId: ver.id,
+    levelLessonCodes: byLevel,
+    orderedLessonCodes: allCodes,
+    units,
+    levelCount: levels.length,
+  };
 }
 
 /**
@@ -142,21 +221,57 @@ export function computeUnlocked(
   startMode: "from_zero" | "placement",
   startingLevelIndex: number,
 ): { unlocked: string[]; currentLessonCode: string | null } {
-  const all = resolved.levelLessonCodes.flat();
-  if (all.length === 0) return { unlocked: [], currentLessonCode: null };
+  const ordered = resolved.orderedLessonCodes.length
+    ? resolved.orderedLessonCodes
+    : [...resolved.levelLessonCodes.flat()].sort(compareCodes);
+  if (ordered.length === 0) return { unlocked: [], currentLessonCode: null };
 
   if (startMode === "from_zero") {
-    return { unlocked: [all[0]], currentLessonCode: all[0] };
+    return { unlocked: [ordered[0]], currentLessonCode: ordered[0] };
   }
 
   // placement: unlock through end of `startingLevelIndex`.
-  const clampedLevel = Math.max(1, Math.min(startingLevelIndex, resolved.levelLessonCodes.length));
-  const unlocked = resolved.levelLessonCodes.slice(0, clampedLevel).flat();
+  const levelCount = resolved.levelCount || resolved.levelLessonCodes.length || 1;
+  const clampedLevel = Math.max(1, Math.min(startingLevelIndex, levelCount));
+  const unlocked = ordered.filter((c) => parseInt(c.split(".")[0] || "0", 10) <= clampedLevel);
   // current = first lesson IN the starting level (where teacher should pick
-  // them up), not the very first overall.
-  const currentLevelLessons = resolved.levelLessonCodes[clampedLevel - 1] ?? [];
-  const current = currentLevelLessons[0] ?? unlocked[0] ?? null;
+  // them up), not the very first overall. Numeric order (compareCodes).
+  const inLevel = ordered.filter((c) => parseInt(c.split(".")[0] || "0", 10) === clampedLevel);
+  const current = inLevel[0] ?? unlocked[0] ?? null;
   return { unlocked, currentLessonCode: current };
+}
+
+/**
+ * High-precision unlock — unlock every lesson up to AND INCLUDING the boundary
+ * unit "L.S.U", with the current pointer at the FIRST lesson of that unit.
+ *
+ * "Up to" walks the NUMERICALLY-ordered unit list, so a student placed at unit
+ * 2.3.1 gets all of level 1, level-2 stages 1-2, level-2 stage-3 unit-1, and
+ * lands on the first lesson of 2.3.1. Conservative + pedagogically precise.
+ *
+ * If the version has no canonical unit tree (non-canonical codes) we fall back
+ * to from-zero semantics rather than over-unlocking.
+ */
+export function computeUnlockedToUnit(
+  resolved: ResolvedSpecialty,
+  boundaryUnitCode: string,
+): { unlocked: string[]; currentLessonCode: string | null; startingLevelIndex: number } {
+  const units = resolved.units;
+  if (units.length === 0) {
+    const ordered = resolved.orderedLessonCodes;
+    return {
+      unlocked: ordered.length ? [ordered[0]] : [],
+      currentLessonCode: ordered[0] ?? null,
+      startingLevelIndex: 1,
+    };
+  }
+  let idx = units.findIndex((u) => u.unitCode === boundaryUnitCode);
+  if (idx < 0) idx = 0; // unknown unit → place at the very first unit
+  const boundary = units[idx];
+  const unlocked: string[] = [];
+  for (let i = 0; i <= idx; i++) unlocked.push(...units[i].lessonCodes);
+  const currentLessonCode = boundary.lessonCodes[0] ?? unlocked[0] ?? null;
+  return { unlocked, currentLessonCode, startingLevelIndex: boundary.levelIndex };
 }
 
 /**
@@ -172,12 +287,27 @@ export async function createOrReplaceStudentPath(opts: {
   pathType: "custom" | "booklet";
   startMode: "from_zero" | "placement";
   startingLevelIndex: number;
+  /** Unit-precise placement boundary "L.S.U". When set (placement + adaptive
+   *  descent) the unlock set runs up to this unit and the code is persisted so
+   *  a later re-publish recomputes unit-precisely instead of widening to the
+   *  whole level. NULL for from_zero / legacy level-only placement. */
+  boundaryUnitCode?: string | null;
 }): Promise<V4StudentPath> {
-  const { unlocked, currentLessonCode } = computeUnlocked(
-    opts.resolved,
-    opts.startMode,
-    opts.startingLevelIndex,
-  );
+  const usePrecise = opts.startMode === "placement" && !!opts.boundaryUnitCode;
+  let unlocked: string[];
+  let currentLessonCode: string | null;
+  let startingLevelIndex = opts.startingLevelIndex;
+  if (usePrecise) {
+    const r = computeUnlockedToUnit(opts.resolved, opts.boundaryUnitCode as string);
+    unlocked = r.unlocked;
+    currentLessonCode = r.currentLessonCode;
+    startingLevelIndex = r.startingLevelIndex;
+  } else {
+    const r = computeUnlocked(opts.resolved, opts.startMode, opts.startingLevelIndex);
+    unlocked = r.unlocked;
+    currentLessonCode = r.currentLessonCode;
+  }
+  const placementUnitCode = usePrecise ? (opts.boundaryUnitCode as string) : null;
 
   // Welcome-gift / wallet bootstrap. Best-effort: a wallet failure must not
   // block path setup (mirrors the legacy approve-flow pattern in task #2).
@@ -201,7 +331,8 @@ export async function createOrReplaceStudentPath(opts: {
       versionId: opts.resolved.versionId,
       pathType: opts.pathType,
       startMode: opts.startMode,
-      startingLevelIndex: opts.startingLevelIndex,
+      startingLevelIndex,
+      placementUnitCode,
       currentLessonCode,
       unlockedLessonCodes: unlocked,
       createdAt: now,
@@ -213,7 +344,8 @@ export async function createOrReplaceStudentPath(opts: {
         versionId: opts.resolved.versionId,
         pathType: opts.pathType,
         startMode: opts.startMode,
-        startingLevelIndex: opts.startingLevelIndex,
+        startingLevelIndex,
+        placementUnitCode,
         currentLessonCode,
         unlockedLessonCodes: unlocked,
         updatedAt: now,
@@ -267,13 +399,26 @@ export async function syncStudentPathToActiveVersion(
 
   const startMode = (studentPath.startMode === "placement" ? "placement" : "from_zero") as
     "from_zero" | "placement";
-  const { unlocked: recomputed, currentLessonCode: recomputedCurrent } = computeUnlocked(
-    resolved,
-    startMode,
-    studentPath.startingLevelIndex ?? 1,
-  );
 
-  const allNewCodes = new Set<string>(resolved.levelLessonCodes.flat());
+  // Recompute the baseline unlock set against the NEW version. If the student
+  // was placed unit-precisely (placementUnitCode set) AND that unit still
+  // exists, recompute unit-precisely so a re-publish doesn't silently widen
+  // their unlock to the whole level. Otherwise fall back to level-granular.
+  const placementUnit = (studentPath as any).placementUnitCode as string | null | undefined;
+  const unitStillExists = !!placementUnit && resolved.units.some((u) => u.unitCode === placementUnit);
+  let recomputed: string[];
+  let recomputedCurrent: string | null;
+  if (startMode === "placement" && unitStillExists) {
+    const r = computeUnlockedToUnit(resolved, placementUnit as string);
+    recomputed = r.unlocked;
+    recomputedCurrent = r.currentLessonCode;
+  } else {
+    const r = computeUnlocked(resolved, startMode, studentPath.startingLevelIndex ?? 1);
+    recomputed = r.unlocked;
+    recomputedCurrent = r.currentLessonCode;
+  }
+
+  const allNewCodes = new Set<string>(resolved.orderedLessonCodes);
   const prevUnlocked = Array.isArray(studentPath.unlockedLessonCodes)
     ? (studentPath.unlockedLessonCodes as string[])
     : [];
@@ -286,11 +431,13 @@ export async function syncStudentPathToActiveVersion(
   // Preserve currentLessonCode if still present; otherwise prefer the
   // highest preserved code (so a renumber doesn't kick the student back
   // to the start), and fall back to the new starting-level first code.
+  // NUMERIC max (compareCodes) — lexicographic .sort() would rank
+  // "1.1.1.10" below "1.1.1.2" and pick the wrong "highest" lesson.
   let currentCode: string | null = null;
   if (studentPath.currentLessonCode && allNewCodes.has(studentPath.currentLessonCode)) {
     currentCode = studentPath.currentLessonCode;
   } else if (preserved.length > 0) {
-    currentCode = [...preserved].sort().pop() ?? recomputedCurrent;
+    currentCode = [...preserved].sort(compareCodes).pop() ?? recomputedCurrent;
   } else {
     currentCode = recomputedCurrent;
   }
@@ -607,4 +754,300 @@ export async function gradePlacementAnswer(opts: {
     logger.warn?.(`[v4-placement] grader failed q=${q.id}: ${String((e as any)?.message ?? e)}`);
     return { correct: false, rationale: "grader_unavailable" };
   }
+}
+
+// ── Adaptive placement descent (level → stage → unit) ───────────────────────
+// Pure + deterministic over the set of already-graded probes, so the route
+// layer can replay it on every /next call without holding in-memory state.
+// Falls back to the legacy level-only flow when the active version has no
+// unit-tagged questions, keeping existing instruction files unchanged.
+
+export type PlacementScope = "level" | "stage" | "unit";
+
+export type PlacementProbe = {
+  questionId: number;
+  scope: PlacementScope;
+  scopeCode: string;        // level: "L"; stage: "L.S"; unit: "L.S.U"
+  targetLevelIndex: number;
+  correct: boolean;
+};
+
+export type PlacementPending = {
+  questionId: number;
+  scope: PlacementScope;
+  scopeCode: string;
+  targetLevelIndex: number;
+};
+
+export type PlacementResult = {
+  startMode: "placement";
+  startingLevelIndex: number;
+  levelIndex: number;
+  stageCode: string | null;
+  unitCode: string | null;
+  currentLessonCode: string | null;
+  precision: "unit" | "level";
+  reason: string;
+};
+
+export type PlacementStep =
+  | {
+      kind: "ask";
+      question: V4PlacementTestQuestion;
+      scope: PlacementScope;
+      scopeCode: string;
+      targetLevelIndex: number;
+      phaseLabel: string;
+    }
+  | { kind: "done"; result: PlacementResult };
+
+/** True when the active version has at least one unit-tagged placement
+ *  question (otherwise we run the legacy level-only flow for back-compat). */
+export function usesUnitTargeting(questions: V4PlacementTestQuestion[]): boolean {
+  return questions.some((q) => !!q.targetUnitCode);
+}
+
+// Descent thresholds. Level uses best-of-3 (robust against a single fluke);
+// stage/unit use a faster 1-of-2 since we're already inside a failed level.
+const LEVEL_PASS_NEED = 2, LEVEL_FAIL_NEED = 2;
+const SUB_PASS_NEED = 1, SUB_FAIL_NEED = 2;
+
+function scopeVerdict(results: boolean[], passNeed: number, failNeed: number): "pass" | "fail" | "pending" {
+  const correct = results.filter(Boolean).length;
+  const wrong = results.length - correct;
+  if (correct >= passNeed) return "pass";
+  if (wrong >= failNeed) return "fail";
+  return "pending";
+}
+
+function probeResultsFor(probes: PlacementProbe[], scope: PlacementScope, scopeCode: string): boolean[] {
+  return probes.filter((p) => p.scope === scope && p.scopeCode === scopeCode).map((p) => p.correct);
+}
+
+function pickUnasked(pool: V4PlacementTestQuestion[], askedIds: Set<number>): V4PlacementTestQuestion | null {
+  return pool.find((q) => !askedIds.has(q.id)) ?? null;
+}
+
+// Representative pools. Level/stage probe the LAST (hardest) unit first — the
+// strongest discriminator for "do you know this whole scope?". Unit probes go
+// easiest-first so a struggling student fails fast.
+function levelPool(questions: V4PlacementTestQuestion[], levelIndex: number): V4PlacementTestQuestion[] {
+  const floor = `${levelIndex}.0.0`;
+  return questions
+    .filter((q) => q.targetLevelIndex === levelIndex)
+    .sort((a, b) =>
+      compareCodes(b.targetUnitCode ?? floor, a.targetUnitCode ?? floor) ||
+      (b.difficulty - a.difficulty) ||
+      (a.questionIndex - b.questionIndex));
+}
+function stagePool(questions: V4PlacementTestQuestion[], stageCode: string): V4PlacementTestQuestion[] {
+  return questions
+    .filter((q) => q.targetStageCode === stageCode || (q.targetUnitCode ?? "").startsWith(stageCode + "."))
+    .sort((a, b) =>
+      compareCodes(b.targetUnitCode ?? stageCode, a.targetUnitCode ?? stageCode) ||
+      (b.difficulty - a.difficulty) ||
+      (a.questionIndex - b.questionIndex));
+}
+function unitPool(questions: V4PlacementTestQuestion[], unitCode: string): V4PlacementTestQuestion[] {
+  return questions
+    .filter((q) => q.targetUnitCode === unitCode)
+    .sort((a, b) => (a.difficulty - b.difficulty) || (a.questionIndex - b.questionIndex));
+}
+
+function doneResult(resolved: ResolvedSpecialty, boundaryUnitCode: string | null, reason: string): PlacementStep {
+  if (boundaryUnitCode) {
+    const r = computeUnlockedToUnit(resolved, boundaryUnitCode);
+    const unit = resolved.units.find((u) => u.unitCode === boundaryUnitCode) ?? null;
+    return {
+      kind: "done",
+      result: {
+        startMode: "placement",
+        startingLevelIndex: r.startingLevelIndex,
+        levelIndex: unit?.levelIndex ?? r.startingLevelIndex,
+        stageCode: unit?.stageCode ?? null,
+        unitCode: boundaryUnitCode,
+        currentLessonCode: r.currentLessonCode,
+        precision: "unit",
+        reason,
+      },
+    };
+  }
+  // No unit tree → fall back to level-1 placement.
+  const r = computeUnlocked(resolved, "placement", 1);
+  return {
+    kind: "done",
+    result: {
+      startMode: "placement",
+      startingLevelIndex: 1,
+      levelIndex: 1,
+      stageCode: null,
+      unitCode: null,
+      currentLessonCode: r.currentLessonCode,
+      precision: "level",
+      reason: `${reason}_no_units`,
+    },
+  };
+}
+
+/**
+ * Hierarchical-descent placement. Pure over the graded `probes`: returns the
+ * next question to ASK, or the final placement when the descent is complete.
+ *
+ *   PHASE 1 LEVEL : find the lowest level the student can't pass (best-of-3).
+ *   PHASE 2 STAGE : within that level, the lowest stage they can't pass (1-of-2).
+ *   PHASE 3 UNIT  : within that stage, the lowest unit they can't pass (1-of-2).
+ *   PLACE         : first lesson of the boundary unit; everything before it is
+ *                   unlocked. Conservative — start where mastery breaks down.
+ */
+export function evaluatePlacement(
+  resolved: ResolvedSpecialty,
+  questions: V4PlacementTestQuestion[],
+  probes: PlacementProbe[],
+): PlacementStep {
+  const askedIds = new Set(probes.map((p) => p.questionId));
+  const maxLevel = Math.max(
+    resolved.levelCount || 0,
+    ...questions.map((q) => q.targetLevelIndex || 0),
+    1,
+  );
+
+  // ── PHASE 1: LEVEL ───────────────────────────────────────────────
+  let boundaryLevel = 0;
+  let levelDecided = false;
+  for (let L = 1; L <= maxLevel; L++) {
+    const results = probeResultsFor(probes, "level", String(L));
+    const v = scopeVerdict(results, LEVEL_PASS_NEED, LEVEL_FAIL_NEED);
+    if (v === "pass") continue;
+    if (v === "fail") { boundaryLevel = L; levelDecided = true; break; }
+    const q = pickUnasked(levelPool(questions, L), askedIds);
+    if (q) {
+      return { kind: "ask", question: q, scope: "level", scopeCode: String(L), targetLevelIndex: L, phaseLabel: "تحديد المستوى" };
+    }
+    // pool exhausted: ≥1 correct ⇒ treat as pass, else fail here.
+    if (results.filter(Boolean).length >= 1) continue;
+    boundaryLevel = L; levelDecided = true; break;
+  }
+
+  if (!levelDecided) {
+    // Passed (or exhausted questions for) every level → mastered everything.
+    const lastUnit = resolved.units[resolved.units.length - 1] ?? null;
+    return doneResult(resolved, lastUnit?.unitCode ?? null, "all_levels_passed");
+  }
+
+  // ── PHASE 2: STAGE within boundaryLevel ──────────────────────────
+  const stagesInLevel = Array.from(
+    new Set(resolved.units.filter((u) => u.levelIndex === boundaryLevel).map((u) => u.stageCode)),
+  ).sort(compareCodes);
+
+  let boundaryStage: string | null = null;
+  for (const stageCode of stagesInLevel) {
+    const results = probeResultsFor(probes, "stage", stageCode);
+    const v = scopeVerdict(results, SUB_PASS_NEED, SUB_FAIL_NEED);
+    if (v === "pass") continue;
+    if (v === "fail") { boundaryStage = stageCode; break; }
+    const q = pickUnasked(stagePool(questions, stageCode), askedIds);
+    if (q) {
+      return { kind: "ask", question: q, scope: "stage", scopeCode: stageCode, targetLevelIndex: boundaryLevel, phaseLabel: "تحديد المرحلة" };
+    }
+    if (results.filter(Boolean).length >= 1) continue;
+    boundaryStage = stageCode; break;
+  }
+  if (boundaryStage === null) {
+    // Level failed overall but every probed stage looked ok (noise) → start at
+    // the FIRST stage of the boundary level (conservative).
+    boundaryStage = stagesInLevel[0] ?? `${boundaryLevel}.1`;
+  }
+
+  // ── PHASE 3: UNIT within boundaryStage ───────────────────────────
+  const unitsInStage = resolved.units.filter((u) => u.stageCode === boundaryStage);
+  let boundaryUnit: string | null = null;
+  for (const unit of unitsInStage) {
+    const results = probeResultsFor(probes, "unit", unit.unitCode);
+    const v = scopeVerdict(results, SUB_PASS_NEED, SUB_FAIL_NEED);
+    if (v === "pass") continue;
+    if (v === "fail") { boundaryUnit = unit.unitCode; break; }
+    const q = pickUnasked(unitPool(questions, unit.unitCode), askedIds);
+    if (q) {
+      return { kind: "ask", question: q, scope: "unit", scopeCode: unit.unitCode, targetLevelIndex: boundaryLevel, phaseLabel: "تحديد الوحدة" };
+    }
+    if (results.filter(Boolean).length >= 1) continue;
+    boundaryUnit = unit.unitCode; break;
+  }
+  if (boundaryUnit === null) {
+    boundaryUnit = unitsInStage[0]?.unitCode ?? null;
+  }
+
+  return doneResult(resolved, boundaryUnit, "descent_complete");
+}
+
+/**
+ * Legacy level-only placement, made pure + server-driven for the session
+ * machine. Mirrors `pickNextPlacementQuestion` semantics EXACTLY (one question
+ * per level, advance on a correct answer, stop on two consecutive fails or
+ * exhaustion; starting level = highest level answered correctly, default 1).
+ * Used when the active version has no unit-tagged questions, so existing files
+ * behave identically — just driven by the server-authoritative session.
+ */
+export function evaluateLevelOnly(
+  resolved: ResolvedSpecialty,
+  questions: V4PlacementTestQuestion[],
+  probes: PlacementProbe[],
+): PlacementStep {
+  const answered: PlacementAnswered[] = probes.map((p) => ({
+    questionId: p.questionId,
+    targetLevelIndex: p.targetLevelIndex,
+    correct: p.correct,
+  }));
+
+  const finalize = (reason: string): PlacementStep => {
+    const startingLevelIndex = computeStartingLevel(answered);
+    const r = computeUnlocked(resolved, "placement", startingLevelIndex);
+    return {
+      kind: "done",
+      result: {
+        startMode: "placement",
+        startingLevelIndex,
+        levelIndex: startingLevelIndex,
+        stageCode: null,
+        unitCode: null,
+        currentLessonCode: r.currentLessonCode,
+        precision: "level",
+        reason,
+      },
+    };
+  };
+
+  if (answered.length >= 2 && answered.slice(-2).every((a) => !a.correct)) {
+    return finalize("two_consecutive_fails");
+  }
+
+  const last = answered[answered.length - 1];
+  let targetLevel = 1;
+  if (last) targetLevel = last.correct ? last.targetLevelIndex + 1 : last.targetLevelIndex;
+
+  const maxLevel = Math.max(
+    resolved.levelCount || 0,
+    ...questions.map((q) => q.targetLevelIndex || 0),
+    1,
+  );
+  if (targetLevel > maxLevel) return finalize("exhausted");
+
+  const askedIds = new Set(answered.map((a) => a.questionId));
+  const pool = questions
+    .filter((q) => q.targetLevelIndex === targetLevel)
+    .sort((a, b) => (a.difficulty - b.difficulty) || (a.questionIndex - b.questionIndex));
+  const next = pool.find((q) => !askedIds.has(q.id));
+  if (!next) return finalize("exhausted");
+  return { kind: "ask", question: next, scope: "level", scopeCode: String(targetLevel), targetLevelIndex: targetLevel, phaseLabel: "تحديد المستوى" };
+}
+
+/** Single entry point for the route: descent when unit-tagged, else legacy. */
+export function nextPlacementStep(
+  resolved: ResolvedSpecialty,
+  questions: V4PlacementTestQuestion[],
+  probes: PlacementProbe[],
+): PlacementStep {
+  return usesUnitTargeting(questions)
+    ? evaluatePlacement(resolved, questions, probes)
+    : evaluateLevelOnly(resolved, questions, probes);
 }
