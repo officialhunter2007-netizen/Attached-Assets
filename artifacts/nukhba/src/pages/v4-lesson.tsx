@@ -25,6 +25,7 @@ import { detectCodeTask } from "@/components/code-input-area";
 import { useAuth } from "@/lib/use-auth";
 import { readUserJson, writeUserJson, userKey } from "@/lib/user-storage";
 import { extractAskOptions, normalizeArabicText } from "@/lib/ask-options";
+import { latinizeCodeIdentifiers } from "@/lib/code-latinize";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import { HandsOnPanel } from "@/components/hands-on-panel";
 
@@ -254,9 +255,16 @@ function renderHtml(raw: string): string {
   const withScene = expandSceneTags(withAnim);
   const withImages = renderImageMarkers(withScene);
   const withViz = expandVizTags(withImages);
+  // Deterministic guarantee: force every code identifier to English (comments &
+  // strings stay Arabic). Runs AFTER ANIM/SCENE/VIZ expansion so their JS/HTML
+  // bodies — which legitimately contain backticks — are already encoded into
+  // element attributes and out of reach; only genuine markdown code fences
+  // remain for the latinizer to transform. The model can never surface Arabic
+  // variable/function/class names regardless of prompt adherence.
+  const withLatinCode = latinizeCodeIdentifiers(withViz);
   // extractMathBlocks returns `{ text, blocks }` — destructuring it as
   // `stripped` left marked() with undefined input and crashed the page.
-  const { text: stripped, blocks } = extractMathBlocks(withViz);
+  const { text: stripped, blocks } = extractMathBlocks(withLatinCode);
 
   // Normalise markdown code fences: the AI sometimes places the closing ```
   // on the same line as the last code line or immediately before text, which

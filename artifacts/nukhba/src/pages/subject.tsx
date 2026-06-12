@@ -49,6 +49,7 @@ import { DynamicEnvShell } from "@/components/dynamic-env/dynamic-env-shell";
 import { MobileDesktopHint } from "@/components/mobile-desktop-hint";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import { extractAskOptions, normalizeArabicText } from "@/lib/ask-options";
+import { latinizeCodeIdentifiers } from "@/lib/code-latinize";
 import { CourseMaterialsPanel, TeachingModeChoiceCard } from "@/components/course-materials-panel";
 import { QuizPanel, type QuizKind } from "@/components/quiz-panel";
 import { PathwayPanel } from "@/components/pathway-panel";
@@ -1878,7 +1879,7 @@ function renderAssistantHtml(raw: string, loadingLabel?: string): string {
   // complete tag (tempered close tolerates `]` inside an option) and an
   // unterminated tail so the student never sees the raw tag. The clickable
   // buttons render independently from the parsed `ask`, never from this HTML.
-  const safe = raw
+  const safe = latinizeCodeIdentifiers(raw)
     .replace(/\[\[\s*ASK_OPTIONS\s*:[\s\S]*?\]\](?!\])/g, "")
     .replace(/\[\[\s*ASK_OPTIONS\s*:(?:(?!\]\])[\s\S])*$/g, "");
   // NOTE: `normalizeLabEnvButtons` must be called by the CALLER, BEFORE
@@ -1915,7 +1916,7 @@ function renderStreamingHtml(raw: string): string {
   // finished streaming yet so the user never sees its raw HTML mid-flight,
   // then (3) strip the canonical tags themselves (the button is rendered
   // only on the final non-streaming render).
-  const normalized = normalizeLabEnvButtons(raw)
+  const normalized = normalizeLabEnvButtons(latinizeCodeIdentifiers(raw))
     .replace(/<button[^>]*data-build-env[\s\S]*?(?:<\/button>|$)/gi, '')
     .replace(/&lt;button[^&]*?data-build-env[\s\S]*?(?:&lt;\/button&gt;|$)/gi, '')
     .replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '')
