@@ -476,17 +476,24 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       }
       return -1;
     })();
+    // Injected at the closest possible position to model generation (last user
+    // turn). Prompt-layer rules alone are insufficient for Gemini Flash Lite on
+    // the code-language constraint; this per-turn suffix is the authoritative
+    // enforcement mechanism and takes priority over everything else in context.
+    const CODE_LANG_REMINDER =
+      "\n\n[⛔ قاعدة غير قابلة للكسر — طبّقها في ردك هذا: أي كود تكتبه (بلوك أو inline) — المتغيرات والدوال والكلاسات والثوابت بالإنجليزية فقط (student_count لا عدد_الطلاب). التعليقات وحدها بالعربية. لا أسماء عربية داخل الكود أبداً.]";
+
     const geminiMessages: GeminiMessage[] = compressed.recentMessages.map((m, i) => {
       if (i === lastUserIdx) {
         const { dataUrl, cleaned } = extractV4ImageDataUrl(m.content);
         if (dataUrl) {
           const parts: GeminiContentPart[] = [
-            { type: "text", text: cleaned || "[صورة مرفقة من الطالب]" },
+            { type: "text", text: (cleaned || "[صورة مرفقة من الطالب]") + CODE_LANG_REMINDER },
             { type: "image_url", image_url: { url: dataUrl } },
           ];
           return { role: m.role, content: parts };
         }
-        return { role: m.role, content: cleaned };
+        return { role: m.role, content: cleaned + CODE_LANG_REMINDER };
       }
       // Belt-and-braces: scrub any stray data URL from older messages.
       return { role: m.role, content: m.content.replace(V4_DATA_URL_RE_G, "[صورة مرفقة]") };

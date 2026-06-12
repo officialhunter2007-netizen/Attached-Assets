@@ -3485,9 +3485,14 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     }
   }
   if (mutatedUserMessage.length > 0) {
+    // Per-turn code-language enforcement: injecting at the last user turn is
+    // the most reliable position — the model reads it immediately before generating.
+    const codeLangReminder =
+      "\n\n[⛔ قاعدة غير قابلة للكسر — طبّقها في ردك هذا: أي كود تكتبه — المتغيرات والدوال والكلاسات بالإنجليزية فقط. التعليقات وحدها بالعربية. لا أسماء عربية داخل الكود أبداً.]";
+    const userContentWithReminder = mutatedUserMessage + codeLangReminder;
     if (attachedImageDataUrl) {
       const multimodalParts: GeminiContentPart[] = [
-        { type: "text", text: mutatedUserMessage },
+        { type: "text", text: userContentWithReminder },
         { type: "image_url", image_url: { url: attachedImageDataUrl } },
       ];
       claudeMessages.push({
@@ -3495,7 +3500,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         content: multimodalParts,
       });
     } else {
-      claudeMessages.push({ role: "user" as const, content: mutatedUserMessage });
+      claudeMessages.push({ role: "user" as const, content: userContentWithReminder });
     }
   } else if (claudeMessages.length === 0) {
     // For professor mode (no custom plan, teaching directly from material),
