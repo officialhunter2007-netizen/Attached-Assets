@@ -116,7 +116,7 @@ export function decodeHtmlEntities(s: string): string {
  * the `]]` closing fence is what terminates the match.
  */
 export function extractAskOptions(content: string): AskOptionsResult {
-  const m = content.match(/\[\[ASK_OPTIONS:\s*([\s\S]+?)\]\]/);
+  const m = content.match(/\[\[\s*ASK_OPTIONS\s*:\s*([\s\S]+?)\]\](?!\])/);
   if (!m) return { stripped: content, ask: null };
   // Prefer ||| delimiter; fall back to single | only if ||| not present
   const raw = m[1];

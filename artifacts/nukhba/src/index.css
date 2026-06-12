@@ -1082,6 +1082,11 @@
   background: transparent !important;
   color: #e2e8f0;
   direction: ltr;
+  /* Force an isolated LTR bidi context: even if the teacher slips an Arabic
+     identifier or an Arabic comment into the block, the code keeps its
+     left-to-right structure and the Arabic run renders correctly inside it
+     instead of flipping the whole line. */
+  unicode-bidi: isolate;
   text-align: left;
   display: block;
   font-family: 'Fira Code', 'Consolas', ui-monospace, monospace;

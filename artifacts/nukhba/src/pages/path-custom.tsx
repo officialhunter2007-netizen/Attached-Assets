@@ -547,7 +547,7 @@ function DiagnosticChat({
             </div>
             {/* Question body — show stripped content, fallback to the ask question, fallback to raw question */}
             <div className="whitespace-pre-wrap text-white/90 text-sm leading-relaxed">
-              {diagAsk.stripped || diagAsk.ask?.question || diag.currentQuestion.replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, "").trim()}
+              {diagAsk.stripped || diagAsk.ask?.question || diag.currentQuestion.replace(/\[\[\s*ASK_OPTIONS\s*:[\s\S]*?\]\](?!\])/g, "").replace(/\[\[\s*ASK_OPTIONS\s*:(?:(?!\]\])[\s\S])*$/g, "").trim()}
             </div>
           </div>
         </motion.div>

@@ -1872,12 +1872,21 @@ function renderImageMarkers(raw: string, loadingLabel = "جارٍ توليد ا�
 
 function renderAssistantHtml(raw: string, loadingLabel?: string): string {
   if (!raw) return "";
+  // Safety net: extractAskOptions already removed any COMPLETE tag before this
+  // final render runs, but if the model truncated mid-tag (max-tokens cutoff)
+  // the parser can't match and the raw partial would leak. Strip both a
+  // complete tag (tempered close tolerates `]` inside an option) and an
+  // unterminated tail so the student never sees the raw tag. The clickable
+  // buttons render independently from the parsed `ask`, never from this HTML.
+  const safe = raw
+    .replace(/\[\[\s*ASK_OPTIONS\s*:[\s\S]*?\]\](?!\])/g, "")
+    .replace(/\[\[\s*ASK_OPTIONS\s*:(?:(?!\]\])[\s\S])*$/g, "");
   // NOTE: `normalizeLabEnvButtons` must be called by the CALLER, BEFORE
   // `expandLabEnvTags` runs — otherwise it would also match the proper
   // <button> markup that expandLabEnvTags just produced and undo it.
   // marked is synchronous when no async extensions are registered, but the
   // type signature is `string | Promise<string>` — `as string` is safe here.
-  const withImages = renderImageMarkers(raw, loadingLabel);
+  const withImages = renderImageMarkers(safe, loadingLabel);
   // Task #3 (R3): expand [[VIZ: ...]] into mount placeholders BEFORE
   // markdown parsing so DOMPurify sees them as plain <div data-viz-mount>
   // and the AIMessage effect can attach a React root.
@@ -1910,7 +1919,11 @@ function renderStreamingHtml(raw: string): string {
     .replace(/<button[^>]*data-build-env[\s\S]*?(?:<\/button>|$)/gi, '')
     .replace(/&lt;button[^&]*?data-build-env[\s\S]*?(?:&lt;\/button&gt;|$)/gi, '')
     .replace(/\[\[CREATE_LAB_ENV:[^\]]*\]\]/g, '')
-    .replace(/\[\[ASK_OPTIONS:[^\]]*\]\]/g, '')
+    // ASK_OPTIONS — tempered close `\]\](?!\])` survives `]` inside an option
+    // (e.g. `arr[0]`); the second pass hides an unterminated tag mid-stream so
+    // the student never sees the raw tag, complete or partial.
+    .replace(/\[\[\s*ASK_OPTIONS\s*:[\s\S]*?\]\](?!\])/g, '')
+    .replace(/\[\[\s*ASK_OPTIONS\s*:(?:(?!\]\])[\s\S])*$/g, '')
     // Task #3: strip incomplete / partial [[VIZ:...]] tags mid-stream so
     // the student never sees raw JSON. The complete tag is rendered only
     // on finalization via `renderAssistantHtml → expandVizTags`.
@@ -2089,7 +2102,7 @@ function plainTextFromHtmlContent(raw: string): string {
   // Drop fenced code blocks entirely (TTS would mangle them).
   let s = raw.replace(/```[\s\S]*?```/g, " ");
   // Drop our internal markers so they don't get spoken.
-  s = s.replace(/\[\[(?:CREATE_LAB_ENV|ASK_OPTIONS|IMAGE|PLAN_READY)[^\]]*\]\]/gi, " ");
+  s = s.replace(/\[\[(?:CREATE_LAB_ENV|ASK_OPTIONS|IMAGE|PLAN_READY)[\s\S]*?\]\](?!\])/gi, " ");
   // Strip raw HTML tags.
   if (typeof document !== "undefined") {
     const tmp = document.createElement("div");
@@ -3964,7 +3977,7 @@ function SubjectPathChat({
           if (m.role === "assistant" && next?.role === "user" && next.content?.trim()) {
             const q = m.content
               .replace(/\[\[LAB_INTAKE_DONE\]\]/g, "")
-              .replace(/\[\[ASK_OPTIONS:\s*([\s\S]+?)\]\]/g, (_: string, inner: string) => inner.split("|||")[0]?.trim() || "")
+              .replace(/\[\[\s*ASK_OPTIONS\s*:\s*([\s\S]+?)\]\](?!\])/g, (_: string, inner: string) => inner.split("|||")[0]?.trim() || "")
               .replace(/<[^>]+>/g, " ")
               .replace(/\s+/g, " ")
               .trim()

@@ -53,6 +53,28 @@ NOT solve this — being non-greedy it still closes on the first `]]`.
 will silently truncate + leak without the `(?!\])` close. Residual extreme edge (payload
 containing `]]` mid-text followed by more prose) is accepted — natural requirements don't.
 
+## A marker's strip must be mirrored at EVERY render surface
+
+The teacher chat renders the SAME message through several independent code paths, and a
+protocol-tag strip is per-path. ASK_OPTIONS (clickable-options marker) taught this: it must
+be stripped/parsed at **all** of these or the raw tag leaks at the one you miss —
+- the parser/extractor (`extractAskOptions`, tempered close) — drives the buttons;
+- the **streaming** render (hides complete + unterminated tails mid-stream);
+- the **final / non-streaming** render — even though the extractor ran first, a model
+  truncation (max-tokens cutoff) leaves an UNTERMINATED tag the extractor can't match, so
+  the final render still needs the complete+tail strip pair as a safety net;
+- the TTS plain-text sanitizer (else the tag is spoken aloud);
+- any history/summary pair-builder that slices past messages.
+
+And these paths are **duplicated across three pages** — `v4-lesson.tsx` (v4 path),
+`subject.tsx` (legacy `/subject`), `path-custom.tsx` (diagnostic/placement) — each with its
+own `sanitizeProtocolNoise`/render. The buttons render from the parsed `ask`, NEVER from the
+HTML, so adding a strip to a render path can't eat them.
+
+**Why:** the legacy `subject.tsx` once had the strip in its streaming variant but NOT its
+final render — a clean fix in one place still leaked on truncation in another. Grep the
+marker name across ALL pages + ALL render/TTS/history helpers before declaring it fixed.
+
 ## Marker predicate parity (server advertises ⇄ FE renders)
 
 When a teaching-prompt layer tells the model about a UI control (e.g. the `</>` محرّر نُخبة

@@ -236,9 +236,15 @@ function sanitizeProtocolNoise(raw: string): string {
     .replace(/\[(MASTERY|NEEDS_REVIEW|CREATE_LAB_ENV|LAB_MASTERED|EXAM_MASTERED|LESSON_MASTERED|SESSION_COMPLETE|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE|DIFFICULTY_UP|DIFFICULTY_DOWN)?$/i, "")
     .replace(/\[(LESSON_MASTERED|SESSION_COMPLETE|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE|DIFFICULTY_UP|DIFFICULTY_DOWN)\]/g, "")
     .replace(/\[(?:MASTERY|NEEDS_REVIEW|CREATE_LAB_ENV|LAB_MASTERED|EXAM_MASTERED)[^\]]*\]/g, "")
-    // Safety net: strip raw [[ASK_OPTIONS:...]] that escaped the parser so
-    // students never see the tag as plain text, even if extractAskOptions fails.
-    .replace(/\[\[ASK_OPTIONS:\s*[^\]]*\]\]/g, "");
+    // ASK_OPTIONS — the student must NEVER see the raw tag, complete or partial.
+    // (1) Complete tag: tempered close `\]\](?!\])` stops at the first `]]` NOT
+    //     followed by another `]`, so an option ending in a bracket (e.g.
+    //     `arr[0]`) survives instead of truncating and leaking a stray `]`.
+    // (2) Unterminated tail mid-stream: precise lookahead form (NOT greedy
+    //     `[\s\S]*$`) hides the partial tag while it streams, without eating a
+    //     complete tag that happens to be the final token of a finished message.
+    .replace(/\[\[\s*ASK_OPTIONS\s*:[\s\S]*?\]\](?!\])/g, "")
+    .replace(/\[\[\s*ASK_OPTIONS\s*:(?:(?!\]\])[\s\S])*$/g, "");
 }
 
 function renderHtml(raw: string): string {
