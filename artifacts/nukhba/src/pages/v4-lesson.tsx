@@ -1550,8 +1550,16 @@ const MessageBubble = ({
     return extractAskOptions(normalizedContent);
   }, [normalizedContent, msg.role, isStreaming]);
 
+  // Re-normalise after extraction — cleanStripped inside extractAskOptions can
+  // eat spaces around empty wrapper tags / <br> sequences.  Double-normalising
+  // guarantees that the final rendered prose is clean regardless of the provider.
+  const renderedStripped = useMemo(
+    () => normalizeArabicText(askResult.stripped),
+    [askResult.stripped],
+  );
+
   // Render the stripped content (question text without the ASK_OPTIONS tag) as HTML.
-  const html = useMemo(() => renderHtml(askResult.stripped), [askResult.stripped]);
+  const html = useMemo(() => renderHtml(renderedStripped), [renderedStripped]);
 
   if (msg.role === "user") {
     return (

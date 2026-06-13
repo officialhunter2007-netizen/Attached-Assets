@@ -148,11 +148,14 @@ export function extractAskOptions(content: string): AskOptionsResult {
     .filter(Boolean);
   // After stripping the tag, also collapse any wrapper tags it left empty
   // (e.g. the model put it inside its own <p>...</p> or <div>...</div>).
+  // REPLACE (don't just DELETE) empty wrappers with a single space so word
+  // boundaries are preserved — "على<p></p>الشاشة" → "على الشاشة".
   const cleanStripped = (raw0: string) =>
     raw0
-      .replace(m[0], "")
-      .replace(/<(p|div|span)[^>]*>\s*<\/\1>/gi, "")
+      .replace(m[0], " ")
+      .replace(/<(p|div|span)[^>]*>\s*<\/\1>/gi, " ")
       .replace(/(\s*<br\s*\/?>\s*){2,}/gi, "<br/>")
+      .replace(/\s{2,}/g, " ")
       .trim();
   if (parts.length < 2) return { stripped: cleanStripped(content), ask: null };
   const [questionRaw, ...rawOpts] = parts;
@@ -168,10 +171,10 @@ export function extractAskOptions(content: string): AskOptionsResult {
   // Decode HTML entities in question + each option so labels containing
   // tag examples (e.g. `وسم <p> (فقرة عادية)`) render readable text instead
   // of raw `&lt;p&gt;` escape sequences in the buttons.
-  let question = normAr(decodeHtmlEntities(questionRaw));
+  let question = normalizeArabicText(normAr(decodeHtmlEntities(questionRaw)));
   let options = rawOpts
     .filter((o) => !(/غير\s*ذلك/i.test(o) || /^other$/i.test(o)))
-    .map((o) => normAr(decodeHtmlEntities(o)));
+    .map((o) => normalizeArabicText(normAr(decodeHtmlEntities(o))));
 
   // Detect orphaned first option that the model wrote as part of the
   // narrative sentence before the [[ASK_OPTIONS]] tag instead of inside it.
