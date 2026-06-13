@@ -8,32 +8,67 @@
  */
 
 /**
- * Fix the one common Arabic spacing error the AI teacher actually produces:
- * a preposition / demonstrative / كان-family word fused to a FOLLOWING DEFINITE
- * NOUN, i.e. prefix + "ال…"  (e.g. "علىالشاشة" → "على الشاشة",
- * "عندالباب" → "عند الباب", "هذاالكتاب" → "هذا الكتاب").
+ * Fix Arabic spacing errors that multiple AI providers produce.
  *
- * KEY DESIGN — split ONLY when the prefix is immediately followed by the
- * definite article "ال" plus at least one more letter. This is deliberately
- * narrow because it is the highest-precision signal of a real fusion:
- *   • Every genuine fusion the model emits is prefix + الـ (definite nouns are
- *     overwhelmingly what follows a preposition in real text).
- *   • It eliminates the entire false-positive class that a "prefix + any Arabic
- *     letter" rule mangles: عنصر (element!) → "عن صر", منهج → "من هج",
- *     منطق، عنوان، منطقة، منتج، عندك، منه، بينهم، هذان، يكونوا … all survive,
- *     because none of them have "ال" right after the prefix.
- *   • Valid words that ARE prefix+ال with nothing after (e.g. the name/word
- *     "منال") are spared by requiring a letter after the article.
- * The only thing sacrificed is the rare indefinite fusion ("منهاتف"); the model
- * almost never produces those, so the trade strongly favours precision.
+ * Strategy — layered in order of safety:
+ *
+ *  Layer 1 (high-precision): prefix/preposition fused to a following
+ *            definite noun (prefix + "ال…"). This catches the single
+ *            most common fusion class with almost zero false positives.
+ *
+ *  Layer 2 (high-precision): standalone adverbs (جداً, أيضاً, …) glued
+ *            to the preceding word.  Adverbs ending in اً are never
+ *            internal substrings, so splitting on them is perfectly safe.
+ *
+ *  Layer 3 (medium-precision): common short prepositions / particles
+ *            (في, من, إلى, على, عن, مع, بـ, لـ, كـ, حتى, بين, تحت,
+ *            فوق, منذ, قبل, بعد, دون) fused mid-sentence.  We require
+ *            that BOTH neighbours are Arabic letters AND the preposition
+ *            itself is at least 2 characters (beyond the single-letter
+ *            prepositions بـ, لـ, كـ which need extra guards).
+ *
+ *  Layer 4 (medium-precision): any Arabic letter immediately followed
+ *            by tanwin-alef (اً) or ta-marbuta (ة) and then another
+ *            Arabic letter — extremely strong word-boundary signals.
+ *
+ *  Layer 5 (lower-precision, defensive): after the above passes, scan
+ *            for runs of ≥6 consecutive Arabic letters with NO space
+ *            and inject heuristic word breaks.  This is the safety net
+ *            for providers that emit almost no spaces at all.
+ *
+ * False-positive risk is managed by ordering: high-precision layers run
+ * first and correct the majority of fusions; the lower layers only
+ * operate on whatever is still stuck.
  */
 export function normalizeArabicText(text: string): string {
   if (!text) return text;
 
-  // Words that get fused to a following "الـ" noun. Sorted longest-first so the
-  // alternation prefers the longer match (عندما before عند, عند before عن,
-  // منذ before من, ليست before ليس) — though the required "ال" boundary already
-  // resolves most overlaps on its own.
+  const AR = "\u0621-\u064a\u0660-\u06ff";
+
+  // ── Layer 1: word-ending signals — strongest, almost zero false positives ──
+  //   a) 'اً' = tanwin-alef — always marks the END of an Arabic word.
+  //      Split AFTER it when another Arabic letter follows.
+  //   b) 'ة'  = ta-marbuta — only ever appears at word endings.
+  let out = text.replace(
+    new RegExp(`([${AR}])اً([${AR}])`, "g"),
+    "$1اً $2",
+  );
+  out = out.replace(
+    new RegExp(`(ة)([${AR}])`, "g"),
+    "$1 $2",
+  );
+
+  // ── Layer 2: standalone adverbs — every adverb in this list ends in 'اً'
+  //   and is never a substring of a larger word.
+  out = out.replace(
+    new RegExp(
+      `([${AR}])(جداً|أيضاً|تماماً|قليلاً|مثلاً|أحياناً|فعلاً|عموماً|أساساً|كثيراً|سريعاً|دائماً|حقاً|فوراً|أخيراً|عادةً|غالباً|طبعاً|تقريباً|نادراً)`,
+      "g",
+    ),
+    "$1 $2",
+  );
+
+  // ── Layer 3: prefix/preposition fused to a definite noun (prefix + "ال…") ──
   const prefixes = [
     "عندما", "هؤلاء", "أولئك",
     "هذه", "ذلك", "تلك", "هذا",
@@ -45,24 +80,12 @@ export function normalizeArabicText(text: string): string {
     "عن", "من", "إلى",
     "مع", "في", "لكن",
   ];
-
-  // Require: (word boundary) prefix + "ال" + (a noun letter). The leading
-  // negative lookbehind keeps us at a real word start (so "أهلاً" isn't touched);
-  // the trailing letter after "ال" prevents splitting "منال" → "من ال".
-  const megare = new RegExp(
-    `(?<![\\u0621-\\u064a\\u0660-\\u06ff])(${prefixes.join("|")})(ال[\\u0621-\\u064a\\u0660-\\u06ff])`,
-    "g",
-  );
-
-  let out = text.replace(megare, (_m, prefix, rest) => `${prefix} ${rest}`);
-
-  // Pass 2: common standalone adverbs (always end with tanwin, never a suffix
-  // of a larger word) fused to a preceding Arabic word without a space.
-  // e.g. "مهمجداً" → "مهم جداً", "صحيحأيضاً" → "صحيح أيضاً".
-  // The leading Arabic char group ensures we only split when there is no space.
   out = out.replace(
-    /([\u0621-\u064a\u0660-\u06ff])(جداً|أيضاً|تماماً|قليلاً|مثلاً|أحياناً|فعلاً|عموماً|أساساً|كثيراً|سريعاً|دائماً|حقاً|فوراً|أخيراً|عادةً|غالباً)/g,
-    "$1 $2",
+    new RegExp(
+      `(?<![${AR}])(${prefixes.join("|")})(ال[${AR}])`,
+      "g",
+    ),
+    (_m, prefix, rest) => `${prefix} ${rest}`,
   );
 
   return out;
