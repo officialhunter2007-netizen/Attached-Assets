@@ -16,7 +16,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2, ChevronLeft, Send, Rocket, Target, Check, X as XIcon,
   Trophy, RefreshCw, Sparkles, MessageCircle, MapPin, Gem, Brain,
-  ArrowLeft,
+  BookOpen, ArrowLeft,
 } from "lucide-react";
 import { extractAskOptions } from "@/lib/ask-options";
 
@@ -775,8 +775,16 @@ export default function PathCustom() {
               transition={{ delay: 0.3 }}
               className="space-y-1.5"
             >
-              <h1 className="text-3xl font-black text-white">جهّزنا مسارك! 🎉</h1>
-              <p className="text-white/45 text-sm">اكتشفنا مستواك الحقيقي — إليك نتيجتك</p>
+              <h1 className="text-3xl font-black text-white">
+                {finalPlacement && finalPlacement.precision === "unit" && finalPlacement.unitCode
+                  ? "🎯 وجدنا مستواك بالضبط!"
+                  : "جهّزنا مسارك! 🎉"}
+              </h1>
+              <p className="text-white/45 text-sm">
+                {finalPlacement && finalPlacement.precision === "unit" && finalPlacement.unitCode
+                  ? "حسب اختبار تحديد المستوى — هذه النتيجة الأنسب لك"
+                  : "اكتشفنا مستواك الحقيقي — إليك نتيجتك"}
+              </p>
             </motion.div>
 
             {/* Result details card */}
@@ -792,8 +800,19 @@ export default function PathCustom() {
                 {/* Unit-precise placement */}
                 {finalPlacement && finalPlacement.precision === "unit" && finalPlacement.unitCode ? (
                   <>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gold/20 border border-gold/30 text-gold font-bold">دقة عالية — وحدة + مرحلة</span>
+                    <div className="bg-emerald/10 rounded-xl border border-emerald/25 p-4 text-center">
+                      <div className="inline-flex items-center gap-1.5 mb-2">
+                        <MapPin className="w-4 h-4 text-emerald" />
+                        <span className="text-emerald text-sm font-bold">
+                          هذه الوحدة مناسبة جداً لمستواك الحالي
+                        </span>
+                      </div>
+                      <div className="text-base font-black text-white mb-1">
+                        الوحدة {finalPlacement.unitCode}
+                      </div>
+                      <p className="text-white/50 text-xs">
+                        ابدأ منها — وما قبلها مفتوح لك للمراجعة في أي وقت
+                      </p>
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       {[
@@ -807,14 +826,15 @@ export default function PathCustom() {
                         </div>
                       ))}
                     </div>
-                    <div className="bg-emerald/8 rounded-xl border border-emerald/20 p-4">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <MapPin className="w-4 h-4 text-emerald shrink-0" />
-                        <span className="text-emerald text-sm font-bold">نقطة بدايتك</span>
+                    <div className="bg-gold/5 rounded-xl border border-gold/15 p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Brain className="w-4 h-4 text-gold/70 shrink-0" />
+                        <span className="text-gold/80 text-xs font-bold">نقطة البداية</span>
                       </div>
                       <div className="font-mono text-white/80 text-sm">{finalPlacement.currentLessonCode}</div>
                       <p className="text-white/40 text-[11px] mt-1.5 leading-relaxed">
-                        فتحنا لك كل ما قبله للمراجعة ({unlockedCount} درساً)، وما بعده يُفتح تباعاً مع تقدّمك.
+                        ✅ فتحنا لك كل ما قبله للمراجعة ({unlockedCount} درساً)<br/>
+                        🔓 وما بعده يُفتح تباعاً مع تقدّمك
                       </p>
                     </div>
                   </>
@@ -864,6 +884,7 @@ export default function PathCustom() {
               transition={{ delay: 0.72 }}
               className="flex flex-col gap-2.5 pt-1"
             >
+              {/* Primary: start from the determined point */}
               <button
                 onClick={() => navigate(`/specialty/${encodeURIComponent(slug)}/map`)}
                 className="relative w-full overflow-hidden rounded-xl py-4 font-black text-[15px]"
@@ -871,19 +892,30 @@ export default function PathCustom() {
               >
                 <div className="absolute inset-0 bg-gradient-to-l from-amber-300 via-gold to-amber-500" />
                 <div className="relative flex items-center justify-center gap-2 text-black">
-                  <span>🗺️ افتح خريطتك التعليمية</span>
+                  <span>🚀 ابدأ رحلتك التعليمية</span>
                 </div>
               </button>
               <div className="flex gap-2">
+                {/* Map: see all content including unlocked previous material */}
                 <button
                   onClick={() => navigate(`/specialty/${encodeURIComponent(slug)}/map`)}
-                  className="flex-1 py-3 rounded-xl bg-emerald/12 border border-emerald/25 text-emerald text-sm font-bold hover:bg-emerald/18 transition-colors"
+                  className="flex-1 py-3 rounded-xl bg-white/[0.06] border border-white/15 text-white/80 text-sm font-bold hover:bg-white/10 transition-colors flex items-center justify-center gap-1.5"
                 >
-                  ادخل إلى الخريطة
+                  <MapPin className="w-4 h-4 text-gold/70" />
+                  تصفّح الخريطة
                 </button>
+                {/* Review previous level content */}
+                <button
+                  onClick={() => navigate(`/specialty/${encodeURIComponent(slug)}/map`)}
+                  className="flex-1 py-3 rounded-xl bg-emerald/10 border border-emerald/20 text-emerald text-sm font-bold hover:bg-emerald/15 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  راجع السابق
+                </button>
+                {/* Retake placement test */}
                 <button
                   onClick={() => navigate(`/path/${encodeURIComponent(slug)}`)}
-                  className="px-4 py-3 rounded-xl bg-white/[0.06] hover:bg-white/10 text-white/40 text-xs transition-colors flex items-center gap-1.5 border border-white/[0.06]"
+                  className="px-4 py-3 rounded-xl bg-white/[0.04] hover:bg-white/08 text-white/30 text-xs transition-colors flex items-center gap-1.5 border border-white/[0.06]"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   إعادة
