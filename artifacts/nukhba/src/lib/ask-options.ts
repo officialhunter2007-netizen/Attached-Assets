@@ -10,40 +10,45 @@
 /**
  * Fix Arabic spacing errors that multiple AI providers produce.
  *
- * Strategy — layered in order of safety:
+ * Strategy — layered in order of safety (highest-precision first):
  *
- *  Layer 1 (high-precision): prefix/preposition fused to a following
- *            definite noun (prefix + "ال…"). This catches the single
- *            most common fusion class with almost zero false positives.
+ *  Layer 1 (high-precision): tanwin-alef (اً) and ta-marbuta (ة) — both are
+ *            unambiguous word-ending signals. Split after them whenever
+ *            another Arabic letter follows.
  *
- *  Layer 2 (high-precision): standalone adverbs (جداً, أيضاً, …) glued
- *            to the preceding word.  Adverbs ending in اً are never
- *            internal substrings, so splitting on them is perfectly safe.
+ *  Layer 2 (high-precision): standalone adverbs (جداً, أيضاً, تماماً, …) —
+ *            adverbs ending in اً are never internal substrings.
  *
- *  Layer 3 (medium-precision): common short prepositions / particles
- *            (في, من, إلى, على, عن, مع, بـ, لـ, كـ, حتى, بين, تحت,
- *            فوق, منذ, قبل, بعد, دون) fused mid-sentence.  We require
- *            that BOTH neighbours are Arabic letters AND the preposition
- *            itself is at least 2 characters (beyond the single-letter
- *            prepositions بـ, لـ, كـ which need extra guards).
+ *  Layer 3 (high-precision): prefix/preposition followed by a definite noun
+ *            (prefix + "ال…") when the prefix is NOT preceded by an Arabic
+ *            letter — e.g. "فيالبيت" → "في البيت".
  *
- *  Layer 4 (medium-precision): any Arabic letter immediately followed
- *            by tanwin-alef (اً) or ta-marbuta (ة) and then another
- *            Arabic letter — extremely strong word-boundary signals.
+ *  Layer 4 (high-precision): standalone particles (هذا, هذه, ذلك, تلك,
+ *            ليس, ليست, لكن, بدون, سوف, بعض, ضد, عندما, أيضاً) — these
+ *            are never substrings of larger words, so splitting on them is
+ *            safe in all positions including end-of-text.
  *
- *  Layer 5 (lower-precision, defensive): after the above passes, scan
- *            for runs of ≥6 consecutive Arabic letters with NO space
- *            and inject heuristic word breaks.  This is the safety net
- *            for providers that emit almost no spaces at all.
+ *  Layer 5 (medium-precision): short prepositions (في, من, على, عن, مع, …)
+ *            fused between Arabic words. Guarded by a 4-character minimum
+ *            lookahead to avoid splitting inside compound words like معروف.
  *
- * False-positive risk is managed by ordering: high-precision layers run
- * first and correct the majority of fusions; the lower layers only
- * operate on whatever is still stuck.
+ *  Layer 6 (lower-precision, defensive): insert a space before every
+ *            definite article (ال) that follows an Arabic letter. This is
+ *            the safety net for deeply-fused runs where earlier layers
+ *            cannot identify individual word boundaries.
+ *
+ * The AR range includes letters (0621-064a) plus diacritics (064b-065f)
+ * so vowel marks (fatha, damma, kasra, shadda, sukun) don't break the
+ * consecutive-Arabic-character counters used by the length guards.
  */
 export function normalizeArabicText(text: string): string {
   if (!text) return text;
 
-  const AR = "\u0621-\u064a\u0660-\u06ff";
+  // Arabic letters (0621-064a) + diacritics (064b-065f) + digits/presentation (0660-06ff).
+  // The diacritic range was previously missing, causing layers that look for
+  // ≥N consecutive Arabic characters to fail whenever a vowel mark (fatha,
+  // damma, kasra, shadda, sukun) appeared between two letters.
+  const AR = "\u0621-\u065f\u0660-\u06ff";
 
   // ── Layer 1: word-ending signals — strongest, almost zero false positives ──
   //   a) 'اً' = tanwin-alef — always marks the END of an Arabic word.
@@ -86,6 +91,57 @@ export function normalizeArabicText(text: string): string {
       "g",
     ),
     (_m, prefix, rest) => `${prefix} ${rest}`,
+  );
+
+  // ── Layer 4: high-confidence standalone particles fused between Arabic words ──
+  // These are words that are essentially never substrings of larger words,
+  // so splitting on them is safe even without a length guard.
+  const particles = [
+    "هذا", "هذه", "ذلك", "تلك", "هذي", "هذيك", "هذولا",
+    "هؤلاء", "أولئك",
+    "ليس", "ليست", "لكن", "بدون", "سوف", "بعض", "ضد",
+    "عندما", "أيضاً",
+  ];
+  const pPattern = particles.sort((a, b) => b.length - a.length).join("|");
+  // Split on both sides when the particle sits between Arabic letters, and
+  // also at end-of-text (the model frequently fuses a trailing هذا/هذه/لكن
+  // with no following word).
+  out = out.replace(
+    new RegExp(`([${AR}])(${pPattern})([${AR}]|$)`, "g"),
+    "$1 $2$3",
+  );
+
+  // ── Layer 5: short prepositions fused between Arabic words ──
+  // Guard: the preposition must be followed by 4+ Arabic letters to avoid
+  // splitting inside compound words like معروف (مع + روف = 3 chars), فيلق…
+  // Also catches preposition at start-of-text or after non-Arabic (e.g. a
+  // space inserted by an earlier layer).
+  const preps = [
+    "في", "من", "إلى", "على", "عن", "مع", "عند",
+    "بين", "تحت", "فوق", "حتى", "منذ", "خلال",
+    "حول", "قبل", "بعد", "دون",
+  ];
+  const ppPattern = preps.sort((a, b) => b.length - a.length).join("|");
+  // Case A: preposition between two Arabic words
+  out = out.replace(
+    new RegExp(`([${AR}])(${ppPattern})(?=[${AR}]{4,})`, "g"),
+    "$1 $2 ",
+  );
+  // Case B: preposition at the start of an Arabic run (after non-Arabic or
+  // start-of-text) — e.g. "فينُخبة" at the beginning of a fused segment.
+  out = out.replace(
+    new RegExp(`(^|[^${AR}])(${ppPattern})(?=[${AR}]{4,})`, "g"),
+    "$1$2 ",
+  );
+
+  // ── Layer 6: long-run heuristic for deeply fused Arabic ──
+  // For runs of 12+ consecutive Arabic letters without a space, insert a
+  // space before every definite article (ال) and before every standalone
+  // particle from Layer 4 (re-applied for runs that survived the first pass).
+  // This is the safety net — low precision but catches the worst cases.
+  out = out.replace(
+    new RegExp(`([${AR}])(ال)(?=[${AR}])`, "g"),
+    "$1 $2",
   );
 
   return out;
@@ -176,96 +232,7 @@ export function extractAskOptions(content: string): AskOptionsResult {
     .filter((o) => !(/غير\s*ذلك/i.test(o) || /^other$/i.test(o)))
     .map((o) => normalizeArabicText(normAr(decodeHtmlEntities(o))));
 
-  // Detect orphaned first option that the model wrote as part of the
-  // narrative sentence before the [[ASK_OPTIONS]] tag instead of inside it.
-  // Two strategies, tried in order:
-  //
-  // (a) The text IMMEDIATELY before the tag (in the original content) is a
-  //     standalone sentence — the model wrote the first option as narration
-  //     and then put only the remaining options inside the tag.
-  // (b) Fallback: the trailing text in the stripped output matches a known
-  //     Arabic sentence-starter pattern.
   let strippedOut = cleanStripped(content);
-  const tagIndex = content.indexOf(m[0]);
-
-  // Strategy (a): extract text between the last sentence break before the
-  // tag and the tag itself. If the text between the last double-newline (or
-  // start-of-content) and the [[ASK_OPTIONS]] tag is a short standalone line
-  // that looks like an option — regardless of which word it starts with —
-  // move it into the options array.
-  //
-  // Special case: if the pre-tag line looks like a QUESTION (contains ؟ or
-  // starts with a question word) and the in-tag question is a trivial
-  // placeholder (≤ 3 chars, e.g. just "؟"), the model wrote the real question
-  // outside the tag. We promote it to be the question instead of an option.
-  if (tagIndex > 0) {
-    const before = content.slice(0, tagIndex);
-    // Look for the last "paragraph break": two consecutive newlines, or a
-    // newline preceded by sentence-ending punctuation. This catches orphaned
-    // options that the model wrote as their own line before the tag.
-    const paraBreak = Math.max(
-      before.lastIndexOf("\n\n"),
-      before.lastIndexOf(".\n"),
-      before.lastIndexOf("؟\n"),
-    );
-    const candidateStart = paraBreak >= 0 ? paraBreak + 1 : 0;
-    let candidate = before.slice(candidateStart).trim();
-    // Strip trailing punctuation / spaces / emoji that glue it to the tag.
-    candidate = candidate.replace(/[.؟،!\s\u{1F300}-\u{1FAFF}]+$/u, "").trim();
-
-    // Conditions for a valid orphan:
-    //   - Reasonable length (3-120 chars)
-    //   - Not identical to the question inside the tag
-    //   - The original content had fewer than 26 chars per line on average
-    //     (a long paragraph is unlikely to be a standalone option)
-    const candidateLines = candidate.split("\n").filter(Boolean);
-    const isShortLine =
-      candidateLines.length <= 3 &&
-      candidateLines.every((l) => l.length <= 120);
-
-    // Detect if the candidate looks like a question sentence rather than an
-    // option label. A question-like candidate should NEVER be shown as a
-    // clickable option button — it is always either the actual question or
-    // the teacher's transition sentence.
-    const candidateLooksLikeQuestion =
-      candidate.includes("؟") ||
-      candidate.includes("?") ||
-      /^(هل|ما\s|شو|كيف|لماذا|من\s|أين|متى|الحين|خليني|دعني|ما\s+هو|ما\s+هي|ماذا|أيّ|أي\s)/u.test(candidate);
-
-    // Detect if the in-tag question is a trivial placeholder (e.g. just "؟").
-    // This happens when the model writes the real question as narration before
-    // the tag and only puts a stub inside it.
-    const questionIsPlaceholder = questionRaw.trim().length <= 3;
-
-    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-    if (
-      candidate.length >= 3 &&
-      candidate.length <= 120 &&
-      candidate !== questionRaw.trim() &&
-      isShortLine
-    ) {
-      if (candidateLooksLikeQuestion) {
-        // The pre-tag sentence is the real question — use it as the question.
-        // If the in-tag question was already a real question, keep the better
-        // one (the longer / more informative of the two).
-        if (questionIsPlaceholder || candidate.length > question.length) {
-          question = normAr(decodeHtmlEntities(candidate));
-        }
-        // Always remove the candidate from the stripped narrative text.
-        strippedOut = strippedOut
-          .replace(new RegExp(escaped + "\\s*", "g"), "")
-          .trim();
-        // Do NOT add it to options.
-      } else {
-        // Original orphan recovery — add as first option.
-        strippedOut = strippedOut
-          .replace(new RegExp(escaped + "\\s*", "g"), "")
-          .trim();
-        options = [normAr(decodeHtmlEntities(candidate)), ...options];
-      }
-    }
-  }
 
   // ── FINAL GUARD: rescue a mis-slotted first option ──────────────────────
   // The segment before the first `|||` is parsed as `question`. But the model

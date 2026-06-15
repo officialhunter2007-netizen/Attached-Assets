@@ -542,9 +542,9 @@ export function classifyV4Turn(opts: {
   const isAck = msg.length > 0 && msg.length <= 60 && V4_SHORT_ACK_PATTERN.test(msg);
   const asksConcept = V4_CONCEPT_REQUEST_PATTERN.test(msg);
   if (isAck && !asksConcept) return { tier: "short_ack", maxOutputTokens: 360 };
-  // Ordinary teaching turn — short, chunked reply. This cap kills the wall of
-  // text on the common path and is the main gem-cost saver.
-  return { tier: "normal", maxOutputTokens: 700 };
+  // Ordinary teaching turn. 1200 tokens leaves enough headroom for a
+  // solid explanation + example + follow-up question without truncation.
+  return { tier: "normal", maxOutputTokens: 1200 };
 }
 
 export async function buildTeacherSystemPrompt(opts: {

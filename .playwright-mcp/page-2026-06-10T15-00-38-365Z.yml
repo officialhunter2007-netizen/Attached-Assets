@@ -1,0 +1,7 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - generic [ref=e6]: ⚠️
+    - paragraph [ref=e7]: هذا الدرس مقفل — أكمل ما قبله أولاً.
+    - button "رجوع للخريطة" [ref=e8]
+  - region "Notifications (F8)":
+    - list

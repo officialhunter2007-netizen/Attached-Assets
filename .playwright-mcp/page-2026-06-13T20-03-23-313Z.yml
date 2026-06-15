@@ -1,0 +1,47 @@
+- generic [ref=e2]:
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - img "شعار نُخبة" [ref=e13]:
+        - generic [ref=e20]: ن
+      - heading "انضم للنُخبة" [level=1] [ref=e23]
+      - paragraph [ref=e24]: ابدأ رحلة تعلّمك الذكية المجانية اليوم
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - generic:
+          - img
+        - textbox "كيف نناديك؟" [ref=e27]
+      - generic [ref=e28]:
+        - generic:
+          - img
+        - textbox "أدخل بريدك الإلكتروني" [ref=e29]
+      - generic [ref=e30]:
+        - generic:
+          - img
+        - textbox "اختر كلمة مرور (8 أحرف على الأقل)" [ref=e31]
+        - button [ref=e32]:
+          - img [ref=e33]
+      - button "إنشاء حساب" [disabled]
+    - generic [ref=e38]: أو
+    - button "إنشاء حساب بـ Google — مجاناً" [ref=e41]:
+      - img
+      - text: إنشاء حساب بـ Google — مجاناً
+    - generic [ref=e42]:
+      - generic [ref=e43]:
+        - img [ref=e45]
+        - generic [ref=e53]: معلّم ذكي يبني خطة مخصصة لك
+        - img [ref=e55]
+      - generic [ref=e57]:
+        - img [ref=e59]
+        - generic [ref=e62]: دروس تفاعلية لكل المستويات
+        - img [ref=e64]
+      - generic [ref=e66]:
+        - img [ref=e68]
+        - generic [ref=e70]: بيئة برمجة تطبيقية مدمجة
+        - img [ref=e72]
+    - generic [ref=e74]:
+      - text: لديك حساب بالفعل؟
+      - link "سجّل الدخول" [ref=e75] [cursor=pointer]:
+        - /url: /login
+    - generic [ref=e76]: التسجيل مجاني • لا بطاقة ائتمانية مطلوبة
+  - region "Notifications (F8)":
+    - list

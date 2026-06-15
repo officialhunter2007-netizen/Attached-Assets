@@ -41,6 +41,10 @@ const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 type TerminalEffects = {
   done: true;
+  /** The raw finish_reason from the model API. When "length" the model
+   *  hit its maxOutputTokens cap mid-response. "stop" means natural end. */
+  finishReason?: string;
+
   lessonMastered?: boolean;
   nextLessonCode?: string | null;
   sessionComplete?: boolean;
@@ -953,6 +957,18 @@ export default function V4Lesson() {
             if (!stillValid()) return;
             if (evt?.done) {
               const t = evt as TerminalEffects;
+              // Append a truncation marker when the model hit its token cap,
+              // so the student sees the message was cut off rather than
+              // thinking it ended naturally mid-sentence.
+              if (t.finishReason === "length") {
+                acc += "…";
+                setMessages((prev) => {
+                  const next = [...prev];
+                  const last = next[next.length - 1];
+                  if (last && last.role === "assistant") next[next.length - 1] = { ...last, content: acc };
+                  return next;
+                });
+              }
               setTerminal(t);
               if (t.insufficientGems || t.noWallet) setInsufficientGems(true);
               if (typeof t.balanceAfter === "number") {

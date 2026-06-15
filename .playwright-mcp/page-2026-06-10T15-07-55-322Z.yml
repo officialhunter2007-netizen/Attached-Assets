@@ -1,0 +1,4083 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - generic [ref=e7]:
+      - button [ref=e8]:
+        - img [ref=e9]
+      - generic [ref=e11]: 📚
+      - generic [ref=e12]:
+        - generic [ref=e13]: البرمجة بلغة بايثون
+        - generic [ref=e14]: "المستوى الأول: التأسيس والتحكّم"
+        - generic [ref=e16]:
+          - generic [ref=e17]: "المسار:"
+          - generic "المسار المخصص" [ref=e18]:
+            - img [ref=e19]
+            - text: مخصص
+      - generic [ref=e23]: 0%
+    - generic [ref=e26]:
+      - generic [ref=e27]:
+        - img "0%" [ref=e28]
+        - generic [ref=e32]: 0%
+      - generic [ref=e33]:
+        - generic [ref=e34]: المستوى 1 من 3
+        - 'heading "المستوى الأول: التأسيس والتحكّم" [level=1] [ref=e35]'
+        - paragraph [ref=e36]: إتقان أساسيات بايثون من كتابة الكود وتشغيله إلى التحكم في سير البرنامج باستخدام الشروط والحلقات.
+        - generic [ref=e39]: 3/827
+        - generic [ref=e40]:
+          - generic [ref=e41]: 7 مراحل
+          - generic [ref=e42]: 630 درساً
+    - generic [ref=e43]:
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - generic [ref=e47]:
+            - generic [ref=e49]: "1"
+            - generic [ref=e50]: أولى خطواتك مع بايثون
+          - generic [ref=e51]: وحدة 1 — تشغيل الكود الأول
+          - button "أهلاً بالعالم! أول أمر طباعة" [ref=e54] [cursor=pointer]:
+            - img [ref=e56]
+            - generic [ref=e59]:
+              - img [ref=e60]
+              - img [ref=e62]
+              - img [ref=e64]
+            - generic [ref=e66]: أهلاً بالعالم! أول أمر طباعة
+        - button "طباعة الأرقام والعمليات الحسابية" [ref=e70] [cursor=pointer]:
+          - img [ref=e72]
+          - generic [ref=e75]:
+            - img [ref=e76]
+            - img [ref=e78]
+            - img [ref=e80]
+          - generic [ref=e82]: طباعة الأرقام والعمليات الحسابية
+        - 'button "المتغيرات: صناديق حفظ النصوص" [ref=e86] [cursor=pointer]':
+          - img [ref=e88]
+          - generic [ref=e91]:
+            - img [ref=e92]
+            - img [ref=e94]
+            - img [ref=e96]
+          - generic [ref=e98]: "المتغيرات: صناديق حفظ النصوص"
+        - 'button "المتغيرات: صناديق حفظ الأرقام" [ref=e102] [cursor=pointer]':
+          - img [ref=e107]
+          - generic [ref=e109]: "المتغيرات: صناديق حفظ الأرقام"
+        - generic [ref=e113]:
+          - button [ref=e114]:
+            - img [ref=e115]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e118]: "الإدخال من المستخدم: دالة input()"
+        - generic [ref=e122]:
+          - button [ref=e123]:
+            - img [ref=e124]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e127]: "تحويل الأنواع: int() و float()"
+        - generic [ref=e131]:
+          - button [ref=e132]:
+            - img [ref=e133]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e136]: "دمج النصوص: Concatenation"
+        - generic [ref=e140]:
+          - button [ref=e141]:
+            - img [ref=e142]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e145]: "طباعة متقدمة: f-strings"
+        - generic [ref=e149]:
+          - button [ref=e150]:
+            - img [ref=e151]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e154]: "التعليقات: شرح الكود"
+        - generic [ref=e158]:
+          - button [ref=e159]:
+            - img [ref=e160]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e163]: "تتبع الكود: فهم مسار التنفيذ"
+        - button "حاسبة فاتورة الدكان البسيطة" [ref=e167]:
+          - img [ref=e169]
+          - generic [ref=e171]: حاسبة فاتورة الدكان البسيطة
+        - button "محوّل العملات الأساسي (ريال يمني/دولار)" [ref=e175]:
+          - img [ref=e177]
+          - generic [ref=e179]: محوّل العملات الأساسي (ريال يمني/دولار)
+        - button "اختبار الوحدة" [ref=e183] [cursor=pointer]:
+          - generic [ref=e185]:
+            - img [ref=e186]
+            - img [ref=e189]
+          - generic [ref=e195]: اختبار الوحدة
+        - generic [ref=e196]:
+          - generic [ref=e197]: وحدة 2 — النصوص والأرقام
+          - generic [ref=e200]:
+            - button [ref=e201]:
+              - img [ref=e202]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e205]: الأعداد الصحيحة (int) والعمليات الأساسية
+        - generic [ref=e209]:
+          - button [ref=e210]:
+            - img [ref=e211]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e214]: الأعداد العشرية (float) والعمليات المتقدمة
+        - generic [ref=e218]:
+          - button [ref=e219]:
+            - img [ref=e220]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e223]: النصوص (str) وكيفية التعامل معها
+        - generic [ref=e227]:
+          - button [ref=e228]:
+            - img [ref=e229]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e232]: "معرفة أنواع البيانات باستخدام `type()`"
+        - generic [ref=e236]:
+          - button [ref=e237]:
+            - img [ref=e238]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e241]: "التحويل بين أنواع البيانات (Casting) - الجزء الأول: من نص إلى رقم"
+        - generic [ref=e245]:
+          - button [ref=e246]:
+            - img [ref=e247]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e250]: "التحويل بين أنواع البيانات (Casting) - الجزء الثاني: من رقم إلى نص"
+        - generic [ref=e254]:
+          - button [ref=e255]:
+            - img [ref=e256]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e259]: القيم الحرفية (Literals) وأنواعها
+        - generic [ref=e263]:
+          - button [ref=e264]:
+            - img [ref=e265]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e268]: الدمج بين النصوص والأرقام في الطباعة (f-strings)
+        - generic [ref=e272]:
+          - button [ref=e273]:
+            - img [ref=e274]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e277]: العمليات الحسابية المتقدمة (الأسس والأولوية)
+        - generic [ref=e281]:
+          - button [ref=e282]:
+            - img [ref=e283]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e286]: مراجعة وتطبيق عملي على أنواع البيانات
+        - button "حاسبة فاتورة الدكان" [ref=e290]:
+          - img [ref=e292]
+          - generic [ref=e294]: حاسبة فاتورة الدكان
+        - button "محوّل العملات" [ref=e298]:
+          - img [ref=e300]
+          - generic [ref=e302]: محوّل العملات
+        - button "اختبار الوحدة" [ref=e306] [cursor=pointer]:
+          - generic [ref=e308]:
+            - img [ref=e309]
+            - img [ref=e312]
+          - generic [ref=e318]: اختبار الوحدة
+        - generic [ref=e319]:
+          - generic [ref=e320]: وحدة 3 — المتغيّرات
+          - generic [ref=e323]:
+            - button [ref=e324]:
+              - img [ref=e325]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e328]: "صناديق البيانات: المتغيّرات"
+        - generic [ref=e332]:
+          - button [ref=e333]:
+            - img [ref=e334]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e337]: "أنواع البيانات الأساسية: أرقام ونصوص"
+        - generic [ref=e341]:
+          - button [ref=e342]:
+            - img [ref=e343]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e346]: "قواعد تسمية المتغيّرات: أسماء واضحة"
+        - generic [ref=e350]:
+          - button [ref=e351]:
+            - img [ref=e352]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e355]: "تحديث قيم المتغيّرات: تغيير المحتوى"
+        - generic [ref=e359]:
+          - button [ref=e360]:
+            - img [ref=e361]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e364]: "المتغيّرات في العمليات الحسابية: حاسبة الدكان"
+        - generic [ref=e368]:
+          - button [ref=e369]:
+            - img [ref=e370]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e373]: "المتغيّرات النصّية: دمج الرسائل"
+        - generic [ref=e377]:
+          - button [ref=e378]:
+            - img [ref=e379]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e382]: "الإدخال من المستخدم: التفاعل مع البرنامج"
+        - generic [ref=e386]:
+          - button [ref=e387]:
+            - img [ref=e388]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e391]: "تحويل أنواع البيانات: الأرقام والنصوص"
+        - generic [ref=e395]:
+          - button [ref=e396]:
+            - img [ref=e397]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e400]: "المتغيّرات المنطقية: نعم أم لا؟"
+        - generic [ref=e404]:
+          - button [ref=e405]:
+            - img [ref=e406]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e409]: "الثوابت: قيم لا تتغير"
+        - button "حاسبة فاتورة الدكان الذكية" [ref=e413]:
+          - img [ref=e415]
+          - generic [ref=e417]: حاسبة فاتورة الدكان الذكية
+        - button "حاسبة الصرّاف الآلية" [ref=e421]:
+          - img [ref=e423]
+          - generic [ref=e425]: حاسبة الصرّاف الآلية
+        - button "اختبار الوحدة" [ref=e429] [cursor=pointer]:
+          - generic [ref=e431]:
+            - img [ref=e432]
+            - img [ref=e435]
+          - generic [ref=e441]: اختبار الوحدة
+        - generic [ref=e442]:
+          - generic [ref=e443]: وحدة 4 — الإدخال من المستخدم
+          - generic [ref=e446]:
+            - button [ref=e447]:
+              - img [ref=e448]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e451]: أساسيات دالة input()
+        - generic [ref=e455]:
+          - button [ref=e456]:
+            - img [ref=e457]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e460]: تخزين المدخلات في المتغيرات
+        - generic [ref=e464]:
+          - button [ref=e465]:
+            - img [ref=e466]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e469]: إظهار رسالة للمستخدم (Prompt)
+        - generic [ref=e473]:
+          - button [ref=e474]:
+            - img [ref=e475]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e478]: المدخلات النصية (Strings) والعمليات عليها
+        - generic [ref=e482]:
+          - button [ref=e483]:
+            - img [ref=e484]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e487]: تحويل المدخلات إلى أعداد صحيحة (int())
+        - generic [ref=e491]:
+          - button [ref=e492]:
+            - img [ref=e493]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e496]: تحويل المدخلات إلى أعداد عشرية (float())
+        - generic [ref=e500]:
+          - button [ref=e501]:
+            - img [ref=e502]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e505]: معالجة أخطاء تحويل الأنواع (ValueError)
+        - generic [ref=e509]:
+          - button [ref=e510]:
+            - img [ref=e511]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e514]: دمج المدخلات المتعددة
+        - generic [ref=e518]:
+          - button [ref=e519]:
+            - img [ref=e520]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e523]: استخدام المدخلات في الشروط (if/else)
+        - generic [ref=e527]:
+          - button [ref=e528]:
+            - img [ref=e529]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e532]: "تطبيقات عملية للمدخلات: حاسبة الصرافة"
+        - button "حاسبة فاتورة الدكان" [ref=e536]:
+          - img [ref=e538]
+          - generic [ref=e540]: حاسبة فاتورة الدكان
+        - button "محوّل عملات الصرّاف" [ref=e544]:
+          - img [ref=e546]
+          - generic [ref=e548]: محوّل عملات الصرّاف
+        - button "اختبار الوحدة" [ref=e552] [cursor=pointer]:
+          - generic [ref=e554]:
+            - img [ref=e555]
+            - img [ref=e558]
+          - generic [ref=e564]: اختبار الوحدة
+        - generic [ref=e565]:
+          - generic [ref=e566]: وحدة 5 — العمليات الحسابية الأساسية
+          - generic [ref=e569]:
+            - button [ref=e570]:
+              - img [ref=e571]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e574]: "الجمع في بايثون: حساب إجمالي المشتريات"
+        - generic [ref=e578]:
+          - button [ref=e579]:
+            - img [ref=e580]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e583]: "الطرح في بايثون: حساب الباقي"
+        - generic [ref=e587]:
+          - button [ref=e588]:
+            - img [ref=e589]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e592]: "الضرب في بايثون: حساب إجمالي الكميات"
+        - generic [ref=e596]:
+          - button [ref=e597]:
+            - img [ref=e598]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e601]: "القسمة في بايثون: توزيع التكاليف"
+        - generic [ref=e605]:
+          - button [ref=e606]:
+            - img [ref=e607]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e610]: "القسمة الصحيحة والباقي: توزيع البنّ"
+        - generic [ref=e614]:
+          - button [ref=e615]:
+            - img [ref=e616]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e619]: "أولوية العمليات: ترتيب الحسابات"
+        - generic [ref=e623]:
+          - button [ref=e624]:
+            - img [ref=e625]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e628]: "دمج العمليات: بناء تعابير معقدة"
+        - generic [ref=e632]:
+          - button [ref=e633]:
+            - img [ref=e634]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e637]: "استخدام الأقواس: فرض الترتيب"
+        - generic [ref=e641]:
+          - button [ref=e642]:
+            - img [ref=e643]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e646]: "عوامل الإسناد المركبة: تحديث القيم"
+        - generic [ref=e650]:
+          - button [ref=e651]:
+            - img [ref=e652]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e655]: "مشروع: حاسبة فاتورة دكان يمني"
+        - button "حاسبة الصرافة اليمنية" [ref=e659]:
+          - img [ref=e661]
+          - generic [ref=e663]: حاسبة الصرافة اليمنية
+        - button "حساب فاتورة المقهى اليمني" [ref=e667]:
+          - img [ref=e669]
+          - generic [ref=e671]: حساب فاتورة المقهى اليمني
+        - button "اختبار الوحدة" [ref=e675] [cursor=pointer]:
+          - generic [ref=e677]:
+            - img [ref=e678]
+            - img [ref=e681]
+          - generic [ref=e687]: اختبار الوحدة
+        - generic [ref=e688]:
+          - generic [ref=e689]: وحدة 6 — تحويل الأنواع (Type Casting)
+          - generic [ref=e692]:
+            - button [ref=e693]:
+              - img [ref=e694]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e697]: تحويل النص إلى عدد صحيح (int())
+        - generic [ref=e701]:
+          - button [ref=e702]:
+            - img [ref=e703]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e706]: تحويل النص إلى عدد عشري (float())
+        - generic [ref=e710]:
+          - button [ref=e711]:
+            - img [ref=e712]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e715]: تحويل الأرقام إلى نصوص (str())
+        - generic [ref=e719]:
+          - button [ref=e720]:
+            - img [ref=e721]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e724]: الدالة type() وفهم أنواع البيانات
+        - generic [ref=e728]:
+          - button [ref=e729]:
+            - img [ref=e730]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e733]: تحويل أنواع متعددة في عملية واحدة
+        - generic [ref=e737]:
+          - button [ref=e738]:
+            - img [ref=e739]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e742]: التحويل الضمني والصريح للأنواع
+        - generic [ref=e746]:
+          - button [ref=e747]:
+            - img [ref=e748]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e751]: التعامل مع أخطاء التحويل (ValueError)
+        - generic [ref=e755]:
+          - button [ref=e756]:
+            - img [ref=e757]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e760]: تحويل القيم المنطقية (bool())
+        - generic [ref=e764]:
+          - button [ref=e765]:
+            - img [ref=e766]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e769]: "تطبيق عملي: حاسبة بسيطة لتحويل العملات"
+        - generic [ref=e773]:
+          - button [ref=e774]:
+            - img [ref=e775]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e778]: "مراجعة وتحدٍّ: بناء فاتورة دكان متكاملة"
+        - button "فاتورة سوق الخضار" [ref=e782]:
+          - img [ref=e784]
+          - generic [ref=e786]: فاتورة سوق الخضار
+        - button "حاسبة أجرة الباص" [ref=e790]:
+          - img [ref=e792]
+          - generic [ref=e794]: حاسبة أجرة الباص
+        - button "اختبار الوحدة" [ref=e798] [cursor=pointer]:
+          - generic [ref=e800]:
+            - img [ref=e801]
+            - img [ref=e804]
+          - generic [ref=e810]: اختبار الوحدة
+        - generic [ref=e811]:
+          - generic [ref=e812]: وحدة 7 — تنسيق المخرجات (f-strings)
+          - generic [ref=e815]:
+            - button [ref=e816]:
+              - img [ref=e817]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e820]: "مقدمة لـ f-strings: دمج النصوص والمتغيرات بسهولة"
+        - generic [ref=e824]:
+          - button [ref=e825]:
+            - img [ref=e826]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e829]: "دمج المتغيرات البسيطة: النصوص والأرقام"
+        - generic [ref=e833]:
+          - button [ref=e834]:
+            - img [ref=e835]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e838]: "العمليات الحسابية داخل f-strings: إجمالي الفاتورة"
+        - generic [ref=e842]:
+          - button [ref=e843]:
+            - img [ref=e844]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e847]: "تنسيق الأرقام العشرية: تحديد عدد المنازل"
+        - generic [ref=e851]:
+          - button [ref=e852]:
+            - img [ref=e853]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e856]: "تنسيق الأرقام الصحيحة: الفواصل والنسب المئوية"
+        - generic [ref=e860]:
+          - button [ref=e861]:
+            - img [ref=e862]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e865]: "محاذاة النصوص: توسيط، يمين، يسار"
+        - generic [ref=e869]:
+          - button [ref=e870]:
+            - img [ref=e871]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e874]: "تعبئة الفراغات: استخدام أحرف معينة"
+        - generic [ref=e878]:
+          - button [ref=e879]:
+            - img [ref=e880]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e883]: "تنسيق التواريخ والأوقات: عرض جدول الكهرباء"
+        - generic [ref=e887]:
+          - button [ref=e888]:
+            - img [ref=e889]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e892]: "تنسيق القوائم والقواميس: عرض بيانات المخزون"
+        - generic [ref=e896]:
+          - button [ref=e897]:
+            - img [ref=e898]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e901]: "f-strings متعددة الأسطر: تقارير مفصلة"
+        - 'button "فاتورة دكان: تنسيق المشتريات" [ref=e905]':
+          - img [ref=e907]
+          - generic [ref=e909]: "فاتورة دكان: تنسيق المشتريات"
+        - 'button "جدول كهرباء ومعدلات صرف: تقرير يومي" [ref=e913]':
+          - img [ref=e915]
+          - generic [ref=e917]: "جدول كهرباء ومعدلات صرف: تقرير يومي"
+        - button "اختبار الوحدة" [ref=e921] [cursor=pointer]:
+          - generic [ref=e923]:
+            - img [ref=e924]
+            - img [ref=e927]
+          - generic [ref=e933]: اختبار الوحدة
+        - generic [ref=e934]:
+          - generic [ref=e935]: وحدة 8 — التعليقات (Comments)
+          - generic [ref=e938]:
+            - button [ref=e939]:
+              - img [ref=e940]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e943]: لماذا نكتب ملاحظات في الكود؟
+        - generic [ref=e947]:
+          - button [ref=e948]:
+            - img [ref=e949]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e952]: تطبيق التعليقات أحادية السطر
+        - generic [ref=e956]:
+          - button [ref=e957]:
+            - img [ref=e958]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e961]: التعليقات متعددة الأسطر (Docstrings)
+        - generic [ref=e965]:
+          - button [ref=e966]:
+            - img [ref=e967]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e970]: التعليقات لتوضيح المنطق المعقد
+        - generic [ref=e974]:
+          - button [ref=e975]:
+            - img [ref=e976]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e979]: إيقاف الكود مؤقتاً بالتعليقات
+        - generic [ref=e983]:
+          - button [ref=e984]:
+            - img [ref=e985]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e988]: التعليقات الجيدة مقابل السيئة
+        - generic [ref=e992]:
+          - button [ref=e993]:
+            - img [ref=e994]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e997]: "توثيق الدوال المتقدم: المعاملات والقيم المرجعة"
+        - generic [ref=e1001]:
+          - button [ref=e1002]:
+            - img [ref=e1003]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1006]: تعليقات المهام والملاحظات (TODO, FIXME)
+        - generic [ref=e1010]:
+          - button [ref=e1011]:
+            - img [ref=e1012]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1015]: التعليقات في بيئة العمل الجماعي
+        - generic [ref=e1019]:
+          - button [ref=e1020]:
+            - img [ref=e1021]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1024]: بناء برنامج موثّق بالكامل
+        - button "توثيق حاسبة فاتورة دكان يمني" [ref=e1028]:
+          - img [ref=e1030]
+          - generic [ref=e1032]: توثيق حاسبة فاتورة دكان يمني
+        - button "توثيق برنامج إدارة مخزون صيدلية" [ref=e1036]:
+          - img [ref=e1038]
+          - generic [ref=e1040]: توثيق برنامج إدارة مخزون صيدلية
+        - button "اختبار الوحدة" [ref=e1044] [cursor=pointer]:
+          - generic [ref=e1046]:
+            - img [ref=e1047]
+            - img [ref=e1050]
+          - generic [ref=e1056]: اختبار الوحدة
+        - generic [ref=e1057]:
+          - generic [ref=e1058]: "وحدة 9 — أول برنامج يمني: فاتورة دكان بسيطة"
+          - generic [ref=e1061]:
+            - button [ref=e1062]:
+              - img [ref=e1063]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e1066]: "أهلاً بايثون: أول برنامج يمني يطبع رسالة"
+        - generic [ref=e1070]:
+          - button [ref=e1071]:
+            - img [ref=e1072]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1075]: "حسابات الدكان: الجمع والطرح والضرب والقسمة"
+        - generic [ref=e1079]:
+          - button [ref=e1080]:
+            - img [ref=e1081]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1084]: "صناديق البيانات: المتغيّرات وتخزين القيم"
+        - generic [ref=e1088]:
+          - button [ref=e1089]:
+            - img [ref=e1090]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1093]: "اسأل الزبون: إدخال البيانات باستخدام `input()`"
+        - generic [ref=e1097]:
+          - button [ref=e1098]:
+            - img [ref=e1099]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1102]: "تحويل العملة والكميات: `int()` و `float()`"
+        - generic [ref=e1106]:
+          - button [ref=e1107]:
+            - img [ref=e1108]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1111]: "فاتورة واضحة: تنسيق المخرجات بـ f-strings"
+        - generic [ref=e1115]:
+          - button [ref=e1116]:
+            - img [ref=e1117]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1120]: "قرارات الدكان: جملة `if` الشرطية"
+        - generic [ref=e1124]:
+          - button [ref=e1125]:
+            - img [ref=e1126]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1129]: "خيارات متعدّدة: `elif` و `else` في الدكان"
+        - generic [ref=e1133]:
+          - button [ref=e1134]:
+            - img [ref=e1135]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1138]: "بناء فاتورة الدكان: جمع البيانات وحساب الإجمالي"
+        - generic [ref=e1142]:
+          - button [ref=e1143]:
+            - img [ref=e1144]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1147]: "برنامج فاتورة دكان متكامل: الإخراج النهائي"
+        - button "حاسبة الباقي وتحويل العملة في السوق" [ref=e1151]:
+          - img [ref=e1153]
+          - generic [ref=e1155]: حاسبة الباقي وتحويل العملة في السوق
+        - button "فاتورة دكان العم صالح الذكية" [ref=e1159]:
+          - img [ref=e1161]
+          - generic [ref=e1163]: فاتورة دكان العم صالح الذكية
+        - button "اختبار الوحدة" [ref=e1167] [cursor=pointer]:
+          - generic [ref=e1169]:
+            - img [ref=e1170]
+            - img [ref=e1173]
+          - generic [ref=e1179]: اختبار الوحدة
+        - button "اختبار المرحلة" [ref=e1183] [cursor=pointer]:
+          - generic [ref=e1185]:
+            - img [ref=e1186]
+            - img [ref=e1189]
+          - generic [ref=e1195]: اختبار المرحلة
+        - generic [ref=e1196]:
+          - generic [ref=e1197]:
+            - generic [ref=e1199]: "2"
+            - generic [ref=e1200]: اتخاذ القرارات (الشروط)
+          - generic [ref=e1201]: وحدة 1 — جملة if البسيطة
+          - generic [ref=e1204]:
+            - button [ref=e1205]:
+              - img [ref=e1206]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e1209]: "مقدمة لجملة if: اتخاذ القرارات البسيطة"
+        - generic [ref=e1213]:
+          - button [ref=e1214]:
+            - img [ref=e1215]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1218]: "الشروط المنطقية: كيف تقارن بايثون القيم؟"
+        - generic [ref=e1222]:
+          - button [ref=e1223]:
+            - img [ref=e1224]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1227]: "المسافة البادئة: تنظيم الكود في بايثون"
+        - generic [ref=e1231]:
+          - button [ref=e1232]:
+            - img [ref=e1233]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1236]: "جمل if المتداخلة: شروط داخل شروط"
+        - generic [ref=e1240]:
+          - button [ref=e1241]:
+            - img [ref=e1242]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1245]: "جمل if و else: مساران للقرار"
+        - generic [ref=e1249]:
+          - button [ref=e1250]:
+            - img [ref=e1251]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1254]: "جمل if و elif و else: خيارات متعددة"
+        - generic [ref=e1258]:
+          - button [ref=e1259]:
+            - img [ref=e1260]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1263]: "العوامل المنطقية and و or: دمج الشروط"
+        - generic [ref=e1267]:
+          - button [ref=e1268]:
+            - img [ref=e1269]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1272]: "العامل المنطقي not: عكس الشروط"
+        - generic [ref=e1276]:
+          - button [ref=e1277]:
+            - img [ref=e1278]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1281]: "استخدام if مع النصوص: مقارنة الكلمات"
+        - generic [ref=e1285]:
+          - button [ref=e1286]:
+            - img [ref=e1287]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1290]: "تطبيقات عملية لـ if: مشاريع يمنية مصغرة"
+        - button "حاسبة فاتورة الدكان الذكية" [ref=e1294]:
+          - img [ref=e1296]
+          - generic [ref=e1298]: حاسبة فاتورة الدكان الذكية
+        - button "منظّم جدول انقطاع الكهرباء" [ref=e1302]:
+          - img [ref=e1304]
+          - generic [ref=e1306]: منظّم جدول انقطاع الكهرباء
+        - button "اختبار الوحدة" [ref=e1310] [cursor=pointer]:
+          - generic [ref=e1312]:
+            - img [ref=e1313]
+            - img [ref=e1316]
+          - generic [ref=e1322]: اختبار الوحدة
+        - generic [ref=e1323]:
+          - generic [ref=e1324]: وحدة 2 — جملة if-else
+          - generic [ref=e1327]:
+            - button [ref=e1328]:
+              - img [ref=e1329]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e1332]: "جملة `if` البسيطة: اتخاذ القرار الأول"
+        - generic [ref=e1336]:
+          - button [ref=e1337]:
+            - img [ref=e1338]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1341]: "المقارنات المنطقية: كيف تقارن بايثون القيم؟"
+        - generic [ref=e1345]:
+          - button [ref=e1346]:
+            - img [ref=e1347]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1350]: "جملة `if-else`: اتخاذ قرار ثنائي"
+        - generic [ref=e1354]:
+          - button [ref=e1355]:
+            - img [ref=e1356]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1359]: "الإدخال والقرار: استخدام `input()` مع `if-else`"
+        - generic [ref=e1363]:
+          - button [ref=e1364]:
+            - img [ref=e1365]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1368]: "تحويل الأنواع: التعامل مع الأرقام والنصوص في الشروط"
+        - generic [ref=e1372]:
+          - button [ref=e1373]:
+            - img [ref=e1374]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1377]: "تصحيح الأخطاء الشائعة في `if-else`"
+        - generic [ref=e1381]:
+          - button [ref=e1382]:
+            - img [ref=e1383]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1386]: "الشروط المركّبة: استخدام `and` و `or`"
+        - generic [ref=e1390]:
+          - button [ref=e1391]:
+            - img [ref=e1392]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1395]: "الشروط المتعدّدة: استخدام `elif`"
+        - generic [ref=e1399]:
+          - button [ref=e1400]:
+            - img [ref=e1401]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1404]: "`if-elif-else` المتداخلة: قرارات داخل قرارات"
+        - generic [ref=e1408]:
+          - button [ref=e1409]:
+            - img [ref=e1410]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1413]: "تطبيقات عملية لـ `if-else`: بناء حاسبة صرافة بسيطة"
+        - button "حاسبة فاتورة الدكان الذكية" [ref=e1417]:
+          - img [ref=e1419]
+          - generic [ref=e1421]: حاسبة فاتورة الدكان الذكية
+        - button "نظام تحديد سعر أجرة الباص" [ref=e1425]:
+          - img [ref=e1427]
+          - generic [ref=e1429]: نظام تحديد سعر أجرة الباص
+        - button "اختبار الوحدة" [ref=e1433] [cursor=pointer]:
+          - generic [ref=e1435]:
+            - img [ref=e1436]
+            - img [ref=e1439]
+          - generic [ref=e1445]: اختبار الوحدة
+        - generic [ref=e1446]:
+          - generic [ref=e1447]: وحدة 3 — جملة if-elif-else
+          - generic [ref=e1450]:
+            - button [ref=e1451]:
+              - img [ref=e1452]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e1455]: "مقدمة إلى elif: إضافة خيارات متعددة"
+        - generic [ref=e1459]:
+          - button [ref=e1460]:
+            - img [ref=e1461]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1464]: أهمية الترتيب في الشروط
+        - generic [ref=e1468]:
+          - button [ref=e1469]:
+            - img [ref=e1470]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1473]: الشروط المركبة مع elif
+        - generic [ref=e1477]:
+          - button [ref=e1478]:
+            - img [ref=e1479]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1482]: الشروط المتداخلة (Nested Conditions)
+        - generic [ref=e1486]:
+          - button [ref=e1487]:
+            - img [ref=e1488]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1491]: "مشروع صغير: حاسبة أجرة الباص"
+        - generic [ref=e1495]:
+          - button [ref=e1496]:
+            - img [ref=e1497]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1500]: "من `if-elif` إلى القاموس: نظرة مستقبلية"
+        - generic [ref=e1504]:
+          - button [ref=e1505]:
+            - img [ref=e1506]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1509]: التعامل مع إدخال المستخدم النصي
+        - generic [ref=e1513]:
+          - button [ref=e1514]:
+            - img [ref=e1515]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1518]: "إعادة الهيكلة: من `if` متكرر إلى `elif`"
+        - generic [ref=e1522]:
+          - button [ref=e1523]:
+            - img [ref=e1524]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1527]: "تطبيق متقدم: نظام تتبع مخزون صيدلية"
+        - generic [ref=e1531]:
+          - button [ref=e1532]:
+            - img [ref=e1533]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1536]: مراجعة الوحدة وتحدي الشروط
+        - button "معمل حاسبة الصرافة" [ref=e1540]:
+          - img [ref=e1542]
+          - generic [ref=e1544]: معمل حاسبة الصرافة
+        - button "معمل فاتورة كافتيريا البن" [ref=e1548]:
+          - img [ref=e1550]
+          - generic [ref=e1552]: معمل فاتورة كافتيريا البن
+        - button "اختبار الوحدة" [ref=e1556] [cursor=pointer]:
+          - generic [ref=e1558]:
+            - img [ref=e1559]
+            - img [ref=e1562]
+          - generic [ref=e1568]: اختبار الوحدة
+        - generic [ref=e1569]:
+          - generic [ref=e1570]: وحدة 4 — عوامل المقارنة
+          - generic [ref=e1573]:
+            - button [ref=e1574]:
+              - img [ref=e1575]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e1578]: هل هما متساويان؟ عامل المساواة (==)
+        - generic [ref=e1582]:
+          - button [ref=e1583]:
+            - img [ref=e1584]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1587]: هل هما مختلفان؟ عامل عدم المساواة (!=)
+        - generic [ref=e1591]:
+          - button [ref=e1592]:
+            - img [ref=e1593]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1596]: هل هو أكبر؟ عامل الأكبر من (>)
+        - generic [ref=e1600]:
+          - button [ref=e1601]:
+            - img [ref=e1602]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1605]: هل هو أصغر؟ عامل الأصغر من (<)
+        - generic [ref=e1609]:
+          - button [ref=e1610]:
+            - img [ref=e1611]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1614]: "شاملاً الحد: عامل أكبر من أو يساوي (>=)"
+        - generic [ref=e1618]:
+          - button [ref=e1619]:
+            - img [ref=e1620]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1623]: "ضمن الميزانية: عامل أصغر من أو يساوي (<=)"
+        - generic [ref=e1627]:
+          - button [ref=e1628]:
+            - img [ref=e1629]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1632]: "مقارنة الكلمات: الترتيب الأبجدي للنصوص"
+        - generic [ref=e1636]:
+          - button [ref=e1637]:
+            - img [ref=e1638]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1641]: "الناتج المنطقي: True و False"
+        - generic [ref=e1645]:
+          - button [ref=e1646]:
+            - img [ref=e1647]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1650]: "المقارنة واتخاذ القرار: استخدام `if`"
+        - generic [ref=e1654]:
+          - button [ref=e1655]:
+            - img [ref=e1656]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1659]: سلسلة المقارنات (Chaining)
+        - button "معمل الصرافة الذكية" [ref=e1663]:
+          - img [ref=e1665]
+          - generic [ref=e1667]: معمل الصرافة الذكية
+        - button "معمل نظام القبول الجامعي" [ref=e1671]:
+          - img [ref=e1673]
+          - generic [ref=e1675]: معمل نظام القبول الجامعي
+        - button "اختبار الوحدة" [ref=e1679] [cursor=pointer]:
+          - generic [ref=e1681]:
+            - img [ref=e1682]
+            - img [ref=e1685]
+          - generic [ref=e1691]: اختبار الوحدة
+        - generic [ref=e1692]:
+          - generic [ref=e1693]: وحدة 5 — العوامل المنطقية (and, or, not)
+          - generic [ref=e1696]:
+            - button [ref=e1697]:
+              - img [ref=e1698]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e1701]: "العامل `and`: عندما يجب أن يتحقق شرطان معاً"
+        - generic [ref=e1705]:
+          - button [ref=e1706]:
+            - img [ref=e1707]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1710]: "تطبيق `and`: التحقق من نطاق رقمي"
+        - generic [ref=e1714]:
+          - button [ref=e1715]:
+            - img [ref=e1716]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1719]: "العامل `or`: عندما يكفي تحقق شرط واحد"
+        - generic [ref=e1723]:
+          - button [ref=e1724]:
+            - img [ref=e1725]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1728]: "تطبيق `or`: التحقق من خيارات متعددة"
+        - generic [ref=e1732]:
+          - button [ref=e1733]:
+            - img [ref=e1734]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1737]: "دمج `and` و `or` - أولوية التنفيذ"
+        - generic [ref=e1741]:
+          - button [ref=e1742]:
+            - img [ref=e1743]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1746]: "استخدام الأقواس `()` لتحديد الأولويات"
+        - generic [ref=e1750]:
+          - button [ref=e1751]:
+            - img [ref=e1752]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1755]: "العامل `not`: لعكس الشرط"
+        - generic [ref=e1759]:
+          - button [ref=e1760]:
+            - img [ref=e1761]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1764]: "تطبيق `not`: التحقق من عدم العضوية"
+        - generic [ref=e1768]:
+          - button [ref=e1769]:
+            - img [ref=e1770]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1773]: القيم الحقيقية والزائفة (Truthiness and Falsiness)
+        - generic [ref=e1777]:
+          - button [ref=e1778]:
+            - img [ref=e1779]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1782]: "سيناريو مركب: فلترة المتقدمين لوظيفة"
+        - 'button "معمل: نظام قبول في منحة دراسية" [ref=e1786]':
+          - img [ref=e1788]
+          - generic [ref=e1790]: "معمل: نظام قبول في منحة دراسية"
+        - 'button "معمل: حاسبة خصومات دكان البن اليمني" [ref=e1794]':
+          - img [ref=e1796]
+          - generic [ref=e1798]: "معمل: حاسبة خصومات دكان البن اليمني"
+        - button "اختبار الوحدة" [ref=e1802] [cursor=pointer]:
+          - generic [ref=e1804]:
+            - img [ref=e1805]
+            - img [ref=e1808]
+          - generic [ref=e1814]: اختبار الوحدة
+        - generic [ref=e1815]:
+          - generic [ref=e1816]: وحدة 6 — الشروط المتداخلة (Nested If)
+          - generic [ref=e1819]:
+            - button [ref=e1820]:
+              - img [ref=e1821]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e1824]: "أول شرط متداخل: if داخل if"
+        - generic [ref=e1828]:
+          - button [ref=e1829]:
+            - img [ref=e1830]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1833]: إضافة else للشروط المتداخلة
+        - generic [ref=e1837]:
+          - button [ref=e1838]:
+            - img [ref=e1839]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1842]: "الشروط المتعددة المتداخلة: if-elif-else"
+        - generic [ref=e1846]:
+          - button [ref=e1847]:
+            - img [ref=e1848]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1851]: "المنطق المعقد: التداخل مع العوامل المنطقية"
+        - generic [ref=e1855]:
+          - button [ref=e1856]:
+            - img [ref=e1857]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1860]: مستويات التداخل العميقة (أكثر من مستويين)
+        - generic [ref=e1864]:
+          - button [ref=e1865]:
+            - img [ref=e1866]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1869]: "إعادة الهيكلة (Refactoring): من التداخل إلى الوضوح"
+        - generic [ref=e1873]:
+          - button [ref=e1874]:
+            - img [ref=e1875]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1878]: تصحيح الأخطاء المنطقية في الشروط المتداخلة
+        - generic [ref=e1882]:
+          - button [ref=e1883]:
+            - img [ref=e1884]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1887]: "تطبيق عملي: حاسبة أجرة النقل"
+        - generic [ref=e1891]:
+          - button [ref=e1892]:
+            - img [ref=e1893]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1896]: "تطبيق عملي: نظام تصنيف البن اليمني"
+        - generic [ref=e1900]:
+          - button [ref=e1901]:
+            - img [ref=e1902]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1905]: "مراجعة الوحدة: تحدي الشروط المتداخلة"
+        - button "معمل حاسبة تسعيرة الصرافة" [ref=e1909]:
+          - img [ref=e1911]
+          - generic [ref=e1913]: معمل حاسبة تسعيرة الصرافة
+        - button "معمل منظم فواتير مقهى البن اليمني" [ref=e1917]:
+          - img [ref=e1919]
+          - generic [ref=e1921]: معمل منظم فواتير مقهى البن اليمني
+        - button "اختبار الوحدة" [ref=e1925] [cursor=pointer]:
+          - generic [ref=e1927]:
+            - img [ref=e1928]
+            - img [ref=e1931]
+          - generic [ref=e1937]: اختبار الوحدة
+        - generic [ref=e1938]:
+          - generic [ref=e1939]: وحدة 7 — أمثلة يمنية على الشروط
+          - generic [ref=e1942]:
+            - button [ref=e1943]:
+              - img [ref=e1944]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e1947]: حاسبة الخصم في الدكان
+        - generic [ref=e1951]:
+          - button [ref=e1952]:
+            - img [ref=e1953]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1956]: حاسبة الصرافة البسيطة (ريال-دولار)
+        - generic [ref=e1960]:
+          - button [ref=e1961]:
+            - img [ref=e1962]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1965]: تحديد فئة فاتورة الكهرباء
+        - generic [ref=e1969]:
+          - button [ref=e1970]:
+            - img [ref=e1971]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1974]: التحقق من جودة البن اليمني
+        - generic [ref=e1978]:
+          - button [ref=e1979]:
+            - img [ref=e1980]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1983]: برنامج مواعيد انقطاع الكهرباء
+        - generic [ref=e1987]:
+          - button [ref=e1988]:
+            - img [ref=e1989]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e1992]: حاسبة أجرة الباص
+        - generic [ref=e1996]:
+          - button [ref=e1997]:
+            - img [ref=e1998]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2001]: نظام تقييم الطلاب في الجامعة
+        - generic [ref=e2005]:
+          - button [ref=e2006]:
+            - img [ref=e2007]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2010]: التحقق من مخزون الصيدلية
+        - generic [ref=e2014]:
+          - button [ref=e2015]:
+            - img [ref=e2016]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2019]: فاتورة كافتيريا بسيطة
+        - generic [ref=e2023]:
+          - button [ref=e2024]:
+            - img [ref=e2025]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2028]: مراجعة الشروط مع العوامل المنطقية
+        - 'button "معمل: حاسبة فاتورة دكان البن" [ref=e2032]':
+          - img [ref=e2034]
+          - generic [ref=e2036]: "معمل: حاسبة فاتورة دكان البن"
+        - 'button "معمل: منظّم جدول الكهرباء الذكي" [ref=e2040]':
+          - img [ref=e2042]
+          - generic [ref=e2044]: "معمل: منظّم جدول الكهرباء الذكي"
+        - button "اختبار الوحدة" [ref=e2048] [cursor=pointer]:
+          - generic [ref=e2050]:
+            - img [ref=e2051]
+            - img [ref=e2054]
+          - generic [ref=e2060]: اختبار الوحدة
+        - generic [ref=e2061]:
+          - generic [ref=e2062]: وحدة 8 — التعبير الشرطي (Ternary Operator)
+          - generic [ref=e2065]:
+            - button [ref=e2066]:
+              - img [ref=e2067]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e2070]: من كتلة if/else إلى سطر واحد
+        - generic [ref=e2074]:
+          - button [ref=e2075]:
+            - img [ref=e2076]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2079]: استخدامه في إسناد المتغيرات
+        - generic [ref=e2083]:
+          - button [ref=e2084]:
+            - img [ref=e2085]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2088]: استخدامه داخل الطباعة والدوال
+        - generic [ref=e2092]:
+          - button [ref=e2093]:
+            - img [ref=e2094]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2097]: التعبير الشرطي مع الأرقام
+        - generic [ref=e2101]:
+          - button [ref=e2102]:
+            - img [ref=e2103]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2106]: "قراءة الكود: متى يكون جيداً؟"
+        - generic [ref=e2110]:
+          - button [ref=e2111]:
+            - img [ref=e2112]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2115]: "خطأ شائع: عكس الترتيب"
+        - generic [ref=e2119]:
+          - button [ref=e2120]:
+            - img [ref=e2121]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2124]: التعبيرات الشرطية المتداخلة (ولماذا هي سيئة)
+        - generic [ref=e2128]:
+          - button [ref=e2129]:
+            - img [ref=e2130]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2133]: استخدامه في إرجاع قيم الدوال
+        - generic [ref=e2137]:
+          - button [ref=e2138]:
+            - img [ref=e2139]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2142]: "حالة خاصة: إرجاع قيمة منطقية"
+        - generic [ref=e2146]:
+          - button [ref=e2147]:
+            - img [ref=e2148]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2151]: مراجعة وتمرين شامل
+        - 'button "معمل: حاسبة تسعيرة الصرافة" [ref=e2155]':
+          - img [ref=e2157]
+          - generic [ref=e2159]: "معمل: حاسبة تسعيرة الصرافة"
+        - 'button "معمل: تحديد حالة مخزون الدواء" [ref=e2163]':
+          - img [ref=e2165]
+          - generic [ref=e2167]: "معمل: تحديد حالة مخزون الدواء"
+        - button "اختبار الوحدة" [ref=e2171] [cursor=pointer]:
+          - generic [ref=e2173]:
+            - img [ref=e2174]
+            - img [ref=e2177]
+          - generic [ref=e2183]: اختبار الوحدة
+        - generic [ref=e2184]:
+          - generic [ref=e2185]: "وحدة 9 — برنامج يمني: تحديد سعر الصرف"
+          - generic [ref=e2188]:
+            - button [ref=e2189]:
+              - img [ref=e2190]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e2193]: "الشرط الأول: التحويل من عملة واحدة"
+        - generic [ref=e2197]:
+          - button [ref=e2198]:
+            - img [ref=e2199]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2202]: "الخيار البديل مع `else`"
+        - generic [ref=e2206]:
+          - button [ref=e2207]:
+            - img [ref=e2208]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2211]: "شروط متعددة مع `elif`"
+        - generic [ref=e2215]:
+          - button [ref=e2216]:
+            - img [ref=e2217]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2220]: "جعل البرنامج تفاعلياً: الإدخال والتحويل"
+        - generic [ref=e2224]:
+          - button [ref=e2225]:
+            - img [ref=e2226]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2229]: التعامل مع حالة الأحرف في المدخلات
+        - generic [ref=e2233]:
+          - button [ref=e2234]:
+            - img [ref=e2235]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2238]: الشروط المتداخلة (Nested If)
+        - generic [ref=e2242]:
+          - button [ref=e2243]:
+            - img [ref=e2244]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2247]: "دمج الشروط باستخدام `and` و `or`"
+        - generic [ref=e2251]:
+          - button [ref=e2252]:
+            - img [ref=e2253]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2256]: "إعادة تنظيم الكود: المتغيرات المؤقتة"
+        - generic [ref=e2260]:
+          - button [ref=e2261]:
+            - img [ref=e2262]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2265]: التحقق من صحة المدخلات الأساسية
+        - generic [ref=e2269]:
+          - button [ref=e2270]:
+            - img [ref=e2271]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2274]: "تجميع كل شيء: برنامج صرافة متكامل"
+        - button "معمل الصرافة المتقدمة" [ref=e2278]:
+          - img [ref=e2280]
+          - generic [ref=e2282]: معمل الصرافة المتقدمة
+        - button "معمل فاتورة الكافتيريا الذكية" [ref=e2286]:
+          - img [ref=e2288]
+          - generic [ref=e2290]: معمل فاتورة الكافتيريا الذكية
+        - button "اختبار الوحدة" [ref=e2294] [cursor=pointer]:
+          - generic [ref=e2296]:
+            - img [ref=e2297]
+            - img [ref=e2300]
+          - generic [ref=e2306]: اختبار الوحدة
+        - button "اختبار المرحلة" [ref=e2310] [cursor=pointer]:
+          - generic [ref=e2312]:
+            - img [ref=e2313]
+            - img [ref=e2316]
+          - generic [ref=e2322]: اختبار المرحلة
+        - generic [ref=e2323]:
+          - generic [ref=e2324]:
+            - generic [ref=e2326]: "3"
+            - generic [ref=e2327]: تكرار المهام (الحلقات)
+          - generic [ref=e2328]: وحدة 1 — حلقة for مع range()
+          - generic [ref=e2331]:
+            - button [ref=e2332]:
+              - img [ref=e2333]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e2336]: "أول حلقة تكرار: for"
+        - generic [ref=e2340]:
+          - button [ref=e2341]:
+            - img [ref=e2342]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2345]: استخدام متغير الحلقة
+        - generic [ref=e2349]:
+          - button [ref=e2350]:
+            - img [ref=e2351]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2354]: دالة range مع بداية ونهاية
+        - generic [ref=e2358]:
+          - button [ref=e2359]:
+            - img [ref=e2360]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2363]: "القفز في العد: معامل الخطوة في range"
+        - generic [ref=e2367]:
+          - button [ref=e2368]:
+            - img [ref=e2369]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2372]: "نمط التجميع: حساب المجاميع"
+        - generic [ref=e2376]:
+          - button [ref=e2377]:
+            - img [ref=e2378]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2381]: الحلقات المتداخلة
+        - generic [ref=e2385]:
+          - button [ref=e2386]:
+            - img [ref=e2387]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2390]: "متغير الحلقة غير المستخدم: الشرطة السفلية _"
+        - generic [ref=e2394]:
+          - button [ref=e2395]:
+            - img [ref=e2396]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2399]: دمج الحلقات مع الشروط
+        - generic [ref=e2403]:
+          - button [ref=e2404]:
+            - img [ref=e2405]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2408]: "التحكم في الحلقة: break"
+        - generic [ref=e2412]:
+          - button [ref=e2413]:
+            - img [ref=e2414]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2417]: "التحكم في الحلقة: continue"
+        - 'button "معمل: حاسبة فاتورة الدكان" [ref=e2421]':
+          - img [ref=e2423]
+          - generic [ref=e2425]: "معمل: حاسبة فاتورة الدكان"
+        - 'button "معمل: محلل جدول الكهرباء" [ref=e2429]':
+          - img [ref=e2431]
+          - generic [ref=e2433]: "معمل: محلل جدول الكهرباء"
+        - button "اختبار الوحدة" [ref=e2437] [cursor=pointer]:
+          - generic [ref=e2439]:
+            - img [ref=e2440]
+            - img [ref=e2443]
+          - generic [ref=e2449]: اختبار الوحدة
+        - generic [ref=e2450]:
+          - generic [ref=e2451]: وحدة 2 — حلقة for مع النصوص
+          - generic [ref=e2454]:
+            - button [ref=e2455]:
+              - img [ref=e2456]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e2459]: المرور على أحرف النص
+        - generic [ref=e2463]:
+          - button [ref=e2464]:
+            - img [ref=e2465]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2468]: الفلترة باستخدام if داخل الحلقة
+        - generic [ref=e2472]:
+          - button [ref=e2473]:
+            - img [ref=e2474]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2477]: بناء نص جديد (Accumulator Pattern)
+        - generic [ref=e2481]:
+          - button [ref=e2482]:
+            - img [ref=e2483]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2486]: العد والإحصاء داخل الحلقة
+        - generic [ref=e2490]:
+          - button [ref=e2491]:
+            - img [ref=e2492]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2495]: "التحكم في الحلقة: break"
+        - generic [ref=e2499]:
+          - button [ref=e2500]:
+            - img [ref=e2501]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2504]: "التحكم في الحلقة: continue"
+        - generic [ref=e2508]:
+          - button [ref=e2509]:
+            - img [ref=e2510]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2513]: الحلقات المتداخلة مع النصوص
+        - generic [ref=e2517]:
+          - button [ref=e2518]:
+            - img [ref=e2519]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2522]: "مشكلة عملية: التحقق من رقم الهاتف"
+        - generic [ref=e2526]:
+          - button [ref=e2527]:
+            - img [ref=e2528]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2531]: دالة enumerate للحصول على الفهرس والحرف
+        - generic [ref=e2535]:
+          - button [ref=e2536]:
+            - img [ref=e2537]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2540]: "مراجعة وتحدي: تشفير القيصر البسيط"
+        - 'button "معمل: مولّد أكواد المنتجات" [ref=e2544]':
+          - img [ref=e2546]
+          - generic [ref=e2548]: "معمل: مولّد أكواد المنتجات"
+        - 'button "معمل: محلل جودة كلمات المرور" [ref=e2552]':
+          - img [ref=e2554]
+          - generic [ref=e2556]: "معمل: محلل جودة كلمات المرور"
+        - button "اختبار الوحدة" [ref=e2560] [cursor=pointer]:
+          - generic [ref=e2562]:
+            - img [ref=e2563]
+            - img [ref=e2566]
+          - generic [ref=e2572]: اختبار الوحدة
+        - generic [ref=e2573]:
+          - generic [ref=e2574]: وحدة 3 — حلقة while (تكرار مشروط)
+          - generic [ref=e2577]:
+            - button [ref=e2578]:
+              - img [ref=e2579]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e2582]: "أول حلقة while: التكرار البسيط"
+        - generic [ref=e2586]:
+          - button [ref=e2587]:
+            - img [ref=e2588]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2591]: التكرار بناءً على مدخلات المستخدم
+        - generic [ref=e2595]:
+          - button [ref=e2596]:
+            - img [ref=e2597]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2600]: خطر الحلقة اللانهائية (Infinite Loop)
+        - generic [ref=e2604]:
+          - button [ref=e2605]:
+            - img [ref=e2606]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2609]: استخدام متغير العلم (Flag)
+        - generic [ref=e2613]:
+          - button [ref=e2614]:
+            - img [ref=e2615]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2618]: "الخروج المبكر من الحلقة: break"
+        - generic [ref=e2622]:
+          - button [ref=e2623]:
+            - img [ref=e2624]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2627]: "تخطي دورة حالية: continue"
+        - generic [ref=e2631]:
+          - button [ref=e2632]:
+            - img [ref=e2633]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2636]: حلقات while بشروط مركبة
+        - generic [ref=e2640]:
+          - button [ref=e2641]:
+            - img [ref=e2642]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2645]: حلقة while...else
+        - generic [ref=e2649]:
+          - button [ref=e2650]:
+            - img [ref=e2651]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2654]: حلقات while المتداخلة
+        - generic [ref=e2658]:
+          - button [ref=e2659]:
+            - img [ref=e2660]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2663]: "مقارنة `while` مع `for`: متى نستخدم أيهما؟"
+        - button "معمل محاكاة الصراف الآلي (ATM)" [ref=e2667]:
+          - img [ref=e2669]
+          - generic [ref=e2671]: معمل محاكاة الصراف الآلي (ATM)
+        - button "معمل إدارة مخزون البن اليمني" [ref=e2675]:
+          - img [ref=e2677]
+          - generic [ref=e2679]: معمل إدارة مخزون البن اليمني
+        - button "اختبار الوحدة" [ref=e2683] [cursor=pointer]:
+          - generic [ref=e2685]:
+            - img [ref=e2686]
+            - img [ref=e2689]
+          - generic [ref=e2695]: اختبار الوحدة
+        - generic [ref=e2696]:
+          - generic [ref=e2697]: وحدة 4 — التحكم بالحلقات (break, continue)
+          - generic [ref=e2700]:
+            - button [ref=e2701]:
+              - img [ref=e2702]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e2705]: "الخروج المبكر من الحلقة باستخدام `break`"
+        - generic [ref=e2709]:
+          - button [ref=e2710]:
+            - img [ref=e2711]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2714]: "استخدام `break` مع حلقات `while`"
+        - generic [ref=e2718]:
+          - button [ref=e2719]:
+            - img [ref=e2720]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2723]: "تخطي دورة بالحلقة باستخدام `continue`"
+        - generic [ref=e2727]:
+          - button [ref=e2728]:
+            - img [ref=e2729]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2732]: "مقارنة عملية بين `break` و `continue`"
+        - generic [ref=e2736]:
+          - button [ref=e2737]:
+            - img [ref=e2738]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2741]: التحكم في الحلقات المتداخلة
+        - generic [ref=e2745]:
+          - button [ref=e2746]:
+            - img [ref=e2747]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2750]: "الشرط البديل: جملة `else` مع الحلقات"
+        - generic [ref=e2754]:
+          - button [ref=e2755]:
+            - img [ref=e2756]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2759]: "تطبيق `else` مع حلقات `while`"
+        - generic [ref=e2763]:
+          - button [ref=e2764]:
+            - img [ref=e2765]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2768]: "مشروع صغير: التحقق من مدخلات المستخدم"
+        - generic [ref=e2772]:
+          - button [ref=e2773]:
+            - img [ref=e2774]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2777]: "مشروع صغير: البحث المتقدم في القوائم"
+        - generic [ref=e2781]:
+          - button [ref=e2782]:
+            - img [ref=e2783]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2786]: مراجعة وتحديات على التحكم بالحلقات
+        - button "محاكي نقطة بيع في دكان" [ref=e2790]:
+          - img [ref=e2792]
+          - generic [ref=e2794]: محاكي نقطة بيع في دكان
+        - button "نظام فلترة بيانات المرضى في مستوصف" [ref=e2798]:
+          - img [ref=e2800]
+          - generic [ref=e2802]: نظام فلترة بيانات المرضى في مستوصف
+        - button "اختبار الوحدة" [ref=e2806] [cursor=pointer]:
+          - generic [ref=e2808]:
+            - img [ref=e2809]
+            - img [ref=e2812]
+          - generic [ref=e2818]: اختبار الوحدة
+        - generic [ref=e2819]:
+          - generic [ref=e2820]: وحدة 5 — الحلقات المتداخلة (Nested Loops)
+          - generic [ref=e2823]:
+            - button [ref=e2824]:
+              - img [ref=e2825]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e2828]: "أول حلقة متداخلة: بناء جدول بسيط"
+        - generic [ref=e2832]:
+          - button [ref=e2833]:
+            - img [ref=e2834]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2837]: "تتبع التنفيذ: كيف تعمل الحلقات المتداخلة؟"
+        - generic [ref=e2841]:
+          - button [ref=e2842]:
+            - img [ref=e2843]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2846]: "طباعة الأنماط: المثلثات"
+        - generic [ref=e2850]:
+          - button [ref=e2851]:
+            - img [ref=e2852]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2855]: "طباعة أنماط متقدمة: المثلث المقلوب"
+        - generic [ref=e2859]:
+          - button [ref=e2860]:
+            - img [ref=e2861]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2864]: التكرار على القوائم المتداخلة (2D Lists)
+        - generic [ref=e2868]:
+          - button [ref=e2869]:
+            - img [ref=e2870]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2873]: "مشكلة واقعية: جدول تحويل العملات"
+        - generic [ref=e2877]:
+          - button [ref=e2878]:
+            - img [ref=e2879]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2882]: "التحكم في الحلقات: `break` في الحلقات المتداخلة"
+        - generic [ref=e2886]:
+          - button [ref=e2887]:
+            - img [ref=e2888]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2891]: "التحكم في الحلقات: `continue` في الحلقات المتداخلة"
+        - generic [ref=e2895]:
+          - button [ref=e2896]:
+            - img [ref=e2897]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2900]: "دمج الشروط `if` مع الحلقات المتداخلة"
+        - generic [ref=e2904]:
+          - button [ref=e2905]:
+            - img [ref=e2906]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2909]: "مشروع صغير: مخطط مقاعد كافتيريا"
+        - button "منظّم مقاعد باص السفر" [ref=e2913]:
+          - img [ref=e2915]
+          - generic [ref=e2917]: منظّم مقاعد باص السفر
+        - button "جرد مخزون دكان البهارات" [ref=e2921]:
+          - img [ref=e2923]
+          - generic [ref=e2925]: جرد مخزون دكان البهارات
+        - button "اختبار الوحدة" [ref=e2929] [cursor=pointer]:
+          - generic [ref=e2931]:
+            - img [ref=e2932]
+            - img [ref=e2935]
+          - generic [ref=e2941]: اختبار الوحدة
+        - generic [ref=e2942]:
+          - generic [ref=e2943]: وحدة 6 — أمثلة يمنية على الحلقات
+          - generic [ref=e2946]:
+            - button [ref=e2947]:
+              - img [ref=e2948]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e2951]: "أول حلقة: تكرار المهام مع for"
+        - generic [ref=e2955]:
+          - button [ref=e2956]:
+            - img [ref=e2957]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2960]: "التحكم في العداد: range بالبداية والنهاية"
+        - generic [ref=e2964]:
+          - button [ref=e2965]:
+            - img [ref=e2966]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2969]: "القفز بين الأرقام: `range` مع خطوة"
+        - generic [ref=e2973]:
+          - button [ref=e2974]:
+            - img [ref=e2975]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2978]: "الحلقات والنصوص: المرور على الحروف"
+        - generic [ref=e2982]:
+          - button [ref=e2983]:
+            - img [ref=e2984]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2987]: "التكرار المشروط: مقدمة إلى `while`"
+        - generic [ref=e2991]:
+          - button [ref=e2992]:
+            - img [ref=e2993]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e2996]: "حلقة `while` مع عدّاد"
+        - generic [ref=e3000]:
+          - button [ref=e3001]:
+            - img [ref=e3002]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3005]: الحلقات المتداخلة (Nested Loops)
+        - generic [ref=e3009]:
+          - button [ref=e3010]:
+            - img [ref=e3011]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3014]: "الخروج المبكر: استخدام `break`"
+        - generic [ref=e3018]:
+          - button [ref=e3019]:
+            - img [ref=e3020]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3023]: "تخطي التكرار الحالي: استخدام `continue`"
+        - generic [ref=e3027]:
+          - button [ref=e3028]:
+            - img [ref=e3029]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3032]: "تطبيق شامل: حاسبة فاتورة الدكان"
+        - 'button "معمل: حاسبة فاتورة دكان البهارات" [ref=e3036]':
+          - img [ref=e3038]
+          - generic [ref=e3040]: "معمل: حاسبة فاتورة دكان البهارات"
+        - 'button "معمل: مولّد جدول انقطاع الكهرباء الأسبوعي" [ref=e3044]':
+          - img [ref=e3046]
+          - generic [ref=e3048]: "معمل: مولّد جدول انقطاع الكهرباء الأسبوعي"
+        - button "اختبار الوحدة" [ref=e3052] [cursor=pointer]:
+          - generic [ref=e3054]:
+            - img [ref=e3055]
+            - img [ref=e3058]
+          - generic [ref=e3064]: اختبار الوحدة
+        - generic [ref=e3065]:
+          - generic [ref=e3066]: وحدة 7 — تكرار غير محدود (Infinite Loops)
+          - generic [ref=e3069]:
+            - button [ref=e3070]:
+              - img [ref=e3071]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e3074]: "الحلقة اللانهائية الأولى: while True"
+        - generic [ref=e3078]:
+          - button [ref=e3079]:
+            - img [ref=e3080]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3083]: "الهروب من الحلقة: استخدام break"
+        - generic [ref=e3087]:
+          - button [ref=e3088]:
+            - img [ref=e3089]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3092]: "الخطأ القاتل: نسيان تحديث المتغير"
+        - generic [ref=e3096]:
+          - button [ref=e3097]:
+            - img [ref=e3098]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3101]: "الشرط المستحيل: خطأ في المنطق"
+        - generic [ref=e3105]:
+          - button [ref=e3106]:
+            - img [ref=e3107]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3110]: "مخرج الطوارئ: إيقاف البرنامج يدوياً"
+        - generic [ref=e3114]:
+          - button [ref=e3115]:
+            - img [ref=e3116]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3119]: "الحلقات اللانهائية المفيدة: برامج الخدمات"
+        - generic [ref=e3123]:
+          - button [ref=e3124]:
+            - img [ref=e3125]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3128]: استخدام الأعلام (Flags) للتحكم بالحلقة
+        - generic [ref=e3132]:
+          - button [ref=e3133]:
+            - img [ref=e3134]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3137]: "تصحيح الأخطاء: استخدام الطباعة لكشف الحلقات"
+        - generic [ref=e3141]:
+          - button [ref=e3142]:
+            - img [ref=e3143]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3146]: "الخطر المزدوج: الحلقات المتداخلة اللانهائية"
+        - generic [ref=e3150]:
+          - button [ref=e3151]:
+            - img [ref=e3152]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3155]: "مراجعة شاملة: كيف تتجنب الحلقات اللانهائية؟"
+        - button "محاكي جدول انقطاع الكهرباء" [ref=e3159]:
+          - img [ref=e3161]
+          - generic [ref=e3163]: محاكي جدول انقطاع الكهرباء
+        - button "نظام نقاط بيع لمحل بن يمني" [ref=e3167]:
+          - img [ref=e3169]
+          - generic [ref=e3171]: نظام نقاط بيع لمحل بن يمني
+        - button "اختبار الوحدة" [ref=e3175] [cursor=pointer]:
+          - generic [ref=e3177]:
+            - img [ref=e3178]
+            - img [ref=e3181]
+          - generic [ref=e3187]: اختبار الوحدة
+        - generic [ref=e3188]:
+          - generic [ref=e3189]: وحدة 8 — استخدام else مع الحلقات
+          - generic [ref=e3192]:
+            - button [ref=e3193]:
+              - img [ref=e3194]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e3197]: "الكتلة else مع حلقة for: عندما تكتمل الحلقة"
+        - generic [ref=e3201]:
+          - button [ref=e3202]:
+            - img [ref=e3203]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3206]: تأثير break على كتلة else
+        - generic [ref=e3210]:
+          - button [ref=e3211]:
+            - img [ref=e3212]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3215]: الكتلة else مع حلقة while
+        - generic [ref=e3219]:
+          - button [ref=e3220]:
+            - img [ref=e3221]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3224]: تأثير break على while-else
+        - generic [ref=e3228]:
+          - button [ref=e3229]:
+            - img [ref=e3230]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3233]: بديل متغير الحالة (Flag Variable)
+        - generic [ref=e3237]:
+          - button [ref=e3238]:
+            - img [ref=e3239]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3242]: "سيناريو عملي: التحقق من صحة الإدخال"
+        - generic [ref=e3246]:
+          - button [ref=e3247]:
+            - img [ref=e3248]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3251]: "حالة خاصة: else مع حلقة على قائمة فارغة"
+        - generic [ref=e3255]:
+          - button [ref=e3256]:
+            - img [ref=e3257]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3260]: "مثال متقدم: البحث عن عدد أولي"
+        - generic [ref=e3264]:
+          - button [ref=e3265]:
+            - img [ref=e3266]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3269]: الحلقات المتداخلة وكتلة else
+        - generic [ref=e3273]:
+          - button [ref=e3274]:
+            - img [ref=e3275]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3278]: مراجعة شاملة وتحدي
+        - 'button "معمل: مدير مخزون الصيدلية" [ref=e3282]':
+          - img [ref=e3284]
+          - generic [ref=e3286]: "معمل: مدير مخزون الصيدلية"
+        - 'button "معمل: نظام التحقق من الحوالات المالية" [ref=e3290]':
+          - img [ref=e3292]
+          - generic [ref=e3294]: "معمل: نظام التحقق من الحوالات المالية"
+        - button "اختبار الوحدة" [ref=e3298] [cursor=pointer]:
+          - generic [ref=e3300]:
+            - img [ref=e3301]
+            - img [ref=e3304]
+          - generic [ref=e3310]: اختبار الوحدة
+        - generic [ref=e3311]:
+          - generic [ref=e3312]: "وحدة 9 — برنامج يمني: حساب مجموع أوزان البنّ"
+          - generic [ref=e3315]:
+            - button [ref=e3316]:
+              - img [ref=e3317]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e3320]: "نمط المُجمّع: حساب المجموع باستخدام حلقة for"
+        - generic [ref=e3324]:
+          - button [ref=e3325]:
+            - img [ref=e3326]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3329]: "الجمع التفاعلي: استخدام حلقة while"
+        - generic [ref=e3333]:
+          - button [ref=e3334]:
+            - img [ref=e3335]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3338]: "التعامل مع المدخلات النصية: إيقاف الحلقة بكلمة"
+        - generic [ref=e3342]:
+          - button [ref=e3343]:
+            - img [ref=e3344]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3347]: "تجميع إحصائيات متعددة: المجموع والعدد"
+        - generic [ref=e3351]:
+          - button [ref=e3352]:
+            - img [ref=e3353]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3356]: حساب المعدل وتجنب القسمة على صفر
+        - generic [ref=e3360]:
+          - button [ref=e3361]:
+            - img [ref=e3362]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3365]: "إيجاد أكبر قيمة: نمط الحد الأقصى"
+        - generic [ref=e3369]:
+          - button [ref=e3370]:
+            - img [ref=e3371]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3374]: "إيجاد أصغر قيمة: نمط الحد الأدنى"
+        - generic [ref=e3378]:
+          - button [ref=e3379]:
+            - img [ref=e3380]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3383]: "التحقق من صحة المدخلات: تجاهل القيم غير الصالحة"
+        - generic [ref=e3387]:
+          - button [ref=e3388]:
+            - img [ref=e3389]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3392]: "تنسيق المخرجات: عرض النتائج بشكل احترافي"
+        - generic [ref=e3396]:
+          - button [ref=e3397]:
+            - img [ref=e3398]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3401]: "تجميع المشروع: برنامج إحصائيات البن الكامل"
+        - 'button "معمل: حاسبة فاتورة كافتيريا" [ref=e3405]':
+          - img [ref=e3407]
+          - generic [ref=e3409]: "معمل: حاسبة فاتورة كافتيريا"
+        - 'button "معمل: متتبع انقطاع الكهرباء" [ref=e3413]':
+          - img [ref=e3415]
+          - generic [ref=e3417]: "معمل: متتبع انقطاع الكهرباء"
+        - button "اختبار الوحدة" [ref=e3421] [cursor=pointer]:
+          - generic [ref=e3423]:
+            - img [ref=e3424]
+            - img [ref=e3427]
+          - generic [ref=e3433]: اختبار الوحدة
+        - button "اختبار المرحلة" [ref=e3437] [cursor=pointer]:
+          - generic [ref=e3439]:
+            - img [ref=e3440]
+            - img [ref=e3443]
+          - generic [ref=e3449]: اختبار المرحلة
+        - generic [ref=e3450]:
+          - generic [ref=e3451]:
+            - generic [ref=e3453]: "4"
+            - generic [ref=e3454]: التعامل مع الأخطاء المبكرة
+          - generic [ref=e3455]: وحدة 1 — أخطاء التركيب (SyntaxError)
+          - generic [ref=e3458]:
+            - button [ref=e3459]:
+              - img [ref=e3460]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e3463]: "أول خطأ لك: SyntaxError والأقواس المفقودة"
+        - generic [ref=e3467]:
+          - button [ref=e3468]:
+            - img [ref=e3469]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3472]: "الهروب من النصوص: علامات التنصيص المفقودة"
+        - generic [ref=e3476]:
+          - button [ref=e3477]:
+            - img [ref=e3478]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3481]: "العدو الخفي: خطأ المسافة البادئة IndentationError"
+        - generic [ref=e3485]:
+          - button [ref=e3486]:
+            - img [ref=e3487]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3490]: "النقطتان المفقودتان: خطأ الـ Colon"
+        - generic [ref=e3494]:
+          - button [ref=e3495]:
+            - img [ref=e3496]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3499]: "أخطاء إملائية: الكلمات المفتاحية الخاطئة"
+        - generic [ref=e3503]:
+          - button [ref=e3504]:
+            - img [ref=e3505]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3508]: "خطأ في تعريف المتغيرات: أسماء غير صالحة"
+        - generic [ref=e3512]:
+          - button [ref=e3513]:
+            - img [ref=e3514]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3517]: خطأ التعيين في غير محله
+        - generic [ref=e3521]:
+          - button [ref=e3522]:
+            - img [ref=e3523]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3526]: الأقواس المتداخلة والمفقودة
+        - generic [ref=e3530]:
+          - button [ref=e3531]:
+            - img [ref=e3532]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3535]: "الفاصلة العنيدة: الفواصل في غير مكانها"
+        - generic [ref=e3539]:
+          - button [ref=e3540]:
+            - img [ref=e3541]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3544]: "تجميع الأخطاء: تصحيح كود مليء بالأخطاء"
+        - button "مصحح فواتير دكان الحاج سعيد" [ref=e3548]:
+          - img [ref=e3550]
+          - generic [ref=e3552]: مصحح فواتير دكان الحاج سعيد
+        - button "إصلاح برنامج جدول الكهرباء" [ref=e3556]:
+          - img [ref=e3558]
+          - generic [ref=e3560]: إصلاح برنامج جدول الكهرباء
+        - button "اختبار الوحدة" [ref=e3564] [cursor=pointer]:
+          - generic [ref=e3566]:
+            - img [ref=e3567]
+            - img [ref=e3570]
+          - generic [ref=e3576]: اختبار الوحدة
+        - generic [ref=e3577]:
+          - generic [ref=e3578]: وحدة 2 — أخطاء المسافات البادئة (IndentationError)
+          - generic [ref=e3581]:
+            - button [ref=e3582]:
+              - img [ref=e3583]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e3586]: "أول خطأ: المسافة البادئة بعد `if`"
+        - generic [ref=e3590]:
+          - button [ref=e3591]:
+            - img [ref=e3592]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3595]: "المسافات مع `else` و `elif`"
+        - generic [ref=e3599]:
+          - button [ref=e3600]:
+            - img [ref=e3601]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3604]: "المسافات داخل الحلقات `for`"
+        - generic [ref=e3608]:
+          - button [ref=e3609]:
+            - img [ref=e3610]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3613]: "المسافات وحلقات `while`"
+        - generic [ref=e3617]:
+          - button [ref=e3618]:
+            - img [ref=e3619]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3622]: الكتل المتداخلة (Nested Blocks)
+        - generic [ref=e3626]:
+          - button [ref=e3627]:
+            - img [ref=e3628]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3631]: "تعريف الدوال `def` والمسافات"
+        - generic [ref=e3635]:
+          - button [ref=e3636]:
+            - img [ref=e3637]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3640]: "الخطأ الخفي: خلط المسافات والجداول (Tabs)"
+        - generic [ref=e3644]:
+          - button [ref=e3645]:
+            - img [ref=e3646]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3649]: أداة التتبع البصري لفهم الكتل
+        - generic [ref=e3653]:
+          - button [ref=e3654]:
+            - img [ref=e3655]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3658]: معيار PEP 8 للمسافات
+        - generic [ref=e3662]:
+          - button [ref=e3663]:
+            - img [ref=e3664]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3667]: "مراجعة شاملة: تصحيح برنامج مليء بالأخطاء"
+        - 'button "معمل تصحيح: حاسبة فاتورة الكهرباء" [ref=e3671]':
+          - img [ref=e3673]
+          - generic [ref=e3675]: "معمل تصحيح: حاسبة فاتورة الكهرباء"
+        - 'button "معمل بناء: نظام إدارة مخزون محل بهارات" [ref=e3679]':
+          - img [ref=e3681]
+          - generic [ref=e3683]: "معمل بناء: نظام إدارة مخزون محل بهارات"
+        - button "اختبار الوحدة" [ref=e3687] [cursor=pointer]:
+          - generic [ref=e3689]:
+            - img [ref=e3690]
+            - img [ref=e3693]
+          - generic [ref=e3699]: اختبار الوحدة
+        - generic [ref=e3700]:
+          - generic [ref=e3701]: وحدة 3 — أخطاء الأسماء (NameError)
+          - generic [ref=e3704]:
+            - button [ref=e3705]:
+              - img [ref=e3706]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e3709]: ما هو خطأ NameError؟
+        - generic [ref=e3713]:
+          - button [ref=e3714]:
+            - img [ref=e3715]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3718]: "الأخطاء الإملائية: عدو المبرمج الصامت"
+        - generic [ref=e3722]:
+          - button [ref=e3723]:
+            - img [ref=e3724]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3727]: حساسية حالة الأحرف (Case Sensitivity)
+        - generic [ref=e3731]:
+          - button [ref=e3732]:
+            - img [ref=e3733]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3736]: NameError في الدوال
+        - generic [ref=e3740]:
+          - button [ref=e3741]:
+            - img [ref=e3742]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3745]: نطاق المتغيرات المحلي (Local Scope)
+        - generic [ref=e3749]:
+          - button [ref=e3750]:
+            - img [ref=e3751]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3754]: النطاق العام (Global Scope)
+        - generic [ref=e3758]:
+          - button [ref=e3759]:
+            - img [ref=e3760]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3763]: تمييز NameError عن الأخطاء الأخرى
+        - generic [ref=e3767]:
+          - button [ref=e3768]:
+            - img [ref=e3769]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3772]: NameError في الحلقات والشروط
+        - generic [ref=e3776]:
+          - button [ref=e3777]:
+            - img [ref=e3778]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3781]: استراتيجيات تصحيح NameError
+        - generic [ref=e3785]:
+          - button [ref=e3786]:
+            - img [ref=e3787]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3790]: NameError بسبب نسيان الاستيراد (import)
+        - 'button "معمل تصحيح: حاسبة فاتورة الدكان" [ref=e3794]':
+          - img [ref=e3796]
+          - generic [ref=e3798]: "معمل تصحيح: حاسبة فاتورة الدكان"
+        - 'button "معمل بناء: متتبع جدول الكهرباء" [ref=e3802]':
+          - img [ref=e3804]
+          - generic [ref=e3806]: "معمل بناء: متتبع جدول الكهرباء"
+        - button "اختبار الوحدة" [ref=e3810] [cursor=pointer]:
+          - generic [ref=e3812]:
+            - img [ref=e3813]
+            - img [ref=e3816]
+          - generic [ref=e3822]: اختبار الوحدة
+        - generic [ref=e3823]:
+          - generic [ref=e3824]: وحدة 4 — أخطاء الأنواع (TypeError)
+          - generic [ref=e3827]:
+            - button [ref=e3828]:
+              - img [ref=e3829]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e3832]: "الخطأ الأول: جمع نص ورقم"
+        - generic [ref=e3836]:
+          - button [ref=e3837]:
+            - img [ref=e3838]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3841]: "الخطأ الثاني: حسابات على نصوص"
+        - generic [ref=e3845]:
+          - button [ref=e3846]:
+            - img [ref=e3847]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3850]: "فخ `input()`: كل المدخلات نصوص"
+        - generic [ref=e3854]:
+          - button [ref=e3855]:
+            - img [ref=e3856]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3859]: ازدواجية معامل الجمع (+)
+        - generic [ref=e3863]:
+          - button [ref=e3864]:
+            - img [ref=e3865]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3868]: مقارنات الأنواع غير المتوافقة
+        - generic [ref=e3872]:
+          - button [ref=e3873]:
+            - img [ref=e3874]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3877]: "استخدام `type()` لتشخيص الأخطاء"
+        - generic [ref=e3881]:
+          - button [ref=e3882]:
+            - img [ref=e3883]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3886]: خطأ التكرار على غير القابل للتكرار
+        - generic [ref=e3890]:
+          - button [ref=e3891]:
+            - img [ref=e3892]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3895]: التحويل الصريح مقابل الضمني
+        - generic [ref=e3899]:
+          - button [ref=e3900]:
+            - img [ref=e3901]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3904]: "التعامل مع `ValueError`"
+        - generic [ref=e3908]:
+          - button [ref=e3909]:
+            - img [ref=e3910]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3913]: "مراجعة وتجميع: حاسبة فاتورة بسيطة"
+        - 'button "معمل: حاسبة فاتورة كافتيريا" [ref=e3917]':
+          - img [ref=e3919]
+          - generic [ref=e3921]: "معمل: حاسبة فاتورة كافتيريا"
+        - 'button "معمل: محول عملات بسيط" [ref=e3925]':
+          - img [ref=e3927]
+          - generic [ref=e3929]: "معمل: محول عملات بسيط"
+        - button "اختبار الوحدة" [ref=e3933] [cursor=pointer]:
+          - generic [ref=e3935]:
+            - img [ref=e3936]
+            - img [ref=e3939]
+          - generic [ref=e3945]: اختبار الوحدة
+        - generic [ref=e3946]:
+          - generic [ref=e3947]: وحدة 5 — أخطاء القيم (ValueError)
+          - generic [ref=e3950]:
+            - button [ref=e3951]:
+              - img [ref=e3952]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e3955]: خطأ القيمة عند تحويل النص إلى رقم
+        - generic [ref=e3959]:
+          - button [ref=e3960]:
+            - img [ref=e3961]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3964]: خطأ القيمة مع الأرقام العشرية float()
+        - generic [ref=e3968]:
+          - button [ref=e3969]:
+            - img [ref=e3970]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3973]: "حالة خاصة: تحويل عدد عشري إلى صحيح"
+        - generic [ref=e3977]:
+          - button [ref=e3978]:
+            - img [ref=e3979]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3982]: التعامل مع الأخطاء باستخدام try-except
+        - generic [ref=e3986]:
+          - button [ref=e3987]:
+            - img [ref=e3988]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e3991]: استخدام الحلقات مع try-except للإصرار على إدخال صحيح
+        - generic [ref=e3995]:
+          - button [ref=e3996]:
+            - img [ref=e3997]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4000]: خطأ القيمة عند البحث في القوائم
+        - generic [ref=e4004]:
+          - button [ref=e4005]:
+            - img [ref=e4006]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4009]: خطأ القيمة عند إزالة عنصر من قائمة
+        - generic [ref=e4013]:
+          - button [ref=e4014]:
+            - img [ref=e4015]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4018]: خطأ القيمة عند فك التغليف (Unpacking)
+        - generic [ref=e4022]:
+          - button [ref=e4023]:
+            - img [ref=e4024]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4027]: إثارة خطأ القيمة يدوياً (raise)
+        - generic [ref=e4031]:
+          - button [ref=e4032]:
+            - img [ref=e4033]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4036]: مراجعة شاملة لسيناريوهات ValueError
+        - 'button "معمل: حاسبة الصرافة الآمنة" [ref=e4040]':
+          - img [ref=e4042]
+          - generic [ref=e4044]: "معمل: حاسبة الصرافة الآمنة"
+        - 'button "معمل: مدير قائمة المهام الذكي" [ref=e4048]':
+          - img [ref=e4050]
+          - generic [ref=e4052]: "معمل: مدير قائمة المهام الذكي"
+        - button "اختبار الوحدة" [ref=e4056] [cursor=pointer]:
+          - generic [ref=e4058]:
+            - img [ref=e4059]
+            - img [ref=e4062]
+          - generic [ref=e4068]: اختبار الوحدة
+        - generic [ref=e4069]:
+          - generic [ref=e4070]: وحدة 6 — استخدام أدوات التصحيح (Print Debugging)
+          - generic [ref=e4073]:
+            - button [ref=e4074]:
+              - img [ref=e4075]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e4078]: "الطباعة للكشف عن الأخطاء: أول خطوة"
+        - generic [ref=e4082]:
+          - button [ref=e4083]:
+            - img [ref=e4084]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4087]: تتبع مسار الكود داخل الشروط
+        - generic [ref=e4091]:
+          - button [ref=e4092]:
+            - img [ref=e4093]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4096]: مراقبة المتغيّرات داخل الحلقات التكرارية
+        - generic [ref=e4100]:
+          - button [ref=e4101]:
+            - img [ref=e4102]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4105]: استخدام الطباعة المنظمة مع F-Strings
+        - generic [ref=e4109]:
+          - button [ref=e4110]:
+            - img [ref=e4111]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4114]: نقاط التوقف الشرطية بالطباعة
+        - generic [ref=e4118]:
+          - button [ref=e4119]:
+            - img [ref=e4120]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4123]: تصور حالة الكود قبل وبعد دالة
+        - generic [ref=e4127]:
+          - button [ref=e4128]:
+            - img [ref=e4129]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4132]: تصحيح الأخطاء المنطقية
+        - generic [ref=e4136]:
+          - button [ref=e4137]:
+            - img [ref=e4138]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4141]: "تنظيف الكود: التعليق على جمل الطباعة"
+        - generic [ref=e4145]:
+          - button [ref=e4146]:
+            - img [ref=e4147]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4150]: تتبع الحلقات المتداخلة
+        - generic [ref=e4154]:
+          - button [ref=e4155]:
+            - img [ref=e4156]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4159]: "استراتيجية التصحيح بالطباعة: خلاصة"
+        - 'button "معمل تصحيح: حاسبة فاتورة الدكان" [ref=e4163]':
+          - img [ref=e4165]
+          - generic [ref=e4167]: "معمل تصحيح: حاسبة فاتورة الدكان"
+        - 'button "معمل تصحيح: متتبع جدول الكهرباء" [ref=e4171]':
+          - img [ref=e4173]
+          - generic [ref=e4175]: "معمل تصحيح: متتبع جدول الكهرباء"
+        - button "اختبار الوحدة" [ref=e4179] [cursor=pointer]:
+          - generic [ref=e4181]:
+            - img [ref=e4182]
+            - img [ref=e4185]
+          - generic [ref=e4191]: اختبار الوحدة
+        - generic [ref=e4192]:
+          - generic [ref=e4193]: وحدة 7 — قراءة رسائل الأخطاء
+          - generic [ref=e4196]:
+            - button [ref=e4197]:
+              - img [ref=e4198]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e4201]: "أول خطأ لك: NameError"
+        - generic [ref=e4205]:
+          - button [ref=e4206]:
+            - img [ref=e4207]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4210]: "خطأ الأنواع: TypeError"
+        - generic [ref=e4214]:
+          - button [ref=e4215]:
+            - img [ref=e4216]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4219]: "خطأ القيمة: ValueError"
+        - generic [ref=e4223]:
+          - button [ref=e4224]:
+            - img [ref=e4225]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4228]: "خطأ الصيغة: SyntaxError"
+        - generic [ref=e4232]:
+          - button [ref=e4233]:
+            - img [ref=e4234]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4237]: "خطأ المسافة البادئة: IndentationError"
+        - generic [ref=e4241]:
+          - button [ref=e4242]:
+            - img [ref=e4243]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4246]: "خطأ الفهرسة: IndexError"
+        - generic [ref=e4250]:
+          - button [ref=e4251]:
+            - img [ref=e4252]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4255]: "خطأ المفتاح: KeyError"
+        - generic [ref=e4259]:
+          - button [ref=e4260]:
+            - img [ref=e4261]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4264]: "خطأ القسمة على صفر: ZeroDivisionError"
+        - generic [ref=e4268]:
+          - button [ref=e4269]:
+            - img [ref=e4270]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4273]: قراءة تتبّع الأثر الطويل (Traceback)
+        - generic [ref=e4277]:
+          - button [ref=e4278]:
+            - img [ref=e4279]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4282]: استراتيجيات التصحيح المنهجي
+        - 'button "معمل تصحيح: فاتورة دكان معطوبة" [ref=e4286]':
+          - img [ref=e4288]
+          - generic [ref=e4290]: "معمل تصحيح: فاتورة دكان معطوبة"
+        - 'button "معمل تحليل: حاسبة الصرافة المليئة بالأخطاء" [ref=e4294]':
+          - img [ref=e4296]
+          - generic [ref=e4298]: "معمل تحليل: حاسبة الصرافة المليئة بالأخطاء"
+        - button "اختبار الوحدة" [ref=e4302] [cursor=pointer]:
+          - generic [ref=e4304]:
+            - img [ref=e4305]
+            - img [ref=e4308]
+          - generic [ref=e4314]: اختبار الوحدة
+        - generic [ref=e4315]:
+          - generic [ref=e4316]: وحدة 8 — استراتيجيات حل المشكلات
+          - generic [ref=e4319]:
+            - button [ref=e4320]:
+              - img [ref=e4321]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e4324]: "اقرأ رسالة الخطأ: صديقك الأول"
+        - generic [ref=e4328]:
+          - button [ref=e4329]:
+            - img [ref=e4330]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4333]: الطباعة للمساعدة (Print Debugging)
+        - generic [ref=e4337]:
+          - button [ref=e4338]:
+            - img [ref=e4339]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4342]: "تتبع الكود يدوياً: كن أنت الكمبيوتر"
+        - generic [ref=e4346]:
+          - button [ref=e4347]:
+            - img [ref=e4348]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4351]: استراتيجية فرّق تسد (Divide and Conquer)
+        - generic [ref=e4355]:
+          - button [ref=e4356]:
+            - img [ref=e4357]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4360]: خطأ بواحد (Off-by-One Errors)
+        - generic [ref=e4364]:
+          - button [ref=e4365]:
+            - img [ref=e4366]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4369]: أخطاء الأنواع (Type Errors)
+        - generic [ref=e4373]:
+          - button [ref=e4374]:
+            - img [ref=e4375]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4378]: "الأخطاء المنطقية: الكود يعمل لكنه خاطئ"
+        - generic [ref=e4382]:
+          - button [ref=e4383]:
+            - img [ref=e4384]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4387]: فهم نطاق المتغيرات (Scope)
+        - generic [ref=e4391]:
+          - button [ref=e4392]:
+            - img [ref=e4393]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4396]: تصحيح الأخطاء في الحلقات المتداخلة
+        - generic [ref=e4400]:
+          - button [ref=e4401]:
+            - img [ref=e4402]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4405]: بناء حالة اختبار بسيطة (Minimal Test Case)
+        - button "معمل تصحيح فاتورة الكافتيريا" [ref=e4409]:
+          - img [ref=e4411]
+          - generic [ref=e4413]: معمل تصحيح فاتورة الكافتيريا
+        - button "معمل محقق أخطاء تحويل العملات" [ref=e4417]:
+          - img [ref=e4419]
+          - generic [ref=e4421]: معمل محقق أخطاء تحويل العملات
+        - button "اختبار الوحدة" [ref=e4425] [cursor=pointer]:
+          - generic [ref=e4427]:
+            - img [ref=e4428]
+            - img [ref=e4431]
+          - generic [ref=e4437]: اختبار الوحدة
+        - generic [ref=e4438]:
+          - generic [ref=e4439]: وحدة 9 — تصحيح برنامج يمني معطّل
+          - generic [ref=e4442]:
+            - button [ref=e4443]:
+              - img [ref=e4444]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e4447]: "إصلاح أول خطأ: أخطاء الصياغة (Syntax Errors)"
+        - generic [ref=e4451]:
+          - button [ref=e4452]:
+            - img [ref=e4453]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4456]: "العدو الخفي: خطأ المسافة البادئة (IndentationError)"
+        - generic [ref=e4460]:
+          - button [ref=e4461]:
+            - img [ref=e4462]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4465]: أين المتغير؟ خطأ الاسم (NameError)
+        - generic [ref=e4469]:
+          - button [ref=e4470]:
+            - img [ref=e4471]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4474]: "خلط الأنواع: خطأ النوع (TypeError)"
+        - generic [ref=e4478]:
+          - button [ref=e4479]:
+            - img [ref=e4480]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4483]: "فشل التحويل: خطأ القيمة (ValueError)"
+        - generic [ref=e4487]:
+          - button [ref=e4488]:
+            - img [ref=e4489]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4492]: "الكود يعمل لكن النتيجة خطأ: الأخطاء المنطقية"
+        - generic [ref=e4496]:
+          - button [ref=e4497]:
+            - img [ref=e4498]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4501]: "إصلاح الحسابات: أخطاء منطقية في العمليات الرياضية"
+        - generic [ref=e4505]:
+          - button [ref=e4506]:
+            - img [ref=e4507]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4510]: "خارج الحدود: خطأ الفهرس والقاموس (IndexError & KeyError)"
+        - generic [ref=e4514]:
+          - button [ref=e4515]:
+            - img [ref=e4516]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4519]: "دوامة لا تنتهي: أخطاء الحلقات التكرارية"
+        - generic [ref=e4523]:
+          - button [ref=e4524]:
+            - img [ref=e4525]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4528]: "المحقق الخبير: إصلاح برنامج متعدد الأخطاء"
+        - 'button "معمل تصحيح: حاسبة فاتورة مطعم الشيباني" [ref=e4532]':
+          - img [ref=e4534]
+          - generic [ref=e4536]: "معمل تصحيح: حاسبة فاتورة مطعم الشيباني"
+        - 'button "معمل تصحيح: متتبع انقطاع الكهرباء" [ref=e4540]':
+          - img [ref=e4542]
+          - generic [ref=e4544]: "معمل تصحيح: متتبع انقطاع الكهرباء"
+        - button "اختبار الوحدة" [ref=e4548] [cursor=pointer]:
+          - generic [ref=e4550]:
+            - img [ref=e4551]
+            - img [ref=e4554]
+          - generic [ref=e4560]: اختبار الوحدة
+        - button "اختبار المرحلة" [ref=e4564] [cursor=pointer]:
+          - generic [ref=e4566]:
+            - img [ref=e4567]
+            - img [ref=e4570]
+          - generic [ref=e4576]: اختبار المرحلة
+        - generic [ref=e4577]:
+          - generic [ref=e4578]:
+            - generic [ref=e4580]: "5"
+            - generic [ref=e4581]: بناء برامج تفاعلية بسيطة
+          - generic [ref=e4582]: وحدة 1 — دمج الإدخال والإخراج
+          - generic [ref=e4585]:
+            - button [ref=e4586]:
+              - img [ref=e4587]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e4590]: "أول برنامج تفاعلي: أهلاً بك!"
+        - generic [ref=e4594]:
+          - button [ref=e4595]:
+            - img [ref=e4596]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4599]: "مشكلة أنواع البيانات: لماذا لا تعمل الرياضيات؟"
+        - generic [ref=e4603]:
+          - button [ref=e4604]:
+            - img [ref=e4605]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4608]: "الحل السحري: تحويل الأنواع int() و float()"
+        - generic [ref=e4612]:
+          - button [ref=e4613]:
+            - img [ref=e4614]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4617]: "برامج متعددة المدخلات: حساب مساحة المستطيل"
+        - generic [ref=e4621]:
+          - button [ref=e4622]:
+            - img [ref=e4623]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4626]: "مشروع صغير: حاسبة الصرافة"
+        - generic [ref=e4630]:
+          - button [ref=e4631]:
+            - img [ref=e4632]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4635]: "تنسيق المخرجات: F-Strings"
+        - generic [ref=e4639]:
+          - button [ref=e4640]:
+            - img [ref=e4641]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4644]: "التحقق من المدخلات: مقدمة بسيطة"
+        - generic [ref=e4648]:
+          - button [ref=e4649]:
+            - img [ref=e4650]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4653]: "المدخلات المتكررة: حلقة while"
+        - generic [ref=e4657]:
+          - button [ref=e4658]:
+            - img [ref=e4659]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4662]: "تجميع البيانات: حساب المجموع داخل حلقة"
+        - generic [ref=e4666]:
+          - button [ref=e4667]:
+            - img [ref=e4668]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4671]: "مشروع الوحدة: فاتورة كافتيريا متكاملة"
+        - button "معمل حاسبة الصرّاف الذكية" [ref=e4675]:
+          - img [ref=e4677]
+          - generic [ref=e4679]: معمل حاسبة الصرّاف الذكية
+        - button "معمل منظّم فاتورة البقالة" [ref=e4683]:
+          - img [ref=e4685]
+          - generic [ref=e4687]: معمل منظّم فاتورة البقالة
+        - button "اختبار الوحدة" [ref=e4691] [cursor=pointer]:
+          - generic [ref=e4693]:
+            - img [ref=e4694]
+            - img [ref=e4697]
+          - generic [ref=e4703]: اختبار الوحدة
+        - generic [ref=e4704]:
+          - generic [ref=e4705]: وحدة 2 — دمج الشروط والحلقات
+          - generic [ref=e4708]:
+            - button [ref=e4709]:
+              - img [ref=e4710]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e4713]: وضع شرط داخل حلقة تكرار
+        - generic [ref=e4717]:
+          - button [ref=e4718]:
+            - img [ref=e4719]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4722]: استخدام if-else داخل حلقة
+        - generic [ref=e4726]:
+          - button [ref=e4727]:
+            - img [ref=e4728]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4731]: الشروط المتعددة if-elif-else
+        - generic [ref=e4735]:
+          - button [ref=e4736]:
+            - img [ref=e4737]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4740]: وضع شرط داخل حلقة while
+        - generic [ref=e4744]:
+          - button [ref=e4745]:
+            - img [ref=e4746]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4749]: إيقاف الحلقة فجأة باستخدام break
+        - generic [ref=e4753]:
+          - button [ref=e4754]:
+            - img [ref=e4755]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4758]: تخطي التكرار الحالي بـ continue
+        - generic [ref=e4762]:
+          - button [ref=e4763]:
+            - img [ref=e4764]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4767]: الحلقات المتداخلة مع الشروط
+        - generic [ref=e4771]:
+          - button [ref=e4772]:
+            - img [ref=e4773]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4776]: الشروط المركبة (and, or)
+        - generic [ref=e4780]:
+          - button [ref=e4781]:
+            - img [ref=e4782]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4785]: حلقة التحقق من صحة الإدخال
+        - generic [ref=e4789]:
+          - button [ref=e4790]:
+            - img [ref=e4791]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4794]: "تجميع المهارات: مشروع صغير"
+        - 'button "معمل: حاسبة فاتورة الدكان الذكية" [ref=e4798]':
+          - img [ref=e4800]
+          - generic [ref=e4802]: "معمل: حاسبة فاتورة الدكان الذكية"
+        - 'button "معمل: منظم جدول الكهرباء" [ref=e4806]':
+          - img [ref=e4808]
+          - generic [ref=e4810]: "معمل: منظم جدول الكهرباء"
+        - button "اختبار الوحدة" [ref=e4814] [cursor=pointer]:
+          - generic [ref=e4816]:
+            - img [ref=e4817]
+            - img [ref=e4820]
+          - generic [ref=e4826]: اختبار الوحدة
+        - generic [ref=e4827]:
+          - generic [ref=e4828]: وحدة 3 — بناء قائمة خيارات بسيطة
+          - generic [ref=e4831]:
+            - button [ref=e4832]:
+              - img [ref=e4833]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e4836]: "قائمتك الأولى: اتخاذ القرارات بـ if-elif-else"
+        - generic [ref=e4840]:
+          - button [ref=e4841]:
+            - img [ref=e4842]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4845]: "القائمة المستمرة: التكرار باستخدام while"
+        - generic [ref=e4849]:
+          - button [ref=e4850]:
+            - img [ref=e4851]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4854]: "التعامل مع المدخلات الخاطئة: try-except"
+        - generic [ref=e4858]:
+          - button [ref=e4859]:
+            - img [ref=e4860]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4863]: "تنظيم الكود: وضع القائمة في دالة"
+        - generic [ref=e4867]:
+          - button [ref=e4868]:
+            - img [ref=e4869]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4872]: "القوائم ذات الحالة: تجميع البيانات"
+        - generic [ref=e4876]:
+          - button [ref=e4877]:
+            - img [ref=e4878]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4881]: التحقق من صحة المدخلات
+        - generic [ref=e4885]:
+          - button [ref=e4886]:
+            - img [ref=e4887]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4890]: القوائم المتداخلة
+        - generic [ref=e4894]:
+          - button [ref=e4895]:
+            - img [ref=e4896]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4899]: استخدام القواميس لتمثيل القوائم
+        - generic [ref=e4903]:
+          - button [ref=e4904]:
+            - img [ref=e4905]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4908]: "تحسين تجربة المستخدم: رسائل واضحة"
+        - generic [ref=e4912]:
+          - button [ref=e4913]:
+            - img [ref=e4914]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4917]: "مشروع الوحدة: حاسبة الصراف المتكاملة"
+        - 'button "معمل: بناء قائمة طلبات لمقهى يمني" [ref=e4921]':
+          - img [ref=e4923]
+          - generic [ref=e4925]: "معمل: بناء قائمة طلبات لمقهى يمني"
+        - 'button "معمل: نظام إدارة بسيط لمحل بيع بهارات يمنية" [ref=e4929]':
+          - img [ref=e4931]
+          - generic [ref=e4933]: "معمل: نظام إدارة بسيط لمحل بيع بهارات يمنية"
+        - button "اختبار الوحدة" [ref=e4937] [cursor=pointer]:
+          - generic [ref=e4939]:
+            - img [ref=e4940]
+            - img [ref=e4943]
+          - generic [ref=e4949]: اختبار الوحدة
+        - generic [ref=e4950]:
+          - generic [ref=e4951]: وحدة 4 — التحقق من صحة المدخلات
+          - generic [ref=e4954]:
+            - button [ref=e4955]:
+              - img [ref=e4956]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e4959]: مشكلة المدخلات الخاطئة
+        - generic [ref=e4963]:
+          - button [ref=e4964]:
+            - img [ref=e4965]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4968]: التعامل مع الأخطاء باستخدام try و except
+        - generic [ref=e4972]:
+          - button [ref=e4973]:
+            - img [ref=e4974]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4977]: الإصرار على الإدخال الصحيح باستخدام الحلقات
+        - generic [ref=e4981]:
+          - button [ref=e4982]:
+            - img [ref=e4983]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4986]: التحقق الاستباقي من النصوص
+        - generic [ref=e4990]:
+          - button [ref=e4991]:
+            - img [ref=e4992]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e4995]: التحقق من النطاق الرقمي
+        - generic [ref=e4999]:
+          - button [ref=e5000]:
+            - img [ref=e5001]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5004]: التحقق من الخيارات المحددة
+        - generic [ref=e5008]:
+          - button [ref=e5009]:
+            - img [ref=e5010]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5013]: دمج أنواع التحقق المختلفة
+        - generic [ref=e5017]:
+          - button [ref=e5018]:
+            - img [ref=e5019]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5022]: رسائل الخطأ الواضحة والمفيدة
+        - generic [ref=e5026]:
+          - button [ref=e5027]:
+            - img [ref=e5028]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5031]: التعامل مع أنواع أخطاء متعددة
+        - generic [ref=e5035]:
+          - button [ref=e5036]:
+            - img [ref=e5037]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5040]: تغليف منطق التحقق في دالة
+        - 'button "معمل: نظام مخزون صيدلية آمن" [ref=e5044]':
+          - img [ref=e5046]
+          - generic [ref=e5048]: "معمل: نظام مخزون صيدلية آمن"
+        - 'button "معمل: حاسبة صرف عملات متينة" [ref=e5052]':
+          - img [ref=e5054]
+          - generic [ref=e5056]: "معمل: حاسبة صرف عملات متينة"
+        - button "اختبار الوحدة" [ref=e5060] [cursor=pointer]:
+          - generic [ref=e5062]:
+            - img [ref=e5063]
+            - img [ref=e5066]
+          - generic [ref=e5072]: اختبار الوحدة
+        - generic [ref=e5073]:
+          - generic [ref=e5074]: وحدة 5 — بناء حاسبة بسيطة
+          - generic [ref=e5077]:
+            - button [ref=e5078]:
+              - img [ref=e5079]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e5082]: استقبال رقمين من المستخدم
+        - generic [ref=e5086]:
+          - button [ref=e5087]:
+            - img [ref=e5088]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5091]: إجراء عملية الجمع
+        - generic [ref=e5095]:
+          - button [ref=e5096]:
+            - img [ref=e5097]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5100]: إضافة الطرح والضرب
+        - generic [ref=e5104]:
+          - button [ref=e5105]:
+            - img [ref=e5106]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5109]: إضافة القسمة والتعامل مع الأخطاء
+        - generic [ref=e5113]:
+          - button [ref=e5114]:
+            - img [ref=e5115]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5118]: سؤال المستخدم عن العملية المطلوبة
+        - generic [ref=e5122]:
+          - button [ref=e5123]:
+            - img [ref=e5124]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5127]: "استخدام `if` لاختيار عملية الجمع"
+        - generic [ref=e5131]:
+          - button [ref=e5132]:
+            - img [ref=e5133]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5136]: "استخدام `elif` لبقية العمليات"
+        - generic [ref=e5140]:
+          - button [ref=e5141]:
+            - img [ref=e5142]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5145]: "استخدام `else` للمدخلات الخاطئة"
+        - generic [ref=e5149]:
+          - button [ref=e5150]:
+            - img [ref=e5151]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5154]: تنظيم الكود وتحسين طباعة النتائج
+        - generic [ref=e5158]:
+          - button [ref=e5159]:
+            - img [ref=e5160]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5163]: "تكرار الحاسبة باستخدام حلقة `while`"
+        - 'button "معمل: بناء حاسبة فاتورة الدكان" [ref=e5167]':
+          - img [ref=e5169]
+          - generic [ref=e5171]: "معمل: بناء حاسبة فاتورة الدكان"
+        - 'button "معمل: بناء حاسبة تحويل عملات بسيطة" [ref=e5175]':
+          - img [ref=e5177]
+          - generic [ref=e5179]: "معمل: بناء حاسبة تحويل عملات بسيطة"
+        - button "اختبار الوحدة" [ref=e5183] [cursor=pointer]:
+          - generic [ref=e5185]:
+            - img [ref=e5186]
+            - img [ref=e5189]
+          - generic [ref=e5195]: اختبار الوحدة
+        - generic [ref=e5196]:
+          - generic [ref=e5197]: "وحدة 6 — برنامج يمني: حاسبة أجرة الباص"
+          - generic [ref=e5200]:
+            - button [ref=e5201]:
+              - img [ref=e5202]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e5205]: "تحليل المشكلة: مدخلات ومخرجات حاسبة الأجرة"
+        - generic [ref=e5209]:
+          - button [ref=e5210]:
+            - img [ref=e5211]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5214]: "الحساب البسيط: أجرة ثابتة لكل محطة"
+        - generic [ref=e5218]:
+          - button [ref=e5219]:
+            - img [ref=e5220]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5223]: "استخدام `if` للتحقق من المدخلات"
+        - generic [ref=e5227]:
+          - button [ref=e5228]:
+            - img [ref=e5229]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5232]: "التسعيرة المتدرجة باستخدام `if-elif-else`"
+        - generic [ref=e5236]:
+          - button [ref=e5237]:
+            - img [ref=e5238]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5241]: التعامل الأولي مع المدخلات الخاطئة
+        - generic [ref=e5245]:
+          - button [ref=e5246]:
+            - img [ref=e5247]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5250]: إضافة خيار الحساب بالمسافة
+        - generic [ref=e5254]:
+          - button [ref=e5255]:
+            - img [ref=e5256]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5259]: دمج الحسابين في برنامج واحد منظم
+        - generic [ref=e5263]:
+          - button [ref=e5264]:
+            - img [ref=e5265]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5268]: طباعة "إيصال" واضح باستخدام f-strings
+        - generic [ref=e5272]:
+          - button [ref=e5273]:
+            - img [ref=e5274]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5277]: استخدام الحلقات لحسابات متكررة
+        - generic [ref=e5281]:
+          - button [ref=e5282]:
+            - img [ref=e5283]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5286]: "المشروع النهائي: تجميع وتنظيف الكود"
+        - 'button "معمل: حاسبة أجرة باص الجولة-الدائري" [ref=e5290]':
+          - img [ref=e5292]
+          - generic [ref=e5294]: "معمل: حاسبة أجرة باص الجولة-الدائري"
+        - 'button "معمل: حاسبة أجرة \"الخط\" بين المدن" [ref=e5298]':
+          - img [ref=e5300]
+          - generic [ref=e5302]: "معمل: حاسبة أجرة \"الخط\" بين المدن"
+        - button "اختبار الوحدة" [ref=e5306] [cursor=pointer]:
+          - generic [ref=e5308]:
+            - img [ref=e5309]
+            - img [ref=e5312]
+          - generic [ref=e5318]: اختبار الوحدة
+        - generic [ref=e5319]:
+          - generic [ref=e5320]: "وحدة 7 — برنامج يمني: تقدير فاتورة الكهرباء"
+          - generic [ref=e5323]:
+            - button [ref=e5324]:
+              - img [ref=e5325]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e5328]: استقبال استهلاك الكهرباء من المستخدم
+        - generic [ref=e5332]:
+          - button [ref=e5333]:
+            - img [ref=e5334]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5337]: "حساب تكلفة الشريحة الأولى باستخدام `if`"
+        - generic [ref=e5341]:
+          - button [ref=e5342]:
+            - img [ref=e5343]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5346]: "إضافة الشريحة الثانية باستخدام `elif`"
+        - generic [ref=e5350]:
+          - button [ref=e5351]:
+            - img [ref=e5352]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5355]: "إكمال منطق الشرائح باستخدام `else`"
+        - generic [ref=e5359]:
+          - button [ref=e5360]:
+            - img [ref=e5361]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5364]: استخدام الثوابت لتحسين قراءة الكود
+        - generic [ref=e5368]:
+          - button [ref=e5369]:
+            - img [ref=e5370]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5373]: إضافة الرسوم الثابتة والضرائب
+        - generic [ref=e5377]:
+          - button [ref=e5378]:
+            - img [ref=e5379]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5382]: تنسيق المخرجات النهائية بـ f-strings
+        - generic [ref=e5386]:
+          - button [ref=e5387]:
+            - img [ref=e5388]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5391]: التعامل الأولي مع المدخلات غير الصحيحة
+        - generic [ref=e5395]:
+          - button [ref=e5396]:
+            - img [ref=e5397]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5400]: تجميع الكود في برنامج متكامل
+        - generic [ref=e5404]:
+          - button [ref=e5405]:
+            - img [ref=e5406]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5409]: "تحدي: إضافة عملات متعددة للفاتورة"
+        - 'button "معمل بناء: حاسبة فاتورة الكهرباء الأساسية" [ref=e5413]':
+          - img [ref=e5415]
+          - generic [ref=e5417]: "معمل بناء: حاسبة فاتورة الكهرباء الأساسية"
+        - 'button "معمل تطوير: حاسبة فاتورة الدكان" [ref=e5421]':
+          - img [ref=e5423]
+          - generic [ref=e5425]: "معمل تطوير: حاسبة فاتورة الدكان"
+        - button "اختبار الوحدة" [ref=e5429] [cursor=pointer]:
+          - generic [ref=e5431]:
+            - img [ref=e5432]
+            - img [ref=e5435]
+          - generic [ref=e5441]: اختبار الوحدة
+        - generic [ref=e5442]:
+          - generic [ref=e5443]: "وحدة 8 — برنامج يمني: لعبة تخمين الأرقام"
+          - generic [ref=e5446]:
+            - button [ref=e5447]:
+              - img [ref=e5448]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e5451]: استيراد الأرقام العشوائية وتخمين المستخدم
+        - generic [ref=e5455]:
+          - button [ref=e5456]:
+            - img [ref=e5457]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5460]: "المقارنة الأولى: هل التخمين صحيح؟"
+        - generic [ref=e5464]:
+          - button [ref=e5465]:
+            - img [ref=e5466]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5469]: "تقديم التلميحات: أكبر أم أصغر؟"
+        - generic [ref=e5473]:
+          - button [ref=e5474]:
+            - img [ref=e5475]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5478]: "حلقة اللعبة: السماح بمحاولات متعددة"
+        - generic [ref=e5482]:
+          - button [ref=e5483]:
+            - img [ref=e5484]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5487]: تتبّع عدد المحاولات
+        - generic [ref=e5491]:
+          - button [ref=e5492]:
+            - img [ref=e5493]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5496]: التعامل مع المدخلات الخاطئة
+        - generic [ref=e5500]:
+          - button [ref=e5501]:
+            - img [ref=e5502]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5505]: تحديد نطاق الأرقام وجعل الكود مرناً
+        - generic [ref=e5509]:
+          - button [ref=e5510]:
+            - img [ref=e5511]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5514]: رسالة فوز مخصصة
+        - generic [ref=e5518]:
+          - button [ref=e5519]:
+            - img [ref=e5520]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5523]: تنظيم الكود في دالة
+        - generic [ref=e5527]:
+          - button [ref=e5528]:
+            - img [ref=e5529]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5532]: إضافة خيار "العب مرة أخرى"
+        - 'button "معمل بناء: النسخة الأولى من لعبة التخمين" [ref=e5536]':
+          - img [ref=e5538]
+          - generic [ref=e5540]: "معمل بناء: النسخة الأولى من لعبة التخمين"
+        - 'button "معمل تحسين: تطوير لعبة التخمين" [ref=e5544]':
+          - img [ref=e5546]
+          - generic [ref=e5548]: "معمل تحسين: تطوير لعبة التخمين"
+        - button "اختبار الوحدة" [ref=e5552] [cursor=pointer]:
+          - generic [ref=e5554]:
+            - img [ref=e5555]
+            - img [ref=e5558]
+          - generic [ref=e5564]: اختبار الوحدة
+        - generic [ref=e5565]:
+          - generic [ref=e5566]: "وحدة 9 — مشروع يمني مصغّر: نظام نقاط بيع بسيط"
+          - generic [ref=e5569]:
+            - button [ref=e5570]:
+              - img [ref=e5571]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e5574]: "إعداد قائمة الأسعار: القاموس"
+        - generic [ref=e5578]:
+          - button [ref=e5579]:
+            - img [ref=e5580]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5583]: "استقبال طلبات الزبون: حلقة while"
+        - generic [ref=e5587]:
+          - button [ref=e5588]:
+            - img [ref=e5589]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5592]: "التحقق من الطلب: `if` و `in`"
+        - generic [ref=e5596]:
+          - button [ref=e5597]:
+            - img [ref=e5598]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5601]: "بناء سلة المشتريات: القوائم"
+        - generic [ref=e5605]:
+          - button [ref=e5606]:
+            - img [ref=e5607]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5610]: "إنهاء الطلب: `break`"
+        - generic [ref=e5614]:
+          - button [ref=e5615]:
+            - img [ref=e5616]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5619]: "حساب الإجمالي: حلقة `for`"
+        - generic [ref=e5623]:
+          - button [ref=e5624]:
+            - img [ref=e5625]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5628]: "طباعة الفاتورة: f-strings"
+        - generic [ref=e5632]:
+          - button [ref=e5633]:
+            - img [ref=e5634]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5637]: التعامل مع الكميات
+        - generic [ref=e5641]:
+          - button [ref=e5642]:
+            - img [ref=e5643]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5646]: حساب الباقي
+        - generic [ref=e5650]:
+          - button [ref=e5651]:
+            - img [ref=e5652]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5655]: "تنظيم الكود: بناء دالة للمشروع"
+        - button "معمل بناء حاسبة الدكان الأساسية" [ref=e5659]:
+          - img [ref=e5661]
+          - generic [ref=e5663]: معمل بناء حاسبة الدكان الأساسية
+        - 'button "معمل تطوير نظام الدكان: الكميات والباقي" [ref=e5667]':
+          - img [ref=e5669]
+          - generic [ref=e5671]: "معمل تطوير نظام الدكان: الكميات والباقي"
+        - button "اختبار الوحدة" [ref=e5675] [cursor=pointer]:
+          - generic [ref=e5677]:
+            - img [ref=e5678]
+            - img [ref=e5681]
+          - generic [ref=e5687]: اختبار الوحدة
+        - button "اختبار المرحلة" [ref=e5691] [cursor=pointer]:
+          - generic [ref=e5693]:
+            - img [ref=e5694]
+            - img [ref=e5697]
+          - generic [ref=e5703]: اختبار المرحلة
+        - generic [ref=e5704]:
+          - generic [ref=e5705]:
+            - generic [ref=e5707]: "6"
+            - generic [ref=e5708]: المراجعة والتعميق
+          - generic [ref=e5709]: وحدة 1 — مراجعة المتغيّرات وأنواع البيانات
+          - generic [ref=e5712]:
+            - button [ref=e5713]:
+              - img [ref=e5714]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e5717]: مراجعة المتغيرات العددية (int, float)
+        - generic [ref=e5721]:
+          - button [ref=e5722]:
+            - img [ref=e5723]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5726]: مراجعة النصوص (str) وتنسيقها
+        - generic [ref=e5730]:
+          - button [ref=e5731]:
+            - img [ref=e5732]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5735]: مراجعة القيم المنطقية (bool) والشروط
+        - generic [ref=e5739]:
+          - button [ref=e5740]:
+            - img [ref=e5741]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5744]: التحويل بين أنواع البيانات (Type Casting)
+        - generic [ref=e5748]:
+          - button [ref=e5749]:
+            - img [ref=e5750]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5753]: دقة الأرقام العشرية (float) ومشاكلها
+        - generic [ref=e5757]:
+          - button [ref=e5758]:
+            - img [ref=e5759]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5762]: النصوص متعددة الأسطر وفواصل الهروب
+        - generic [ref=e5766]:
+          - button [ref=e5767]:
+            - img [ref=e5768]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5771]: الاستدلال على النوع (Type Inference)
+        - generic [ref=e5775]:
+          - button [ref=e5776]:
+            - img [ref=e5777]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5780]: المتغيرات كعناوين في الذاكرة (مقدمة)
+        - generic [ref=e5784]:
+          - button [ref=e5785]:
+            - img [ref=e5786]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5789]: "الثوابت المدمجة: None, True, False"
+        - generic [ref=e5793]:
+          - button [ref=e5794]:
+            - img [ref=e5795]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5798]: مراجعة شاملة وتطبيق عملي
+        - 'button "معمل الصرافة: تحويل العملات" [ref=e5802]':
+          - img [ref=e5804]
+          - generic [ref=e5806]: "معمل الصرافة: تحويل العملات"
+        - button "معمل مخزون البن اليمني" [ref=e5810]:
+          - img [ref=e5812]
+          - generic [ref=e5814]: معمل مخزون البن اليمني
+        - button "اختبار الوحدة" [ref=e5818] [cursor=pointer]:
+          - generic [ref=e5820]:
+            - img [ref=e5821]
+            - img [ref=e5824]
+          - generic [ref=e5830]: اختبار الوحدة
+        - generic [ref=e5831]:
+          - generic [ref=e5832]: وحدة 2 — مراجعة العمليات الحسابية والمنطقية
+          - generic [ref=e5835]:
+            - button [ref=e5836]:
+              - img [ref=e5837]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e5840]: أولوية العمليات الحسابية
+        - generic [ref=e5844]:
+          - button [ref=e5845]:
+            - img [ref=e5846]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5849]: قوة الأقواس في تغيير الأولوية
+        - generic [ref=e5853]:
+          - button [ref=e5854]:
+            - img [ref=e5855]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5858]: القسمة الصحيحة وباقي القسمة
+        - generic [ref=e5862]:
+          - button [ref=e5863]:
+            - img [ref=e5864]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5867]: أولوية العوامل المنطقية
+        - generic [ref=e5871]:
+          - button [ref=e5872]:
+            - img [ref=e5873]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5876]: دمج العمليات الحسابية والمنطقية
+        - generic [ref=e5880]:
+          - button [ref=e5881]:
+            - img [ref=e5882]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5885]: التعابير المعقدة وتوقع النتائج
+        - generic [ref=e5889]:
+          - button [ref=e5890]:
+            - img [ref=e5891]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5894]: مقدمة إلى العمليات الثنائية (Bitwise)
+        - generic [ref=e5898]:
+          - button [ref=e5899]:
+            - img [ref=e5900]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5903]: عمليات الإزاحة الثنائية
+        - generic [ref=e5907]:
+          - button [ref=e5908]:
+            - img [ref=e5909]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5912]: "تطبيق عملي: بناء حاسبة صرافة معقدة"
+        - generic [ref=e5916]:
+          - button [ref=e5917]:
+            - img [ref=e5918]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5921]: مراجعة شاملة وتصحيح الأخطاء
+        - button "منظّم فاتورة الكهرباء والماء" [ref=e5925]:
+          - img [ref=e5927]
+          - generic [ref=e5929]: منظّم فاتورة الكهرباء والماء
+        - button "نظام إدارة أذونات المستخدمين في صيدلية" [ref=e5933]:
+          - img [ref=e5935]
+          - generic [ref=e5937]: نظام إدارة أذونات المستخدمين في صيدلية
+        - button "اختبار الوحدة" [ref=e5941] [cursor=pointer]:
+          - generic [ref=e5943]:
+            - img [ref=e5944]
+            - img [ref=e5947]
+          - generic [ref=e5953]: اختبار الوحدة
+        - generic [ref=e5954]:
+          - generic [ref=e5955]: وحدة 3 — مراجعة الشروط المتقدمة
+          - generic [ref=e5958]:
+            - button [ref=e5959]:
+              - img [ref=e5960]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e5963]: الشروط المركبة باستخدام 'and'
+        - generic [ref=e5967]:
+          - button [ref=e5968]:
+            - img [ref=e5969]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5972]: الشروط المركبة باستخدام 'or'
+        - generic [ref=e5976]:
+          - button [ref=e5977]:
+            - img [ref=e5978]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5981]: عكس الشروط باستخدام 'not'
+        - generic [ref=e5985]:
+          - button [ref=e5986]:
+            - img [ref=e5987]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5990]: الشروط المتداخلة (Nested If)
+        - generic [ref=e5994]:
+          - button [ref=e5995]:
+            - img [ref=e5996]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e5999]: تبسيط الشروط المتداخلة بـ 'and'
+        - generic [ref=e6003]:
+          - button [ref=e6004]:
+            - img [ref=e6005]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6008]: أسبقية العوامل المنطقية
+        - generic [ref=e6012]:
+          - button [ref=e6013]:
+            - img [ref=e6014]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6017]: قوانين دي مورغان (بشكل ضمني)
+        - generic [ref=e6021]:
+          - button [ref=e6022]:
+            - img [ref=e6023]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6026]: استخدام المتغيرات المنطقية (الأعلام)
+        - generic [ref=e6030]:
+          - button [ref=e6031]:
+            - img [ref=e6032]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6035]: التعبير الشرطي (عامل الثلاثية)
+        - generic [ref=e6039]:
+          - button [ref=e6040]:
+            - img [ref=e6041]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6044]: "مراجعة شاملة: سيناريو الصرافة"
+        - button "حاسبة فاتورة الكهرباء الذكية" [ref=e6048]:
+          - img [ref=e6050]
+          - generic [ref=e6052]: حاسبة فاتورة الكهرباء الذكية
+        - button "فلتر المتقدمين للوظائف" [ref=e6056]:
+          - img [ref=e6058]
+          - generic [ref=e6060]: فلتر المتقدمين للوظائف
+        - button "اختبار الوحدة" [ref=e6064] [cursor=pointer]:
+          - generic [ref=e6066]:
+            - img [ref=e6067]
+            - img [ref=e6070]
+          - generic [ref=e6076]: اختبار الوحدة
+        - generic [ref=e6077]:
+          - generic [ref=e6078]: وحدة 4 — مراجعة الحلقات المتقدمة
+          - generic [ref=e6081]:
+            - button [ref=e6082]:
+              - img [ref=e6083]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e6086]: مراجعة الحلقات المتداخلة
+        - generic [ref=e6090]:
+          - button [ref=e6091]:
+            - img [ref=e6092]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6095]: أنماط الحلقات المتداخلة
+        - generic [ref=e6099]:
+          - button [ref=e6100]:
+            - img [ref=e6101]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6104]: "الخروج المبكر من الحلقات: `break`"
+        - generic [ref=e6108]:
+          - button [ref=e6109]:
+            - img [ref=e6110]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6113]: "تخطي التكرارات: `continue`"
+        - generic [ref=e6117]:
+          - button [ref=e6118]:
+            - img [ref=e6119]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6122]: "الحلقة `while` مع الشروط المعقدة"
+        - generic [ref=e6126]:
+          - button [ref=e6127]:
+            - img [ref=e6128]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6131]: كفاءة الحلقات
+        - generic [ref=e6135]:
+          - button [ref=e6136]:
+            - img [ref=e6137]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6140]: استراتيجيات الخروج من الحلقات المتداخلة
+        - generic [ref=e6144]:
+          - button [ref=e6145]:
+            - img [ref=e6146]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6149]: مقدمة للمُكرِّرات (Iterators)
+        - generic [ref=e6153]:
+          - button [ref=e6154]:
+            - img [ref=e6155]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6158]: "الحلقة `for...else`"
+        - generic [ref=e6162]:
+          - button [ref=e6163]:
+            - img [ref=e6164]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6167]: "تطبيق عملي: تحليل فواتير دكان"
+        - 'button "معمل: منظّم جدول الكهرباء الأسبوعي" [ref=e6171]':
+          - img [ref=e6173]
+          - generic [ref=e6175]: "معمل: منظّم جدول الكهرباء الأسبوعي"
+        - 'button "معمل: نظام جرد مخزون البن اليمني" [ref=e6179]':
+          - img [ref=e6181]
+          - generic [ref=e6183]: "معمل: نظام جرد مخزون البن اليمني"
+        - button "اختبار الوحدة" [ref=e6187] [cursor=pointer]:
+          - generic [ref=e6189]:
+            - img [ref=e6190]
+            - img [ref=e6193]
+          - generic [ref=e6199]: اختبار الوحدة
+        - generic [ref=e6200]:
+          - generic [ref=e6201]: وحدة 5 — حل مسائل برمجية متنوعة
+          - generic [ref=e6204]:
+            - button [ref=e6205]:
+              - img [ref=e6206]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e6209]: "تفكيك المشكلة: من فكرة إلى خطوات"
+        - generic [ref=e6213]:
+          - button [ref=e6214]:
+            - img [ref=e6215]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6218]: "تطبيق عملي: حاسبة العملات"
+        - generic [ref=e6222]:
+          - button [ref=e6223]:
+            - img [ref=e6224]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6227]: "تحدي الحلقات: تعقب استهلاك باقة الإنترنت"
+        - generic [ref=e6231]:
+          - button [ref=e6232]:
+            - img [ref=e6233]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6236]: "تطبيق عملي: قائمة مشتريات السوق"
+        - generic [ref=e6240]:
+          - button [ref=e6241]:
+            - img [ref=e6242]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6245]: "التحكم في الحلقات: `break` و `continue`"
+        - generic [ref=e6249]:
+          - button [ref=e6250]:
+            - img [ref=e6251]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6254]: "الحلقات المتداخلة: جدول الضرب وجداول الكهرباء"
+        - generic [ref=e6258]:
+          - button [ref=e6259]:
+            - img [ref=e6260]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6263]: "تحدي المنطق: حساب معدل الطالب وتصنيفه"
+        - generic [ref=e6267]:
+          - button [ref=e6268]:
+            - img [ref=e6269]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6272]: "مشروع صغير: فاتورة كافتيريا بسيطة"
+        - generic [ref=e6276]:
+          - button [ref=e6277]:
+            - img [ref=e6278]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6281]: "تصحيح الأخطاء (Debugging): مطاردة الأخطاء الشائعة"
+        - generic [ref=e6285]:
+          - button [ref=e6286]:
+            - img [ref=e6287]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6290]: "مراجعة وتجميع: بناء برنامج متكامل"
+        - 'button "معمل بناء: حاسبة أجرة الباص" [ref=e6294]':
+          - img [ref=e6296]
+          - generic [ref=e6298]: "معمل بناء: حاسبة أجرة الباص"
+        - 'button "معمل التحدي: منظّم جدول الكهرباء" [ref=e6302]':
+          - img [ref=e6304]
+          - generic [ref=e6306]: "معمل التحدي: منظّم جدول الكهرباء"
+        - button "اختبار الوحدة" [ref=e6310] [cursor=pointer]:
+          - generic [ref=e6312]:
+            - img [ref=e6313]
+            - img [ref=e6316]
+          - generic [ref=e6322]: اختبار الوحدة
+        - generic [ref=e6323]:
+          - generic [ref=e6324]: وحدة 6 — تحليل كود جاهز (Code Analysis)
+          - generic [ref=e6327]:
+            - button [ref=e6328]:
+              - img [ref=e6329]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e6332]: قراءة الكود وتوقّع المخرجات
+        - generic [ref=e6336]:
+          - button [ref=e6337]:
+            - img [ref=e6338]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6341]: تتبّع حالة المتغيّرات
+        - generic [ref=e6345]:
+          - button [ref=e6346]:
+            - img [ref=e6347]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6350]: "فهم تدفق التحكم: الشروط"
+        - generic [ref=e6354]:
+          - button [ref=e6355]:
+            - img [ref=e6356]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6359]: "فهم تدفق التحكم: الحلقات"
+        - generic [ref=e6363]:
+          - button [ref=e6364]:
+            - img [ref=e6365]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6368]: تحديد وظيفة الكود
+        - generic [ref=e6372]:
+          - button [ref=e6373]:
+            - img [ref=e6374]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6377]: اكتشاف الأنماط والتكرار
+        - generic [ref=e6381]:
+          - button [ref=e6382]:
+            - img [ref=e6383]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6386]: تحليل المخرجات الدقيقة
+        - generic [ref=e6390]:
+          - button [ref=e6391]:
+            - img [ref=e6392]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6395]: البحث عن الأخطاء المنطقية
+        - generic [ref=e6399]:
+          - button [ref=e6400]:
+            - img [ref=e6401]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6404]: إعادة بناء الخوارزمية من الكود
+        - generic [ref=e6408]:
+          - button [ref=e6409]:
+            - img [ref=e6410]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6413]: تحليل كود غير مألوف
+        - 'button "معمل تحليل: فاتورة دكان العم صالح" [ref=e6417]':
+          - img [ref=e6419]
+          - generic [ref=e6421]: "معمل تحليل: فاتورة دكان العم صالح"
+        - 'button "معمل تحليل: متتبع جدول الكهرباء" [ref=e6425]':
+          - img [ref=e6427]
+          - generic [ref=e6429]: "معمل تحليل: متتبع جدول الكهرباء"
+        - button "اختبار الوحدة" [ref=e6433] [cursor=pointer]:
+          - generic [ref=e6435]:
+            - img [ref=e6436]
+            - img [ref=e6439]
+          - generic [ref=e6445]: اختبار الوحدة
+        - generic [ref=e6446]:
+          - generic [ref=e6447]: وحدة 7 — تحسين كفاءة الكود البسيط
+          - generic [ref=e6450]:
+            - button [ref=e6451]:
+              - img [ref=e6452]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e6455]: تجنب العمليات المتكررة داخل الحلقات
+        - generic [ref=e6459]:
+          - button [ref=e6460]:
+            - img [ref=e6461]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6464]: مقدمة بسيطة لتعقيد الوقت (Time Complexity)
+        - generic [ref=e6468]:
+          - button [ref=e6469]:
+            - img [ref=e6470]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6473]: مقدمة بسيطة لتعقيد المساحة (Space Complexity)
+        - generic [ref=e6477]:
+          - button [ref=e6478]:
+            - img [ref=e6479]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6482]: إعادة الهيكلة (Refactoring) لجعل الكود أوضح
+        - generic [ref=e6486]:
+          - button [ref=e6487]:
+            - img [ref=e6488]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6491]: "كفاءة دمج النصوص: join مقابل +"
+        - generic [ref=e6495]:
+          - button [ref=e6496]:
+            - img [ref=e6497]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6500]: "قياس الأداء عملياً باستخدام وحدة `time`"
+        - generic [ref=e6504]:
+          - button [ref=e6505]:
+            - img [ref=e6506]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6509]: "الكفاءة في البحث: البحث الخطي"
+        - generic [ref=e6513]:
+          - button [ref=e6514]:
+            - img [ref=e6515]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6518]: "الكفاءة في البحث: قوة القائمة المرتبة"
+        - generic [ref=e6522]:
+          - button [ref=e6523]:
+            - img [ref=e6524]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6527]: التخزين المؤقت (Caching) البسيط لتجنب إعادة الحساب
+        - generic [ref=e6531]:
+          - button [ref=e6532]:
+            - img [ref=e6533]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6536]: "دراسة حالة: تحسين فاتورة دكان"
+        - button "معمل تحسين تقرير مبيعات البن اليومي" [ref=e6540]:
+          - img [ref=e6542]
+          - generic [ref=e6544]: معمل تحسين تقرير مبيعات البن اليومي
+        - button "معمل تنظيم جدول انقطاع الكهرباء" [ref=e6548]:
+          - img [ref=e6550]
+          - generic [ref=e6552]: معمل تنظيم جدول انقطاع الكهرباء
+        - button "اختبار الوحدة" [ref=e6556] [cursor=pointer]:
+          - generic [ref=e6558]:
+            - img [ref=e6559]
+            - img [ref=e6562]
+          - generic [ref=e6568]: اختبار الوحدة
+        - generic [ref=e6569]:
+          - generic [ref=e6570]: وحدة 8 — كتابة كود نظيف ومقروء (PEP 8 basics)
+          - generic [ref=e6573]:
+            - button [ref=e6574]:
+              - img [ref=e6575]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e6578]: لماذا الكود النظيف؟ مقدمة إلى PEP 8
+        - generic [ref=e6582]:
+          - button [ref=e6583]:
+            - img [ref=e6584]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6587]: اصطلاحات التسمية (Naming Conventions)
+        - generic [ref=e6591]:
+          - button [ref=e6592]:
+            - img [ref=e6593]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6596]: المسافات البادئة والمسافات البيضاء
+        - generic [ref=e6600]:
+          - button [ref=e6601]:
+            - img [ref=e6602]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6605]: طول الأسطر والتعليقات الفعالة
+        - generic [ref=e6609]:
+          - button [ref=e6610]:
+            - img [ref=e6611]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6614]: "تنظيم جمل `import`"
+        - generic [ref=e6618]:
+          - button [ref=e6619]:
+            - img [ref=e6620]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6623]: استخدام الثوابت (Constants)
+        - generic [ref=e6627]:
+          - button [ref=e6628]:
+            - img [ref=e6629]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6632]: مبدأ لا تكرر نفسك (DRY)
+        - generic [ref=e6636]:
+          - button [ref=e6637]:
+            - img [ref=e6638]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6641]: التوثيق البسيط باستخدام Docstrings
+        - generic [ref=e6645]:
+          - button [ref=e6646]:
+            - img [ref=e6647]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6650]: "الكتابة الدفاعية: التحقق من المدخلات"
+        - generic [ref=e6654]:
+          - button [ref=e6655]:
+            - img [ref=e6656]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6659]: "مراجعة شاملة: إعادة هيكلة كود فوضوي"
+        - button "إعادة هيكلة حاسبة فاتورة الدكان" [ref=e6663]:
+          - img [ref=e6665]
+          - generic [ref=e6667]: إعادة هيكلة حاسبة فاتورة الدكان
+        - button "تحسين أداة تحويل العملات" [ref=e6671]:
+          - img [ref=e6673]
+          - generic [ref=e6675]: تحسين أداة تحويل العملات
+        - button "اختبار الوحدة" [ref=e6679] [cursor=pointer]:
+          - generic [ref=e6681]:
+            - img [ref=e6682]
+            - img [ref=e6685]
+          - generic [ref=e6691]: اختبار الوحدة
+        - generic [ref=e6692]:
+          - generic [ref=e6693]: "وحدة 9 — تحدي برمجي: بناء نظام تقييم طلابي بسيط"
+          - generic [ref=e6696]:
+            - button [ref=e6697]:
+              - img [ref=e6698]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e6701]: "الخطوة الأولى: إدخال بيانات طالب واحد"
+        - generic [ref=e6705]:
+          - button [ref=e6706]:
+            - img [ref=e6707]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6710]: "اتخاذ القرارات: تحديد التقدير"
+        - generic [ref=e6714]:
+          - button [ref=e6715]:
+            - img [ref=e6716]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6719]: التحقق من صحة المدخلات
+        - generic [ref=e6723]:
+          - button [ref=e6724]:
+            - img [ref=e6725]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6728]: "التكرار: معالجة عدة طلاب بحلقة `for`"
+        - generic [ref=e6732]:
+          - button [ref=e6733]:
+            - img [ref=e6734]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6737]: "التكرار المرن: حلقة `while` وقيمة التوقف"
+        - generic [ref=e6741]:
+          - button [ref=e6742]:
+            - img [ref=e6743]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6746]: "تجميع البيانات: حساب المجموع والعدد"
+        - generic [ref=e6750]:
+          - button [ref=e6751]:
+            - img [ref=e6752]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6755]: "التحليل الإحصائي: حساب المتوسط"
+        - generic [ref=e6759]:
+          - button [ref=e6760]:
+            - img [ref=e6761]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6764]: "إيجاد القيم المتطرفة: أعلى وأدنى درجة"
+        - generic [ref=e6768]:
+          - button [ref=e6769]:
+            - img [ref=e6770]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6773]: "تجميع كل الأجزاء: البرنامج الكامل"
+        - generic [ref=e6777]:
+          - button [ref=e6778]:
+            - img [ref=e6779]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6782]: "تحسينات أخيرة: التنسيق والتعليقات"
+        - 'button "معمل بناء: حاسبة فاتورة كافتيريا الجامعة" [ref=e6786]':
+          - img [ref=e6788]
+          - generic [ref=e6790]: "معمل بناء: حاسبة فاتورة كافتيريا الجامعة"
+        - 'button "معمل تحليل: متتبع انقطاع الكهرباء الأسبوعي" [ref=e6794]':
+          - img [ref=e6796]
+          - generic [ref=e6798]: "معمل تحليل: متتبع انقطاع الكهرباء الأسبوعي"
+        - button "اختبار الوحدة" [ref=e6802] [cursor=pointer]:
+          - generic [ref=e6804]:
+            - img [ref=e6805]
+            - img [ref=e6808]
+          - generic [ref=e6814]: اختبار الوحدة
+        - button "اختبار المرحلة" [ref=e6818] [cursor=pointer]:
+          - generic [ref=e6820]:
+            - img [ref=e6821]
+            - img [ref=e6824]
+          - generic [ref=e6830]: اختبار المرحلة
+        - generic [ref=e6831]:
+          - generic [ref=e6832]:
+            - generic [ref=e6834]: "7"
+            - generic [ref=e6835]: اختبار المستوى الأول
+          - generic [ref=e6836]: وحدة 1 — امتحان الوحدة 1.1
+          - generic [ref=e6839]:
+            - button [ref=e6840]:
+              - img [ref=e6841]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e6844]: "أول كود: الطباعة على الشاشة"
+        - generic [ref=e6848]:
+          - button [ref=e6849]:
+            - img [ref=e6850]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6853]: العمليات الحسابية البسيطة
+        - generic [ref=e6857]:
+          - button [ref=e6858]:
+            - img [ref=e6859]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6862]: "المتغيرات: تخزين البيانات"
+        - generic [ref=e6866]:
+          - button [ref=e6867]:
+            - img [ref=e6868]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6871]: "التفاعل مع المستخدم: دالة input"
+        - generic [ref=e6875]:
+          - button [ref=e6876]:
+            - img [ref=e6877]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6880]: "تحويل الأنواع: int و str"
+        - generic [ref=e6884]:
+          - button [ref=e6885]:
+            - img [ref=e6886]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6889]: الأعداد العشرية float والعمليات عليها
+        - generic [ref=e6893]:
+          - button [ref=e6894]:
+            - img [ref=e6895]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6898]: "دمج النصوص بطريقة احترافية: f-strings"
+        - generic [ref=e6902]:
+          - button [ref=e6903]:
+            - img [ref=e6904]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6907]: أولوية العمليات الحسابية
+        - generic [ref=e6911]:
+          - button [ref=e6912]:
+            - img [ref=e6913]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6916]: عوامل الإسناد المختصرة
+        - generic [ref=e6920]:
+          - button [ref=e6921]:
+            - img [ref=e6922]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6925]: "مشروع صغير: حاسبة الدكان"
+        - 'button "معمل الصرافة: تحويل العملات" [ref=e6929]':
+          - img [ref=e6931]
+          - generic [ref=e6933]: "معمل الصرافة: تحويل العملات"
+        - 'button "معمل المطعم: حساب فاتورة كافتيريا" [ref=e6937]':
+          - img [ref=e6939]
+          - generic [ref=e6941]: "معمل المطعم: حساب فاتورة كافتيريا"
+        - button "اختبار الوحدة" [ref=e6945] [cursor=pointer]:
+          - generic [ref=e6947]:
+            - img [ref=e6948]
+            - img [ref=e6951]
+          - generic [ref=e6957]: اختبار الوحدة
+        - generic [ref=e6958]:
+          - generic [ref=e6959]: وحدة 2 — امتحان الوحدة 1.2
+          - generic [ref=e6962]:
+            - button [ref=e6963]:
+              - img [ref=e6964]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e6967]: "الشرط الأول: كلمة if السحرية"
+        - generic [ref=e6971]:
+          - button [ref=e6972]:
+            - img [ref=e6973]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6976]: "الخيار الآخر: `else`"
+        - generic [ref=e6980]:
+          - button [ref=e6981]:
+            - img [ref=e6982]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6985]: "أدوات المقارنة: `==`, `!=`, `>`, `<`"
+        - generic [ref=e6989]:
+          - button [ref=e6990]:
+            - img [ref=e6991]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e6994]: "شروط متعددة: `elif`"
+        - generic [ref=e6998]:
+          - button [ref=e6999]:
+            - img [ref=e7000]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7003]: "الشرط المزدوج: `and`"
+        - generic [ref=e7007]:
+          - button [ref=e7008]:
+            - img [ref=e7009]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7012]: "أحد الخيارين يكفي: `or`"
+        - generic [ref=e7016]:
+          - button [ref=e7017]:
+            - img [ref=e7018]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7021]: "عكس الشروط: `not`"
+        - generic [ref=e7025]:
+          - button [ref=e7026]:
+            - img [ref=e7027]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7030]: "الشروط المتداخلة: `if` داخل `if`"
+        - generic [ref=e7034]:
+          - button [ref=e7035]:
+            - img [ref=e7036]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7039]: تجميع الشروط المعقدة
+        - generic [ref=e7043]:
+          - button [ref=e7044]:
+            - img [ref=e7045]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7048]: "الاختصار الأنيق: التعبير الشرطي"
+        - button "معمل حاسبة فاتورة الكهرباء" [ref=e7052]:
+          - img [ref=e7054]
+          - generic [ref=e7056]: معمل حاسبة فاتورة الكهرباء
+        - button "معمل نظام تصنيف جودة البن اليمني" [ref=e7060]:
+          - img [ref=e7062]
+          - generic [ref=e7064]: معمل نظام تصنيف جودة البن اليمني
+        - button "اختبار الوحدة" [ref=e7068] [cursor=pointer]:
+          - generic [ref=e7070]:
+            - img [ref=e7071]
+            - img [ref=e7074]
+          - generic [ref=e7080]: اختبار الوحدة
+        - generic [ref=e7081]:
+          - generic [ref=e7082]: وحدة 3 — امتحان الوحدة 1.3
+          - generic [ref=e7085]:
+            - button [ref=e7086]:
+              - img [ref=e7087]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e7090]: "حلقة for: التكرار على القوائم"
+        - generic [ref=e7094]:
+          - button [ref=e7095]:
+            - img [ref=e7096]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7099]: "دالة range(): التكرار لعدد معين من المرات"
+        - generic [ref=e7103]:
+          - button [ref=e7104]:
+            - img [ref=e7105]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7108]: "حلقة while: التكرار طالما الشرط صحيح"
+        - generic [ref=e7112]:
+          - button [ref=e7113]:
+            - img [ref=e7114]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7117]: "التحكم في الحلقات: break"
+        - generic [ref=e7121]:
+          - button [ref=e7122]:
+            - img [ref=e7123]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7126]: "التحكم في الحلقات: continue"
+        - generic [ref=e7130]:
+          - button [ref=e7131]:
+            - img [ref=e7132]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7135]: الحلقات المتداخلة (Nested Loops)
+        - generic [ref=e7139]:
+          - button [ref=e7140]:
+            - img [ref=e7141]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7144]: كتلة else مع الحلقات
+        - generic [ref=e7148]:
+          - button [ref=e7149]:
+            - img [ref=e7150]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7153]: نمط التجميع (Accumulator Pattern)
+        - generic [ref=e7157]:
+          - button [ref=e7158]:
+            - img [ref=e7159]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7162]: التكرار على السلاسل النصية والقواميس
+        - generic [ref=e7166]:
+          - button [ref=e7167]:
+            - img [ref=e7168]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7171]: مراجعة وتطبيقات عملية على الحلقات
+        - 'button "معمل: حاسبة فاتورة البقالة" [ref=e7175]':
+          - img [ref=e7177]
+          - generic [ref=e7179]: "معمل: حاسبة فاتورة البقالة"
+        - 'button "معمل: متتبع جدول الكهرباء" [ref=e7183]':
+          - img [ref=e7185]
+          - generic [ref=e7187]: "معمل: متتبع جدول الكهرباء"
+        - button "اختبار الوحدة" [ref=e7191] [cursor=pointer]:
+          - generic [ref=e7193]:
+            - img [ref=e7194]
+            - img [ref=e7197]
+          - generic [ref=e7203]: اختبار الوحدة
+        - generic [ref=e7204]:
+          - generic [ref=e7205]: وحدة 4 — امتحان الوحدة 1.4
+          - generic [ref=e7208]:
+            - button [ref=e7209]:
+              - img [ref=e7210]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e7213]: فهم أخطاء الصياغة (SyntaxError)
+        - generic [ref=e7217]:
+          - button [ref=e7218]:
+            - img [ref=e7219]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7222]: إصلاح أخطاء المسافة البادئة (IndentationError)
+        - generic [ref=e7226]:
+          - button [ref=e7227]:
+            - img [ref=e7228]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7231]: مطاردة أخطاء الأسماء (NameError)
+        - generic [ref=e7235]:
+          - button [ref=e7236]:
+            - img [ref=e7237]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7240]: التعامل مع أخطاء الأنواع (TypeError)
+        - generic [ref=e7244]:
+          - button [ref=e7245]:
+            - img [ref=e7246]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7249]: تجنب أخطاء الفهرسة (IndexError)
+        - generic [ref=e7253]:
+          - button [ref=e7254]:
+            - img [ref=e7255]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7258]: مفاتيح القواميس المفقودة (KeyError)
+        - generic [ref=e7262]:
+          - button [ref=e7263]:
+            - img [ref=e7264]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7267]: أخطاء القيمة عند التحويل (ValueError)
+        - generic [ref=e7271]:
+          - button [ref=e7272]:
+            - img [ref=e7273]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7276]: الأخطاء المنطقية (Logical Errors)
+        - generic [ref=e7280]:
+          - button [ref=e7281]:
+            - img [ref=e7282]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7285]: التعامل بأمان مع الأخطاء (try...except)
+        - generic [ref=e7289]:
+          - button [ref=e7290]:
+            - img [ref=e7291]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7294]: منهجية تصحيح الأخطاء (Debugging Workflow)
+        - button "معمل تصحيح أخطاء حاسبة الصرافة" [ref=e7298]:
+          - img [ref=e7300]
+          - generic [ref=e7302]: معمل تصحيح أخطاء حاسبة الصرافة
+        - button "معمل إصلاح برنامج تتبع مخزون البقالة" [ref=e7306]:
+          - img [ref=e7308]
+          - generic [ref=e7310]: معمل إصلاح برنامج تتبع مخزون البقالة
+        - button "اختبار الوحدة" [ref=e7314] [cursor=pointer]:
+          - generic [ref=e7316]:
+            - img [ref=e7317]
+            - img [ref=e7320]
+          - generic [ref=e7326]: اختبار الوحدة
+        - generic [ref=e7327]:
+          - generic [ref=e7328]: وحدة 5 — امتحان الوحدة 1.5
+          - generic [ref=e7331]:
+            - button [ref=e7332]:
+              - img [ref=e7333]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e7336]: "أول برنامج تفاعلي: أهلاً بك!"
+        - generic [ref=e7340]:
+          - button [ref=e7341]:
+            - img [ref=e7342]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7345]: "تحويل الأنواع: من نص إلى رقم"
+        - generic [ref=e7349]:
+          - button [ref=e7350]:
+            - img [ref=e7351]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7354]: "بناء حاسبة بسيطة: تحويل العملات"
+        - generic [ref=e7358]:
+          - button [ref=e7359]:
+            - img [ref=e7360]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7363]: "التحقق من المدخلات: الشروط (if)"
+        - generic [ref=e7367]:
+          - button [ref=e7368]:
+            - img [ref=e7369]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7372]: "الإصرار على المدخل الصحيح: حلقة while"
+        - generic [ref=e7376]:
+          - button [ref=e7377]:
+            - img [ref=e7378]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7381]: "التعامل مع الأخطاء: try و except"
+        - generic [ref=e7385]:
+          - button [ref=e7386]:
+            - img [ref=e7387]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7390]: بناء قائمة خيارات (Menu)
+        - generic [ref=e7394]:
+          - button [ref=e7395]:
+            - img [ref=e7396]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7399]: "جعل القائمة مستمرة: الحلقة الرئيسية"
+        - generic [ref=e7403]:
+          - button [ref=e7404]:
+            - img [ref=e7405]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7408]: "تنظيم الكود: التعليقات والوضوح"
+        - generic [ref=e7412]:
+          - button [ref=e7413]:
+            - img [ref=e7414]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7417]: "مشروع صغير: حاسبة فواتير الدكان"
+        - 'button "معمل: منظم جدول انقطاع الكهرباء" [ref=e7421]':
+          - img [ref=e7423]
+          - generic [ref=e7425]: "معمل: منظم جدول انقطاع الكهرباء"
+        - 'button "معمل: حاسبة صيدلية بسيطة" [ref=e7429]':
+          - img [ref=e7431]
+          - generic [ref=e7433]: "معمل: حاسبة صيدلية بسيطة"
+        - button "اختبار الوحدة" [ref=e7437] [cursor=pointer]:
+          - generic [ref=e7439]:
+            - img [ref=e7440]
+            - img [ref=e7443]
+          - generic [ref=e7449]: اختبار الوحدة
+        - generic [ref=e7450]:
+          - generic [ref=e7451]: وحدة 6 — امتحان الوحدة 1.6
+          - generic [ref=e7454]:
+            - button [ref=e7455]:
+              - img [ref=e7456]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e7459]: قراءة الكود وتتبّع التنفيذ
+        - generic [ref=e7463]:
+          - button [ref=e7464]:
+            - img [ref=e7465]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7468]: التعليقات وأسماء المتغيرات الواضحة
+        - generic [ref=e7472]:
+          - button [ref=e7473]:
+            - img [ref=e7474]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7477]: مبدأ لا تكرر نفسك (DRY)
+        - generic [ref=e7481]:
+          - button [ref=e7482]:
+            - img [ref=e7483]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7486]: تحليل الشروط المعقدة وتبسيطها
+        - generic [ref=e7490]:
+          - button [ref=e7491]:
+            - img [ref=e7492]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7495]: تحليل الأخطاء المنطقية
+        - generic [ref=e7499]:
+          - button [ref=e7500]:
+            - img [ref=e7501]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7504]: إعادة الهيكلة (Refactoring)
+        - generic [ref=e7508]:
+          - button [ref=e7509]:
+            - img [ref=e7510]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7513]: مقدمة في تحليل الأداء
+        - generic [ref=e7517]:
+          - button [ref=e7518]:
+            - img [ref=e7519]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7522]: مقدمة إلى إرشادات PEP 8
+        - generic [ref=e7526]:
+          - button [ref=e7527]:
+            - img [ref=e7528]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7531]: التعامل مع حالات الإدخال الخاطئة
+        - generic [ref=e7535]:
+          - button [ref=e7536]:
+            - img [ref=e7537]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7540]: مراجعة كود الزملاء (Peer Code Review)
+        - button "تحسين برنامج فاتورة دكان" [ref=e7544]:
+          - img [ref=e7546]
+          - generic [ref=e7548]: تحسين برنامج فاتورة دكان
+        - button "تحليل وتقوية برنامج تتبع انقطاع الكهرباء" [ref=e7552]:
+          - img [ref=e7554]
+          - generic [ref=e7556]: تحليل وتقوية برنامج تتبع انقطاع الكهرباء
+        - button "اختبار الوحدة" [ref=e7560] [cursor=pointer]:
+          - generic [ref=e7562]:
+            - img [ref=e7563]
+            - img [ref=e7566]
+          - generic [ref=e7572]: اختبار الوحدة
+        - generic [ref=e7573]:
+          - generic [ref=e7574]: "وحدة 7 — مشروع عملي: محاكاة عملية صرف عملات"
+          - generic [ref=e7577]:
+            - button [ref=e7578]:
+              - img [ref=e7579]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e7582]: "الخطوة الأولى: استقبال المبلغ من المستخدم"
+        - generic [ref=e7586]:
+          - button [ref=e7587]:
+            - img [ref=e7588]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7591]: تحديد أسعار الصرف الثابتة
+        - generic [ref=e7595]:
+          - button [ref=e7596]:
+            - img [ref=e7597]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7600]: "اتخاذ القرار: تحديد اتجاه التحويل"
+        - generic [ref=e7604]:
+          - button [ref=e7605]:
+            - img [ref=e7606]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7609]: تنفيذ أول عملية تحويل
+        - generic [ref=e7613]:
+          - button [ref=e7614]:
+            - img [ref=e7615]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7618]: "توسيع البرنامج: دعم كل اتجاهات التحويل"
+        - generic [ref=e7622]:
+          - button [ref=e7623]:
+            - img [ref=e7624]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7627]: "التكرار: السماح بعمليات تحويل متعددة"
+        - generic [ref=e7631]:
+          - button [ref=e7632]:
+            - img [ref=e7633]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7636]: "تحصين البرنامج: التعامل مع الأخطاء"
+        - generic [ref=e7640]:
+          - button [ref=e7641]:
+            - img [ref=e7642]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7645]: "التنظيم: استخدام الدوال"
+        - generic [ref=e7649]:
+          - button [ref=e7650]:
+            - img [ref=e7651]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7654]: "تطوير الكود: استخدام القواميس لأسعار الصرف"
+        - generic [ref=e7658]:
+          - button [ref=e7659]:
+            - img [ref=e7660]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7663]: اللمسات الأخيرة والمراجعة
+        - button "معمل الصراف المبتدئ" [ref=e7667]:
+          - img [ref=e7669]
+          - generic [ref=e7671]: معمل الصراف المبتدئ
+        - button "معمل الصراف المحترف" [ref=e7675]:
+          - img [ref=e7677]
+          - generic [ref=e7679]: معمل الصراف المحترف
+        - button "اختبار الوحدة" [ref=e7683] [cursor=pointer]:
+          - generic [ref=e7685]:
+            - img [ref=e7686]
+            - img [ref=e7689]
+          - generic [ref=e7695]: اختبار الوحدة
+        - generic [ref=e7696]:
+          - generic [ref=e7697]: وحدة 8 — مراجعة شاملة للمستوى الأول
+          - generic [ref=e7700]:
+            - button [ref=e7701]:
+              - img [ref=e7702]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e7705]: "مراجعة: الطباعة والإدخال والأنواع الأساسية"
+        - generic [ref=e7709]:
+          - button [ref=e7710]:
+            - img [ref=e7711]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7714]: "مراجعة: المتغيرات والعمليات الحسابية"
+        - generic [ref=e7718]:
+          - button [ref=e7719]:
+            - img [ref=e7720]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7723]: "مراجعة: التعامل مع النصوص"
+        - generic [ref=e7727]:
+          - button [ref=e7728]:
+            - img [ref=e7729]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7732]: "مراجعة: تحويل أنواع البيانات"
+        - generic [ref=e7736]:
+          - button [ref=e7737]:
+            - img [ref=e7738]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7741]: "مراجعة: المقارنات والقيم المنطقية"
+        - generic [ref=e7745]:
+          - button [ref=e7746]:
+            - img [ref=e7747]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7750]: "مراجعة: اتخاذ القرارات بـ if/elif/else"
+        - generic [ref=e7754]:
+          - button [ref=e7755]:
+            - img [ref=e7756]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7759]: "مراجعة: العوامل المنطقية and, or, not"
+        - generic [ref=e7763]:
+          - button [ref=e7764]:
+            - img [ref=e7765]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7768]: "مراجعة: التكرار باستخدام for"
+        - generic [ref=e7772]:
+          - button [ref=e7773]:
+            - img [ref=e7774]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7777]: "مراجعة: التكرار باستخدام while والتحكم فيه"
+        - generic [ref=e7781]:
+          - button [ref=e7782]:
+            - img [ref=e7783]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7786]: "مراجعة: الحلقات المتداخلة"
+        - 'button "معمل: بناء حاسبة فاتورة دكان" [ref=e7790]':
+          - img [ref=e7792]
+          - generic [ref=e7794]: "معمل: بناء حاسبة فاتورة دكان"
+        - 'button "معمل: منظّم جدول انقطاع الكهرباء" [ref=e7798]':
+          - img [ref=e7800]
+          - generic [ref=e7802]: "معمل: منظّم جدول انقطاع الكهرباء"
+        - button "اختبار الوحدة" [ref=e7806] [cursor=pointer]:
+          - generic [ref=e7808]:
+            - img [ref=e7809]
+            - img [ref=e7812]
+          - generic [ref=e7818]: اختبار الوحدة
+        - generic [ref=e7819]:
+          - generic [ref=e7820]: وحدة 9 — امتحان المستوى الأول النهائي
+          - generic [ref=e7823]:
+            - button [ref=e7824]:
+              - img [ref=e7825]
+            - generic: أكمل الدرس السابق أولاً
+            - generic [ref=e7828]: "المراجعة النهائية: المدخلات، المخرجات، والأنواع"
+        - generic [ref=e7832]:
+          - button [ref=e7833]:
+            - img [ref=e7834]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7837]: "المراجعة النهائية: العمليات الحسابية والنصية"
+        - generic [ref=e7841]:
+          - button [ref=e7842]:
+            - img [ref=e7843]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7846]: "المراجعة النهائية: تحويل الأنواع (Type Casting)"
+        - generic [ref=e7850]:
+          - button [ref=e7851]:
+            - img [ref=e7852]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7855]: "المراجعة النهائية: الشروط البسيطة (if/else)"
+        - generic [ref=e7859]:
+          - button [ref=e7860]:
+            - img [ref=e7861]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7864]: "المراجعة النهائية: الشروط المتعددة (elif)"
+        - generic [ref=e7868]:
+          - button [ref=e7869]:
+            - img [ref=e7870]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7873]: "المراجعة النهائية: العوامل المنطقية (and, or, not)"
+        - generic [ref=e7877]:
+          - button [ref=e7878]:
+            - img [ref=e7879]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7882]: "المراجعة النهائية: حلقات for والتكرار المحدود"
+        - generic [ref=e7886]:
+          - button [ref=e7887]:
+            - img [ref=e7888]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7891]: "المراجعة النهائية: حلقات while والتكرار غير المحدود"
+        - generic [ref=e7895]:
+          - button [ref=e7896]:
+            - img [ref=e7897]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7900]: "المراجعة النهائية: التحكم في الحلقات (break/continue)"
+        - generic [ref=e7904]:
+          - button [ref=e7905]:
+            - img [ref=e7906]
+          - generic: أكمل الدرس السابق أولاً
+          - generic [ref=e7909]: "المراجعة النهائية: الحلقات المتداخلة"
+        - 'button "مشروع التقييم: نظام فاتورة كافتيريا" [ref=e7913]':
+          - img [ref=e7915]
+          - generic [ref=e7917]: "مشروع التقييم: نظام فاتورة كافتيريا"
+        - 'button "مشروع التقييم: متتبع استهلاك باقة الإنترنت" [ref=e7921]':
+          - img [ref=e7923]
+          - generic [ref=e7925]: "مشروع التقييم: متتبع استهلاك باقة الإنترنت"
+        - button "اختبار الوحدة" [ref=e7929] [cursor=pointer]:
+          - generic [ref=e7931]:
+            - img [ref=e7932]
+            - img [ref=e7935]
+          - generic [ref=e7941]: اختبار الوحدة
+        - button "اختبار المرحلة" [ref=e7945] [cursor=pointer]:
+          - generic [ref=e7947]:
+            - img [ref=e7948]
+            - img [ref=e7951]
+          - generic [ref=e7957]: اختبار المرحلة
+        - button "اختبار المستوى" [ref=e7961] [cursor=pointer]:
+          - generic [ref=e7963]:
+            - img [ref=e7964]
+            - img [ref=e7967]
+          - generic [ref=e7969]: اختبار المستوى
+      - generic [ref=e7970]:
+        - generic [ref=e7971]: المستويات القادمة
+        - generic [ref=e7974]:
+          - img [ref=e7976]
+          - generic [ref=e7979]:
+            - generic [ref=e7980]: المستوى 2
+            - generic [ref=e7981]: "المستوى الثاني: الهياكل والدوال والتنظيم"
+            - generic [ref=e7982]: سيُبنى بعد إكمال المستوى الحالي
+        - generic [ref=e7983]:
+          - img [ref=e7985]
+          - generic [ref=e7988]:
+            - generic [ref=e7989]: المستوى 3
+            - generic [ref=e7990]: "المستوى الثالث: الخوارزميات والمشاريع المتقدمة"
+            - generic [ref=e7991]: سيُبنى بعد إكمال المستوى الحالي
+    - button "ادخل إلى الدرس" [ref=e7993]:
+      - img [ref=e7994]
+      - text: ادخل إلى الدرس
+      - img [ref=e7997]
+  - region "Notifications (F8)":
+    - list

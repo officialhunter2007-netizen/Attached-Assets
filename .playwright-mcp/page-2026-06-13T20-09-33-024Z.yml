@@ -1,0 +1,78 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e5]:
+      - banner [ref=e6]:
+        - generic [ref=e8]:
+          - link "شعار نُخبة نُخبة" [ref=e9] [cursor=pointer]:
+            - /url: /learn
+            - generic [ref=e11]:
+              - img "شعار نُخبة" [ref=e12]:
+                - generic [ref=e19]: ن
+              - generic [ref=e22]: نُخبة
+          - navigation [ref=e23]:
+            - link "تعلّم" [ref=e24] [cursor=pointer]:
+              - /url: /learn
+            - link "لوحتي" [ref=e25] [cursor=pointer]:
+              - /url: /dashboard
+            - link "الاشتراك" [ref=e26] [cursor=pointer]:
+              - /url: /subscription
+            - link "الدعم" [ref=e27] [cursor=pointer]:
+              - /url: /support
+              - generic [ref=e29]:
+                - img [ref=e30]
+                - text: الدعم
+          - generic [ref=e32]:
+            - button "Switch to English" [ref=e33]:
+              - img [ref=e34]
+              - generic [ref=e37]: EN
+            - link "💎 ٩٨ / ١٠٠ مجانية" [ref=e39] [cursor=pointer]:
+              - /url: /subscription
+              - generic "لديك ٩٨ من ١٠٠ جوهرة مجانية في هذه الجلسة — uni-data-science" [ref=e40]:
+                - text: 💎
+                - generic [ref=e41]: ٩٨
+                - generic [ref=e42]: / ١٠٠ مجانية
+            - img [ref=e45]
+            - button "خروج" [ref=e48]:
+              - img [ref=e49]
+              - generic [ref=e52]: خروج
+      - main [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e58]:
+            - generic [ref=e59]: 📊
+            - generic [ref=e60]:
+              - heading "علوم بيانات" [level=1] [ref=e61]
+              - button "اختر مساراً" [ref=e63]:
+                - img [ref=e64]
+                - text: اختر مساراً
+          - generic [ref=e69]:
+            - img [ref=e71]
+            - generic [ref=e74]:
+              - heading "جلستك التعليمية المخصصة" [level=2] [ref=e75]
+              - paragraph [ref=e76]: يرافقك معلمك الذكي خطوة بخطوة، يشرح المفهوم أولاً بمثال واقعي، ثم يطرح عليك سؤالاً توجيهياً للتثبيت قبل الانتقال للمرحلة التالية.
+              - button "جلسة جديدة" [ref=e78]:
+                - img
+                - text: جلسة جديدة
+          - generic [ref=e79]:
+            - heading "تقارير المختبرات السابقة" [level=3] [ref=e80]: تقارير المختبرات السابقة
+            - generic [ref=e82]:
+              - img [ref=e83]
+              - paragraph [ref=e85]: لا توجد تقارير مختبر بعد
+              - paragraph [ref=e86]: عند إرسال تقرير من البيئة التطبيقية لهذه المادة سيظهر هنا للمراجعة
+          - generic [ref=e87]:
+            - heading "ملخصات جلساتك السابقة" [level=3] [ref=e88]: ملخصات جلساتك السابقة
+            - generic [ref=e90]:
+              - img [ref=e91]
+              - paragraph [ref=e94]: لا توجد ملخصات بعد
+              - paragraph [ref=e95]: بعد إكمال أول جلسة سيظهر ملخصها هنا تلقائياً للمراجعة
+      - contentinfo [ref=e96]:
+        - generic [ref=e97]:
+          - generic [ref=e99]:
+            - img "شعار نُخبة" [ref=e100]:
+              - generic [ref=e107]: ن
+            - generic [ref=e110]: نُخبة
+          - paragraph [ref=e111]: جميع الحقوق محفوظة 2026 © نُخبة
+    - region "Notifications (F8)":
+      - list
+  - generic [ref=e112]:
+    - alert
+    - alert

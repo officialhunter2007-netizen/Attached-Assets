@@ -563,7 +563,10 @@ async function advanceLessonPointer(ctx: TagEffectsContext): Promise<{
   return { advanced: true, nextCode };
 }
 
-/** Strip all protocol tags from prose before sending it to the student. */
+/** Strip all protocol tags from prose before sending it to the student.
+ *  IMPORTANT: does NOT trim — word-boundary spaces in mid-stream chunks
+ *  must survive so the client can concatenate deltas without fusing
+ *  Arabic words. Callers that need final trimming should do it themselves. */
 export function stripProtocolTags(text: string): string {
   if (!text) return text;
   return text
@@ -574,6 +577,5 @@ export function stripProtocolTags(text: string): string {
     .replace(PARAM_TAG_RE, "")
     .replace(SIMPLE_TAG_RE, "")
     .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .replace(/\n{3,}/g, "\n\n");
 }

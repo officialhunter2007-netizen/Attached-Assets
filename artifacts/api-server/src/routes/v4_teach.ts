@@ -796,6 +796,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         res.write(
           `data: ${JSON.stringify({
             done: true,
+            finishReason: result.finishReason,
             lessonMastered: effects.lessonAdvanced,
             nextLessonCode: effects.nextLessonCode,
             sessionComplete: effects.sessionComplete,
@@ -825,7 +826,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     // capture once per session (not once per turn — that would 60×
     // the Haiku spend with no benefit).
     if (effects.sessionComplete) {
-      const cleanedAssistant = stripProtocolTags(fullText);
+      const cleanedAssistant = stripProtocolTags(fullText).trim();
       const recentForWarmth: Array<{ role: "user" | "assistant"; content: string }> = [
         ...compressed.recentMessages,
         { role: "assistant" as const, content: cleanedAssistant },
