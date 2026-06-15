@@ -337,6 +337,10 @@ export const v4StudentPathsTable = pgTable("v4_student_paths", {
   // Maps lesson_code → star count (1|2|3). Persisted server-side so
   // stars survive page refreshes (previously only stored in live SSE state).
   lessonStars: jsonb("lesson_stars").notNull().default({}),
+  // Cross-lesson conversational continuity — the tail of the teacher's last
+  // response in the PREVIOUS completed lesson, captured on LESSON_MASTERED.
+  // { lessonCode: string, tailSummary: string, capturedAt: string (ISO) }
+  lastLessonContext: jsonb("last_lesson_context"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -384,6 +388,10 @@ export const v4PlacementSessionsTable = pgTable("v4_placement_sessions", {
   probes: jsonb("probes").notNull().default([]),
   pending: jsonb("pending"),
   result: jsonb("result"),
+  // AI-generated placement question pool — produced once by Haiku from the
+  // instruction file content when the student starts the placement test.
+  // Array of V4PlacementTestQuestion-shaped objects (without versionId).
+  generatedQuestions: jsonb("generated_questions"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (t) => [
@@ -654,16 +662,17 @@ export type InsertV4StudentProfile = typeof v4StudentProfileTable.$inferInsert;
 export type V4StudentMemorySummary = typeof v4StudentMemorySummariesTable.$inferSelect;
 export type V4WeaknessTracker = typeof v4WeaknessTrackerTable.$inferSelect;
 
+export type MemoryEntry = string | { value: string; capturedAt: string };
 export type V4PersonalDictionary = {
   occupation?: string;
-  hobbies?: string[];
-  examples?: string[];
-  places?: string[];
-  family?: string[];
-  extras?: string[];
+  hobbies?: MemoryEntry[];
+  examples?: MemoryEntry[];
+  places?: MemoryEntry[];
+  family?: MemoryEntry[];
+  extras?: MemoryEntry[];
 };
 export type V4WarmthAnchors = {
-  laughs?: string[];
-  confidence?: string[];
-  worries?: string[];
+  laughs?: MemoryEntry[];
+  confidence?: MemoryEntry[];
+  worries?: MemoryEntry[];
 };

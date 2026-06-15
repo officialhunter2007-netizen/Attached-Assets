@@ -574,6 +574,11 @@ export async function buildTeacherSystemPrompt(opts: {
    *  with a warm motivating frame + objectives + concept roadmap instead of
    *  jumping straight into a Socratic question. */
   isFirstTurn?: boolean;
+  /** Cross-lesson conversational continuity — the tail of the teacher's
+   *  last response from the PREVIOUS completed lesson. { lessonCode,
+   *  tailSummary, capturedAt }. Injected as Layer 3a between context and
+   *  memory so the teacher can organically bridge the two lessons. */
+  previousLessonContext?: { lessonCode: string; tailSummary: string; capturedAt: string } | null;
 }): Promise<{ systemPrompt: string; askedFacet: { conceptIndex: number; facet: V4FacetKey } | null }> {
   const { student, lesson } = opts;
   const lang = opts.language ?? "ar";
@@ -612,6 +617,27 @@ export async function buildTeacherSystemPrompt(opts: {
     opts.specialtyMeta ?? null,
   );
   const L3 = buildContextLayer(unitStageLevel);
+  // Layer 3a — cross-lesson conversational continuity. Only injected on the
+  // first turn of a lesson when the student just completed a different one.
+  // Gives the teacher the last thing they said so the new lesson doesn't
+  // start cold — one bridge sentence, then into the new content.
+  let L3A = "";
+  if (opts.isFirstTurn && opts.previousLessonContext && opts.previousLessonContext.lessonCode !== lesson.lesson.code) {
+    const c = opts.previousLessonContext;
+    const prevDate = new Date(c.capturedAt);
+    const hoursAgo = Math.round((Date.now() - prevDate.getTime()) / 3600000);
+    const timeAgo = hoursAgo < 1 ? "قبل قليل"
+      : hoursAgo < 24 ? `منذ ${hoursAgo} ساعة`
+      : `منذ ${Math.round(hoursAgo / 24)} يوم`;
+    L3A = [
+      "## 3a. استمرارية الدرس السابق",
+      `${timeAgo}، أنهيتَ درس "${c.lessonCode}" مع الطالب. آخر تفاعل بينكما:`,
+      '"""',
+      c.tailSummary,
+      '"""',
+      "ابدأ هذا الدرس الجديد بربطه عضوياً بالدرس السابق — جملة ربط واحدة أو اثنتين فقط، لا تعِد شرح ما سبق. تحقق من أن الدرس السابق والجديد في نفس الوحدة الدراسية قبل الربط.",
+    ].join("\n");
+  }
   const L4 = opts.memory
     ? buildMemoryLayer4(opts.memory)
     : buildMemoryPlaceholderLayer();
@@ -751,6 +777,7 @@ export async function buildTeacherSystemPrompt(opts: {
       });
 
   const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LSCENE, LIMG];
+  if (L3A) layers.splice(3, 0, L3A);
   if (LCODE) layers.push(LCODE);
   if (LOPEN) layers.push(LOPEN);
   if (LDIAG) layers.push(LDIAG);

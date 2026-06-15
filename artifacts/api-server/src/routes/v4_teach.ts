@@ -30,6 +30,7 @@ import {
   v4LessonCommonMistakesTable,
   v4DiagnosticSessionsTable,
   v4ConceptMasteryTable,
+  v4StudentPathsTable,
   type V4ConceptFacets,
   type V4FacetKey,
 } from "@workspace/db";
@@ -418,6 +419,10 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       // First turn = empty client history. Activates the opening-message
       // contract (warm motivating frame + objectives + concept roadmap).
       isFirstTurn: history.length === 0,
+      // Cross-lesson conversational continuity — the tail of the last
+      // teacher response from the PREVIOUS completed lesson (captured on
+      // LESSON_MASTERED). Injected as Layer 3a so the teacher can bridge.
+      previousLessonContext: (studentPath?.lastLessonContext as any) ?? undefined,
     });
     systemPrompt = built.systemPrompt;
     promptTimeFacet = built.askedFacet;
@@ -718,6 +723,28 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       tags,
     );
 
+    // Fire-and-forget: on LESSON_MASTERED, store the tail of the teacher's
+    // final response as cross-lesson context so the NEXT lesson's first turn
+    // can bridge the conversation organically.
+    if (effects.lessonAdvanced && studentPath) {
+      const lastMsg = stripProtocolTags(fullText).trim();
+      const snippet = lastMsg.length > 300
+        ? "…" + lastMsg.slice(-300)
+        : lastMsg;
+      db.update(v4StudentPathsTable)
+        .set({
+          lastLessonContext: {
+            lessonCode,
+            tailSummary: snippet,
+            capturedAt: new Date().toISOString(),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(v4StudentPathsTable.id, studentPath.id))
+        .execute()
+        .catch(() => {}); // non-blocking
+    }
+
     // ── 7b. Hands-on ("التطبيق العملي") offer — server-driven trigger ──
     // Recompute the disjoint diagnostic decision over POST-effects mastery so
     // the offer reflects the score/applied changes this turn just produced.
@@ -843,6 +870,23 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         userId: uid,
         subjectId: slug,
         recentMessages: recentForWarmth,
+      }).catch(() => {});
+    }
+
+    // Capture personal-dictionary on LESSON_MASTERED even when
+    // SESSION_COMPLETE didn't fire (student may leave mid-session right
+    // after mastering a lesson). We skip warmth here — a single turn is
+    // too thin for reliable laughter/confidence/worry signals.
+    if (effects.lessonAdvanced && !effects.sessionComplete) {
+      const cleanedAssistant = stripProtocolTags(fullText).trim();
+      const recentForCapture: Array<{ role: "user" | "assistant"; content: string }> = [
+        ...compressed.recentMessages.slice(-6),
+        { role: "assistant" as const, content: cleanedAssistant },
+      ];
+      void capturePersonalDictionaryFromSession({
+        userId: uid,
+        subjectId: slug,
+        recentMessages: recentForCapture,
       }).catch(() => {});
     }
   } catch (err) {

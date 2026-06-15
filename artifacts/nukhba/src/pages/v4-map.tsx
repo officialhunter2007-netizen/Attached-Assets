@@ -47,7 +47,7 @@ interface MapData {
 }
 interface MapResponse {
   specialty: { slug: string; name: string; icon: string | null };
-  studentPath: { startMode: string; currentLessonCode: string | null; pathType: string };
+  studentPath: { startMode: string; currentLessonCode: string | null; pathType: string; placementUnitCode?: string | null };
   map: MapData;
   nextLevels: { levelIndex: number; name: string; locked: boolean }[];
 }
@@ -844,12 +844,29 @@ export default function V4Map() {
 
   const { specialty, map, nextLevels } = data;
   const flatNodes = flattenMap(map);
+  const isPlacement = data.studentPath.startMode === "placement" && !!data.studentPath.placementUnitCode;
 
   return (
     <div
       className="min-h-[100dvh] bg-background text-white pb-20"
       style={{ direction: "rtl", fontFamily: "Tajawal, Cairo, sans-serif" }}
     >
+      {/* ── Placement result banner ── */}
+      {isPlacement && (
+        <div className="mx-4 mt-4 mb-2 p-4 rounded-2xl border border-emerald/30 bg-emerald/5">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🎯</span>
+            <div className="flex-1">
+              <p className="text-sm text-emerald-300 font-bold">
+                وفقاً لنتائج اختبار تحديد المستوى، من المناسب أن تكمل رحلتك من هذه الوحدة:
+              </p>
+              <p className="text-lg text-emerald-100 font-black mt-1">
+                {data.studentPath.placementUnitCode}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── Inline CSS for custom animations (shake, glow-pulse) ── */}
       <style>{`
         @keyframes nodeShake {

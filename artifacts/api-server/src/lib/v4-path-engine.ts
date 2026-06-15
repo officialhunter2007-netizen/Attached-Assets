@@ -69,6 +69,149 @@ export const V4_DIAGNOSTIC_QUESTIONS: readonly string[] = [
   "💬 السؤال الأخير — وهالشي مو إجباري أبداً.\n\n[[ASK_OPTIONS: في شي إضافي تحبّ أعرفه عنك عشان أخدمك بشكل أفضل؟ ||| 🙋‍♂️ لا شي — خلّينا نبدأ! ||| ✍️ عندي ملاحظة إضافية (بكتبها بنفسي) ||| غير ذلك]]",
 ];
 
+/** AI-generated placement question — same shape as V4PlacementTestQuestion
+ *  but without versionId since it's scoped to a single placement session. */
+export type GeneratedPlacementQuestion = {
+  id: number;
+  questionIndex: number;
+  targetLevelIndex: number;
+  targetStageCode: string | null;
+  targetUnitCode: string | null;
+  kind: string;
+  prompt: string;
+  choices: string[] | null;
+  correctIndex: number | null;
+  difficulty: number;
+};
+
+/** Union type that both pre-written and AI-generated questions satisfy. */
+export type AnyPlacementQuestion = V4PlacementTestQuestion | GeneratedPlacementQuestion;
+
+/** Build a structured Arabic summary of the entire curriculum for Haiku to
+ *  generate targeted placement questions from. One compact line per lesson
+ *  with its code, name, concepts, and knowledge-check question. */
+async function buildCurriculumSummary(versionId: number): Promise<string> {
+  const levels = await db
+    .select()
+    .from(v4LevelsTable)
+    .where(eq(v4LevelsTable.versionId, versionId))
+    .orderBy(asc(v4LevelsTable.levelIndex));
+  const units = await db
+    .select()
+    .from(v4UnitsTable)
+    .where(eq(v4UnitsTable.versionId, versionId))
+    .orderBy(asc(v4UnitsTable.code));
+  const lessons = await db
+    .select()
+    .from(v4LessonsTable)
+    .where(eq(v4LessonsTable.versionId, versionId))
+    .orderBy(asc(v4LessonsTable.code));
+  const concepts = await db
+    .select()
+    .from(v4LessonConceptsTable)
+    .where(eq(v4LessonConceptsTable.versionId, versionId));
+
+  const conceptsByLesson = new Map<number, Array<{ index: number; name: string; criterion: string }>>();
+  for (const c of concepts) {
+    if (!conceptsByLesson.has(c.lessonId)) conceptsByLesson.set(c.lessonId, []);
+    conceptsByLesson.get(c.lessonId)!.push({
+      index: c.conceptIndex,
+      name: c.name,
+      criterion: c.masteryCriterion ?? "",
+    });
+  }
+
+  const lines: string[] = [];
+  for (const level of levels) {
+    lines.push(`\nالمستوى ${level.levelIndex}: "${level.name}"`);
+    lines.push(`  الهدف: ${level.goal || "(غير محدد)"}`);
+    const levelUnits = units.filter((u) => u.levelId === level.id);
+    for (const unit of levelUnits) {
+      lines.push(`\n  الوحدة ${unit.code}: "${unit.name}"`);
+      const unitLessons = lessons.filter((l) => l.unitId === unit.id);
+      for (const lesson of unitLessons) {
+        const cs = conceptsByLesson.get(lesson.id) ?? [];
+        const conceptStr = cs.length ? cs.map((c) => `    • ${c.name}: ${c.criterion}`).join("\n") + "\n" : "";
+        lines.push(`    الدرس ${lesson.code}: "${lesson.name}"`);
+        if (lesson.bridgeSentence) lines.push(`      جسر: ${lesson.bridgeSentence}`);
+        if (conceptStr) lines.push(conceptStr.trimEnd());
+        if (lesson.finalCheckQuestion) lines.push(`      سؤال التحقق: ${lesson.finalCheckQuestion}`);
+      }
+    }
+  }
+  const text = lines.join("\n");
+  return text.length > 6000 ? text.slice(0, 6000) + "\n…(مقتطع)" : text;
+}
+
+const GEN_QUESTIONS_SYSTEM = `أنت خبير تقييم تعليمي يمني. سأعطيك ملخصاً كاملاً لمنهج دراسي (مستويات → وحدات → دروس → مفاهيم).
+مهمتك: توليد 20 سؤالاً متعدد الخيارات تغطي جميع المستويات بالتساوي وتحدد مستوى الطالب بدقة عالية.
+
+قواعد صارمة:
+1. أعد JSON array فقط — لا تنسيق إضافي ولا شرح.
+2. كل سؤال: { questionIndex, targetLevelIndex, targetStageCode, targetUnitCode, kind:"mcq", prompt, choices[4], correctIndex(0-3), difficulty(1-3) }
+3. توزيع الأسئلة: ~4 أسئلة لكل مستوى (إذا 5 مستويات = 20 سؤالاً). إذا المنهج أقل من 5 مستويات، وزّع الأسئلة لتغطية كل المراحل والوحدات.
+4. داخل كل مستوى: غطِّ مراحل ووحدات مختلفة — لا تركز على وحدة واحدة.
+5. الأسئلة تختبر المفاهيم الأساسية (concepts)، ليس الحفظ.
+6. الخيارات الخاطئة يجب أن تكون معقولة وليست سخيفة.
+7. استخدم عامية يمنية بسيطة ومحببة في صياغة الأسئلة (مثل: "وش", "شنو", "إيش", "كيف", "ليش").
+8. difficulty: 1=سهل (تعريف مباشر), 2=متوسط (تطبيق), 3=صعب (تحليل/تركيب). الأسئلة الأسهل تكون في بداية كل مستوى، الأصعب في نهايته.
+9. targetStageCode و targetUnitCode يجب أن تتطابق مع الأكواد الموجودة في الملخص (مثل "1.1", "2.3.1").
+10. correctIndex هو رقم الخيار الصحيح (0, 1, 2, أو 3). تأكد 100% أن الإجابة الصحيحة موجودة ضمن الخيارات ومطابقة للمفهوم.`;
+
+/**
+ * Generate 20 AI-authored placement questions from the instruction file content.
+ * Calls Claude Haiku once — the result is cached in the placement session's
+ * `generatedQuestions` JSONB column and re-used across all probes.
+ */
+export async function generatePlacementQuestions(opts: {
+  versionId: number;
+}): Promise<GeneratedPlacementQuestion[]> {
+  const summary = await buildCurriculumSummary(opts.versionId);
+  if (!summary.trim()) throw new Error("empty_curriculum_summary");
+
+  const raw = await generateGeminiJson({
+    model: HAIKU_MODEL,
+    system: GEN_QUESTIONS_SYSTEM,
+    prompt: `ملخص المنهج:\n${summary}`,
+    maxOutputTokens: 4000,
+    temperature: 0.7,
+  });
+
+  let parsed: any;
+  try { parsed = JSON.parse(raw); } catch {
+    const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/) || raw.match(/\[([\s\S]*)\]/);
+    if (m) parsed = JSON.parse(m[1].trim());
+    else throw new Error("unparseable_ai_response");
+  }
+  if (!Array.isArray(parsed) || parsed.length < 13) {
+    throw new Error(`too_few_questions: ${Array.isArray(parsed) ? parsed.length : 0}`);
+  }
+
+  const out: GeneratedPlacementQuestion[] = [];
+  for (let i = 0; i < Math.min(parsed.length, 20); i++) {
+    const q = parsed[i];
+    if (!q.prompt || !Array.isArray(q.choices) || q.choices.length !== 4) continue;
+    if (typeof q.correctIndex !== "number" || q.correctIndex < 0 || q.correctIndex > 3) continue;
+    if (!q.targetLevelIndex || q.targetLevelIndex < 1) continue;
+    out.push({
+      id: i,
+      questionIndex: i,
+      targetLevelIndex: Number(q.targetLevelIndex),
+      targetStageCode: q.targetStageCode ?? null,
+      targetUnitCode: q.targetUnitCode ?? null,
+      kind: q.kind ?? "mcq",
+      prompt: String(q.prompt),
+      choices: q.choices.map(String),
+      correctIndex: Number(q.correctIndex),
+      difficulty: Math.min(3, Math.max(1, Number(q.difficulty ?? 2))),
+    });
+    if (out.length >= 20) break;
+  }
+
+  if (out.length < 13) throw new Error(`too_few_valid_questions: ${out.length}`);
+  return out;
+}
+
 export type DiagnosticAnswer = { question: string; answer: string };
 
 // ── Specialty + lesson lookups ──────────────────────────────────────────────
@@ -696,11 +839,35 @@ export async function pickNextPlacementQuestion(
  * branch handled by the choice screen, NOT by the placement engine).
  */
 export function computeStartingLevel(answered: PlacementAnswered[]): number {
-  let best = 1;
+  // Group answers by level, then walk levels sequentially from 1 upwards.
+  // Place the student at the FIRST level where they did NOT demonstrate
+  // mastery (majority correct, ratio ≥ 0.67). Levels with zero probes
+  // are treated as untested — place there conservatively.
+  const byLevel = new Map<number, { correct: number; wrong: number }>();
   for (const a of answered) {
-    if (a.correct && a.targetLevelIndex > best) best = a.targetLevelIndex;
+    const e = byLevel.get(a.targetLevelIndex) ?? { correct: 0, wrong: 0 };
+    if (a.correct) e.correct++; else e.wrong++;
+    byLevel.set(a.targetLevelIndex, e);
   }
-  return best;
+
+  let lastPassed = 0;
+  for (let L = 1; L <= 5; L++) {
+    const r = byLevel.get(L);
+    if (!r || r.correct + r.wrong === 0) {
+      // No questions probed this level → can't determine. If the student
+      // passed lower levels, place here (conservative). If nothing passed
+      // yet, place at this level.
+      return Math.max(1, lastPassed > 0 ? lastPassed + 1 : L);
+    }
+    const total = r.correct + r.wrong;
+    if (r.correct / total >= 0.66) {
+      lastPassed = L;
+      continue; // passed this level
+    }
+    // Failed — not enough correct answers at this level
+    return Math.max(1, L);
+  }
+  return Math.max(1, lastPassed);
 }
 
 /**
@@ -714,7 +881,7 @@ export function computeStartingLevel(answered: PlacementAnswered[]): number {
  * fail a student's placement attempt.
  */
 export async function gradePlacementAnswer(opts: {
-  question: V4PlacementTestQuestion;
+  question: AnyPlacementQuestion;
   rawAnswer: string | number | null;
 }): Promise<{ correct: boolean; rationale?: string }> {
   const q = opts.question;
@@ -809,8 +976,11 @@ export function usesUnitTargeting(questions: V4PlacementTestQuestion[]): boolean
 
 // Descent thresholds. Level uses best-of-3 (robust against a single fluke);
 // stage/unit use a faster 1-of-2 since we're already inside a failed level.
-const LEVEL_PASS_NEED = 2, LEVEL_FAIL_NEED = 2;
-const SUB_PASS_NEED = 1, SUB_FAIL_NEED = 2;
+// Conservative thresholds: level placement requires strong evidence (3-of-3
+// correct). Stage/unit descent within a failing level uses 2-of-2 since the
+// student already demonstrated weakness at that level.
+const LEVEL_PASS_NEED = 3, LEVEL_FAIL_NEED = 2;
+const SUB_PASS_NEED = 2, SUB_FAIL_NEED = 2;
 
 function scopeVerdict(results: boolean[], passNeed: number, failNeed: number): "pass" | "fail" | "pending" {
   const correct = results.filter(Boolean).length;
@@ -824,14 +994,14 @@ function probeResultsFor(probes: PlacementProbe[], scope: PlacementScope, scopeC
   return probes.filter((p) => p.scope === scope && p.scopeCode === scopeCode).map((p) => p.correct);
 }
 
-function pickUnasked(pool: V4PlacementTestQuestion[], askedIds: Set<number>): V4PlacementTestQuestion | null {
+function pickUnasked(pool: AnyPlacementQuestion[], askedIds: Set<number>): AnyPlacementQuestion | null {
   return pool.find((q) => !askedIds.has(q.id)) ?? null;
 }
 
 // Representative pools. Level/stage probe the LAST (hardest) unit first — the
 // strongest discriminator for "do you know this whole scope?". Unit probes go
 // easiest-first so a struggling student fails fast.
-function levelPool(questions: V4PlacementTestQuestion[], levelIndex: number): V4PlacementTestQuestion[] {
+function levelPool(questions: AnyPlacementQuestion[], levelIndex: number): AnyPlacementQuestion[] {
   const floor = `${levelIndex}.0.0`;
   return questions
     .filter((q) => q.targetLevelIndex === levelIndex)
@@ -840,7 +1010,7 @@ function levelPool(questions: V4PlacementTestQuestion[], levelIndex: number): V4
       (b.difficulty - a.difficulty) ||
       (a.questionIndex - b.questionIndex));
 }
-function stagePool(questions: V4PlacementTestQuestion[], stageCode: string): V4PlacementTestQuestion[] {
+function stagePool(questions: AnyPlacementQuestion[], stageCode: string): AnyPlacementQuestion[] {
   return questions
     .filter((q) => q.targetStageCode === stageCode || (q.targetUnitCode ?? "").startsWith(stageCode + "."))
     .sort((a, b) =>
@@ -848,7 +1018,7 @@ function stagePool(questions: V4PlacementTestQuestion[], stageCode: string): V4P
       (b.difficulty - a.difficulty) ||
       (a.questionIndex - b.questionIndex));
 }
-function unitPool(questions: V4PlacementTestQuestion[], unitCode: string): V4PlacementTestQuestion[] {
+function unitPool(questions: AnyPlacementQuestion[], unitCode: string): AnyPlacementQuestion[] {
   return questions
     .filter((q) => q.targetUnitCode === unitCode)
     .sort((a, b) => (a.difficulty - b.difficulty) || (a.questionIndex - b.questionIndex));
@@ -901,7 +1071,7 @@ function doneResult(resolved: ResolvedSpecialty, boundaryUnitCode: string | null
  */
 export function evaluatePlacement(
   resolved: ResolvedSpecialty,
-  questions: V4PlacementTestQuestion[],
+  questions: AnyPlacementQuestion[],
   probes: PlacementProbe[],
 ): PlacementStep {
   const askedIds = new Set(probes.map((p) => p.questionId));
@@ -923,8 +1093,9 @@ export function evaluatePlacement(
     if (q) {
       return { kind: "ask", question: q, scope: "level", scopeCode: String(L), targetLevelIndex: L, phaseLabel: "تحديد المستوى" };
     }
-    // pool exhausted: ≥1 correct ⇒ treat as pass, else fail here.
-    if (results.filter(Boolean).length >= 1) continue;
+    // pool exhausted: require LEVEL_PASS_NEED correct to pass; otherwise
+    // place student here (conservative — they didn't prove mastery).
+    if (results.filter(Boolean).length >= LEVEL_PASS_NEED) continue;
     boundaryLevel = L; levelDecided = true; break;
   }
 
@@ -949,7 +1120,7 @@ export function evaluatePlacement(
     if (q) {
       return { kind: "ask", question: q, scope: "stage", scopeCode: stageCode, targetLevelIndex: boundaryLevel, phaseLabel: "تحديد المرحلة" };
     }
-    if (results.filter(Boolean).length >= 1) continue;
+    if (results.filter(Boolean).length >= SUB_PASS_NEED) continue;
     boundaryStage = stageCode; break;
   }
   if (boundaryStage === null) {
@@ -970,7 +1141,7 @@ export function evaluatePlacement(
     if (q) {
       return { kind: "ask", question: q, scope: "unit", scopeCode: unit.unitCode, targetLevelIndex: boundaryLevel, phaseLabel: "تحديد الوحدة" };
     }
-    if (results.filter(Boolean).length >= 1) continue;
+    if (results.filter(Boolean).length >= SUB_PASS_NEED) continue;
     boundaryUnit = unit.unitCode; break;
   }
   if (boundaryUnit === null) {
@@ -1044,10 +1215,10 @@ export function evaluateLevelOnly(
 /** Single entry point for the route: descent when unit-tagged, else legacy. */
 export function nextPlacementStep(
   resolved: ResolvedSpecialty,
-  questions: V4PlacementTestQuestion[],
+  questions: AnyPlacementQuestion[],
   probes: PlacementProbe[],
 ): PlacementStep {
-  return usesUnitTargeting(questions)
+  return usesUnitTargeting(questions as any[])
     ? evaluatePlacement(resolved, questions, probes)
-    : evaluateLevelOnly(resolved, questions, probes);
+    : evaluateLevelOnly(resolved, questions as V4PlacementTestQuestion[], probes);
 }

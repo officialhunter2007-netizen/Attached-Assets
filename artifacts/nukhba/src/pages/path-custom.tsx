@@ -161,6 +161,7 @@ export default function PathCustom() {
 
   const [placement, setPlacement] = useState<PlacementState | null>(null);
   const [placementBusy, setPlacementBusy] = useState(false);
+  const [placementGenerating, setPlacementGenerating] = useState(false);
   const [placementPickedIdx, setPlacementPickedIdx] = useState<number | null>(null);
   const [placementShortAnswer, setPlacementShortAnswer] = useState("");
   const [finalLevel, setFinalLevel] = useState<number | null>(null);
@@ -253,13 +254,37 @@ export default function PathCustom() {
   }
 
   async function startPlacement() {
+    setPlacementGenerating(true);
+    setPhase("placement");
+    try {
+      // Generate AI-authored questions from the curriculum content first.
+      // If admin-authored questions exist (≥13), the server returns them
+      // without an AI call. Otherwise Haiku produces 20 targeted questions.
+      const genRes = await postJson<{ questionCount: number; source: string }>(
+        `/api/v4/path/${encodeURIComponent(slug)}/placement/generate`,
+        {},
+      );
+      if (genRes.questionCount < 10) {
+        setErrMsg(`تعذّر توليد أسئلة كافية للاختبار (${genRes.questionCount} سؤال فقط). الرجاء المحاولة لاحقاً.`);
+        setPlacementGenerating(false);
+        setPhase("start-choice");
+        return;
+      }
+    } catch {
+      setErrMsg("تعذّر تجهيز اختبار تحديد المستوى. الرجاء المحاولة لاحقاً.");
+      setPlacementGenerating(false);
+      setPhase("start-choice");
+      return;
+    }
+    setPlacementGenerating(false);
     setPlacementBusy(true);
+
     try {
       const r = await postJson<PlacementState>(`/api/v4/path/${encodeURIComponent(slug)}/placement/next`, {});
       handlePlacementResponse(r);
-      setPhase("placement");
     } catch {
       setErrMsg("تعذّر بدء اختبار تحديد المستوى.");
+      setPhase("start-choice");
     } finally {
       setPlacementBusy(false);
     }
@@ -485,6 +510,20 @@ export default function PathCustom() {
         )}
 
         {/* ── Placement test ─────────────────────────────────────────────── */}
+        {phase === "placement" && placementGenerating && (
+          <div className="py-12 text-center space-y-4">
+            <motion.div
+              animate={{ scale: [1, 1.08, 1] }}
+              transition={{ duration: 1.8, repeat: Infinity }}
+              className="inline-flex items-center gap-3 px-5 py-3 rounded-full border border-gold/20"
+              style={{ background: "linear-gradient(120deg, rgba(139,92,246,0.08) 0%, rgba(245,158,11,0.08) 100%)" }}
+            >
+              <Loader2 className="w-5 h-5 animate-spin text-gold" />
+              <span className="text-white/70 text-sm font-bold">جاري إعداد أسئلة اختبار تحديد المستوى…</span>
+            </motion.div>
+            <p className="text-white/30 text-xs">يتم توليد 20 سؤالاً ذكياً من محتوى المنهج لتحديد مستواك بدقة</p>
+          </div>
+        )}
         {phase === "placement" && placement?.kind === "ask" && (
           <div className="space-y-5 py-1">
 

@@ -1021,6 +1021,15 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     ],
   },
   {
+    // AI-generated placement question pool — produced by Haiku from the
+    // instruction file content. Stored as JSONB array so the adaptive
+    // descent algorithm can use them identically to pre-written questions.
+    table: "v4_placement_sessions",
+    columns: [
+      { name: "generated_questions", ddl: "jsonb" },
+    ],
+  },
+  {
     table: "course_materials",
     columns: [
       { name: "structured_outline", ddl: "text" },
@@ -1161,6 +1170,16 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     table: "v4_student_paths",
     columns: [
       { name: "placement_unit_code", ddl: "text" },
+    ],
+  },
+  {
+    // Cross-lesson conversational continuity — the tail of the teacher's
+    // last response from the previous completed lesson, captured on
+    // LESSON_MASTERED. { lessonCode, tailSummary, capturedAt }.
+    // NULL for students who haven't completed any lesson yet.
+    table: "v4_student_paths",
+    columns: [
+      { name: "last_lesson_context", ddl: "jsonb" },
     ],
   },
   {

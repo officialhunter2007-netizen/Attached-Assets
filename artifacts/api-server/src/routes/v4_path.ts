@@ -26,7 +26,7 @@
 //     which time the placement run is already complete.
 // ─────────────────────────────────────────────────────────────────────────────
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import {
   db,
   v4SpecialtiesTable,
@@ -45,9 +45,11 @@ import {
   createOrReplaceStudentPath,
   nextPlacementStep,
   gradePlacementAnswer,
+  generatePlacementQuestions,
   type PlacementProbe,
   type PlacementPending,
   type PlacementResult,
+  type AnyPlacementQuestion,
 } from "../lib/v4-path-engine";
 import { capturePersonalDictionaryFromDiagnostic } from "../lib/v4-memory";
 import { subscribeProgressEvents } from "../lib/v4-progress-events";
@@ -396,6 +398,73 @@ function serializePath(row: any) {
   };
 }
 
+// ── POST /v4/path/:slug/placement/generate ──────────────────────────────────
+// Generates 20 AI-authored placement questions from the instruction file content
+// via Claude Haiku. The result is stored in the placement session and re-used
+// across all probes in the adaptive descent.
+// Body: {} (no parameters needed — the active instruction version is inferred)
+// Returns: { questionCount: number }
+router.post("/v4/path/:slug/placement/generate", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const slug = String(req.params.slug);
+  try {
+    const resolved = await resolveActiveSpecialty(slug);
+    if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
+
+    // Check for existing placement questions in the instruction file —
+    // if the admin already wrote 13+ questions, they take priority over AI.
+    const existingCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(v4PlacementTestQuestionsTable)
+      .where(eq(v4PlacementTestQuestionsTable.versionId, resolved.versionId))
+      .then(r => r[0]?.count ?? 0);
+
+    if (existingCount >= 13) {
+      // Admin-authored questions exist — use them; no AI needed.
+      res.json({ questionCount: existingCount, source: "admin" as const });
+      return;
+    }
+
+    // Generate questions via Haiku
+    let questions: AnyPlacementQuestion[];
+    try {
+      questions = await generatePlacementQuestions({ versionId: resolved.versionId });
+    } catch (genErr: any) {
+      logger.warn({ err: genErr?.message, slug }, "[v4_path] placement question generation failed");
+      // Fallback: use whatever admin questions exist (even if < 13)
+      res.json({ questionCount: existingCount, source: "admin" as const, fallback: true });
+      return;
+    }
+
+    // Find or create a placement session (or reuse an in-progress one)
+    let session = await getInProgressPlacementSession(uid, slug);
+    if (session) {
+      await db
+        .update(v4PlacementSessionsTable)
+        .set({ generatedQuestions: questions, probes: [], pending: null, result: null })
+        .where(eq(v4PlacementSessionsTable.id, session.id));
+    } else {
+      const [created] = await db
+        .insert(v4PlacementSessionsTable)
+        .values({
+          userId: uid,
+          subjectId: slug,
+          versionId: resolved.versionId,
+          status: "in_progress",
+          probes: [],
+          generatedQuestions: questions,
+        })
+        .returning();
+      session = created;
+    }
+
+    res.json({ questionCount: questions.length, source: "ai" as const });
+  } catch (err: any) {
+    logger.error({ err: err?.message, slug }, "[v4_path] placement/generate failed");
+    res.status(500).json({ error: "generation_failed" });
+  }
+});
+
 // ── POST /v4/path/:slug/placement/next ─────────────────────────────────────
 // Server-authoritative adaptive-descent placement.
 // Body: { rawAnswer?: string | number, restart?: boolean }
@@ -449,19 +518,35 @@ router.post("/v4/path/:slug/placement/next", requireUser, requireSameOriginCsrf,
       session = created;
     }
 
+    // Use AI-generated questions if the session has them (take priority over
+    // static pre-written questions from the instruction file).
+    const genQuestions = Array.isArray(session.generatedQuestions)
+      ? (session.generatedQuestions as AnyPlacementQuestion[])
+      : null;
+    const questionPool: AnyPlacementQuestion[] =
+      genQuestions && genQuestions.length >= 13 ? genQuestions : questions;
+
     // Grade an in-flight answer. The questionId comes from session.pending,
     // NOT the client. Grade OUTSIDE the tx (the Haiku call can be slow), then
     // append the probe atomically with a FOR UPDATE re-read so a concurrent
     // double-submit can't record the same question twice.
     if (hasAnswer && session.pending) {
       const pending = session.pending as PlacementPending;
-      const [q] = await db
-        .select()
-        .from(v4PlacementTestQuestionsTable)
-        .where(and(
-          eq(v4PlacementTestQuestionsTable.id, pending.questionId),
-          eq(v4PlacementTestQuestionsTable.versionId, resolved.versionId),
-        ));
+      let q: AnyPlacementQuestion | null = null;
+      // Look up from generated pool first, then fall back to DB
+      if (genQuestions && genQuestions.length >= 13) {
+        q = genQuestions.find(gq => gq.id === pending.questionId) ?? null;
+      }
+      if (!q) {
+        const [dbQ] = await db
+          .select()
+          .from(v4PlacementTestQuestionsTable)
+          .where(and(
+            eq(v4PlacementTestQuestionsTable.id, pending.questionId),
+            eq(v4PlacementTestQuestionsTable.versionId, resolved.versionId),
+          ));
+        q = dbQ ?? null;
+      }
       if (q) {
         const graded = await gradePlacementAnswer({ question: q, rawAnswer: body.rawAnswer });
         await db.transaction(async (tx) => {
@@ -491,7 +576,7 @@ router.post("/v4/path/:slug/placement/next", requireUser, requireSameOriginCsrf,
     }
 
     const probes = Array.isArray(session!.probes) ? (session!.probes as PlacementProbe[]) : [];
-    const step = nextPlacementStep(resolved, questions, probes);
+    const step = nextPlacementStep(resolved, questionPool, probes);
 
     if (step.kind === "ask") {
       const pending: PlacementPending = {
@@ -945,6 +1030,7 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
         startingLevelIndex: studentPath.startingLevelIndex,
         currentLessonCode: currentCode,
         pathType: studentPath.pathType,
+        placementUnitCode: studentPath.placementUnitCode ?? null,
       },
       map: {
         currentLevelIndex,

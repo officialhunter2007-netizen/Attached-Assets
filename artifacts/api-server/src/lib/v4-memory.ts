@@ -37,6 +37,7 @@ import {
   v4LessonConceptsTable,
   v4LessonsTable,
   studentGemWalletsTable,
+  type MemoryEntry,
   type V4PersonalDictionary,
   type V4WarmthAnchors,
 } from "@workspace/db";
@@ -185,14 +186,19 @@ export function buildMemoryLayer4(memory: V4StudentMemoryBundle): string {
         (p.personalDictionary.extras?.length ?? 0) > 0);
 
     if (hasDict) {
-      lines.push("", "**القاموس الشخصي للطالب** (استخدم منه مثالاً في كل شرح — قاعدة إلزامية):");
+      lines.push("", "**القاموس الشخصي للطالب** (استخدم منه مثالاً في كل شرح — قاعدة إلزامية. البيانات الموسومة بـ (قديم) استخدمها بحذر):");
       const d = p!.personalDictionary;
       if (d.occupation) lines.push(`  - المهنة/الدراسة: ${d.occupation}`);
-      if (d.hobbies?.length) lines.push(`  - الهوايات: ${d.hobbies.join(", ")}`);
-      if (d.examples?.length) lines.push(`  - أمثلة مفضّلة: ${d.examples.join(" — ")}`);
-      if (d.places?.length) lines.push(`  - أماكن مألوفة: ${d.places.join(", ")}`);
-      if (d.family?.length) lines.push(`  - العائلة: ${d.family.join(", ")}`);
-      if (d.extras?.length) lines.push(`  - أخرى: ${d.extras.join(" — ")}`);
+      const h = renderMemoryArray(d.hobbies, ", ");
+      if (h) lines.push(`  - الهوايات: ${h}`);
+      const x = renderMemoryArray(d.examples, " — ");
+      if (x) lines.push(`  - أمثلة مفضّلة: ${x}`);
+      const pl = renderMemoryArray(d.places, ", ");
+      if (pl) lines.push(`  - أماكن مألوفة: ${pl}`);
+      const f = renderMemoryArray(d.family, ", ");
+      if (f) lines.push(`  - العائلة: ${f}`);
+      const e = renderMemoryArray(d.extras, " — ");
+      if (e) lines.push(`  - أخرى: ${e}`);
     } else {
       lines.push("", "**القاموس الشخصي**: (لم يُجمَع بعد — استخرج أي إشارة شخصية من رسائل الطالب وستُحفظ تلقائياً)");
     }
@@ -206,9 +212,12 @@ export function buildMemoryLayer4(memory: V4StudentMemoryBundle): string {
       w && ((w.laughs?.length ?? 0) > 0 || (w.confidence?.length ?? 0) > 0 || (w.worries?.length ?? 0) > 0);
     if (hasWarmth) {
       lines.push("", "**ذاكرة الدفء** (وظّفها لبناء الصلة، لا تذكرها صراحة):");
-      if (w!.laughs?.length) lines.push(`  - ضحك من: ${w!.laughs!.slice(-3).join(" / ")}`);
-      if (w!.confidence?.length) lines.push(`  - عبّر بثقة عن: ${w!.confidence!.slice(-3).join(" / ")}`);
-      if (w!.worries?.length) lines.push(`  - قلق من: ${w!.worries!.slice(-3).join(" / ")}`);
+      const laughs = renderMemoryArray(w!.laughs?.slice(-3), " / ");
+      if (laughs) lines.push(`  - ضحك من: ${laughs}`);
+      const conf = renderMemoryArray(w!.confidence?.slice(-3), " / ");
+      if (conf) lines.push(`  - عبّر بثقة عن: ${conf}`);
+      const wor = renderMemoryArray(w!.worries?.slice(-3), " / ");
+      if (wor) lines.push(`  - قلق من: ${wor}`);
     }
 
     if (memory.topWeaknesses.length) {
@@ -989,11 +998,11 @@ async function mergePersonalDictionary(userId: number, incoming: V4PersonalDicti
   const existing = (row?.personalDictionary as V4PersonalDictionary) ?? {};
   const merged: V4PersonalDictionary = {
     occupation: incoming.occupation || existing.occupation,
-    hobbies: unionCapped(existing.hobbies, incoming.hobbies),
-    examples: unionCapped(existing.examples, incoming.examples),
-    places: unionCapped(existing.places, incoming.places),
-    family: unionCapped(existing.family, incoming.family),
-    extras: unionCapped(existing.extras, incoming.extras),
+    hobbies: unionCapped(existing.hobbies, wrapEntries(incoming.hobbies)),
+    examples: unionCapped(existing.examples, wrapEntries(incoming.examples)),
+    places: unionCapped(existing.places, wrapEntries(incoming.places)),
+    family: unionCapped(existing.family, wrapEntries(incoming.family)),
+    extras: unionCapped(existing.extras, wrapEntries(incoming.extras)),
   };
   await db
     .update(v4StudentProfileTable)
@@ -1011,9 +1020,9 @@ async function mergeWarmthAnchors(userId: number, incoming: V4WarmthAnchors): Pr
   // Warmth uses tail-bounded queues (most recent 10) rather than a union
   // so stale anchors don't dominate as the student evolves.
   const merged: V4WarmthAnchors = {
-    laughs: tailBounded([...(existing.laughs ?? []), ...(incoming.laughs ?? [])], 10),
-    confidence: tailBounded([...(existing.confidence ?? []), ...(incoming.confidence ?? [])], 10),
-    worries: tailBounded([...(existing.worries ?? []), ...(incoming.worries ?? [])], 10),
+    laughs: tailBounded([...(existing.laughs ?? []), ...(wrapEntries(incoming.laughs) ?? [])], 10),
+    confidence: tailBounded([...(existing.confidence ?? []), ...(wrapEntries(incoming.confidence) ?? [])], 10),
+    worries: tailBounded([...(existing.worries ?? []), ...(wrapEntries(incoming.worries) ?? [])], 10),
   };
   await db
     .update(v4StudentProfileTable)
@@ -1028,32 +1037,68 @@ async function ensureProfileRow(userId: number): Promise<void> {
     .onConflictDoNothing({ target: v4StudentProfileTable.userId });
 }
 
-function unionCapped(a: string[] | undefined, b: string[] | undefined, cap = 10): string[] | undefined {
+function memValue(e: MemoryEntry): string {
+  return typeof e === "string" ? e : e.value;
+}
+
+function memCapturedAt(e: MemoryEntry): string | undefined {
+  return typeof e === "string" ? undefined : e.capturedAt;
+}
+
+function daysAgo(iso: string | undefined): number | undefined {
+  if (!iso) return undefined;
+  return Math.round((Date.now() - new Date(iso).getTime()) / 86400000);
+}
+
+/** Render a MemoryEntry array for the system prompt, marking stale entries. */
+function renderMemoryArray(items: MemoryEntry[] | undefined, sep: string): string {
+  if (!items?.length) return "";
+  return items.map(e => {
+    const v = memValue(e);
+    const d = daysAgo(memCapturedAt(e));
+    if (d === undefined) return v;
+    if (d > 60) return `${v} (منذ ${d} يوم — قديم)`;
+    if (d > 30) return `${v} (منذ ${d} يوم)`;
+    return v;
+  }).join(sep);
+}
+
+function wrapEntries(arr: string[] | undefined): MemoryEntry[] | undefined {
+  if (!arr?.length) return undefined;
+  const now = new Date().toISOString();
+  return arr.map(v => typeof v === "object" && "value" in (v as any)
+    ? v as MemoryEntry
+    : { value: typeof v === "string" ? v : String(v), capturedAt: now });
+}
+
+function unionCapped(a: MemoryEntry[] | undefined, b: MemoryEntry[] | undefined, cap = 10): MemoryEntry[] | undefined {
   const all = [...(a ?? []), ...(b ?? [])];
   if (all.length === 0) return undefined;
   const seen = new Set<string>();
-  const out: string[] = [];
-  for (const v of all) {
+  const out: MemoryEntry[] = [];
+  for (const raw of all) {
+    const v = memValue(raw).trim();
+    const ca = memCapturedAt(raw);
     const k = v.toLowerCase().replace(/\s+/g, " ").trim();
     if (!k || seen.has(k)) continue;
     seen.add(k);
-    out.push(v.trim());
+    out.push(ca ? { value: v, capturedAt: ca } : v);
     if (out.length >= cap) break;
   }
   return out.length ? out : undefined;
 }
 
-function tailBounded(arr: string[], cap: number): string[] | undefined {
+function tailBounded(arr: MemoryEntry[], cap: number): MemoryEntry[] | undefined {
   if (!arr.length) return undefined;
   const seen = new Set<string>();
-  const out: string[] = [];
-  // Walk in reverse to keep the most recent unique entries.
+  const out: MemoryEntry[] = [];
   for (let i = arr.length - 1; i >= 0; i--) {
-    const v = arr[i].trim();
+    const v = memValue(arr[i]).trim();
+    const ca = memCapturedAt(arr[i]);
     const k = v.toLowerCase();
     if (!v || seen.has(k)) continue;
     seen.add(k);
-    out.unshift(v);
+    out.unshift(ca ? { value: v, capturedAt: ca } : arr[i]);
     if (out.length >= cap) break;
   }
   return out.length ? out : undefined;
