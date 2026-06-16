@@ -21,8 +21,9 @@ COPY scripts/ ./scripts/
 # نسخ الخادم الخلفي
 COPY artifacts/api-server/ ./artifacts/api-server/
 
-# تثبيت جميع الحزم
-RUN pnpm install --no-frozen-lockfile
+# تثبيت الحزم (مع cache mount لتسريع النشرات المتكررة)
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --no-frozen-lockfile --filter @workspace/api-server
 
 # بناء الخادم (esbuild يُجمّع كل شيء في dist/index.mjs)
 RUN pnpm --filter @workspace/api-server run build

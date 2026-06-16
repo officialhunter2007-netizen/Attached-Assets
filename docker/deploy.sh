@@ -50,8 +50,34 @@ source .env
 # ─────────────────────────────────────────────────────────────────
 if [ "$1" = "--update" ]; then
     log "إعادة بناء الصور وتحديث الخدمات..."
-    docker compose build --no-cache api nginx
-    docker compose up -d --no-deps api nginx
+
+    # ── نشر ذكي: نكتشف أي خدمة تغيّرت ولا نبني غيره ──────────────────
+    local CHANGED=""
+    if git diff --name-only HEAD~1 2>/dev/null | grep -qE '^artifacts/api-server/|^lib/(db|api-zod|integrations)/|^scripts/'; then
+        CHANGED="$CHANGED api"
+    fi
+    if git diff --name-only HEAD~1 2>/dev/null | grep -qE '^artifacts/nukhba/|^lib/(api-client-react|api-zod|api-spec)/|^docker/nginx/'; then
+        CHANGED="$CHANGED nginx"
+    fi
+    # إذا ما قدرنا نحدد (أول نشر أو خطأ git)، نبني الكل
+    if [ -z "$CHANGED" ]; then
+        CHANGED="api nginx"
+        info "تعذّر تحديد الخدمات المتأثرة — بناء الكل"
+    fi
+
+    # بناء الخدمات المتأثرة فقط (مع BuildKit caching)
+    if [[ "$CHANGED" == *"api"* ]]; then
+        log "🔨 بناء الخادم الخلفي (api)…"
+        DOCKER_BUILDKIT=1 docker compose build api
+    fi
+    if [[ "$CHANGED" == *"nginx"* ]]; then
+        log "🔨 بناء الواجهة الأمامية (nginx)…"
+        DOCKER_BUILDKIT=1 docker compose build nginx
+    fi
+
+    log "🚀 إعادة تشغيل الخدمات المُحدَّثة…"
+    docker compose up -d --no-deps $CHANGED
+
     info "انتظار بدء التشغيل..."
     sleep 6
     if curl -sf "http://localhost/api/healthz" >/dev/null 2>&1; then

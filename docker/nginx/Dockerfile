@@ -20,8 +20,9 @@ COPY artifacts/nukhba/ ./artifacts/nukhba/
 # الصور المرفقة (يحتاجها alias @assets في Vite)
 COPY attached_assets/ ./attached_assets/
 
-# تثبيت الحزم
-RUN pnpm install --no-frozen-lockfile
+# تثبيت الحزم (مع cache mount لتسريع النشرات المتكررة)
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --no-frozen-lockfile --filter @workspace/nukhba
 
 # بناء Vite (الناتج في artifacts/nukhba/dist/public/)
 ENV NODE_ENV=production
