@@ -23,7 +23,7 @@ COPY artifacts/api-server/ ./artifacts/api-server/
 
 # تثبيت الحزم (مع cache mount لتسريع النشرات المتكررة)
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --no-frozen-lockfile --filter @workspace/api-server
+    pnpm install --no-frozen-lockfile
 
 # بناء الخادم (esbuild يُجمّع كل شيء في dist/index.mjs)
 RUN pnpm --filter @workspace/api-server run build

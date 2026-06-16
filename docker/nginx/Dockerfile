@@ -22,7 +22,7 @@ COPY attached_assets/ ./attached_assets/
 
 # تثبيت الحزم (مع cache mount لتسريع النشرات المتكررة)
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --no-frozen-lockfile --filter @workspace/nukhba
+    pnpm install --no-frozen-lockfile
 
 # بناء Vite (الناتج في artifacts/nukhba/dist/public/)
 ENV NODE_ENV=production
