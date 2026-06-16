@@ -1,0 +1,1324 @@
+Experiences
+Discover the best ways to use pack offers with Experiences. Experiences are curated bundles of pack partner products, GitHub tools, and other resources that are designed for you learn new skills and make the most out of the Student Developer Pack and your journey in GitHub Education.
+
+Blue, purple and green GitHub Copilot logo
+LaunchPad
+
+Intro to Copilot
+What is Copilot and how do you get started using it? Use this Experience as a Primer on Copilot. We share tutorials, guides and templates to learn how to use AI in your development process.
+
+Offers in this bundle
+
+
+GitHub
+
+GitHub Copilot
+
+GitHub Codespaces
+
+Visual Studio Code
+Learn more about Intro to Copilot 
+black and white mona
+LaunchPad
+
+Intro to GitHub
+GitHub flow is a lightweight, branch-based workflow. In this Experience you'll learn the basics of the GitHub Flow including creating and making changes to branches within a repository, as well as creating and merging pull requests. The GitHub flow is useful for everyone, not just developers.
+
+Offers in this bundle
+
+
+GitHub
+Learn more about Intro to GitHub 
+credly certifications exam badge
+Tools
+
+GitHub Foundations Certification
+Everything you need to get started preparing for and taking the GitHub Foundations Certification exam including FAQs, guides, prep courses, and more.
+
+Offers in this bundle
+
+
+DataCamp
+
+GitHub
+
+Microsoft Azure
+Learn more about GitHub Foundations Certification 
+Multiple Mona octocats popping out of a box
+Tools
+
+Intro to Open Source
+Everything you need to know to understand the origins of open source work, how to become a contributor, a maintainer or a sponsor of an open source project and how to propel open source work into a career. Start with the basics including intro guides, how to find good first issues and basic open source vocabulary. Then begin to explore some of the best tools and thought leadership that will help you discover new ways of contributing.
+
+Offers in this bundle
+
+
+Travis CI
+
+GitHub
+
+OpenSauced
+
+GitHub Codespaces
+Learn more about Intro to Open Source 
+Mona the Octocat logo carrying books with a red hat and glasses on
+Tools
+
+AI Prompting & Technical Writing
+This Experience offers the tools, top tips and resources you'll need to get started becoming a technical wizard with words.
+
+Offers in this bundle
+
+
+GitHub
+
+Microsoft Azure
+
+Educative
+
+POEditor
+Learn more about AI Prompting & Technical Writing 
+A light purple desktop monitor with a GitHub logo on the screen
+Tools
+
+Intro to Web Dev
+Everything you need to build your next website. Learn how to design and build your own website as you learn the basics of web development.
+
+Offers in this bundle
+
+
+LambdaTest
+
+Polypane
+
+Bootstrap Studio
+
+DigitalOcean
+Learn more about Intro to Web Dev 
+Purple space galaxy swirl with a small octocat logo in the center
+Tools
+
+Data Science & Machine Learning
+Flex your skills in data collection, cleaning, analysis, visualization, programming, and machine learning. The Data Science & Machine Learning experience gives you the tools to analyze, collaborate and harness the power of predictive data to build amazing projects.
+
+Offers in this bundle
+
+
+Datadog
+
+SQLGate
+
+GitHub Codespaces
+
+Deepnote
+Learn more about Data Science & Machine Learning 
+image of a purple mobile device with github education logo
+Tools
+
+Mobile App Development
+Have an idea for a mobile app you'd like to bring to life? This Mobile App Development Experience gives you the tools, resources and inspiration to design, build, test and deploy your next mobile application.
+
+Offers in this bundle
+
+
+Microsoft Azure
+
+FrontendMasters
+
+LambdaTest
+
+NativeScript
+Learn more about Mobile App Development 
+An open purple laptop with the github octocat logo on the screen
+Tools
+
+Virtual Event Kit
+Everything you need for your virtual event. Design for engagement and we'll take care of the tools. The Virtual Event Kit gives students the resources to make running online events simple and accessible.
+
+Offers in this bundle
+
+
+Namecheap
+
+Microsoft Azure
+
+Name.com
+Learn more about Virtual Event Kit 
+profile README logo
+LaunchPad
+
+Profile README
+Say ‘Hello world’ with a profile README that lets you introduce yourself to the GitHub community. You decide what information to include in your profile README, so you have full control over how you present yourself on GitHub. This experience walks you through a quick tutorial to create your profile README.
+
+Offers in this bundle
+
+
+GitHub
+Learn more about Profile README 
+Yellow Javascript logo
+LaunchPad
+
+Launchpad: Intro to Javascript
+This launchpad uses Scrimba’s uniquely interactive approach to let you simultaneously watch a simple javascript tutorial and edit code in real time. No prior knowledge is required to write your first lines of code.
+
+Offers in this bundle
+
+
+Scrimba
+Learn more about Launchpad: Intro to Javascript 
+ Additional benefits are not included in the Student Developer Pack, but are exclusively offered by GitHub and partners for this Experience.
+
+All offers
+DigitalOcean
+DigitalOcean
+About DigitalOcean
+Simple cloud hosting, built for developers
+
+Offers
+Offer
+Enjoy $200 in platform credit for 1 year! As of June 8, 2026, you may use your credits on any DigitalOcean services, except as to the following: GPU Droplets, NVIDIA H100 GPU Kubernetes, Bare Metal GPUs, Dedicated Inference Serverless Inference, Third-party AI models hosted outside of DigitalOcean Infrastructure (including commercial/frontier models, including but not limited to Anthropic and OpenAI), Paperspace Machines, Cloudways services, Any other charges passed through to third-party providers outside of DigitalOcean's infrastructure.
+
+Tags
+Cloud
+Get help at DigitalOcean support
+
+Name.com
+Name.com
+About Name.com
+Domains, Google Workspace, Titan, Wix, WordPress Hosting, and more.
+
+Offers
+Offer
+Build your project on a select free domain with over 25 domain extensions like .live, .studio, .software, .app, and .dev.
+
+Tags
+Virtual Events
+Domains
+Get help at Name.com support
+
+Microsoft Azure
+Microsoft Azure
+About Microsoft Azure
+Access to Microsoft Azure cloud services and learning resources – no credit card required
+
+Offers
+Offer
+Free access to 25+ Microsoft Azure cloud services plus $100 in Azure credit. For students aged 18+.
+
+Tags
+Cloud
+Virtual Events
+Get help at Microsoft Azure support
+
+Namecheap
+Namecheap
+About Namecheap
+Affordable registration, hosting, and domain management
+
+Offers
+Offer #1
+1 year domain name registration on the .me TLD.
+
+Tags
+Virtual Events
+Offer #2
+1 SSL certificate free for 1 year.
+
+Tags
+Domains
+Virtual Events
+Get help at Namecheap support
+
+GitHub Copilot
+GitHub Copilot
+About GitHub Copilot
+Use GitHub Copilot to get autocomplete-style suggestions from an AI pair programmer as you code.
+
+Offers
+Offer
+New plan sign-ups are temporarily paused as we ensure a high-quality experience. We appreciate your patience.
+
+Tags
+Machine Learning & AI
+Get help at GitHub Copilot support
+
+.TECH
+.TECH
+About .TECH
+A powerful domain extension to convey that you belong to the technology industry.
+
+Offers
+Offer
+One standard .TECH domain free for 1 year.
+
+Tags
+Domains
+Get help at .TECH support
+
+GitHub
+GitHub
+About GitHub
+Powerful collaboration, code review, and code management
+
+Offers
+Offer
+Free GitHub Pro while you are a student.
+
+Tags
+Developer tools
+Get help at GitHub support
+
+Microsoft 365
+Microsoft 365
+About Microsoft 365
+Microsoft 365 brings Copilot, your AI assistant, into familiar apps, like Word, Excel, and PowerPoint, to help you learn faster, study smarter, and turn ideas into polished work—from class notes and group projects to resumes and job applications.
+
+Offers
+Offer
+Students can now get free or discounted access to our powerful productivity apps with AI built in, 1TB of cloud Storage, and and advanced security for your data and devices. Sign up today to unlock all your benefits.
+
+Tags
+Learn
+Productivity
+Get help at Microsoft 365 support
+
+Notion
+Notion
+About Notion
+Notion is a single space where you can think, write, and plan. Capture thoughts, manage projects, or even run an entire company — and do it exactly the way you want.
+
+Offers
+Offer
+Everything in the Notion Education plan with additional AI responses. Notion Education plan offers everything in our Plus plan + increased sharing & collaboration capabilities and longer page history.
+
+Tags
+Productivity
+Get help at Notion support
+
+Boot.dev
+Boot.dev
+About Boot.dev
+The game-like learning platform for backend developers and devops engineers
+
+Offers
+Offer
+Master Python, Golang, TypeScript and more in our immersive programming curriculum. Learn Backend Development, DevOps, and Data Analysis with 3 months of free access to Boot.dev’s complete interactive membership.
+
+Tags
+Get help at Boot.dev support
+
+DataCamp
+DataCamp
+About DataCamp
+DataCamp helps companies and individuals make better use of data. Our users build data fluency while learning from the world’s top data scientists.
+
+Offers
+Offer
+DataCamp has partnered with GitHub Education to offer three months of free access when you sign up for a DataCamp subscription with your GitHub student account.
+
+Tags
+Learn
+Get help at DataCamp support
+
+Heroku
+Heroku
+About Heroku
+A flexible, easy-to-use platform to deploy, run, and manage your apps.
+
+Offers
+Offer
+Enjoy a credit of $13 USD per month for 24 months.
+
+Tags
+Cloud
+Developer tools
+Get help at Heroku support
+
+JetBrains
+JetBrains
+About JetBrains
+Professional desktop IDEs: IntelliJ IDEA, PyCharm, and more.
+
+Offers
+Offer
+A free subscription for students, to be renewed annually.
+
+Tags
+Developer tools
+Get help at JetBrains support
+
+Codedex
+Codedex
+About Codedex
+Codédex is a brand new learn-to-code platform for Gen Z with courses in Python, HTML, CSS, JavaScript, React, Git & GitHub, Command Line, and more. Start your coding adventure today.
+
+Offers
+Offer
+Verified students receive 6 months of Codédex Club, a premium membership for free.
+
+Tags
+Learn
+Developer tools
+Virtual Events
+Get help at Codedex support
+
+Testmail
+Testmail
+About Testmail
+Get unlimited email addresses and mailboxes for automating email tests with our powerful APIs.
+
+Offers
+Offer
+Free Essential plan while you're a student.
+
+Tags
+Developer tools
+Get help at Testmail support
+
+MongoDB
+MongoDB
+About MongoDB
+A general purpose, document-based, distributed database built for modern application developers and for the cloud era.
+
+Offers
+Offer
+$50 in MongoDB Atlas Credits, plus access to MongoDB Compass and MongoDB University including free certification valued at $150.
+
+Tags
+Infrastructure & APIs
+Get help at MongoDB support
+
+Educative
+Educative
+About Educative
+Discover the best learning environment to learn and retain concepts effortlessly. Experience instant coding with browser-based Playgrounds, engage with interactive hands-on labs, and follow guided tutorials for seamless mastery.
+
+Offers
+Offer
+Dive into 6 months of free access to over 70 practical courses, covering hot topics like Web Development, Python, Java, and Machine Learning. Plus, students enjoy an awesome 30% discount on any subscription they pick!
+
+Tags
+Learn
+Get help at Educative support
+
+Visual Studio Code
+Visual Studio Code
+About Visual Studio Code
+Microsoft's goal is to empower all students with the best resources and tools as they learn to code.
+
+Offers
+Offer
+These coding packs help you download everything you need to start coding in Java, Python, or .NET.
+
+Tags
+Developer tools
+Get help at Visual Studio Code support
+
+GitHub Codespaces
+GitHub Codespaces
+About GitHub Codespaces
+Create a codespace to start developing in a secure, configurable, and dedicated development environment that works how and where you want it to.
+
+Offers
+Offer
+Free Pro level access to Codespaces to use anywhere in your account.
+
+Tags
+Get help at GitHub Codespaces support
+
+Clerk
+Clerk
+About Clerk
+Clerk provides authentication, user management, billing, and much more. Flexible APIs and prebuilt components allow you to launch SaaS billing apps and B2B auth quickly and securely.
+
+Offers
+Offer
+Free Pro plan while you're a student.
+
+Tags
+Infrastructure & APIs
+Developer tools
+Get help at Clerk support
+
+Termius
+Termius
+About Termius
+SSH client that works on desktop and mobile. Termius securely syncs data across all your devices.
+
+Offers
+Offer
+Free access to all Termius Pro and Termius Team features, while you're a student.
+
+Tags
+Developer tools
+Mobile
+Get help at Termius support
+
+Datadog
+Datadog
+About Datadog
+Cloud-based infrastructure monitoring.
+
+Offers
+Offer
+Pro Account, including 10 servers. Free for 2 years.
+
+Tags
+Security & analytics
+Get help at Datadog support
+
+FrontendMasters
+FrontendMasters
+About FrontendMasters
+Advance your skills with in-depth JavaScript, Node.js & front-end engineering courses.
+
+Offers
+Offer
+Free 6-months access to all courses and workshops.
+
+Tags
+Learn
+Get help at FrontendMasters support
+
+Camber
+Camber
+About Camber
+AI-powered, cloud-based platform designed for scientific computing, simulations, and data analysis.
+
+Offers
+Offer
+Free Camber Student plan that includes 200 CPU hours, 75GB of storage, and 200 LLM messages per month, plus additional student benefits designed to supercharge your research.
+
+Tags
+Cloud
+Learn
+Get help at Camber support
+
+Microsoft Azure (for ages 13-17)
+Microsoft Azure (for ages 13-17)
+About Microsoft Azure (for ages 13-17)
+Access to Microsoft Azure cloud services and learning resources for students aged 13-17 – no credit card required
+
+Offers
+Offer
+For students age 13-17. Free access to Azure App Services, Azure Functions, Notification Hubs, MySQL database from MySQL in-app, Application Insights, Azure DevOps.
+
+Tags
+Developer tools
+Cloud
+Get help at Microsoft Azure (for ages 13-17) support
+
+Stripe
+Stripe
+About Stripe
+Web and mobile payments, built for developers
+
+Offers
+Offer
+Waived transaction fees on first $1000 in revenue processed.
+
+Tags
+Infrastructure & APIs
+Get help at Stripe support
+
+GitHub Pages
+GitHub Pages 
+About GitHub Pages
+Websites for you and your projects. Hosted directly from your GitHub repository. Just edit, push, and your changes are live.
+
+Offers
+Offer
+Get one site per GitHub account and organization, and unlimited project sites.
+
+Tags
+Developer tools
+Get help at GitHub Pages support
+
+Microsoft Visual Studio Dev Essentials
+Microsoft Visual Studio Dev Essentials
+About Microsoft Visual Studio Dev Essentials
+Free developer tools, cloud services and training from Microsoft.
+
+Offers
+Offer
+Visual Studio Community, Visual Studio Community for Mac, access to Pluralsight training, 1 free year of Azure services with $200 credit for the 1st month and more.
+
+Tags
+Cloud
+Developer tools
+Learn
+Get help at Microsoft Visual Studio Dev Essentials support
+
+Github Campus Experts
+Github Campus Experts
+About Github Campus Experts
+GitHub Campus Experts are students who build technical communities on campus, with training and support from GitHub.
+
+Offers
+Offer
+Apply to become part of the program while you’re a student.
+
+Tags
+Learn
+Get help at Github Campus Experts support
+
+1Password
+1Password
+About 1Password
+Whether you’re coding, cramming for an exam, or collaborating with classmates, 1Password keeps all of your important information safe and at your fingertips. Get started with the password manager that is designed to simplify and secure the software development process.
+
+Offers
+Offer
+Get 1Password free for a year including 1Password Developer Tools
+
+Tags
+Developer tools
+Security & analytics
+Get help at 1Password support
+
+Notion Template Collection
+Notion Template Collection
+About Notion Template Collection
+Notion and Github for Education are partnering together to bring the next generation of software to students around the world.
+
+Offers
+Offer
+From setting up your CS course dashboard to running your hackathons to building your portfolios — this collection of templates has got you covered, in the classroom and beyond.
+
+Tags
+Productivity
+Personal Portfolio
+Virtual Events
+Get help at Notion Template Collection support
+
+Appwrite
+Appwrite
+About Appwrite
+Appwrite is an open-source, developer infrastructure platform for building web, mobile, and AI apps. It includes both a backend server and a fully integrated hosting solution for deploying static and server-side rendered frontends.
+
+Offers
+Offer
+Free access to Appwrite's Education plan (2 projects with equivalent resource limits as Appwrite Pro, worth $40/month) throughout the course of your student career (i.e., as long as you remain a member of the GitHub Student Developer Pack)
+
+Tags
+Cloud
+Developer tools
+Get help at Appwrite support
+
+PomoDone
+PomoDone
+About PomoDone
+With PomoDone, hack and track your time and boost your productivity by applying Pomodoro technique to your workflow -- eliminate distraction, sharpen focus and prevent burnout.
+
+Offers
+Offer
+PomoDone Lite plan free for 2-years.
+
+Tags
+Productivity
+Get help at PomoDone support
+
+Scrimba
+Scrimba
+About Scrimba
+Scrimba is an interactive learning platform for frontend developers.
+
+Offers
+Offer
+Level up your coding skills with interactive courses, projects, and challenges. Learn JavaScript, CSS, React, Python, and more. Enjoy 1 month of free access to Full access to Scrimba’s Pro courses, projects, and coding challenges, which includes 40+ courses.
+
+Tags
+Learn
+Developer tools
+Get help at Scrimba support
+
+LocalStack
+LocalStack
+About LocalStack
+LocalStack emulates AWS services right on your laptop, so you can build and test cloud applications without connecting to the AWS cloud.
+
+Offers
+Offer
+Free license to LocalStack’s most powerful AWS emulator in a ready-to-use cloud environment
+
+Tags
+Cloud
+Developer tools
+Infrastructure & APIs
+Get help at LocalStack support
+
+Bootstrap Studio
+Bootstrap Studio
+About Bootstrap Studio
+Bootstrap Studio is a powerful desktop app for creating responsive websites using the Bootstrap framework.
+
+Offers
+Offer
+A free license for Bootstrap Studio while you are a student.
+
+Tags
+Design
+Developer tools
+Get help at Bootstrap Studio support
+
+GitLens
+GitLens
+About GitLens
+GitLens is the #1 Git extension for VS Code; enriching your IDE with Git visualizations such as inline blame annotations, the Commit Graph, and the innovative Launchpad. GitLens provides auto-linking and rich hover information for GitHub pull requests and issues.
+
+Offers
+Offer
+The GitKraken Student plan: free for 6 months and then up to 80% off the Pro price as long as you’re a student.
+
+Tags
+Developer tools
+Get help at GitLens support
+
+IconScout
+IconScout
+About IconScout
+IconScout is a design resources marketplace with over 4.9 million icons, illustrations, 3D assets, and Lottie animations.
+
+Offers
+Offer
+Free access to 60 premium icons from selected contributors every month for 1 year.
+
+Tags
+Design
+Get help at IconScout support
+
+New Relic
+New Relic
+About New Relic
+New Relic is an observability platform that helps fully understand how to improve your software.
+
+Offers
+Offer
+Free New Relic while you are a student. ($300/month value)
+
+Tags
+Developer tools
+Cloud
+Security & analytics
+Get help at New Relic support
+
+Sentry
+Sentry
+About Sentry
+Track errors in every language, framework, and library.
+
+Offers
+Offer
+Students enjoy: 50K errors, 100K transactions, 1GB attachments, 500 replays, Team features, 1 yr limit (can renew), Disabled On-demand
+
+Tags
+Infrastructure & APIs
+Developer tools
+Get help at Sentry support
+
+Polypane
+Polypane
+About Polypane
+A powerful browser and developer tool that lets developers and designers make better websites and web apps in less time.
+
+Offers
+Offer
+You'll get free use of Polypane's individual plan for 1 year.
+
+Tags
+Design
+Developer tools
+Get help at Polypane support
+
+Zyte
+Zyte
+About Zyte
+Zyte's Scrapy Cloud is a battle-tested cloud platform for running web crawlers. Manage and automate your web spiders at scale.
+
+Offers
+Offer
+1 Free Forever Scrapy Cloud Unit - unlimited team members, projects or requests. Unlimited crawl time and 120 day data retention.
+
+Tags
+Developer tools
+Get help at Zyte support
+
+BrowserStack
+BrowserStack
+About BrowserStack
+Test your web apps with BrowserStack's Real Device Cloud, which gives you instant access to 2000+ browsers and real iOS and Android devices.
+
+Offers
+Offer
+Free Automate Mobile Plan for 1 parallel and 1 user for 1 year.
+
+Tags
+Developer tools
+Get help at BrowserStack support
+
+HazeOver
+HazeOver
+About HazeOver
+Get focused while working on your projects or studying with HazeOver for Mac.
+
+Offers
+Offer
+Free app license, including minor updates.
+
+Tags
+Productivity
+Get help at HazeOver support
+
+Deepnote
+Deepnote
+About Deepnote
+Deepnote is a new kind of data notebook built for collaboration - Jupyter compatible, works magically in the cloud, and sharing is as easy as sending a link.
+
+Offers
+Offer
+Our offer includes free use of the Deepnote Team plan while you are a student. The Deepnote Team Plan includes: Unlimited team members & projects, 30-day version history, unlimited basic machines with up to 5GB RAM and 2vCPU, premium integrations (Snowflake, SQL Server, BigQuery, Redshift, and more), and 30-day revision history.
+
+Tags
+Developer tools
+Machine Learning & AI
+Get help at Deepnote support
+
+GitKraken
+GitKraken
+About GitKraken
+GitKraken Desktop is the most popular Git client for Windows, Mac & Linux, offering both a GUI and terminal interface. Deep integration with GitHub repos and issues enable interactive pull request management and issue management directly in the client.
+
+Offers
+Offer
+The GitKraken Student Plan: Free for 6 months and then up to 80% off the Pro price as long as you’re a student.
+
+Tags
+Developer tools
+Get help at GitKraken support
+
+LambdaTest
+LambdaTest
+About LambdaTest
+Perform automated and live interactive cross browser testing on 2000+ real browsers and operating systems online.
+
+Offers
+Offer
+Free LambdaTest Live Plan for one year.
+
+Tags
+Developer tools
+Get help at LambdaTest support
+
+Icons8
+Icons8
+About Icons8
+Icons8 provides design resources: icons, UI illustrations, photos and software to class up your projects.
+
+Offers
+Offer
+Free 3-month subscription that includes: icons, photos, illustrations, and music.
+
+Tags
+Design
+Get help at Icons8 support
+
+Visme
+Visme
+About Visme
+The all-in-one platform for creating engaging and interactive presentations, visual documents, data visualizations, short videos and other branded content you can be proud of.
+
+Offers
+Offer
+Get 3 free months free access to Visme's Starter plan.
+
+Tags
+Productivity
+Design
+Get help at Visme support
+
+Adafruit
+Adafruit
+About Adafruit
+Adafruit is an open-source hardware and open-source educational electronics company based in NYC, USA.
+
+Offers
+Offer
+One year of Adafruit IO+ and discounts on selected hardware.
+
+Tags
+Internet of Things
+Infrastructure & APIs
+Get help at Adafruit support
+
+AlgoExpert
+AlgoExpert
+About AlgoExpert
+The ultimate resource to prepare for coding interviews. Everything you need, in one streamlined platform.
+
+Offers
+Offer
+Free access to 20 coding interview questions on AlgoExpert as well as a 10% discount on all AlgoExpert products.
+
+Tags
+Learn
+Personal Portfolio
+Get help at AlgoExpert support
+
+Arduino
+Arduino
+About Arduino
+Empower scientists and artists of the future with creative STEM programs.
+
+Offers
+Offer
+Free Arduino Cloud for 6 months and discounts on selected hardware.
+
+Tags
+Internet of Things
+Infrastructure & APIs
+Get help at Arduino support
+
+Blackfire
+Blackfire
+About Blackfire
+Code performance measurement tool. Find & fix bottlenecks.
+
+Offers
+Offer
+Free Developer subscription for students.
+
+Tags
+Security & analytics
+Get help at Blackfire support
+
+CodeScene
+CodeScene
+About CodeScene
+Learn how to write healthier code, pinpoint and manage tech debt and other code quality issues. CodeScene gives you instant feedback on your code and recommendations based on the best coding practices and latest standards. Integrate CodeScene into your pull requests to get automated code reviews, set quality gates and only merge quality code. 25+ programming languages are supported.
+
+Offers
+Offer
+A free Student account to analyze private GitHub repositories.
+
+Tags
+Security & analytics
+Developer tools
+Get help at CodeScene support
+
+InterviewCake
+InterviewCake
+About InterviewCake
+Interview Cake makes coding interviews a piece of cake with practice questions, data structures and algorithms reference pages, cheat sheets, and more.
+
+Offers
+Offer
+Access to the full coding interview prep course for 1 week.
+
+Tags
+Learn
+Get help at InterviewCake support
+
+Octicons
+Octicons
+About Octicons
+Octicons is an open source library created specifically for GitHub's UI.
+
+Offers
+Offer
+Using Figma designs to build the Octicons icon library
+
+Tags
+Get help at Octicons support
+
+SlideCoach
+SlideCoach
+About SlideCoach
+Slide Coach is an AI presentation coach. Practice your presentations in private with your personal AI coach. Get instant, data-driven feedback, and walk into any room ready to own it.
+
+Offers
+Offer
+Enjoy 2,000 free credits for SlideCoach—equivalent to 40 AI-powered presentation sessions—valid for one year after redemption.
+
+Tags
+Learn
+Productivity
+Personal Portfolio
+Get help at SlideCoach support
+
+Xojo
+Xojo
+About Xojo
+A cross-platform development tool for making native apps for Desktop, Mobile, Web and Raspberry Pi.
+
+Offers
+Offer
+Xojo Pro license free while you are a student.
+
+Tags
+Design
+Developer tools
+Get help at Xojo support
+
+Requestly
+Requestly
+About Requestly
+Requestly is an open-source tool for developers to intercept, modify, and mock HTTP requests and responses to build, test, and manage APIs
+
+Offers
+Offer
+Requestly Professional plan (worth $270) free for one year.
+
+Tags
+Infrastructure & APIs
+Developer tools
+Cloud
+Get help at Requestly support
+
+Pageclip
+Pageclip
+About Pageclip
+A server for your static websites and HTML forms.
+
+Offers
+Offer
+Free basic plan while you are a student.
+
+Tags
+Infrastructure & APIs
+Get help at Pageclip support
+
+PopSQL
+PopSQL
+About PopSQL
+Modern, collaborative SQL editor for your team — write queries, visualize data, and share your results.
+
+Offers
+Offer
+Free Premium subscription for PopSQL while you're a student.
+
+Tags
+Developer tools
+Get help at PopSQL support
+
+GitHub Desktop
+GitHub Desktop
+About GitHub Desktop
+Reduces frustration and makes Git and GitHub workflows more approachable.
+
+Offers
+Offer
+Open Source by GitHub, free for everyone.
+
+Tags
+Developer tools
+Get help at GitHub Desktop support
+
+Imgbot
+Imgbot
+About Imgbot
+Imgbot is a GitHub App that automatically optimizes your images.
+
+Offers
+Offer
+Free image optimization for all your public and private projects while you are a student.
+
+Tags
+Infrastructure & APIs
+Get help at Imgbot support
+
+GoRails
+GoRails
+About GoRails
+Tutorials for web developers learning Ruby, Rails, Javascript, Turbolinks, Stimulus.js, Vue.js, and more.
+
+Offers
+Offer
+Free access to all videos and lessons for 12 months.
+
+Tags
+Learn
+Get help at GoRails support
+
+ToDiagram
+ToDiagram
+About ToDiagram
+ToDiagram is a browser-based interactive data editor that turns any JSON, YAML, CSV and XML into editable diagrams with fully customizable formats, allowing you to define nodes and edges for any diagram.
+
+Offers
+Offer
+ToDiagram Pro Plan including full editor access, no data limits, and up to 10 documents stored in the cloud. This offer does not include AI-assistant functionality.
+
+Tags
+Productivity
+Developer tools
+Infrastructure & APIs
+Get help at ToDiagram support
+
+Tower
+Tower
+About Tower
+The Git client that brings all of Git and GitHub's power to the desktop, for Mac and Windows.
+
+Offers
+Offer
+Free license for Tower Pro while you are a student.
+
+Tags
+Developer tools
+Get help at Tower support
+
+WorkingCopy
+WorkingCopy
+About WorkingCopy
+Powerful Git client for iPhone & iPad.
+
+Offers
+Offer
+All Pro features for free while you are a student.
+
+Tags
+Developer tools
+Mobile
+Get help at WorkingCopy support
+
+Travis CI
+Travis CI
+About Travis CI
+Continuous integration platform for open source and private projects
+
+Offers
+Offer
+Private builds for free while you're a student.
+
+Tags
+Developer tools
+Infrastructure & APIs
+Get help at Travis CI support
+
+SQLGate
+SQLGate
+About SQLGate
+Simple but powerful IDE for multiple SQL databases.
+
+Offers
+Offer
+Access to most Standard Subscription features for 1 year.
+
+Tags
+Developer tools
+Get help at SQLGate support
+
+Doppler
+Doppler
+About Doppler
+A different way to manage secrets. From local development to production, we work on every stack, scaling with you as your team and products grow.
+
+Offers
+Offer
+Free Doppler Team subscription while the user is an active student.
+
+Tags
+Infrastructure & APIs
+Security & analytics
+Developer tools
+Get help at Doppler support
+
+Codecov
+Codecov
+About Codecov
+Codecov makes it easy to implement code coverage to develop healthier code
+
+Offers
+Offer
+Free access to Codecov on public and private repositories.
+
+Tags
+Developer tools
+Get help at Codecov support
+
+CARTO
+CARTO
+About CARTO
+An open and powerful platform for spatial data analysis, visualization, and application creation.
+
+Offers
+Offer
+Free account upgrades with increased database storage, real time data, Location Data Services Credits, and premium features for 2 years.
+
+Tags
+Infrastructure & APIs
+Get help at CARTO support
+
+AstraSecurity
+AstraSecurity
+About AstraSecurity
+Security suite for your website - firewall, malware scanner & managed bug bounty platform.
+
+Offers
+Offer
+6 month access to website firewall & malware scanner
+
+Tags
+Security & analytics
+Get help at AstraSecurity support
+
+ConfigCat
+ConfigCat
+About ConfigCat
+Learn feature flags with the industry leading feature flag service.
+
+Offers
+Offer
+1000 feature flags, ∞ users for free.
+
+Tags
+Developer tools
+Infrastructure & APIs
+Get help at ConfigCat support
+
+Blockchair
+Blockchair
+About Blockchair
+Connect to the world of blockchains through Blockchair’s professional APIs — supports most major cryptocurrencies.
+
+Offers
+Offer
+100,000 free requests.
+
+Tags
+Infrastructure & APIs
+Get help at Blockchair support
+
+SimpleAnalytics
+SimpleAnalytics
+About SimpleAnalytics
+Privacy-friendly analytics with a simple interface and API.
+
+Offers
+Offer
+Starter plan free for one year, including 100k page views per month.
+
+Tags
+Infrastructure & APIs
+Marketing
+Get help at SimpleAnalytics support
+
+Honeybadger
+Honeybadger
+About Honeybadger
+The web developer's secret weapon: exception, uptime, and cron monitoring that's so awesome, you'll wish your site had more errors.
+
+Offers
+Offer
+Free Small account for 1 year.
+
+Tags
+Security & analytics
+Get help at Honeybadger support
+
+DeepScan
+DeepScan
+About DeepScan
+DeepScan is a platform for building better and more reliable JavaScript apps.
+
+Offers
+Offer
+Free 6-month trial while you are a student.
+
+Tags
+Developer tools
+Get help at DeepScan support
+
+POEditor
+POEditor
+About POEditor
+POEditor is a highly scalable localization management platform for teams.
+
+Offers
+Offer
+Plus Plan for free for one year.
+
+Tags
+Developer tools
+Infrastructure & APIs
+Get help at POEditor support
+
+Dashlane
+Dashlane
+About Dashlane
+Cloud-based password manager.
+
+Offers
+Offer
+Dashlane Premium free for 6 months.
+
+Tags
+Productivity
+Get help at Dashlane support
+
+DevCycle
+DevCycle
+About DevCycle
+DevCycle is a Feature Flag Management platform built for developers.
+
+Offers
+Offer
+1 Free Year on our Starter Plan to Verified Students. Includes unlimited seats, unlimited feature flags, and unlimited usage.
+
+Tags
+Developer tools
+Security & analytics
+Get help at DevCycle support
+
+Themeisle
+Themeisle
+About Themeisle
+Neve’s mobile-first approach, compatibility with AMP and popular page-builders makes website building accessible for everyone.
+
+Offers
+Offer
+Free year of Neve Agency WordPress theme exclusively for students.
+
+Tags
+Design
+Infrastructure & APIs
+Get help at Themeisle support
+
+Vaadin
+Vaadin
+About Vaadin
+Best open source Java framework for building Progressive Web Applications.
+
+Offers
+Offer
+Free Pro subscription license to access the commercial components and tools.
+
+Tags
+Infrastructure & APIs
+Get help at Vaadin support
+
+Appfigures
+Appfigures
+About Appfigures
+App Store analytics, optimization, and intelligence.
+
+Offers
+Offer
+"Free access to universal analytics and performance reports for one year.
+
+Tags
+Marketing
+Get help at Appfigures support
+
+SymfonyCasts
+SymfonyCasts
+About SymfonyCasts
+Master Symfony and PHP with video tutorials and code challenges.
+
+Offers
+Offer
+Free 3-month subscription for students.
+
+Tags
+Learn
+Get help at SymfonyCasts support
