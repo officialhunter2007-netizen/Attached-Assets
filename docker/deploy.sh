@@ -52,7 +52,7 @@ if [ "$1" = "--update" ]; then
     log "إعادة بناء الصور وتحديث الخدمات..."
 
     # ── نشر ذكي: نكتشف أي خدمة تغيّرت ولا نبني غيره ──────────────────
-    local CHANGED=""
+    CHANGED=""
     if git diff --name-only HEAD~1 2>/dev/null | grep -qE '^artifacts/api-server/|^lib/(db|api-zod|integrations)/|^scripts/'; then
         CHANGED="$CHANGED api"
     fi
