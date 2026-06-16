@@ -7,9 +7,11 @@
  *      "1.1.1.2"), the latent lexicographic bug this rework fixes.
  *   2. computeUnlockedToUnit — unlock UP TO + INCLUDING a boundary unit, land
  *      the pointer on the FIRST lesson of that unit (numeric, not lexicographic).
- *   3. nextPlacementStep — hierarchical descent (level best-of-3 → stage 1-of-2
- *      → unit 1-of-2) lands a student at the exact boundary unit, AND falls back
- *      to the legacy level-only flow verbatim when no unit-tagged questions exist.
+ *   3. nextPlacementStep — adaptive binary search over the stratified unit
+ *      sample (best-of-3 per unit, MIDPOINT real-unit placement at convergence)
+ *      lands a student near the true mastery boundary with no under-placement
+ *      bias, AND falls back to the legacy level-only flow verbatim when no
+ *      unit-tagged questions exist.
  *
  * Pure functions only — no DB, no AI. The descent is replayed over a synthetic
  * graded-probe stream driven by a per-student "mastery" predicate.
@@ -217,8 +219,32 @@ describe("usesUnitTargeting — descent vs legacy routing", () => {
   });
 });
 
-// ── 4. hierarchical descent placement ──────────────────────────────────────
-describe("nextPlacementStep — hierarchical descent (unit-tagged)", () => {
+// ── 4. adaptive binary-search placement (unit-tagged) ──────────────────────
+/** A SPARSE unit-tagged bank: 8 real units in ONE level, but questions for
+ *  only 3 of them (1.1.1, 1.1.4, 1.1.8). Exercises MIDPOINT real-unit
+ *  placement across the untested gap (no under-placement bias). */
+function sparseLevelCodes(): string[] {
+  const codes: string[] = [];
+  for (let U = 1; U <= 8; U++) for (let Le = 1; Le <= 2; Le++) codes.push(`1.1.${U}.${Le}`);
+  return codes;
+}
+function sparseUnitQuestions(): V4PlacementTestQuestion[] {
+  const qs: V4PlacementTestQuestion[] = [];
+  let id = 1;
+  let qi = 0;
+  for (const U of [1, 4, 8])
+    for (let d = 1; d <= 3; d++) {
+      qs.push({
+        id: id++, versionId: 1, questionIndex: qi++,
+        targetLevelIndex: 1, targetStageCode: "1.1", targetUnitCode: `1.1.${U}`,
+        kind: "mcq", prompt: `q 1.1.${U} d${d}`, choices: ["a", "b", "c", "d"],
+        correctIndex: 0, difficulty: d,
+      } as V4PlacementTestQuestion);
+    }
+  return qs;
+}
+
+describe("evaluatePlacement — adaptive binary search (unit-tagged)", () => {
   const resolved = makeResolved(fullTreeCodes(), 2);
   const qs = unitQuestions();
 
@@ -231,48 +257,73 @@ describe("nextPlacementStep — hierarchical descent (unit-tagged)", () => {
     assert.equal(r.startingLevelIndex, 1);
   });
 
-  test("masters all of level 1 → placed at the start of level 2 (unit 2.1.1)", () => {
-    const r = simulate(resolved, qs, (q) => q.targetLevelIndex === 1);
-    assert.equal(r.precision, "unit");
-    assert.equal(r.unitCode, "2.1.1");
-    assert.equal(r.currentLessonCode, "2.1.1.1");
-    assert.equal(r.startingLevelIndex, 2);
-  });
-
-  test("masters L1 + stage 2.1 → placed at the boundary stage's first unit (2.2.1)", () => {
-    const r = simulate(
-      resolved,
-      qs,
-      (q) => q.targetLevelIndex === 1 || q.targetStageCode === "2.1",
-    );
-    assert.equal(r.unitCode, "2.2.1");
-    assert.equal(r.currentLessonCode, "2.2.1.1");
-    assert.equal(r.levelIndex, 2);
-    assert.equal(r.stageCode, "2.2");
-  });
-
-  test("partial stage mastery (only unit 2.1.2) still descends to stage 2.2 → unit 2.2.1", () => {
-    // Representative sampling: knowing the hardest unit of stage 2.1 passes the
-    // stage; the gap in 2.1.1 is still UNLOCKED (review), not skipped.
-    const r = simulate(
-      resolved,
-      qs,
-      (q) => q.targetLevelIndex === 1 || q.targetUnitCode === "2.1.2",
-    );
-    assert.equal(r.unitCode, "2.2.1");
-    const unlocked = computeUnlockedToUnit(resolved, "2.2.1").unlocked;
-    assert.ok(unlocked.includes("2.1.1.1"), "skipped unit must remain unlocked for review");
-  });
-
-  test("masters everything → placed at the final unit (2.2.2), still unit precision", () => {
+  test("masters everything → placed at the final unit 2.2.2 (still unit precision)", () => {
     const r = simulate(resolved, qs, () => true);
     assert.equal(r.precision, "unit");
     assert.equal(r.unitCode, "2.2.2");
     assert.equal(r.currentLessonCode, "2.2.2.1");
+    assert.equal(r.startingLevelIndex, 2);
+  });
+
+  test("masters all of level 1 → placed at the level-2 boundary unit 2.1.1", () => {
+    const r = simulate(resolved, qs, (q) => q.targetLevelIndex === 1);
+    assert.equal(r.precision, "unit");
+    assert.equal(r.unitCode, "2.1.1");
+    assert.equal(r.currentLessonCode, "2.1.1.1");
+    assert.equal(r.levelIndex, 2);
+    assert.equal(r.startingLevelIndex, 2);
+  });
+
+  test("a single fluke wrong does NOT fail a unit (best-of-3 majority)", () => {
+    // Correct on everything EXCEPT the first (easy) probe of 2.1.1. Best-of-3
+    // still passes 2.1.1, so the student is NOT demoted by one bad answer.
+    const r = simulate(
+      resolved,
+      qs,
+      (q) => !(q.targetUnitCode === "2.1.1" && q.difficulty === 1),
+    );
+    assert.equal(r.precision, "unit");
+    assert.equal(r.unitCode, "2.2.2");
+  });
+
+  test("sparse sample → MIDPOINT real unit of the gap (no under-placement bias)", () => {
+    const sparse = makeResolved(sparseLevelCodes(), 1);
+    const sq = sparseUnitQuestions();
+    // Passes sampled unit 1.1.1, fails sampled unit 1.1.4. A conservative engine
+    // would land on 1.1.2 (right after the last pass); midpoint placement lands
+    // halfway across the untested gap (1.1.1 … 1.1.4] → 1.1.3.
+    const r = simulate(sparse, sq, (q) => q.targetUnitCode === "1.1.1");
+    assert.equal(r.precision, "unit");
+    assert.equal(r.unitCode, "1.1.3");
+    assert.equal(r.currentLessonCode, "1.1.3.1");
+  });
+
+  test("always converges within the soft cap of 18 questions", () => {
+    let count = 0;
+    const probes: PlacementProbe[] = [];
+    for (let i = 0; i < 50; i++) {
+      const step = nextPlacementStep(resolved, qs, probes);
+      if (step.kind === "done") break;
+      count++;
+      probes.push({
+        questionId: step.question.id,
+        scope: step.scope,
+        scopeCode: step.scopeCode,
+        targetLevelIndex: step.targetLevelIndex,
+        correct: false,
+      });
+    }
+    assert.ok(count > 0 && count <= 18, `expected 1..18 questions, got ${count}`);
   });
 });
 
-// ── 5. legacy level-only fallback (verbatim behavior) ──────────────────────
+// ── 5. legacy level-only fallback ──────────────────────────────────────────
+// Unchanged by this rework: when the active version has NO unit-tagged
+// questions, nextPlacementStep routes to evaluateLevelOnly, which finalizes via
+// the committed computeStartingLevel. Its semantics are "advance to the FIRST
+// level the student did NOT master" (i.e. highest mastered + 1) — the SAME
+// no-under-placement-bias philosophy the unit path uses (master all ⇒ end), NOT
+// the old "highest level with a correct answer" rule.
 describe("nextPlacementStep — legacy level-only fallback", () => {
   const resolved = makeResolved(fullTreeCodes(), 2);
   const qs = levelOnlyQuestions();
@@ -284,18 +335,20 @@ describe("nextPlacementStep — legacy level-only fallback", () => {
     assert.equal(r.stageCode, null);
   });
 
-  test("all wrong → starting level 1", () => {
+  test("all wrong → starting level 1 (never demoted below the floor)", () => {
     const r = simulate(resolved, qs, () => false);
     assert.equal(r.startingLevelIndex, 1);
   });
 
-  test("all correct → starting level = highest correct (2)", () => {
+  test("masters every probed level → advances PAST them (no under-placement)", () => {
+    // Both levels mastered → first not-mastered level is 3 (downstream
+    // computeUnlocked clamps it to the real curriculum = effectively the end).
     const r = simulate(resolved, qs, () => true);
-    assert.equal(r.startingLevelIndex, 2);
+    assert.equal(r.startingLevelIndex, 3);
   });
 
-  test("L1 correct, L2 wrong → highest correct is 1 (legacy semantics preserved)", () => {
+  test("masters L1, fails L2 → starts at the first not-mastered level (2)", () => {
     const r = simulate(resolved, qs, (q) => q.targetLevelIndex === 1);
-    assert.equal(r.startingLevelIndex, 1);
+    assert.equal(r.startingLevelIndex, 2);
   });
 });

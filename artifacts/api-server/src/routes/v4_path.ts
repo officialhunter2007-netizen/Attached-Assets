@@ -34,6 +34,7 @@ import {
   v4DiagnosticSessionsTable,
   v4PlacementTestQuestionsTable,
   v4PlacementSessionsTable,
+  v4UnitsTable,
   type V4PlacementSession,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -46,6 +47,9 @@ import {
   nextPlacementStep,
   gradePlacementAnswer,
   generatePlacementQuestions,
+  PLACEMENT_SOFT_CAP,
+  PLACEMENT_MIN_POOL,
+  PLACEMENT_MIN_UNITS,
   type PlacementProbe,
   type PlacementPending,
   type PlacementResult,
@@ -377,10 +381,16 @@ async function getLatestCompletedPlacementSession(
   return row ?? null;
 }
 
-function placementProgress(probes: PlacementProbe[], phase: "level" | "stage" | "unit" | "done") {
+function placementProgress(
+  probes: PlacementProbe[],
+  phase: "level" | "stage" | "unit" | "done",
+  confidencePct?: number | null,
+) {
   return {
     phase,
     answered: probes.length,
+    softCap: PLACEMENT_SOFT_CAP,
+    confidencePct: confidencePct ?? null,
     levelProbes: probes.filter((p) => p.scope === "level").length,
     stageProbes: probes.filter((p) => p.scope === "stage").length,
     unitProbes: probes.filter((p) => p.scope === "unit").length,
@@ -413,14 +423,27 @@ router.post("/v4/path/:slug/placement/generate", requireUser, requireSameOriginC
 
     // Check for existing placement questions in the instruction file —
     // if the admin already wrote 13+ questions, they take priority over AI.
-    const existingCount = await db
-      .select({ count: sql<number>`count(*)` })
+    // Admin-authored bank: count total questions AND how many DISTINCT units
+    // they cover. A dense count clustered in a few units would blind the binary
+    // search, so BOTH gates must pass before we short-circuit AI generation.
+    const [adminStats] = await db
+      .select({
+        count: sql<number>`count(*)`,
+        units: sql<number>`count(distinct ${v4PlacementTestQuestionsTable.targetUnitCode})`,
+      })
       .from(v4PlacementTestQuestionsTable)
-      .where(eq(v4PlacementTestQuestionsTable.versionId, resolved.versionId))
-      .then(r => r[0]?.count ?? 0);
+      .where(eq(v4PlacementTestQuestionsTable.versionId, resolved.versionId));
+    const existingCount = Number(adminStats?.count ?? 0);
+    const existingUnits = Number(adminStats?.units ?? 0);
 
-    if (existingCount >= 13) {
-      // Admin-authored questions exist — use them; no AI needed.
+    // Only short-circuit to the admin bank when it's actually DENSE enough to
+    // drive the binary search: ≥ 60% of units (min 13) total AND spread over
+    // ≥ min(PLACEMENT_MIN_UNITS, unitCount) distinct units. A sparse hand-authored
+    // bank (e.g. skill-python's 18 across 189 units) falls through to AI gen.
+    const adminThreshold = Math.max(13, Math.ceil(resolved.units.length * 0.6));
+    const adminUnitFloor = Math.min(PLACEMENT_MIN_UNITS, resolved.units.length);
+    if (existingCount >= adminThreshold && existingUnits >= adminUnitFloor) {
+      // Admin-authored questions exist and are dense — use them; no AI needed.
       res.json({ questionCount: existingCount, source: "admin" as const });
       return;
     }
@@ -524,7 +547,7 @@ router.post("/v4/path/:slug/placement/next", requireUser, requireSameOriginCsrf,
       ? (session.generatedQuestions as AnyPlacementQuestion[])
       : null;
     const questionPool: AnyPlacementQuestion[] =
-      genQuestions && genQuestions.length >= 13 ? genQuestions : questions;
+      genQuestions && genQuestions.length >= PLACEMENT_MIN_POOL ? genQuestions : questions;
 
     // Grade an in-flight answer. The questionId comes from session.pending,
     // NOT the client. Grade OUTSIDE the tx (the Haiku call can be slow), then
@@ -534,7 +557,7 @@ router.post("/v4/path/:slug/placement/next", requireUser, requireSameOriginCsrf,
       const pending = session.pending as PlacementPending;
       let q: AnyPlacementQuestion | null = null;
       // Look up from generated pool first, then fall back to DB
-      if (genQuestions && genQuestions.length >= 13) {
+      if (genQuestions && genQuestions.length >= PLACEMENT_MIN_POOL) {
         q = genQuestions.find(gq => gq.id === pending.questionId) ?? null;
       }
       if (!q) {
@@ -595,13 +618,14 @@ router.post("/v4/path/:slug/placement/next", requireUser, requireSameOriginCsrf,
         scope: step.scope,
         scopeCode: step.scopeCode,
         phaseLabel: step.phaseLabel,
-        progress: placementProgress(probes, step.scope),
+        progress: placementProgress(probes, step.scope, step.confidencePct),
         question: {
           id: step.question.id,
           targetLevelIndex: step.question.targetLevelIndex,
           kind: step.question.kind,
           prompt: step.question.prompt,
           choices: step.question.choices ?? null,
+          difficulty: step.question.difficulty,
         },
       });
       return;
@@ -660,6 +684,18 @@ router.post("/v4/path/:slug/placement/finalize", requireUser, requireSameOriginC
     }
     const result = session.result as PlacementResult;
     const boundaryUnitCode = result.precision === "unit" ? (result.unitCode ?? null) : null;
+    let unitName: string | null = null;
+    if (result.unitCode) {
+      const [u] = await db
+        .select({ name: v4UnitsTable.name })
+        .from(v4UnitsTable)
+        .where(and(
+          eq(v4UnitsTable.versionId, resolved.versionId),
+          eq(v4UnitsTable.code, result.unitCode),
+        ))
+        .limit(1);
+      unitName = u?.name ?? null;
+    }
     const row = await createOrReplaceStudentPath({
       userId: uid,
       subjectSlug: slug,
@@ -677,6 +713,7 @@ router.post("/v4/path/:slug/placement/finalize", requireUser, requireSameOriginC
         levelIndex: result.levelIndex,
         stageCode: result.stageCode,
         unitCode: result.unitCode,
+        unitName,
         currentLessonCode: result.currentLessonCode,
         reason: result.reason,
       },

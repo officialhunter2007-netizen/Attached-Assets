@@ -19,6 +19,8 @@ import {
   BookOpen, ArrowLeft,
 } from "lucide-react";
 import { extractAskOptions } from "@/lib/ask-options";
+import hljs from "highlight.js";
+import { latinizeCodeIdentifiers } from "@/lib/code-latinize";
 
 type Phase = "loading" | "diagnostic" | "start-choice" | "placement" | "result" | "error";
 
@@ -28,9 +30,11 @@ type PlacementScope = "level" | "stage" | "unit";
 type PlacementProgress = {
   phase: PlacementScope | "done";
   answered: number;
-  levelProbes: number;
-  stageProbes: number;
-  unitProbes: number;
+  softCap: number;
+  confidencePct: number | null;
+  levelProbes?: number;
+  stageProbes?: number;
+  unitProbes?: number;
 };
 type PlacementQuestion = {
   id: number;
@@ -38,6 +42,7 @@ type PlacementQuestion = {
   kind: string;
   prompt: string;
   choices: string[] | null;
+  difficulty: number;
 };
 type PlacementResult = {
   startMode: "placement";
@@ -66,6 +71,7 @@ type PlacementFinalizeInfo = {
   levelIndex: number;
   stageCode: string | null;
   unitCode: string | null;
+  unitName?: string | null;
   currentLessonCode: string | null;
   reason: string;
 };
@@ -97,27 +103,52 @@ async function postJson<T>(url: string, body: any): Promise<T> {
 // ── Shared helpers ────────────────────────────────────────────────────────────
 const ALPHA_LABELS = ["أ", "ب", "ج", "د", "هـ", "و"];
 
+// ── Code highlighting (hljs + deterministic Arabic→Latin identifier guard) ────
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function highlightCode(code: string, lang: string): string {
+  try {
+    if (lang && hljs.getLanguage(lang)) {
+      return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+    }
+    return hljs.highlightAuto(code).value;
+  } catch {
+    return escapeHtml(code);
+  }
+}
+
 /**
- * Renders a placement/diagnostic question prompt with proper code formatting.
- * - Triple-backtick fenced blocks → styled <pre> code block (LTR, monospace)
+ * Renders a placement question prompt with rich code formatting:
+ * - Triple-backtick fenced blocks → hljs-highlighted <pre><code> (LTR, English)
  * - Single-backtick spans → inline <code>
- * - Everything else → plain whitespace-preserved text
+ * - Arabic identifiers inside any code are latinized at render time, so the
+ *   displayed code is ALWAYS English/Latin regardless of what the generator emit.
  */
 function RenderPrompt({ text, size = "base" }: { text: string; size?: "sm" | "base" }) {
   const fontSize = size === "sm" ? "text-sm" : "text-[15px]";
-  const segments = text.split(/(```(?:[\w]*)\n?[\s\S]*?```)/g);
+  const normalized = latinizeCodeIdentifiers(text ?? "");
+  const segments = normalized.split(/(```(?:[\w]*)\n?[\s\S]*?```)/g);
   return (
     <>
       {segments.map((seg, idx) => {
-        const blockMatch = seg.match(/^```(?:[\w]*)\n?([\s\S]*?)```$/);
+        const blockMatch = seg.match(/^```([\w]*)\n?([\s\S]*?)```$/);
         if (blockMatch) {
+          const lang = (blockMatch[1] || "").trim();
+          const code = blockMatch[2].replace(/\n+$/, "");
+          const html = highlightCode(code, lang);
           return (
             <pre
               key={idx}
-              className="my-3 p-4 rounded-xl bg-black/70 border border-emerald/20 text-emerald/85 text-sm font-mono leading-relaxed overflow-x-auto shadow-[inset_0_0_24px_rgba(16,185,129,0.06)]"
+              dir="ltr"
+              className="my-3 p-4 rounded-xl bg-black/75 border border-emerald/20 text-sm font-mono leading-relaxed overflow-x-auto shadow-[inset_0_0_24px_rgba(16,185,129,0.06)]"
               style={{ direction: "ltr", textAlign: "left" }}
             >
-              {blockMatch[1].trim()}
+              <code
+                className={`hljs !bg-transparent !p-0 language-${lang || "plaintext"}`}
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
             </pre>
           );
         }
@@ -130,6 +161,7 @@ function RenderPrompt({ text, size = "base" }: { text: string; size?: "sm" | "ba
                 return (
                   <code
                     key={j}
+                    dir="ltr"
                     className="px-2 py-0.5 mx-0.5 rounded-md bg-black/60 border border-emerald/20 text-emerald/80 text-[0.83em] font-mono"
                     style={{ direction: "ltr" }}
                   >
@@ -163,7 +195,6 @@ export default function PathCustom() {
   const [placementBusy, setPlacementBusy] = useState(false);
   const [placementGenerating, setPlacementGenerating] = useState(false);
   const [placementPickedIdx, setPlacementPickedIdx] = useState<number | null>(null);
-  const [placementShortAnswer, setPlacementShortAnswer] = useState("");
   const [finalLevel, setFinalLevel] = useState<number | null>(null);
   const [unlockedCount, setUnlockedCount] = useState(0);
   const [finalPlacement, setFinalPlacement] = useState<PlacementFinalizeInfo | null>(null);
@@ -264,7 +295,7 @@ export default function PathCustom() {
         `/api/v4/path/${encodeURIComponent(slug)}/placement/generate`,
         {},
       );
-      if (genRes.questionCount < 10) {
+      if (genRes.questionCount < 13) {
         setErrMsg(`تعذّر توليد أسئلة كافية للاختبار (${genRes.questionCount} سؤال فقط). الرجاء المحاولة لاحقاً.`);
         setPlacementGenerating(false);
         setPhase("start-choice");
@@ -293,20 +324,12 @@ export default function PathCustom() {
   function handlePlacementResponse(r: PlacementState) {
     setPlacement(r);
     setPlacementPickedIdx(null);
-    setPlacementShortAnswer("");
   }
 
   async function submitPlacementAnswer() {
     if (!placement || placement.kind !== "ask" || placementBusy) return;
-    const q = placement.question;
-    let rawAnswer: string | number;
-    if (q.kind === "mcq" && Array.isArray(q.choices) && q.choices.length > 0) {
-      if (placementPickedIdx === null) return;
-      rawAnswer = placementPickedIdx;
-    } else {
-      if (!placementShortAnswer.trim()) return;
-      rawAnswer = placementShortAnswer.trim();
-    }
+    if (placementPickedIdx === null) return; // placement is MCQ-only
+    const rawAnswer: number = placementPickedIdx;
     setPlacementBusy(true);
     try {
       const r = await postJson<PlacementState>(
@@ -521,76 +544,54 @@ export default function PathCustom() {
               <Loader2 className="w-5 h-5 animate-spin text-gold" />
               <span className="text-white/70 text-sm font-bold">جاري إعداد أسئلة اختبار تحديد المستوى…</span>
             </motion.div>
-            <p className="text-white/30 text-xs">يتم توليد 20 سؤالاً ذكياً من محتوى المنهج لتحديد مستواك بدقة</p>
+            <p className="text-white/30 text-xs">نولّد أسئلة عملية من محتوى المنهج — اختبار ذكي يتكيّف مع إجاباتك ليحدد مستواك بدقة</p>
           </div>
         )}
         {phase === "placement" && placement?.kind === "ask" && (
           <div className="space-y-5 py-1">
 
-            {/* Phase stepper */}
-            <div className="flex items-center justify-center gap-0">
-              {(["level", "stage", "unit"] as const).map((sc, i) => {
-                const labels = { level: "المستوى", stage: "المرحلة", unit: "الوحدة" } as const;
-                const order = { level: 0, stage: 1, unit: 2 } as const;
-                const active = placement.scope === sc;
-                const done = order[placement.scope] > order[sc];
-                return (
-                  <div key={sc} className="flex items-center">
-                    <div className="flex flex-col items-center gap-1.5">
-                      <motion.div
-                        animate={active ? {
-                          boxShadow: [
-                            "0 0 0px rgba(245,158,11,0)",
-                            "0 0 20px rgba(245,158,11,0.5)",
-                            "0 0 0px rgba(245,158,11,0)",
-                          ],
-                        } : {}}
-                        transition={{ duration: 2.2, repeat: Infinity }}
-                        className={`w-10 h-10 rounded-full border-2 flex items-center justify-center font-bold text-sm transition-all duration-500 ${
-                          done
-                            ? "bg-emerald/20 border-emerald text-emerald"
-                            : active
-                            ? "bg-gold/15 border-gold text-gold"
-                            : "bg-white/[0.03] border-white/10 text-white/25"
-                        }`}
-                      >
-                        {done ? <Check className="w-4 h-4" /> : <span>{i + 1}</span>}
-                      </motion.div>
-                      <span className={`text-[10px] font-bold tracking-wide transition-colors ${
-                        done ? "text-emerald/80" : active ? "text-gold/90" : "text-white/20"
-                      }`}>
-                        {labels[sc]}
+            {/* Adaptive header: phase label + difficulty chip + question counter */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1 rounded-full border text-gold bg-gold/10 border-gold/25">
+                    <Target className="w-3 h-3" />
+                    {placement.phaseLabel}
+                  </span>
+                  {(() => {
+                    const d = placement.question.difficulty;
+                    const meta = d >= 3
+                      ? { t: "صعب", c: "text-rose-300 bg-rose-500/10 border-rose-500/25" }
+                      : d === 2
+                      ? { t: "متوسط", c: "text-amber-300 bg-amber-500/10 border-amber-500/25" }
+                      : { t: "سهل", c: "text-emerald-300 bg-emerald-500/10 border-emerald-500/25" };
+                    return (
+                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${meta.c}`}>
+                        {meta.t}
                       </span>
-                    </div>
-                    {i < 2 && (
-                      <div className="relative w-14 h-0.5 mx-1 mb-4 rounded-full bg-white/[0.08]">
-                        <motion.div
-                          className="absolute inset-y-0 right-0 rounded-full bg-emerald/60"
-                          animate={{ width: done ? "100%" : "0%" }}
-                          transition={{ duration: 0.6, ease: "easeOut" }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    );
+                  })()}
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px]">
+                  <span className="tabular-nums font-bold text-white/70">السؤال {placement.progress.answered + 1}</span>
+                  <span className="text-white/25">/ حتى {placement.progress.softCap}</span>
+                </div>
+              </div>
 
-            {/* Meta info bar */}
-            <div className="flex items-center justify-between">
-              <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${
-                placement.scope === "unit"
-                  ? "text-violet-300 bg-violet-500/10 border-violet-500/25"
-                  : placement.scope === "stage"
-                  ? "text-sky-300 bg-sky-500/10 border-sky-500/25"
-                  : "text-gold bg-gold/10 border-gold/25"
-              }`}>
-                {placement.phaseLabel}
-              </span>
-              <div className="flex items-center gap-1.5 text-[11px] text-white/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-gold/50 animate-pulse inline-block" />
-                <span className="tabular-nums">{placement.progress.answered}</span>
-                <span>سؤال</span>
+              {/* Confidence bar — fills as the search "zeroes in" on your level */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] text-white/30">دقة تحديد المستوى</span>
+                  <span className="text-[10px] font-bold text-emerald/80 tabular-nums">{placement.progress.confidencePct ?? 0}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                  <motion.div
+                    className="h-full rounded-full bg-gradient-to-l from-emerald-400 via-emerald to-teal-500"
+                    animate={{ width: `${placement.progress.confidencePct ?? 0}%` }}
+                    transition={{ duration: 0.7, ease: "easeOut" }}
+                    style={{ boxShadow: "0 0 8px rgba(16,185,129,0.5)" }}
+                  />
+                </div>
               </div>
             </div>
 
@@ -636,8 +637,8 @@ export default function PathCustom() {
               </motion.div>
             </AnimatePresence>
 
-            {/* MCQ choices */}
-            {placement.question.kind === "mcq" && Array.isArray(placement.question.choices) && (
+            {/* MCQ choices (placement is MCQ-only) */}
+            {Array.isArray(placement.question.choices) && placement.question.choices.length > 0 && (
               <div className="space-y-2.5">
                 <AnimatePresence>
                   {placement.question.choices.map((c, i) => {
@@ -694,30 +695,10 @@ export default function PathCustom() {
               </div>
             )}
 
-            {/* Short answer */}
-            {placement.question.kind !== "mcq" && (
-              <div className="relative">
-                <div
-                  className="absolute -inset-[1px] rounded-xl opacity-40 pointer-events-none"
-                  style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.3) 0%, transparent 100%)" }}
-                />
-                <textarea
-                  value={placementShortAnswer}
-                  onChange={(e) => setPlacementShortAnswer(e.target.value)}
-                  placeholder="اكتب إجابتك هنا…"
-                  rows={4}
-                  className="relative w-full bg-white/[0.03] border border-white/10 rounded-xl p-4 text-sm outline-none resize-none placeholder:text-white/20 focus:border-violet-500/35 transition-colors leading-relaxed"
-                />
-              </div>
-            )}
-
             {/* Submit button */}
             <motion.button
               onClick={submitPlacementAnswer}
-              disabled={
-                placementBusy ||
-                (placement.question.kind === "mcq" ? placementPickedIdx === null : !placementShortAnswer.trim())
-              }
+              disabled={placementBusy || placementPickedIdx === null}
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
               className="w-full relative overflow-hidden rounded-xl py-4 font-black text-[15px] transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:scale-100"
@@ -808,8 +789,13 @@ export default function PathCustom() {
                         </span>
                       </div>
                       <div className="text-base font-black text-white mb-1">
-                        الوحدة {finalPlacement.unitCode}
+                        {finalPlacement.unitName
+                          ? finalPlacement.unitName
+                          : `الوحدة ${finalPlacement.unitCode}`}
                       </div>
+                      {finalPlacement.unitName && finalPlacement.unitCode && (
+                        <div className="text-[11px] font-mono text-white/35 mb-1" dir="ltr">{finalPlacement.unitCode}</div>
+                      )}
                       <p className="text-white/50 text-xs">
                         ابدأ منها — وما قبلها مفتوح لك للمراجعة في أي وقت
                       </p>
