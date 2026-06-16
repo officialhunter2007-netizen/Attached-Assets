@@ -1,21 +1,39 @@
 ---
 name: v4 placement (binary search over units)
-description: How the v4 placement test places students (binary search over units, midpoint, no under-placement bias), the pool-size sync point, the AI-authoring fragment contract, and the code-ordering trap.
+description: How the v4 placement test places students (binary search over units, CONSERVATIVE first-unit-after-proven-mastery), the persisted strengths/weaknesses profile, the pool-size sync point, the AI-authoring fragment contract, and the code-ordering trap.
 ---
 
 # v4 placement (approximate unit precision)
 
 ## Algorithm = adaptive BINARY SEARCH over units (NOT hierarchical descent)
-The earlier "hierarchical descent, resolve every boundary downward (conservative)" design was
-deliberately REPLACED. Current engine (`evaluatePlacement` in `v4-path-engine.ts`): run an
-adaptive binary search over the numerically-ordered unit list, best-of-3 per probed unit for
-fluke-resistance (tracks highest-pass / lowest-fail bounds), soft-capped at 18 questions, and
-place the student at the **MIDPOINT real unit** of the converged boundary.
+Current engine (`evaluatePlacement` in `v4-path-engine.ts`): run an adaptive binary search over
+the numerically-ordered unit list, best-of-3 per probed unit for fluke-resistance (tracks
+highest-pass / lowest-fail bounds), soft-capped at 18 questions, then place the student at the
+**first real unit AFTER the highest proven-mastered unit** (`start = realLo + 1`, where `realLo`
+is the real-curriculum index of the highest passed sampled unit; `realLo < 0` ⇒ first unit;
+mastered-all ⇒ last unit, unchanged).
 
-**Why:** the product goal flipped — conservative under-placement (making a competent student
-re-grind material) was judged worse than a small over-placement risk. Midpoint placement is the
-intentional expression of "no under-placement bias." Do NOT re-introduce floor/round-down
-placement or "ambiguous boundary resolves downward" — that is the old behavior we removed.
+**Why (conservative — this REVERSED the earlier midpoint design):** live HTTP testing of
+skill-python (189 units, ~22 sampled ⇒ big gaps between probed units) showed midpoint placement
+`(realLo+realHi)/2` consistently OVER-places by ~half the sampling gap — a student who truly knew
+up to 2.4.1 was dropped at 2.4.5 (+4), skipping unlearned material. Midpoint *guesses across the
+untested gap*; conservative only ever trusts what was actually proven. After the fix the same
+student lands at 2.4.2 (+1). Do NOT re-introduce midpoint / "split the gap" placement — over-placing
+a student past unlearned units is worse than one extra easy unit. (Under-placement is bounded to
++1 above proven mastery, so it is NOT a re-grind of mastered material.)
+
+## Persisted strengths/weaknesses profile (`v4_student_paths.placement_profile` jsonb)
+On placement finalize, `buildPlacementProfile()` distils the graded UNIT probes into a
+teacher-facing snapshot — `{placedUnitCode, reason, totalQuestions, capturedAt, strengths[],
+weaknesses[]}` where each unit entry carries `unitCode/unitName/stageCode/levelIndex/correct/wrong`.
+Pass→strengths, fail→weaknesses (best-of-3 verdict; partial ties break on correct≥wrong). Returns
+**null** for from_zero / level-only runs (no unit probes). The finalize route resolves human-readable
+`unitName`s via an `inArray` batch fetch. Persisted so the AI teacher can personalize from lesson 1.
+
+**Conflict semantics:** `createOrReplaceStudentPath`'s `placementProfile` param is optional —
+`undefined` OMITS the column from the upsert so a later **from_zero re-setup cannot wipe** an
+earlier placement profile; pass explicit `null` only to intentionally clear it. Treat the profile
+as advisory/stale-tolerant in the teacher, never as authoritative mastery state.
 
 ## "Pool good enough?" is one decision with multiple sync points
 Generation (`generatePlacementQuestions`) stratified-samples ≤22 units evenly across the whole

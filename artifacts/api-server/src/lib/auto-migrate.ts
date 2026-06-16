@@ -1183,6 +1183,16 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     ],
   },
   {
+    // Placement strengths/weaknesses snapshot captured at finalize so the AI
+    // teacher can personalize from the first lesson. JSONB: { placedUnitCode,
+    // reason, totalQuestions, capturedAt, strengths[], weaknesses[] }.
+    // NULL for from_zero paths (backfills cleanly).
+    table: "v4_student_paths",
+    columns: [
+      { name: "placement_profile", ddl: "jsonb" },
+    ],
+  },
+  {
     // Approve flow also inserts activation cards with these columns.
     table: "activation_cards",
     columns: [

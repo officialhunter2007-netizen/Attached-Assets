@@ -8,10 +8,10 @@
  *   2. computeUnlockedToUnit — unlock UP TO + INCLUDING a boundary unit, land
  *      the pointer on the FIRST lesson of that unit (numeric, not lexicographic).
  *   3. nextPlacementStep — adaptive binary search over the stratified unit
- *      sample (best-of-3 per unit, MIDPOINT real-unit placement at convergence)
- *      lands a student near the true mastery boundary with no under-placement
- *      bias, AND falls back to the legacy level-only flow verbatim when no
- *      unit-tagged questions exist.
+ *      sample (best-of-3 per unit, CONSERVATIVE placement at the first unit
+ *      after the highest proven-mastered one) lands a student at or just below
+ *      the true mastery boundary, AND falls back to the legacy level-only flow
+ *      verbatim when no unit-tagged questions exist.
  *
  * Pure functions only — no DB, no AI. The descent is replayed over a synthetic
  * graded-probe stream driven by a per-student "mastery" predicate.
@@ -26,6 +26,7 @@ import {
   computeUnlockedToUnit,
   usesUnitTargeting,
   nextPlacementStep,
+  buildPlacementProfile,
   type ResolvedSpecialty,
   type ResolvedUnit,
   type PlacementProbe,
@@ -221,8 +222,8 @@ describe("usesUnitTargeting — descent vs legacy routing", () => {
 
 // ── 4. adaptive binary-search placement (unit-tagged) ──────────────────────
 /** A SPARSE unit-tagged bank: 8 real units in ONE level, but questions for
- *  only 3 of them (1.1.1, 1.1.4, 1.1.8). Exercises MIDPOINT real-unit
- *  placement across the untested gap (no under-placement bias). */
+ *  only 3 of them (1.1.1, 1.1.4, 1.1.8). Exercises CONSERVATIVE placement at
+ *  the first real unit after the last proven-mastered one (no over-placement). */
 function sparseLevelCodes(): string[] {
   const codes: string[] = [];
   for (let U = 1; U <= 8; U++) for (let Le = 1; Le <= 2; Le++) codes.push(`1.1.${U}.${Le}`);
@@ -286,16 +287,16 @@ describe("evaluatePlacement — adaptive binary search (unit-tagged)", () => {
     assert.equal(r.unitCode, "2.2.2");
   });
 
-  test("sparse sample → MIDPOINT real unit of the gap (no under-placement bias)", () => {
+  test("sparse sample → CONSERVATIVE first unit after the last proven pass", () => {
     const sparse = makeResolved(sparseLevelCodes(), 1);
     const sq = sparseUnitQuestions();
-    // Passes sampled unit 1.1.1, fails sampled unit 1.1.4. A conservative engine
-    // would land on 1.1.2 (right after the last pass); midpoint placement lands
-    // halfway across the untested gap (1.1.1 … 1.1.4] → 1.1.3.
+    // Passes sampled unit 1.1.1, fails sampled unit 1.1.4. Conservative placement
+    // lands on 1.1.2 — the FIRST real unit after the last proven-mastered one —
+    // rather than guessing across the untested gap (the old midpoint → 1.1.3).
     const r = simulate(sparse, sq, (q) => q.targetUnitCode === "1.1.1");
     assert.equal(r.precision, "unit");
-    assert.equal(r.unitCode, "1.1.3");
-    assert.equal(r.currentLessonCode, "1.1.3.1");
+    assert.equal(r.unitCode, "1.1.2");
+    assert.equal(r.currentLessonCode, "1.1.2.1");
   });
 
   test("always converges within the soft cap of 18 questions", () => {
@@ -350,5 +351,73 @@ describe("nextPlacementStep — legacy level-only fallback", () => {
   test("masters L1, fails L2 → starts at the first not-mastered level (2)", () => {
     const r = simulate(resolved, qs, (q) => q.targetLevelIndex === 1);
     assert.equal(r.startingLevelIndex, 2);
+  });
+});
+
+// ── 6. buildPlacementProfile — strengths/weaknesses snapshot ────────────────
+// Distils the graded unit probes into the teacher-facing profile persisted on
+// the student path. Pure: the caller supplies the unit-name lookup.
+function unitProbe(unitCode: string, correct: boolean): PlacementProbe {
+  return {
+    questionId: Math.floor(Math.random() * 1e6),
+    scope: "unit",
+    scopeCode: unitCode,
+    targetLevelIndex: parseInt(unitCode.split(".")[0] || "0", 10),
+    correct,
+  };
+}
+function fakeResult(unitCode: string | null, reason: string): PlacementResult {
+  return {
+    startMode: "placement",
+    startingLevelIndex: 1,
+    levelIndex: 1,
+    stageCode: null,
+    unitCode,
+    currentLessonCode: null,
+    precision: "unit",
+    reason,
+  };
+}
+
+describe("buildPlacementProfile — teacher-facing snapshot", () => {
+  const resolved = makeResolved(fullTreeCodes(), 2);
+
+  test("no probes → null (from_zero / level-only placement)", () => {
+    assert.equal(buildPlacementProfile(resolved, [], fakeResult("1.1.1", "x"), new Map()), null);
+  });
+
+  test("only non-unit probes → null (nothing unit-scoped to summarize)", () => {
+    const probes: PlacementProbe[] = [
+      { questionId: 1, scope: "stage", scopeCode: "1.1", targetLevelIndex: 1, correct: true },
+    ];
+    assert.equal(buildPlacementProfile(resolved, probes, fakeResult(null, "x"), new Map()), null);
+  });
+
+  test("classifies pass→strengths / fail→weaknesses, sorts numerically, resolves names + tree fields", () => {
+    const probes: PlacementProbe[] = [
+      unitProbe("2.2.2", false), unitProbe("2.2.2", false), // fail → weakness
+      unitProbe("1.2.1", true), unitProbe("1.2.1", true),   // pass → strength (out of order on purpose)
+      unitProbe("1.1.1", true), unitProbe("1.1.1", true),   // pass → strength
+    ];
+    const names = new Map<string, string>([["1.1.1", "Unit A"], ["2.2.2", "Unit Z"]]);
+    const profile = buildPlacementProfile(resolved, probes, fakeResult("1.2.2", "binary_search_boundary"), names);
+    assert.ok(profile, "expected a non-null profile");
+    assert.equal(profile!.placedUnitCode, "1.2.2");
+    assert.equal(profile!.reason, "binary_search_boundary");
+    assert.equal(profile!.totalQuestions, probes.length);
+    // numeric sort: 1.1.1 BEFORE 1.2.1 (not lexicographic / insertion order)
+    assert.deepEqual(profile!.strengths.map((s) => s.unitCode), ["1.1.1", "1.2.1"]);
+    assert.deepEqual(profile!.weaknesses.map((w) => w.unitCode), ["2.2.2"]);
+    // unit name resolved from map, null when absent
+    assert.equal(profile!.strengths[0]!.unitName, "Unit A");
+    assert.equal(profile!.strengths[1]!.unitName, null);
+    // level/stage resolved from the resolved tree
+    assert.equal(profile!.strengths[0]!.levelIndex, 1);
+    assert.equal(profile!.strengths[0]!.stageCode, "1.1");
+    assert.equal(profile!.weaknesses[0]!.levelIndex, 2);
+    assert.equal(profile!.weaknesses[0]!.stageCode, "2.2");
+    // tallies carried through
+    assert.equal(profile!.strengths[0]!.correct, 2);
+    assert.equal(profile!.weaknesses[0]!.wrong, 2);
   });
 });

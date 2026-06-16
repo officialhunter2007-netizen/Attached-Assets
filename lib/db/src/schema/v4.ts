@@ -341,6 +341,12 @@ export const v4StudentPathsTable = pgTable("v4_student_paths", {
   // response in the PREVIOUS completed lesson, captured on LESSON_MASTERED.
   // { lessonCode: string, tailSummary: string, capturedAt: string (ISO) }
   lastLessonContext: jsonb("last_lesson_context"),
+  // Placement strengths/weaknesses snapshot captured at finalize, so the AI
+  // teacher can personalize from the very first lesson. JSONB shape:
+  // { placedUnitCode, reason, totalQuestions, capturedAt, strengths[], weaknesses[] }
+  // where each entry is { unitCode, unitName, levelIndex, stageCode, correct, wrong }.
+  // NULL for from_zero paths (no diagnostic probing) — backfills cleanly.
+  placementProfile: jsonb("placement_profile"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

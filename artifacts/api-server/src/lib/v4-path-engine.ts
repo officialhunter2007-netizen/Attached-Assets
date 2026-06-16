@@ -523,6 +523,10 @@ export async function createOrReplaceStudentPath(opts: {
    *  a later re-publish recomputes unit-precisely instead of widening to the
    *  whole level. NULL for from_zero / legacy level-only placement. */
   boundaryUnitCode?: string | null;
+  /** Strengths/weaknesses snapshot from the placement descent (placement mode
+   *  only). Persisted verbatim for the AI teacher; undefined leaves the column
+   *  untouched on conflict so a from_zero re-setup can't wipe an earlier one. */
+  placementProfile?: PlacementProfile | null;
 }): Promise<V4StudentPath> {
   const usePrecise = opts.startMode === "placement" && !!opts.boundaryUnitCode;
   let unlocked: string[];
@@ -566,6 +570,7 @@ export async function createOrReplaceStudentPath(opts: {
       placementUnitCode,
       currentLessonCode,
       unlockedLessonCodes: unlocked,
+      ...(opts.placementProfile !== undefined ? { placementProfile: opts.placementProfile } : {}),
       createdAt: now,
       updatedAt: now,
     })
@@ -579,6 +584,8 @@ export async function createOrReplaceStudentPath(opts: {
         placementUnitCode,
         currentLessonCode,
         unlockedLessonCodes: unlocked,
+        // undefined → omitted → existing profile preserved across a re-setup.
+        ...(opts.placementProfile !== undefined ? { placementProfile: opts.placementProfile } : {}),
         updatedAt: now,
       },
     })
@@ -1128,8 +1135,9 @@ function doneResult(resolved: ResolvedSpecialty, boundaryUnitCode: string | null
  * units the student has mastered and the ones they haven't:
  *   • best-of-3 per unit (UNIT_PASS_NEED / UNIT_FAIL_NEED) → fluke-resistant;
  *   • narrow [lo, hi) over the sampled units until the bounds meet;
- *   • place at the MIDPOINT real unit of the remaining ambiguity gap so the
- *     error is symmetric — no systematic under- or over-placement bias.
+ *   • place CONSERVATIVELY at the first unit after the highest proven-mastered
+ *     unit, so the student is never dropped into material they haven't shown
+ *     mastery of (worst case: a few review units they breeze through).
  */
 export function evaluatePlacement(
   resolved: ResolvedSpecialty,
@@ -1222,7 +1230,7 @@ export function evaluatePlacement(
     // Pool exhausted at the midpoint → fall through to placement.
   }
 
-  // ── Converged (or capped) → place at the midpoint REAL unit of the gap ─────
+  // ── Converged (or capped) → place CONSERVATIVELY at the first unmastered unit ─
   const realLo = highestPass >= 0 ? (realIndexByCode.get(targetUnits[highestPass].unitCode) ?? -1) : -1;
   const realHi = lowestFail < M
     ? (realIndexByCode.get(targetUnits[lowestFail].unitCode) ?? resolved.units.length)
@@ -1238,12 +1246,100 @@ export function evaluatePlacement(
     const firstUnit = resolved.units[0] ?? null;
     return doneResult(resolved, firstUnit?.unitCode ?? null, "from_start");
   }
-  // Midpoint of the untested gap (realLo, realHi], clamped to a valid unit.
-  let mid = Math.round((realLo + realHi) / 2);
-  if (mid <= realLo) mid = realLo + 1;
-  if (mid > realHi) mid = realHi;
-  const boundary = resolved.units[mid] ?? resolved.units[realHi] ?? null;
+  // Conservative placement: start at the first unit AFTER the highest proven-
+  // mastered unit. The search only has positive evidence of mastery at realLo
+  // and of failure at realHi; everything in (realLo, realHi) is UNTESTED, so
+  // splitting the difference (the old midpoint) risks dropping the student into
+  // material they never demonstrated mastery of. Starting at realLo+1 guarantees
+  // no over-placement — worst case they breeze through a few known review units.
+  let start = realLo + 1;
+  if (start > realHi) start = realHi;
+  const boundary = resolved.units[start] ?? resolved.units[realHi] ?? null;
   return doneResult(resolved, boundary?.unitCode ?? null, capped ? "capped_boundary" : "binary_search_boundary");
+}
+
+// ── Placement strengths/weaknesses profile ──────────────────────────────────
+// Durable summary of WHAT the student demonstrated during the adaptive descent,
+// persisted on the student path so the AI teacher can personalize from the very
+// first lesson (e.g. "you struggled with loops, let's reinforce them"). The raw
+// per-question probes live in v4_placement_sessions; this is the distilled,
+// teacher-facing view keyed by unit.
+export type PlacementProfileUnit = {
+  unitCode: string;
+  unitName: string | null;
+  levelIndex: number;
+  stageCode: string | null;
+  correct: number;
+  wrong: number;
+};
+
+export type PlacementProfile = {
+  /** The unit the student was ultimately placed at (start point). */
+  placedUnitCode: string | null;
+  /** Why placement converged here (mastered_all / binary_search_boundary / …). */
+  reason: string;
+  /** Total graded probes asked during the descent. */
+  totalQuestions: number;
+  /** ISO timestamp the profile was captured. */
+  capturedAt: string;
+  /** Units the student demonstrated mastery of (more correct than wrong). */
+  strengths: PlacementProfileUnit[];
+  /** Units the student struggled with (more wrong than correct). */
+  weaknesses: PlacementProfileUnit[];
+};
+
+/**
+ * Distil the graded `probes` of a completed placement descent into a
+ * teacher-facing strengths/weaknesses snapshot. Pure — the caller supplies the
+ * unit-name lookup (names are not carried on ResolvedUnit). Returns null when
+ * there were no unit-scoped probes (e.g. from_zero / level-only placement).
+ */
+export function buildPlacementProfile(
+  resolved: ResolvedSpecialty,
+  probes: PlacementProbe[],
+  result: PlacementResult,
+  unitNameByCode: Map<string, string>,
+): PlacementProfile | null {
+  const unitByCode = new Map(resolved.units.map((u) => [u.unitCode, u]));
+  type Tally = { correct: number; wrong: number };
+  const tally = new Map<string, Tally>();
+  for (const p of probes) {
+    if (p.scope !== "unit") continue;
+    const t = tally.get(p.scopeCode) ?? { correct: 0, wrong: 0 };
+    if (p.correct) t.correct++; else t.wrong++;
+    tally.set(p.scopeCode, t);
+  }
+  if (tally.size === 0) return null;
+
+  const strengths: PlacementProfileUnit[] = [];
+  const weaknesses: PlacementProfileUnit[] = [];
+  for (const [code, t] of tally) {
+    const u = unitByCode.get(code);
+    const entry: PlacementProfileUnit = {
+      unitCode: code,
+      unitName: unitNameByCode.get(code) ?? null,
+      levelIndex: u?.levelIndex ?? (parseInt(code.split(".")[0] ?? "0", 10) || 0),
+      stageCode: u?.stageCode ?? null,
+      correct: t.correct,
+      wrong: t.wrong,
+    };
+    const verdict = unitVerdict(t.correct, t.wrong, t.correct + t.wrong);
+    if (verdict === "pass") strengths.push(entry);
+    else if (verdict === "fail") weaknesses.push(entry);
+    else (entry.correct >= entry.wrong ? strengths : weaknesses).push(entry);
+  }
+  const byCode = (a: PlacementProfileUnit, b: PlacementProfileUnit) => compareCodes(a.unitCode, b.unitCode);
+  strengths.sort(byCode);
+  weaknesses.sort(byCode);
+
+  return {
+    placedUnitCode: result.unitCode ?? null,
+    reason: result.reason,
+    totalQuestions: probes.length,
+    capturedAt: new Date().toISOString(),
+    strengths,
+    weaknesses,
+  };
 }
 
 /**

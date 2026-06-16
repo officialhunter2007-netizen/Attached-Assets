@@ -26,7 +26,7 @@
 //     which time the placement run is already complete.
 // ─────────────────────────────────────────────────────────────────────────────
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   db,
   v4SpecialtiesTable,
@@ -44,6 +44,7 @@ import {
   getStudentPath,
   syncStudentPathToActiveVersion,
   createOrReplaceStudentPath,
+  buildPlacementProfile,
   nextPlacementStep,
   gradePlacementAnswer,
   generatePlacementQuestions,
@@ -684,18 +685,31 @@ router.post("/v4/path/:slug/placement/finalize", requireUser, requireSameOriginC
     }
     const result = session.result as PlacementResult;
     const boundaryUnitCode = result.precision === "unit" ? (result.unitCode ?? null) : null;
-    let unitName: string | null = null;
-    if (result.unitCode) {
-      const [u] = await db
-        .select({ name: v4UnitsTable.name })
+    const probes = Array.isArray(session.probes) ? (session.probes as PlacementProbe[]) : [];
+
+    // Fetch names for every unit touched during the descent (+ the placed unit)
+    // so the persisted strengths/weaknesses profile is human-readable for the
+    // AI teacher and the admin dashboard.
+    const probedUnitCodes = Array.from(new Set([
+      ...probes.filter((p) => p.scope === "unit").map((p) => p.scopeCode),
+      ...(result.unitCode ? [result.unitCode] : []),
+    ]));
+    const unitNameByCode = new Map<string, string>();
+    if (probedUnitCodes.length > 0) {
+      const rows = await db
+        .select({ code: v4UnitsTable.code, name: v4UnitsTable.name })
         .from(v4UnitsTable)
         .where(and(
           eq(v4UnitsTable.versionId, resolved.versionId),
-          eq(v4UnitsTable.code, result.unitCode),
-        ))
-        .limit(1);
-      unitName = u?.name ?? null;
+          inArray(v4UnitsTable.code, probedUnitCodes),
+        ));
+      for (const r of rows) unitNameByCode.set(r.code, r.name);
     }
+    const unitName: string | null = result.unitCode ? (unitNameByCode.get(result.unitCode) ?? null) : null;
+
+    // Distil the graded probes into a durable strengths/weaknesses snapshot.
+    const placementProfile = buildPlacementProfile(resolved, probes, result, unitNameByCode);
+
     const row = await createOrReplaceStudentPath({
       userId: uid,
       subjectSlug: slug,
@@ -704,6 +718,7 @@ router.post("/v4/path/:slug/placement/finalize", requireUser, requireSameOriginC
       startMode: "placement",
       startingLevelIndex: result.startingLevelIndex,
       boundaryUnitCode,
+      placementProfile,
     });
     res.json({
       ok: true,
