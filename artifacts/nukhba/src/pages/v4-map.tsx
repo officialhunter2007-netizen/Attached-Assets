@@ -1625,11 +1625,12 @@ function UnlockPlanDialog({
               ) : (
                 <>
                   <p className="text-[13px] text-white/70 leading-relaxed">
-                    للوصول إلى هذا المحتوى مباشرةً دون دراسة ما قبله، عليك اجتياز
-                    الاختبارات التالية <span className="text-amber-300 font-bold">بالترتيب</span>:
+                    لتجاوز ما قبله والوصول إلى هذا المحتوى، ابدأ بأهمّ
+                    {" "}<span className="text-amber-300 font-bold">الاختبارات</span>{" "}
+                    في طريقك (بالترتيب):
                   </p>
                   <ol className="space-y-2.5">
-                    {plan.requiredExams.map((ex, i) => {
+                    {plan.requiredExams.slice(0, 2).map((ex, i) => {
                       const meta = UNLOCK_SCOPE_META[ex.scope];
                       return (
                         <li
@@ -1657,9 +1658,15 @@ function UnlockPlanDialog({
                       );
                     })}
                   </ol>
-                  <p className="text-[11px] text-white/40 leading-relaxed">
-                    عند اجتيازك كل اختبار، يُفتح الذي يليه تلقائياً حتى تصل إلى هذا المحتوى.
-                  </p>
+                  {plan.requiredExams.length > 2 ? (
+                    <p className="text-[11px] text-white/40 leading-relaxed">
+                      وبعدهما تُفتح بقية الاختبارات تلقائياً، واحداً تلو الآخر، حتى تصل إلى هذا المحتوى.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-white/40 leading-relaxed">
+                      عند اجتيازك كل اختبار، يُفتح الذي يليه تلقائياً حتى تصل إلى هذا المحتوى.
+                    </p>
+                  )}
                 </>
               )}
             </div>
