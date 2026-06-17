@@ -645,38 +645,46 @@ function StageHeader({ stageIndex, name }: { stageIndex: number; name: string })
 }
 
 // ─── Unit Label ───────────────────────────────────────────────────────────────
-function UnitLabel({ unitIndex, name }: { unitIndex: number; name: string }) {
+function UnitLabel({ unitIndex, name, stageIndex = 1 }: { unitIndex: number; name: string; stageIndex?: number }) {
+  const p = STAGE_PALETTES[(stageIndex - 1) % STAGE_PALETTES.length];
   return (
-    <div className="w-full max-w-xs mx-auto flex items-center gap-2 px-2 my-2.5">
-      {/* Left fade line */}
-      <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, transparent, rgba(255,255,255,0.12))" }} />
-
-      {/* Crystal chip */}
+    <div
+      className="w-full max-w-[272px] mx-auto my-3 relative flex items-center gap-3 px-4 py-2.5 rounded-2xl overflow-hidden"
+      style={{
+        background: `linear-gradient(to left, ${p.bg.replace("0.12","0.18")}, rgba(255,255,255,0.04) 70%, transparent)`,
+        border: `1px solid ${p.accent}30`,
+        boxShadow: `0 1px 0 rgba(255,255,255,0.07) inset, 0 3px 12px rgba(0,0,0,0.35), 0 0 0 0.5px ${p.accent}15`,
+      }}
+    >
+      {/* Right-side color bar (RTL) */}
       <div
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
+        className="absolute top-2 bottom-2 right-0 w-[3px] rounded-full"
+        style={{ background: `linear-gradient(to bottom, ${p.accent}cc, ${p.accent}33)` }}
+      />
+      {/* Subtle glow behind badge */}
+      <div
+        className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full pointer-events-none"
+        style={{ background: p.glow.replace("0.45","0.12"), filter: "blur(8px)" }}
+      />
+
+      {/* Numbered badge */}
+      <div
+        className="w-7 h-7 rounded-xl flex items-center justify-center text-xs font-black shrink-0 relative z-10"
         style={{
-          background: "linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%)",
-          border: "1px solid rgba(255,255,255,0.11)",
-          boxShadow: "0 1px 0 rgba(255,255,255,0.08) inset, 0 2px 8px rgba(0,0,0,0.3)",
+          background: `linear-gradient(145deg, ${p.badgeTop}cc, ${p.badgeBot}99)`,
+          border: `1px solid ${p.accent}50`,
+          color: "#fff",
+          boxShadow: `0 1px 0 rgba(255,255,255,0.2) inset, 0 3px 8px ${p.glow.replace("0.45","0.4")}`,
         }}
       >
-        {/* Tiny numbered dot */}
-        <span
-          className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black shrink-0"
-          style={{
-            background: "linear-gradient(135deg, rgba(245,158,11,0.5), rgba(245,158,11,0.2))",
-            border: "1px solid rgba(245,158,11,0.35)",
-            color: "#FDE68A",
-            boxShadow: "0 0 6px rgba(245,158,11,0.3)",
-          }}
-        >
-          {unitIndex}
-        </span>
-        <span className="text-[10px] font-semibold text-white/45 max-w-[130px] truncate">{name}</span>
+        {unitIndex}
       </div>
 
-      {/* Right fade line */}
-      <div className="flex-1 h-px" style={{ background: "linear-gradient(to left, transparent, rgba(255,255,255,0.12))" }} />
+      {/* Text */}
+      <div className="flex-1 min-w-0 relative z-10">
+        <div className="text-[9px] font-bold tracking-widest mb-px" style={{ color: p.accent, opacity: 0.75 }}>الوحدة {unitIndex}</div>
+        <div className="text-[11px] font-bold truncate" style={{ color: p.text, opacity: 0.85 }}>{name}</div>
+      </div>
     </div>
   );
 }
@@ -1083,7 +1091,7 @@ export default function V4Map() {
                       it (unit 1 of a stage was previously silenced by the
                       !showStageHeader guard, leaving it unlabelled). */}
                   {showUnitLabel && node.unitStart && (
-                    <UnitLabel unitIndex={node.unitStart.unitIndex} name={node.unitStart.unitName} />
+                    <UnitLabel unitIndex={node.unitStart.unitIndex} name={node.unitStart.unitName} stageIndex={prevStage > 0 ? prevStage : 1} />
                   )}
 
                   {/* Node wrapper with zigzag offset. The active node carries
