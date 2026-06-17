@@ -36,3 +36,16 @@ loses one writer's freshly-written codes. The set is union-only, never shrinks.
 
 **How to apply:** put any gating change in the engine, not the consumers; keep
 the projection split; never revert the merge to an overwrite.
+
+**Test-out "why is this locked" chain (sanctioned duplication):** the unlock-plan
+needs to know WHICH gate broke per boundary, but `computeProgression` only exposes
+the collapsed `examReachableUnitIds` SET — not the per-boundary reason. So
+`computeRequiredExamChain` (same engine file) re-derives the gate predicates and
+walks `unitsSorted[1..targetIdx]`, pushing prev-unit exam / prev-stage exam (on
+stage boundary) / prev-level exam (on level boundary) for each BROKEN gate. This
+is the ONE place the boundary rule is duplicated; it MUST mirror
+`computeProgression`'s `gate = unitGateOpen(prev) [&& stageGateOpen on stage xing]
+[&& levelGateOpen on level xing]` exactly. Invariant: `chain[0]` is always an
+exam attemptable NOW (the broken gate sits at the reachable frontier).
+**Why:** keeping the re-derivation in the same file beside the engine makes the
+lockstep obvious; if it drifts, the dialog lists wrong/unavailable exams.

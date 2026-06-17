@@ -315,6 +315,67 @@ export function computeProgression(
   };
 }
 
+// ── Required-exam chain (test-out plan for a locked target) ────────────────
+export interface RequiredExamStep {
+  scope: "unit" | "stage" | "level";
+  /** unit id / stage id / level id the exam belongs to. */
+  refId: number;
+  /** canonical exam code, e.g. "1.2.3.exam" / "1.2.exam" / "1.exam". */
+  code: string;
+}
+
+/**
+ * Ordered list of exams a student must PASS to make `targetUnitId` exam-reachable
+ * (i.e. to "test out" up to that unit). Mirrors `computeProgression`'s forward
+ * reachability gate logic EXACTLY, so the chain is the precise set of gates that
+ * currently block the target — no more, no less.
+ *
+ * Order is pedagogical / take-able: for each unit→unit boundary on the path,
+ * the previous unit's exam comes first, then (if crossing a stage) that stage's
+ * exam, then (if crossing a level) that level's exam. By construction the FIRST
+ * entry is always an exam the student can attempt RIGHT NOW (the broken gate at
+ * the current reachable frontier), and there are no duplicates.
+ *
+ * Returns [] when the target is already reachable or the unit id is unknown.
+ */
+export function computeRequiredExamChain(
+  graph: ProgressionGraph,
+  examPassMap: ExamPassMap,
+  legacyUnlocked: string[],
+  targetUnitId: number,
+): RequiredExamStep[] {
+  const state = computeProgression(graph, examPassMap, legacyUnlocked);
+  if (state.examReachableUnitIds.has(targetUnitId)) return [];
+
+  const targetIdx = graph.unitsSorted.findIndex((u) => u.id === targetUnitId);
+  if (targetIdx < 0) return [];
+
+  const passedUnit = (id: number) => examPassMap.get(`unit:${id}`)?.passed === true;
+  const passedStage = (id: number) => examPassMap.get(`stage:${id}`)?.passed === true;
+  const passedLevel = (id: number) => examPassMap.get(`level:${id}`)?.passed === true;
+  const unitGateOpen = (id: number) => !graph.unitExamBank.has(id) || passedUnit(id);
+  const stageGateOpen = (id: number) => !graph.stageExamBank.has(id) || passedStage(id);
+  const levelGateOpen = (id: number) => !graph.levelExamBank.has(id) || passedLevel(id);
+
+  const chain: RequiredExamStep[] = [];
+  for (let i = 1; i <= targetIdx; i++) {
+    const prev = graph.unitsSorted[i - 1];
+    const cur = graph.unitsSorted[i];
+    // Gate required to ENTER `cur` coming from `prev` — same predicate as the
+    // forward reachability chain in computeProgression.
+    if (!unitGateOpen(prev.id)) {
+      chain.push({ scope: "unit", refId: prev.id, code: `${prev.code}.exam` });
+    }
+    if (cur.stageCode !== prev.stageCode && !stageGateOpen(prev.stageId)) {
+      chain.push({ scope: "stage", refId: prev.stageId, code: `${prev.stageCode}.exam` });
+    }
+    if (cur.levelIndex !== prev.levelIndex && !levelGateOpen(prev.levelId)) {
+      chain.push({ scope: "level", refId: prev.levelId, code: `${prev.levelIndex}.exam` });
+    }
+  }
+  return chain;
+}
+
 /** Build the same `${scope}:${scopeRefId}` pass map used elsewhere, querying
  *  attempts directly so this module has no dependency on v4-lab-exam-engine. */
 export async function loadExamPassMapForUser(userId: number): Promise<ExamPassMap> {

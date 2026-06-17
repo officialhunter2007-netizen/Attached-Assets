@@ -1149,6 +1149,96 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
   }
 });
 
+// ── GET /v4/path/:slug/unlock-plan/:targetCode ─────────────────────────────
+// "Test-out plan" for a LOCKED lesson/lab. Given the canonical code of a node
+// the student wants to jump to, return the ORDERED list of exams they must pass
+// to test out up to that unit — the previous unit's exam (always), plus the
+// previous stage's exam (if crossing into a new stage) and the previous level's
+// exam (if crossing into a new level), all the way from the student's current
+// reachable frontier to the target. The FE shows this in a confirmation dialog
+// and, on consent, sends the student straight to `firstExamCode`.
+//
+// Read-only (requireUser only, no CSRF) — same posture as the map + exam GETs.
+router.get("/v4/path/:slug/unlock-plan/:targetCode", requireUser, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const slug = String(req.params.slug);
+  const targetCode = decodeURIComponent(String(req.params.targetCode || ""));
+  try {
+    const resolved = await resolveActiveSpecialty(slug);
+    if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
+    let studentPath = await getStudentPath(uid, slug);
+    if (!studentPath) { res.status(404).json({ error: "no_student_path" }); return; }
+    studentPath = await syncStudentPathToActiveVersion(studentPath, resolved);
+    const versionId = studentPath.versionId;
+
+    const { loadProgressionGraph, loadExamPassMapForUser, computeRequiredExamChain, unitPrefixOf } =
+      await import("../lib/v4-progression-engine");
+    const [graph, examPassMap] = await Promise.all([
+      loadProgressionGraph(versionId),
+      loadExamPassMapForUser(uid),
+    ]);
+
+    // The target node's owning unit (first 3 canonical segments). Works for
+    // both lesson ("L.S.U.lesson") and lab ("L.S.U.مN") codes.
+    const targetUnitCode = unitPrefixOf(targetCode);
+    const targetUnit = graph.unitsSorted.find((u) => u.code === targetUnitCode);
+    if (!targetUnit) { res.status(404).json({ error: "unknown_target" }); return; }
+
+    const legacyUnlocked = Array.isArray(studentPath.unlockedLessonCodes)
+      ? (studentPath.unlockedLessonCodes as string[])
+      : [];
+    const chain = computeRequiredExamChain(graph, examPassMap, legacyUnlocked, targetUnit.id);
+
+    // Resolve human names + current availability for each step + the target.
+    const { computeProgression } = await import("../lib/v4-progression-engine");
+    const state = computeProgression(graph, examPassMap, legacyUnlocked);
+
+    const unitIds = chain.filter((s) => s.scope === "unit").map((s) => s.refId);
+    const stageIds = chain.filter((s) => s.scope === "stage").map((s) => s.refId);
+    const levelIds = chain.filter((s) => s.scope === "level").map((s) => s.refId);
+
+    const { v4StagesTable, v4LevelsTable } = await import("@workspace/db");
+    const [unitRows, stageRows, levelRows, targetUnitRow] = await Promise.all([
+      unitIds.length
+        ? db.select({ id: v4UnitsTable.id, name: v4UnitsTable.name }).from(v4UnitsTable).where(inArray(v4UnitsTable.id, unitIds))
+        : Promise.resolve([] as { id: number; name: string }[]),
+      stageIds.length
+        ? db.select({ id: v4StagesTable.id, name: v4StagesTable.name }).from(v4StagesTable).where(inArray(v4StagesTable.id, stageIds))
+        : Promise.resolve([] as { id: number; name: string }[]),
+      levelIds.length
+        ? db.select({ id: v4LevelsTable.id, name: v4LevelsTable.name }).from(v4LevelsTable).where(inArray(v4LevelsTable.id, levelIds))
+        : Promise.resolve([] as { id: number; name: string }[]),
+      db.select({ name: v4UnitsTable.name }).from(v4UnitsTable).where(eq(v4UnitsTable.id, targetUnit.id)).limit(1),
+    ]);
+    const unitNameById = new Map<number, string>((unitRows as any[]).map((r) => [r.id as number, String(r.name)]));
+    const stageNameById = new Map<number, string>((stageRows as any[]).map((r) => [r.id as number, String(r.name)]));
+    const levelNameById = new Map<number, string>((levelRows as any[]).map((r) => [r.id as number, String(r.name)]));
+
+    const requiredExams = chain.map((s) => {
+      const name =
+        s.scope === "unit" ? (unitNameById.get(s.refId) ?? null) :
+        s.scope === "stage" ? (stageNameById.get(s.refId) ?? null) :
+        (levelNameById.get(s.refId) ?? null);
+      const available =
+        s.scope === "unit" ? state.unitExamAvailable(s.refId) :
+        s.scope === "stage" ? state.stageExamAvailable(s.refId) :
+        state.levelExamAvailable(s.refId);
+      return { code: s.code, scope: s.scope, name, available };
+    });
+
+    res.json({
+      targetCode,
+      targetUnitCode,
+      targetUnitName: (targetUnitRow as any[])[0]?.name ?? null,
+      requiredExams,
+      firstExamCode: requiredExams.length > 0 ? requiredExams[0].code : null,
+    });
+  } catch (e) {
+    logger.error?.(`[v4/unlock-plan] ${slug}/${targetCode} user=${uid}: ${String((e as any)?.message ?? e)}`);
+    res.status(500).json({ error: "internal" });
+  }
+});
+
 // ── GET /v4/path/:slug/events ────────────────────────────────────────────
 // R5 — live progress channel. Holds an SSE connection open and pushes
 // every lab/exam completion + every unlock + every celebration to the

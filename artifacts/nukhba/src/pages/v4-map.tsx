@@ -70,6 +70,23 @@ interface FlatNode {
   isLastInStage?: boolean;
 }
 
+// ─── Locked-node test-out plan (from GET .../unlock-plan/:targetCode) ────────
+interface RequiredExam {
+  code: string;
+  scope: "unit" | "stage" | "level";
+  name: string | null;
+  available: boolean;
+}
+interface UnlockPlanState {
+  loading: boolean;
+  error: boolean;
+  targetCode: string;
+  targetLabel: string;            // the lesson/lab name the student tapped
+  targetUnitName: string | null;
+  requiredExams: RequiredExam[];
+  firstExamCode: string | null;
+}
+
 // Discriminated union for the accordion-structured render list.
 // Each entry is either a stage header (always visible), a unit header
 // (visible when its stage is expanded), or a lesson/lab/test node
@@ -875,6 +892,10 @@ export default function V4Map() {
   // R5 — transient highlight for newly-unlocked lessons (yellow ring on
   // the node for ~2.5s) so the student notices what just became playable.
   const [flashCodes, setFlashCodes] = useState<Set<string>>(new Set());
+  // Locked-node test-out dialog. When the student taps a LOCKED lesson/lab we
+  // fetch the exact ordered chain of exams needed to test out up to it, then
+  // ask for consent before sending them into the first exam.
+  const [unlockPlan, setUnlockPlan] = useState<UnlockPlanState | null>(null);
   // Scroll-to-active: after a precise placement the student's current node can
   // sit deep in the map (e.g. unit 3.2.1). Center it on first load so they land
   // exactly where they start instead of at the top of the curriculum.
@@ -1150,10 +1171,51 @@ export default function V4Map() {
     return items;
   }, [data, expandedStages, expandedUnits]);
 
-  function handleNodeClick(node: FlatNode, _index: number, _total: number) {
-    if (node.status === "locked") {
+  // Fetch the ordered exam chain that unlocks a locked lesson/lab, then open
+  // the consent dialog. Demo mode has no backend, so it falls back to a hint.
+  async function openUnlockPlan(node: FlatNode) {
+    if (isDemo) {
       setTooltip({ code: node.id, text: "أكمل ما قبلها أولاً" });
       setTimeout(() => setTooltip(null), 2000);
+      return;
+    }
+    setUnlockPlan({
+      loading: true, error: false,
+      targetCode: node.id, targetLabel: node.label,
+      targetUnitName: null, requiredExams: [], firstExamCode: null,
+    });
+    try {
+      const r = await fetch(
+        `/api/v4/path/${encodeURIComponent(slug)}/unlock-plan/${encodeURIComponent(node.id)}`,
+        { credentials: "include" },
+      );
+      if (!r.ok) throw new Error(`http_${r.status}`);
+      const d = await r.json();
+      // Guard against a stale response: if the student tapped another locked
+      // node while this request was in flight, that node's dialog is now open —
+      // don't clobber it with this slower response.
+      setUnlockPlan(prev => prev && prev.targetCode === node.id ? {
+        loading: false, error: false,
+        targetCode: node.id, targetLabel: node.label,
+        targetUnitName: d.targetUnitName ?? null,
+        requiredExams: Array.isArray(d.requiredExams) ? d.requiredExams : [],
+        firstExamCode: d.firstExamCode ?? null,
+      } : prev);
+    } catch {
+      setUnlockPlan(prev => prev && prev.targetCode === node.id ? { ...prev, loading: false, error: true } : prev);
+    }
+  }
+
+  function handleNodeClick(node: FlatNode, _index: number, _total: number) {
+    if (node.status === "locked") {
+      // Lessons + labs are content the student wants to jump to → offer the
+      // test-out plan. Locked exam nodes keep the lightweight hint.
+      if (node.kind === "lesson" || node.kind === "lab") {
+        void openUnlockPlan(node);
+      } else {
+        setTooltip({ code: node.id, text: "أكمل ما قبلها أولاً" });
+        setTimeout(() => setTooltip(null), 2000);
+      }
       return;
     }
     if (node.kind === "lesson" && (node.status === "active" || node.status === "available" || node.status === "completed")) {
@@ -1479,6 +1541,150 @@ export default function V4Map() {
           onDone={() => setCelebration(null)}
         />
       )}
+
+      {/* ── Locked-node test-out plan dialog ── */}
+      <UnlockPlanDialog
+        plan={unlockPlan}
+        onClose={() => setUnlockPlan(null)}
+        onConfirm={(examCode) => {
+          setUnlockPlan(null);
+          navigate(`/exam/${encodeURIComponent(slug)}/${encodeURIComponent(examCode)}`);
+        }}
+      />
     </div>
+  );
+}
+
+// ─── Locked-node test-out plan dialog ──────────────────────────────────────
+// Lists, in order, the exact exams the student must pass to test out up to the
+// locked lesson/lab they tapped, then asks for consent before sending them to
+// the first one. RTL, dark-luxury theme to match the rest of the platform.
+const UNLOCK_SCOPE_META: Record<RequiredExam["scope"], { emoji: string; label: string }> = {
+  unit: { emoji: "📝", label: "اختبار وحدة" },
+  stage: { emoji: "🎯", label: "اختبار مرحلة" },
+  level: { emoji: "🏆", label: "اختبار مستوى" },
+};
+
+function UnlockPlanDialog({
+  plan, onClose, onConfirm,
+}: {
+  plan: UnlockPlanState | null;
+  onClose: () => void;
+  onConfirm: (examCode: string) => void;
+}) {
+  return (
+    <AnimatePresence>
+      {plan && (
+        <motion.div
+          key="unlock-plan-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-3"
+          style={{ direction: "rtl", fontFamily: "Tajawal, Cairo, sans-serif" }}
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 24, scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 320, damping: 28 }}
+            className="w-full max-w-md rounded-3xl border border-gold/25 bg-card shadow-2xl shadow-black/50 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="relative p-5 pb-4 border-b border-white/5 bg-gradient-to-b from-amber-500/10 to-transparent">
+              <div className="flex items-start gap-3">
+                <div className="shrink-0 w-11 h-11 rounded-2xl bg-amber-500/15 border border-amber-400/30 flex items-center justify-center">
+                  <Lock className="w-5 h-5 text-amber-300" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] text-amber-300/70 font-bold">تجاوز حر إلى</div>
+                  <h2 className="text-base font-black leading-tight truncate">{plan.targetLabel}</h2>
+                  {plan.targetUnitName && (
+                    <div className="text-[11px] text-white/40 truncate mt-0.5">{plan.targetUnitName}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 max-h-[55vh] overflow-y-auto no-scrollbar">
+              {plan.loading ? (
+                <div className="py-8 flex items-center justify-center">
+                  <Loader2 className="w-7 h-7 animate-spin text-gold" />
+                </div>
+              ) : plan.error ? (
+                <p className="text-sm text-white/60 text-center py-4">
+                  تعذّر تحميل متطلبات الفتح. حاول مرة أخرى.
+                </p>
+              ) : plan.requiredExams.length === 0 ? (
+                <p className="text-sm text-white/60 text-center py-4">
+                  لا توجد اختبارات مطلوبة حالياً للوصول إلى هذا المحتوى.
+                </p>
+              ) : (
+                <>
+                  <p className="text-[13px] text-white/70 leading-relaxed">
+                    للوصول إلى هذا المحتوى مباشرةً دون دراسة ما قبله، عليك اجتياز
+                    الاختبارات التالية <span className="text-amber-300 font-bold">بالترتيب</span>:
+                  </p>
+                  <ol className="space-y-2.5">
+                    {plan.requiredExams.map((ex, i) => {
+                      const meta = UNLOCK_SCOPE_META[ex.scope];
+                      return (
+                        <li
+                          key={ex.code}
+                          className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.03] p-3"
+                        >
+                          <span className="shrink-0 w-6 h-6 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-200 text-xs font-black flex items-center justify-center">
+                            {i + 1}
+                          </span>
+                          <span className="text-lg shrink-0">{meta.emoji}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[11px] text-white/45 font-semibold">{meta.label}</div>
+                            <div className="text-sm font-bold truncate">{ex.name ?? ex.code}</div>
+                          </div>
+                          {ex.available ? (
+                            <span className="shrink-0 text-[10px] font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-400/25 rounded-full px-2 py-0.5">
+                              متاح الآن
+                            </span>
+                          ) : (
+                            <span className="shrink-0 text-[10px] font-bold text-white/40 bg-white/5 border border-white/10 rounded-full px-2 py-0.5">
+                              بعد ما قبله
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  <p className="text-[11px] text-white/40 leading-relaxed">
+                    عند اجتيازك كل اختبار، يُفتح الذي يليه تلقائياً حتى تصل إلى هذا المحتوى.
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-white/5 bg-black/20 flex gap-2.5">
+              <button
+                onClick={onClose}
+                className="flex-1 py-3 rounded-2xl bg-white/8 hover:bg-white/12 text-white/80 font-bold text-sm transition-colors"
+              >
+                إلغاء
+              </button>
+              {!plan.loading && !plan.error && plan.firstExamCode && (
+                <button
+                  onClick={() => onConfirm(plan.firstExamCode!)}
+                  className="flex-[1.4] py-3 rounded-2xl bg-gradient-to-l from-amber-500 to-gold text-black font-black text-sm shadow-lg shadow-gold/25 hover:shadow-gold/40 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  موافقة، ابدأ الاختبارات
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
