@@ -15,7 +15,7 @@ import { useRoute, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2, Lock, Star, FlaskConical, Trophy, Crown, BookOpen,
-  CheckCircle, Play, ChevronRight, Sparkles, Map, ArrowRight,
+  CheckCircle, Play, ChevronRight, ChevronDown, Sparkles, Map, ArrowRight,
 } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { PathSwitcher } from "@/components/path-switcher";
@@ -69,6 +69,15 @@ interface FlatNode {
   unitStart?: { unitIndex: number; unitName: string };
   isLastInStage?: boolean;
 }
+
+// Discriminated union for the accordion-structured render list.
+// Each entry is either a stage header (always visible), a unit header
+// (visible when its stage is expanded), or a lesson/lab/test node
+// (visible when its unit is expanded).
+type RenderItem =
+  | { type: "stage"; stage: StageTree; expanded: boolean }
+  | { type: "unit"; unit: UnitTree; stageIndex: number; expanded: boolean }
+  | { type: "node"; node: FlatNode; xOff: number; showConnector: boolean };
 
 function flattenMap(mapData: MapData): FlatNode[] {
   const nodes: FlatNode[] = [];
@@ -596,14 +605,19 @@ const STAGE_PALETTES = [
   { accent: "#14B8A6", glow: "rgba(20,184,166,0.45)", text: "#99F6E4", badgeTop: "#2DD4BF", badgeBot: "#134E4A", bg: "rgba(20,184,166,0.12)", icon: "✧" },
 ];
 
-function StageHeader({ stageIndex, name }: { stageIndex: number; name: string }) {
+function StageHeader({
+  stageIndex, name, isExpanded, onToggle,
+}: {
+  stageIndex: number; name: string; isExpanded: boolean; onToggle: () => void;
+}) {
   const p = STAGE_PALETTES[(stageIndex - 1) % STAGE_PALETTES.length];
   return (
-    <div
-      className="w-full max-w-xs mx-auto my-4 flex items-center gap-3 px-4 py-3.5 rounded-2xl relative overflow-hidden"
+    <button
+      onClick={onToggle}
+      className="w-full max-w-xs mx-auto my-4 flex items-center gap-3 px-4 py-3.5 rounded-2xl relative overflow-hidden text-right transition-all active:scale-[0.98]"
       style={{
         background: `linear-gradient(135deg, ${p.bg} 0%, rgba(255,255,255,0.04) 50%, ${p.bg} 100%)`,
-        border: `1px solid ${p.accent}50`,
+        border: `1px solid ${isExpanded ? p.accent + "80" : p.accent + "50"}`,
         boxShadow: `
           0 0 0 1px rgba(255,255,255,0.06) inset,
           0 1px 0 0 rgba(255,255,255,0.15) inset,
@@ -644,20 +658,29 @@ function StageHeader({ stageIndex, name }: { stageIndex: number; name: string })
         <span className="text-sm font-black truncate block leading-tight" style={{ color: p.text }}>{name}</span>
       </div>
 
-      <span className="text-lg shrink-0 opacity-40 select-none" style={{ color: p.accent }}>{p.icon}</span>
-    </div>
+      <span className="text-lg shrink-0 opacity-40 select-none ml-1" style={{ color: p.accent }}>{p.icon}</span>
+      <ChevronDown
+        className={`w-4 h-4 shrink-0 transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`}
+        style={{ color: p.accent, opacity: 0.7 }}
+      />
+    </button>
   );
 }
 
 // ─── Unit Label ───────────────────────────────────────────────────────────────
-function UnitLabel({ unitIndex, name, stageIndex = 1 }: { unitIndex: number; name: string; stageIndex?: number }) {
+function UnitLabel({
+  unitIndex, name, stageIndex = 1, isExpanded, onToggle,
+}: {
+  unitIndex: number; name: string; stageIndex?: number; isExpanded: boolean; onToggle: () => void;
+}) {
   const p = STAGE_PALETTES[(stageIndex - 1) % STAGE_PALETTES.length];
   return (
-    <div
-      className="w-full max-w-[272px] mx-auto my-3 relative flex items-center gap-3 px-4 py-2.5 rounded-2xl overflow-hidden"
+    <button
+      onClick={onToggle}
+      className="w-full max-w-[272px] mx-auto my-3 relative flex items-center gap-3 px-4 py-2.5 rounded-2xl overflow-hidden text-right transition-all active:scale-[0.98]"
       style={{
         background: `linear-gradient(to left, ${p.bg.replace("0.12","0.18")}, rgba(255,255,255,0.04) 70%, transparent)`,
-        border: `1px solid ${p.accent}30`,
+        border: `1px solid ${isExpanded ? p.accent + "55" : p.accent + "30"}`,
         boxShadow: `0 1px 0 rgba(255,255,255,0.07) inset, 0 3px 12px rgba(0,0,0,0.35), 0 0 0 0.5px ${p.accent}15`,
       }}
     >
@@ -690,7 +713,12 @@ function UnitLabel({ unitIndex, name, stageIndex = 1 }: { unitIndex: number; nam
         <div className="text-[9px] font-bold tracking-widest mb-px" style={{ color: p.accent, opacity: 0.75 }}>الوحدة {unitIndex}</div>
         <div className="text-[11px] font-bold truncate" style={{ color: p.text, opacity: 0.85 }}>{name}</div>
       </div>
-    </div>
+
+      <ChevronDown
+        className={`w-3.5 h-3.5 shrink-0 transition-transform duration-300 relative z-10 ${isExpanded ? "rotate-180" : ""}`}
+        style={{ color: p.accent, opacity: 0.6 }}
+      />
+    </button>
   );
 }
 
@@ -852,6 +880,15 @@ export default function V4Map() {
   const viewedLevelRef = useRef<number | null>(null);
   viewedLevelRef.current = viewedLevel;
 
+  // ── Accordion: collapsed-by-default stage + unit expansion ────────────────
+  // Default: only stage headers are visible. Tap a stage → reveals its units.
+  // Tap a unit → reveals its lessons/labs/tests.
+  const [expandedStages, setExpandedStages] = useState<Set<number>>(new Set());
+  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
+  // Guards re-running auto-expand on SSE events (only re-run when the viewed
+  // level actually changes, not on incremental node-status updates).
+  const lastAutoExpandedForLevel = useRef<number | null>(null);
+
   const mapUrl = (lvl: number | null) =>
     `/api/v4/path/${encodeURIComponent(slug)}/map${lvl != null ? `?level=${lvl}` : ""}`;
 
@@ -1008,6 +1045,98 @@ export default function V4Map() {
     return () => clearTimeout(t);
   }, [loading, data]);
 
+  // Auto-open the stage + unit that contain the active lesson so the student
+  // always lands in context. Re-runs when the student browses a different level
+  // (guarded by lastAutoExpandedForLevel so SSE updates don't re-collapse).
+  useEffect(() => {
+    if (!data) return;
+    const lvl = data.map.viewedLevelIndex ?? data.map.currentLevelIndex;
+    if (lastAutoExpandedForLevel.current === lvl) return;
+    lastAutoExpandedForLevel.current = lvl;
+    const code = data.studentPath?.currentLessonCode;
+    if (code) {
+      const parts = code.split(".");
+      const codeLvl = parseInt(parts[0] ?? "1", 10);
+      if (codeLvl === lvl) {
+        const stageIdx = parseInt(parts[1] ?? "1", 10);
+        const unitCode = parts.slice(0, 3).join(".");
+        setExpandedStages(new Set([stageIdx]));
+        setExpandedUnits(new Set([unitCode]));
+        return;
+      }
+    }
+    // Browsing a level that has no active lesson (review/preview) —
+    // open the first stage so there is immediately something visible.
+    const firstStage = data.map.stages[0];
+    setExpandedStages(firstStage ? new Set([firstStage.stageIndex]) : new Set());
+    setExpandedUnits(new Set());
+  }, [data]);
+
+  function toggleStage(stageIndex: number) {
+    setExpandedStages(prev => {
+      const next = new Set(prev);
+      if (next.has(stageIndex)) { next.delete(stageIndex); } else { next.add(stageIndex); }
+      return next;
+    });
+  }
+
+  function toggleUnit(unitCode: string) {
+    setExpandedUnits(prev => {
+      const next = new Set(prev);
+      if (next.has(unitCode)) { next.delete(unitCode); } else { next.add(unitCode); }
+      return next;
+    });
+  }
+
+  // Pre-compute the ordered render list: stage headers (always), unit headers
+  // (when stage is open), and lesson/lab/test nodes (when unit is open), with
+  // zigzag offsets and connector flags resolved. Recomputes only when data or
+  // expansion state changes — NOT on every keystroke / tooltip change.
+  const renderItems = useMemo<RenderItem[]>(() => {
+    if (!data) return [];
+    const m = data.map;
+    const items: RenderItem[] = [];
+    let nodeIdx = 0;
+
+    // Push a node item, marking the previous node item as connector-visible.
+    const pushNode = (node: FlatNode) => {
+      const xOff = ZIGZAG_PX[nodeIdx % ZIGZAG_PX.length];
+      nodeIdx++;
+      const last = items.length > 0 ? items[items.length - 1] : null;
+      if (last && last.type === "node") last.showConnector = true;
+      items.push({ type: "node", node, xOff, showConnector: false });
+    };
+
+    for (const stage of m.stages) {
+      const stageExpanded = expandedStages.has(stage.stageIndex);
+      items.push({ type: "stage", stage, expanded: stageExpanded });
+      if (!stageExpanded) continue;
+
+      for (const unit of stage.units) {
+        const unitExpanded = expandedUnits.has(unit.code);
+        items.push({ type: "unit", unit, stageIndex: stage.stageIndex, expanded: unitExpanded });
+        if (!unitExpanded) continue;
+
+        for (const lesson of unit.lessons) {
+          pushNode({ id: lesson.code, label: lesson.name, kind: "lesson", status: lesson.status, stars: lesson.stars });
+        }
+        for (const lab of unit.labs) {
+          pushNode({ id: lab.code, label: lab.title, kind: "lab", status: lab.status });
+        }
+        if (unit.hasUnitTest && unit.unitTest) {
+          pushNode({ id: unit.unitTest.code, label: "اختبار الوحدة", sublabel: unit.name, kind: "unit_test", status: unit.unitTest.status });
+        }
+      }
+      if (stage.hasStageTest && stage.stageTest) {
+        pushNode({ id: stage.stageTest.code, label: "اختبار المرحلة", sublabel: stage.name, kind: "stage_test", status: stage.stageTest.status });
+      }
+    }
+    if (m.levelTest) {
+      pushNode({ id: m.levelTest.code, label: "اختبار المستوى", sublabel: m.levelName, kind: "level_test", status: m.levelTest.status });
+    }
+    return items;
+  }, [data, expandedStages, expandedUnits]);
+
   function handleNodeClick(node: FlatNode, _index: number, _total: number) {
     if (node.status === "locked") {
       setTooltip({ code: node.id, text: "أكمل ما قبلها أولاً" });
@@ -1053,7 +1182,6 @@ export default function V4Map() {
   }
 
   const { specialty, map, nextLevels } = data;
-  const flatNodes = flattenMap(map);
   const isPlacement = data.studentPath.startMode === "placement" && !!data.studentPath.placementUnitCode;
 
   return (
@@ -1224,84 +1352,78 @@ export default function V4Map() {
         />
 
         <div className="flex flex-col items-center gap-0 py-4">
-          {(() => {
-            let nodeIdx = 0;
-            let prevStage = -1;
-            let prevUnit = "";
-
-            return flatNodes.map((node, i) => {
-              const xOff = ZIGZAG_PX[nodeIdx % ZIGZAG_PX.length];
-              nodeIdx++;
-
-              const showStageHeader = !!node.stageStart && node.stageStart.stageIndex !== prevStage;
-              const showUnitLabel = !!node.unitStart && node.unitStart.unitName !== prevUnit;
-              if (node.stageStart) prevStage = node.stageStart.stageIndex;
-              if (node.unitStart) prevUnit = node.unitStart.unitName;
-
+          {renderItems.map((item) => {
+            if (item.type === "stage") {
               return (
-                <div key={node.id} className="flex flex-col items-center w-full">
-                  {/* Stage header */}
-                  {showStageHeader && node.stageStart && (
-                    <StageHeader stageIndex={node.stageStart.stageIndex} name={node.stageStart.stageName} />
-                  )}
-                  {/* Unit label — always show when this is the first node of
-                      a unit, even if a stage header is also rendering above
-                      it (unit 1 of a stage was previously silenced by the
-                      !showStageHeader guard, leaving it unlabelled). */}
-                  {showUnitLabel && node.unitStart && (
-                    <UnitLabel unitIndex={node.unitStart.unitIndex} name={node.unitStart.unitName} stageIndex={prevStage > 0 ? prevStage : 1} />
-                  )}
-
-                  {/* Node wrapper with zigzag offset. The active node carries
-                      activeRef so the map can auto-center the student's start. */}
-                  <div
-                    ref={node.status === "active" ? activeRef : undefined}
-                    className={`my-2 transition-transform duration-300 ${flashCodes.has(node.id) ? "rounded-full ring-4 ring-amber-300/70 ring-offset-2 ring-offset-background animate-pulse" : ""}`}
-                    style={{ transform: `translateX(${xOff}px)` }}
-                  >
-                    {/* Tooltip for locked tap */}
-                    <div className="relative">
-                      {tooltip?.code === node.id && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="absolute bottom-full mb-2 right-1/2 translate-x-1/2 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-[11px] text-white/80 whitespace-nowrap z-50 shadow-xl pointer-events-none"
-                        >
-                          {tooltip.text}
-                        </motion.div>
-                      )}
-
-                      {node.kind === "lesson" && (
-                        <LessonNode node={node} onClick={() => handleNodeClick(node, i, flatNodes.length)} />
-                      )}
-                      {node.kind === "lab" && (
-                        <LabNodeComp node={node} onClick={() => handleNodeClick(node, i, flatNodes.length)} />
-                      )}
-                      {(node.kind === "unit_test" || node.kind === "stage_test" || node.kind === "level_test") && (
-                        <TestNodeComp node={node} onClick={() => handleNodeClick(node, i, flatNodes.length)} />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Connector dot between nodes */}
-                  {i < flatNodes.length - 1 && (
-                    <div className="w-1 h-6 flex flex-col items-center justify-between py-1 pointer-events-none">
-                      {[0, 1, 2].map((d) => (
-                        <div
-                          key={d}
-                          className={`w-1 h-1 rounded-full ${
-                            node.status === "completed" ? "bg-emerald-400/60" :
-                            node.status === "active" ? "bg-violet-400/60" :
-                            "bg-white/10"
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <StageHeader
+                  key={`stage-${item.stage.stageIndex}`}
+                  stageIndex={item.stage.stageIndex}
+                  name={item.stage.name}
+                  isExpanded={item.expanded}
+                  onToggle={() => toggleStage(item.stage.stageIndex)}
+                />
               );
-            });
-          })()}
+            }
+            if (item.type === "unit") {
+              return (
+                <UnitLabel
+                  key={`unit-${item.unit.code}`}
+                  unitIndex={item.unit.unitIndex}
+                  name={item.unit.name}
+                  stageIndex={item.stageIndex}
+                  isExpanded={item.expanded}
+                  onToggle={() => toggleUnit(item.unit.code)}
+                />
+              );
+            }
+            const { node, xOff, showConnector } = item;
+            return (
+              <div key={node.id} className="flex flex-col items-center w-full">
+                {/* Node wrapper with zigzag offset */}
+                <div
+                  ref={node.status === "active" ? activeRef : undefined}
+                  className={`my-2 transition-transform duration-300 ${flashCodes.has(node.id) ? "rounded-full ring-4 ring-amber-300/70 ring-offset-2 ring-offset-background animate-pulse" : ""}`}
+                  style={{ transform: `translateX(${xOff}px)` }}
+                >
+                  <div className="relative">
+                    {tooltip?.code === node.id && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="absolute bottom-full mb-2 right-1/2 translate-x-1/2 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-[11px] text-white/80 whitespace-nowrap z-50 shadow-xl pointer-events-none"
+                      >
+                        {tooltip.text}
+                      </motion.div>
+                    )}
+                    {node.kind === "lesson" && (
+                      <LessonNode node={node} onClick={() => handleNodeClick(node, 0, 0)} />
+                    )}
+                    {node.kind === "lab" && (
+                      <LabNodeComp node={node} onClick={() => handleNodeClick(node, 0, 0)} />
+                    )}
+                    {(node.kind === "unit_test" || node.kind === "stage_test" || node.kind === "level_test") && (
+                      <TestNodeComp node={node} onClick={() => handleNodeClick(node, 0, 0)} />
+                    )}
+                  </div>
+                </div>
+                {/* Connector dot — only between consecutive node items */}
+                {showConnector && (
+                  <div className="w-1 h-6 flex flex-col items-center justify-between py-1 pointer-events-none">
+                    {[0, 1, 2].map((d) => (
+                      <div
+                        key={d}
+                        className={`w-1 h-1 rounded-full ${
+                          node.status === "completed" ? "bg-emerald-400/60" :
+                          node.status === "active" ? "bg-violet-400/60" :
+                          "bg-white/10"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
