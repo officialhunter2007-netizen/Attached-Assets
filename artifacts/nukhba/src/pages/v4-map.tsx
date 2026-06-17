@@ -38,8 +38,13 @@ interface StageTree {
   units: UnitTree[];
   hasStageTest: boolean; stageTest: TestNode | null;
 }
+type LevelStatus = "completed" | "current" | "upcoming";
+interface LevelSummary { levelIndex: number; name: string; status: LevelStatus }
 interface MapData {
   currentLevelIndex: number; totalLevels: number;
+  // Present on responses from the level-aware backend; older shapes omit them.
+  viewedLevelIndex?: number; realCurrentLevelIndex?: number;
+  levels?: LevelSummary[];
   levelName: string; levelGoal: string;
   progressPct: number; completedNodes: number; totalNodes: number;
   stages: StageTree[];
@@ -701,6 +706,14 @@ function buildDemoData(): MapResponse {
     studentPath: { startMode: "placement", currentLessonCode: "1.1.1.3", pathType: "custom" },
     map: {
       currentLevelIndex: 1, totalLevels: 5,
+      viewedLevelIndex: 1, realCurrentLevelIndex: 1,
+      levels: [
+        { levelIndex: 1, name: "أساسيات علوم الغذاء", status: "current" },
+        { levelIndex: 2, name: "تقنيات الحفظ والمعالجة", status: "upcoming" },
+        { levelIndex: 3, name: "رقابة الجودة الغذائية", status: "upcoming" },
+        { levelIndex: 4, name: "هندسة العمليات", status: "upcoming" },
+        { levelIndex: 5, name: "الابتكار الغذائي", status: "upcoming" },
+      ],
       levelName: "أساسيات علوم الغذاء", levelGoal: "فهم المبادئ الأساسية",
       progressPct: 24, completedNodes: 15, totalNodes: 63,
       stages: [
@@ -732,6 +745,80 @@ function buildDemoData(): MapResponse {
   };
 }
 
+// ─── Level Switcher ───────────────────────────────────────────────────────────
+// Organized horizontal rail of every level so the student can jump between
+// them: review a finished level, stay on the current one, or preview an
+// upcoming one. The selected (viewed) pill is gold-highlighted; the student's
+// REAL current level always shows a "play" marker + "مستواك الآن" caption so
+// they never lose their place. Browsing a level never changes progress/gating.
+function LevelSwitcher({
+  levels, viewedLevelIndex, realCurrentLevelIndex, switching, onSelect,
+}: {
+  levels: LevelSummary[];
+  viewedLevelIndex: number;
+  realCurrentLevelIndex: number;
+  switching: boolean;
+  onSelect: (levelIndex: number) => void;
+}) {
+  return (
+    <div className="max-w-lg mx-auto px-4 mb-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] font-bold text-white/50">تنقّل بين المستويات</span>
+        {switching && <Loader2 className="w-3.5 h-3.5 animate-spin text-gold/70" />}
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 no-scrollbar snap-x">
+        {levels.map((lvl) => {
+          const isViewed = lvl.levelIndex === viewedLevelIndex;
+          const isReal = lvl.levelIndex === realCurrentLevelIndex;
+          const completed = lvl.status === "completed";
+          const upcoming = lvl.status === "upcoming";
+          return (
+            <button
+              key={lvl.levelIndex}
+              onClick={() => onSelect(lvl.levelIndex)}
+              disabled={switching}
+              aria-current={isViewed ? "true" : undefined}
+              className={`snap-start shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 transition-all active:scale-95 disabled:opacity-60 ${
+                isViewed
+                  ? "border-gold/60 bg-gold/15 shadow-lg shadow-gold/20"
+                  : completed
+                  ? "border-emerald-400/30 bg-emerald-500/[0.08] hover:bg-emerald-500/15"
+                  : upcoming
+                  ? "border-white/10 bg-white/5 hover:bg-white/10"
+                  : "border-violet-400/30 bg-violet-500/10 hover:bg-violet-500/20"
+              }`}
+            >
+              <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-black shrink-0 ${
+                isViewed ? "bg-gold text-black"
+                  : completed ? "bg-emerald-500/30 text-emerald-200"
+                  : upcoming ? "bg-white/10 text-white/50"
+                  : "bg-violet-500/30 text-violet-100"
+              }`}>
+                {lvl.levelIndex}
+              </span>
+              <div className="text-right min-w-0">
+                <div className="flex items-center gap-1">
+                  {completed && <CheckCircle className="w-3 h-3 text-emerald-400 shrink-0" />}
+                  {upcoming && <Lock className="w-3 h-3 text-white/40 shrink-0" />}
+                  {isReal && !completed && <Play className="w-3 h-3 text-violet-300 fill-violet-300 shrink-0" />}
+                  <span className={`text-[11px] font-bold truncate max-w-[120px] ${
+                    isViewed ? "text-amber-100" : upcoming ? "text-white/50" : "text-white/80"
+                  }`}>
+                    {lvl.name}
+                  </span>
+                </div>
+                <div className="text-[9px] text-white/35 text-right">
+                  {isReal ? "مستواك الآن" : completed ? "مكتمل" : "قادم"}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Map Page ────────────────────────────────────────────────────────────
 export default function V4Map() {
   const [, params] = useRoute<{ slug: string }>("/specialty/:slug/map");
@@ -753,25 +840,54 @@ export default function V4Map() {
   const activeRef = useRef<HTMLDivElement | null>(null);
   const didCenterRef = useRef(false);
 
+  // Level navigation: `null` = follow the student's real current level (the
+  // backend default). Tapping a level in the switcher pins that level via
+  // `?level=N` so the student can review a finished level or preview an
+  // upcoming one. Progress/gating is unaffected — only the rendered level
+  // changes. `switching` shows a subtle busy state without the full spinner.
+  const [viewedLevel, setViewedLevel] = useState<number | null>(null);
+  const [switching, setSwitching] = useState(false);
+  // Mirror the viewed level into a ref so the SSE reconnect handler (which
+  // doesn't depend on `viewedLevel`) refetches the level being browsed.
+  const viewedLevelRef = useRef<number | null>(null);
+  viewedLevelRef.current = viewedLevel;
+
+  const mapUrl = (lvl: number | null) =>
+    `/api/v4/path/${encodeURIComponent(slug)}/map${lvl != null ? `?level=${lvl}` : ""}`;
+
   useEffect(() => {
     if (!slug || isDemo) return;
     let cancelled = false;
+    if (viewedLevel != null) setSwitching(true);
     (async () => {
       try {
-        const r = await fetch(`/api/v4/path/${encodeURIComponent(slug)}/map`, { credentials: "include" });
+        const r = await fetch(mapUrl(viewedLevel), { credentials: "include" });
         if (!r.ok) throw new Error(`http_${r.status}`);
         const d: MapResponse = await r.json();
         if (cancelled) return;
         setData(d);
+        setErr(null);
       } catch (e: any) {
         if (cancelled) return;
         setErr(String(e?.message ?? "unknown"));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) { setLoading(false); setSwitching(false); }
       }
     })();
     return () => { cancelled = true; };
-  }, [slug, isDemo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, isDemo, viewedLevel]);
+
+  // When the student switches levels, the active node lives only in their real
+  // current level — so reset the one-shot auto-center and jump to the top of
+  // the newly-selected level's map for a clean, organized view.
+  function selectLevel(levelIndex: number) {
+    const target = data?.map.realCurrentLevelIndex === levelIndex ? null : levelIndex;
+    if (target === viewedLevel) return;
+    didCenterRef.current = true; // suppress auto-center when browsing other levels
+    setViewedLevel(target);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   // ── R5 — Live progress channel ─────────────────────────────────────
   // EventSource holds an SSE connection to /v4/path/:slug/events. The
@@ -783,6 +899,9 @@ export default function V4Map() {
   useEffect(() => {
     if (!slug || isDemo || !data) return;
     const es = new EventSource(`/api/v4/path/${encodeURIComponent(slug)}/events`, { withCredentials: true });
+    // Guards the async reconnect refetch below from calling setData after the
+    // effect has been torn down (navigation / re-subscribe).
+    let cancelled = false;
 
     // On reconnect (any open after the first) the map state may be stale
     // because we missed events while disconnected. Re-fetch the full map.
@@ -792,7 +911,9 @@ export default function V4Map() {
       // Slight delay so the server SSE channel is fully established before
       // we also fire the HTTP map request (avoids a micro-race on the server).
       setTimeout(() => {
-        fetch(`/api/v4/path/${encodeURIComponent(slug)}/map`, { credentials: "include" })
+        // Refetch the level the student is currently browsing, not always the
+        // real current one, so a reconnect doesn't snap them out of a review.
+        fetch(mapUrl(viewedLevelRef.current), { credentials: "include" })
           .then(r => r.ok ? r.json() : null)
           .then(d => { if (d && !cancelled) setData(d); })
           .catch(() => {/* silent — stale data is better than a crash */});
@@ -862,6 +983,7 @@ export default function V4Map() {
     es.addEventListener("message", onMessage);
     es.onerror = () => { /* let browser auto-reconnect */ };
     return () => {
+      cancelled = true;
       try { es.removeEventListener("message", onMessage); } catch {}
       try { es.close(); } catch {}
     };
@@ -971,6 +1093,9 @@ export default function V4Map() {
           50%{ opacity:0.6; }
         }
         .road-glow { animation: roadGlow 3s ease-in-out infinite; }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
 
       {/* ── Sticky Header ── */}
@@ -1044,6 +1169,39 @@ export default function V4Map() {
           </div>
         </div>
       </div>
+
+      {/* ── Level Switcher — organized navigation between levels ── */}
+      {map.levels && map.levels.length > 1 && (
+        <LevelSwitcher
+          levels={map.levels}
+          viewedLevelIndex={map.viewedLevelIndex ?? map.currentLevelIndex}
+          realCurrentLevelIndex={map.realCurrentLevelIndex ?? map.currentLevelIndex}
+          switching={switching}
+          onSelect={selectLevel}
+        />
+      )}
+
+      {/* ── Browsing banner — shown when viewing a level other than the
+            student's real current one, with a one-tap way back. ── */}
+      {map.realCurrentLevelIndex != null &&
+        (map.viewedLevelIndex ?? map.currentLevelIndex) !== map.realCurrentLevelIndex && (
+        <div className="max-w-lg mx-auto px-4 mb-2">
+          <div className="flex items-center gap-2 rounded-2xl border border-violet-400/30 bg-violet-500/10 px-4 py-2.5 text-[12px]">
+            <span className="text-lg">{(map.viewedLevelIndex ?? 0) < map.realCurrentLevelIndex ? "👀" : "🔭"}</span>
+            <span className="flex-1 text-violet-100/90 font-semibold">
+              {(map.viewedLevelIndex ?? 0) < map.realCurrentLevelIndex
+                ? "أنت تستعرض مستوى سابق للمراجعة"
+                : "أنت تستعرض مستوى قادم (معاينة فقط)"}
+            </span>
+            <button
+              onClick={() => selectLevel(map.realCurrentLevelIndex!)}
+              className="shrink-0 rounded-xl bg-violet-400/20 hover:bg-violet-400/30 border border-violet-300/30 px-3 py-1 font-bold text-violet-100 transition-colors"
+            >
+              العودة لمستواي
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── MAP: Zigzag nodes ──
         Task #3 (R3): when a level-end celebration fires, briefly zoom the

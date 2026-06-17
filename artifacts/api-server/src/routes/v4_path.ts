@@ -822,8 +822,10 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
     );
     const currentCode = studentPath.currentLessonCode ?? null;
 
-    // Current level = first segment of currentLessonCode, fallback to startingLevelIndex.
-    const currentLevelIndex = currentCode
+    // The student's REAL current level = first segment of currentLessonCode,
+    // fallback to startingLevelIndex. This drives the "you are here" marker and
+    // the per-level switcher statuses (it never changes when browsing).
+    const realCurrentLevelIndex = currentCode
       ? parseInt(String(currentCode).split(".")[0] || "1", 10)
       : studentPath.startingLevelIndex;
 
@@ -844,10 +846,25 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
       .where(eqDrizzle(v4LevelsTable.versionId, versionId))
       .orderBy(asc(v4LevelsTable.levelIndex));
 
-    const currentLevel = allLevels.find((l: any) => l.levelIndex === currentLevelIndex) ?? allLevels[0];
+    // Optional ?level=N lets the student browse ANY level's map — review a
+    // finished level or preview an upcoming one — without changing progress.
+    // Node statuses stay a pure projection of unlocks/completions/attempts, so
+    // a future level renders fully locked (preview only) and a past level
+    // renders its completed/reviewable nodes. Defaults to the real current level.
+    const requestedLevel = parseInt(String((req.query as any)?.level ?? ""), 10);
+    const viewedLevelIndex =
+      Number.isFinite(requestedLevel) && allLevels.some((l: any) => l.levelIndex === requestedLevel)
+        ? requestedLevel
+        : realCurrentLevelIndex;
+
+    // `currentLevel` below means "the level being shown" (= viewed level).
+    const currentLevel =
+      allLevels.find((l: any) => l.levelIndex === viewedLevelIndex) ??
+      allLevels.find((l: any) => l.levelIndex === realCurrentLevelIndex) ??
+      allLevels[0];
     if (!currentLevel) { res.status(404).json({ error: "level_not_found" }); return; }
 
-    // ── 3. Fetch stages → units → lessons → labs for current level ───────
+    // ── 3. Fetch stages → units → lessons → labs for the viewed level ────
     const stages = await db
       .select()
       .from(v4StagesTable)
@@ -1070,10 +1087,24 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
     }
     const progressPct = totalNodes > 0 ? Math.round((completedNodes / totalNodes) * 100) : 0;
 
-    // ── 6. Next levels (locked boxes) ────────────────────────────────────
+    // ── 6. Next levels (locked boxes) — always relative to the student's
+    //       REAL progress, not the level currently being browsed. ──────────
     const nextLevels = allLevels
-      .filter((l: any) => l.levelIndex > currentLevelIndex)
+      .filter((l: any) => l.levelIndex > realCurrentLevelIndex)
       .map((l: any) => ({ levelIndex: l.levelIndex, name: l.name, locked: true }));
+
+    // ── 7. Level switcher summary — every level with a coarse status so the
+    //       FE can render an organized "jump to level" rail. Status is purely
+    //       positional relative to the student's real level; it does NOT alter
+    //       what is enterable (that stays in the per-node statuses above).
+    const levels = allLevels.map((l: any) => ({
+      levelIndex: l.levelIndex,
+      name: l.name,
+      status:
+        l.levelIndex < realCurrentLevelIndex ? "completed" :
+        l.levelIndex === realCurrentLevelIndex ? "current" :
+        "upcoming",
+    }));
 
     res.json({
       specialty: { slug: resolved.specialty.slug, name: resolved.specialty.name, icon: resolved.specialty.icon },
@@ -1085,8 +1116,14 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
         placementUnitCode: studentPath.placementUnitCode ?? null,
       },
       map: {
-        currentLevelIndex,
+        // `currentLevelIndex` reflects the level being SHOWN (viewed) so the
+        // header + node tree stay consistent. `realCurrentLevelIndex` is the
+        // student's actual position (for the "you are here" marker).
+        currentLevelIndex: viewedLevelIndex,
+        viewedLevelIndex,
+        realCurrentLevelIndex,
         totalLevels: allLevels.length,
+        levels,
         levelName: currentLevel.name,
         levelGoal: currentLevel.goal,
         progressPct,
@@ -1094,7 +1131,7 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
         totalNodes,
         stages: stageTrees,
         levelTest: hasLevelTest
-          ? { code: `${currentLevelIndex}.exam`, kind: "level_test" as const, status: levelTestStatus }
+          ? { code: `${viewedLevelIndex}.exam`, kind: "level_test" as const, status: levelTestStatus }
           : null,
       },
       nextLevels,
