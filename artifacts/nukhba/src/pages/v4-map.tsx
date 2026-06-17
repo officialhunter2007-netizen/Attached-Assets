@@ -581,13 +581,65 @@ function ConnectorLine({ fromX, toX, color }: { fromX: number; toX: number; colo
 }
 
 // ─── Stage Header banner ─────────────────────────────────────────────────────
+const STAGE_PALETTES = [
+  { accent: "#F59E0B", glow: "rgba(245,158,11,0.45)", text: "#FDE68A", badgeTop: "#FBBF24", badgeBot: "#B45309", bg: "rgba(245,158,11,0.12)", icon: "✦" },
+  { accent: "#10B981", glow: "rgba(16,185,129,0.45)", text: "#A7F3D0", badgeTop: "#34D399", badgeBot: "#065F46", bg: "rgba(16,185,129,0.12)", icon: "◈" },
+  { accent: "#8B5CF6", glow: "rgba(139,92,246,0.45)", text: "#DDD6FE", badgeTop: "#A78BFA", badgeBot: "#4C1D95", bg: "rgba(139,92,246,0.12)", icon: "❋" },
+  { accent: "#0EA5E9", glow: "rgba(14,165,233,0.45)", text: "#BAE6FD", badgeTop: "#38BDF8", badgeBot: "#075985", bg: "rgba(14,165,233,0.12)", icon: "◉" },
+  { accent: "#F43F5E", glow: "rgba(244,63,94,0.45)",  text: "#FECDD3", badgeTop: "#FB7185", badgeBot: "#881337", bg: "rgba(244,63,94,0.12)",  icon: "✿" },
+  { accent: "#F97316", glow: "rgba(249,115,22,0.45)", text: "#FED7AA", badgeTop: "#FB923C", badgeBot: "#7C2D12", bg: "rgba(249,115,22,0.12)", icon: "⬡" },
+  { accent: "#14B8A6", glow: "rgba(20,184,166,0.45)", text: "#99F6E4", badgeTop: "#2DD4BF", badgeBot: "#134E4A", bg: "rgba(20,184,166,0.12)", icon: "✧" },
+];
+
 function StageHeader({ stageIndex, name }: { stageIndex: number; name: string }) {
+  const p = STAGE_PALETTES[(stageIndex - 1) % STAGE_PALETTES.length];
   return (
-    <div className="w-full max-w-xs mx-auto my-2 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-l from-transparent via-white/5 to-transparent border border-white/10">
-      <div className="w-7 h-7 rounded-lg bg-gold/20 border border-gold/30 flex items-center justify-center shrink-0">
-        <span className="text-gold text-xs font-black">{stageIndex}</span>
+    <div
+      className="w-full max-w-xs mx-auto my-4 flex items-center gap-3 px-4 py-3.5 rounded-2xl relative overflow-hidden"
+      style={{
+        background: `linear-gradient(135deg, ${p.bg} 0%, rgba(255,255,255,0.04) 50%, ${p.bg} 100%)`,
+        border: `1px solid ${p.accent}50`,
+        boxShadow: `
+          0 0 0 1px rgba(255,255,255,0.06) inset,
+          0 1px 0 0 rgba(255,255,255,0.15) inset,
+          0 -2px 0 0 rgba(0,0,0,0.4) inset,
+          0 4px 16px ${p.glow},
+          0 10px 32px rgba(0,0,0,0.5),
+          0 2px 4px rgba(0,0,0,0.6)
+        `,
+        transform: "perspective(300px) rotateX(1.5deg)",
+        transformOrigin: "top center",
+      }}
+    >
+      {/* top shine */}
+      <div className="absolute top-0 right-0 left-0 h-px pointer-events-none"
+        style={{ background: `linear-gradient(90deg, transparent, rgba(255,255,255,0.35) 40%, rgba(255,255,255,0.35) 60%, transparent)` }} />
+      {/* bottom shadow */}
+      <div className="absolute bottom-0 right-0 left-0 h-[2px] pointer-events-none rounded-b-2xl"
+        style={{ background: `linear-gradient(90deg, transparent, ${p.accent}60 50%, transparent)` }} />
+      {/* subtle left glow */}
+      <div className="absolute top-0 right-0 h-full w-16 pointer-events-none"
+        style={{ background: `linear-gradient(to left, ${p.glow.replace("0.45","0.08")}, transparent)` }} />
+
+      {/* 3D Badge */}
+      <div
+        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-white text-sm relative"
+        style={{
+          background: `linear-gradient(145deg, ${p.badgeTop}, ${p.badgeBot})`,
+          boxShadow: `0 1px 0 rgba(255,255,255,0.25) inset, 0 -1px 0 rgba(0,0,0,0.4) inset, 0 4px 12px ${p.glow}, 0 2px 4px rgba(0,0,0,0.5)`,
+        }}
+      >
+        {stageIndex}
       </div>
-      <span className="text-sm text-white/70 font-semibold truncate">{name}</span>
+
+      <div className="flex-1 min-w-0">
+        <div className="text-[9px] font-bold tracking-widest mb-0.5" style={{ color: p.accent, opacity: 0.85 }}>
+          المرحلة {stageIndex}
+        </div>
+        <span className="text-sm font-black truncate block leading-tight" style={{ color: p.text }}>{name}</span>
+      </div>
+
+      <span className="text-lg shrink-0 opacity-40 select-none" style={{ color: p.accent }}>{p.icon}</span>
     </div>
   );
 }
