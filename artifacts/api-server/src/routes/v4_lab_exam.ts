@@ -21,7 +21,7 @@
 //     absorbed by the welcome gift / paid plan (cheap; ≤5 questions).
 // ─────────────────────────────────────────────────────────────────────────────
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   db,
   v4LabCompletionsTable,
@@ -689,16 +689,19 @@ router.post("/v4/exam/:slug/:examCode/submit", requireUser, requireSameOriginCsr
       requestId,
     } as any);
 
-    // ── Step 4: on pass — unlock side-effects for stage/level gates ────────
+    // ── Step 4: on pass — recompute reachability (Test-out model) ──────────
+    // ANY passing exam (unit/stage/level) can open new units: a unit exam is
+    // the gate to the next unit; a stage/level exam gates the next stage/level.
+    // The shared engine re-derives reachability from the freshly-persisted
+    // attempt above and returns every lesson under the now-reachable units.
     let unlockResult: { newlyUnlocked: string[]; nextLessonCode: string | null } | null = null;
-    if (passed && (exam.scope === "stage" || exam.scope === "level")) {
+    if (passed) {
       const existingUnlocked = Array.isArray(studentPath.unlockedLessonCodes)
         ? (studentPath.unlockedLessonCodes as string[])
         : [];
       const u = await computeUnlocksForPassedExam({
         versionId: studentPath.versionId,
-        scope: exam.scope,
-        scopeRefId: exam.scopeRefId,
+        userId: uid,
         existingUnlocked,
       });
       if (u.newlyUnlocked.length > 0) {

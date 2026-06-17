@@ -518,27 +518,32 @@ async function advanceLessonPointer(ctx: TagEffectsContext): Promise<{
     return { advanced: false, nextCode: path.currentLessonCode };
   }
 
-  // Sort unlocked codes NUMERICALLY; pick the smallest code STRICTLY
-  // GREATER than current. Lexicographic sort is wrong here because
-  // lesson codes are not zero-padded (e.g. "1.1.1.10" must come AFTER
-  // "1.1.1.9", not before).
+  // Test-out model: the lesson pointer only ever advances WITHIN the current
+  // unit. Mastering the last lesson of a unit must NOT auto-open the next unit
+  // — the next unit is gated behind THIS unit's exam (opened by the shared
+  // progression engine on exam submit / map reconcile), not by lesson mastery.
+  //
+  // Ordering is NUMERIC on the 4 segments (codes are NOT zero-padded, so a
+  // lexicographic sort wrongly puts ".10" before ".9").
+  const currentUnitPrefix = ctx.lessonCode.split(".").slice(0, 3).join(".");
+  const sameUnit = (c: string) => c.split(".").slice(0, 3).join(".") === currentUnitPrefix;
+
   unlocked.sort(compareLessonCodes);
-  const idx = unlocked.indexOf(ctx.lessonCode);
-  let nextCode: string | null = null;
-  if (idx >= 0 && idx + 1 < unlocked.length) {
-    nextCode = unlocked[idx + 1];
-  } else {
-    // Need to unlock the next lesson from v4_lessons (same version).
-    // SQL `code > ctx.lessonCode` would compare lexicographically and
-    // skip ".10" after ".9" — so fetch all codes for the version and
-    // pick the immediate numeric successor in JS instead.
+  // Smallest already-unlocked code in the SAME unit strictly greater than current.
+  let nextCode: string | null =
+    unlocked.find((c) => sameUnit(c) && compareLessonCodes(c, ctx.lessonCode) > 0) ?? null;
+
+  if (!nextCode) {
+    // Look for the immediate SAME-UNIT successor in v4_lessons and unlock it.
+    // Fetch all codes for the version and pick the numeric successor in JS
+    // (SQL `code > x` compares lexicographically and would skip ".10").
     const allCodes = await db
       .select({ code: v4LessonsTable.code })
       .from(v4LessonsTable)
       .where(eq(v4LessonsTable.versionId, path.versionId));
     const successor = allCodes
       .map((r: { code: string }) => r.code)
-      .filter((c: string) => compareLessonCodes(c, ctx.lessonCode) > 0)
+      .filter((c: string) => sameUnit(c) && compareLessonCodes(c, ctx.lessonCode) > 0)
       .sort(compareLessonCodes)[0];
     if (successor) {
       nextCode = successor;
@@ -547,8 +552,9 @@ async function advanceLessonPointer(ctx: TagEffectsContext): Promise<{
   }
 
   if (!nextCode) {
-    // No successor — student finished the curriculum. Keep current pointer.
-    return { advanced: false, nextCode: null };
+    // Reached the end of this unit — stay put. The next unit opens only by
+    // passing this unit's exam, not by mastering its last lesson.
+    return { advanced: false, nextCode: path.currentLessonCode };
   }
 
   await db

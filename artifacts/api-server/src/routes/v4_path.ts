@@ -877,12 +877,33 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
     // Pull task #7 progress (labs passed + exam attempts) so the map can
     // colour lab/exam icons correctly. Both are cheap reads (one row per
     // lab attempted; one row per exam attempt).
-    const { loadLabCompletionsMap, loadExamPassMap, EXAM_PASS_THRESHOLD, LAB_PASS_THRESHOLD } =
+    const { loadLabCompletionsMap, loadExamPassMap, applyUnlockedSnapshot, EXAM_PASS_THRESHOLD, LAB_PASS_THRESHOLD } =
       await import("../lib/v4-lab-exam-engine");
-    const [labCompletions, examPassMap] = await Promise.all([
+    const { loadProgressionGraph, computeProgression } = await import("../lib/v4-progression-engine");
+    const [labCompletions, examPassMap, progressionGraph] = await Promise.all([
       loadLabCompletionsMap(uid),
       loadExamPassMap(uid),
+      loadProgressionGraph(versionId),
     ]);
+
+    // ── Test-out reachability projection (single source of truth) ──────────
+    // examReachable = from PASSED exams only (+ missing-bank auto-clear);
+    // lessonAccessible = examReachable ∪ legacy unlocks. Reconcile the persisted
+    // unlock set so the value the server-side gates read (anti-bypass) always
+    // matches what the map renders. Additive only — never shrink.
+    const progression = computeProgression(
+      progressionGraph,
+      examPassMap as any,
+      Array.from(unlockedSet),
+    );
+    if (versionId > 0 && progression.accessibleLessonCodes.length > unlockedSet.size) {
+      for (const c of progression.accessibleLessonCodes) unlockedSet.add(c);
+      try {
+        await applyUnlockedSnapshot({ userId: uid, subjectId: slug, unlocked: Array.from(unlockedSet) });
+      } catch (e) {
+        logger.warn?.(`[v4/map reconcile] u=${uid} ${slug}: ${String((e as any)?.message ?? e)}`);
+      }
+    }
 
     const stageIds = stages.map((s: any) => s.id);
     const units = stageIds.length
@@ -989,47 +1010,41 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
       return available ? "available" : "locked";
     }
 
+    // Test-out model: a node's exam availability is a pure projection of the
+    // shared progression engine (PASSED-exams reachability), NOT lesson/lab
+    // completion. Lessons + labs are skippable; exams are the only gates.
     const stageTrees = stages.map((stage: any) => {
       const stageUnits = units.filter((u: any) => u.stageId === stage.id);
-      // Track whether every lesson in this stage is completed + every lab passed
-      // (needed for the stage exam gate).
-      let stageAllLessonsCompleted = true;
-      let stageAllLabsPassed = true;
 
       const unitTrees = stageUnits.map((unit: any) => {
         const lessonsInUnit = lessonsByUnit.get(unit.id) ?? [];
-        let unitAllLessonsCompleted = lessonsInUnit.length > 0;
-        let unitAnyLessonUnlocked = false;
+        // A reachable unit is lesson-accessible even before any lesson code is
+        // persisted into the unlock set (drives lab availability below).
+        let unitAnyLessonUnlocked = progression.lessonAccessibleUnitIds.has(unit.id);
         const unitLessons = lessonsInUnit.map((l: any) => {
           const status = lessonStatus(l.code);
           totalNodes++;
           if (status === "completed") completedNodes++;
-          else unitAllLessonsCompleted = false;
           if (status !== "locked") unitAnyLessonUnlocked = true;
           return { code: l.code, name: l.name, kind: "lesson", status, stars: ((lessonStarsMap[l.code] ?? 0) as 0 | 1 | 2 | 3) };
         });
-        if (!unitAllLessonsCompleted) stageAllLessonsCompleted = false;
 
         const labsInUnit = labsByUnit.get(unit.id) ?? [];
-        let unitAllLabsPassed = labsInUnit.length > 0;
         const unitLabs = labsInUnit.map((lab: any) => {
           totalNodes++;
           const comp = labCompletions.get(lab.id);
           let status: "completed" | "available" | "locked" = "locked";
           if (comp?.passed) status = "completed";
-          else if (unitAnyLessonUnlocked) status = "available";
+          else if (unitAnyLessonUnlocked) status = "available"; // labs non-blocking
           if (status === "completed") completedNodes++;
-          else unitAllLabsPassed = false;
           return { code: lab.code, title: lab.title, kind: "lab", status, score: comp?.score ?? null };
         });
-        if (labsInUnit.length === 0) unitAllLabsPassed = true; // no labs → trivially "all passed"
-        if (!unitAllLabsPassed) stageAllLabsPassed = false;
 
         const hasUnitTest = unitExamSet.has(unit.id);
         let unitTestStatus: "completed" | "available" | "locked" = "locked";
         if (hasUnitTest) {
           totalNodes++;
-          unitTestStatus = examStatus("unit", unit.id, unitAllLessonsCompleted);
+          unitTestStatus = examStatus("unit", unit.id, progression.unitExamAvailable(unit.id));
           if (unitTestStatus === "completed") completedNodes++;
         }
         return {
@@ -1049,7 +1064,7 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
       let stageTestStatus: "completed" | "available" | "locked" = "locked";
       if (hasStageTest) {
         totalNodes++;
-        stageTestStatus = examStatus("stage", stage.id, stageAllLessonsCompleted && stageAllLabsPassed);
+        stageTestStatus = examStatus("stage", stage.id, progression.stageExamAvailable(stage.id));
         if (stageTestStatus === "completed") completedNodes++;
       }
       return {
@@ -1066,23 +1081,15 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
       };
     });
 
-    // Level exam available once every stage in the level is "completed":
-    // all lessons completed + all labs passed + (if the stage has an exam)
-    // the stage exam passed. Unit exams are intentionally NON-blocking per
-    // spec §13.2 — they're a recommended self-check, NOT a gate, so we do
-    // not require u.unitTest here.
-    const levelAllStagesCleared = stageTrees.every((s: any) =>
-      s.units.every((u: any) =>
-        u.lessons.every((l: any) => l.status === "completed") &&
-        u.labs.every((lb: any) => lb.status === "completed"),
-      ) &&
-      (!s.hasStageTest || s.stageTest?.status === "completed"),
-    );
+    // Level exam availability is the engine's level projection: every stage in
+    // the level is cleared (units reachable + their exams passed where banks
+    // exist). Unit exams are part of the chain now, but lesson/lab completion
+    // is irrelevant — exams are the only gates.
     const hasLevelTest = levelExamSet.has(currentLevel.id);
     let levelTestStatus: "completed" | "available" | "locked" = "locked";
     if (hasLevelTest) {
       totalNodes++;
-      levelTestStatus = examStatus("level", currentLevel.id, levelAllStagesCleared);
+      levelTestStatus = examStatus("level", currentLevel.id, progression.levelExamAvailable(currentLevel.id));
       if (levelTestStatus === "completed") completedNodes++;
     }
     const progressPct = totalNodes > 0 ? Math.round((completedNodes / totalNodes) * 100) : 0;

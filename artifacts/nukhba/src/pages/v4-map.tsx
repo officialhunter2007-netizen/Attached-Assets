@@ -257,6 +257,19 @@ function Stars({ count }: { count: 0 | 1 | 2 | 3 }) {
   );
 }
 
+// Test-out model: locked nodes are gated by EXAMS, not by finishing lessons.
+// Explain exactly which exam unlocks the node so the student knows the path.
+function lockedHint(kind: NodeKind): string {
+  switch (kind) {
+    case "unit_test":  return "اجتز اختبار الوحدة السابقة أولاً";
+    case "stage_test": return "اجتز اختبارات وحدات هذه المرحلة أولاً";
+    case "level_test": return "اجتز اختبارات مراحل هذا المستوى أولاً";
+    case "lab":        return "هذه الوحدة مقفلة — اجتز اختبار الوحدة السابقة";
+    case "lesson":
+    default:           return "هذه الوحدة مقفلة — اجتز اختبار الوحدة السابقة لفتحها";
+  }
+}
+
 // ─── Node Components (7 types) ───────────────────────────────────────────────
 // All classes are static Tailwind — no dynamic `bg-${x}` interpolation.
 
@@ -324,7 +337,7 @@ function LessonNode({ node, onClick }: { node: FlatNode; onClick: () => void }) 
       </button>
       {/* Tooltip */}
       <div className="absolute bottom-full mb-2 right-1/2 translate-x-1/2 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-[10px] text-white/70 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
-        أكمل الدرس السابق أولاً
+        {lockedHint(node.kind)}
         <div className="absolute top-full right-1/2 translate-x-1/2 border-4 border-transparent border-t-slate-700" />
       </div>
       <span className="text-[10px] text-slate-600 text-center max-w-[72px] mt-1 leading-tight line-clamp-2">{node.label}</span>

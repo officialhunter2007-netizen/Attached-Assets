@@ -11,15 +11,18 @@
  *     in the schema — the threshold may evolve).
  *   - Per-scope USD cost used by the v4 wallet charger. The first attempt
  *     pays; alt-bank retries are free (enforced by counting prior attempts).
- *   - Unlock side-effects: a passing stage exam opens the next stage's
- *     lessons; a passing level exam opens the next level. Unit exams DO
- *     NOT unlock anything (they're a recommended-but-non-blocking gate).
+ *   - Unlock side-effects (Test-out model): EXAMS are the mandatory gates.
+ *     Passing ANY exam recomputes unit reachability via the shared
+ *     v4-progression-engine and opens every lesson under the newly-reachable
+ *     units. To reach a unit a student must have passed the previous unit's
+ *     exam (+ the previous stage's exam when crossing a stage, + the previous
+ *     level's exam when crossing a level). Lessons are skippable.
  *
  * All DB access through Drizzle. No AI calls live here — those are in
  * v4-exam-evaluator.ts and called by the routes layer.
  */
 
-import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import {
   db,
   v4LessonsTable,
@@ -36,6 +39,12 @@ import {
   type V4LabQuestion,
   type V4ExamQuestion,
 } from "@workspace/db";
+import {
+  loadProgressionGraph,
+  loadExamPassMapForUser,
+  computeProgression,
+  recomputeUnlockSnapshot,
+} from "./v4-progression-engine";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 export const LAB_PASS_THRESHOLD = 60;
@@ -240,101 +249,29 @@ export async function loadExamPassMap(userId: number): Promise<Map<string, { pas
   return m;
 }
 
-// ── Unlock side-effects on passing a gate exam ─────────────────────────────
+// ── Unlock side-effects on passing a gate exam (Test-out model) ────────────
 /**
- * Compute the union of (existing unlocked) ∪ (every lesson code under the
- * target stage/level) — used after a passing stage/level exam. Caller is
- * responsible for writing the updated array back to v4_student_paths.
+ * Recompute the student's unlock snapshot after a passing exam of ANY scope
+ * (unit / stage / level). Delegates to the shared progression engine, which
+ * re-derives unit reachability from the student's PASSED exams and returns the
+ * union of (existing unlocked) ∪ (every lesson under the now-reachable units).
+ * Never removes a code the student already had.
+ *
+ * IMPORTANT: reads FRESH exam-pass state from the DB, so the caller MUST have
+ * already persisted the new (passing) attempt before invoking this.
+ *
+ * Caller is responsible for writing the result back via applyUnlockedSnapshot.
  */
 export async function computeUnlocksForPassedExam(opts: {
   versionId: number;
-  scope: ExamScope;
-  scopeRefId: number;                 // unit/stage/level row id
+  userId: number;
   existingUnlocked: string[];
 }): Promise<{ unlocked: string[]; newlyUnlocked: string[]; nextLessonCode: string | null }> {
-  if (opts.scope === "unit") {
-    // Unit exam does NOT unlock anything — non-blocking.
-    return { unlocked: opts.existingUnlocked, newlyUnlocked: [], nextLessonCode: null };
-  }
-
-  let nextStages: { id: number; code: string }[] = [];
-  if (opts.scope === "stage") {
-    // Find the stage row → its levelId + stageIndex → next stage in same level.
-    const [stg] = await db
-      .select({ levelId: v4StagesTable.levelId, stageIndex: v4StagesTable.stageIndex })
-      .from(v4StagesTable)
-      .where(eq(v4StagesTable.id, opts.scopeRefId));
-    if (!stg) return { unlocked: opts.existingUnlocked, newlyUnlocked: [], nextLessonCode: null };
-    nextStages = await db
-      .select({ id: v4StagesTable.id, code: v4StagesTable.code })
-      .from(v4StagesTable)
-      .where(and(
-        eq(v4StagesTable.versionId, opts.versionId),
-        eq(v4StagesTable.levelId, (stg as any).levelId),
-        sql`${v4StagesTable.stageIndex} = ${(stg as any).stageIndex + 1}`,
-      ));
-  } else {
-    // level: unlock every stage in the next level.
-    const [lvl] = await db
-      .select({ levelIndex: v4LevelsTable.levelIndex })
-      .from(v4LevelsTable)
-      .where(eq(v4LevelsTable.id, opts.scopeRefId));
-    if (!lvl) return { unlocked: opts.existingUnlocked, newlyUnlocked: [], nextLessonCode: null };
-    const [nextLvl] = await db
-      .select({ id: v4LevelsTable.id })
-      .from(v4LevelsTable)
-      .where(and(
-        eq(v4LevelsTable.versionId, opts.versionId),
-        sql`${v4LevelsTable.levelIndex} = ${(lvl as any).levelIndex + 1}`,
-      ));
-    if (!nextLvl) return { unlocked: opts.existingUnlocked, newlyUnlocked: [], nextLessonCode: null };
-    nextStages = await db
-      .select({ id: v4StagesTable.id, code: v4StagesTable.code })
-      .from(v4StagesTable)
-      .where(and(
-        eq(v4StagesTable.versionId, opts.versionId),
-        eq(v4StagesTable.levelId, (nextLvl as any).id),
-      ));
-  }
-
-  if (nextStages.length === 0) {
-    return { unlocked: opts.existingUnlocked, newlyUnlocked: [], nextLessonCode: null };
-  }
-
-  // Collect units → lessons under those stages.
-  const stageIds = nextStages.map(s => s.id);
-  // drizzle: build OR of equals manually since inArray isn't imported here
-  const units = await db
-    .select({ id: v4UnitsTable.id })
-    .from(v4UnitsTable)
-    .where(and(
-      eq(v4UnitsTable.versionId, opts.versionId),
-      sql`${v4UnitsTable.stageId} = ANY(${stageIds})`,
-    ));
-  const unitIds = units.map((u: any) => u.id as number);
-  if (unitIds.length === 0) {
-    return { unlocked: opts.existingUnlocked, newlyUnlocked: [], nextLessonCode: null };
-  }
-  const lessons = await db
-    .select({ code: v4LessonsTable.code })
-    .from(v4LessonsTable)
-    .where(and(
-      eq(v4LessonsTable.versionId, opts.versionId),
-      sql`${v4LessonsTable.unitId} = ANY(${unitIds})`,
-    ))
-    .orderBy(asc(v4LessonsTable.code));
-
-  const existingSet = new Set(opts.existingUnlocked);
-  const newlyUnlocked: string[] = [];
-  for (const l of lessons as any[]) {
-    if (!existingSet.has(l.code)) {
-      existingSet.add(l.code);
-      newlyUnlocked.push(l.code as string);
-    }
-  }
-  const merged = Array.from(existingSet);
-  const nextLessonCode = newlyUnlocked[0] ?? null;
-  return { unlocked: merged, newlyUnlocked, nextLessonCode };
+  return recomputeUnlockSnapshot({
+    versionId: opts.versionId,
+    userId: opts.userId,
+    existingUnlocked: opts.existingUnlocked,
+  });
 }
 
 // ── Server-side availability gate (anti-bypass for /submit endpoints) ────
@@ -401,19 +338,19 @@ export async function checkLabGate(opts: {
   return { ok: false, reason: "lab_locked" };
 }
 
-// Numeric segment compare for canonical "L.S.U.Lesson" codes — kept in
-// sync with the map endpoint helper. A plain `<` misorders "1.2.3.10".
-function compareCodes(a: string, b: string): number {
-  const pa = a.split(".").map(s => parseInt(s, 10) || 0);
-  const pb = b.split(".").map(s => parseInt(s, 10) || 0);
-  const n = Math.max(pa.length, pb.length);
-  for (let i = 0; i < n; i++) {
-    const x = pa[i] ?? 0, y = pb[i] ?? 0;
-    if (x !== y) return x - y;
-  }
-  return 0;
-}
-
+/**
+ * Test-out anti-bypass gate: re-derive whether this exam is currently
+ * attemptable using the SAME reachability projection that drives the map.
+ * A student can't curl a locked exam (which would trigger unlock side-effects)
+ * by guessing its code.
+ *
+ *   - unit  exam: attemptable iff the unit is exam-reachable (the previous
+ *                 unit/stage/level exams it depends on are passed).
+ *   - stage exam: attemptable iff every unit in the stage is cleared.
+ *   - level exam: attemptable iff every stage in the level is cleared.
+ *
+ * Lessons + labs are NOT requirements — exams are the only gates.
+ */
 export async function checkExamGate(opts: {
   userId: number;
   subjectId: string;
@@ -421,156 +358,76 @@ export async function checkExamGate(opts: {
   scope: ExamScope;
   scopeRefId: number;
 }): Promise<GateCheck> {
-  // Pull the student path once.
   const [path] = await db
-    .select({
-      unlockedLessonCodes: v4StudentPathsTable.unlockedLessonCodes,
-      currentLessonCode:   v4StudentPathsTable.currentLessonCode,
-    })
+    .select({ unlockedLessonCodes: v4StudentPathsTable.unlockedLessonCodes })
     .from(v4StudentPathsTable)
     .where(and(
       eq(v4StudentPathsTable.userId, opts.userId),
       eq(v4StudentPathsTable.subjectId, opts.subjectId),
     ));
   if (!path) return { ok: false, reason: "no_student_path" };
-  const unlocked = new Set<string>(Array.isArray(path.unlockedLessonCodes) ? (path.unlockedLessonCodes as string[]) : []);
-  const currentCode = (path as any).currentLessonCode as string | null;
+  const legacyUnlocked = Array.isArray(path.unlockedLessonCodes)
+    ? (path.unlockedLessonCodes as string[])
+    : [];
 
-  // A lesson is "completed" iff it is unlocked AND strictly before the
-  // student's current active lesson. This MATCHES the map endpoint's
-  // lessonStatus() — without it, the active lesson would count as
-  // completed and a student could trigger a stage exam after only
-  // *reaching* the final lesson (not finishing it), then exploit the
-  // unlock side-effects to skip ahead.
-  async function unitLessonsAllCompleted(unitIds: number[]): Promise<boolean> {
-    if (unitIds.length === 0) return true;
-    const ls = await db
-      .select({ code: v4LessonsTable.code })
-      .from(v4LessonsTable)
-      .where(and(
-        eq(v4LessonsTable.versionId, opts.versionId),
-        inArray(v4LessonsTable.unitId, unitIds),
-      ));
-    return (ls as any[]).every(l => {
-      const c = l.code as string;
-      if (!unlocked.has(c)) return false;
-      // If no current marker yet, fall back to "unlocked is enough" —
-      // shouldn't happen in practice once the engine sets it.
-      if (!currentCode) return true;
-      return compareCodes(c, currentCode) < 0;
-    });
-  }
-
-  async function unitLabsAllPassed(unitIds: number[]): Promise<boolean> {
-    if (unitIds.length === 0) return true;
-    const labRows = await db
-      .select({ id: v4LabScenariosTable.id })
-      .from(v4LabScenariosTable)
-      .where(and(
-        eq(v4LabScenariosTable.versionId, opts.versionId),
-        inArray(v4LabScenariosTable.unitId, unitIds),
-      ));
-    const labIds = (labRows as any[]).map(l => l.id as number);
-    if (labIds.length === 0) return true;
-    const comps = await db
-      .select({ labId: v4LabCompletionsTable.labId, passed: v4LabCompletionsTable.passed })
-      .from(v4LabCompletionsTable)
-      .where(and(
-        eq(v4LabCompletionsTable.userId, opts.userId),
-        inArray(v4LabCompletionsTable.labId, labIds),
-      ));
-    const passedSet = new Set<number>((comps as any[]).filter(c => c.passed).map(c => c.labId as number));
-    return labIds.every(id => passedSet.has(id));
-  }
+  const [graph, examPassMap] = await Promise.all([
+    loadProgressionGraph(opts.versionId),
+    loadExamPassMapForUser(opts.userId),
+  ]);
+  const state = computeProgression(graph, examPassMap, legacyUnlocked);
 
   if (opts.scope === "unit") {
-    const units = await db.select({ id: v4UnitsTable.id })
-      .from(v4UnitsTable)
-      .where(eq(v4UnitsTable.id, opts.scopeRefId));
-    const unitIds = (units as any[]).map(u => u.id as number);
-    const lessonsDone = await unitLessonsAllCompleted(unitIds);
-    return lessonsDone ? { ok: true } : { ok: false, reason: "unit_lessons_incomplete" };
+    return state.unitExamAvailable(opts.scopeRefId)
+      ? { ok: true }
+      : { ok: false, reason: "unit_locked" };
   }
-
   if (opts.scope === "stage") {
-    const units = await db.select({ id: v4UnitsTable.id })
-      .from(v4UnitsTable)
-      .where(and(
-        eq(v4UnitsTable.versionId, opts.versionId),
-        eq(v4UnitsTable.stageId, opts.scopeRefId),
-      ));
-    const unitIds = (units as any[]).map(u => u.id as number);
-    const [lessonsDone, labsDone] = await Promise.all([
-      unitLessonsAllCompleted(unitIds),
-      unitLabsAllPassed(unitIds),
-    ]);
-    if (!lessonsDone) return { ok: false, reason: "stage_lessons_incomplete" };
-    if (!labsDone)    return { ok: false, reason: "stage_labs_incomplete" };
-    return { ok: true };
+    return state.stageExamAvailable(opts.scopeRefId)
+      ? { ok: true }
+      : { ok: false, reason: "stage_locked" };
   }
-
-  // level
-  const stages = await db.select({ id: v4StagesTable.id })
-    .from(v4StagesTable)
-    .where(and(
-      eq(v4StagesTable.versionId, opts.versionId),
-      eq(v4StagesTable.levelId, opts.scopeRefId),
-    ));
-  const stageIds = (stages as any[]).map(s => s.id as number);
-  if (stageIds.length === 0) return { ok: false, reason: "level_empty" };
-  const units = await db.select({ id: v4UnitsTable.id })
-    .from(v4UnitsTable)
-    .where(and(
-      eq(v4UnitsTable.versionId, opts.versionId),
-      inArray(v4UnitsTable.stageId, stageIds),
-    ));
-  const unitIds = (units as any[]).map(u => u.id as number);
-  const [lessonsDone, labsDone] = await Promise.all([
-    unitLessonsAllCompleted(unitIds),
-    unitLabsAllPassed(unitIds),
-  ]);
-  if (!lessonsDone) return { ok: false, reason: "level_lessons_incomplete" };
-  if (!labsDone)    return { ok: false, reason: "level_labs_incomplete" };
-
-  // Every stage with a stage exam must have a passing attempt.
-  const stageExams = await db
-    .select({ scopeRefId: v4ExamAttemptsTable.scopeRefId, passed: v4ExamAttemptsTable.passed })
-    .from(v4ExamAttemptsTable)
-    .where(and(
-      eq(v4ExamAttemptsTable.userId, opts.userId),
-      eq(v4ExamAttemptsTable.scope, "stage" as any),
-      inArray(v4ExamAttemptsTable.scopeRefId, stageIds),
-    ));
-  const stagesWithPass = new Set<number>((stageExams as any[]).filter(a => a.passed).map(a => a.scopeRefId as number));
-  // Find which stages actually HAVE an exam bank.
-  const stageExamBanks = await db
-    .selectDistinct({ stageId: v4ExamQuestionsTable.stageId })
-    .from(v4ExamQuestionsTable)
-    .where(and(
-      eq(v4ExamQuestionsTable.versionId, opts.versionId),
-      eq(v4ExamQuestionsTable.scope, "stage"),
-      inArray(v4ExamQuestionsTable.stageId, stageIds),
-    ));
-  const stagesNeedingPass = (stageExamBanks as any[]).map(s => s.stageId as number).filter(Boolean);
-  for (const sid of stagesNeedingPass) {
-    if (!stagesWithPass.has(sid)) return { ok: false, reason: "stage_exam_not_passed" };
-  }
-  return { ok: true };
+  return state.levelExamAvailable(opts.scopeRefId)
+    ? { ok: true }
+    : { ok: false, reason: "level_locked" };
 }
 
-/** Apply the unlock snapshot atomically to v4_student_paths. */
+/**
+ * Apply the unlock snapshot to v4_student_paths.
+ *
+ * The unlock set is ADDITIVE and merged against the CURRENT DB value inside a
+ * row-locked transaction (SELECT … FOR UPDATE), so two concurrent recomputes
+ * (e.g. a map reconcile racing an exam-submit unlock) can never clobber each
+ * other's freshly-written codes. The set is union-only — it never shrinks.
+ */
 export async function applyUnlockedSnapshot(opts: {
   userId: number;
   subjectId: string;
   unlocked: string[];
   nextLessonCode?: string | null;
 }): Promise<void> {
-  const setObj: any = { unlockedLessonCodes: opts.unlocked as any, updatedAt: new Date() };
-  if (opts.nextLessonCode) setObj.currentLessonCode = opts.nextLessonCode;
-  await db.update(v4StudentPathsTable)
-    .set(setObj)
-    .where(and(
-      eq(v4StudentPathsTable.userId, opts.userId),
-      eq(v4StudentPathsTable.subjectId, opts.subjectId),
-    ));
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ unlockedLessonCodes: v4StudentPathsTable.unlockedLessonCodes })
+      .from(v4StudentPathsTable)
+      .where(and(
+        eq(v4StudentPathsTable.userId, opts.userId),
+        eq(v4StudentPathsTable.subjectId, opts.subjectId),
+      ))
+      .for("update");
+    if (!row) return; // no path row → nothing to persist
+
+    const merged = new Set<string>(
+      Array.isArray(row.unlockedLessonCodes) ? (row.unlockedLessonCodes as string[]) : [],
+    );
+    for (const c of opts.unlocked) merged.add(c);
+
+    const setObj: any = { unlockedLessonCodes: Array.from(merged) as any, updatedAt: new Date() };
+    if (opts.nextLessonCode) setObj.currentLessonCode = opts.nextLessonCode;
+    await tx.update(v4StudentPathsTable)
+      .set(setObj)
+      .where(and(
+        eq(v4StudentPathsTable.userId, opts.userId),
+        eq(v4StudentPathsTable.subjectId, opts.subjectId),
+      ));
+  });
 }
