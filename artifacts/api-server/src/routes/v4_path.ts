@@ -35,6 +35,7 @@ import {
   v4PlacementTestQuestionsTable,
   v4PlacementSessionsTable,
   v4UnitsTable,
+  v4TestoutSessionsTable,
   type V4PlacementSession,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -60,6 +61,25 @@ import { capturePersonalDictionaryFromDiagnostic } from "../lib/v4-memory";
 import { subscribeProgressEvents } from "../lib/v4-progress-events";
 import { generateScene, SceneGenerationError } from "../lib/v4-scene-store";
 import { studentGemWalletsTable } from "@workspace/db";
+import {
+  resolveTestoutScope,
+  resolveTestoutTarget,
+  getOrCreateTestoutPool,
+  loadTestoutPool,
+  selectTestoutQuestions,
+  nextTestoutQuestionId,
+  toClientQuestion,
+  gradeTestoutMcq,
+  decideTestoutStep,
+  applyTestoutPass,
+  buildTestoutWeakAreas,
+  TESTOUT_ASK_MIN,
+  TESTOUT_ASK_MAX,
+  TESTOUT_MIN_RUNNABLE,
+  TESTOUT_PASS_PCT,
+  type TestoutAnswerRec,
+  type TestoutPending,
+} from "../lib/v4-testout-engine";
 
 const router: IRouter = Router();
 
@@ -1350,6 +1370,221 @@ router.post("/v4/scene", requireUser, requireSameOriginCsrf, async (req, res) =>
       reason,
       message: "تعذّر توليد المشهد التفاعلي حالياً.",
     });
+  }
+});
+
+// ── POST /v4/path/:slug/testout/start ──────────────────────────────────────
+// Begin (or restart) an adaptive "test-out" exam toward a LOCKED lesson/lab.
+// Body: { targetCode }
+// Returns one of:
+//   { kind:'unlock', targetCode, unlockedCount }  — no prereqs; unlocked now
+//   { kind:'ask', sessionId, targetCode, question, progress }  — first question
+//   { kind:'error', reason }  — pool couldn't be generated big enough to run
+// The global question pool is read-or-generated (free, deduped) and a fresh
+// per-attempt session is opened with a server-held first pending question.
+router.post("/v4/path/:slug/testout/start", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const slug = String(req.params.slug);
+  const targetCode = String((req.body ?? {}).targetCode ?? "").trim();
+  if (!targetCode) { res.status(400).json({ error: "target_required" }); return; }
+  try {
+    const resolved = await resolveActiveSpecialty(slug);
+    if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
+    let studentPath = await getStudentPath(uid, slug);
+    if (!studentPath) { res.status(404).json({ error: "no_student_path" }); return; }
+    studentPath = await syncStudentPathToActiveVersion(studentPath, resolved);
+
+    // Anti-bypass: the target MUST be a real lesson/lab in the active
+    // curriculum. A crafted code could otherwise unlock an unintended range or
+    // skip the exam via the no-prereq path below.
+    const target = await resolveTestoutTarget(resolved, targetCode);
+    if (!target) { res.status(404).json({ error: "invalid_target" }); return; }
+
+    const scope = resolveTestoutScope(resolved, targetCode);
+
+    // No prerequisite content before the target's unit → nothing to test out
+    // of; unlock the prior path immediately.
+    if (!scope.hasPrereqs) {
+      const unlockedCount = await applyTestoutPass({ userId: uid, subjectId: slug, resolved, targetCode });
+      res.json({ kind: "unlock", targetCode, unlockedCount });
+      return;
+    }
+
+    const pool = await getOrCreateTestoutPool({
+      versionId: resolved.versionId,
+      targetUnitCode: scope.targetUnitCode,
+      prereqUnitCodes: scope.prereqUnitCodes,
+    });
+    if (pool.questions.length < TESTOUT_MIN_RUNNABLE) {
+      res.json({ kind: "error", reason: "pool_too_small" });
+      return;
+    }
+
+    // The served exam must be a full 13–20 questions; refuse to run (and never
+    // unlock) on a thinner selection.
+    const questionIds = selectTestoutQuestions(pool.questions, TESTOUT_ASK_MAX);
+    if (questionIds.length < TESTOUT_ASK_MIN) {
+      res.json({ kind: "error", reason: "pool_too_small" });
+      return;
+    }
+    const firstId = questionIds[0];
+    const firstQ = pool.questions.find((q) => q.id === firstId);
+    if (firstId == null || !firstQ) { res.json({ kind: "error", reason: "pool_too_small" }); return; }
+
+    // Supersede any earlier in-progress attempt for this exact target.
+    await db
+      .update(v4TestoutSessionsTable)
+      .set({ status: "abandoned", completedAt: new Date() })
+      .where(and(
+        eq(v4TestoutSessionsTable.userId, uid),
+        eq(v4TestoutSessionsTable.subjectId, slug),
+        eq(v4TestoutSessionsTable.targetCode, targetCode),
+        eq(v4TestoutSessionsTable.status, "in_progress"),
+      ));
+
+    const [session] = await db
+      .insert(v4TestoutSessionsTable)
+      .values({
+        userId: uid,
+        subjectId: slug,
+        versionId: resolved.versionId,
+        targetCode,
+        targetUnitCode: scope.targetUnitCode,
+        status: "in_progress",
+        questionIds: questionIds as any,
+        pending: { questionId: firstId } as any,
+        answers: [] as any,
+        askMin: TESTOUT_ASK_MIN,
+        askMax: TESTOUT_ASK_MAX,
+      })
+      .returning();
+
+    res.json({
+      kind: "ask",
+      sessionId: session.id,
+      targetCode,
+      question: toClientQuestion(firstQ),
+      progress: {
+        asked: 0,
+        min: Math.min(TESTOUT_ASK_MIN, questionIds.length),
+        max: Math.min(TESTOUT_ASK_MAX, questionIds.length),
+      },
+    });
+  } catch (e) {
+    logger.error?.(`[v4/testout/start] ${slug}/${targetCode} user=${uid}: ${String((e as any)?.message ?? e)}`);
+    res.status(500).json({ error: "internal" });
+  }
+});
+
+// ── POST /v4/path/:slug/testout/answer ─────────────────────────────────────
+// Grade the server-held pending question and advance the adaptive descent.
+// Body: { sessionId, rawAnswer }
+// Returns { kind:'ask', ... } to continue or
+//   { kind:'result', passed, scorePct, correct, asked, targetCode,
+//     unlockedCount? , weakAreas? }.
+router.post("/v4/path/:slug/testout/answer", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const slug = String(req.params.slug);
+  const body: any = req.body ?? {};
+  const sessionId = Number(body.sessionId);
+  const rawAnswer = body.rawAnswer;
+  if (!Number.isInteger(sessionId)) { res.status(400).json({ error: "session_required" }); return; }
+  try {
+    const resolved = await resolveActiveSpecialty(slug);
+    if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
+
+    const [session] = await db
+      .select()
+      .from(v4TestoutSessionsTable)
+      .where(eq(v4TestoutSessionsTable.id, sessionId));
+    if (!session || session.userId !== uid || session.subjectId !== slug) {
+      res.status(404).json({ error: "no_session" });
+      return;
+    }
+    if (session.status !== "in_progress") { res.status(409).json({ error: "session_closed" }); return; }
+
+    const pool = await loadTestoutPool(session.versionId, session.targetUnitCode);
+    if (!pool || pool.questions.length === 0) { res.status(409).json({ error: "pool_missing" }); return; }
+
+    const questionIds = Array.isArray(session.questionIds) ? (session.questionIds as number[]) : [];
+    let answers = Array.isArray(session.answers) ? (session.answers as TestoutAnswerRec[]) : [];
+    const pending = (session.pending as TestoutPending | null) ?? null;
+
+    // Grade the question the SERVER is holding (client can't choose which one).
+    if (pending && rawAnswer !== undefined && rawAnswer !== null) {
+      const already = answers.some((a) => a.questionId === pending.questionId);
+      if (!already) {
+        const q = pool.questions.find((qq) => qq.id === pending.questionId);
+        if (q) {
+          const correct = gradeTestoutMcq(q, rawAnswer);
+          answers = [...answers, { questionId: pending.questionId, correct }];
+          await db
+            .update(v4TestoutSessionsTable)
+            .set({ answers: answers as any, pending: null })
+            .where(eq(v4TestoutSessionsTable.id, session.id));
+        }
+      }
+    }
+
+    const finalize = async (passed: boolean, scorePct: number, correct: number, asked: number) => {
+      await db
+        .update(v4TestoutSessionsTable)
+        .set({
+          status: passed ? "passed" : "failed",
+          passed,
+          scorePct,
+          pending: null,
+          completedAt: new Date(),
+        })
+        .where(eq(v4TestoutSessionsTable.id, session.id));
+      if (passed) {
+        const unlockedCount = await applyTestoutPass({
+          userId: uid,
+          subjectId: slug,
+          resolved,
+          targetCode: session.targetCode,
+        });
+        res.json({ kind: "result", passed: true, scorePct, correct, asked, targetCode: session.targetCode, unlockedCount });
+      } else {
+        const weakAreas = buildTestoutWeakAreas(pool.questions, answers, pool.unitNames);
+        res.json({ kind: "result", passed: false, scorePct, correct, asked, targetCode: session.targetCode, weakAreas });
+      }
+    };
+
+    const decision = decideTestoutStep(answers, questionIds, session.askMin, session.askMax);
+    if (decision.done) {
+      await finalize(decision.passed, decision.scorePct, decision.correct, decision.asked);
+      return;
+    }
+
+    // Continue: pick + persist the next pending question.
+    const nextId = nextTestoutQuestionId(questionIds, answers);
+    if (nextId == null) {
+      // Pool exhausted but the step logic said "not done" — finalize defensively.
+      const correct = answers.filter((a) => a.correct).length;
+      const pct = answers.length ? Math.round((correct / answers.length) * 100) : 0;
+      await finalize(pct >= TESTOUT_PASS_PCT, pct, correct, answers.length);
+      return;
+    }
+    const nextQ = pool.questions.find((q) => q.id === nextId)!;
+    await db
+      .update(v4TestoutSessionsTable)
+      .set({ pending: { questionId: nextId } as any })
+      .where(eq(v4TestoutSessionsTable.id, session.id));
+    res.json({
+      kind: "ask",
+      sessionId: session.id,
+      targetCode: session.targetCode,
+      question: toClientQuestion(nextQ),
+      progress: {
+        asked: answers.length,
+        min: Math.min(session.askMin, questionIds.length),
+        max: Math.min(session.askMax, questionIds.length),
+      },
+    });
+  } catch (e) {
+    logger.error?.(`[v4/testout/answer] ${slug} user=${uid}: ${String((e as any)?.message ?? e)}`);
+    res.status(500).json({ error: "internal" });
   }
 });
 

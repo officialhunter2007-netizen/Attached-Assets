@@ -138,11 +138,11 @@ function stripJsonFence(s: string): string {
   return m ? m[1].trim() : t;
 }
 
-function buildPlacementGenPrompt(u: PlacementUnitCtx): string {
+function buildPlacementGenPrompt(u: PlacementUnitCtx, count: number = PLACEMENT_PER_UNIT): string {
   const lessonsBlock = u.lessons.slice(0, 12).map((l, i) => `${i + 1}. ${l}`).join("\n").slice(0, 2200);
   const conceptsBlock = u.concepts.slice(0, 14).map((c) => `- ${c.name}${c.criterion ? `: ${c.criterion}` : ""}`).join("\n").slice(0, 2200);
   const keyBlock = (u.keyConcepts || []).filter(Boolean).join("، ");
-  return `أنت خبير تقييم تعليمي يمني. ألّف ${PLACEMENT_PER_UNIT} أسئلة اختيار من متعدد (MCQ) عمليّة وتطبيقية لقياس إتقان وحدة محددة في اختبار تحديد المستوى.
+  return `أنت خبير تقييم تعليمي يمني. ألّف ${count} أسئلة اختيار من متعدد (MCQ) عمليّة وتطبيقية لقياس إتقان وحدة محددة في اختبار تحديد المستوى.
 
 الوحدة (الكود ${u.code}):
 - الاسم: ${u.name}
@@ -174,7 +174,7 @@ print(len(nums))
 قواعد صارمة:
 - بالضبط 4 خيارات لكل سؤال، وخيار صحيح واحد فقط.
 - correct_index فهرس الخيار الصحيح (يبدأ من 0)، وتأكّد أنه صحيح 100%.
-- difficulty: 1=سهل، 2=متوسط، 3=صعب — وزّع الأسئلة الثلاثة على المستويات الثلاثة.
+- difficulty: 1=سهل، 2=متوسط، 3=صعب — وزّع الأسئلة على مستويات الصعوبة الثلاثة.
 - الخيارات الخاطئة تمثّل أخطاءً شائعة فعلية (وليست سخيفة).
 - الأسئلة من صميم محتوى الوحدة بالضبط — لا أسهل ولا أصعب من مستواها.`;
 }
@@ -297,6 +297,106 @@ export async function generatePlacementQuestions(opts: {
     throw new Error(`too_few_placement_questions: ${out.length} across ${unitsCovered.size} units`);
   }
   return out;
+}
+
+/**
+ * Generate a practical MCQ pool scoped to a SPECIFIC set of unit codes (used by
+ * the adaptive test-out exam). Mirrors generatePlacementQuestions but:
+ *   - authors questions ONLY for the given unitCodes,
+ *   - uses a caller-chosen perUnit count,
+ *   - does NOT throw on a thin pool (the caller decides if it's runnable).
+ * Returns the questions (sequential ids) + a unitCode→name map for the
+ * weak-areas report shown when a student fails.
+ */
+export async function generateUnitQuestionPool(opts: {
+  versionId: number;
+  unitCodes: string[];
+  perUnit: number;
+}): Promise<{ questions: GeneratedPlacementQuestion[]; unitNames: Record<string, string> }> {
+  const versionId = opts.versionId;
+  const wanted = new Set(opts.unitCodes.map(String));
+  if (wanted.size === 0) return { questions: [], unitNames: {} };
+
+  const [units, lessons, concepts] = await Promise.all([
+    db.select().from(v4UnitsTable).where(eq(v4UnitsTable.versionId, versionId)),
+    db.select().from(v4LessonsTable).where(eq(v4LessonsTable.versionId, versionId)),
+    db.select().from(v4LessonConceptsTable).where(eq(v4LessonConceptsTable.versionId, versionId)),
+  ]);
+
+  const lessonsByUnit = new Map<number, typeof lessons>();
+  const lessonIdToUnit = new Map<number, number>();
+  for (const l of lessons) {
+    lessonIdToUnit.set(l.id, l.unitId);
+    const a = lessonsByUnit.get(l.unitId) ?? [];
+    a.push(l); lessonsByUnit.set(l.unitId, a);
+  }
+  const conceptsByUnit = new Map<number, typeof concepts>();
+  for (const c of concepts) {
+    const uId = lessonIdToUnit.get(c.lessonId);
+    if (uId == null) continue;
+    const a = conceptsByUnit.get(uId) ?? [];
+    a.push(c); conceptsByUnit.set(uId, a);
+  }
+
+  const selected = units
+    .filter((u) => wanted.has(String(u.code)))
+    .sort((a, b) => compareCodes(a.code, b.code));
+  const unitNames: Record<string, string> = {};
+  for (const u of selected) unitNames[String(u.code)] = u.name;
+
+  const perUnit = Math.max(1, opts.perUnit);
+  const results = await genPool(selected, PLACEMENT_GEN_CONCURRENCY, async (u) => {
+    const segs = String(u.code).split(".");
+    const ctx: PlacementUnitCtx = {
+      code: u.code,
+      levelIndex: parseInt(segs[0] ?? "1", 10) || 1,
+      stageCode: segs.length >= 2 ? `${segs[0]}.${segs[1]}` : null,
+      name: u.name,
+      goal: u.goal,
+      keyConcepts: Array.isArray(u.keyConcepts) ? (u.keyConcepts as any[]).map(String) : [],
+      lessons: (lessonsByUnit.get(u.id) ?? []).slice().sort((a, b) => compareCodes(a.code, b.code)).map((l) => l.name),
+      concepts: (conceptsByUnit.get(u.id) ?? []).map((c) => ({ name: c.name, criterion: c.masteryCriterion ?? "" })),
+    };
+    try {
+      const result = await generateGeminiJson({
+        userPrompt: buildPlacementGenPrompt(ctx, perUnit),
+        model: PLACEMENT_GEN_MODEL,
+        temperature: 0.6,
+        // Test-out can request up to ~13 MCQs from a single unit (tiny prereq
+        // regions), so allow more room than the ~3-per-unit placement default.
+        maxOutputTokens: 8192,
+        timeoutMs: 60_000,
+        logTag: "v4-testout-gen",
+      });
+      return { ctx, questions: parsePlacementGen(result.text) };
+    } catch (e: any) {
+      logger.warn({ unit: u.code, err: e?.message }, "[v4] testout question gen failed for unit");
+      return { ctx, questions: [] as ParsedGenQ[] };
+    }
+  });
+
+  const out: GeneratedPlacementQuestion[] = [];
+  let id = 0;
+  for (const r of results) {
+    let kept = 0;
+    for (const q of r.questions) {
+      if (kept >= perUnit) break;
+      out.push({
+        id,
+        questionIndex: id,
+        targetLevelIndex: r.ctx.levelIndex,
+        targetStageCode: r.ctx.stageCode,
+        targetUnitCode: r.ctx.code,
+        kind: "mcq",
+        prompt: q.prompt,
+        choices: q.choices,
+        correctIndex: q.correctIndex,
+        difficulty: q.difficulty,
+      });
+      id++; kept++;
+    }
+  }
+  return { questions: out, unitNames };
 }
 
 

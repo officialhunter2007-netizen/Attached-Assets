@@ -424,6 +424,63 @@ export type InsertV4DiagnosticSession = typeof v4DiagnosticSessionsTable.$inferI
 export type V4PlacementSession = typeof v4PlacementSessionsTable.$inferSelect;
 export type InsertV4PlacementSession = typeof v4PlacementSessionsTable.$inferInsert;
 
+// ── test-out: adaptive prerequisite exam to unlock a locked lesson/lab ───────
+// Two tables:
+//  - v4_testout_pools    : GLOBAL question-pool cache, one row per
+//    (versionId, targetUnitCode). The MCQs covering everything BEFORE a given
+//    target unit are identical for every student, so the first student to
+//    test-out toward a target absorbs the one-time generation; everyone else
+//    reuses the cached pool (which is what makes the unlimited retries free).
+//  - v4_testout_sessions : per-attempt state for one student's run. The
+//    `pending` question id is held SERVER-side so the client can't lie about
+//    which question it answered; `questionIds` is the ordered subset served.
+export const v4TestoutPoolsTable = pgTable("v4_testout_pools", {
+  id: serial("id").primaryKey(),
+  versionId: integer("version_id").notNull(),
+  targetUnitCode: text("target_unit_code").notNull(),
+  // Prerequisite unit codes covered by this pool (numeric order). Audit only.
+  prereqUnitCodes: jsonb("prereq_unit_codes").notNull().default([]),
+  // GeneratedPlacementQuestion[] (carries correctIndex — NEVER sent to client).
+  questions: jsonb("questions").notNull().default([]),
+  // unitCode → Arabic unit name, for the weak-areas readout on failure.
+  unitNames: jsonb("unit_names").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("uq_v4_testout_pools_version_unit").on(t.versionId, t.targetUnitCode),
+]);
+
+export const v4TestoutSessionsTable = pgTable("v4_testout_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  subjectId: text("subject_id").notNull(),
+  versionId: integer("version_id").notNull(),
+  // The exact locked lesson/lab code the student tapped.
+  targetCode: text("target_code").notNull(),
+  // unitPrefixOf(targetCode) — the unit the target lives in.
+  targetUnitCode: text("target_unit_code").notNull(),
+  // in_progress | passed | failed | abandoned
+  status: text("status").notNull().default("in_progress"),
+  // Ordered pool question ids selected for THIS attempt.
+  questionIds: jsonb("question_ids").notNull().default([]),
+  // The single question awaiting an answer: { questionId } | null.
+  pending: jsonb("pending"),
+  // [{ questionId, correct }] in answer order.
+  answers: jsonb("answers").notNull().default([]),
+  askMin: integer("ask_min").notNull().default(13),
+  askMax: integer("ask_max").notNull().default(20),
+  scorePct: integer("score_pct").notNull().default(0),
+  passed: boolean("passed").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (t) => [
+  index("idx_v4_testout_sess_user_subject").on(t.userId, t.subjectId),
+]);
+
+export type V4TestoutPool = typeof v4TestoutPoolsTable.$inferSelect;
+export type InsertV4TestoutPool = typeof v4TestoutPoolsTable.$inferInsert;
+export type V4TestoutSession = typeof v4TestoutSessionsTable.$inferSelect;
+export type InsertV4TestoutSession = typeof v4TestoutSessionsTable.$inferInsert;
+
 // ── v4 task #5 — Teaching core ──────────────────────────────────────────────
 // Per-lesson generated content cache. Keyed on (versionId, lessonId, language)
 // so a re-publish of the instruction file produces a fresh cache row instead

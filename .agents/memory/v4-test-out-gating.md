@@ -37,15 +37,29 @@ loses one writer's freshly-written codes. The set is union-only, never shrinks.
 **How to apply:** put any gating change in the engine, not the consumers; keep
 the projection split; never revert the merge to an overwrite.
 
-**Test-out "why is this locked" chain (sanctioned duplication):** the unlock-plan
-needs to know WHICH gate broke per boundary, but `computeProgression` only exposes
-the collapsed `examReachableUnitIds` SET — not the per-boundary reason. So
-`computeRequiredExamChain` (same engine file) re-derives the gate predicates and
-walks `unitsSorted[1..targetIdx]`, pushing prev-unit exam / prev-stage exam (on
-stage boundary) / prev-level exam (on level boundary) for each BROKEN gate. This
-is the ONE place the boundary rule is duplicated; it MUST mirror
-`computeProgression`'s `gate = unitGateOpen(prev) [&& stageGateOpen on stage xing]
-[&& levelGateOpen on level xing]` exactly. Invariant: `chain[0]` is always an
-exam attemptable NOW (the broken gate sits at the reachable frontier).
-**Why:** keeping the re-derivation in the same file beside the engine makes the
-lockstep obvious; if it drifts, the dialog lists wrong/unavailable exams.
+**Unlock-by-tapping is now ONE adaptive "test-out" exam, not an exam chain.**
+Tapping a locked lesson/lab no longer walks a multi-exam chain. Instead it opens a
+single adaptive exam over the prerequisite units (every unit before the target's
+unit); pass ⇒ additive-merge unlock of everything up to the target (into
+`unlockedLessonCodes` via `applyUnlockedSnapshot`, i.e. the lessonAccessible side —
+NOT examReachable, so no fake exam_attempts and the exam-gate projection stays
+honest). The old `computeRequiredExamChain` + its unlock-plan route still exist but
+are ORPHANED (the map FE no longer calls them); don't trust them as the live unlock
+path.
+
+**Adaptive stop must use a FIXED denominator, never correct/asked early bands.**
+The exam grade is taken over a fixed length N (= selected question count). Stop
+early ONLY when the outcome is mathematically locked vs `passThreshold = ceil(0.70·N)`:
+guaranteed-pass `correct ≥ passThreshold`, guaranteed-fail `correct + remaining < passThreshold`;
+otherwise keep going to N. **Why:** the earlier "early-pass ≥78% / early-fail ≤62%
+of correct/asked" heuristic could pass a student who'd finish below 70% or fail one
+who could still recover (e.g. 8/13 with N=20 is NOT yet a fail — 6 more correct = 14/20).
+**How to apply:** any pass/fail-over-fixed-N adaptive quiz uses the locked-outcome
+test, and validate it with an exhaustive count simulation before shipping.
+
+**Lab targets unlock at UNIT-prefix granularity, not raw code compare.** A lab code's
+4th segment is a non-numeric Arabic marker that `compareCodes` coerces to 0, so a raw
+`code ≤ labCode` filter drops the lab's OWN-unit lessons and the lab stays gated
+(checkLabGate needs ≥1 lesson in the lab's unit unlocked). For a lab target, unlock
+every lesson whose `unitPrefixOf(code) ≤ unitPrefixOf(labCode)`. Lessons compare by
+raw code as usual. Derive lesson-vs-lab from the curriculum, don't trust a client kind.

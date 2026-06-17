@@ -24,6 +24,51 @@ type FullTableSpec = {
 
 const REQUIRED_TABLES: FullTableSpec[] = [
   {
+    // test-out: GLOBAL cached MCQ pool per (versionId, targetUnitCode).
+    table: "v4_testout_pools",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "v4_testout_pools" (
+        "id" serial PRIMARY KEY,
+        "version_id" integer NOT NULL,
+        "target_unit_code" text NOT NULL,
+        "prereq_unit_codes" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "questions" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "unit_names" jsonb NOT NULL DEFAULT '{}'::jsonb,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_testout_pools_version_unit" ON "v4_testout_pools" ("version_id", "target_unit_code")`,
+    ],
+  },
+  {
+    // test-out: per-attempt session state (server-authoritative pending q).
+    table: "v4_testout_sessions",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "v4_testout_sessions" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "subject_id" text NOT NULL,
+        "version_id" integer NOT NULL,
+        "target_code" text NOT NULL,
+        "target_unit_code" text NOT NULL,
+        "status" text NOT NULL DEFAULT 'in_progress',
+        "question_ids" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "pending" jsonb,
+        "answers" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "ask_min" integer NOT NULL DEFAULT 13,
+        "ask_max" integer NOT NULL DEFAULT 20,
+        "score_pct" integer NOT NULL DEFAULT 0,
+        "passed" boolean NOT NULL DEFAULT false,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "completed_at" timestamp with time zone
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_v4_testout_sess_user_subject" ON "v4_testout_sessions" ("user_id", "subject_id")`,
+    ],
+  },
+  {
     // v4 task #8 — uploaded booklet metadata + Gemini-generated tree.
     table: "v4_student_booklets",
     createSql: `

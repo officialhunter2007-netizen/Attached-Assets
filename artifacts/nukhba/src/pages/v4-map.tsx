@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2, Lock, Star, FlaskConical, Trophy, Crown, BookOpen,
   CheckCircle, Play, ChevronRight, ChevronDown, Sparkles, Map, ArrowRight,
+  XCircle, RotateCcw, Zap,
 } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { PathSwitcher } from "@/components/path-switcher";
@@ -70,21 +71,27 @@ interface FlatNode {
   isLastInStage?: boolean;
 }
 
-// ─── Locked-node test-out plan (from GET .../unlock-plan/:targetCode) ────────
-interface RequiredExam {
+// ─── Locked-node adaptive test-out exam ─────────────────────────────────────
+// When a student taps a LOCKED lesson/lab we open ONE adaptive exam (13–20
+// MCQs) covering every prerequisite unit. Score ≥ 70% unlocks the whole prior
+// path up to the target; < 70% denies with immediate, unlimited retry.
+interface TestOutTarget {
   code: string;
-  scope: "unit" | "stage" | "level";
-  name: string | null;
-  available: boolean;
+  label: string;                  // the lesson/lab name the student tapped
+  unitName: string | null;
+  kind: "lesson" | "lab";         // where to navigate on pass
 }
-interface UnlockPlanState {
-  loading: boolean;
-  error: boolean;
-  targetCode: string;
-  targetLabel: string;            // the lesson/lab name the student tapped
-  targetUnitName: string | null;
-  requiredExams: RequiredExam[];
-  firstExamCode: string | null;
+interface TestOutQuestion {
+  id: number;
+  prompt: string;
+  choices: string[];
+  difficulty: number;
+}
+interface TestOutWeakArea {
+  unitCode: string;
+  unitName: string;
+  wrong: number;
+  total: number;
 }
 
 // Discriminated union for the accordion-structured render list.
@@ -892,10 +899,10 @@ export default function V4Map() {
   // R5 — transient highlight for newly-unlocked lessons (yellow ring on
   // the node for ~2.5s) so the student notices what just became playable.
   const [flashCodes, setFlashCodes] = useState<Set<string>>(new Set());
-  // Locked-node test-out dialog. When the student taps a LOCKED lesson/lab we
-  // fetch the exact ordered chain of exams needed to test out up to it, then
-  // ask for consent before sending them into the first exam.
-  const [unlockPlan, setUnlockPlan] = useState<UnlockPlanState | null>(null);
+  // Locked-node adaptive test-out exam. When the student taps a LOCKED
+  // lesson/lab we open ONE adaptive exam covering all prerequisite units;
+  // passing it (≥70%) unlocks the whole prior path up to the tapped node.
+  const [testOut, setTestOut] = useState<TestOutTarget | null>(null);
   // Scroll-to-active: after a precise placement the student's current node can
   // sit deep in the map (e.g. unit 3.2.1). Center it on first load so they land
   // exactly where they start instead of at the top of the curriculum.
@@ -1171,47 +1178,28 @@ export default function V4Map() {
     return items;
   }, [data, expandedStages, expandedUnits]);
 
-  // Fetch the ordered exam chain that unlocks a locked lesson/lab, then open
-  // the consent dialog. Demo mode has no backend, so it falls back to a hint.
-  async function openUnlockPlan(node: FlatNode) {
+  // Open the adaptive test-out exam for a locked lesson/lab. Demo mode has no
+  // backend, so it falls back to a hint.
+  function openTestOut(node: FlatNode) {
     if (isDemo) {
       setTooltip({ code: node.id, text: "أكمل ما قبلها أولاً" });
       setTimeout(() => setTooltip(null), 2000);
       return;
     }
-    setUnlockPlan({
-      loading: true, error: false,
-      targetCode: node.id, targetLabel: node.label,
-      targetUnitName: null, requiredExams: [], firstExamCode: null,
+    setTestOut({
+      code: node.id,
+      label: node.label,
+      unitName: null,
+      kind: node.kind === "lab" ? "lab" : "lesson",
     });
-    try {
-      const r = await fetch(
-        `/api/v4/path/${encodeURIComponent(slug)}/unlock-plan/${encodeURIComponent(node.id)}`,
-        { credentials: "include" },
-      );
-      if (!r.ok) throw new Error(`http_${r.status}`);
-      const d = await r.json();
-      // Guard against a stale response: if the student tapped another locked
-      // node while this request was in flight, that node's dialog is now open —
-      // don't clobber it with this slower response.
-      setUnlockPlan(prev => prev && prev.targetCode === node.id ? {
-        loading: false, error: false,
-        targetCode: node.id, targetLabel: node.label,
-        targetUnitName: d.targetUnitName ?? null,
-        requiredExams: Array.isArray(d.requiredExams) ? d.requiredExams : [],
-        firstExamCode: d.firstExamCode ?? null,
-      } : prev);
-    } catch {
-      setUnlockPlan(prev => prev && prev.targetCode === node.id ? { ...prev, loading: false, error: true } : prev);
-    }
   }
 
   function handleNodeClick(node: FlatNode, _index: number, _total: number) {
     if (node.status === "locked") {
       // Lessons + labs are content the student wants to jump to → offer the
-      // test-out plan. Locked exam nodes keep the lightweight hint.
+      // adaptive test-out exam. Locked exam nodes keep the lightweight hint.
       if (node.kind === "lesson" || node.kind === "lab") {
-        void openUnlockPlan(node);
+        openTestOut(node);
       } else {
         setTooltip({ code: node.id, text: "أكمل ما قبلها أولاً" });
         setTimeout(() => setTooltip(null), 2000);
@@ -1542,47 +1530,184 @@ export default function V4Map() {
         />
       )}
 
-      {/* ── Locked-node test-out plan dialog ── */}
-      <UnlockPlanDialog
-        plan={unlockPlan}
-        onClose={() => setUnlockPlan(null)}
-        onConfirm={(examCode) => {
-          setUnlockPlan(null);
-          navigate(`/exam/${encodeURIComponent(slug)}/${encodeURIComponent(examCode)}`);
+      {/* ── Locked-node adaptive test-out exam dialog ── */}
+      <AdaptiveTestOutDialog
+        target={testOut}
+        slug={slug}
+        onClose={() => setTestOut(null)}
+        onPass={(t) => {
+          setTestOut(null);
+          if (t.kind === "lab") {
+            navigate(`/lab/${encodeURIComponent(slug)}/${encodeURIComponent(t.code)}`);
+          } else {
+            navigate(`/specialty/${encodeURIComponent(slug)}/lesson/${encodeURIComponent(t.code)}`);
+          }
         }}
       />
     </div>
   );
 }
 
-// ─── Locked-node test-out plan dialog ──────────────────────────────────────
-// Lists, in order, the exact exams the student must pass to test out up to the
-// locked lesson/lab they tapped, then asks for consent before sending them to
-// the first one. RTL, dark-luxury theme to match the rest of the platform.
-const UNLOCK_SCOPE_META: Record<RequiredExam["scope"], { emoji: string; label: string }> = {
-  unit: { emoji: "📝", label: "اختبار وحدة" },
-  stage: { emoji: "🎯", label: "اختبار مرحلة" },
-  level: { emoji: "🏆", label: "اختبار مستوى" },
+// ─── Locked-node adaptive test-out exam dialog ──────────────────────────────
+// One adaptive exam (13–20 MCQs) covering every prerequisite unit before the
+// tapped locked lesson/lab. Score ≥ 70% unlocks the whole prior path up to the
+// target and navigates straight in; < 70% denies with immediate unlimited
+// retry. RTL, dark-luxury theme to match the rest of the platform.
+type TestOutPhase = "intro" | "loading" | "question" | "result";
+type TestOutResult = {
+  passed: boolean;
+  scorePct: number;
+  correct: number;
+  asked: number;
+  unlockedCount?: number;
+  weakAreas?: TestOutWeakArea[];
 };
 
-function UnlockPlanDialog({
-  plan, onClose, onConfirm,
+// Render a question prompt with fenced ```code``` blocks shown LTR in <pre>.
+function TestOutPrompt({ text }: { text: string }) {
+  const parts = String(text || "").split(/```(?:[a-zA-Z0-9]+)?\n?([\s\S]*?)```/g);
+  return (
+    <div className="text-sm font-bold leading-relaxed whitespace-pre-wrap">
+      {parts.map((seg, i) =>
+        i % 2 === 1 ? (
+          <pre
+            key={i}
+            dir="ltr"
+            className="my-2 p-3 rounded-xl bg-black/40 border border-white/10 text-[12px] font-mono text-emerald-200 overflow-x-auto text-left"
+          >
+            <code>{seg.replace(/\n$/, "")}</code>
+          </pre>
+        ) : (
+          <span key={i}>{seg}</span>
+        ),
+      )}
+    </div>
+  );
+}
+
+function AdaptiveTestOutDialog({
+  target, slug, onClose, onPass,
 }: {
-  plan: UnlockPlanState | null;
+  target: TestOutTarget | null;
+  slug: string;
   onClose: () => void;
-  onConfirm: (examCode: string) => void;
+  onPass: (t: TestOutTarget) => void;
 }) {
+  const [phase, setPhase] = useState<TestOutPhase>("intro");
+  const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [question, setQuestion] = useState<TestOutQuestion | null>(null);
+  const [progress, setProgress] = useState<{ asked: number; min: number; max: number }>({ asked: 0, min: 13, max: 20 });
+  const [selected, setSelected] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<TestOutResult | null>(null);
+
+  // Reset the machine whenever a new target is tapped (or the dialog closes).
+  useEffect(() => {
+    if (!target) return;
+    setPhase("intro");
+    setError(null);
+    setSessionId(null);
+    setQuestion(null);
+    setProgress({ asked: 0, min: 13, max: 20 });
+    setSelected(null);
+    setSubmitting(false);
+    setResult(null);
+  }, [target?.code]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const csrfHeaders = { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" };
+
+  async function start() {
+    if (!target) return;
+    setPhase("loading");
+    setError(null);
+    setResult(null);
+    try {
+      const r = await fetch(
+        `/api/v4/path/${encodeURIComponent(slug)}/testout/start`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: csrfHeaders,
+          body: JSON.stringify({ targetCode: target.code }),
+        },
+      );
+      if (!r.ok) throw new Error(`http_${r.status}`);
+      const d = await r.json();
+      if (d.kind === "unlock") {
+        // No prerequisites → already unlocked; go straight in.
+        onPass(target);
+        return;
+      }
+      if (d.kind === "ask") {
+        setSessionId(d.sessionId);
+        setQuestion(d.question);
+        setProgress(d.progress ?? { asked: 0, min: 13, max: 20 });
+        setSelected(null);
+        setPhase("question");
+        return;
+      }
+      // kind:'error' or anything unexpected
+      setError("تعذّر تجهيز الاختبار حالياً. حاول مرة أخرى لاحقاً.");
+      setPhase("intro");
+    } catch {
+      setError("تعذّر بدء الاختبار. تأكد من اتصالك وحاول مجدداً.");
+      setPhase("intro");
+    }
+  }
+
+  async function submitAnswer() {
+    if (!target || sessionId == null || selected == null || submitting) return;
+    setSubmitting(true);
+    try {
+      const r = await fetch(
+        `/api/v4/path/${encodeURIComponent(slug)}/testout/answer`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: csrfHeaders,
+          body: JSON.stringify({ sessionId, rawAnswer: selected }),
+        },
+      );
+      if (!r.ok) throw new Error(`http_${r.status}`);
+      const d = await r.json();
+      if (d.kind === "ask") {
+        setQuestion(d.question);
+        setProgress(d.progress ?? progress);
+        setSelected(null);
+        setPhase("question");
+      } else if (d.kind === "result") {
+        setResult({
+          passed: !!d.passed,
+          scorePct: Number(d.scorePct ?? 0),
+          correct: Number(d.correct ?? 0),
+          asked: Number(d.asked ?? 0),
+          unlockedCount: d.unlockedCount,
+          weakAreas: Array.isArray(d.weakAreas) ? d.weakAreas : [],
+        });
+        setPhase("result");
+      }
+    } catch {
+      setError("تعذّر إرسال الإجابة. حاول مرة أخرى.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const askedNow = Math.min((progress.asked ?? 0) + 1, progress.max || 20);
+  const pctBar = progress.max > 0 ? Math.round((askedNow / progress.max) * 100) : 0;
+
   return (
     <AnimatePresence>
-      {plan && (
+      {target && (
         <motion.div
-          key="unlock-plan-backdrop"
+          key="testout-backdrop"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-3"
           style={{ direction: "rtl", fontFamily: "Tajawal, Cairo, sans-serif" }}
-          onClick={onClose}
+          onClick={phase === "question" ? undefined : onClose}
         >
           <motion.div
             initial={{ opacity: 0, y: 24, scale: 0.97 }}
@@ -1596,97 +1721,221 @@ function UnlockPlanDialog({
             <div className="relative p-5 pb-4 border-b border-white/5 bg-gradient-to-b from-amber-500/10 to-transparent">
               <div className="flex items-start gap-3">
                 <div className="shrink-0 w-11 h-11 rounded-2xl bg-amber-500/15 border border-amber-400/30 flex items-center justify-center">
-                  <Lock className="w-5 h-5 text-amber-300" />
+                  <Zap className="w-5 h-5 text-amber-300" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-amber-300/70 font-bold">تجاوز حر إلى</div>
-                  <h2 className="text-base font-black leading-tight truncate">{plan.targetLabel}</h2>
-                  {plan.targetUnitName && (
-                    <div className="text-[11px] text-white/40 truncate mt-0.5">{plan.targetUnitName}</div>
+                  <div className="text-[11px] text-amber-300/70 font-bold">اختبار تجاوز إلى</div>
+                  <h2 className="text-base font-black leading-tight truncate">{target.label}</h2>
+                  {target.unitName && (
+                    <div className="text-[11px] text-white/40 truncate mt-0.5">{target.unitName}</div>
                   )}
                 </div>
               </div>
+              {phase === "question" && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-[11px] text-white/45 font-bold mb-1.5">
+                    <span>السؤال {askedNow}</span>
+                    <span>الحد الأدنى {progress.min} سؤال</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/8 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-l from-amber-400 to-gold transition-all duration-300"
+                      style={{ width: `${pctBar}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Body */}
-            <div className="p-5 space-y-4 max-h-[55vh] overflow-y-auto no-scrollbar">
-              {plan.loading ? (
-                <div className="py-8 flex items-center justify-center">
-                  <Loader2 className="w-7 h-7 animate-spin text-gold" />
-                </div>
-              ) : plan.error ? (
-                <p className="text-sm text-white/60 text-center py-4">
-                  تعذّر تحميل متطلبات الفتح. حاول مرة أخرى.
-                </p>
-              ) : plan.requiredExams.length === 0 ? (
-                <p className="text-sm text-white/60 text-center py-4">
-                  لا توجد اختبارات مطلوبة حالياً للوصول إلى هذا المحتوى.
-                </p>
-              ) : (
+            <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto no-scrollbar">
+              {phase === "intro" && (
                 <>
                   <p className="text-[13px] text-white/70 leading-relaxed">
-                    لتجاوز ما قبله والوصول إلى هذا المحتوى، ابدأ بأهمّ
-                    {" "}<span className="text-amber-300 font-bold">الاختبارات</span>{" "}
-                    في طريقك (بالترتيب):
+                    تبي تتجاوز إلى هذا المحتوى مباشرة؟ خوض
+                    {" "}<span className="text-amber-300 font-bold">اختباراً واحداً ذكياً</span>{" "}
+                    يغطي كل ما قبله (من ١٣ إلى ٢٠ سؤال اختيار من متعدد).
                   </p>
-                  <ol className="space-y-2.5">
-                    {plan.requiredExams.slice(0, 2).map((ex, i) => {
-                      const meta = UNLOCK_SCOPE_META[ex.scope];
+                  <ul className="space-y-2 text-[12px] text-white/60">
+                    <li className="flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                      نجاحك بنسبة <span className="text-emerald-300 font-bold">٧٠٪ فأعلى</span> يفتح لك كل المسار حتى هنا.
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <RotateCcw className="w-4 h-4 text-amber-300 shrink-0" />
+                      إذا ما نجحت، تقدر تعيد المحاولة فوراً وبلا حدود.
+                    </li>
+                  </ul>
+                  {error && <p className="text-[12px] text-red-300/90 text-center pt-1">{error}</p>}
+                </>
+              )}
+
+              {phase === "loading" && (
+                <div className="py-10 flex flex-col items-center justify-center gap-3">
+                  <Loader2 className="w-7 h-7 animate-spin text-gold" />
+                  <p className="text-[12px] text-white/50">نجهّز أسئلة الاختبار…</p>
+                </div>
+              )}
+
+              {phase === "question" && question && (
+                <>
+                  <TestOutPrompt text={question.prompt} />
+                  <div className="space-y-2.5">
+                    {question.choices.map((choice, i) => {
+                      const active = selected === i;
                       return (
-                        <li
-                          key={ex.code}
-                          className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.03] p-3"
+                        <button
+                          key={i}
+                          onClick={() => setSelected(i)}
+                          disabled={submitting}
+                          className={
+                            "w-full text-right flex items-center gap-3 rounded-2xl border p-3 transition-all " +
+                            (active
+                              ? "border-gold/60 bg-amber-500/15 shadow-lg shadow-gold/10"
+                              : "border-white/8 bg-white/[0.03] hover:bg-white/[0.06]")
+                          }
                         >
-                          <span className="shrink-0 w-6 h-6 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-200 text-xs font-black flex items-center justify-center">
-                            {i + 1}
+                          <span
+                            className={
+                              "shrink-0 w-6 h-6 rounded-full text-xs font-black flex items-center justify-center border " +
+                              (active
+                                ? "bg-gold text-black border-gold"
+                                : "bg-white/5 text-white/60 border-white/15")
+                            }
+                          >
+                            {["أ", "ب", "ج", "د", "هـ", "و"][i] ?? i + 1}
                           </span>
-                          <span className="text-lg shrink-0">{meta.emoji}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[11px] text-white/45 font-semibold">{meta.label}</div>
-                            <div className="text-sm font-bold truncate">{ex.name ?? ex.code}</div>
-                          </div>
-                          {ex.available ? (
-                            <span className="shrink-0 text-[10px] font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-400/25 rounded-full px-2 py-0.5">
-                              متاح الآن
-                            </span>
-                          ) : (
-                            <span className="shrink-0 text-[10px] font-bold text-white/40 bg-white/5 border border-white/10 rounded-full px-2 py-0.5">
-                              بعد ما قبله
-                            </span>
-                          )}
-                        </li>
+                          <span className="flex-1 text-sm font-semibold leading-relaxed">{choice}</span>
+                        </button>
                       );
                     })}
-                  </ol>
-                  {plan.requiredExams.length > 2 ? (
-                    <p className="text-[11px] text-white/40 leading-relaxed">
-                      وبعدهما تُفتح بقية الاختبارات تلقائياً، واحداً تلو الآخر، حتى تصل إلى هذا المحتوى.
-                    </p>
-                  ) : (
-                    <p className="text-[11px] text-white/40 leading-relaxed">
-                      عند اجتيازك كل اختبار، يُفتح الذي يليه تلقائياً حتى تصل إلى هذا المحتوى.
-                    </p>
-                  )}
+                  </div>
+                  {error && <p className="text-[12px] text-red-300/90 text-center">{error}</p>}
                 </>
+              )}
+
+              {phase === "result" && result && (
+                <div className="space-y-4">
+                  <div className="flex flex-col items-center text-center gap-2 py-2">
+                    {result.passed ? (
+                      <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center">
+                        <CheckCircle className="w-8 h-8 text-emerald-300" />
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 rounded-full bg-red-500/15 border border-red-400/40 flex items-center justify-center">
+                        <XCircle className="w-8 h-8 text-red-300" />
+                      </div>
+                    )}
+                    <div className={"text-3xl font-black " + (result.passed ? "text-emerald-300" : "text-red-300")}>
+                      {result.scorePct}%
+                    </div>
+                    <p className="text-[12px] text-white/50">
+                      {result.correct} من {result.asked} صحيحة
+                    </p>
+                    <p className={"text-sm font-bold " + (result.passed ? "text-emerald-200" : "text-white/70")}>
+                      {result.passed
+                        ? "ممتاز! تجاوزت بنجاح — فتحنا لك المسار حتى هنا."
+                        : "ما وصلت ٧٠٪ هذه المرة. راجع نقاط ضعفك وأعد المحاولة."}
+                    </p>
+                  </div>
+
+                  {!result.passed && result.weakAreas && result.weakAreas.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-[11px] text-white/45 font-bold">أكثر ما تحتاج مراجعته:</div>
+                      <ul className="space-y-2">
+                        {result.weakAreas.map((w) => (
+                          <li
+                            key={w.unitCode}
+                            className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.03] p-3"
+                          >
+                            <span className="text-lg shrink-0">📍</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-bold truncate">{w.unitName}</div>
+                            </div>
+                            <span className="shrink-0 text-[10px] font-bold text-red-300 bg-red-500/10 border border-red-400/25 rounded-full px-2 py-0.5">
+                              {w.wrong}/{w.total} خطأ
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
             {/* Footer */}
             <div className="p-4 border-t border-white/5 bg-black/20 flex gap-2.5">
-              <button
-                onClick={onClose}
-                className="flex-1 py-3 rounded-2xl bg-white/8 hover:bg-white/12 text-white/80 font-bold text-sm transition-colors"
-              >
-                إلغاء
-              </button>
-              {!plan.loading && !plan.error && plan.firstExamCode && (
+              {phase === "intro" && (
+                <>
+                  <button
+                    onClick={onClose}
+                    className="flex-1 py-3 rounded-2xl bg-white/8 hover:bg-white/12 text-white/80 font-bold text-sm transition-colors"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    onClick={() => void start()}
+                    className="flex-[1.4] py-3 rounded-2xl bg-gradient-to-l from-amber-500 to-gold text-black font-black text-sm shadow-lg shadow-gold/25 hover:shadow-gold/40 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    ابدأ الاختبار
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </>
+              )}
+
+              {phase === "loading" && (
                 <button
-                  onClick={() => onConfirm(plan.firstExamCode!)}
-                  className="flex-[1.4] py-3 rounded-2xl bg-gradient-to-l from-amber-500 to-gold text-black font-black text-sm shadow-lg shadow-gold/25 hover:shadow-gold/40 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  disabled
+                  className="flex-1 py-3 rounded-2xl bg-white/5 text-white/40 font-bold text-sm cursor-not-allowed"
                 >
-                  موافقة، ابدأ الاختبارات
-                  <ArrowRight className="w-4 h-4" />
+                  لحظة…
                 </button>
+              )}
+
+              {phase === "question" && (
+                <button
+                  onClick={() => void submitAnswer()}
+                  disabled={selected == null || submitting}
+                  className={
+                    "flex-1 py-3 rounded-2xl font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-2 " +
+                    (selected == null || submitting
+                      ? "bg-white/8 text-white/40 cursor-not-allowed"
+                      : "bg-gradient-to-l from-amber-500 to-gold text-black shadow-lg shadow-gold/25 hover:shadow-gold/40")
+                  }
+                >
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "تأكيد الإجابة"}
+                </button>
+              )}
+
+              {phase === "result" && result && (
+                <>
+                  {result.passed ? (
+                    <button
+                      onClick={() => onPass(target)}
+                      className="flex-1 py-3 rounded-2xl bg-gradient-to-l from-emerald-500 to-emerald-400 text-black font-black text-sm shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      ابدأ التعلّم
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={onClose}
+                        className="flex-1 py-3 rounded-2xl bg-white/8 hover:bg-white/12 text-white/80 font-bold text-sm transition-colors"
+                      >
+                        إغلاق
+                      </button>
+                      <button
+                        onClick={() => void start()}
+                        className="flex-[1.4] py-3 rounded-2xl bg-gradient-to-l from-amber-500 to-gold text-black font-black text-sm shadow-lg shadow-gold/25 hover:shadow-gold/40 transition-all active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        أعد المحاولة
+                      </button>
+                    </>
+                  )}
+                </>
               )}
             </div>
           </motion.div>
