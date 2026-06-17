@@ -404,6 +404,98 @@ router.get("/v4/exam/:slug/:examCode", requireUser, async (req, res) => {
     } catch { balance = null; }
     const canAfford = willCharge ? (balance ?? 0) >= costGems : true;
 
+    // ── Scope context (additive — powers the FE brief screen) ───────────────
+    // Scope-adaptive: a UNIT exam gets the richest context (name + goal +
+    // key concepts + level/stage breadcrumb); stage/level get lighter
+    // labels. A lookup failure NEVER breaks the exam payload — the FE falls
+    // back to the generic scope label when `context` is null.
+    let context:
+      | {
+          scope: ExamScope;
+          title: string;
+          goal: string;
+          keyConcepts: string[];
+          levelName: string | null;
+          stageName: string | null;
+          instructions: string | null;
+        }
+      | null = null;
+    try {
+      const metaInstr = (m: any): string | null =>
+        typeof m?.instructions === "string" && m.instructions.trim() ? String(m.instructions).trim() : null;
+      if (exam.scope === "unit") {
+        const [u] = await db.select().from(v4UnitsTable).where(eq(v4UnitsTable.id, exam.scopeRefId));
+        if (u) {
+          const [stg] = await db.select().from(v4StagesTable).where(eq(v4StagesTable.id, (u as any).stageId));
+          const [lvl] = stg
+            ? await db.select().from(v4LevelsTable).where(eq(v4LevelsTable.id, (stg as any).levelId))
+            : [undefined as any];
+          context = {
+            scope: "unit",
+            title: String((u as any).name ?? ""),
+            goal: String((u as any).goal ?? ""),
+            keyConcepts: Array.isArray((u as any).keyConcepts)
+              ? ((u as any).keyConcepts as any[]).map((c) => String(c)).filter(Boolean)
+              : [],
+            levelName: lvl ? String((lvl as any).name) : null,
+            stageName: stg ? String((stg as any).name) : null,
+            instructions: metaInstr((u as any).examMeta),
+          };
+        }
+      } else if (exam.scope === "stage") {
+        const [stg] = await db.select().from(v4StagesTable).where(eq(v4StagesTable.id, exam.scopeRefId));
+        if (stg) {
+          const [lvl] = await db.select().from(v4LevelsTable).where(eq(v4LevelsTable.id, (stg as any).levelId));
+          context = {
+            scope: "stage",
+            title: String((stg as any).name ?? ""),
+            goal: String((stg as any).goal ?? ""),
+            keyConcepts: [],
+            levelName: lvl ? String((lvl as any).name) : null,
+            stageName: String((stg as any).name ?? ""),
+            instructions: metaInstr((stg as any).examMeta),
+          };
+        }
+      } else {
+        const [lvl] = await db.select().from(v4LevelsTable).where(eq(v4LevelsTable.id, exam.scopeRefId));
+        if (lvl) {
+          context = {
+            scope: "level",
+            title: String((lvl as any).name ?? ""),
+            goal: String((lvl as any).goal ?? ""),
+            keyConcepts: [],
+            levelName: String((lvl as any).name ?? ""),
+            stageName: null,
+            instructions: metaInstr((lvl as any).examMeta),
+          };
+        }
+      }
+    } catch (e) {
+      logger.warn?.(`[v4/exam GET] context lookup ${slug}/${examCode}: ${String((e as any)?.message ?? e)}`);
+      context = null;
+    }
+
+    // ── Summary stats from the resolved variant's questions (additive) ──────
+    const kindBreakdown: Record<string, number> = { mcq: 0, short_answer: 0, practical: 0 };
+    let totalPoints = 0;
+    let suggestedTotalSeconds = 0;
+    let anyTimeHint = false;
+    for (const q of exam.questions as any[]) {
+      const k = String(q.kind);
+      kindBreakdown[k] = (kindBreakdown[k] ?? 0) + 1;
+      totalPoints += Math.max(1, Number(q.points ?? 1) || 1);
+      if (q.timeLimitSeconds != null) {
+        suggestedTotalSeconds += Math.max(0, Number(q.timeLimitSeconds) || 0);
+        anyTimeHint = true;
+      }
+    }
+    const stats = {
+      questionCount: exam.questions.length,
+      totalPoints,
+      suggestedTotalSeconds: anyTimeHint ? suggestedTotalSeconds : null,
+      kindBreakdown,
+    };
+
     res.json({
       slug,
       exam: {
@@ -426,6 +518,8 @@ router.get("/v4/exam/:slug/:examCode", requireUser, async (req, res) => {
       },
       cost: { willCharge, costUsd, costGems, balance, canAfford },
       passThreshold: EXAM_PASS_THRESHOLD,
+      context,
+      stats,
     });
   } catch (e) {
     logger.error?.(`[v4/exam GET] ${slug}/${examCode} u=${uid}: ${String((e as any)?.message ?? e)}`);
