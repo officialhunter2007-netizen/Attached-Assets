@@ -647,8 +647,36 @@ function StageHeader({ stageIndex, name }: { stageIndex: number; name: string })
 // ─── Unit Label ───────────────────────────────────────────────────────────────
 function UnitLabel({ unitIndex, name }: { unitIndex: number; name: string }) {
   return (
-    <div className="text-[10px] text-white/30 text-center mt-1 mb-0.5">
-      وحدة {unitIndex} — {name}
+    <div className="w-full max-w-xs mx-auto flex items-center gap-2 px-2 my-2.5">
+      {/* Left fade line */}
+      <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, transparent, rgba(255,255,255,0.12))" }} />
+
+      {/* Crystal chip */}
+      <div
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
+        style={{
+          background: "linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%)",
+          border: "1px solid rgba(255,255,255,0.11)",
+          boxShadow: "0 1px 0 rgba(255,255,255,0.08) inset, 0 2px 8px rgba(0,0,0,0.3)",
+        }}
+      >
+        {/* Tiny numbered dot */}
+        <span
+          className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black shrink-0"
+          style={{
+            background: "linear-gradient(135deg, rgba(245,158,11,0.5), rgba(245,158,11,0.2))",
+            border: "1px solid rgba(245,158,11,0.35)",
+            color: "#FDE68A",
+            boxShadow: "0 0 6px rgba(245,158,11,0.3)",
+          }}
+        >
+          {unitIndex}
+        </span>
+        <span className="text-[10px] font-semibold text-white/45 max-w-[130px] truncate">{name}</span>
+      </div>
+
+      {/* Right fade line */}
+      <div className="flex-1 h-px" style={{ background: "linear-gradient(to left, transparent, rgba(255,255,255,0.12))" }} />
     </div>
   );
 }
