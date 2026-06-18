@@ -312,10 +312,19 @@ export async function generateUnitQuestionPool(opts: {
   versionId: number;
   unitCodes: string[];
   perUnit: number;
-}): Promise<{ questions: GeneratedPlacementQuestion[]; unitNames: Record<string, string> }> {
+}): Promise<{
+  questions: GeneratedPlacementQuestion[];
+  unitNames: Record<string, string>;
+  // Diagnostics so callers can tell a PROVIDER OUTAGE (some units threw →
+  // retryable, must NEVER auto-pass a gate) apart from GENUINELY THIN content
+  // (every unit generated cleanly but produced few/no questions → safe to
+  // auto-clear a gate). Additive fields — existing callers simply ignore them.
+  attemptedUnits: number;
+  failedUnits: number;
+}> {
   const versionId = opts.versionId;
   const wanted = new Set(opts.unitCodes.map(String));
-  if (wanted.size === 0) return { questions: [], unitNames: {} };
+  if (wanted.size === 0) return { questions: [], unitNames: {}, attemptedUnits: 0, failedUnits: 0 };
 
   const [units, lessons, concepts] = await Promise.all([
     db.select().from(v4UnitsTable).where(eq(v4UnitsTable.versionId, versionId)),
@@ -368,16 +377,32 @@ export async function generateUnitQuestionPool(opts: {
         timeoutMs: 60_000,
         logTag: "v4-testout-gen",
       });
-      return { ctx, questions: parsePlacementGen(result.text) };
+      const parsed = parsePlacementGen(result.text);
+      // A unit that HAS authorable material (lessons or concepts) but yields
+      // ZERO usable questions means the AI response was malformed / truncated /
+      // all-invalid — a GENERATION FAILURE (retryable), NOT genuinely-thin
+      // content. We MUST mark it failed: callers that auto-clear a gate on a
+      // "clean thin" pool (failedUnits===0) would otherwise mistake a garbled
+      // response for legitimately-unauthorable content and silently pass the
+      // gate. Only a unit with no authorable material may legitimately produce
+      // zero questions (→ failed:false, genuinely thin).
+      const hasMaterial = ctx.lessons.length > 0 || ctx.concepts.length > 0;
+      const failed = parsed.length === 0 && hasMaterial;
+      if (failed) {
+        logger.warn({ unit: u.code }, "[v4] testout gen produced 0 questions for a unit with material — treating as failure");
+      }
+      return { ctx, questions: parsed, failed };
     } catch (e: any) {
       logger.warn({ unit: u.code, err: e?.message }, "[v4] testout question gen failed for unit");
-      return { ctx, questions: [] as ParsedGenQ[] };
+      return { ctx, questions: [] as ParsedGenQ[], failed: true };
     }
   });
 
   const out: GeneratedPlacementQuestion[] = [];
   let id = 0;
+  let failedUnits = 0;
   for (const r of results) {
+    if ((r as any).failed) failedUnits++;
     let kept = 0;
     for (const q of r.questions) {
       if (kept >= perUnit) break;
@@ -396,7 +421,7 @@ export async function generateUnitQuestionPool(opts: {
       id++; kept++;
     }
   }
-  return { questions: out, unitNames };
+  return { questions: out, unitNames, attemptedUnits: selected.length, failedUnits };
 }
 
 

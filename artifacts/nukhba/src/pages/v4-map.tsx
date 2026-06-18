@@ -77,9 +77,11 @@ interface FlatNode {
 // path up to the target; < 70% denies with immediate, unlimited retry.
 interface TestOutTarget {
   code: string;
-  label: string;                  // the lesson/lab name the student tapped
+  label: string;                  // the lesson/lab name (or exam title) tapped
   unitName: string | null;
-  kind: "lesson" | "lab";         // where to navigate on pass
+  // "lesson"/"lab" = test-out toward locked content (navigates in on pass);
+  // "stage_exam"/"level_exam" = adaptive GATE exam (refreshes the map on pass).
+  kind: "lesson" | "lab" | "stage_exam" | "level_exam";
 }
 interface TestOutQuestion {
   id: number;
@@ -967,6 +969,16 @@ export default function V4Map() {
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // Re-fetch the currently-browsed level's map (used after a gate exam pass so
+  // the freshly-unlocked nodes + completed exam icon show without a full reload).
+  async function reloadMap() {
+    if (isDemo) return;
+    try {
+      const r = await fetch(mapUrl(viewedLevelRef.current), { credentials: "include" });
+      if (r.ok) { const d: MapResponse = await r.json(); setData(d); }
+    } catch { /* keep stale data — better than a crash */ }
+  }
+
   // ── R5 — Live progress channel ─────────────────────────────────────
   // EventSource holds an SSE connection to /v4/path/:slug/events. The
   // backend pushes node_completed / nodes_unlocked / celebration when
@@ -1194,6 +1206,23 @@ export default function V4Map() {
     });
   }
 
+  // Open the adaptive GATE exam for an available stage/level test node. Same
+  // adaptive dialog as test-out, but passing it refreshes the map (unlocking
+  // the next stage/level) instead of navigating into a lesson.
+  function openGateExam(node: FlatNode) {
+    if (isDemo) {
+      setTooltip({ code: node.id, text: "غير متاح في الوضع التجريبي" });
+      setTimeout(() => setTooltip(null), 2000);
+      return;
+    }
+    setTestOut({
+      code: node.id,
+      label: node.label,
+      unitName: node.sublabel ?? null,
+      kind: node.kind === "stage_test" ? "stage_exam" : "level_exam",
+    });
+  }
+
   function handleNodeClick(node: FlatNode, _index: number, _total: number) {
     if (node.status === "locked") {
       // Lessons + labs are content the student wants to jump to → offer the
@@ -1214,9 +1243,16 @@ export default function V4Map() {
       navigate(`/lab/${encodeURIComponent(slug)}/${encodeURIComponent(node.id)}`);
       return;
     }
-    if ((node.kind === "unit_test" || node.kind === "stage_test" || node.kind === "level_test") &&
+    if (node.kind === "unit_test" &&
         (node.status === "available" || node.status === "completed")) {
+      // Unit exams still use the authored-bank exam page.
       navigate(`/exam/${encodeURIComponent(slug)}/${encodeURIComponent(node.id)}`);
+      return;
+    }
+    if ((node.kind === "stage_test" || node.kind === "level_test") &&
+        (node.status === "available" || node.status === "completed")) {
+      // Stage/level exams are adaptive generated gates → open the adaptive dialog.
+      openGateExam(node);
       return;
     }
     // NOTE: Celebrations are driven ONLY by the SSE "celebration" event
@@ -1537,6 +1573,11 @@ export default function V4Map() {
         onClose={() => setTestOut(null)}
         onPass={(t) => {
           setTestOut(null);
+          if (t.kind === "stage_exam" || t.kind === "level_exam") {
+            // Gate cleared → refresh the map so the next stage/level opens.
+            void reloadMap();
+            return;
+          }
           if (t.kind === "lab") {
             navigate(`/lab/${encodeURIComponent(slug)}/${encodeURIComponent(t.code)}`);
           } else {
@@ -1561,6 +1602,8 @@ type TestOutResult = {
   asked: number;
   unlockedCount?: number;
   weakAreas?: TestOutWeakArea[];
+  // Gate auto-cleared (no runnable pool could be generated) — a no-question pass.
+  cleared?: boolean;
 };
 
 // Render a question prompt with fenced ```code``` blocks shown LTR in <pre>.
@@ -1616,6 +1659,7 @@ function AdaptiveTestOutDialog({
   }, [target?.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const csrfHeaders = { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" };
+  const isGate = target?.kind === "stage_exam" || target?.kind === "level_exam";
 
   async function start() {
     if (!target) return;
@@ -1624,12 +1668,14 @@ function AdaptiveTestOutDialog({
     setResult(null);
     try {
       const r = await fetch(
-        `/api/v4/path/${encodeURIComponent(slug)}/testout/start`,
+        isGate
+          ? `/api/v4/path/${encodeURIComponent(slug)}/gate-exam/start`
+          : `/api/v4/path/${encodeURIComponent(slug)}/testout/start`,
         {
           method: "POST",
           credentials: "include",
           headers: csrfHeaders,
-          body: JSON.stringify({ targetCode: target.code }),
+          body: JSON.stringify(isGate ? { examCode: target.code } : { targetCode: target.code }),
         },
       );
       if (!r.ok) throw new Error(`http_${r.status}`);
@@ -1637,6 +1683,13 @@ function AdaptiveTestOutDialog({
       if (d.kind === "unlock") {
         // No prerequisites → already unlocked; go straight in.
         onPass(target);
+        return;
+      }
+      if (d.kind === "cleared") {
+        // Gate auto-cleared (no runnable pool could be generated) → treat as a
+        // pass with a short confirmation; the map refreshes on continue.
+        setResult({ passed: true, scorePct: 100, correct: 0, asked: 0, unlockedCount: d.unlockedCount, cleared: true });
+        setPhase("result");
         return;
       }
       if (d.kind === "ask") {
@@ -1661,7 +1714,9 @@ function AdaptiveTestOutDialog({
     setSubmitting(true);
     try {
       const r = await fetch(
-        `/api/v4/path/${encodeURIComponent(slug)}/testout/answer`,
+        isGate
+          ? `/api/v4/path/${encodeURIComponent(slug)}/gate-exam/answer`
+          : `/api/v4/path/${encodeURIComponent(slug)}/testout/answer`,
         {
           method: "POST",
           credentials: "include",
@@ -1724,7 +1779,7 @@ function AdaptiveTestOutDialog({
                   <Zap className="w-5 h-5 text-amber-300" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-amber-300/70 font-bold">اختبار تجاوز إلى</div>
+                  <div className="text-[11px] text-amber-300/70 font-bold">{isGate ? "اختبار إلزامي" : "اختبار تجاوز إلى"}</div>
                   <h2 className="text-base font-black leading-tight truncate">{target.label}</h2>
                   {target.unitName && (
                     <div className="text-[11px] text-white/40 truncate mt-0.5">{target.unitName}</div>
@@ -1752,14 +1807,25 @@ function AdaptiveTestOutDialog({
               {phase === "intro" && (
                 <>
                   <p className="text-[13px] text-white/70 leading-relaxed">
-                    تبي تتجاوز إلى هذا المحتوى مباشرة؟ خوض
-                    {" "}<span className="text-amber-300 font-bold">اختباراً واحداً ذكياً</span>{" "}
-                    يغطي كل ما قبله (من ١٣ إلى ٢٠ سؤال اختيار من متعدد).
+                    {isGate ? (
+                      <>
+                        {target.kind === "stage_exam" ? "اختبار هذه المرحلة" : "اختبار هذا المستوى"} يفتح لك{" "}
+                        <span className="text-amber-300 font-bold">{target.kind === "stage_exam" ? "المرحلة التالية" : "المستوى التالي"}</span>.
+                        {" "}اختبار واحد ذكي يغطي كل وحدات {target.kind === "stage_exam" ? "هذه المرحلة" : "هذا المستوى"} (من ١٣ إلى ٢٠ سؤال اختيار من متعدد).
+                      </>
+                    ) : (
+                      <>
+                        تبي تتجاوز إلى هذا المحتوى مباشرة؟ خوض
+                        {" "}<span className="text-amber-300 font-bold">اختباراً واحداً ذكياً</span>{" "}
+                        يغطي كل ما قبله (من ١٣ إلى ٢٠ سؤال اختيار من متعدد).
+                      </>
+                    )}
                   </p>
                   <ul className="space-y-2 text-[12px] text-white/60">
                     <li className="flex items-center gap-2">
                       <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                      نجاحك بنسبة <span className="text-emerald-300 font-bold">٧٠٪ فأعلى</span> يفتح لك كل المسار حتى هنا.
+                      نجاحك بنسبة <span className="text-emerald-300 font-bold">٧٠٪ فأعلى</span>{" "}
+                      {isGate ? (target.kind === "stage_exam" ? "يفتح لك المرحلة التالية." : "يفتح لك المستوى التالي.") : "يفتح لك كل المسار حتى هنا."}
                     </li>
                     <li className="flex items-center gap-2">
                       <RotateCcw className="w-4 h-4 text-amber-300 shrink-0" />
@@ -1827,15 +1893,19 @@ function AdaptiveTestOutDialog({
                       </div>
                     )}
                     <div className={"text-3xl font-black " + (result.passed ? "text-emerald-300" : "text-red-300")}>
-                      {result.scorePct}%
+                      {result.cleared ? "✓" : `${result.scorePct}%`}
                     </div>
-                    <p className="text-[12px] text-white/50">
-                      {result.correct} من {result.asked} صحيحة
-                    </p>
+                    {!result.cleared && (
+                      <p className="text-[12px] text-white/50">
+                        {result.correct} من {result.asked} صحيحة
+                      </p>
+                    )}
                     <p className={"text-sm font-bold " + (result.passed ? "text-emerald-200" : "text-white/70")}>
-                      {result.passed
-                        ? "ممتاز! تجاوزت بنجاح — فتحنا لك المسار حتى هنا."
-                        : "ما وصلت ٧٠٪ هذه المرة. راجع نقاط ضعفك وأعد المحاولة."}
+                      {result.cleared
+                        ? "تم فتح هذا الاختبار تلقائياً — تقدر تكمل مباشرة."
+                        : result.passed
+                          ? (isGate ? "ممتاز! اجتزت الاختبار — فتحنا لك التالي." : "ممتاز! تجاوزت بنجاح — فتحنا لك المسار حتى هنا.")
+                          : "ما وصلت ٧٠٪ هذه المرة. راجع نقاط ضعفك وأعد المحاولة."}
                     </p>
                   </div>
 
@@ -1915,7 +1985,7 @@ function AdaptiveTestOutDialog({
                       onClick={() => onPass(target)}
                       className="flex-1 py-3 rounded-2xl bg-gradient-to-l from-emerald-500 to-emerald-400 text-black font-black text-sm shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 transition-all active:scale-95 flex items-center justify-center gap-2"
                     >
-                      ابدأ التعلّم
+                      {isGate ? "متابعة" : "ابدأ التعلّم"}
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   ) : (

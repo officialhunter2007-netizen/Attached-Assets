@@ -73,6 +73,9 @@ import {
   decideTestoutStep,
   applyTestoutPass,
   buildTestoutWeakAreas,
+  resolveGateExamScope,
+  getOrCreateGateExamPool,
+  applyGateExamPass,
   TESTOUT_ASK_MIN,
   TESTOUT_ASK_MAX,
   TESTOUT_MIN_RUNNABLE,
@@ -963,9 +966,11 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
       if (!labsByUnit.has(lab.unitId)) labsByUnit.set(lab.unitId, []);
       labsByUnit.get(lab.unitId)!.push(lab);
     }
+    // Unit exams still come from authored banks (unchanged). Stage/level exams
+    // are now ADAPTIVE GENERATED gates derived from the progression graph's
+    // examable sets (any scope holding ≥1 unit with ≥1 lesson), not authored
+    // banks — so every specialty gets them, mirroring the unit test-out.
     const unitExamSet = new Set<number>((examRows as any[]).filter((e: any) => e.scope === "unit" && e.unitId).map((e: any) => e.unitId as number));
-    const stageExamSet = new Set<number>((examRows as any[]).filter((e: any) => e.scope === "stage" && e.stageId).map((e: any) => e.stageId as number));
-    const levelExamSet = new Set<number>((examRows as any[]).filter((e: any) => e.scope === "level" && e.levelId).map((e: any) => e.levelId as number));
 
     // ── 4. Helper: determine lesson status ───────────────────────────────
     // Lesson codes follow the canonical dotted form L.S.U.Lesson (e.g.
@@ -1080,7 +1085,7 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
         };
       });
 
-      const hasStageTest = stageExamSet.has(stage.id);
+      const hasStageTest = progressionGraph.stageExamable.has(stage.id);
       let stageTestStatus: "completed" | "available" | "locked" = "locked";
       if (hasStageTest) {
         totalNodes++;
@@ -1105,7 +1110,7 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
     // the level is cleared (units reachable + their exams passed where banks
     // exist). Unit exams are part of the chain now, but lesson/lab completion
     // is irrelevant — exams are the only gates.
-    const hasLevelTest = levelExamSet.has(currentLevel.id);
+    const hasLevelTest = progressionGraph.levelExamable.has(currentLevel.id);
     let levelTestStatus: "completed" | "available" | "locked" = "locked";
     if (hasLevelTest) {
       totalNodes++;
@@ -1584,6 +1589,247 @@ router.post("/v4/path/:slug/testout/answer", requireUser, requireSameOriginCsrf,
     });
   } catch (e) {
     logger.error?.(`[v4/testout/answer] ${slug} user=${uid}: ${String((e as any)?.message ?? e)}`);
+    res.status(500).json({ error: "internal" });
+  }
+});
+
+// ── POST /v4/path/:slug/gate-exam/start ────────────────────────────────────
+// Start (or restart) the ADAPTIVE generated exam for a STAGE or LEVEL gate.
+// Mirrors /testout/start but its PASS effect records a real passing
+// v4_exam_attempts row (the gate predicate the progression engine reads),
+// whereas test-out only widens the unlocked lesson set. FREE for the student.
+// Body: { examCode }  ("L.S.exam" | "L.exam")
+// Returns { kind:'ask' | 'cleared' | 'error', ... }.
+router.post("/v4/path/:slug/gate-exam/start", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const slug = String(req.params.slug);
+  const examCode = String((req.body ?? {}).examCode ?? "").trim();
+  if (!examCode) { res.status(400).json({ error: "exam_required" }); return; }
+  try {
+    const resolved = await resolveActiveSpecialty(slug);
+    if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
+    let studentPath = await getStudentPath(uid, slug);
+    if (!studentPath) { res.status(404).json({ error: "no_student_path" }); return; }
+    studentPath = await syncStudentPathToActiveVersion(studentPath, resolved);
+
+    // The code MUST resolve to a real stage/level scope with units in the
+    // active curriculum (anti-bypass — a crafted code can't unlock a range).
+    const gate = resolveGateExamScope(resolved, examCode);
+    if (!gate) { res.status(404).json({ error: "invalid_exam" }); return; }
+
+    const { resolveExamAnchor, checkExamGate } = await import("../lib/v4-lab-exam-engine");
+    const anchor = await resolveExamAnchor(resolved.versionId, examCode);
+    if (!anchor || anchor.scope !== gate.scope) { res.status(404).json({ error: "invalid_exam" }); return; }
+
+    // Anti-bypass: refuse unless the gate is actually AVAILABLE right now (the
+    // same projection the map renders). Stops a curl of a locked stage/level
+    // exam from triggering its unlock side-effects.
+    const gateCheck = await checkExamGate({
+      userId: uid, subjectId: slug, versionId: resolved.versionId,
+      scope: anchor.scope, scopeRefId: anchor.scopeRefId,
+    });
+    if (!gateCheck.ok) { res.status(403).json({ error: "exam_locked", reason: (gateCheck as any).reason }); return; }
+
+    const existingUnlocked = Array.isArray(studentPath.unlockedLessonCodes)
+      ? (studentPath.unlockedLessonCodes as string[]) : [];
+
+    const pool = await getOrCreateGateExamPool({
+      versionId: resolved.versionId,
+      scopeKey: gate.scopeKey,
+      unitCodes: gate.unitCodes,
+    });
+
+    const questionIds = pool.questions.length >= TESTOUT_MIN_RUNNABLE
+      ? selectTestoutQuestions(pool.questions, TESTOUT_ASK_MAX)
+      : [];
+    if (questionIds.length < TESTOUT_ASK_MIN) {
+      // No runnable exam. Distinguish a transient PROVIDER OUTAGE (retry, never
+      // auto-pass) from GENUINELY THIN content (no-brick: auto-clear the gate,
+      // matching the old "missing bank ⇒ gate open" leniency, made explicit).
+      if (pool.failedUnits > 0 && !pool.fromCache) {
+        res.json({ kind: "error", reason: "generation_failed" });
+        return;
+      }
+      const passRes = await applyGateExamPass({
+        userId: uid, subjectId: slug, versionId: resolved.versionId,
+        scope: gate.scope, scopeRefId: anchor.scopeRefId, examCode,
+        scorePct: 100, existingUnlocked,
+      });
+      res.json({ kind: "cleared", examCode, unlockedCount: passRes.unlockedCount, newlyUnlocked: passRes.newlyUnlocked.length });
+      return;
+    }
+
+    const firstId = questionIds[0];
+    const firstQ = pool.questions.find((q) => q.id === firstId);
+    if (firstId == null || !firstQ) { res.json({ kind: "error", reason: "pool_too_small" }); return; }
+
+    // Supersede any earlier in-progress attempt for this exact exam.
+    await db
+      .update(v4TestoutSessionsTable)
+      .set({ status: "abandoned", completedAt: new Date() })
+      .where(and(
+        eq(v4TestoutSessionsTable.userId, uid),
+        eq(v4TestoutSessionsTable.subjectId, slug),
+        eq(v4TestoutSessionsTable.targetCode, examCode),
+        eq(v4TestoutSessionsTable.status, "in_progress"),
+      ));
+
+    const [session] = await db
+      .insert(v4TestoutSessionsTable)
+      .values({
+        userId: uid,
+        subjectId: slug,
+        versionId: resolved.versionId,
+        targetCode: examCode,
+        targetUnitCode: gate.scopeKey,
+        status: "in_progress",
+        questionIds: questionIds as any,
+        pending: { questionId: firstId } as any,
+        answers: [] as any,
+        askMin: TESTOUT_ASK_MIN,
+        askMax: TESTOUT_ASK_MAX,
+      })
+      .returning();
+
+    res.json({
+      kind: "ask",
+      sessionId: session.id,
+      examCode,
+      scope: gate.scope,
+      question: toClientQuestion(firstQ),
+      progress: {
+        asked: 0,
+        min: Math.min(TESTOUT_ASK_MIN, questionIds.length),
+        max: Math.min(TESTOUT_ASK_MAX, questionIds.length),
+      },
+    });
+  } catch (e) {
+    logger.error?.(`[v4/gate-exam/start] ${slug}/${examCode} user=${uid}: ${String((e as any)?.message ?? e)}`);
+    res.status(500).json({ error: "internal" });
+  }
+});
+
+// ── POST /v4/path/:slug/gate-exam/answer ───────────────────────────────────
+// Grade the server-held pending question and advance the adaptive descent for a
+// STAGE/LEVEL gate exam. On PASS, records a passing v4_exam_attempts row and
+// recomputes the unlock snapshot (applyGateExamPass). FREE.
+// Body: { sessionId, rawAnswer }
+router.post("/v4/path/:slug/gate-exam/answer", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const slug = String(req.params.slug);
+  const body: any = req.body ?? {};
+  const sessionId = Number(body.sessionId);
+  const rawAnswer = body.rawAnswer;
+  if (!Number.isInteger(sessionId)) { res.status(400).json({ error: "session_required" }); return; }
+  try {
+    const resolved = await resolveActiveSpecialty(slug);
+    if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
+
+    const [session] = await db
+      .select()
+      .from(v4TestoutSessionsTable)
+      .where(eq(v4TestoutSessionsTable.id, sessionId));
+    if (!session || session.userId !== uid || session.subjectId !== slug) {
+      res.status(404).json({ error: "no_session" });
+      return;
+    }
+    if (session.status !== "in_progress") { res.status(409).json({ error: "session_closed" }); return; }
+
+    // This endpoint only finalizes STAGE/LEVEL gate exams — guard against a unit
+    // test-out session id being posted here (its pass effect is different).
+    const gate = resolveGateExamScope(resolved, session.targetCode);
+    if (!gate) { res.status(400).json({ error: "not_a_gate_exam" }); return; }
+
+    const pool = await loadTestoutPool(session.versionId, session.targetUnitCode);
+    if (!pool || pool.questions.length === 0) { res.status(409).json({ error: "pool_missing" }); return; }
+
+    const questionIds = Array.isArray(session.questionIds) ? (session.questionIds as number[]) : [];
+    let answers = Array.isArray(session.answers) ? (session.answers as TestoutAnswerRec[]) : [];
+    const pending = (session.pending as TestoutPending | null) ?? null;
+
+    // Grade the question the SERVER is holding (client can't choose which one).
+    if (pending && rawAnswer !== undefined && rawAnswer !== null) {
+      const already = answers.some((a) => a.questionId === pending.questionId);
+      if (!already) {
+        const q = pool.questions.find((qq) => qq.id === pending.questionId);
+        if (q) {
+          const correct = gradeTestoutMcq(q, rawAnswer);
+          answers = [...answers, { questionId: pending.questionId, correct }];
+          await db
+            .update(v4TestoutSessionsTable)
+            .set({ answers: answers as any, pending: null })
+            .where(eq(v4TestoutSessionsTable.id, session.id));
+        }
+      }
+    }
+
+    const finalize = async (passed: boolean, scorePct: number, correct: number, asked: number) => {
+      await db
+        .update(v4TestoutSessionsTable)
+        .set({
+          status: passed ? "passed" : "failed",
+          passed,
+          scorePct,
+          pending: null,
+          completedAt: new Date(),
+        })
+        .where(eq(v4TestoutSessionsTable.id, session.id));
+      if (passed) {
+        const { resolveExamAnchor } = await import("../lib/v4-lab-exam-engine");
+        const anchor = await resolveExamAnchor(session.versionId, session.targetCode);
+        const sp = await getStudentPath(uid, slug);
+        const existingUnlocked = sp && Array.isArray(sp.unlockedLessonCodes)
+          ? (sp.unlockedLessonCodes as string[]) : [];
+        if (!anchor || anchor.scope !== gate.scope) {
+          // Scope was validated at start; this should be unreachable. Fail safe:
+          // report the pass without an unlock so we never write a mis-scoped row.
+          res.json({ kind: "result", passed: true, scorePct, correct, asked, examCode: session.targetCode, unlockedCount: 0, newlyUnlocked: 0 });
+          return;
+        }
+        const passRes = await applyGateExamPass({
+          userId: uid, subjectId: slug, versionId: session.versionId,
+          scope: gate.scope, scopeRefId: anchor.scopeRefId, examCode: session.targetCode,
+          scorePct, existingUnlocked,
+        });
+        res.json({ kind: "result", passed: true, scorePct, correct, asked, examCode: session.targetCode, unlockedCount: passRes.unlockedCount, newlyUnlocked: passRes.newlyUnlocked.length });
+      } else {
+        const weakAreas = buildTestoutWeakAreas(pool.questions, answers, pool.unitNames);
+        res.json({ kind: "result", passed: false, scorePct, correct, asked, examCode: session.targetCode, weakAreas });
+      }
+    };
+
+    const decision = decideTestoutStep(answers, questionIds, session.askMin, session.askMax);
+    if (decision.done) {
+      await finalize(decision.passed, decision.scorePct, decision.correct, decision.asked);
+      return;
+    }
+
+    const nextId = nextTestoutQuestionId(questionIds, answers);
+    if (nextId == null) {
+      const correct = answers.filter((a) => a.correct).length;
+      const pct = answers.length ? Math.round((correct / answers.length) * 100) : 0;
+      await finalize(pct >= TESTOUT_PASS_PCT, pct, correct, answers.length);
+      return;
+    }
+    const nextQ = pool.questions.find((q) => q.id === nextId)!;
+    await db
+      .update(v4TestoutSessionsTable)
+      .set({ pending: { questionId: nextId } as any })
+      .where(eq(v4TestoutSessionsTable.id, session.id));
+    res.json({
+      kind: "ask",
+      sessionId: session.id,
+      examCode: session.targetCode,
+      scope: gate.scope,
+      question: toClientQuestion(nextQ),
+      progress: {
+        asked: answers.length,
+        min: Math.min(session.askMin, questionIds.length),
+        max: Math.min(session.askMax, questionIds.length),
+      },
+    });
+  } catch (e) {
+    logger.error?.(`[v4/gate-exam/answer] ${slug} user=${uid}: ${String((e as any)?.message ?? e)}`);
     res.status(500).json({ error: "internal" });
   }
 });

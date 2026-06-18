@@ -30,6 +30,10 @@ function makeGraph(opts?: {
   unitBank?: Set<number>;
   stageBank?: Set<number>;
   levelBank?: Set<number>;
+  // Stage/level gates now key off "examable" (scope has authorable content),
+  // NOT the authored bank. Default: every stage/level is examable.
+  stageExamable?: Set<number>;
+  levelExamable?: Set<number>;
 }): ProgressionGraph {
   const units: GraphUnit[] = [
     { id: 1, code: "1.1.1", stageId: 11, levelId: 10, levelIndex: 1, stageCode: "1.1", unitIndex: 1 },
@@ -58,6 +62,8 @@ function makeGraph(opts?: {
     unitExamBank: opts?.unitBank ?? new Set([1, 2, 3, 4]),
     stageExamBank: opts?.stageBank ?? new Set([11, 12, 21]),
     levelExamBank: opts?.levelBank ?? new Set([10, 20]),
+    stageExamable: opts?.stageExamable ?? new Set([11, 12, 21]),
+    levelExamable: opts?.levelExamable ?? new Set([10, 20]),
   };
 }
 
@@ -159,5 +165,35 @@ describe("computeProgression — stage/level exam availability", () => {
     );
     assert.equal(s.levelExamAvailable(10), true);
     assert.equal(s.levelExamAvailable(20), false);
+  });
+});
+
+describe("computeProgression — examable gating replaces authored bank", () => {
+  test("an examable stage with NO authored bank is still a hard gate", () => {
+    // stage 1.1 has no authored exam bank but IS examable (has units) → the
+    // generated gate is real: without a stage:11 pass, unit 3 stays locked.
+    const g = makeGraph({ stageBank: new Set([12, 21]) });
+    const s = computeProgression(g, passMap(["unit:1", "unit:2"]), []);
+    assert.equal(s.examReachableUnitIds.has(3), false);
+  });
+
+  test("a NON-examable stage auto-clears its gate (empty shell ⇒ never a gate)", () => {
+    // stage 1.1 is not examable (empty shell) → its gate auto-opens, so passing
+    // the two units is enough to reach unit 3 with no stage exam pass.
+    const g = makeGraph({ stageExamable: new Set([12, 21]) });
+    const s = computeProgression(g, passMap(["unit:1", "unit:2"]), []);
+    assert.equal(s.examReachableUnitIds.has(3), true);
+  });
+
+  test("a NON-examable level auto-clears its gate", () => {
+    // level 1 not examable → reaching level 2 needs no level:10 pass (just the
+    // full stage chain through level 1).
+    const g = makeGraph({ levelExamable: new Set([20]) });
+    const s = computeProgression(
+      g,
+      passMap(["unit:1", "unit:2", "stage:11", "unit:3", "stage:12"]),
+      [],
+    );
+    assert.equal(s.examReachableUnitIds.has(4), true);
   });
 });

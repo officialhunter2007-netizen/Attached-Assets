@@ -18,7 +18,7 @@
 //    write fake v4_exam_attempts rows — that would corrupt the exam-gate
 //    projection which counts PASSED exams only.
 import { db } from "@workspace/db";
-import { v4TestoutPoolsTable, v4LabScenariosTable } from "@workspace/db";
+import { v4TestoutPoolsTable, v4LabScenariosTable, v4ExamAttemptsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
 import {
@@ -27,7 +27,7 @@ import {
   compareCodes,
   generateUnitQuestionPool,
 } from "./v4-path-engine";
-import { unitPrefixOf } from "./v4-progression-engine";
+import { unitPrefixOf, recomputeUnlockSnapshot } from "./v4-progression-engine";
 import { applyUnlockedSnapshot } from "./v4-lab-exam-engine";
 
 // ── Tunables ────────────────────────────────────────────────────────────────
@@ -395,4 +395,210 @@ export function buildTestoutWeakAreas(
     }))
     .sort((a, b) => b.wrong / b.total - a.wrong / a.total)
     .slice(0, 5);
+}
+
+// ── Stage / Level GATE exams (adaptive, generated, FREE) ────────────────────
+// A stage exam covers ALL units in the stage; a level exam covers ALL units in
+// the level. They reuse every test-out primitive (the same global MCQ pool
+// cache, the same adaptive 13–20 / ≥70% engine, the same pure-index grading)
+// but differ from a test-out PASS in one critical way: passing a gate exam must
+// record a real `v4_exam_attempts(passed=true)` row so the progression engine's
+// passed-exam projection opens the gate (a test-out only widens the unlocked
+// lesson set and never writes an attempt). The pool cache key is a SCOPE KEY
+// ("stage:<code>" / "level:<idx>") which is disjoint from the numeric unit
+// codes used by unit test-out, so the two never collide in v4_testout_pools.
+
+/** A gate exam's scope, derived purely from the canonical exam code. */
+export type GateExamScope =
+  | { scope: "stage"; scopeKey: string; stageCode: string; unitCodes: string[] }
+  | { scope: "level"; scopeKey: string; levelIndex: number; unitCodes: string[] };
+
+/**
+ * Parse a stage/level exam code ("L.S.exam" / "L.exam") into its gate scope:
+ * the disjoint pool cache key + EVERY unit code in that scope (the exam covers
+ * them all). Pure over the resolved curriculum — no DB. Returns null for unit
+ * exam codes ("L.S.U.exam"), malformed codes, or an empty scope.
+ */
+export function resolveGateExamScope(
+  resolved: ResolvedSpecialty,
+  examCode: string,
+): GateExamScope | null {
+  if (!examCode.endsWith(".exam")) return null;
+  const head = examCode.slice(0, -".exam".length);
+  if (head.length === 0) return null;
+  const segs = head.split(".");
+  if (segs.some((s) => !/^\d+$/.test(s))) return null;
+  const allUnitCodes = resolved.units.map((u) => u.unitCode);
+
+  if (segs.length === 2) {
+    const stageCode = `${segs[0]}.${segs[1]}`;
+    const unitCodes = allUnitCodes
+      .filter((c) => c.split(".").slice(0, 2).join(".") === stageCode)
+      .sort(compareCodes);
+    if (unitCodes.length === 0) return null;
+    return { scope: "stage", scopeKey: `stage:${stageCode}`, stageCode, unitCodes };
+  }
+  if (segs.length === 1) {
+    const levelIndex = parseInt(segs[0], 10);
+    const unitCodes = allUnitCodes
+      .filter((c) => (parseInt(c.split(".")[0] ?? "0", 10) || 0) === levelIndex)
+      .sort(compareCodes);
+    if (unitCodes.length === 0) return null;
+    return { scope: "level", scopeKey: `level:${levelIndex}`, levelIndex, unitCodes };
+  }
+  return null;
+}
+
+export type GateExamPoolResult = TestoutPool & {
+  /** Units whose generation THREW (provider outage) — >0 ⇒ retry, never auto-pass. */
+  failedUnits: number;
+  attemptedUnits: number;
+  /** True when served straight from the cache (diagnostics then don't apply). */
+  fromCache: boolean;
+};
+
+const inflightGatePools = new Map<string, Promise<GateExamPoolResult>>();
+
+/**
+ * Read-or-generate the GLOBAL question pool for a stage/level gate scope, cached
+ * in v4_testout_pools under the disjoint scope key. Mirrors getOrCreateTestoutPool
+ * but with one safety difference: a pool DEGRADED by a provider outage (some
+ * units failed AND the total is below the runnable floor) is NEVER persisted, so
+ * a transient Gemini failure can't permanently brick the gate into auto-clear.
+ * A cleanly-generated thin pool (no failures) IS cached — its thinness is a
+ * genuine property of the content.
+ */
+export async function getOrCreateGateExamPool(opts: {
+  versionId: number;
+  scopeKey: string;
+  unitCodes: string[];
+}): Promise<GateExamPoolResult> {
+  const cached = await loadTestoutPool(opts.versionId, opts.scopeKey);
+  if (cached && cached.questions.length > 0) {
+    return { ...cached, failedUnits: 0, attemptedUnits: 0, fromCache: true };
+  }
+
+  const key = `${opts.versionId}:${opts.scopeKey}`;
+  const existing = inflightGatePools.get(key);
+  if (existing) return existing;
+
+  const p = (async (): Promise<GateExamPoolResult> => {
+    const sampled = evenSampleCodes(opts.unitCodes, TESTOUT_SAMPLE_UNITS);
+    const perUnit = Math.min(
+      13,
+      Math.max(3, Math.ceil(TESTOUT_TARGET_POOL / Math.max(1, sampled.length))),
+    );
+    const gen = await generateUnitQuestionPool({
+      versionId: opts.versionId,
+      unitCodes: sampled,
+      perUnit,
+    });
+    const failedUnits = gen.failedUnits ?? 0;
+    const attemptedUnits = gen.attemptedUnits ?? sampled.length;
+    const runnable = gen.questions.length >= TESTOUT_MIN_RUNNABLE;
+    const cleanThin = failedUnits === 0; // generation fully succeeded → thinness is genuine
+    // Persist ONLY a runnable pool OR a cleanly-generated (no-outage) pool. A
+    // partial-outage thin pool is left uncached so the next attempt retries.
+    if (gen.questions.length > 0 && (runnable || cleanThin)) {
+      try {
+        await db
+          .insert(v4TestoutPoolsTable)
+          .values({
+            versionId: opts.versionId,
+            targetUnitCode: opts.scopeKey,
+            prereqUnitCodes: opts.unitCodes as any,
+            questions: gen.questions as any,
+            unitNames: gen.unitNames as any,
+          })
+          .onConflictDoNothing({
+            target: [v4TestoutPoolsTable.versionId, v4TestoutPoolsTable.targetUnitCode],
+          });
+      } catch (e) {
+        logger.warn?.(`[v4-gate-exam] pool persist failed ${key}: ${String((e as any)?.message ?? e)}`);
+      }
+      const persisted = await loadTestoutPool(opts.versionId, opts.scopeKey);
+      if (persisted && persisted.questions.length > 0) {
+        return { ...persisted, failedUnits, attemptedUnits, fromCache: false };
+      }
+    }
+    return { questions: gen.questions, unitNames: gen.unitNames, failedUnits, attemptedUnits, fromCache: false };
+  })();
+
+  inflightGatePools.set(key, p);
+  try {
+    return await p;
+  } finally {
+    inflightGatePools.delete(key);
+  }
+}
+
+/**
+ * Effect of passing a stage/level gate exam:
+ *   1. Record a real passing v4_exam_attempts row (FREE — gemsDeducted=0,
+ *      variantIndex=0 marks a generated/adaptive exam). This is what opens the
+ *      gate in the progression engine's passed-exam projection.
+ *   2. Recompute the unlock snapshot from FRESH passed-exam state (the attempt
+ *      above is already persisted) and merge it into v4_student_paths.
+ * Returns the post-pass unlock counts for the result payload.
+ */
+export async function applyGateExamPass(opts: {
+  userId: number;
+  subjectId: string;
+  versionId: number;
+  scope: "stage" | "level";
+  scopeRefId: number;
+  examCode: string;
+  scorePct: number;
+  existingUnlocked: string[];
+}): Promise<{ unlockedCount: number; newlyUnlocked: string[]; nextLessonCode: string | null }> {
+  // Attempt-idempotency: a gate can be re-finalized (an auto-clear start after a
+  // pass, a retried request, or two concurrent finalizations). The unlock
+  // snapshot below is union-only and safe to re-apply, but inserting another
+  // passing row each time pollutes the attempt audit/count. Only record the
+  // FIRST passing attempt for this (user, subject, version, scope, scopeRef);
+  // subsequent passes just re-assert the (idempotent) unlock snapshot.
+  const [already] = await db
+    .select({ id: v4ExamAttemptsTable.id })
+    .from(v4ExamAttemptsTable)
+    .where(and(
+      eq(v4ExamAttemptsTable.userId, opts.userId),
+      eq(v4ExamAttemptsTable.subjectId, opts.subjectId),
+      eq(v4ExamAttemptsTable.versionId, opts.versionId),
+      eq(v4ExamAttemptsTable.scope, opts.scope),
+      eq(v4ExamAttemptsTable.scopeRefId, opts.scopeRefId),
+      eq(v4ExamAttemptsTable.passed, true),
+    ))
+    .limit(1);
+  if (!already) {
+    await db.insert(v4ExamAttemptsTable).values({
+      userId: opts.userId,
+      versionId: opts.versionId,
+      subjectId: opts.subjectId,
+      scope: opts.scope,
+      examCode: opts.examCode,
+      scopeRefId: opts.scopeRefId,
+      variantIndex: 0,
+      answers: [] as any,
+      score: Math.max(0, Math.min(100, Math.round(opts.scorePct))),
+      passed: true,
+      gemsDeducted: 0,
+      requestId: null,
+    });
+  }
+  const snap = await recomputeUnlockSnapshot({
+    versionId: opts.versionId,
+    userId: opts.userId,
+    existingUnlocked: opts.existingUnlocked,
+  });
+  await applyUnlockedSnapshot({
+    userId: opts.userId,
+    subjectId: opts.subjectId,
+    unlocked: snap.unlocked,
+    nextLessonCode: snap.nextLessonCode,
+  });
+  return {
+    unlockedCount: snap.unlocked.length,
+    newlyUnlocked: snap.newlyUnlocked,
+    nextLessonCode: snap.nextLessonCode,
+  };
 }

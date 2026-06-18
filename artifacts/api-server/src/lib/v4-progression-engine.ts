@@ -87,6 +87,13 @@ export interface ProgressionGraph {
   unitExamBank: Set<number>;               // unit ids with ≥1 exam question
   stageExamBank: Set<number>;
   levelExamBank: Set<number>;
+  // Stage/level scopes that hold enough content to author a GENERATED adaptive
+  // exam (≥1 unit with ≥1 lesson). For stage/level these REPLACE the authored
+  // bank as the gate predicate: an examable scope is a real mandatory gate even
+  // with no hand-authored bank. Empty shell scopes stay silent (never a gate,
+  // never a rendered test node). Unit gating still uses unitExamBank.
+  stageExamable: Set<number>;
+  levelExamable: Set<number>;
 }
 
 /** Load the full curriculum graph for a version (ALL levels — reachability is
@@ -175,6 +182,20 @@ export async function loadProgressionGraph(versionId: number): Promise<Progressi
     else if (e.scope === "level" && e.levelId) levelExamBank.add(e.levelId as number);
   }
 
+  // A stage/level is "examable" when it holds real content to author a
+  // generated adaptive exam from: ≥1 unit that has ≥1 lesson. Empty shell
+  // scopes stay silent (never become a gate, never render a test node).
+  const stageExamable = new Set<number>();
+  for (const [stageId, unitIds] of unitsByStageId) {
+    if (unitIds.some((uid) => (lessonsByUnitId.get(uid)?.length ?? 0) > 0)) {
+      stageExamable.add(stageId);
+    }
+  }
+  const levelExamable = new Set<number>();
+  for (const [levelId, stageIds] of stagesByLevelId) {
+    if (stageIds.some((sid) => stageExamable.has(sid))) levelExamable.add(levelId);
+  }
+
   return {
     versionId,
     unitsSorted,
@@ -189,6 +210,8 @@ export async function loadProgressionGraph(versionId: number): Promise<Progressi
     unitExamBank,
     stageExamBank,
     levelExamBank,
+    stageExamable,
+    levelExamable,
   };
 }
 
@@ -230,8 +253,10 @@ export function computeProgression(
 
   // A gate is OPEN when there is no exam bank to pass, OR the exam is passed.
   const unitGateOpen = (id: number) => !graph.unitExamBank.has(id) || passedUnit(id);
-  const stageGateOpen = (id: number) => !graph.stageExamBank.has(id) || passedStage(id);
-  const levelGateOpen = (id: number) => !graph.levelExamBank.has(id) || passedLevel(id);
+  // Stage/level gates: a scope with authorable content (examable) is a real
+  // mandatory gate — open only once its generated/authored exam is passed.
+  const stageGateOpen = (id: number) => !graph.stageExamable.has(id) || passedStage(id);
+  const levelGateOpen = (id: number) => !graph.levelExamable.has(id) || passedLevel(id);
 
   // ── Forward reachability chain over canonically-ordered units ──
   const examReachableUnitIds = new Set<number>();
@@ -269,7 +294,7 @@ export function computeProgression(
   const stageExamAvailable = (stageId: number) =>
     stageReachable(stageId) && stageUnitsCleared(stageId);
   const stageCleared = (stageId: number) =>
-    stageUnitsCleared(stageId) && (!graph.stageExamBank.has(stageId) || passedStage(stageId));
+    stageUnitsCleared(stageId) && (!graph.stageExamable.has(stageId) || passedStage(stageId));
 
   const levelReachable = (levelId: number) => {
     const fu = graph.firstUnitOfLevel.get(levelId);
@@ -282,7 +307,7 @@ export function computeProgression(
   const levelExamAvailable = (levelId: number) =>
     levelReachable(levelId) && levelStagesCleared(levelId);
   const levelCleared = (levelId: number) =>
-    levelStagesCleared(levelId) && (!graph.levelExamBank.has(levelId) || passedLevel(levelId));
+    levelStagesCleared(levelId) && (!graph.levelExamable.has(levelId) || passedLevel(levelId));
 
   // ── Lesson access = exam-reachable units ∪ legacy-unlocked units ──
   const legacySet = new Set(legacyUnlocked);
@@ -354,8 +379,10 @@ export function computeRequiredExamChain(
   const passedStage = (id: number) => examPassMap.get(`stage:${id}`)?.passed === true;
   const passedLevel = (id: number) => examPassMap.get(`level:${id}`)?.passed === true;
   const unitGateOpen = (id: number) => !graph.unitExamBank.has(id) || passedUnit(id);
-  const stageGateOpen = (id: number) => !graph.stageExamBank.has(id) || passedStage(id);
-  const levelGateOpen = (id: number) => !graph.levelExamBank.has(id) || passedLevel(id);
+  // Stage/level gates: a scope with authorable content (examable) is a real
+  // mandatory gate — open only once its generated/authored exam is passed.
+  const stageGateOpen = (id: number) => !graph.stageExamable.has(id) || passedStage(id);
+  const levelGateOpen = (id: number) => !graph.levelExamable.has(id) || passedLevel(id);
 
   const chain: RequiredExamStep[] = [];
   for (let i = 1; i <= targetIdx; i++) {
