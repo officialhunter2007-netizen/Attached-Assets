@@ -606,12 +606,14 @@ async function searchWikipediaThumb(query: string): Promise<string | null> {
     format: "json",
     generator: "search",
     gsrsearch: query,
-    gsrlimit: "3",
+    gsrlimit: "2",
     gsrnamespace: "0",
     prop: "pageimages",
     piprop: "thumbnail",
-    pithumbsize: "900",
-    pilimit: "3",
+    // 800px keeps inline clarity while shaving search+download latency vs 900px;
+    // gsrlimit/pilimit trimmed to 2 (the loop only needs the top lead image).
+    pithumbsize: "800",
+    pilimit: "2",
     origin: "*",
   });
   const json = await fetchJsonWithTimeout(`https://en.wikipedia.org/w/api.php?${qs}`);
@@ -720,16 +722,23 @@ export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
 
     // 2. Provider chain: Wikipedia → Commons. Each candidate is host-checked,
     //    size-capped, and magic-byte validated before we trust it.
+    //    Both searches are fired CONCURRENTLY: the search round-trip (~1–2s) is
+    //    the dominant cost of a web photo (the byte download is ~0.3s), so by
+    //    the time Wikipedia is judged empty the Commons search has already run
+    //    in parallel — the fallback no longer adds a second sequential hop.
     let buf: Buffer | null = null;
     let provider: WebPhotoResult["provider"] = "fallback";
 
-    const wikiUrl = await searchWikipediaThumb(clean);
+    const wikiSearch = searchWikipediaThumb(clean).catch(() => null);
+    const commonsSearch = searchCommonsThumb(clean).catch(() => null);
+
+    const wikiUrl = await wikiSearch;
     if (wikiUrl) {
       const b = await fetchPhotoBuffer(wikiUrl);
       if (b && detectImageExt(b)) { buf = b; provider = "wiki"; }
     }
     if (!buf) {
-      const commonsUrl = await searchCommonsThumb(clean);
+      const commonsUrl = await commonsSearch;
       if (commonsUrl) {
         const b = await fetchPhotoBuffer(commonsUrl);
         if (b && detectImageExt(b)) { buf = b; provider = "commons"; }

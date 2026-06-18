@@ -40,3 +40,20 @@ directly (no redirect) so the happy path is unaffected.
 an 8MB cap enforced only after `arrayBuffer()` (when no `content-length`) is
 looser than a streaming cutoff — acceptable here given the trusted source + 6s
 timeout, but tighten if the source set ever widens.
+
+## Latency: the search round-trip dominates, NOT the download
+The perceived "photo appears too slowly" delay is the Wikipedia
+`generator=search` round-trip (~1.8–2.7s, occasionally a ~5s cold start), not the
+byte download (~0.3s for an 800–960px thumb). Two levers fixed it without
+touching the same-origin caching design: (1) fire the Wikipedia AND Commons
+searches CONCURRENTLY (prefer Wikipedia, fall back to the already-resolved
+Commons promise) so the fallback adds no second sequential hop; (2) lean the
+search params (gsrlimit/pilimit small, pithumbsize 800).
+
+**Do NOT** rewrite the thumbnail-width bucket in the returned URL (e.g. forcing
+`/800px-`): Wikimedia returns HTTP 400 + a ~2KB error body for non-prerendered
+widths. Always use the API-provided `thumbnail.source` URL verbatim.
+
+The REST summary endpoint (`/api/rest_v1/page/summary/<Title>`) is ~3x faster
+(~0.5s, CDN-cached) but its thumbnail is only ~330px (too soft for inline) and
+can't be upscaled by URL rewrite — so it's not a drop-in quality replacement.
