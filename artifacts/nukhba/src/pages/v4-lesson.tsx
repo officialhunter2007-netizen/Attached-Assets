@@ -35,7 +35,7 @@ import { HandsOnPanel } from "@/components/hands-on-panel";
 const FRIENDLY_RETRY_MSG = "تعذّر الوصول للمعلم الآن. تحقّق من اتصالك وحاول مرة أخرى بعد لحظات.";
 
 type ChatMsg = { role: "user" | "assistant"; content: string; image?: string };
-type V4ImageState = { status: "loading" | "ready"; url?: string };
+type V4ImageState = { status: "loading" | "ready"; url?: string; kind?: "image" | "photo" };
 
 // Cap an attached image at ~4MB (pre-base64) so the SSE turn stays sane.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -469,6 +469,21 @@ function TeacherBubble({ html, isStreaming, imageMap }: { html: string; isStream
         if (cap) fig.appendChild(cap);
         fig.classList.remove("teach-image-loading");
         fig.classList.add("teach-image-ready");
+      } else {
+        // Still loading: correct the spinner wording. A real PHOTO is FETCHED
+        // ready-made from the web (fast) — saying "جارٍ توليد" (generating) is
+        // misleading. renderImageMarkers bakes the generic label, so upgrade it
+        // here once the placeholder's kind is known.
+        const label = fig.querySelector(
+          ":scope > .teach-image-spinner .label",
+        ) as HTMLElement | null;
+        if (label) {
+          const want =
+            st?.kind === "photo"
+              ? "جارٍ جلب صورة حقيقية من الإنترنت…"
+              : "جارٍ توليد الصورة التوضيحية…";
+          if (label.textContent !== want) label.textContent = want;
+        }
       }
     }
   }, [html, imageMap]);
@@ -1073,9 +1088,10 @@ export default function V4Lesson() {
             }
             if (evt?.imagePlaceholder?.id) {
               const id = String(evt.imagePlaceholder.id);
+              const kind = evt.imagePlaceholder.kind === "photo" ? "photo" : "image";
               setImageMap((prev) => {
                 const next = new Map(prev);
-                next.set(id, { status: "loading" });
+                next.set(id, { status: "loading", kind });
                 return next;
               });
               continue;
@@ -1085,7 +1101,8 @@ export default function V4Lesson() {
               const url = evt.imageReady.url as string;
               setImageMap((prev) => {
                 const next = new Map(prev);
-                next.set(id, { status: "ready", url });
+                const prevKind = prev.get(id)?.kind;
+                next.set(id, { status: "ready", url, kind: prevKind });
                 return next;
               });
               continue;

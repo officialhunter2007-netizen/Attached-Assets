@@ -13,9 +13,21 @@ STYLIZED generated infographic (FLUX/Pollinations).
   (`resolveTeacherImage(q,{noFal:true})`). Never throws; never bills fal.
 - **Zero-FE-change trick**: both `[[PHOTO:]]` and `[[IMAGE:]]` are converted
   server-side into the SAME `[[IMAGE:<hex>]]` wire marker + `imagePlaceholder` /
-  `imageReady` SSE events. The FE only ever knows about `[[IMAGE:<hex>]]`. When
-  adding a new visual authoring tag, prefer reusing this wire contract over
+  `imageReady` SSE events. The FE renders both via the same figure/spinner path.
+  When adding a new visual authoring tag, prefer reusing this wire contract over
   inventing a new FE renderer path.
+- **BUT the shared marker means the FE can't tell a fetched real photo from a
+  generated infographic** — so a real-photo fetch showed the GENERATING spinner
+  ("جارٍ توليد الصورة التوضيحية…"), which read as wasteful/slow to users. Fix:
+  carry `kind: "photo"|"image"` on the `imagePlaceholder` event; the FE stores it
+  and the reconcile effect rewrites the spinner label (photo → "جارٍ جلب صورة
+  حقيقية من الإنترنت…"). The server writes `imagePlaceholder` BEFORE the marker
+  text, so `kind` is usually in imageMap by render time; the label is still
+  corrected in a normal `useEffect`, so a one-frame default-label flash is
+  possible (negligible; use `useLayoutEffect` or a kind-aware renderer to kill
+  it). Lesson: any user-facing copy that implies the MECHANISM (generate vs
+  fetch) must be driven by the real `kind`, not hardcoded on the shared render
+  path.
 - The per-reply visual cap (`MAX_IMAGES_PER_REPLY`) is SHARED across IMAGE +
   PHOTO via one `__imageCount`. The stream parser scans the EARLIEST of the two
   8-char markers and holds back partial prefixes of EITHER until complete.

@@ -624,7 +624,9 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       __imageCount++;
       try {
         if (!res.writableEnded) {
-          res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId } })}\n\n`);
+          // `kind` lets the FE show an accurate spinner: a real ready-made photo
+          // fetched from the web ("photo") vs a generated infographic ("image").
+          res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId, kind } })}\n\n`);
         }
       } catch {}
       const task = kind === "photo" ? firePhotoTask(imageId, innerText) : fireImageTask(imageId, innerText);
