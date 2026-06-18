@@ -678,6 +678,12 @@ export async function buildTeacherSystemPrompt(opts: {
   // are never a wall of text.
   const LIMG = buildImageLayer();
 
+  // Real photographs from the web (Wikipedia / Commons) — the teacher emits
+  // `[[PHOTO: <english query>]]` for concrete real-world things; v4_teach.ts
+  // resolves a real same-origin photo and renders it through the SAME
+  // `[[IMAGE:id]]` wire path. Shares the one-visual-per-reply cap with IMAGE.
+  const LWEBPHOTO = buildWebPhotoLayer();
+
   // Nukhba code editor (محرّر نُخبة) — only advertised for programming-ish
   // specialties, since the editor button (</>) only renders for them in the
   // lesson UI. Teaches the model HOW to explain the feature to the student and
@@ -776,7 +782,7 @@ export async function buildTeacherSystemPrompt(opts: {
         currentLessonCode: lesson.lesson.code,
       });
 
-  const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LSCENE, LIMG];
+  const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LSCENE, LIMG, LWEBPHOTO];
   if (L3A) layers.splice(3, 0, L3A);
   if (LCODE) layers.push(LCODE);
   if (LOPEN) layers.push(LOPEN);
@@ -858,6 +864,49 @@ export function buildImageLayer(): string {
     "",
     "**مثال** (دائرة كهربائية بسيطة):",
     "[[IMAGE: professional editorial infographic illustration, clean schematic of a simple electrical circuit with a battery, a switch, and a lightbulb connected by wires, isometric flat icons, color-coded components (warm orange battery, mint green switch, soft blue bulb), subtle gradient background, thin connector lines, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking each component]]",
+  ].join("\n");
+}
+
+// ─── Real-photo layer (PHOTO) — actual photographs from the web ────────────
+// Distinct from IMAGE (a STYLIZED *generated* infographic). PHOTO fetches an
+// ACTUAL PHOTOGRAPH of a concrete real-world thing from Wikipedia / Wikimedia
+// Commons, persists it same-origin, and renders it through the SAME
+// `[[IMAGE:id]]` wire path. Use it when seeing the real thing teaches better
+// than a diagram (hardware, devices, organisms, anatomy, landmarks, real
+// products, lab/field equipment) — especially the first time it's introduced.
+// Always FREE.
+export function buildWebPhotoLayer(): string {
+  return [
+    "## 14. الصورة الواقعية الحقيقية (PHOTO) — صورة فوتوغرافية فعلية من الإنترنت",
+    "حين يكون الشيء **ملموساً وله شكلٌ حقيقيّ معروف** (قطعة رام، معالج، قلب الإنسان، برج إيفل، جهاز مختبر، كائن حيّ، منتج واقعي) فإن **صورته الفوتوغرافية الحقيقية أنفع بكثير من رسمٍ مُولَّد**. استخدم هذا الوسم لجلب صورة حقيقية واضحة:",
+    "```",
+    "[[PHOTO: a simple English noun phrase naming the real thing]]",
+    "```",
+    "",
+    "**كيف يعمل**: تكتب بين القوسين **عبارة إنجليزية بسيطة ومحدّدة** تسمّي الشيء الحقيقي (مثل `DDR4 RAM module` أو `human heart anatomy` أو `Eiffel Tower`)، فيجلب النظام صورة فوتوغرافية حقيقية من ويكيبيديا/ويكيميديا ويعرضها داخل فقاعة رسالتك تلقائياً. **مجاني تماماً.**",
+    "",
+    "**متى تستخدمه (بادر تلقائياً — خصوصاً أوّل مرّة يُذكَر فيها الشيء)**:",
+    "- **أوّل مرّة تشرح فيها مكوّناً أو جهازاً أو كائناً أو معلماً حقيقياً**: أرِ الطالب شكله الفعليّ قبل أن تشرح وظيفته (أوّل ذكرٍ للـ RAM ⇐ صورة قطعة رام حقيقية).",
+    "- حين تكون «صورة الشيء كما هو في الواقع» أوضحَ من أيّ رسمٍ تخطيطيّ.",
+    "",
+    "**PHOTO أم IMAGE أم SCENE؟ (اختر واحداً فقط في الردّ الواحد)**:",
+    "- **PHOTO**: شيء حقيقيّ ملموس تريد إظهار شكله الفعلي (صورة فوتوغرافية).",
+    "- **IMAGE**: مفهوم/بنية تجريدية أو بطاقة معلوماتية تخطيطية مُولَّدة (لا صورة واقعية له، أو الرسم التخطيطي أوضح).",
+    "- **SCENE**: عملية أو حركة أو قصّة بين أطرافٍ تتغيّر خطوة بخطوة.",
+    "",
+    "**قواعد إلزامية**:",
+    "- العبارة داخل الوسم **بالإنجليزية فقط** وبسيطة (اسم الشيء + كلمة أو كلمتين للسياق). تجنّب الجُمل الطويلة والصفات الكثيرة.",
+    "- **وسمٌ بصريّ واحد كحدٍّ أقصى لكل ردّ** (PHOTO أو IMAGE أو SCENE — لا تجمع بينها). وزّعها على مدى الدرس حتى يتنوّع الإيقاع البصري.",
+    "- ضع الوسم في سطرٍ مستقلّ بين فقرتَي شرح، ولا تستخدمه في رسالة الافتتاح الإلزامية.",
+    "- بعد الوسم مباشرةً اكتب تعليقاً عربياً موجزاً يشرح ما في الصورة:",
+    "```html",
+    '<figcaption class="image-caption">',
+    '  <strong class="caption-title"><اسم الشيء بالعربية></strong>: <جملة قصيرة تربط الصورة بالمفهوم>',
+    "</figcaption>",
+    "```",
+    "",
+    "**مثال** (أوّل ذكرٍ للذاكرة العشوائية RAM):",
+    "[[PHOTO: DDR4 RAM memory module]]",
   ].join("\n");
 }
 

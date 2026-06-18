@@ -489,6 +489,291 @@ export async function resolveTeacherImage(
   finally { inflight.delete(inflightKey); }
 }
 
+// ── Real web photos (Wikipedia / Wikimedia Commons) ─────────────────────────
+/**
+ * The IMAGE pipeline above produces STYLIZED, generated infographics (FLUX /
+ * Pollinations / SVG). For concrete real-world things — a RAM stick, a CPU, a
+ * human heart, the Eiffel Tower — the student is far better served by an ACTUAL
+ * PHOTOGRAPH. `resolveWebPhoto` fetches one from Wikipedia (and, failing that,
+ * Wikimedia Commons), persists it under the SAME same-origin disk cache, and
+ * returns a same-origin URL — so the existing `[[IMAGE:id]]` + imageReady wire
+ * contract renders it with ZERO frontend changes.
+ *
+ * It is ALWAYS FREE (no fal.ai) and NEVER throws: if no real photo is found it
+ * falls back to the free generated path (`resolveTeacherImage(..,{noFal})`),
+ * so a placeholder never stuck-spins.
+ *
+ * SSRF lockdown: image BYTES are only ever downloaded from trusted Wikimedia
+ * upload hosts (the search APIs themselves are fixed en.wikipedia.org /
+ * commons.wikimedia.org endpoints). A crafted/poisoned URL pointing anywhere
+ * else is refused before any fetch.
+ */
+const WEB_PHOTO_TIMEOUT_MS = (() => {
+  const raw = parseInt(process.env.WEB_PHOTO_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(raw) && raw >= 2_000 && raw <= 60_000 ? raw : 6_000;
+})();
+const WEB_PHOTO_MAX_BYTES = 8 * 1024 * 1024; // hard cap — reject oversized downloads
+const WEB_PHOTO_MIN_BYTES = 1_500; // reject blank/placeholder tiny files
+const WEB_PHOTO_MIN_WIDTH = 250; // clarity floor — skip thumbnails too small to read
+const WIKI_USER_AGENT =
+  "NukhbaEducation/1.0 (Yemeni educational platform; teacher illustration lookup)";
+
+/** SSRF guard: only HTTPS image bytes from Wikimedia upload hosts are fetched. */
+function isAllowedPhotoHost(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    if (u.protocol !== "https:") return false;
+    const h = u.hostname.toLowerCase();
+    return h === "upload.wikimedia.org" || h.endsWith(".wikimedia.org");
+  } catch {
+    return false;
+  }
+}
+
+function safeHost(rawUrl: string): string {
+  try { return new URL(rawUrl).hostname; } catch { return "?"; }
+}
+
+async function fetchJsonWithTimeout(url: string): Promise<any | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), WEB_PHOTO_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { "User-Agent": WIKI_USER_AGENT, Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** Download image bytes from an ALLOWLISTED Wikimedia host, size-capped. */
+async function fetchPhotoBuffer(url: string): Promise<Buffer | null> {
+  if (!isAllowedPhotoHost(url)) {
+    logger.warn?.({ host: safeHost(url) }, "web-photo: blocked non-allowlisted host");
+    return null;
+  }
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), WEB_PHOTO_TIMEOUT_MS);
+  try {
+    // SSRF hardening: do NOT let fetch silently follow a redirect to an
+    // off-allowlist (or internal) host. `redirect: "manual"` surfaces 3xx as an
+    // opaque response; we re-validate each Location against the SAME allowlist
+    // and follow at most a couple of hops manually.
+    let current = url;
+    let res: Response | null = null;
+    for (let hop = 0; hop < 3; hop++) {
+      res = await fetch(current, {
+        signal: ctrl.signal,
+        redirect: "manual",
+        headers: { "User-Agent": WIKI_USER_AGENT },
+      });
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get("location");
+        if (!loc) return null;
+        const next = new URL(loc, current).toString();
+        if (!isAllowedPhotoHost(next)) {
+          logger.warn?.({ host: safeHost(next) }, "web-photo: blocked redirect to non-allowlisted host");
+          return null;
+        }
+        current = next;
+        continue;
+      }
+      break;
+    }
+    if (!res || !res.ok) return null;
+    const declared = parseInt(res.headers.get("content-length") ?? "", 10);
+    if (Number.isFinite(declared) && declared > WEB_PHOTO_MAX_BYTES) return null;
+    const ab = await res.arrayBuffer();
+    const buf = Buffer.from(ab);
+    if (buf.length > WEB_PHOTO_MAX_BYTES || buf.length < WEB_PHOTO_MIN_BYTES) return null;
+    return buf;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** Wikipedia lead-image: best matching article → its rasterized thumbnail. */
+async function searchWikipediaThumb(query: string): Promise<string | null> {
+  const qs = new URLSearchParams({
+    action: "query",
+    format: "json",
+    generator: "search",
+    gsrsearch: query,
+    gsrlimit: "3",
+    gsrnamespace: "0",
+    prop: "pageimages",
+    piprop: "thumbnail",
+    pithumbsize: "900",
+    pilimit: "3",
+    origin: "*",
+  });
+  const json = await fetchJsonWithTimeout(`https://en.wikipedia.org/w/api.php?${qs}`);
+  const pages = json?.query?.pages;
+  if (!pages || typeof pages !== "object") return null;
+  const arr = (Object.values(pages) as any[]).sort(
+    (a, b) => (a?.index ?? 999) - (b?.index ?? 999),
+  );
+  for (const p of arr) {
+    const src = p?.thumbnail?.source;
+    const w = Number(p?.thumbnail?.width ?? 0);
+    if (typeof src === "string" && w >= WEB_PHOTO_MIN_WIDTH && isAllowedPhotoHost(src)) return src;
+  }
+  return null;
+}
+
+/** Wikimedia Commons fallback: search the File namespace for a bitmap photo. */
+async function searchCommonsThumb(query: string): Promise<string | null> {
+  const qs = new URLSearchParams({
+    action: "query",
+    format: "json",
+    generator: "search",
+    gsrsearch: `${query} filetype:bitmap`,
+    gsrnamespace: "6",
+    gsrlimit: "5",
+    prop: "imageinfo",
+    iiprop: "url|size|mime",
+    iiurlwidth: "900",
+    origin: "*",
+  });
+  const json = await fetchJsonWithTimeout(`https://commons.wikimedia.org/w/api.php?${qs}`);
+  const pages = json?.query?.pages;
+  if (!pages || typeof pages !== "object") return null;
+  const arr = (Object.values(pages) as any[]).sort(
+    (a, b) => (a?.index ?? 999) - (b?.index ?? 999),
+  );
+  for (const p of arr) {
+    const ii = p?.imageinfo?.[0];
+    const thumb = ii?.thumburl;
+    const w = Number(ii?.thumbwidth ?? 0);
+    const mime = String(ii?.mime ?? "");
+    if (
+      typeof thumb === "string" &&
+      w >= WEB_PHOTO_MIN_WIDTH &&
+      /^image\/(png|jpeg|webp)$/.test(mime) &&
+      isAllowedPhotoHost(thumb)
+    ) {
+      return thumb;
+    }
+  }
+  return null;
+}
+
+export type WebPhotoResult = {
+  url: string;
+  provider: "cache" | "wiki" | "commons" | "fallback";
+  latencyMs: number;
+};
+
+const __photoCounts: Record<WebPhotoResult["provider"], number> = {
+  cache: 0,
+  wiki: 0,
+  commons: 0,
+  fallback: 0,
+};
+function recordPhoto(p: WebPhotoResult["provider"]): void {
+  __photoCounts[p] = (__photoCounts[p] || 0) + 1;
+}
+export function getWebPhotoStats(): Readonly<Record<WebPhotoResult["provider"], number>> {
+  return { ...__photoCounts };
+}
+
+const inflightPhotos = new Map<string, Promise<WebPhotoResult>>();
+
+/**
+ * Resolve a same-origin URL for a REAL photograph matching `query` (an English
+ * noun phrase, e.g. "DDR4 RAM module"). Cache → Wikipedia → Commons → free
+ * generated fallback. Never throws; never bills fal.
+ */
+export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
+  const start = Date.now();
+  const clean = (query || "").trim().slice(0, 200);
+  // Namespaced cache key — disjoint from FLUX prompt hashes so a photo lookup
+  // and an identically-worded generated image never collide on disk.
+  const hash = hashPrompt(`photo:${clean.toLowerCase()}`);
+
+  const existing = inflightPhotos.get(hash);
+  if (existing) return existing;
+
+  const job = (async (): Promise<WebPhotoResult> => {
+    await ensureDir();
+
+    // 1. Disk cache hit?
+    const hit = await findCached(hash);
+    if (hit) {
+      recordPhoto("cache");
+      return { url: urlFor(hash, hit.ext), provider: "cache", latencyMs: Date.now() - start };
+    }
+
+    // Empty query → straight to the free generated fallback.
+    if (!clean) {
+      const r = await resolveTeacherImage("", { noFal: true });
+      recordPhoto("fallback");
+      return { url: r.url, provider: "fallback", latencyMs: Date.now() - start };
+    }
+
+    // 2. Provider chain: Wikipedia → Commons. Each candidate is host-checked,
+    //    size-capped, and magic-byte validated before we trust it.
+    let buf: Buffer | null = null;
+    let provider: WebPhotoResult["provider"] = "fallback";
+
+    const wikiUrl = await searchWikipediaThumb(clean);
+    if (wikiUrl) {
+      const b = await fetchPhotoBuffer(wikiUrl);
+      if (b && detectImageExt(b)) { buf = b; provider = "wiki"; }
+    }
+    if (!buf) {
+      const commonsUrl = await searchCommonsThumb(clean);
+      if (commonsUrl) {
+        const b = await fetchPhotoBuffer(commonsUrl);
+        if (b && detectImageExt(b)) { buf = b; provider = "commons"; }
+      }
+    }
+
+    // 3. No real photo found → free generated fallback (guarantees a URL).
+    if (!buf) {
+      const r = await resolveTeacherImage(clean, { noFal: true });
+      recordPhoto("fallback");
+      return { url: r.url, provider: "fallback", latencyMs: Date.now() - start };
+    }
+
+    // Persist the real photo under the photo: hash (atomic tmp → rename).
+    const ext = detectImageExt(buf) ?? ".jpg";
+    const file = path.join(CACHE_DIR, hash + ext);
+    const tmp = file + ".tmp";
+    try {
+      await fs.writeFile(tmp, buf);
+      await fs.rename(tmp, file);
+    } catch (err: any) {
+      logger.error(
+        { message: err?.message || String(err), file },
+        "web-photo: failed to persist — returning base64 data URL fallback",
+      );
+      const b64 = buf.toString("base64");
+      const mime =
+        ext === ".png" ? "image/png" :
+        ext === ".webp" ? "image/webp" :
+        ext === ".svg" ? "image/svg+xml" : "image/jpeg";
+      recordPhoto(provider);
+      return { url: `data:${mime};base64,${b64}`, provider, latencyMs: Date.now() - start };
+    }
+
+    maybeEvict().catch(() => {});
+    recordPhoto(provider);
+    return { url: urlFor(hash, ext), provider, latencyMs: Date.now() - start };
+  })();
+
+  inflightPhotos.set(hash, job);
+  try { return await job; }
+  finally { inflightPhotos.delete(hash); }
+}
+
 /**
  * Express handler: serve a previously-cached image by filename.
  * Filename must be `<16 hex chars><ext>` — anything else is rejected to

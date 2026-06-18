@@ -58,4 +58,6 @@ Thumbs.db
 
 # v4 generated scene cache (regenerated at runtime, never commit)
 artifacts/api-server/data/v4-scenes/
+# teacher image + web-photo cache (regenerated/refetched at runtime, never commit)
+artifacts/api-server/data/teacher-images/
 gcp-key.json

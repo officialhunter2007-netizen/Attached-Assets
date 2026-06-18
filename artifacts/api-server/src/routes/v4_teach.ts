@@ -70,6 +70,7 @@ import {
   FLUX_SCHNELL_USD_PER_IMAGE,
   type ImageGenerationResult,
 } from "../lib/image-generation";
+import { resolveWebPhoto } from "../lib/teacher-image-store";
 import { emitFriendlyAiFailure } from "./ai";
 
 const router: IRouter = Router();
@@ -539,27 +540,122 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       userMessage: message,
     });
 
-    // Sliding-window IMAGE-tag detector. Accumulates streamed text, extracts
-    // each complete `[[IMAGE: prompt]]` tag, replaces it on the wire with a
-    // short `[[IMAGE:id]]` marker, fires FLUX generation, and returns text safe
-    // to forward. Handles tags split across chunks and other `[[XXX:` tags
-    // (flushed normally; only `[[IMAGE:` is held back for completion).
+    // Sliding-window VISUAL-tag detector. Handles BOTH markers:
+    //   `[[IMAGE: english prompt]]` → a STYLIZED generated infographic (FLUX →
+    //       Pollinations → local SVG), billed only when fal.ai produced it.
+    //   `[[PHOTO: english query]]`  → a REAL photograph fetched from Wikipedia /
+    //       Wikimedia Commons (always FREE).
+    // Both are replaced on the wire with the SAME short `[[IMAGE:id]]` marker +
+    // imagePlaceholder/imageReady SSE events, so the FE renders them identically
+    // with ZERO change. The per-reply cap (MAX_IMAGES_PER_REPLY) is SHARED across
+    // both markers. Tags split across chunks are held back until complete.
+    const VISUAL_MARKERS = [
+      { marker: "[[IMAGE:", kind: "image" as const },
+      { marker: "[[PHOTO:", kind: "photo" as const },
+    ];
+
+    // Per-IMAGE pipeline: generate → bill fal spend (idempotent) → imageReady.
+    // Billing happens the moment fal spend is confirmed, so a disconnect before
+    // the post-stream teach charge can't grant free paid images.
+    const fireImageTask = (capturedId: string, promptText: string): Promise<void> =>
+      (async (): Promise<void> => {
+        let gen: ImageGenerationResult | null = null;
+        try {
+          gen = await generateTeacherImage({ userId: uid, subjectId: slug, prompt: promptText });
+        } catch {
+          gen = null;
+        }
+        if (gen && gen.ok && gen.provider === "fal") {
+          try {
+            await chargeV4Ai({
+              requestId: `v4img_${capturedId}`,
+              userId: uid,
+              subjectId: slug,
+              costUsd: FLUX_SCHNELL_USD_PER_IMAGE,
+              source: "v4_ai_image",
+              model: "flux-schnell",
+              note: `صورة توضيحية درس ${lessonCode}`,
+              drainIfInsufficient: true,
+            });
+          } catch {}
+        }
+        if (res.writableEnded) return;
+        try {
+          const url = gen && gen.ok ? gen.url : (await resolveTeacherImage("")).url;
+          if (!res.writableEnded) {
+            res.write(`data: ${JSON.stringify({ imageReady: { id: capturedId, url } })}\n\n`);
+          }
+        } catch {}
+      })();
+
+    // Per-PHOTO pipeline: resolve a real same-origin photo → imageReady. ALWAYS
+    // FREE — resolveWebPhoto never bills fal and never throws (its own free
+    // fallback guarantees a same-origin URL, so the spinner never sticks).
+    const firePhotoTask = (capturedId: string, query: string): Promise<void> =>
+      (async (): Promise<void> => {
+        let url: string | null = null;
+        try {
+          url = (await resolveWebPhoto(query)).url;
+        } catch {
+          url = null;
+        }
+        if (res.writableEnded) return;
+        try {
+          const finalUrl = url || (await resolveTeacherImage("", { noFal: true })).url;
+          if (!res.writableEnded) {
+            res.write(`data: ${JSON.stringify({ imageReady: { id: capturedId, url: finalUrl } })}\n\n`);
+          }
+        } catch {}
+      })();
+
+    // Register one visual (image OR photo): enforce the SHARED per-reply cap,
+    // emit the placeholder, kick off the matching pipeline. Returns the wire
+    // marker to splice into the student-visible text (or "" if dropped).
+    const emitVisual = (kind: "image" | "photo", innerText: string): string => {
+      if (__imageCount >= MAX_IMAGES_PER_REPLY) {
+        logger.warn?.(`[v4/teach/visual] dropped ${kind.toUpperCase()} tag — per-reply cap reached`);
+        return "";
+      }
+      if (innerText.length === 0) {
+        logger.warn?.(`[v4/teach/visual] dropped empty ${kind.toUpperCase()} tag`);
+        return "";
+      }
+      const imageId = randomBytes(6).toString("hex");
+      __imageCount++;
+      try {
+        if (!res.writableEnded) {
+          res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId } })}\n\n`);
+        }
+      } catch {}
+      const task = kind === "photo" ? firePhotoTask(imageId, innerText) : fireImageTask(imageId, innerText);
+      __imageTasks.push(task);
+      return `[[IMAGE:${imageId}]]`;
+    };
+
     const processImageTags = (incoming: string): string => {
       __imageStreamBuffer += incoming;
       let safeOutput = "";
-      const MARKER = "[[IMAGE:";
       while (true) {
-        const tagStart = __imageStreamBuffer.indexOf(MARKER);
-        if (tagStart === -1) {
-          // No started tag yet. Hold back ONLY the longest trailing substring
-          // that could be the BEGINNING of a future `[[IMAGE:` tag, so a tag
-          // split at any boundary survives — including a lone trailing "[" or
-          // "[[IM" (the previous `lastIndexOf("[[")` missed the single-"[" case
-          // and let the second half arrive as unrecognised "[IMAGE:...]]").
+        // Find the EARLIEST occurrence of any visual marker.
+        let tagStart = -1;
+        let matched: (typeof VISUAL_MARKERS)[number] | null = null;
+        for (const m of VISUAL_MARKERS) {
+          const idx = __imageStreamBuffer.indexOf(m.marker);
+          if (idx !== -1 && (tagStart === -1 || idx < tagStart)) {
+            tagStart = idx;
+            matched = m;
+          }
+        }
+        if (tagStart === -1 || !matched) {
+          // No complete marker yet. Hold back ONLY the longest trailing
+          // substring that could be the BEGINNING of EITHER marker, so a tag
+          // split at any chunk boundary survives (covers a lone "[", "[[",
+          // "[[I", "[[P", … up to "[[IMAGE" / "[[PHOTO").
           let hold = 0;
-          const maxK = Math.min(MARKER.length - 1, __imageStreamBuffer.length);
+          const maxK = Math.min(7, __imageStreamBuffer.length); // markers are 8 chars
           for (let k = maxK; k > 0; k--) {
-            if (__imageStreamBuffer.endsWith(MARKER.slice(0, k))) { hold = k; break; }
+            const suffix = __imageStreamBuffer.slice(__imageStreamBuffer.length - k);
+            if (VISUAL_MARKERS.some((m) => m.marker.startsWith(suffix))) { hold = k; break; }
           }
           if (hold > 0) {
             const cut = __imageStreamBuffer.length - hold;
@@ -571,70 +667,20 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
           }
           break;
         }
-        const tagEnd = __imageStreamBuffer.indexOf("]]", tagStart + 8);
+        const markerLen = matched.marker.length;
+        const tagEnd = __imageStreamBuffer.indexOf("]]", tagStart + markerLen);
         if (tagEnd === -1) {
+          // Marker opened but not yet closed — forward prose before it, hold the
+          // rest until the closing `]]` arrives in a later chunk.
           safeOutput += __imageStreamBuffer.slice(0, tagStart);
           __imageStreamBuffer = __imageStreamBuffer.slice(tagStart);
           break;
         }
-        const promptText = __imageStreamBuffer.slice(tagStart + 8, tagEnd).trim();
+        const innerText = __imageStreamBuffer.slice(tagStart + markerLen, tagEnd).trim();
         safeOutput += __imageStreamBuffer.slice(0, tagStart);
-        if (__imageCount >= MAX_IMAGES_PER_REPLY) {
-          logger.warn?.(`[v4/teach/image] dropped IMAGE tag — per-reply cap reached`);
-        } else if (promptText.length === 0) {
-          logger.warn?.("[v4/teach/image] dropped empty IMAGE tag");
-        } else {
-          const imageId = randomBytes(6).toString("hex");
-          __imageCount++;
-          // Emit the id-only marker; the FE turns `[[IMAGE:id]]` into a spinner
-          // figure, then swaps the real <img> in on the matching imageReady.
-          safeOutput += `[[IMAGE:${imageId}]]`;
-          try {
-            if (!res.writableEnded) {
-              res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId } })}\n\n`);
-            }
-          } catch {}
-          // Fire the full per-image pipeline. The store always resolves a
-          // usable same-origin URL (fal → pollinations → local SVG), so every
-          // tag yields exactly one imageReady event (no stuck spinner). Billing
-          // happens HERE, the moment fal spend is confirmed, so a disconnect
-          // before the post-stream teach charge can't grant free paid images.
-          const capturedId = imageId;
-          const task = (async (): Promise<void> => {
-            let gen: ImageGenerationResult | null = null;
-            try {
-              gen = await generateTeacherImage({ userId: uid, subjectId: slug, prompt: promptText });
-            } catch {
-              gen = null;
-            }
-            // Bill fal.ai images immediately + idempotently. requestId is
-            // globally unique (random id) and chargeV4Ai dedupes on it, so this
-            // never double-charges and is independent of the teach-turn charge.
-            if (gen && gen.ok && gen.provider === "fal") {
-              try {
-                await chargeV4Ai({
-                  requestId: `v4img_${capturedId}`,
-                  userId: uid,
-                  subjectId: slug,
-                  costUsd: FLUX_SCHNELL_USD_PER_IMAGE,
-                  source: "v4_ai_image",
-                  model: "flux-schnell",
-                  note: `صورة توضيحية درس ${lessonCode}`,
-                  drainIfInsufficient: true,
-                });
-              } catch {}
-            }
-            // Emit the ready event (best-effort; skipped if the client left).
-            if (res.writableEnded) return;
-            try {
-              const url = gen && gen.ok ? gen.url : (await resolveTeacherImage("")).url;
-              if (!res.writableEnded) {
-                res.write(`data: ${JSON.stringify({ imageReady: { id: capturedId, url } })}\n\n`);
-              }
-            } catch {}
-          })();
-          __imageTasks.push(task);
-        }
+        // Emit the id-only marker; the FE turns `[[IMAGE:id]]` into a spinner
+        // figure, then swaps the real <img> in on the matching imageReady.
+        safeOutput += emitVisual(matched.kind, innerText);
         __imageStreamBuffer = __imageStreamBuffer.slice(tagEnd + 2);
       }
       return safeOutput;
@@ -664,10 +710,15 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       },
     });
 
-    // Flush any text held back in the image buffer (an incomplete `[[IMAGE:`
-    // prefix is dropped; everything else is forwarded so no prose is lost).
+    // Flush any text held back in the image buffer. Drop a dangling visual
+    // marker fragment so raw protocol text never leaks: either an unterminated
+    // `[[IMAGE:…` / `[[PHOTO:…` tag OR a bare trailing marker prefix (`[`, `[[`,
+    // `[[IM`, `[[PHOT`, …) held back mid-tag; everything else is forwarded so no
+    // prose is lost.
     if (__imageStreamBuffer) {
-      const leftover = __imageStreamBuffer.replace(/\[\[IMAGE:[^\]]*$/i, "");
+      const leftover = __imageStreamBuffer
+        .replace(/\[\[(?:IMAGE|PHOTO):[^\]]*$/i, "")
+        .replace(/\[(?:\[(?:I(?:M(?:A(?:G(?:E)?)?)?)?|P(?:H(?:O(?:T(?:O)?)?)?)?)?)?$/i, "");
       __imageStreamBuffer = "";
       const tailDisplay = stripProtocolTags(leftover);
       if (tailDisplay && !res.writableEnded) {
