@@ -274,6 +274,56 @@ function mergeSplitCodeTokens(md: string): string {
   );
 }
 
+/* Known fenced-code language identifiers (+ common aliases). Used by
+ * normalizeFences to tell a real language tag apart from the first line of
+ * actual code, so the tag becomes a <code class="language-…"> attribute
+ * instead of leaking into the rendered code body. */
+const FENCE_LANG_RE =
+  /^(python|py|javascript|js|typescript|ts|jsx|tsx|node|html|xml|svg|css|scss|sass|less|bash|sh|shell|zsh|console|cmd|bat|cpp|c\+\+|cxx|cc|c|objc|csharp|cs|java|kotlin|kt|scala|groovy|ruby|rb|go|golang|rust|rs|sql|mysql|postgres|psql|graphql|json|json5|yaml|yml|toml|ini|env|dotenv|php|swift|dart|lua|perl|pl|r|matlab|julia|haskell|elixir|erlang|clojure|powershell|ps1|dockerfile|docker|makefile|make|nginx|apache|diff|patch|markdown|md|mdx|tex|latex|text|txt|plaintext|plain|regex|http)$/i;
+
+/* ── Robust markdown code-fence normaliser ──────────────────────────────────
+ * Gemini Flash Lite frequently emits malformed fences that break marked:
+ *   1. mid-line fences — "جرب: ```python print(x)```" — marked renders the
+ *      whole thing as ONE inline badge, language tag and all.
+ *   2. a language tag glued to same-line code — "```python print(x)" — the tag
+ *      leaks into the code body.
+ *   3. fences left unclosed mid-stream while the message is still typing.
+ * Splitting on the triple-backtick delimiter gives reliable in/out-of-fence
+ * segments (odd indices are inside a block). For each block we lift a leading
+ * KNOWN language tag onto the fence line, push the code to its own line, force
+ * the opening fence to start a new line, and re-close it — guaranteeing
+ * marked sees a clean ```lang\n…\n``` every time. Inline single-backtick code
+ * is untouched. */
+function normalizeFences(src: string): string {
+  if (!src || src.indexOf("```") === -1) return src;
+  const parts = src.split("```");
+  let out = "";
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) {
+      // Outside a fenced block: keep prose, but make sure text that follows a
+      // just-closed fence starts on its own line.
+      let seg = parts[i];
+      if (i > 0 && seg && !seg.startsWith("\n")) seg = "\n" + seg;
+      out += seg;
+    } else {
+      // Inside a fenced block (this segment is the body between two ```).
+      let body = parts[i];
+      let lang = "";
+      const m = body.match(/^[ \t]*([A-Za-z0-9+#_.\-]+)(?=[ \t\n]|$)/);
+      if (m && FENCE_LANG_RE.test(m[1])) {
+        lang = m[1].toLowerCase();
+        body = body.slice(m[0].length).replace(/^[ \t]+/, "").replace(/^\r?\n/, "");
+      } else {
+        body = body.replace(/^\r?\n/, "");
+      }
+      body = body.replace(/[ \t\r\n]+$/, "");
+      if (out.length && !out.endsWith("\n")) out += "\n";
+      out += "```" + lang + "\n" + body + "\n```";
+    }
+  }
+  return out;
+}
+
 function renderHtml(raw: string): string {
   if (!raw) return "";
   const cleaned = sanitizeProtocolNoise(raw);
@@ -281,13 +331,26 @@ function renderHtml(raw: string): string {
   const withScene = expandSceneTags(withAnim);
   const withImages = renderImageMarkers(withScene);
   const withViz = expandVizTags(withImages);
+
+  // Normalise markdown code fences into well-formed ```lang\n…\n``` blocks FIRST.
+  // This repairs mid-line fences (which marked would otherwise collapse into a
+  // single inline badge with the language tag baked in), language tags glued to
+  // same-line code, and fences left unclosed mid-stream — so the language label
+  // never leaks into the rendered code and every snippet renders as a block.
+  // Running it before the latinizer is essential: a malformed single-line fence
+  // carrying Arabic identifiers (```python سعر = 5```) would otherwise be misread
+  // by the latinizer as one long language line and skip latinization entirely.
+  // Safe here: ANIM/SCENE/VIZ bodies are already encoded into element attributes,
+  // so only genuine markdown fences remain — and it is a no-op when none exist.
+  const withFences = normalizeFences(withViz);
+
   // Deterministic guarantee: force every code identifier to English (comments &
   // strings stay Arabic). Runs AFTER ANIM/SCENE/VIZ expansion so their JS/HTML
   // bodies — which legitimately contain backticks — are already encoded into
   // element attributes and out of reach; only genuine markdown code fences
   // remain for the latinizer to transform. The model can never surface Arabic
   // variable/function/class names regardless of prompt adherence.
-  const withLatinCode = latinizeCodeIdentifiers(withViz);
+  const withLatinCode = latinizeCodeIdentifiers(withFences);
   // extractMathBlocks returns `{ text, blocks }` — destructuring it as
   // `stripped` left marked() with undefined input and crashed the page.
   const { text: stripped, blocks } = extractMathBlocks(withLatinCode);
@@ -296,26 +359,7 @@ function renderHtml(raw: string): string {
   // (`pr` `int` → `print`) before marked turns them into two separate badges.
   const merged = mergeSplitCodeTokens(stripped);
 
-  // Normalise markdown code fences: the AI sometimes places the closing ```
-  // on the same line as the last code line or immediately before text, which
-  // causes marked to render the backticks as literal content.
-  const withFences = merged
-    // Closing fence followed by text on same line
-    .replace(/```([^\s\n])/g, "```\n$1")
-    // Code/text followed by closing fence on same line  
-    .replace(/([^\s\n])```/g, "$1\n```");
-
-  const html0 = marked.parse(withFences ?? "", { async: false }) as string;
-
-  // Strip leaked language tags from code blocks — when the AI writes
-  // ```python immediately followed by code (no newline), marked leaves
-  // the language tag as literal content inside <code>.
-  // Use a whitelist of known language identifiers to avoid stripping
-  // legitimate code tokens (e.g. "print" is not a language, but "python" is).
-  const knownLangs = /^(?:python|javascript|typescript|js|ts|html|css|bash|sh|shell|cpp|c\+\+|c|java|ruby|go|rust|sql|json|yaml|xml|php|swift|kotlin|scala|r|dart|lua|perl|matlab|powershell|dockerfile|makefile|nginx|ini|toml|diff|markdown|md|text|plaintext)$/;
-  const html = html0
-    .replace(/<code>([a-zA-Z0-9+#_-]+)\n/g, (_m: string, tag: string) => knownLangs.test(tag) ? "<code>" : _m)
-    .replace(/<code>([a-zA-Z0-9+#_-]+)([a-zA-Z0-9\u0621-\u064a])/g, (_m: string, tag: string, ch: string) => knownLangs.test(tag) ? `<code>${ch}` : _m);
+  const html = marked.parse(merged ?? "", { async: false }) as string;
   const withMath = restoreMathPlaceholders(html, blocks);
   return DOMPurify.sanitize(withMath, {
     ADD_ATTR: ["target", "data-image-id", "loading", "data-viz-mount", "data-viz-template", "data-viz-payload", "data-anim-mount", "data-anim-html", "data-scene-mount", "data-scene-topic"],

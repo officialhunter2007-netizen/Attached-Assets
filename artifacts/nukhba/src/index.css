@@ -930,6 +930,13 @@
   line-height: 1.45;
 }
 .ai-msg h1:first-child, .ai-msg h2:first-child, .ai-msg h3:first-child { margin-top: 0; }
+/* Prestige accent: a soft gold hairline trailing off from the start (right) of
+   top-level headings — quiet luxury, never a loud full underline. */
+.ai-msg h1, .ai-msg h2 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(270deg, rgba(245,158,11,0.55), rgba(245,158,11,0.06) 55%, transparent) 1;
+}
 
 /* ── Emphasis — bold is brighter white (not a loud color) ── */
 .ai-msg strong,
@@ -964,8 +971,8 @@
   overflow-wrap: break-word;
 }
 .ai-msg li:last-child { margin-bottom: 0; }
-.ai-msg ul > li::marker { color: #9ca3af; }
-.ai-msg ol > li::marker { color: #9ca3af; font-weight: 600; }
+.ai-msg ul > li::marker { color: #f0b44a; }
+.ai-msg ol > li::marker { color: #f0b44a; font-weight: 700; }
 /* Nested lists */
 .ai-msg ul ul, .ai-msg ol ol,
 .ai-msg ul ol, .ai-msg ol ul {
@@ -1168,11 +1175,12 @@
 }
 .ai-msg a:hover { color: #bfdbfe; }
 
-/* ── Divider ── */
+/* ── Divider — elegant gold gradient, fading to nothing at both ends ── */
 .ai-msg hr {
   border: none;
-  border-top: 1px solid rgba(245,158,11,0.20);
-  margin: 18px 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(245,158,11,0.45) 50%, transparent);
+  margin: 22px 0;
 }
 
 /* ── Callout cards ──────────────────────────────────────────────
@@ -1186,6 +1194,7 @@
   border-radius: 10px;
   padding: 12px 16px 12px 14px;
   margin: 14px 0;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .ai-msg blockquote p { margin: 5px 0; }
 .ai-msg blockquote p:first-child { margin-top: 0; }
