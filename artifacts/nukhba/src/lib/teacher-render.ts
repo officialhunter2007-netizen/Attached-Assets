@@ -177,6 +177,19 @@ function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string
   body.appendChild(code);
 }
 
+// Curated subset for language auto-detection. highlight.js's *full* registry
+// (used so explicit tags like php/kotlin/swift render) also contains obscure
+// languages — routeros, arduino, stylus, gml, … — that win on tiny, ambiguous
+// snippets and produce nonsense headers like "ROUTEROS" on a 2-line Python
+// example. Restricting `highlightAuto` to the languages the platform actually
+// teaches makes BOTH the syntax colouring and the header label sane, while
+// explicit `language-xxx` fences still use the full registry below.
+const AUTO_DETECT_SUBSET = [
+  "python", "javascript", "typescript", "json", "html", "xml", "css", "scss",
+  "sql", "bash", "shell", "java", "c", "cpp", "csharp", "go", "rust", "ruby",
+  "php", "kotlin", "swift", "dart", "yaml", "ini", "markdown", "plaintext",
+];
+
 export function enhanceTeacherDom(root: HTMLElement | null): void {
   if (!root) return;
   classifyCallouts(root);
@@ -193,7 +206,7 @@ export function enhanceTeacherDom(root: HTMLElement | null): void {
         el.classList.add("hljs");
         langName = langMatch[1];
       } else {
-        const res = hljs.highlightAuto(el.textContent || "");
+        const res = hljs.highlightAuto(el.textContent || "", AUTO_DETECT_SUBSET);
         el.innerHTML = res.value;
         el.classList.add("hljs");
         if (res.language) {

@@ -252,6 +252,28 @@ function sanitizeProtocolNoise(raw: string): string {
     .replace(/\[\[\s*ASK_OPTIONS\s*:(?:(?!\]\])[\s\S])*$/g, "");
 }
 
+/* ── Repair identifiers the model splits across two inline-code spans ─────
+ * Gemini Flash Lite occasionally emits ONE identifier as two backtick spans —
+ * e.g. `pr` `int` (or `pr``int`) instead of `print` — so marked renders two
+ * separate code badges mid-sentence. We re-join two ADJACENT inline-code
+ * fragments only when their concatenation is a known programming token, so
+ * legitimately-separate spans (e.g. `int` `float`) are left untouched. */
+const SPLIT_CODE_TOKENS = new Set([
+  "print", "input", "import", "return", "range", "while", "class", "false",
+  "true", "none", "null", "length", "append", "console", "function", "elif",
+  "string", "integer", "boolean", "isinstance", "define", "output", "format",
+  "lambda", "yield", "global", "continue", "default", "switch", "typeof",
+  "println", "printf", "scanf", "foreach",
+]);
+function mergeSplitCodeTokens(md: string): string {
+  if (!md || md.indexOf("`") === -1) return md;
+  return md.replace(
+    /`([A-Za-z_][A-Za-z0-9_]*)`\s?`([A-Za-z0-9_]+)`/g,
+    (m, a: string, b: string) =>
+      SPLIT_CODE_TOKENS.has((a + b).toLowerCase()) ? "`" + a + b + "`" : m,
+  );
+}
+
 function renderHtml(raw: string): string {
   if (!raw) return "";
   const cleaned = sanitizeProtocolNoise(raw);
@@ -270,10 +292,14 @@ function renderHtml(raw: string): string {
   // `stripped` left marked() with undefined input and crashed the page.
   const { text: stripped, blocks } = extractMathBlocks(withLatinCode);
 
+  // Re-join identifiers the model split across two inline-code spans
+  // (`pr` `int` → `print`) before marked turns them into two separate badges.
+  const merged = mergeSplitCodeTokens(stripped);
+
   // Normalise markdown code fences: the AI sometimes places the closing ```
   // on the same line as the last code line or immediately before text, which
   // causes marked to render the backticks as literal content.
-  const withFences = stripped
+  const withFences = merged
     // Closing fence followed by text on same line
     .replace(/```([^\s\n])/g, "```\n$1")
     // Code/text followed by closing fence on same line  
