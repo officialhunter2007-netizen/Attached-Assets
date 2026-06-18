@@ -12,6 +12,7 @@
  * event's `insufficientGems` / `noWallet` flags.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, createElement } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRoute, useLocation } from "wouter";
 import { createRoot, type Root } from "react-dom/client";
 import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, Wrench, ClipboardList, Minus, Play } from "lucide-react";
@@ -1236,21 +1237,63 @@ export default function V4Lesson() {
 
           {/* Nukhba code editor toggle (code-oriented specialties only) */}
           {isProgramming && (
-            <button
-              onClick={() => setIdeOpen(true)}
-              className={`relative p-1.5 rounded-lg hover:bg-white/5 transition-colors ${
-                pendingCodeTask ? "text-amber-300" : "text-white/50 hover:text-white"
-              }`}
-              title={pendingCodeTask ? "محرّر نُخبة — لديك مهمّة برمجية بانتظارك" : "محرر الأكواد"}
-            >
-              <Code2 className="w-4 h-4" />
-              {pendingCodeTask && (
-                <span className="absolute -top-0.5 -left-0.5 flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400/70 animate-ping" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-background" />
-                </span>
-              )}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setIdeOpen(true)}
+                className={`relative p-1.5 rounded-lg hover:bg-white/5 transition-colors ${
+                  pendingCodeTask ? "text-amber-300" : "text-white/50 hover:text-white"
+                }`}
+                title={pendingCodeTask ? "محرّر نُخبة — لديك مهمّة برمجية بانتظارك" : "محرر الأكواد"}
+              >
+                <Code2 className="w-4 h-4" />
+                {pendingCodeTask && (
+                  <span className="absolute -top-0.5 -left-0.5 flex h-2.5 w-2.5">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400/70 animate-ping" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-background" />
+                  </span>
+                )}
+              </button>
+
+              {/* Attention nudge — appears when teacher pushes a code task */}
+              <AnimatePresence>
+                {pendingCodeTask && !ideOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.8, y: -4 }}
+                    transition={{ duration: 0.35, delay: 1.2 }}
+                    className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 flex flex-col items-center"
+                    style={{ direction: "rtl" }}
+                  >
+                    {/* triangle pointing up toward the button */}
+                    <div
+                      className="w-0 h-0"
+                      style={{
+                        borderLeft:   "7px solid transparent",
+                        borderRight:  "7px solid transparent",
+                        borderBottom: "7px solid #F59E0B",
+                        filter: "drop-shadow(0 -2px 6px rgba(245,158,11,0.6))",
+                      }}
+                    />
+                    {/* bouncing pill — clickable, opens IDE */}
+                    <motion.button
+                      onClick={() => setIdeOpen(true)}
+                      animate={{ y: [0, 5, 0] }}
+                      transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                      className="rounded-2xl font-black text-[11px] whitespace-nowrap select-none"
+                      style={{
+                        background:  "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)",
+                        color:       "#1a0d00",
+                        padding:     "5px 13px",
+                        boxShadow:   "0 4px 20px rgba(245,158,11,0.55), 0 0 0 3px rgba(245,158,11,0.15)",
+                      }}
+                    >
+                      ↑ جرّب محرّر نُخبة
+                    </motion.button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           )}
 
           {/* Sessions menu */}
