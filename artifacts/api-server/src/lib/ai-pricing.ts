@@ -59,7 +59,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachedInput: 0.1,
     label: "Claude Haiku 4.5 (OpenRouter)",
   },
-  "anthropic/claude-sonnet-4.5": {
+  "anthropic/claude-sonnet-4-5": {
     input: 3.0,
     output: 15.0,
     cachedInput: 0.3,

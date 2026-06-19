@@ -50,7 +50,7 @@ const CACHE_MAX_FILES = (() => {
  * OpenRouter unchanged, so we use the OpenRouter Anthropic slug. Overridable
  * via env so an operator can bump the version without a code change.
  */
-const SCENE_MODEL = (process.env.SCENE_MODEL || "anthropic/claude-sonnet-4.5").trim();
+const SCENE_MODEL = (process.env.SCENE_MODEL || "anthropic/claude-sonnet-4-5").trim();
 
 const SCENE_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.V4_SCENE_TIMEOUT_MS ?? "", 10);
