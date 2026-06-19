@@ -455,10 +455,14 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
   // `[[IMAGE:id]]` marker (which survives stripProtocolTags untouched), fire
   // FLUX generation in the background, and emit `imagePlaceholder` / `imageReady`
   // SSE events so the FE can swap a real same-origin <img> into the bubble.
-  // Capped at one image per reply to bound cost (SCENE is the other visual aid).
+  // Real photos (PHOTO) are FREE and the primary visual aid for concrete things,
+  // so we allow up to TWO per reply; generated infographics (IMAGE) cost money
+  // and stay capped at ONE. (SCENE is handled on its own route.)
+  const MAX_PHOTOS_PER_REPLY = 2;
   const MAX_IMAGES_PER_REPLY = 1;
   let __imageStreamBuffer = "";
-  let __imageCount = 0;
+  let __imageCount = 0; // generated-infographic (IMAGE) count
+  let __photoCount = 0; // real-photo (PHOTO) count
   // Each entry is the FULL per-image pipeline (generate → bill fal spend →
   // emit imageReady). We await these before the teaching charge so (a) any
   // billable fal cost is debited even if the client disconnects mid-stream
@@ -588,40 +592,52 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         } catch {}
       })();
 
-    // Per-PHOTO pipeline: resolve a real same-origin photo → imageReady. ALWAYS
-    // FREE — resolveWebPhoto never bills fal and never throws (its own free
-    // fallback guarantees a same-origin URL, so the spinner never sticks).
+    // Per-PHOTO pipeline: resolve a REAL same-origin photo → imageReady. ALWAYS
+    // FREE — resolveWebPhoto never bills fal and never throws. On a genuine miss
+    // (no real photo on Wikipedia/Commons/Openverse) it returns provider:"none"
+    // with an empty url; we then emit `imageMissing` so the FE drops the
+    // placeholder. We NEVER substitute an AI-generated image for a PHOTO request
+    // — that is the whole point of the tag, and it was the slow/flaky path.
     const firePhotoTask = (capturedId: string, query: string): Promise<void> =>
       (async (): Promise<void> => {
-        let url: string | null = null;
+        let result: { url: string; provider: string } | null = null;
         try {
-          url = (await resolveWebPhoto(query)).url;
+          result = await resolveWebPhoto(query);
         } catch {
-          url = null;
+          result = null;
         }
         if (res.writableEnded) return;
         try {
-          const finalUrl = url || (await resolveTeacherImage("", { noFal: true })).url;
-          if (!res.writableEnded) {
-            res.write(`data: ${JSON.stringify({ imageReady: { id: capturedId, url: finalUrl } })}\n\n`);
+          if (result && result.url && result.provider !== "none") {
+            res.write(`data: ${JSON.stringify({ imageReady: { id: capturedId, url: result.url } })}\n\n`);
+          } else {
+            res.write(`data: ${JSON.stringify({ imageMissing: { id: capturedId } })}\n\n`);
           }
         } catch {}
       })();
 
-    // Register one visual (image OR photo): enforce the SHARED per-reply cap,
-    // emit the placeholder, kick off the matching pipeline. Returns the wire
-    // marker to splice into the student-visible text (or "" if dropped).
+    // Register one visual (image OR photo): enforce the per-kind per-reply cap
+    // (2 photos / 1 generated image), emit the placeholder, kick off the matching
+    // pipeline. Returns the wire marker to splice into the text (or "" if dropped).
     const emitVisual = (kind: "image" | "photo", innerText: string): string => {
-      if (__imageCount >= MAX_IMAGES_PER_REPLY) {
-        logger.warn?.(`[v4/teach/visual] dropped ${kind.toUpperCase()} tag — per-reply cap reached`);
-        return "";
-      }
       if (innerText.length === 0) {
         logger.warn?.(`[v4/teach/visual] dropped empty ${kind.toUpperCase()} tag`);
         return "";
       }
+      if (kind === "photo") {
+        if (__photoCount >= MAX_PHOTOS_PER_REPLY) {
+          logger.warn?.(`[v4/teach/visual] dropped PHOTO tag — per-reply cap reached`);
+          return "";
+        }
+        __photoCount++;
+      } else {
+        if (__imageCount >= MAX_IMAGES_PER_REPLY) {
+          logger.warn?.(`[v4/teach/visual] dropped IMAGE tag — per-reply cap reached`);
+          return "";
+        }
+        __imageCount++;
+      }
       const imageId = randomBytes(6).toString("hex");
-      __imageCount++;
       try {
         if (!res.writableEnded) {
           // `kind` lets the FE show an accurate spinner: a real ready-made photo

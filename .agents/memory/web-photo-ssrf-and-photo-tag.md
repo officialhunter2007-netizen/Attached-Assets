@@ -8,9 +8,14 @@ The v4 AI teacher can emit `[[PHOTO: <english noun phrase>]]` to show a REAL
 photograph (e.g. an actual RAM stick) — distinct from `[[IMAGE:]]` which makes a
 STYLIZED generated infographic (FLUX/Pollinations).
 
-- Resolution chain: disk cache (`photo:<normalized>` key) → Wikipedia pageimages
-  thumbnail → Wikimedia Commons file search → free generated fallback
-  (`resolveTeacherImage(q,{noFal:true})`). Never throws; never bills fal.
+- Resolution chain: disk cache (`photo:v3:<normalized>` key) → Wikipedia
+  pageimages thumbnail → Wikimedia Commons file search → Openverse thumbnails
+  (all three searches fire CONCURRENTLY). **On a total miss it returns
+  `{url:"", provider:"none"}` — it does NOT fall back to a generated AI image or
+  SVG poster.** Deliberate product contract: a REAL-photo feature that silently
+  substitutes an AI image on miss defeats its purpose, AND that generated fallback
+  (Pollinations, with FAL_KEY unset) was the slow/flaky path users complained
+  about. A miss is a first-class terminal outcome, not a fallback to "something".
 - **Zero-FE-change trick**: both `[[PHOTO:]]` and `[[IMAGE:]]` are converted
   server-side into the SAME `[[IMAGE:<hex>]]` wire marker + `imagePlaceholder` /
   `imageReady` SSE events. The FE renders both via the same figure/spinner path.
@@ -28,9 +33,17 @@ STYLIZED generated infographic (FLUX/Pollinations).
   it). Lesson: any user-facing copy that implies the MECHANISM (generate vs
   fetch) must be driven by the real `kind`, not hardcoded on the shared render
   path.
-- The per-reply visual cap (`MAX_IMAGES_PER_REPLY`) is SHARED across IMAGE +
-  PHOTO via one `__imageCount`. The stream parser scans the EARLIEST of the two
-  8-char markers and holds back partial prefixes of EITHER until complete.
+- Per-reply visual caps are PER-KIND: real photos and generated images have
+  SEPARATE counters (`__photoCount` ≤ 2, `__imageCount` ≤ 1) so a reply can show
+  multiple real photos without starving (or being starved by) a generated
+  infographic. The stream parser scans the EARLIEST of the two 8-char markers and
+  holds back partial prefixes of EITHER until complete. (SCENE is NOT counted
+  here — it's handled on its own route, so it has no server-side per-reply cap.)
+- Because a PHOTO can now terminally MISS, the wire protocol has a THIRD SSE
+  outcome beside `imagePlaceholder`/`imageReady`: `imageMissing:{id}`. The FE
+  carries a `"missing"` image state and STRIPS the `[[IMAGE:id]]` marker (no
+  spinner, no broken placeholder) in BOTH the live inline render and the
+  post-stream DOM reconcile.
 
 ## SSRF: allowlist-before-fetch is NOT enough
 Checking the host allowlist on the candidate URL *before* `fetch()` does NOT make
@@ -48,10 +61,13 @@ pre-fetch host check was bypassable via redirect. Wikimedia upload URLs serve
 directly (no redirect) so the happy path is unaffected.
 
 **How to apply:** look for this pattern anywhere a fetch is gated by an
-`isAllowed*Host` check; the gate belongs on every hop, not just hop 0. Also note:
-an 8MB cap enforced only after `arrayBuffer()` (when no `content-length`) is
-looser than a streaming cutoff — acceptable here given the trusted source + 6s
-timeout, but tighten if the source set ever widens.
+`isAllowed*Host` check; the gate belongs on every hop, not just hop 0. The
+allowlist now also includes `api.openverse.org` (tertiary provider); Openverse
+thumbnails are ALSO host-filtered at search time, so an off-allowlist thumb never
+becomes a candidate. The 8MB cap is now a STREAMING cutoff (running byte count via
+`getReader()`, abort the instant it crosses the cap), with a capped one-shot
+`arrayBuffer()` only when no WHATWG stream exists — this defends against a
+missing/lying `content-length` that an `arrayBuffer()`-after check would miss.
 
 ## Latency: the search round-trip dominates, NOT the download
 The perceived "photo appears too slowly" delay is the Wikipedia
@@ -61,6 +77,15 @@ touching the same-origin caching design: (1) fire the Wikipedia AND Commons
 searches CONCURRENTLY (prefer Wikipedia, fall back to the already-resolved
 Commons promise) so the fallback adds no second sequential hop; (2) lean the
 search params (gsrlimit/pilimit small, pithumbsize 800).
+
+**Bound the DOWNLOAD walk too.** Searches are concurrent, but the byte-download
+walk is SEQUENTIAL (wiki → commons → up to 4 ranked openverse candidates), each
+with its own per-fetch timeout. A pathological run where every host accepts the
+connection then hangs would otherwise stack ~6 single-fetch timeouts. Guard the
+whole walk with a total wall-clock deadline (`start + WEB_PHOTO_TOTAL_BUDGET_MS`,
+re-checked before each fetch). Rule: any sequential candidate walk where each step
+has its own timeout needs an overall deadline, or N hanging candidates = N stacked
+timeouts.
 
 **Do NOT** rewrite the thumbnail-width bucket in the returned URL (e.g. forcing
 `/800px-`): Wikimedia returns HTTP 400 + a ~2KB error body for non-prerendered
@@ -99,3 +124,16 @@ bump the cache-key namespace (`photo:` → `photo:v2:`); old files orphan and
 evict, every query re-resolves once with the new logic. Verifying the new logic
 against the live Wikimedia APIs is NOT enough — a cold-cache test passes while
 the user's warm cache still serves the old bad image.
+
+## Async-settled visual state must be a DEP of the persist effect
+The FE bakes settled images into the localStorage session snapshot
+(`inlineReadyImages`: ready → `<figure><img>`, missing → drop the marker) so a
+reloaded session shows the real picture, not a stuck spinner. BUT images settle
+(ready/missing) ASYNCHRONOUSLY — typically AFTER the message text finalized, i.e.
+after the last change to the `messages` array. If the persist `useEffect` depends
+only on `messages` and NOT on the image-state map, the late `imageReady`/
+`imageMissing` updates the LIVE UI but is never written to storage — so the
+reloaded session renders a PERMANENT spinner for an image the server already
+settled (it won't re-fire on reload). **Rule:** the image/visual-state map MUST be
+in the persist effect's dependency array. Generalizes to any async-resolved render
+state that gets snapshotted to storage.

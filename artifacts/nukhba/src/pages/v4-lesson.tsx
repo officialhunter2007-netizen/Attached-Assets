@@ -35,7 +35,7 @@ import { HandsOnPanel } from "@/components/hands-on-panel";
 const FRIENDLY_RETRY_MSG = "تعذّر الوصول للمعلم الآن. تحقّق من اتصالك وحاول مرة أخرى بعد لحظات.";
 
 type ChatMsg = { role: "user" | "assistant"; content: string; image?: string };
-type V4ImageState = { status: "loading" | "ready"; url?: string; kind?: "image" | "photo" };
+type V4ImageState = { status: "loading" | "ready" | "missing"; url?: string; kind?: "image" | "photo" };
 
 // Cap an attached image at ~4MB (pre-base64) so the SSE turn stays sane.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -118,6 +118,9 @@ function inlineReadyImages(content: string, imageMap: Map<string, V4ImageState>)
       const safeUrl = String(st.url).replace(/"/g, "%22");
       return `\n\n<figure class="teach-image teach-image-ready" data-image-id="${id}"><img src="${safeUrl}" alt="صورة توضيحية" loading="lazy" /></figure>\n\n`;
     }
+    // A PHOTO request that found no real photo: drop the marker entirely so a
+    // reloaded session shows neither a stuck spinner nor an AI substitute.
+    if (st?.status === "missing") return "";
     return m;
   });
 }
@@ -325,9 +328,24 @@ function normalizeFences(src: string): string {
   return out;
 }
 
-function renderHtml(raw: string): string {
+// Drop `[[IMAGE:id]]` markers whose PHOTO lookup missed (and an optional caption
+// the teacher wrote right after) BEFORE markdown parsing, so no spinner/figure is
+// ever produced for them — the cleanest, flicker-free way to handle a miss.
+function stripMissingImageMarkers(raw: string, missingIds: Set<string>): string {
+  if (!raw || missingIds.size === 0) return raw;
+  return raw.replace(
+    /\[\[IMAGE:([a-f0-9]{6,16})\]\](\s*<figcaption\b[\s\S]*?<\/figcaption>)?/gi,
+    (m, id) => (missingIds.has(String(id).toLowerCase()) ? "" : m),
+  );
+}
+
+function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   if (!raw) return "";
-  const cleaned = sanitizeProtocolNoise(raw);
+  const deMissed =
+    missingImageIds && missingImageIds.size > 0
+      ? stripMissingImageMarkers(raw, missingImageIds)
+      : raw;
+  const cleaned = sanitizeProtocolNoise(deMissed);
   const withAnim = expandAnimTags(cleaned);
   const withScene = expandSceneTags(withAnim);
   const withImages = renderImageMarkers(withScene);
@@ -453,9 +471,33 @@ function TeacherBubble({ html, isStreaming, imageMap }: { html: string; isStream
           if (wrap && !wrap.textContent?.trim()) wrap.remove();
         }
       }
-      // (2) Spinner → <img> swap once the id resolves.
+      // (2) Spinner → <img> swap once the id resolves, OR removal on a miss.
       const id = fig.getAttribute("data-image-id") || "";
       const st = id ? imageMap.get(id) : undefined;
+      if (st?.status === "missing") {
+        // No real photo was found — we never show an AI substitute for a PHOTO
+        // request. renderHtml already strips the marker so this figure normally
+        // never exists; this is a defensive cleanup for any in-flight DOM. Remove
+        // the figure AND a caption the teacher may have written right after it.
+        let cap = fig.querySelector(":scope > figcaption.image-caption") as HTMLElement | null;
+        if (!cap) {
+          const next = fig.nextElementSibling as HTMLElement | null;
+          if (next?.tagName === "FIGCAPTION" && next.classList.contains("image-caption")) {
+            cap = next;
+          } else if (
+            next?.tagName === "P" &&
+            next.children.length === 1 &&
+            next.firstElementChild instanceof HTMLElement &&
+            next.firstElementChild.tagName === "FIGCAPTION" &&
+            next.firstElementChild.classList.contains("image-caption")
+          ) {
+            cap = next;
+          }
+        }
+        if (cap) cap.remove();
+        fig.remove();
+        continue;
+      }
       if (st?.status === "ready" && st.url) {
         const existing = fig.querySelector(":scope > img") as HTMLImageElement | null;
         if (existing && existing.getAttribute("src") === st.url) continue;
@@ -866,7 +908,11 @@ export default function V4Lesson() {
       saveSessions(userId, slug, code, next);
       return next;
     });
-  }, [messages, activeSessionId, userId, slug, code]);
+    // `imageMap` is a dep: images resolve (ready) or miss AFTER the message text
+    // is finalized, so without it a late imageReady/imageMissing would update the
+    // live UI but never be baked into localStorage — a reloaded session would
+    // then render a stuck spinner for an image the server already settled.
+  }, [messages, activeSessionId, userId, slug, code, imageMap]);
 
   // Auto-scroll on new content.
   useEffect(() => {
@@ -1103,6 +1149,18 @@ export default function V4Lesson() {
                 const next = new Map(prev);
                 const prevKind = prev.get(id)?.kind;
                 next.set(id, { status: "ready", url, kind: prevKind });
+                return next;
+              });
+              continue;
+            }
+            if (evt?.imageMissing?.id) {
+              // PHOTO lookup found no real photo — mark it missing so the FE drops
+              // the placeholder (no spinner, no AI substitute).
+              const id = String(evt.imageMissing.id);
+              setImageMap((prev) => {
+                const next = new Map(prev);
+                const prevKind = prev.get(id)?.kind;
+                next.set(id, { status: "missing", kind: prevKind });
                 return next;
               });
               continue;
@@ -1704,8 +1762,35 @@ const MessageBubble = ({
     [askResult.stripped],
   );
 
-  // Render the stripped content (question text without the ASK_OPTIONS tag) as HTML.
-  const html = useMemo(() => renderHtml(renderedStripped), [renderedStripped]);
+  // A compact signature of THIS message's image resolution states, so the
+  // (expensive) html memo below only recomputes when an image THIS message
+  // references changes — not on every global imageMap mutation (which would be
+  // O(messages) renderHtml calls per image event).
+  const imageStateKey = useMemo(() => {
+    const marks = renderedStripped.match(/\[\[IMAGE:[a-f0-9]{6,16}\]\]/gi);
+    if (!marks) return "";
+    return marks
+      .map((mk) => {
+        const id = mk.slice(8, -2).toLowerCase();
+        return `${id}:${imageMap.get(id)?.status ?? "?"}`;
+      })
+      .join("|");
+  }, [renderedStripped, imageMap]);
+
+  // Render the stripped content (question text without the ASK_OPTIONS tag) as
+  // HTML. Missing-photo markers are stripped up front so no spinner/figure ever
+  // renders for them (flicker-free even mid-stream); ready photos are swapped in
+  // by the DOM effect in TeacherBubble.
+  const html = useMemo(() => {
+    const missing = new Set<string>();
+    const marks = renderedStripped.match(/\[\[IMAGE:[a-f0-9]{6,16}\]\]/gi) || [];
+    for (const mk of marks) {
+      const id = mk.slice(8, -2).toLowerCase();
+      if (imageMap.get(id)?.status === "missing") missing.add(id);
+    }
+    return renderHtml(renderedStripped, missing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderedStripped, imageStateKey]);
 
   if (msg.role === "user") {
     return (

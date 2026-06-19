@@ -16,3 +16,5 @@ The teacher `[[IMAGE:]]` pipeline tries three providers in order: **fal.ai (FLUX
 - Even when a raster image succeeds, text-to-image models render **garbled text inside the image** (gibberish Latin/Arabic). The design intentionally relies on the prose + figcaption for the real labels — never depend on text being legible inside the generated image.
 
 **Note:** README (`replit.md`) claims FLUX via fal.ai is the illustration provider; in practice the active fallback was Pollinations because no `FAL_KEY` is set.
+
+**v4 [[PHOTO]] path is now DECOUPLED from this fallback chain.** The real-photo feature (active v4 `/api/v4/teach` flow) NO LONGER falls back to fal.ai/Pollinations/SVG on a miss — `resolveWebPhoto` returns `provider:"none"` and the FE strips the marker. So `FAL_KEY` now only affects the explicit generated-infographic `[[IMAGE:]]` path, NOT real photos. See `web-photo-ssrf-and-photo-tag.md`.

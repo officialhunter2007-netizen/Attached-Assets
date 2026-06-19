@@ -512,19 +512,34 @@ const WEB_PHOTO_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.WEB_PHOTO_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(raw) && raw >= 2_000 && raw <= 60_000 ? raw : 6_000;
 })();
+// Total wall-clock budget for the byte-download walk of ONE photo lookup. The
+// three searches fire concurrently (≈ one timeout worst case), but a run where
+// every candidate host accepts the connection then hangs could otherwise stack
+// wiki + commons + 4×openverse single-fetch timeouts (~6× the single timeout).
+// Bounding the whole walk keeps a pathological MISS resolving in bounded time.
+const WEB_PHOTO_TOTAL_BUDGET_MS = WEB_PHOTO_TIMEOUT_MS * 3;
 const WEB_PHOTO_MAX_BYTES = 8 * 1024 * 1024; // hard cap — reject oversized downloads
 const WEB_PHOTO_MIN_BYTES = 1_500; // reject blank/placeholder tiny files
 const WEB_PHOTO_MIN_WIDTH = 250; // clarity floor — skip thumbnails too small to read
 const WIKI_USER_AGENT =
   "NukhbaEducation/1.0 (Yemeni educational platform; teacher illustration lookup)";
 
-/** SSRF guard: only HTTPS image bytes from Wikimedia upload hosts are fetched. */
+/** SSRF guard: only HTTPS image bytes from a tiny, fixed allowlist are fetched. */
 function isAllowedPhotoHost(rawUrl: string): boolean {
   try {
     const u = new URL(rawUrl);
     if (u.protocol !== "https:") return false;
     const h = u.hostname.toLowerCase();
-    return h === "upload.wikimedia.org" || h.endsWith(".wikimedia.org");
+    return (
+      h === "upload.wikimedia.org" ||
+      h.endsWith(".wikimedia.org") ||
+      // Openverse thumbnail proxy. ONLY the api host is allowlisted: the proxy
+      // re-encodes and serves the bytes itself (image/jpeg from api.openverse.org),
+      // so we never need to — and never will — follow it to the arbitrary upstream
+      // original (Flickr, museums, …). The redirect:manual re-validation in
+      // fetchPhotoBuffer would block any such hop anyway.
+      h === "api.openverse.org"
+    );
   } catch {
     return false;
   }
@@ -588,10 +603,33 @@ async function fetchPhotoBuffer(url: string): Promise<Buffer | null> {
     if (!res || !res.ok) return null;
     const declared = parseInt(res.headers.get("content-length") ?? "", 10);
     if (Number.isFinite(declared) && declared > WEB_PHOTO_MAX_BYTES) return null;
-    const ab = await res.arrayBuffer();
-    const buf = Buffer.from(ab);
-    if (buf.length > WEB_PHOTO_MAX_BYTES || buf.length < WEB_PHOTO_MIN_BYTES) return null;
-    return buf;
+    // Stream the body with a RUNNING byte cap. A missing/lying Content-Length
+    // (some thumb proxies omit it) must not let a multi-GB response blow the
+    // heap — abort the instant we cross WEB_PHOTO_MAX_BYTES.
+    const reader = res.body?.getReader?.();
+    if (!reader) {
+      // No WHATWG stream available — fall back to a capped one-shot read.
+      const ab = await res.arrayBuffer();
+      const b = Buffer.from(ab);
+      if (b.length > WEB_PHOTO_MAX_BYTES || b.length < WEB_PHOTO_MIN_BYTES) return null;
+      return b;
+    }
+    const chunks: Buffer[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > WEB_PHOTO_MAX_BYTES) {
+        try { await reader.cancel(); } catch {}
+        ctrl.abort();
+        return null;
+      }
+      chunks.push(Buffer.from(value));
+    }
+    if (total < WEB_PHOTO_MIN_BYTES) return null;
+    return Buffer.concat(chunks, total);
   } catch {
     return null;
   } finally {
@@ -683,9 +721,49 @@ async function searchCommonsThumb(query: string): Promise<string | null> {
   return best?.url ?? null;
 }
 
+/**
+ * Openverse fallback: a search engine over ~800M openly-licensed images
+ * (Wikimedia, Flickr, museums, …). We ONLY ever fetch the `thumbnail` field,
+ * which Openverse serves/re-encodes from its OWN host (api.openverse.org) — so
+ * the bytes always come from a single allowlistable host and we never touch the
+ * arbitrary upstream `url` original (which would be an SSRF hole).
+ *
+ * The thumb endpoint is occasionally flaky (it returns HTTP 424 when its
+ * upstream is momentarily unavailable), so we return a RANKED LIST of candidate
+ * thumbnails and the caller tries them in order until one yields real bytes.
+ */
+async function searchOpenverseThumb(query: string): Promise<string[]> {
+  const qs = new URLSearchParams({
+    q: query,
+    page_size: "8",
+    mature: "false",
+  });
+  const json = await fetchJsonWithTimeout(`https://api.openverse.org/v1/images/?${qs}`);
+  const results = json?.results;
+  if (!Array.isArray(results)) return [];
+  const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
+  const scored: Array<{ url: string; score: number; idx: number }> = [];
+  results.forEach((r: any, idx: number) => {
+    const thumb = r?.thumbnail;
+    if (typeof thumb !== "string" || !isAllowedPhotoHost(thumb)) return;
+    const title = String(r?.title ?? "").toLowerCase();
+    const score = tokens.reduce((s, t) => s + (title.includes(t) ? 1 : 0), 0);
+    scored.push({ url: thumb, score, idx });
+  });
+  // Highest query-token match first; ties keep the upstream search rank.
+  scored.sort((a, b) => (b.score - a.score) || (a.idx - b.idx));
+  return scored.map((s) => s.url);
+}
+
 export type WebPhotoResult = {
+  /** Same-origin URL, or "" when no real photo was found (provider "none"). */
   url: string;
-  provider: "cache" | "wiki" | "commons" | "fallback";
+  /**
+   * Provider that produced the bytes. `none` = no REAL photo found anywhere; we
+   * deliberately do NOT substitute an AI-generated image for a PHOTO request, so
+   * the caller signals a miss and the placeholder is dropped.
+   */
+  provider: "cache" | "wiki" | "commons" | "openverse" | "none";
   latencyMs: number;
 };
 
@@ -693,7 +771,8 @@ const __photoCounts: Record<WebPhotoResult["provider"], number> = {
   cache: 0,
   wiki: 0,
   commons: 0,
-  fallback: 0,
+  openverse: 0,
+  none: 0,
 };
 function recordPhoto(p: WebPhotoResult["provider"]): void {
   __photoCounts[p] = (__photoCounts[p] || 0) + 1;
@@ -706,19 +785,25 @@ const inflightPhotos = new Map<string, Promise<WebPhotoResult>>();
 
 /**
  * Resolve a same-origin URL for a REAL photograph matching `query` (an English
- * noun phrase, e.g. "DDR4 RAM module"). Cache → Wikipedia → Commons → free
- * generated fallback. Never throws; never bills fal.
+ * noun phrase, e.g. "DDR4 RAM module"): Cache → Wikipedia → Wikimedia Commons →
+ * Openverse. Never throws; never bills fal.
+ *
+ * IMPORTANT — no AI fallback: a PHOTO request is for an ACTUAL photograph. If no
+ * real photo is found anywhere we return `{ url: "", provider: "none" }` so the
+ * caller can drop the placeholder. We never substitute a generated infographic
+ * here (that path was the slow/flaky Pollinations dependency and defeated the
+ * whole purpose of the PHOTO tag).
  */
 export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
   const start = Date.now();
   const clean = (query || "").trim().slice(0, 200);
   // Namespaced cache key — disjoint from FLUX prompt hashes so a photo lookup
   // and an identically-worded generated image never collide on disk.
-  // `v2` namespace bump: invalidates every photo cached BEFORE the SVG-skip +
-  // Commons-ranking fix. Pre-fix entries (e.g. the blank "computer monitor"
-  // schematic) would otherwise be served forever from disk, bypassing the new
-  // provider logic. Old files orphan harmlessly and are LRU-evicted over time.
-  const hash = hashPrompt(`photo:v2:${clean.toLowerCase()}`);
+  // `v3` namespace bump: invalidates every photo cached under the previous
+  // (v2) logic — chiefly any entry whose miss had been satisfied by a generated
+  // SVG/Pollinations fallback, which we no longer ever produce for a PHOTO.
+  // Old files orphan harmlessly and are LRU-evicted over time.
+  const hash = hashPrompt(`photo:v3:${clean.toLowerCase()}`);
 
   const existing = inflightPhotos.get(hash);
   if (existing) return existing;
@@ -733,43 +818,58 @@ export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
       return { url: urlFor(hash, hit.ext), provider: "cache", latencyMs: Date.now() - start };
     }
 
-    // Empty query → straight to the free generated fallback.
+    // Empty query → no real photo possible. Signal a miss (never an AI image).
     if (!clean) {
-      const r = await resolveTeacherImage("", { noFal: true });
-      recordPhoto("fallback");
-      return { url: r.url, provider: "fallback", latencyMs: Date.now() - start };
+      recordPhoto("none");
+      return { url: "", provider: "none", latencyMs: Date.now() - start };
     }
 
-    // 2. Provider chain: Wikipedia → Commons. Each candidate is host-checked,
-    //    size-capped, and magic-byte validated before we trust it.
-    //    Both searches are fired CONCURRENTLY: the search round-trip (~1–2s) is
+    // 2. Provider chain: Wikipedia → Commons → Openverse. Each candidate is
+    //    host-checked, size-capped, and magic-byte validated before we trust it.
+    //    All THREE searches fire CONCURRENTLY: the search round-trip (~1–2s) is
     //    the dominant cost of a web photo (the byte download is ~0.3s), so by
-    //    the time Wikipedia is judged empty the Commons search has already run
-    //    in parallel — the fallback no longer adds a second sequential hop.
+    //    the time an earlier provider is judged empty the later searches have
+    //    already resolved in parallel — no sequential stacking of latency.
     let buf: Buffer | null = null;
-    let provider: WebPhotoResult["provider"] = "fallback";
+    let provider: WebPhotoResult["provider"] = "none";
 
     const wikiSearch = searchWikipediaThumb(clean).catch(() => null);
     const commonsSearch = searchCommonsThumb(clean).catch(() => null);
+    const openverseSearch = searchOpenverseThumb(clean).catch(() => [] as string[]);
+
+    // Hard deadline for the whole download walk (see WEB_PHOTO_TOTAL_BUDGET_MS):
+    // before each byte fetch we re-check it so a string of hanging hosts can't
+    // stack one single-fetch timeout per candidate.
+    const deadlineAt = start + WEB_PHOTO_TOTAL_BUDGET_MS;
 
     const wikiUrl = await wikiSearch;
-    if (wikiUrl) {
+    if (wikiUrl && Date.now() < deadlineAt) {
       const b = await fetchPhotoBuffer(wikiUrl);
       if (b && detectImageExt(b)) { buf = b; provider = "wiki"; }
     }
-    if (!buf) {
+    if (!buf && Date.now() < deadlineAt) {
       const commonsUrl = await commonsSearch;
       if (commonsUrl) {
         const b = await fetchPhotoBuffer(commonsUrl);
         if (b && detectImageExt(b)) { buf = b; provider = "commons"; }
       }
     }
-
-    // 3. No real photo found → free generated fallback (guarantees a URL).
     if (!buf) {
-      const r = await resolveTeacherImage(clean, { noFal: true });
-      recordPhoto("fallback");
-      return { url: r.url, provider: "fallback", latencyMs: Date.now() - start };
+      // Openverse thumbs 424 intermittently, so walk a few ranked candidates
+      // until one yields real image bytes (best-effort tertiary; a total Open-
+      // verse miss is fine — we just report `none`).
+      const ovCandidates = await openverseSearch;
+      for (const u of ovCandidates.slice(0, 4)) {
+        if (Date.now() >= deadlineAt) break; // total download budget spent — stop
+        const b = await fetchPhotoBuffer(u);
+        if (b && detectImageExt(b)) { buf = b; provider = "openverse"; break; }
+      }
+    }
+
+    // 3. No real photo anywhere → signal a MISS (never an AI-generated image).
+    if (!buf) {
+      recordPhoto("none");
+      return { url: "", provider: "none", latencyMs: Date.now() - start };
     }
 
     // Persist the real photo under the photo: hash (atomic tmp → rename).

@@ -101,6 +101,132 @@ describe("resolveTeacherImage — fallback-to-SVG + cache replay", () => {
   });
 });
 
+describe("resolveWebPhoto — real-photo miss contract + provider chain", () => {
+  const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const validPng = Buffer.concat([PNG_SIG, Buffer.alloc(2048, 0x42)]); // > MIN_BYTES
+
+  const jsonRes = (obj: unknown) =>
+    new Response(JSON.stringify(obj), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  test("empty query returns a MISS (provider 'none', empty url) — never an AI image", async () => {
+    const { resolveWebPhoto } = await import("../teacher-image-store.js");
+    const r = await resolveWebPhoto("   ");
+    assert.equal(r.provider, "none");
+    assert.equal(r.url, "");
+  });
+
+  test("all providers empty → MISS (no SVG, no generated fallback)", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input);
+      // Every search returns an empty payload; no candidate thumbnails.
+      if (url.includes("api.openverse.org")) return jsonRes({ results: [] });
+      return jsonRes({}); // wikipedia + commons
+    }) as typeof fetch;
+    try {
+      const { resolveWebPhoto } = await import("../teacher-image-store.js");
+      const r = await resolveWebPhoto("nonexistent gadget " + Date.now());
+      assert.equal(r.provider, "none", "a total miss must report provider 'none'");
+      assert.equal(r.url, "", "a miss must NOT substitute any generated image url");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("Openverse tertiary: wiki+commons empty, openverse thumb yields bytes → provider 'openverse'", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input);
+      if (url.includes("/thumb")) return new Response(validPng, { status: 200 });
+      if (url.includes("api.openverse.org")) {
+        return jsonRes({
+          results: [
+            {
+              thumbnail: "https://api.openverse.org/v1/images/abc/thumb/",
+              title: "DDR4 RAM module photo",
+            },
+          ],
+        });
+      }
+      return jsonRes({}); // wikipedia + commons empty
+    }) as typeof fetch;
+    try {
+      const { resolveWebPhoto } = await import("../teacher-image-store.js");
+      const r = await resolveWebPhoto("openverse-ram-" + Date.now());
+      assert.equal(r.provider, "openverse");
+      assert.match(r.url, /^\/api\/teacher-images\/[a-f0-9]{16}\.png$/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("SSRF: an Openverse thumbnail on a NON-allowlisted host is rejected → MISS", async () => {
+    const realFetch = globalThis.fetch;
+    let evilFetched = false;
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input);
+      if (url.includes("evil.example.com")) {
+        evilFetched = true;
+        return new Response(validPng, { status: 200 });
+      }
+      if (url.includes("api.openverse.org")) {
+        return jsonRes({
+          results: [{ thumbnail: "https://evil.example.com/x.png", title: "ram" }],
+        });
+      }
+      return jsonRes({});
+    }) as typeof fetch;
+    try {
+      const { resolveWebPhoto } = await import("../teacher-image-store.js");
+      const r = await resolveWebPhoto("ssrf-probe-" + Date.now());
+      assert.equal(r.provider, "none", "off-allowlist thumbnail must not be used");
+      assert.equal(evilFetched, false, "the non-allowlisted host must never be fetched");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("streaming byte-cap: a body exceeding 8MB is aborted → MISS", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input);
+      if (url.includes("/thumb")) {
+        const oneMB = new Uint8Array(1024 * 1024);
+        oneMB.set([0x89, 0x50, 0x4e, 0x47], 0); // PNG sig in first chunk
+        let sent = 0;
+        const stream = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (sent >= 9) {
+              controller.close();
+              return;
+            }
+            sent++;
+            controller.enqueue(oneMB.slice());
+          },
+        });
+        return new Response(stream, { status: 200 });
+      }
+      if (url.includes("api.openverse.org")) {
+        return jsonRes({
+          results: [{ thumbnail: "https://api.openverse.org/v1/images/big/thumb/", title: "x" }],
+        });
+      }
+      return jsonRes({});
+    }) as typeof fetch;
+    try {
+      const { resolveWebPhoto } = await import("../teacher-image-store.js");
+      const r = await resolveWebPhoto("oversized-" + Date.now());
+      assert.equal(r.provider, "none", "an over-cap download must be discarded → miss");
+      assert.equal(r.url, "");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
 describe("serveTeacherImage — content-type mapping", () => {
   test("png / jpg / jpeg / webp / svg map correctly", async () => {
     const { serveTeacherImage } = await import("../teacher-image-store.js");
