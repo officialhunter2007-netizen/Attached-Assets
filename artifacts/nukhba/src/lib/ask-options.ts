@@ -8,143 +8,25 @@
  */
 
 /**
- * Fix Arabic spacing errors that multiple AI providers produce.
+ * Arabic text passthrough — intentionally a no-op.
  *
- * Strategy — layered in order of safety (highest-precision first):
+ * We do NOT post-process the AI teacher's Arabic to "repair" spacing.
+ * Reconstructing Arabic word boundaries with regular expressions is
+ * fundamentally impossible without a full morphological analyzer/dictionary:
+ * the definite article "ال" and the single-letter prefixes (ب، ل، ك، ف، و)
+ * occur INSIDE ordinary words (عالم، رسالة، بالعملاء، بالضبط …), so every
+ * space-insertion heuristic eventually splits a valid word. Repeated attempts
+ * to tune such heuristics only traded one broken word-class for another
+ * (e.g. عالم → "ع الم", رسالة → "رس الة"), so the heuristic was removed for good.
  *
- *  Layer 1 (high-precision): tanwin-alef (اً) and ta-marbuta (ة) — both are
- *            unambiguous word-ending signals. Split after them whenever
- *            another Arabic letter follows.
- *
- *  Layer 2 (high-precision): standalone adverbs (جداً, أيضاً, تماماً, …) —
- *            adverbs ending in اً are never internal substrings.
- *
- *  Layer 3 (high-precision): prefix/preposition followed by a definite noun
- *            (prefix + "ال…") when the prefix is NOT preceded by an Arabic
- *            letter — e.g. "فيالبيت" → "في البيت".
- *
- *  Layer 4 (high-precision): standalone particles (هذا, هذه, ذلك, تلك,
- *            ليس, ليست, لكن, بدون, سوف, بعض, ضد, عندما, أيضاً) — these
- *            are never substrings of larger words, so splitting on them is
- *            safe in all positions including end-of-text.
- *
- *  Layer 5 (medium-precision): short prepositions (في, من, على, عن, مع, …)
- *            fused between Arabic words. Guarded by a 4-character minimum
- *            lookahead to avoid splitting inside compound words like معروف.
- *
- *  Layer 6 (lower-precision, defensive): insert a space before every
- *            definite article (ال) that follows an Arabic letter. This is
- *            the safety net for deeply-fused runs where earlier layers
- *            cannot identify individual word boundaries.
- *
- * The AR range includes letters (0621-064a) plus diacritics (064b-065f)
- * so vowel marks (fatha, damma, kasra, shadda, sukun) don't break the
- * consecutive-Arabic-character counters used by the length guards.
+ * Correct spacing is guaranteed at the source instead: the teaching models emit
+ * correctly-spaced Arabic, and the L9 language-layer system prompt carries an
+ * explicit "no fused words" rule. This identity function is retained so its call
+ * sites (v4-lesson.tsx, subject.tsx, and the ASK_OPTIONS labels below) keep a
+ * single, safe place where a future dictionary-based normalizer could live.
  */
 export function normalizeArabicText(text: string): string {
-  if (!text) return text;
-
-  // Arabic letters (0621-064a) + diacritics (064b-065f) + digits/presentation (0660-06ff).
-  // The diacritic range was previously missing, causing layers that look for
-  // ≥N consecutive Arabic characters to fail whenever a vowel mark (fatha,
-  // damma, kasra, shadda, sukun) appeared between two letters.
-  const AR = "\u0621-\u065f\u0660-\u06ff";
-
-  // ── Layer 1: word-ending signals — strongest, almost zero false positives ──
-  //   a) 'اً' = tanwin-alef — always marks the END of an Arabic word.
-  //      Split AFTER it when another Arabic letter follows.
-  //   b) 'ة'  = ta-marbuta — only ever appears at word endings.
-  let out = text.replace(
-    new RegExp(`([${AR}])اً([${AR}])`, "g"),
-    "$1اً $2",
-  );
-  out = out.replace(
-    new RegExp(`(ة)([${AR}])`, "g"),
-    "$1 $2",
-  );
-
-  // ── Layer 2: standalone adverbs — every adverb in this list ends in 'اً'
-  //   and is never a substring of a larger word.
-  out = out.replace(
-    new RegExp(
-      `([${AR}])(جداً|أيضاً|تماماً|قليلاً|مثلاً|أحياناً|فعلاً|عموماً|أساساً|كثيراً|سريعاً|دائماً|حقاً|فوراً|أخيراً|عادةً|غالباً|طبعاً|تقريباً|نادراً)`,
-      "g",
-    ),
-    "$1 $2",
-  );
-
-  // ── Layer 3: prefix/preposition fused to a definite noun (prefix + "ال…") ──
-  const prefixes = [
-    "عندما", "هؤلاء", "أولئك",
-    "هذه", "ذلك", "تلك", "هذا",
-    "بدون", "ليست", "ليس",
-    "عند", "على", "منذ", "بين", "خلال", "حول", "حتى", "قبل",
-    "تحت", "فوق", "ضد",
-    "كانت", "كان", "يكون",
-    "سوف", "بعض",
-    "عن", "من", "إلى",
-    "مع", "في", "لكن",
-  ];
-  out = out.replace(
-    new RegExp(
-      `(?<![${AR}])(${prefixes.join("|")})(ال[${AR}])`,
-      "g",
-    ),
-    (_m, prefix, rest) => `${prefix} ${rest}`,
-  );
-
-  // ── Layer 4: high-confidence standalone particles fused between Arabic words ──
-  // These are words that are essentially never substrings of larger words,
-  // so splitting on them is safe even without a length guard.
-  const particles = [
-    "هذا", "هذه", "ذلك", "تلك", "هذي", "هذيك", "هذولا",
-    "هؤلاء", "أولئك",
-    "ليس", "ليست", "لكن", "بدون", "سوف", "بعض", "ضد",
-    "عندما", "أيضاً",
-  ];
-  const pPattern = particles.sort((a, b) => b.length - a.length).join("|");
-  // Split on both sides when the particle sits between Arabic letters, and
-  // also at end-of-text (the model frequently fuses a trailing هذا/هذه/لكن
-  // with no following word).
-  out = out.replace(
-    new RegExp(`([${AR}])(${pPattern})([${AR}]|$)`, "g"),
-    "$1 $2$3",
-  );
-
-  // ── Layer 5: short prepositions fused between Arabic words ──
-  // Guard: the preposition must be followed by 4+ Arabic letters to avoid
-  // splitting inside compound words like معروف (مع + روف = 3 chars), فيلق…
-  // Also catches preposition at start-of-text or after non-Arabic (e.g. a
-  // space inserted by an earlier layer).
-  const preps = [
-    "في", "من", "إلى", "على", "عن", "مع", "عند",
-    "بين", "تحت", "فوق", "حتى", "منذ", "خلال",
-    "حول", "قبل", "بعد", "دون",
-  ];
-  const ppPattern = preps.sort((a, b) => b.length - a.length).join("|");
-  // Case A: preposition between two Arabic words
-  out = out.replace(
-    new RegExp(`([${AR}])(${ppPattern})(?=[${AR}]{4,})`, "g"),
-    "$1 $2 ",
-  );
-  // Case B: preposition at the start of an Arabic run (after non-Arabic or
-  // start-of-text) — e.g. "فينُخبة" at the beginning of a fused segment.
-  out = out.replace(
-    new RegExp(`(^|[^${AR}])(${ppPattern})(?=[${AR}]{4,})`, "g"),
-    "$1$2 ",
-  );
-
-  // ── Layer 6: long-run heuristic for deeply fused Arabic ──
-  // For runs of 12+ consecutive Arabic letters without a space, insert a
-  // space before every definite article (ال) and before every standalone
-  // particle from Layer 4 (re-applied for runs that survived the first pass).
-  // This is the safety net — low precision but catches the worst cases.
-  out = out.replace(
-    new RegExp(`([${AR}])(ال)(?=[${AR}])`, "g"),
-    "$1 $2",
-  );
-
-  return out;
+  return text;
 }
 
 export type AskOptionsResult = {
