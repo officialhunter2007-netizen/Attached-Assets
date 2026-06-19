@@ -625,7 +625,14 @@ async function searchWikipediaThumb(query: string): Promise<string | null> {
   for (const p of arr) {
     const src = p?.thumbnail?.source;
     const w = Number(p?.thumbnail?.width ?? 0);
-    if (typeof src === "string" && w >= WEB_PHOTO_MIN_WIDTH && isAllowedPhotoHost(src)) return src;
+    // Skip SVG-derived thumbnails. A Wikipedia article's lead image is very often
+    // a schematic / diagram / logo / icon authored as SVG (e.g. the "Computer
+    // monitor" lead is MonitorLCDlcd.svg) rasterized on a transparent
+    // background — it renders as a near-blank box, NOT a real photo. Falling
+    // through to the Commons `filetype:bitmap` search yields an actual
+    // photograph (and still a raster diagram for genuine diagram queries).
+    if (typeof src !== "string" || /\.svg(?:\.|\/)/i.test(src)) continue;
+    if (w >= WEB_PHOTO_MIN_WIDTH && isAllowedPhotoHost(src)) return src;
   }
   return null;
 }
@@ -650,21 +657,30 @@ async function searchCommonsThumb(query: string): Promise<string | null> {
   const arr = (Object.values(pages) as any[]).sort(
     (a, b) => (a?.index ?? 999) - (b?.index ?? 999),
   );
+  // Rank valid bitmap candidates by how many query words appear in the file
+  // title, so a semantically on-topic photo wins over an unrelated image that
+  // raw search relevance happened to float to the top (e.g. "computer monitor"
+  // should pick "EIZO … computer monitor …", not "Amiga500 system"). Ties keep
+  // search order (best is only replaced on a strictly higher score).
+  const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
+  let best: { url: string; score: number } | null = null;
   for (const p of arr) {
     const ii = p?.imageinfo?.[0];
     const thumb = ii?.thumburl;
     const w = Number(ii?.thumbwidth ?? 0);
     const mime = String(ii?.mime ?? "");
     if (
-      typeof thumb === "string" &&
-      w >= WEB_PHOTO_MIN_WIDTH &&
-      /^image\/(png|jpeg|webp)$/.test(mime) &&
-      isAllowedPhotoHost(thumb)
-    ) {
-      return thumb;
-    }
+      typeof thumb !== "string" ||
+      w < WEB_PHOTO_MIN_WIDTH ||
+      !/^image\/(png|jpeg|webp)$/.test(mime) ||
+      !isAllowedPhotoHost(thumb)
+    ) continue;
+    const title = String(p?.title ?? "").toLowerCase();
+    const score = tokens.reduce((s, t) => s + (title.includes(t) ? 1 : 0), 0);
+    if (!best || score > best.score) best = { url: thumb, score };
+    if (tokens.length > 0 && best.score === tokens.length) break;
   }
-  return null;
+  return best?.url ?? null;
 }
 
 export type WebPhotoResult = {
@@ -698,7 +714,11 @@ export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
   const clean = (query || "").trim().slice(0, 200);
   // Namespaced cache key — disjoint from FLUX prompt hashes so a photo lookup
   // and an identically-worded generated image never collide on disk.
-  const hash = hashPrompt(`photo:${clean.toLowerCase()}`);
+  // `v2` namespace bump: invalidates every photo cached BEFORE the SVG-skip +
+  // Commons-ranking fix. Pre-fix entries (e.g. the blank "computer monitor"
+  // schematic) would otherwise be served forever from disk, bypassing the new
+  // provider logic. Old files orphan harmlessly and are LRU-evicted over time.
+  const hash = hashPrompt(`photo:v2:${clean.toLowerCase()}`);
 
   const existing = inflightPhotos.get(hash);
   if (existing) return existing;

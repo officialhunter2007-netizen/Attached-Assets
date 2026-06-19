@@ -69,3 +69,33 @@ widths. Always use the API-provided `thumbnail.source` URL verbatim.
 The REST summary endpoint (`/api/rest_v1/page/summary/<Title>`) is ~3x faster
 (~0.5s, CDN-cached) but its thumbnail is only ~330px (too soft for inline) and
 can't be upscaled by URL rewrite — so it's not a drop-in quality replacement.
+
+## A Wikipedia article lead image is often a DIAGRAM, not a photo
+For a REAL-photo feature, the Wikipedia `pageimages` lead is a trap: for very
+many physical objects the lead is an SVG schematic / icon / logo (e.g. "Computer
+monitor" → `MonitorLCDlcd.svg`), rasterized on a TRANSPARENT background. It
+downloads as a perfectly valid PNG and passes magic-byte validation, so nothing
+rejects it — but it renders as a near-blank white box with a faint outline, which
+users read as a broken/missing image.
+
+**Rule:** reject SVG-DERIVED thumbnails in the Wikipedia path (Wikimedia encodes
+the source type in the URL: `.../Name.svg/960px-Name.svg.png` → match
+`/\.svg(?:\.|\/)/i`) and fall through to the Commons `filetype:bitmap` search,
+which returns real photographs AND raster (PNG/JPG) diagrams for genuine diagram
+queries. Don't try to "fix" this by looking at bytes — a rasterized SVG is a
+real PNG; the only signal is the source-file type in the URL.
+
+**Commons relevance:** raw Commons search relevance can float an off-topic real
+photo to the top (e.g. "computer monitor" → "Amiga500 system.jpg"). Rank the
+valid bitmap candidates by how many query words (len≥3) appear in the file title;
+keep search order on ties. Cheap, deterministic, and lifts the on-topic photo.
+
+## Changing the photo RESOLVER means busting the photo CACHE
+`resolveWebPhoto` checks the disk cache (`photo:<query>` hash) BEFORE it searches.
+So any improvement to the provider/ranking logic is invisible for every query a
+user already requested — the stale (possibly blank/wrong) file is served forever
+until LRU eviction. **Rule:** whenever you change what the resolver would pick,
+bump the cache-key namespace (`photo:` → `photo:v2:`); old files orphan and
+evict, every query re-resolves once with the new logic. Verifying the new logic
+against the live Wikimedia APIs is NOT enough — a cold-cache test passes while
+the user's warm cache still serves the old bad image.
