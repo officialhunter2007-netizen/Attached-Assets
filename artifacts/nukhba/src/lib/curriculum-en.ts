@@ -30,6 +30,11 @@ export const SUBJECT_NAMES_EN: Record<string, string> = {
   "skill-nmap":       "Nmap",
   "skill-wireshark":  "Wireshark",
   "skill-yemensoft":  "YemenSoft ERP",
+  "skill-flutter":    "Flutter",
+  "skill-sql":        "SQL & Databases",
+  "skill-bash":       "Bash Scripting",
+  "skill-powershell": "PowerShell",
+  "skill-excel":      "Advanced Excel",
 };
 
 // ── Category names ────────────────────────────────────────────────────────────
@@ -40,6 +45,9 @@ export const CATEGORY_NAMES_EN: Record<string, string> = {
   "skill-networks":    "Networking",
   "skill-security":    "Security Tools",
   "skill-erp":         "ERP Systems",
+  "skill-appdev":      "App Development",
+  "skill-database":    "Databases",
+  "skill-office":      "Office & Productivity",
 };
 
 // ── Default learning stage names ──────────────────────────────────────────────
@@ -68,6 +76,11 @@ export const STAGES_EN: Record<string, string[]> = {
   "skill-nmap":       ["Nmap Basics & Port Scanning", "Scan Types & Advanced Techniques", "Result Analysis & Reporting"],
   "skill-wireshark":  ["Installing Wireshark & Packet Capture", "Protocol Analysis & Filtering", "Attack Analysis & Traffic Investigation"],
   "skill-yemensoft":  ["System Setup & Configuration", "General Ledger & Journal Entries", "Sales & Purchasing Cycle", "Warehouse & Inventory Management", "Treasury, Banks & Reconciliations", "Reports & Financial Statements"],
+  "skill-flutter":    ["Dart & Flutter Fundamentals", "Building UIs & Widgets", "State Management", "API Integration & Local Storage", "Publishing to Google Play"],
+  "skill-sql":        ["Database Basics & SELECT", "Filtering, Sorting & Functions", "Joining Tables (JOINs)", "Aggregation & Analysis (GROUP BY)", "Table Design & Modification (DDL & DML)"],
+  "skill-bash":       ["Bash Basics & Commands", "Variables & Control Flow (if & loops)", "Functions & Text Processing (grep, sed, awk)", "Automation & Scheduled Tasks (cron)"],
+  "skill-powershell": ["PowerShell Basics & Cmdlets", "Objects, Pipeline & Filtering", "Variables, Control, Functions & Scripts", "System Administration Automation"],
+  "skill-excel":      ["Excel Basics & Formulas", "Advanced Functions (VLOOKUP, XLOOKUP, INDEX/MATCH)", "PivotTables & Analysis", "Charts & Dashboards", "Automation with Macros & VBA"],
 };
 
 // ── Unit names  (key = subjectId + "__" + unitId) ─────────────────────────────
@@ -130,6 +143,16 @@ export const UNIT_NAMES_EN: Record<string, string> = {
   "skill-yemensoft__ys-u4":     "Warehouse & Inventory Management",
   "skill-yemensoft__ys-u5":     "Treasury & Banking",
   "skill-yemensoft__ys-u6":     "Reports & Financial Statements",
+  // skill-flutter
+  "skill-flutter__u1":          "Dart & Flutter Fundamentals",
+  // skill-sql
+  "skill-sql__u1":              "Database Basics & SQL",
+  // skill-bash
+  "skill-bash__u1":             "Shell Basics & Bash Commands",
+  // skill-powershell
+  "skill-powershell__u1":       "PowerShell Basics & Cmdlets",
+  // skill-excel
+  "skill-excel__u1":            "Excel Basics & Formulas",
 };
 
 // ── Lesson titles (key = subjectId + "__" + unitId + "__" + lessonId) ─────────
@@ -311,6 +334,36 @@ export const LESSON_TITLES_EN: Record<string, string> = {
   "skill-yemensoft__ys-u6__ys-l28": "Balance Sheet (Financial Position)",
   "skill-yemensoft__ys-u6__ys-l29": "Cash Flow Statement",
   "skill-yemensoft__ys-u6__ys-l30": "Aging Reports & Custom Reports",
+  // ── skill-flutter u1 ──
+  "skill-flutter__u1__l1": "What Flutter Is & How It Builds Android & iOS from One Codebase",
+  "skill-flutter__u1__l2": "Dart Language Basics: Variables, Functions & Types",
+  "skill-flutter__u1__l3": "Everything Is a Widget: The UI Tree & How Flutter Paints the Screen",
+  "skill-flutter__u1__l4": "StatelessWidget vs StatefulWidget: When the Screen Changes",
+  "skill-flutter__u1__l5": "Building Your First Screen: Scaffold, AppBar, Column & Text",
+  // ── skill-sql u1 ──
+  "skill-sql__u1__l1": "What a Relational Database Is: Tables, Rows, Columns & Primary Key",
+  "skill-sql__u1__l2": "Retrieving Data: SELECT, FROM & Choosing Columns",
+  "skill-sql__u1__l3": "Precise Filtering: WHERE, Comparison Operators & AND/OR",
+  "skill-sql__u1__l4": "Sorting & Limiting: ORDER BY & LIMIT for the Top Results",
+  "skill-sql__u1__l5": "Unique & Duplicate Values: DISTINCT and When You Need It",
+  // ── skill-bash u1 ──
+  "skill-bash__u1__l1": "What the Shell Is & Why Bash Is the Most Common on Servers",
+  "skill-bash__u1__l2": "Your First Script: the shebang Line & chmod +x to Make It Executable",
+  "skill-bash__u1__l3": "Variables & Quoting: Why \"$var\" Saves You from Disasters",
+  "skill-bash__u1__l4": "Input & Output: echo, read & Redirection >, and the Pipe |",
+  "skill-bash__u1__l5": "Exit Codes: How a Script Knows a Command Succeeded or Failed",
+  // ── skill-powershell u1 ──
+  "skill-powershell__u1__l1": "What PowerShell Is & Why It Surpasses CMD for Windows Administration",
+  "skill-powershell__u1__l2": "Command Structure: Verb-Noun like Get-Process & Get-Service",
+  "skill-powershell__u1__l3": "Everything Is an Object: Why PowerShell Output Isn't Just Text",
+  "skill-powershell__u1__l4": "The Pipeline: Passing Objects Between Commands with |",
+  "skill-powershell__u1__l5": "Safe Testing: -WhatIf & -Confirm Before Any Bulk Change",
+  // ── skill-excel u1 ──
+  "skill-excel__u1__l1": "Worksheet Structure: Cell, Row, Column & Relative vs Absolute References ($)",
+  "skill-excel__u1__l2": "Core Operations: SUM, AVERAGE, COUNT & Smart AutoFill",
+  "skill-excel__u1__l3": "Conditional Logic: IF, AND, OR for In-Cell Decisions",
+  "skill-excel__u1__l4": "Conditional Formatting: Coloring Cells by Value to Reveal Patterns",
+  "skill-excel__u1__l5": "Common Formula Errors: #REF!, #DIV/0! and How to Fix Them",
 };
 
 // ── Helper functions ──────────────────────────────────────────────────────────

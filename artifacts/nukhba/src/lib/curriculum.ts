@@ -482,6 +482,56 @@ export const skills: Category[] = [
     ]
   },
   {
+    id: "skill-appdev",
+    name: "تطوير التطبيقات",
+    subjects: [
+      {
+        id: "skill-flutter",
+        name: "Flutter",
+        emoji: "🐦",
+        colorFrom: "from-sky-500",
+        colorTo: "to-blue-400",
+        units: buildUnitsWithManualU1("flutter", 5, 5, {
+      name: "أساسيات Dart وFlutter",
+      lessons: [
+        { id: "l1", title: "ما هو Flutter ولماذا يبني تطبيق أندرويد وiOS من كود واحد" },
+        { id: "l2", title: "أساسيات لغة Dart: المتغيّرات والدوال والأنواع" },
+        { id: "l3", title: "كل شيء Widget: شجرة الواجهة وكيف يرسم Flutter الشاشة" },
+        { id: "l4", title: "StatelessWidget مقابل StatefulWidget: متى تتغيّر الشاشة" },
+        { id: "l5", title: "بناء أول شاشة: Scaffold وAppBar وColumn وText" },
+      ],
+    }),
+        defaultStages: ["أساسيات Dart وFlutter", "بناء الواجهات والـWidgets", "إدارة الحالة State Management", "الربط بالـAPI والتخزين المحلي", "النشر على متجر Google Play"],
+        hasCoding: true
+      },
+    ]
+  },
+  {
+    id: "skill-database",
+    name: "قواعد البيانات",
+    subjects: [
+      {
+        id: "skill-sql",
+        name: "SQL وقواعد البيانات",
+        emoji: "🗄️",
+        colorFrom: "from-indigo-600",
+        colorTo: "to-violet-400",
+        units: buildUnitsWithManualU1("sql", 5, 5, {
+      name: "أساسيات قواعد البيانات وSQL",
+      lessons: [
+        { id: "l1", title: "ما هي قاعدة البيانات العلائقية: الجداول والصفوف والأعمدة والمفتاح الأساسي" },
+        { id: "l2", title: "استرجاع البيانات: SELECT وFROM واختيار الأعمدة" },
+        { id: "l3", title: "الفلترة الدقيقة: WHERE وعوامل المقارنة وAND/OR" },
+        { id: "l4", title: "الترتيب والتحديد: ORDER BY وLIMIT لأهم النتائج" },
+        { id: "l5", title: "القيم الفريدة والمكرّرة: DISTINCT ومتى تحتاجها" },
+      ],
+    }),
+        defaultStages: ["أساسيات قواعد البيانات والـSELECT", "الفلترة والترتيب والدوال", "الربط بين الجداول JOINs", "التجميع والتحليل GROUP BY", "تصميم الجداول والتعديل (DDL وDML)"],
+        hasCoding: true
+      },
+    ]
+  },
+  {
     id: "skill-os",
     name: "أنظمة التشغيل",
     subjects: [
@@ -519,6 +569,44 @@ export const skills: Category[] = [
       ],
     }),
         defaultStages: ["إدارة نظام Windows", "PowerShell والأتمتة", "أمن Windows والـ Active Directory"],
+        hasCoding: true
+      },
+      {
+        id: "skill-bash",
+        name: "Bash Scripting",
+        emoji: "🐚",
+        colorFrom: "from-gray-600",
+        colorTo: "to-green-400",
+        units: buildUnitsWithManualU1("bash", 4, 5, {
+      name: "أساسيات الـShell وأوامر Bash",
+      lessons: [
+        { id: "l1", title: "ما هو الـShell ولماذا Bash هو الأكثر انتشاراً في الخوادم" },
+        { id: "l2", title: "أول سكربت: سطر shebang في البداية وصلاحية التنفيذ chmod +x" },
+        { id: "l3", title: "المتغيّرات والاقتباس: لماذا \"$var\" تحميك من الكوارث" },
+        { id: "l4", title: "المدخلات والمخرجات: echo وread وإعادة التوجيه > و| (Pipe)" },
+        { id: "l5", title: "رموز الخروج (Exit Codes): كيف يعرف السكربت أن الأمر نجح أم فشل" },
+      ],
+    }),
+        defaultStages: ["أساسيات Bash والأوامر", "المتغيّرات والتحكم بالتدفق (if وحلقات)", "الدوال ومعالجة النصوص (grep وsed وawk)", "الأتمتة والمهام المجدولة (cron)"],
+        hasCoding: true
+      },
+      {
+        id: "skill-powershell",
+        name: "PowerShell",
+        emoji: "🔷",
+        colorFrom: "from-blue-600",
+        colorTo: "to-sky-400",
+        units: buildUnitsWithManualU1("powershell", 4, 5, {
+      name: "أساسيات PowerShell والـCmdlets",
+      lessons: [
+        { id: "l1", title: "ما هو PowerShell ولماذا يتفوّق على CMD في إدارة ويندوز" },
+        { id: "l2", title: "بنية الأمر: فعل-اسم (Verb-Noun) مثل Get-Process وGet-Service" },
+        { id: "l3", title: "كل شيء كائن (Object): لماذا مخرجات PowerShell ليست مجرّد نص" },
+        { id: "l4", title: "الـPipeline: تمرير الكائنات بين الأوامر عبر |" },
+        { id: "l5", title: "الاختبار الآمن: -WhatIf و-Confirm قبل أي تعديل جماعي" },
+      ],
+    }),
+        defaultStages: ["أساسيات PowerShell والـCmdlets", "الكائنات والـPipeline والتصفية", "المتغيّرات والتحكم والدوال والسكربتات", "أتمتة إدارة النظام والمهام"],
         hasCoding: true
       },
     ]
@@ -585,6 +673,31 @@ export const skills: Category[] = [
       ],
     }),
         defaultStages: ["تثبيت Wireshark والتقاط الحزم", "تحليل البروتوكولات والتصفية", "تحليل الهجمات وحركة المرور الشبكي"],
+        hasCoding: false
+      },
+    ]
+  },
+  {
+    id: "skill-office",
+    name: "برامج المكتب والإنتاجية",
+    subjects: [
+      {
+        id: "skill-excel",
+        name: "Excel المتقدّم",
+        emoji: "📗",
+        colorFrom: "from-green-600",
+        colorTo: "to-emerald-400",
+        units: buildUnitsWithManualU1("excel", 5, 5, {
+      name: "أساسيات Excel والصيغ",
+      lessons: [
+        { id: "l1", title: "بنية ورقة العمل: الخلية والصف والعمود والمرجع النسبي والمطلق ($)" },
+        { id: "l2", title: "العمليات الأساسية: SUM وAVERAGE وCOUNT والملء التلقائي الذكي" },
+        { id: "l3", title: "المنطق الشرطي: IF وAND وOR لاتخاذ القرارات داخل الجدول" },
+        { id: "l4", title: "التنسيق الشرطي: تلوين الخلايا حسب القيمة لكشف الأنماط" },
+        { id: "l5", title: "أخطاء الصيغ الشائعة: ‎#REF!‎ و‎#DIV/0!‎ وكيف تصلحها" },
+      ],
+    }),
+        defaultStages: ["أساسيات Excel والصيغ", "الدوال المتقدمة (VLOOKUP وXLOOKUP وINDEX/MATCH)", "الجداول المحورية PivotTables والتحليل", "الرسوم البيانية ولوحات المعلومات", "الأتمتة بالماكرو وVBA"],
         hasCoding: false
       },
     ]

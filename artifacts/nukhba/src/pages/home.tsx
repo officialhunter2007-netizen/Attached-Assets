@@ -394,7 +394,7 @@ export default function Home() {
             >
               <StatCard value={1000} suffix="+" label={tr.home.statStudents} color="#F59E0B" delay={0.9} />
               <StatCard value={500} suffix="+" label={tr.home.statLessons} color="#10B981" delay={1.0} />
-              <StatCard value={15} suffix="+" label={tr.home.statSubjects} color="#8B5CF6" delay={1.1} />
+              <StatCard value={25} suffix="+" label={tr.home.statSubjects} color="#8B5CF6" delay={1.1} />
             </motion.div>
           </div>
 
