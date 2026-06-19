@@ -444,6 +444,43 @@ function TeacherBubble({ html, isStreaming, imageMap }: { html: string; isStream
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
+    // Gracefully drop a figure (and any caption the teacher wrote right after it).
+    // Shared by the "missing" branch and the broken-<img> fallback below.
+    const dropFigure = (figEl: HTMLElement) => {
+      let cap = figEl.querySelector(":scope > figcaption.image-caption") as HTMLElement | null;
+      if (!cap) {
+        const nxt = figEl.nextElementSibling as HTMLElement | null;
+        if (nxt?.tagName === "FIGCAPTION" && nxt.classList.contains("image-caption")) {
+          cap = nxt;
+        } else if (
+          nxt?.tagName === "P" &&
+          nxt.children.length === 1 &&
+          nxt.firstElementChild instanceof HTMLElement &&
+          nxt.firstElementChild.tagName === "FIGCAPTION" &&
+          nxt.firstElementChild.classList.contains("image-caption")
+        ) {
+          cap = nxt;
+        }
+      }
+      if (cap) cap.remove();
+      figEl.remove();
+    };
+    // A teacher-image <img> can fail to load: a url baked into localStorage when
+    // the photo was ready (see inlineReadyImages) later 404s if its cached file
+    // was LRU-evicted or orphaned by a cache-namespace bump, and a freshly-swapped
+    // url can momentarily be unavailable. DOMPurify strips inline onerror, so wire
+    // the fallback here: on load failure drop the whole figure rather than render
+    // the browser's broken-image icon (which is what users were "always" seeing).
+    // Idempotent via a data flag; also catches an <img> that already failed before
+    // the listener attached (a browser-cached 404 — complete + naturalWidth 0).
+    const wireImgError = (imgEl: HTMLImageElement, figEl: HTMLElement) => {
+      if (imgEl.dataset.errWired === "1") return;
+      imgEl.dataset.errWired = "1";
+      imgEl.addEventListener("error", () => dropFigure(figEl), { once: true });
+      if (imgEl.complete && imgEl.naturalWidth === 0 && imgEl.getAttribute("src")) {
+        dropFigure(figEl);
+      }
+    };
     const figs = Array.from(root.querySelectorAll<HTMLElement>("figure[data-image-id]"));
     for (const fig of figs) {
       // (1) Caption adoption: marked() often emits the figcaption as the figure's
@@ -500,7 +537,10 @@ function TeacherBubble({ html, isStreaming, imageMap }: { html: string; isStream
       }
       if (st?.status === "ready" && st.url) {
         const existing = fig.querySelector(":scope > img") as HTMLImageElement | null;
-        if (existing && existing.getAttribute("src") === st.url) continue;
+        if (existing && existing.getAttribute("src") === st.url) {
+          wireImgError(existing, fig);
+          continue;
+        }
         const cap = fig.querySelector(":scope > figcaption.image-caption") as HTMLElement | null;
         while (fig.firstChild) fig.removeChild(fig.firstChild);
         const img = document.createElement("img");
@@ -527,6 +567,12 @@ function TeacherBubble({ html, isStreaming, imageMap }: { html: string; isStream
           if (label.textContent !== want) label.textContent = want;
         }
       }
+      // Wire a load-error fallback on whatever <img> the figure holds now — one
+      // baked in from localStorage on reload OR one just swapped in above. A dead
+      // url (evicted/orphaned cache file) drops the figure instead of showing the
+      // broken-image icon.
+      const curImg = fig.querySelector(":scope > img") as HTMLImageElement | null;
+      if (curImg) wireImgError(curImg, fig);
     }
   }, [html, imageMap]);
 

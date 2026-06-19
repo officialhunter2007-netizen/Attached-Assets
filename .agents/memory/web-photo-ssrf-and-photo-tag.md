@@ -137,3 +137,31 @@ reloaded session renders a PERMANENT spinner for an image the server already
 settled (it won't re-fire on reload). **Rule:** the image/visual-state map MUST be
 in the persist effect's dependency array. Generalizes to any async-resolved render
 state that gets snapshotted to storage.
+
+## Baked image urls outlive their cache file → wire a runtime onerror
+The flip side of baking settled images into localStorage: the persisted
+`<figure data-image-id><img src="/api/teacher-images/HASH.ext">` keeps that exact
+url forever, but the underlying disk file is transient — LRU-evicted, or ORPHANED
+by a cache-namespace bump (`photo:` → `photo:v3:` re-resolves to a NEW hash, so the
+old baked hash is never written again). On reload the baked `<img>` 404s and the
+browser shows its broken-image icon. Symptom that points straight here: server
+logs show the SAME `/api/teacher-images/<hash>.<ext>` 404ing many times in one
+session (React re-fetches a broken img on every re-render) while FRESH resolutions
+serve 200 — and the user says the image is "ALWAYS" broken (every reload re-renders
+the same dead baked url).
+- **You can't self-heal with an inline `onerror` attribute** — DOMPurify strips
+  event-handler attributes, so any `onerror` baked into the HTML string is gone by
+  the time it renders. The fix MUST attach the handler at runtime in the DOM
+  reconcile effect, not in the markup.
+- **Fix:** in the reconcile effect, for every `figure[data-image-id]`'s current
+  `<img>` (baked-in OR just swapped in), attach a one-time `error` listener that
+  DROPS the whole figure (+ any teacher caption that follows it) — same UX as a
+  genuine `imageMissing`. Make it idempotent (`dataset.errWired`) since the effect
+  reruns on `[html, imageMap]`, and ALSO handle an img that already failed before
+  the listener attached via `complete && naturalWidth === 0 && src` (browser-cached
+  404 fires no fresh `error` event). Wire it on EVERY path including the
+  `existing.src === ready.url` early-`continue`.
+- **Scope:** this drops the dead figure from the DOM but does NOT scrub the stale
+  baked HTML from localStorage, so one 404 still fires per reload before the figure
+  is removed again. Acceptable for the UX bug; a full fix would rewrite the stored
+  session content on error.
