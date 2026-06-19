@@ -13,13 +13,22 @@
  * inside a sandboxed `<iframe srcdoc>` (allow-scripts, NO allow-same-origin):
  * the opaque origin is the security boundary, so the untrusted markup cannot
  * read cookies, storage, or the parent DOM. The `steps` are a short caption
- * track the student walks through (prev/next + autoplay) to read the pedagogy
- * alongside the animation.
+ * track the student walks through (prev/next ONLY — no autoplay) to read the
+ * pedagogy alongside the animation.
+ *
+ * WHY a module-level cache (`_sceneCache`):
+ *   `dangerouslySetInnerHTML` in TeacherBubble replaces the entire DOM subtree
+ *   on every `html` change (image updates, streaming end, etc.). This destroys
+ *   the `data-scene-mount` DOM node identity, causing SceneMount to unmount and
+ *   remount on a NEW node — resetting React state to "loading" and re-triggering
+ *   the fetch. The module-level map survives remounts: a remounted SceneMount
+ *   for the same (lessonName, topic) pair immediately restores the cached scene
+ *   with no loading flash.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Loader2, ChevronRight, ChevronLeft, Play, Pause, RotateCcw, AlertTriangle,
+  Loader2, ChevronRight, ChevronLeft, RotateCcw, AlertTriangle,
 } from "lucide-react";
 
 // ── Types (mirror the server Zod schema) ────────────────────────────────────
@@ -35,7 +44,15 @@ export type Scene = {
   steps: SceneStep[];
 };
 
-const AUTOPLAY_MS = 4600;
+// ── Module-level scene cache ─────────────────────────────────────────────────
+// Keyed by `lessonName\u0000topic` (mirrors the server hash basis).
+// Survives SceneMount remounts so a re-created mount node for the same topic
+// shows the scene instantly (no loading flash).
+const _sceneCache = new Map<string, Scene>();
+
+function makeCacheKey(topic: string, lessonName?: string): string {
+  return `${(lessonName || "").trim().toLowerCase()}\u0000${topic.trim().toLowerCase()}`;
+}
 
 // Wrap the model's body-only HTML/CSS/JS in a full RTL dark document that
 // matches the Nukhba theme and auto-reports its height to the parent via
@@ -104,28 +121,20 @@ function SceneAnimFrame({ html }: { html: string }) {
 }
 
 // ── The player ──────────────────────────────────────────────────────────────
+// Manual-only navigation: the student presses التالي / السابق.
+// No autoplay — autoplay is disabled so the student reads each step before advancing.
 export function SceneStepper({ scene }: { scene: Scene }) {
   const steps = scene.steps;
   const [idx, setIdx] = useState(0);
-  const [playing, setPlaying] = useState(true);
-  const timer = useRef<number | null>(null);
 
   const clampedIdx = Math.min(idx, steps.length - 1);
   const step = steps[clampedIdx];
+  const isFirst = clampedIdx === 0;
   const isLast = clampedIdx >= steps.length - 1;
 
   const goNext = useCallback(() => setIdx((i) => Math.min(i + 1, steps.length - 1)), [steps.length]);
   const goPrev = useCallback(() => setIdx((i) => Math.max(i - 1, 0)), []);
-  const restart = useCallback(() => { setIdx(0); setPlaying(true); }, []);
-
-  // Autoplay loop — advances captions while playing, auto-stops at the last.
-  useEffect(() => {
-    if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
-    if (!playing) return;
-    if (isLast) { setPlaying(false); return; }
-    timer.current = window.setTimeout(() => setIdx((i) => Math.min(i + 1, steps.length - 1)), AUTOPLAY_MS);
-    return () => { if (timer.current) window.clearTimeout(timer.current); };
-  }, [playing, clampedIdx, isLast, steps.length]);
+  const restart = useCallback(() => setIdx(0), []);
 
   return (
     <div
@@ -190,7 +199,7 @@ export function SceneStepper({ scene }: { scene: Scene }) {
         {steps.map((_, i) => (
           <button
             key={i}
-            onClick={() => { setIdx(i); setPlaying(false); }}
+            onClick={() => setIdx(i)}
             aria-label={`الذهاب للخطوة ${i + 1}`}
             className={[
               "h-1.5 rounded-full transition-all",
@@ -200,39 +209,35 @@ export function SceneStepper({ scene }: { scene: Scene }) {
         ))}
       </div>
 
-      {/* Controls */}
+      {/* Controls — manual navigation only */}
       <div className="mt-3 flex items-center justify-between gap-2">
         <button
           onClick={goPrev}
-          disabled={clampedIdx === 0}
+          disabled={isFirst}
           className="flex items-center gap-1 rounded-lg bg-white/8 px-3 py-1.5 text-[12px] font-semibold text-white/80 transition hover:bg-white/12 disabled:opacity-30"
         >
           <ChevronRight className="h-4 w-4" />
           السابق
         </button>
 
-        {isLast && !playing ? (
+        {isLast ? (
           <button
             onClick={restart}
-            className="flex items-center gap-1.5 rounded-lg bg-emerald-500/90 px-4 py-1.5 text-[12px] font-bold text-emerald-950 transition hover:bg-emerald-400"
+            className="flex items-center gap-1.5 rounded-lg bg-white/10 px-4 py-1.5 text-[12px] font-semibold text-white/70 transition hover:bg-white/15"
           >
             <RotateCcw className="h-4 w-4" />
-            إعادة
+            من البداية
           </button>
         ) : (
-          <button
-            onClick={() => setPlaying((p) => !p)}
-            className="flex items-center gap-1.5 rounded-lg bg-amber-500/95 px-4 py-1.5 text-[12px] font-bold text-amber-950 transition hover:bg-amber-400"
-          >
-            {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            {playing ? "إيقاف" : "تشغيل"}
-          </button>
+          <div className="text-[11px] text-white/35">
+            اضغط التالي للمتابعة
+          </div>
         )}
 
         <button
           onClick={goNext}
           disabled={isLast}
-          className="flex items-center gap-1 rounded-lg bg-white/8 px-3 py-1.5 text-[12px] font-semibold text-white/80 transition hover:bg-white/12 disabled:opacity-30"
+          className="flex items-center gap-1 rounded-lg bg-amber-500/90 px-3 py-1.5 text-[12px] font-bold text-amber-950 transition hover:bg-amber-400 disabled:opacity-30"
         >
           التالي
           <ChevronLeft className="h-4 w-4" />
@@ -249,9 +254,22 @@ type FetchState =
   | { status: "error"; topic: string };
 
 export function SceneMount({ topic, lessonName }: { topic: string; lessonName?: string }) {
-  const [state, setState] = useState<FetchState>({ status: "loading" });
+  const cacheKey = makeCacheKey(topic, lessonName);
+
+  // Initialise directly from the module-level cache so a remounted SceneMount
+  // (due to dangerouslySetInnerHTML replacing the host DOM node) shows the scene
+  // immediately without any loading flash.
+  const [state, setState] = useState<FetchState>(() => {
+    const hit = _sceneCache.get(cacheKey);
+    return hit ? { status: "ready", scene: hit } : { status: "loading" };
+  });
 
   useEffect(() => {
+    // If already cached (either from initial state or a previous mount), no-op.
+    if (_sceneCache.has(cacheKey)) {
+      setState({ status: "ready", scene: _sceneCache.get(cacheKey)! });
+      return;
+    }
     let cancelled = false;
     const ctrl = new AbortController();
     (async () => {
@@ -267,7 +285,9 @@ export function SceneMount({ topic, lessonName }: { topic: string; lessonName?: 
         const data = await r.json();
         if (cancelled) return;
         if (typeof data?.scene?.html === "string" && data?.scene?.steps?.length) {
-          setState({ status: "ready", scene: data.scene as Scene });
+          const scene = data.scene as Scene;
+          _sceneCache.set(cacheKey, scene);
+          setState({ status: "ready", scene });
         } else {
           setState({ status: "error", topic });
         }
@@ -276,7 +296,7 @@ export function SceneMount({ topic, lessonName }: { topic: string; lessonName?: 
       }
     })();
     return () => { cancelled = true; ctrl.abort(); };
-  }, [topic, lessonName]);
+  }, [cacheKey, topic, lessonName]);
 
   if (state.status === "loading") {
     return (
