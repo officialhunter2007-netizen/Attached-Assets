@@ -25,6 +25,11 @@ const router: IRouter = Router();
 router.get("/teacher-images/:filename", async (req, res) => {
   const result = await serveTeacherImage(req.params.filename);
   if (!result.ok) {
+    // NEVER cache a failure: a 404 here is usually transient (the cache file
+    // was evicted and is being self-healed on the next hit). Caching it would
+    // turn a one-request miss into a permanently broken image in the browser
+    // and any intermediary CDN. A successful serve below stays immutable.
+    res.setHeader("Cache-Control", "no-store");
     res.status(result.status).json({ error: result.message });
     return;
   }

@@ -23,10 +23,17 @@ let server: http.Server;
 let baseUrl: string;
 const HASH = "0123456789abcdef"; // valid 16-hex
 const FIXTURE_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+const VALID_PNG = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.alloc(2048, 0x42),
+]);
 
 before(async () => {
   tmpDir = await mkdtemp(path.join(tmpdir(), "teach-img-route-"));
   process.env.TEACHER_IMAGE_DIR = tmpDir;
+  // Hermetic: no DATABASE_URL → the DB-backed manifest store no-ops (no pg pool).
+  // The self-heal test below injects an in-memory store.
+  delete process.env.DATABASE_URL;
   await writeFile(path.join(tmpDir, `${HASH}.png`), FIXTURE_BYTES);
 
   const router = (await import("../teacher-images.js")).default;
@@ -56,10 +63,47 @@ describe("GET /api/teacher-images/:filename", () => {
     assert.deepEqual(body, FIXTURE_BYTES);
   });
 
-  test("returns 404 for a well-formed filename that doesn't exist on disk", async () => {
+  test("returns 404 with Cache-Control: no-store for a missing, un-healable file", async () => {
     const res = await fetch(`${baseUrl}/api/teacher-images/${"f".repeat(16)}.png`);
     assert.equal(res.status, 404);
+    // A miss must NEVER be cached — the file may be self-healed on a later hit.
+    assert.equal(res.headers.get("cache-control"), "no-store");
     await res.arrayBuffer();
+  });
+
+  test("self-heals a missing file from its manifest source_url, then serves it immutably", async () => {
+    const store = await import("../../lib/teacher-image-store.js");
+    const realFetch = globalThis.fetch;
+    const healHash = "abad1dea0000beef";
+    // Intercept ONLY the Wikimedia source re-fetch; everything else (incl. the
+    // test's own request to the local server) passes through to the real fetch.
+    globalThis.fetch = (async (input: any, init?: any) => {
+      if (String(input).includes("upload.wikimedia.org")) {
+        return new Response(VALID_PNG, { status: 200 });
+      }
+      return realFetch(input, init);
+    }) as typeof fetch;
+    store.__setManifestStoreForTests({
+      async record() {},
+      async get(hash) {
+        return hash === healHash
+          ? { hash: healHash, ext: ".png", kind: "photo", query: "", sourceUrl: "https://upload.wikimedia.org/wikipedia/commons/x.png", provider: "wiki" }
+          : null;
+      },
+      async bump() {},
+    });
+    try {
+      const res = await fetch(`${baseUrl}/api/teacher-images/${healHash}.png`);
+      assert.equal(res.status, 200, "missing file was self-healed and served");
+      assert.equal(res.headers.get("content-type"), "image/png");
+      assert.equal(res.headers.get("cache-control"), "public, max-age=31536000, immutable");
+      const body = Buffer.from(await res.arrayBuffer());
+      assert.deepEqual(body, VALID_PNG);
+    } finally {
+      store.__setManifestStoreForTests(null);
+      globalThis.fetch = realFetch;
+      await rm(path.join(tmpDir, `${healHash}.png`), { force: true });
+    }
   });
 
   test("returns 400 for malformed filenames (path traversal, bad ext, wrong hash length)", async () => {

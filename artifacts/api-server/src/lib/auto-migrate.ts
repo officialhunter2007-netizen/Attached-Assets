@@ -395,6 +395,33 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE INDEX IF NOT EXISTS "audit_logs_user_id_idx" ON "audit_logs" ("user_id", "created_at")`,
     ],
   },
+  {
+    // Self-healing manifest for teacher images. Maps the one-way content hash
+    // embedded in /api/teacher-images/<hash>.<ext> back to enough metadata to
+    // RE-CREATE the bytes if the cache file is gone (LRU-evicted, orphaned by a
+    // cache-namespace bump, or wiped when an ephemeral deploy disk resets).
+    // Without this row a missing file 404s forever and the URL baked into a
+    // student's saved session renders as a permanent broken image. With it,
+    // serveTeacherImage re-fetches the stable `source_url` (real photos) or
+    // re-resolves the stored `query`/prompt (free path — NEVER paid fal on an
+    // unauthenticated GET). See lib/teacher-image-store.ts.
+    table: "teacher_image_manifest",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "teacher_image_manifest" (
+        "hash" text PRIMARY KEY,
+        "ext" text NOT NULL,
+        "kind" text NOT NULL,
+        "query" text NOT NULL DEFAULT '',
+        "source_url" text,
+        "provider" text NOT NULL DEFAULT '',
+        "heal_count" integer NOT NULL DEFAULT 0,
+        "last_heal_at" timestamp with time zone,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [],
+  },
   // ── v4.0 curriculum tables ──────────────────────────────────────────────
   // See lib/db/src/schema/v4.ts for the schema-of-record + design notes. We
   // add them via auto-migrate (not drizzle-kit push) because push is

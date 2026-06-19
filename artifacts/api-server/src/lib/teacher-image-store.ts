@@ -32,6 +32,7 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { config as falConfig, subscribe as falSubscribe } from "@fal-ai/serverless-client";
+import { sql } from "drizzle-orm";
 import { logger } from "./logger";
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -109,6 +110,243 @@ async function findCached(hash: string): Promise<{ ext: string } | null> {
 
 function urlFor(hash: string, ext: string): string {
   return URL_PREFIX + hash + ext;
+}
+
+function contentTypeForExt(ext: string): string {
+  const e = ext.toLowerCase();
+  return e === ".png" ? "image/png" :
+    e === ".jpg" || e === ".jpeg" ? "image/jpeg" :
+    e === ".webp" ? "image/webp" :
+    e === ".svg" ? "image/svg+xml" : "application/octet-stream";
+}
+
+// ── Self-healing manifest (DB-backed) ───────────────────────────────────────
+// The same-origin URL we hand the browser embeds a ONE-WAY content hash, so a
+// missing cache file (LRU-evicted, orphaned by a cache-namespace bump, or wiped
+// when an ephemeral deploy disk resets) can never be reconstructed from the URL
+// alone — it 404s forever and the figure baked into a student's saved session
+// renders as a permanent broken image. The manifest maps the hash back to
+// enough metadata to RE-CREATE the bytes on demand at serve time.
+//
+// Every DB access here is BEST-EFFORT: a manifest failure must NEVER break image
+// resolution or serving. `db` is imported LAZILY so this module still loads in
+// unit tests that run with no DATABASE_URL (the import would otherwise throw at
+// module load). When the DB is unreachable, manifest ops quietly no-op and the
+// feature degrades to exactly today's behavior (FE onerror drop = safety net).
+type ManifestKind = "photo" | "image";
+type ManifestRow = {
+  hash: string;
+  ext: string;
+  kind: ManifestKind;
+  /** Processed query (photos) or prompt (images) — must re-hash to the SAME hash. */
+  query: string;
+  /** Exact, server-validated external URL that produced the bytes (photos only). */
+  sourceUrl: string | null;
+  provider: string;
+};
+
+let __dbMod: any | null = null;
+let __dbTried = false;
+async function getDb(): Promise<any | null> {
+  if (__dbTried) return __dbMod;
+  __dbTried = true;
+  // Skip the import entirely with no DATABASE_URL so we never construct a pg
+  // Pool (an open idle connection would hang `tsx` unit tests on exit).
+  if (!process.env.DATABASE_URL) {
+    __dbMod = null;
+    return null;
+  }
+  try {
+    const mod: any = await import("@workspace/db");
+    __dbMod = mod?.db ?? null;
+  } catch {
+    __dbMod = null; // driver unavailable — degrade silently.
+  }
+  return __dbMod;
+}
+
+/**
+ * Upsert a manifest row. Called fire-and-forget on every successful persist AND
+ * on every cache hit (the cache-hit path backfills rows for files created
+ * before this feature existed). Empty/null fields never clobber a meaningful
+ * existing value, so a later cache-hit backfill can't wipe the real
+ * provider/source_url captured at first resolution.
+ */
+async function dbRecordManifest(row: ManifestRow): Promise<void> {
+  try {
+    const dbi = await getDb();
+    if (!dbi) return;
+    await dbi.execute(sql`
+      INSERT INTO "teacher_image_manifest"
+        ("hash","ext","kind","query","source_url","provider","updated_at")
+      VALUES
+        (${row.hash}, ${row.ext}, ${row.kind}, ${row.query}, ${row.sourceUrl}, ${row.provider}, NOW())
+      ON CONFLICT ("hash") DO UPDATE SET
+        "ext" = EXCLUDED."ext",
+        "kind" = EXCLUDED."kind",
+        "query" = CASE WHEN EXCLUDED."query" <> '' THEN EXCLUDED."query" ELSE "teacher_image_manifest"."query" END,
+        "source_url" = COALESCE(EXCLUDED."source_url", "teacher_image_manifest"."source_url"),
+        "provider" = CASE WHEN EXCLUDED."provider" <> '' THEN EXCLUDED."provider" ELSE "teacher_image_manifest"."provider" END,
+        "updated_at" = NOW()
+    `);
+  } catch {
+    /* non-fatal: never let a manifest write break image resolution */
+  }
+}
+
+async function dbGetManifest(hash: string): Promise<ManifestRow | null> {
+  try {
+    const dbi = await getDb();
+    if (!dbi) return null;
+    const res: any = await dbi.execute(sql`
+      SELECT "hash", "ext", "kind", "query", "source_url" AS "sourceUrl", "provider"
+      FROM "teacher_image_manifest" WHERE "hash" = ${hash} LIMIT 1
+    `);
+    const r = res?.rows?.[0];
+    if (!r) return null;
+    return {
+      hash: String(r.hash),
+      ext: String(r.ext),
+      kind: r.kind === "photo" ? "photo" : "image",
+      query: String(r.query ?? ""),
+      sourceUrl: r.sourceUrl ? String(r.sourceUrl) : null,
+      provider: String(r.provider ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function dbBumpHeal(hash: string): Promise<void> {
+  try {
+    const dbi = await getDb();
+    if (!dbi) return;
+    await dbi.execute(sql`
+      UPDATE "teacher_image_manifest"
+      SET "heal_count" = "heal_count" + 1, "last_heal_at" = NOW()
+      WHERE "hash" = ${hash}
+    `);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// All manifest reads/writes go through this indirection so unit tests can inject
+// a hermetic in-memory store (no DATABASE_URL, no pg pool). Production uses the
+// DB-backed implementation above.
+export type ManifestStore = {
+  record(row: ManifestRow): Promise<void>;
+  get(hash: string): Promise<ManifestRow | null>;
+  bump(hash: string): Promise<void>;
+};
+const dbManifestStore: ManifestStore = {
+  record: dbRecordManifest,
+  get: dbGetManifest,
+  bump: dbBumpHeal,
+};
+let manifestStore: ManifestStore = dbManifestStore;
+/** Test seam: inject an in-memory manifest store; pass null to restore the DB store. */
+export function __setManifestStoreForTests(store: ManifestStore | null): void {
+  manifestStore = store ?? dbManifestStore;
+}
+
+/** Write bytes atomically under <hash><ext>, then trigger background eviction. */
+async function writeImageAtomic(hash: string, ext: string, buf: Buffer): Promise<void> {
+  const file = path.join(CACHE_DIR, hash + ext);
+  const tmp = file + ".tmp";
+  await fs.writeFile(tmp, buf);
+  await fs.rename(tmp, file);
+  maybeEvict().catch(() => {});
+}
+
+type ServeOk = { ok: true; path: string; size: number; contentType: string };
+
+/** Build a serve descriptor for an exact filename if it exists on disk. */
+async function statServe(filename: string): Promise<ServeOk | null> {
+  const file = path.join(CACHE_DIR, filename);
+  try {
+    const st = await fs.stat(file);
+    if (!st.isFile()) return null;
+    const now = new Date();
+    fs.utimes(file, now, now).catch(() => {}); // refresh mtime for LRU
+    return { ok: true, path: file, size: st.size, contentType: contentTypeForExt(path.extname(filename)) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a serve descriptor for ANY cached ext of this hash. Used after a heal
+ * whose re-resolved bytes landed under a different ext than the requested URL
+ * (e.g. URL says `.jpg` but the healed photo is `.png`). The HTTP content-type
+ * is authoritative, so the browser renders it correctly regardless of the URL's
+ * extension.
+ */
+async function statServeAnyExt(hash: string): Promise<ServeOk | null> {
+  const hit = await findCached(hash);
+  if (!hit) return null;
+  return statServe(hash + hit.ext);
+}
+
+// Concurrent heals for the SAME hash collapse onto ONE job (a single missing
+// file hit by 30 students at once must trigger ONE re-fetch, not 30).
+const healInflight = new Map<string, Promise<boolean>>();
+
+/**
+ * Re-create the bytes for a missing cache file from its manifest row. Returns
+ * true if a file for `hash` exists on disk afterward.
+ *
+ * SECURITY: this runs from an UNAUTHENTICATED GET, so it must never (a) call the
+ * paid fal.ai provider — image heals pass `noFal:true` (pollinations→SVG, and
+ * the SVG poster ALWAYS succeeds, so an image URL can never stay broken); or
+ * (b) fetch an arbitrary URL — photo heals only ever re-fetch the exact
+ * `source_url` we ourselves validated + allowlisted at first resolution, and
+ * `fetchPhotoBuffer` re-runs the full SSRF/redirect/size/magic-byte checks on
+ * every hop. Random hashes have no manifest row → no outbound fetch at all.
+ */
+async function healImage(hash: string, m: ManifestRow): Promise<boolean> {
+  const existing = healInflight.get(hash);
+  if (existing) return existing;
+
+  const job = (async (): Promise<boolean> => {
+    await ensureDir();
+    // Another heal (or a fresh resolution) may have just written it.
+    if (await findCached(hash)) return true;
+
+    if (m.kind === "photo") {
+      // a) Fast path: re-fetch the exact stable source URL (no search round-trip).
+      if (m.sourceUrl) {
+        const b = await fetchPhotoBuffer(m.sourceUrl).catch(() => null);
+        if (b) {
+          const detected = detectImageExt(b);
+          if (detected) {
+            const ext = (CANDIDATE_EXTS as readonly string[]).includes(m.ext) ? m.ext : detected;
+            try { await writeImageAtomic(hash, ext, b); return true; } catch { /* fall through */ }
+          }
+        }
+      }
+      // b) Fallback: re-run the search by the stored (processed) query. Writes
+      //    under the SAME hash because resolveWebPhoto hashes `photo:v3:<query>`.
+      if (m.query) {
+        const r = await resolveWebPhoto(m.query).catch(() => null);
+        if (r && r.url && r.provider !== "none") return !!(await findCached(hash));
+      }
+      return !!(await findCached(hash));
+    }
+
+    // kind === "image": re-resolve WITHOUT paid fal. The SVG poster is a
+    // guaranteed terminal fallback, so this effectively always yields a file.
+    const r = await resolveTeacherImage(m.query || "", { noFal: true }).catch(() => null);
+    if (r && r.url && !r.url.startsWith("data:")) return !!(await findCached(hash));
+    return !!(await findCached(hash));
+  })();
+
+  healInflight.set(hash, job);
+  try {
+    return await job;
+  } finally {
+    healInflight.delete(hash);
+  }
 }
 
 // ── Provider 1: fal.ai (server-side generation, fast) ───────────────────────
@@ -421,6 +659,9 @@ export async function resolveTeacherImage(
     const hit = await findCached(hash);
     if (hit) {
       recordProvider("cache");
+      // Backfill the manifest so files created before self-heal existed can
+      // still be re-created if they're later evicted/wiped.
+      void manifestStore.record({ hash, ext: hit.ext, kind: "image", query: cleanPrompt, sourceUrl: null, provider: "" });
       return { url: urlFor(hash, hit.ext), provider: "cache", latencyMs: Date.now() - start };
     }
 
@@ -480,6 +721,9 @@ export async function resolveTeacherImage(
     // Background eviction (never awaited).
     maybeEvict().catch(() => {});
 
+    // Record enough to RE-CREATE this image (free path) if the file is later
+    // evicted or wiped on a deploy disk reset.
+    void manifestStore.record({ hash, ext, kind: "image", query: cleanPrompt, sourceUrl: null, provider });
     recordProvider(provider);
     return { url: urlFor(hash, ext), provider, latencyMs: Date.now() - start };
   })();
@@ -815,6 +1059,8 @@ export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
     const hit = await findCached(hash);
     if (hit) {
       recordPhoto("cache");
+      // Backfill the manifest for files cached before self-heal existed.
+      void manifestStore.record({ hash, ext: hit.ext, kind: "photo", query: clean, sourceUrl: null, provider: "" });
       return { url: urlFor(hash, hit.ext), provider: "cache", latencyMs: Date.now() - start };
     }
 
@@ -832,6 +1078,9 @@ export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
     //    already resolved in parallel — no sequential stacking of latency.
     let buf: Buffer | null = null;
     let provider: WebPhotoResult["provider"] = "none";
+    // The EXACT external URL whose bytes we accepted — persisted to the manifest
+    // so a later self-heal can re-fetch this stable asset without re-searching.
+    let sourceUrl: string | null = null;
 
     const wikiSearch = searchWikipediaThumb(clean).catch(() => null);
     const commonsSearch = searchCommonsThumb(clean).catch(() => null);
@@ -845,13 +1094,13 @@ export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
     const wikiUrl = await wikiSearch;
     if (wikiUrl && Date.now() < deadlineAt) {
       const b = await fetchPhotoBuffer(wikiUrl);
-      if (b && detectImageExt(b)) { buf = b; provider = "wiki"; }
+      if (b && detectImageExt(b)) { buf = b; provider = "wiki"; sourceUrl = wikiUrl; }
     }
     if (!buf && Date.now() < deadlineAt) {
       const commonsUrl = await commonsSearch;
       if (commonsUrl) {
         const b = await fetchPhotoBuffer(commonsUrl);
-        if (b && detectImageExt(b)) { buf = b; provider = "commons"; }
+        if (b && detectImageExt(b)) { buf = b; provider = "commons"; sourceUrl = commonsUrl; }
       }
     }
     if (!buf) {
@@ -862,7 +1111,7 @@ export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
       for (const u of ovCandidates.slice(0, 4)) {
         if (Date.now() >= deadlineAt) break; // total download budget spent — stop
         const b = await fetchPhotoBuffer(u);
-        if (b && detectImageExt(b)) { buf = b; provider = "openverse"; break; }
+        if (b && detectImageExt(b)) { buf = b; provider = "openverse"; sourceUrl = u; break; }
       }
     }
 
@@ -894,6 +1143,9 @@ export async function resolveWebPhoto(query: string): Promise<WebPhotoResult> {
     }
 
     maybeEvict().catch(() => {});
+    // Record the exact source URL so a later self-heal re-fetches the same
+    // stable Wikimedia/Openverse asset without re-running the search.
+    void manifestStore.record({ hash, ext, kind: "photo", query: clean, sourceUrl, provider });
     recordPhoto(provider);
     return { url: urlFor(hash, ext), provider, latencyMs: Date.now() - start };
   })();
@@ -915,23 +1167,35 @@ export async function serveTeacherImage(filename: string): Promise<
   if (!/^[a-f0-9]{16}\.(png|jpg|jpeg|webp|svg)$/i.test(filename)) {
     return { ok: false, status: 400, message: "invalid filename" };
   }
-  const file = path.join(CACHE_DIR, filename);
-  try {
-    const stat = await fs.stat(file);
-    if (!stat.isFile()) return { ok: false, status: 404, message: "not found" };
-    const ext = path.extname(filename).toLowerCase();
-    const contentType =
-      ext === ".png" ? "image/png" :
-      ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
-      ext === ".webp" ? "image/webp" :
-      ext === ".svg" ? "image/svg+xml" : "application/octet-stream";
-    // Refresh mtime for LRU.
-    const now = new Date();
-    fs.utimes(file, now, now).catch(() => {});
-    return { ok: true, path: file, size: stat.size, contentType };
-  } catch {
-    return { ok: false, status: 404, message: "not found" };
+
+  // 1. Fast path: the file is on disk → serve it (today's behavior, no DB hit).
+  const direct = await statServe(filename);
+  if (direct) return direct;
+
+  // 2. Self-heal: the file is gone (LRU-evicted, namespace-orphaned, or wiped on
+  //    a deploy disk reset). If a manifest row exists we RE-CREATE the bytes —
+  //    re-fetch the stable source URL for a real photo, or re-resolve the prompt
+  //    on the FREE path for a generated image — so a URL baked into a saved
+  //    session never becomes a permanent broken image. Concurrent hits for the
+  //    same hash collapse onto one heal (see healImage).
+  const hash = filename.slice(0, 16).toLowerCase();
+  const manifest = await manifestStore.get(hash);
+  if (manifest) {
+    const healed = await healImage(hash, manifest);
+    if (healed) {
+      void manifestStore.bump(hash);
+      // Prefer the exact requested filename; fall back to any cached ext — the
+      // re-resolved bytes may carry a different ext, and the HTTP content-type
+      // (not the URL extension) is what the browser renders by.
+      const served = (await statServe(filename)) ?? (await statServeAnyExt(hash));
+      if (served) return served;
+    }
   }
+
+  // 3. No manifest (legacy URL from before this feature) or heal failed. The
+  //    route adds Cache-Control: no-store so this miss is never cached, and the
+  //    FE onerror handler drops the figure as the final safety net.
+  return { ok: false, status: 404, message: "not found" };
 }
 
 export const TEACHER_IMAGE_URL_PREFIX = URL_PREFIX;
