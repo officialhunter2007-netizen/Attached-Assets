@@ -45,13 +45,21 @@ export type Scene = {
 };
 
 // ── Module-level scene cache ─────────────────────────────────────────────────
-// Keyed by `lessonName\u0000topic` (mirrors the server hash basis).
+// Keyed by `version\u0000lessonName\u0000topic` (mirrors the server hash basis).
 // Survives SceneMount remounts so a re-created mount node for the same topic
 // shows the scene instantly (no loading flash).
+//
+// SCENE_CACHE_VERSION MUST stay in sync with SCENE_PROMPT_VERSION on the server
+// (v4-scene-store.ts). Bumping it on a prompt/quality change invalidates every
+// browser-cached scene so an open tab regenerates instead of showing the old one.
+const SCENE_CACHE_VERSION = "2";
 const _sceneCache = new Map<string, Scene>();
 
 function makeCacheKey(topic: string, lessonName?: string): string {
-  return `${(lessonName || "").trim().toLowerCase()}\u0000${topic.trim().toLowerCase()}`;
+  // Mirror the server normalization (trim → slice(0,1200) → trim → lowercase).
+  const t = topic.trim().slice(0, 1200).trim().toLowerCase();
+  const l = (lessonName || "").trim().toLowerCase();
+  return `${SCENE_CACHE_VERSION}\u0000${l}\u0000${t}`;
 }
 
 // Wrap the model's body-only HTML/CSS/JS in a full RTL dark document that
@@ -270,6 +278,10 @@ export function SceneMount({ topic, lessonName }: { topic: string; lessonName?: 
       setState({ status: "ready", scene: _sceneCache.get(cacheKey)! });
       return;
     }
+    // No cache hit for this key — show loading. This matters when the SAME
+    // SceneMount instance gets a new topic/lesson (key change): without this it
+    // would keep rendering the previous ready scene until the new fetch resolves.
+    setState({ status: "loading" });
     let cancelled = false;
     const ctrl = new AbortController();
     (async () => {

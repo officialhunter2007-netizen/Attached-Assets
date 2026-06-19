@@ -142,14 +142,25 @@ async function ensureDir(): Promise<void> {
 }
 
 /**
+ * Bump this whenever the generation PROMPT/quality changes. Prompt-only changes
+ * do NOT change a scene's shape, so already-cached disk files (and the FE's
+ * module cache, which mirrors this version) would otherwise serve the OLD scene
+ * forever. Bumping the version changes every hash → guaranteed regeneration of
+ * every topic with the new prompt. Keep this in sync with SCENE_CACHE_VERSION in
+ * the FE `scene-stepper.tsx`.
+ */
+const SCENE_PROMPT_VERSION = "2";
+
+/**
  * Stable cache key from the normalized scene description PLUS the lesson
  * context. `lessonName` is fed to the generation prompt, so it must be part of
  * the cache identity — otherwise the same topic under two different lessons
  * could serve a context-stale scene. A NUL separator avoids field-boundary
- * collisions (e.g. "ab"+"c" vs "a"+"bc").
+ * collisions (e.g. "ab"+"c" vs "a"+"bc"). The prompt version is prefixed so a
+ * prompt change invalidates the whole cache.
  */
 function hashKey(topic: string, lessonName?: string): string {
-  const basis = `${(lessonName || "").trim().toLowerCase()}\u0000${topic.trim().toLowerCase()}`;
+  const basis = `${SCENE_PROMPT_VERSION}\u0000${(lessonName || "").trim().toLowerCase()}\u0000${topic.trim().toLowerCase()}`;
   return createHash("sha256").update(basis).digest("hex").slice(0, 20);
 }
 
@@ -222,50 +233,95 @@ async function maybeEvict(): Promise<void> {
 }
 
 // ── Prompt ──────────────────────────────────────────────────────────────────
+//
+// A complete, runnable GOLD-STANDARD example. Few-shot anchoring is the single
+// biggest quality lever: without a concrete target the model improvises sparse,
+// motionless layouts (a couple of static labelled boxes on an empty grid). This
+// example demonstrates everything we want — a full stage, ≥3 meaningful labelled
+// elements, an OBVIOUS continuous looping motion (a packet traveling the wire),
+// brand colours, glow on the active actor, and visual storytelling that reads
+// even with the sound off.
+const GOLD_EXAMPLE_HTML = [
+  '<div class="sc">',
+  '  <h3 class="sc-ttl">رحلة الرسالة عبر الإنترنت</h3>',
+  '  <div class="sc-row">',
+  '    <div class="sc-box dev"><span class="sc-ico">💻</span><span class="sc-lbl">جهازك</span></div>',
+  '    <div class="sc-wire"><span class="sc-dot"></span><span class="sc-pkt">📨</span></div>',
+  '    <div class="sc-box srv"><span class="sc-ico">🗄️</span><span class="sc-lbl">الخادم</span></div>',
+  '  </div>',
+  '  <div class="sc-cap">البيانات تسافر ذهاباً وإياباً عبر الشبكة</div>',
+  '</div>',
+  '<style>',
+  '  .sc{display:flex;flex-direction:column;align-items:center;gap:20px;padding:24px 14px;}',
+  '  .sc-ttl{margin:0;color:#F59E0B;font-weight:800;font-size:19px;}',
+  '  .sc-row{display:flex;align-items:center;gap:10px;width:min(470px,94%);}',
+  '  .sc-box{display:flex;flex-direction:column;align-items:center;gap:8px;flex:0 0 auto;}',
+  '  .sc-ico{width:68px;height:68px;border-radius:18px;display:grid;place-items:center;font-size:32px;background:#141a24;border:2px solid #2a3242;transition:box-shadow .4s;}',
+  '  .dev .sc-ico{border-color:#10B981;box-shadow:0 0 20px rgba(16,185,129,.5);}',
+  '  .srv .sc-ico{border-color:#F59E0B;box-shadow:0 0 20px rgba(245,158,11,.5);}',
+  '  .sc-lbl{font-size:14px;font-weight:700;color:#e9edf5;}',
+  '  .sc-wire{position:relative;flex:1 1 auto;height:4px;border-radius:4px;background:linear-gradient(90deg,#10B981,#F59E0B);opacity:.5;}',
+  '  .sc-dot{position:absolute;top:50%;right:0;width:14px;height:14px;margin-top:-7px;border-radius:50%;background:#fff;box-shadow:0 0 12px #fff;animation:sc-go 3.4s ease-in-out infinite;}',
+  '  .sc-pkt{position:absolute;top:-26px;right:0;font-size:24px;animation:sc-go 3.4s ease-in-out infinite;}',
+  '  .sc-cap{font-size:13px;color:#9aa4b2;}',
+  '  @keyframes sc-go{0%{right:0;opacity:0;}10%{opacity:1;}48%{right:calc(100% - 14px);opacity:1;}60%{right:calc(100% - 14px);opacity:1;}98%{right:0;opacity:0;}100%{right:0;opacity:0;}}',
+  '</style>',
+].join("\n");
+
 function buildSystemPrompt(): string {
   return [
-    "أنت كاتب سيناريو تعليمي ومخرج موشن جرافيك محترف للمنصّة التعليمية اليمنية «نُخبة». مهمّتك الأهمّ ليست الزخرفة، بل أن تصنع **قصّة قصيرة واضحة جداً ومفهومة من أول مشاهدة** تشرح الفكرة، ثم تلبسها رسماً متحرّكاً جميلاً وبسيطاً.",
-    "تذكّر دائماً: الطالب يمني، والشرح يجب أن يكون بأبسط ما يمكن، وكأنّك تشرح لصديق بلهجة يمنية ودودة بأمثلة من الحياة اليومية. الوضوح أهمّ من الإبهار، والبساطة أهمّ من الكثرة.",
+    "أنت مخرج موشن جرافيك تعليمي محترف للمنصّة اليمنية «نُخبة». مهمّتك أن تصنع **رسماً متحرّكاً واضحاً يشرح الفكرة بصرياً من أول نظرة**، مصحوباً بقصّة قصيرة بلهجة يمنية بسيطة. الطالب يجب أن يفهم الفكرة من الحركة وحدها حتى لو لم يقرأ.",
     "",
-    "=== أولاً: السيناريو (الأهمّ على الإطلاق) ===",
-    "- اختَر **فكرة واحدة محورية فقط** من الوصف الذي يصلك، ولا تحشُر كل شيء. مشهد واحد بسيط يشرح فكرة واحدة بوضوح أفضل بكثير من مشهد مزدحم.",
-    "- ابنِ **قصّة خطّية واضحة**: بداية (الموقف) ← تطوّر (ماذا يحدث خطوة بخطوة) ← نتيجة (الخلاصة أو العِبرة). يجب أن يفهمها الطالب فوراً دون عناء.",
-    "- فضّل **التشبيه الملموس من الحياة اليومية** (سوق، بيت، ماء، طريق، صندوق، مفتاح، رسالة…) على الرموز المجرّدة الغامضة. اجعل المشهد منطقياً وواقعياً.",
-    "- إن كان فيه أطراف/شخصيات، فلتكن قليلة وواضحة الدور (مثلاً: طرفان فقط)، وأبرِز في كل لحظة من هو الفاعل وماذا يفعل ولماذا.",
+    "=== أخطاء قاتلة — ممنوع منعاً باتّاً (هذا أهمّ جزء) ===",
+    "احذر من إنتاج مشهد ضعيف. تجنّب تماماً هذه الأخطاء التي تجعل الرسم بلا فائدة:",
+    "- ✗ **مشهد فارغ**: مربّعان ساكنان وسط مساحة فاضية كبيرة بلا حركة. هذا فشل تامّ.",
+    "- ✗ **بلا حركة واضحة**: عناصر تظهر فقط دون أن يتحرّك شيء يحكي العملية. لا بدّ من حركة واضحة ومستمرّة (شيء يسافر، يتحوّل، يتدفّق، يكبر، يتغيّر لونه…).",
+    "- ✗ **رموز مجرّدة غامضة**: مربّعات بلا معنى بدل أيقونات/أشكال معبّرة. كل عنصر يجب أن يُفهَم فوراً.",
+    "- ✗ **مساحة مهدورة**: اجعل الرسم يملأ عرض المسرح بشكل متوازن ومُركَّز، بلا فراغات كبيرة ميّتة.",
     "",
-    "أعِد **JSON فقط** (بدون أي نص خارج JSON، وبدون أسوار ```) بهذا الشكل بالضبط:",
+    "=== المواصفات الإلزامية للرسم المتحرّك ===",
+    "- **حركة مستمرّة وواضحة في حلقة (loop) لا تتوقّف**: تبدأ فور التحميل وتتكرّر. هذه أهمّ صفة — الحركة هي التي تشرح. استخدم `@keyframes`/`transition` مع `ease-in-out`، أو `requestAnimationFrame`/Canvas.",
+    "- **٣ إلى ٥ عناصر معبّرة معنونة بالعربية على الأقل**، كلٌّ بدوره الواضح في القصّة (مرسِل، مستقبِل، بيانات، خطوة…). استخدم أيقونات رمزية (emoji أو أشكال SVG/CSS بسيطة) لجعل كل عنصر مفهوماً بنظرة.",
+    "- **سرد بصري متدرّج**: تتحرّك العناصر بنفس تسلسل الـ steps، فيرى الطالب القصّة تتحرّك أمامه: بداية ← تطوّر ← نتيجة.",
+    "- **تشبيه ملموس من الحياة**: فضّل تمثيل الفكرة بشيء واقعي (رسالة تسافر، ماء يجري، مفتاح يفتح قفلاً، صندوق يُملأ…) على الرموز المجرّدة.",
+    "- **املأ المسرح**: المسرح أفقي عريض؛ وزّع العناصر لتملأ العرض (مثلاً صفّ أفقي ممتدّ)، مع مسافات مريحة لا فراغ ميّت.",
+    "",
+    "=== هذا مثال ذهبي كامل — اقتدِ بمستواه (ولا تنسخه حرفياً) ===",
+    "لاحظ فيه: مسرح ممتلئ، ٣ عناصر معنونة بأيقونات، حركة واضحة مستمرّة (نقطة بيانات تسافر على السلك ذهاباً وإياباً)، ألوان الثيم، وتوهّج على العنصر الفاعل:",
+    "```html",
+    GOLD_EXAMPLE_HTML,
+    "```",
+    "اصنع رسماً بنفس هذا المستوى من الوضوح والحركة والامتلاء، لكن مصمّماً خصّيصاً للفكرة المطلوبة منك.",
+    "",
+    "=== القيود التقنية للرسم (html) ===",
+    "- اكتب **محتوى الجسم فقط**: عناصر HTML و`<style>` و`<script>`. بلا `<!DOCTYPE>`/`<html>`/`<head>`/`<body>` — النظام يغلّفها.",
+    "- **مكتفٍ ذاتياً تماماً**: لا روابط خارجية، لا صور إنترنت، لا CDN، لا خطوط خارجية، ولا أيّ طلب شبكة (البيئة معزولة). HTML/CSS/SVG/Canvas/JS خالصة فقط. (الإيموجي مسموح كأيقونات.)",
+    "- **الثيم (إلزامي)**: خلفية شفّافة، نص فاتح `#e9edf5`، ذهبي `#F59E0B` وزمرّدي `#10B981` للإبراز، رمادي `#9aa4b2` للثانوي. بطاقات بحواف دائرية، ظلال خفيفة، وتوهّج لطيف على العنصر الفاعل.",
+    "- **كل النصوص داخل الرسم بالعربية**، اتجاه RTL، خط `Tajawal, Cairo, sans-serif`، بحجم مقروء. تسمية عربية مختصرة على كل عنصر مهمّ.",
+    "- **المقاس**: العرض 100% تلقائياً؛ الارتفاع المنطقي بين ~260 و ~430 بكسل. بلا `position:fixed`، بلا نوافذ منبثقة، بلا تمرير (scroll).",
+    "- كود نظيف متقَن بلا أخطاء — يُنفَّذ كما هو داخل إطار معزول.",
+    "",
+    "=== النصوص (steps) ===",
+    "- عدد الخطوات بين 3 و 5، مرتّبة كقصّة (بداية ← تطوّر ← نتيجة) تقود الطالب بيده.",
+    "- كل `explanation` **جملة أو جملتان قصيرتان فقط** بلهجة يمنية بسيطة ودودة، تشرحان ما يتحرّك على الشاشة في تلك اللحظة بالضبط ولماذا — بلا حشو ولا مصطلحات معقّدة. كل خطوة تطابق لحظة في الحركة.",
+    "",
+    "=== صيغة الإخراج ===",
+    "أعِد **JSON فقط** (بدون أيّ نص خارجه، وبدون أسوار ```) بهذا الشكل بالضبط:",
     "{",
     '  "title": "عنوان قصير واضح يلخّص القصّة",',
     '  "subtitle": "سطر واحد يوضّح الفكرة بكلمات بسيطة",',
-    '  "html": "…محتوى الجسم: عناصر HTML + <style> + <script> لرسمٍ متحرّك مكتفٍ ذاتياً…",',
+    '  "html": "…محتوى الجسم: HTML + <style> + <script> لرسمٍ متحرّك مكتفٍ ذاتياً بحركة واضحة مستمرّة…",',
     '  "steps": [',
-    '    {"title":"عنوان قصير للخطوة","explanation":"جملة أو جملتان قصيرتان فقط، بلهجة يمنية بسيطة وواضحة، تشرحان ماذا يحدث الآن في المشهد ولماذا — بلا حشو ولا مصطلحات معقّدة","note":"تنبيه اختياري قصير جداً"}',
+    '    {"title":"عنوان قصير للخطوة","explanation":"جملة أو جملتان قصيرتان بلهجة يمنية بسيطة تشرحان ما يحدث الآن في المشهد ولماذا","note":"تنبيه اختياري قصير جداً"}',
     "  ]",
     "}",
-    "",
-    "=== ثانياً: النصوص (steps) — جودة عالية ووضوح تامّ ===",
-    "- عدد الخطوات بين 3 و 5 (6 كحدّ أقصى عند الضرورة)، مرتّبة كقصّة من البداية للنتيجة بحيث تقود الطالب بيده.",
-    "- كل `explanation` **جملة أو جملتان قصيرتان فقط** بلهجة يمنية بسيطة وطبيعية وودودة. تجنّب الجُمل الطويلة، والكلمات الصعبة، والعبارات العامة المبهمة. كل خطوة تشرح فكرة واحدة فقط.",
-    "- اجعل النصوص متّسقة مع ما يتحرّك على الشاشة في تلك اللحظة بالضبط، حتى تتطابق القراءة مع المشاهدة.",
-    "",
-    "=== ثالثاً: الرسم المتحرّك (html) — بسيط وجميل يخدم القصّة ===",
-    "- اكتب **محتوى الجسم فقط**: عناصر HTML و`<style>` و`<script>`. لا تكتب `<!DOCTYPE>` ولا `<html>` ولا `<head>` ولا `<body>` — النظام يغلّفها تلقائياً في مستند بالثيم نفسه.",
-    "- **مكتفٍ ذاتياً تماماً**: لا روابط خارجية، لا صور إنترنت، لا مكتبات CDN، لا خطوط خارجية، ولا أيّ طلب شبكة (البيئة معزولة تماماً). استخدم HTML وCSS وSVG وCanvas وJavaScript خالصة فقط.",
-    "- **البساطة قاعدة**: عناصر قليلة واضحة معنونة بالعربية، مساحات واسعة مريحة، بلا ازدحام. كل عنصر له معنى ودور في القصّة — احذف أي شيء زخرفي لا يخدم الفهم.",
-    "- **حركة ناعمة وتلقائية ومتكرّرة**: تبدأ فور التحميل وتدور في حلقة (loop) لا تتوقّف. استخدم `@keyframes` و`transition` مع `cubic-bezier` (ease-in-out)، أو `requestAnimationFrame`، أو Canvas. حركة هادئة مدروسة بلا قفزات حادّة ولا سرعة مربكة.",
-    "- **سرد بصري متدرّج**: تظهر العناصر بالترتيب وتتحرّك لتحكي الخطوات بنفس تسلسل الـ steps، بحيث يفهم الطالب القصّة من الحركة وحدها حتى بلا قراءة.",
-    "- **الثيم (إلزامي)**: خلفية شفّافة (النظام داكن خلفها)، نص فاتح `#e9edf5`، واللونان الأساسيان ذهبي `#F59E0B` وزمرّدي `#10B981` للإبراز، ورمادي هادئ `#9aa4b2` للثانوي. حواف دائرية، ظلال خفيفة، تباين مريح، وتوهّج لطيف عند إبراز العنصر الفاعل.",
-    "- **كل النصوص داخل الرسم بالعربية** واتجاه RTL وبخط `Tajawal, Cairo, sans-serif`، وبحجم مقروء واضح. ضع تسمية عربية مختصرة على كل عنصر مهمّ.",
-    "- **المقاس**: العرض 100% تلقائياً؛ الارتفاع المنطقي بين ~240 و ~430 بكسل. لا `position:fixed`، ولا نوافذ منبثقة، ولا تمرير (scroll).",
-    "- أبقِ الكود نظيفاً متقَناً بلا أخطاء — يُنفَّذ كما هو داخل إطار معزول.",
-    "",
-    "التزم تماماً ببنية JSON أعلاه ولا تُضِف حقولاً غير معرّفة. الأولوية القصوى وبالترتيب: (١) سيناريو واضح بسيط مفهوم، (٢) نصوص يمنية راقية قصيرة، (٣) رسم متحرّك ناعم وجميل يخدم القصّة. لا شيء غامض أو مزدحم أو طفولي.",
+    "لا تُضِف حقولاً غير معرّفة. الأولوية: (١) حركة واضحة مستمرّة تشرح الفكرة، (٢) مسرح ممتلئ بعناصر معبّرة معنونة، (٣) نصوص يمنية قصيرة راقية متطابقة مع الحركة.",
   ].join("\n");
 }
 
 function buildUserPrompt(topic: string, lessonName?: string): string {
   const ctx = lessonName ? `سياق الدرس: «${lessonName}».\n` : "";
-  return `${ctx}اكتب سيناريو تعليمياً قصيراً **واضحاً وبسيطاً ومفهوماً من أول مشاهدة** يشرح الفكرة التالية، ثم حوّله إلى رسم متحرّك (HTML/CSS/JS) ناعم وجميل بسيط مع شريط خطوات بنصوص يمنية قصيرة وراقية. ركّز على وضوح القصّة قبل أي شيء، والتزم تماماً ببنية JSON المطلوبة:\n\n«${topic.trim()}»`;
+  return `${ctx}صمّم رسماً متحرّكاً تعليمياً بمستوى المثال الذهبي: **مسرح ممتلئ، عناصر معبّرة معنونة بالعربية، وحركة واضحة مستمرّة تشرح الفكرة بصرياً من أول نظرة** — احذر المشهد الفارغ الساكن. أرفِق شريط خطوات بنصوص يمنية قصيرة متطابقة مع الحركة. التزم تماماً ببنية JSON المطلوبة. الفكرة المطلوب شرحها:\n\n«${topic.trim()}»`;
 }
 
 // ── Normalization ───────────────────────────────────────────────────────────
@@ -357,8 +413,8 @@ export async function generateScene(
         systemPrompt: buildSystemPrompt(),
         userParts: [{ type: "text", text: buildUserPrompt(clean, options.lessonName) }],
         model: SCENE_MODEL,
-        temperature: 0.55,
-        maxOutputTokens: 6500,
+        temperature: 0.5,
+        maxOutputTokens: 9000,
         jsonMode: false, // Anthropic-on-OpenRouter: rely on prompt + robust parse.
         timeoutMs: SCENE_TIMEOUT_MS,
         signal: options.signal,

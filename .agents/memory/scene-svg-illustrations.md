@@ -51,3 +51,31 @@ parent accepts ONLY when `e.origin === "null"`, `Number.isFinite(height)`, and
 **Backward compat:** old cached scene files held `{svg}`; the schema now requires
 `{html}`, so `SceneSchema.safeParse` fails on read → treated as cache miss →
 regenerated. No migration needed.
+
+## Scene QUALITY levers
+- **Few-shot gold example is the #1 quality lever.** Freeform "author HTML/CSS/JS"
+  prompting (however verbose the rules) makes the model improvise SPARSE,
+  MOTIONLESS scenes — a couple of static labelled boxes on an empty grid. The fix
+  that actually moved quality was embedding ONE complete runnable gold-standard
+  example in the system prompt (full stage, ≥3 labelled elements, an obvious
+  continuous looping motion, brand colours) + an explicit "fatal errors to avoid"
+  block naming the exact failures (empty scene / no visible motion / vague boxes /
+  wasted space). Prose rules alone don't land; the model copies the *level* of a
+  concrete example.
+- **Changing the prompt does NOTHING for already-cached topics.** Scenes are
+  disk-cached by `sha256(lessonName \u0000 topic)` under
+  `artifacts/api-server/data/v4-scenes/*.json` and served verbatim forever. After
+  any prompt/quality change you MUST clear that dir (or bump the hash basis) or
+  the user keeps seeing the old poor scene. (Schema *shape* changes self-invalidate
+  via safeParse; prompt-only quality changes do not.)
+
+## FE flash/disappear bug (manual-nav stepper)
+The lesson renders teacher HTML via `dangerouslySetInnerHTML`, which destroys the
+entire DOM subtree on every `html` change → the `data-scene-mount` node loses
+identity → `SceneMount` unmounts/remounts on a NEW node → state resets to
+"loading" → looks like the scene "appeared then vanished". Fix = a **module-level
+`_sceneCache = new Map<key,Scene>()`** in scene-stepper.tsx; `SceneMount` inits
+state from it (`useState(() => cache.get(key) ? ready : loading)`) and writes on
+fetch success, so remounts restore instantly. Key mirrors the server basis
+(`lessonName\u0000topic`, trimmed+lowercased). Autoplay was also removed — the
+stepper is manual-only (التالي/السابق) per user preference.
