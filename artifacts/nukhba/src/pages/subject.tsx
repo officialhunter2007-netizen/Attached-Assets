@@ -1861,11 +1861,19 @@ function normalizeLabEnvButtons(raw: string): string {
   return result;
 }
 
+// ── مفتاح تحكم مؤقت ─────────────────────────────────────────────────────────
+// اجعل القيمة `true` لإعادة تفعيل عرض الصور التلقائي للطالب.
+const IMAGES_ENABLED = false;
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Replaces inline `[[IMAGE:hex]]` markers (12-char hex IDs from the backend
 // streaming detector) with placeholder <figure> markup. The figure carries
 // `data-image-id` so an effect in AIMessage can swap in the real <img> when
 // the matching SSE `imageReady` event resolves the URL.
+// When IMAGES_ENABLED=false the markers are silently stripped so no image
+// or spinner ever appears to the student.
 function renderImageMarkers(raw: string, loadingLabel = "جارٍ توليد الصورة التوضيحية…"): string {
+  if (!IMAGES_ENABLED) return raw.replace(/\[\[IMAGE:[a-f0-9]{6,16}\]\]/gi, "");
   return raw.replace(/\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi, (_m, id) =>
     `\n\n<figure class="teach-image teach-image-loading" data-image-id="${id}"><div class="teach-image-spinner"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="label">${loadingLabel}</span></div></figure>\n\n`,
   );

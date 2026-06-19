@@ -99,8 +99,16 @@ function saveActiveId(userId: string | null, slug: string, code: string, id: str
   } catch {}
 }
 
+// ── مفتاح تحكم مؤقت ─────────────────────────────────────────────────────────
+// اجعل القيمة `true` لإعادة تفعيل عرض الصور التلقائي للطالب.
+const IMAGES_ENABLED = false;
+// ─────────────────────────────────────────────────────────────────────────────
+
 /* ── IMAGE marker → loading <figure> placeholder ──────────────────────── */
+// When IMAGES_ENABLED=false the markers are silently stripped so no image
+// or spinner ever appears to the student.
 function renderImageMarkers(raw: string, loadingLabel = "جارٍ توليد الصورة التوضيحية…"): string {
+  if (!IMAGES_ENABLED) return raw.replace(/\[\[IMAGE:[a-f0-9]{6,16}\]\]/gi, "");
   return raw.replace(/\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi, (_m, id) =>
     `\n\n<figure class="teach-image teach-image-loading" data-image-id="${id}"><div class="teach-image-spinner"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="label">${loadingLabel}</span></div></figure>\n\n`,
   );
@@ -111,6 +119,7 @@ function renderImageMarkers(raw: string, loadingLabel = "جارٍ توليد ا�
 // unknown id keeps its `[[IMAGE:id]]` marker (re-renders as a spinner). The
 // escaping is minimal because urls are same-origin paths we generate ourselves.
 function inlineReadyImages(content: string, imageMap: Map<string, V4ImageState>): string {
+  if (!IMAGES_ENABLED) return content;
   if (!content || imageMap.size === 0) return content;
   return content.replace(/\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi, (m, id) => {
     const st = imageMap.get(String(id));
