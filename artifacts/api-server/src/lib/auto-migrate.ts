@@ -1085,6 +1085,20 @@ async function seedPaymentSettings(): Promise<void> {
 
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
+    // Legacy `lab_reports` tables predate the current schema and are missing
+    // the columns the current Drizzle schema and the lab_reports SELECT need.
+    // Same crash pattern as lesson_summaries: async route with no try/catch →
+    // unhandled rejection → whole API process exits. Backfill-safe DDLs.
+    table: "lab_reports",
+    columns: [
+      { name: "subject_name", ddl: "text NOT NULL DEFAULT ''" },
+      { name: "env_title", ddl: "text NOT NULL DEFAULT ''" },
+      { name: "env_briefing", ddl: "text NOT NULL DEFAULT ''" },
+      { name: "report_text", ddl: "text NOT NULL DEFAULT ''" },
+      { name: "feedback_html", ddl: "text NOT NULL DEFAULT ''" },
+    ],
+  },
+  {
     // Legacy `lesson_summaries` tables predate the current schema and are
     // missing these columns. The plans route SELECTs all of them, and because
     // the handler is async with no try/catch, a missing column surfaces as an
