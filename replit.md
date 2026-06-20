@@ -87,6 +87,14 @@ Nukhba is an AI-powered Yemeni educational platform offering personalized learni
 - **New ledger reasons**: `purchase_gems`, `platform_revenue`, `welcome_gift`, `monthly_expiry`, `renewal_carryover`. New sources prefixed `v4_*`. Student usage page and admin ledger tab display them with Arabic labels.
 - **Parallel to legacy**: the approve flow writes BOTH the legacy `user_subject_subscriptions` grant AND a v4 `purchaseV4Gems` (best-effort post-tx — a v4 failure logs but does not undo the legacy grant). The legacy daily-cap / midnight-forfeit / free-first-lesson path remains in service for all student-facing reads until task #10 cuts the FE over.
 
+### v4 University Booklet (ملازم الجامعة)
+- **Per-student uploaded booklets** (PDF + Word `.docx`), grouped under the student's specialty, **max 5 per student**, each deletable (cascade wipes chunks + progress, confirmation required). Scanned PDFs fall back to the shared OCR chain; Word cites by heading/section, PDF by page (`[ص:N]`).
+- **Adaptive hierarchical tree**: generation detects the booklet's own structure (parts→levels, chapters→stages, sections→units, topics→lessons, exercises→labs) at adaptive depth; old flat `{units:[]}` trees still load via a read-time normalizer. Unit + final exams are built from the content. **Navigation is FREE — all lessons open, no locks.** Exams/labs are assessment-only (stars/mastery), they never gate.
+- **Full map UI** reuses the custom-path map visuals; nodes open the lesson teacher, lab runner, or exam runner.
+- **Lazy, grounded assessments**: exam/lab questions are NOT authored at upload — they are generated on first open from the booklet's own chunks, then cached **set-if-absent** in the per-booklet progress jsonb (row-locked, first-writer-wins) so reloads show the same set and submit grades a stable key the client never sees. Generators enforce **exact counts before caching** (exam unit=6 / final=10; lab=5) — a short generation throws → 503 retry rather than freezing a thin set. Exams are MCQ-only → deterministic, FREE grading (`correctIndex`). Labs are 5 typed open-ended questions over one scenario, graded by Haiku anchored on server-only per-question `rubric` + `solutionOutline` (persisted through the progress round-trip, stripped from every client GET). Pass threshold 60% both; lab answers length-capped before grading.
+- **Teacher grounding**: topics/questions/labs strictly from the booklet (vary values, never invent a question TYPE not present); a clear booklet error/gap may be supplemented from general knowledge but MUST be labeled «إضافة توضيحية خارج الملزمة» and stay in service of the booklet. Tone: very simple, fun, Yemeni Socratic.
+- **Billing**: booklet teach + grading are FREE for now; the `chargeV4Ai`/`refundV4Ai` seam is preserved for later activation.
+
 ## External Dependencies
 
 - **Node.js**: Version 24

@@ -393,7 +393,7 @@ export default function PathBooklet() {
                             <CheckCircle className="w-3.5 h-3.5" /> جاهز
                           </span>
                           <button
-                            onClick={() => navigate(`/booklet/${b.id}`)}
+                            onClick={() => navigate(`/booklet/${b.id}/map`)}
                             className="px-3 py-1.5 rounded-lg bg-emerald text-black text-xs font-bold hover:bg-emerald/90"
                           >
                             افتح

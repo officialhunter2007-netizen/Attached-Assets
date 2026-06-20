@@ -784,6 +784,31 @@ export function findLessonInTree(tree: BookletTree, lessonCode: string): Booklet
   return null;
 }
 
+export function findLabInTree(
+  tree: BookletTree,
+  labCode: string,
+): { lab: BookletLab; unit: BookletUnit } | null {
+  for (const u of tree.units ?? []) {
+    for (const lab of u.labs ?? []) {
+      if (lab.code === labCode) return { lab, unit: u };
+    }
+  }
+  return null;
+}
+
+// Resolves an exam code to either a unit test (`U<n>.TEST`) or the booklet-wide
+// final (`FINAL`). Returns the owning unit for unit tests, null for the final.
+export function findExamInTree(
+  tree: BookletTree,
+  examCode: string,
+): { exam: BookletExamRef; unit: BookletUnit | null } | null {
+  for (const u of tree.units ?? []) {
+    if (u.unitTest && u.unitTest.code === examCode) return { exam: u.unitTest, unit: u };
+  }
+  if (tree.finalTest && tree.finalTest.code === examCode) return { exam: tree.finalTest, unit: null };
+  return null;
+}
+
 // ─── RAG retrieval ──────────────────────────────────────────────────────────
 const TOTAL_CHAR_BUDGET = 8000; // ~2000 tokens conservative
 
@@ -967,5 +992,250 @@ export function buildBookletTeacherPrompt(opts: {
   ].join("\n");
   const L9 = buildLanguageLayer(lang);
 
-  return [L1, L2, L3, L4, L5, L6, L7, L8, L9].join("\n\n");
+  // Booklet grounding discipline (Phase F): strict scope + question-type
+  // constraint + tone. Complements the L6 citation/exception rules; placed
+  // right after the content layer so scope rules sit with what's taught.
+  const DISCIPLINE = [
+    "## التزام نطاق الملزمة (قاعدة صارمة)",
+    "- كل المواضيع والأسئلة والتمارين التي تطرحها يجب أن تكون من محتوى هذه الملزمة فقط.",
+    "- لا تخترع نوع سؤال أو تمرين غير موجود في الملزمة؛ استعمل نفس الأنواع الموجودة وغيّر القيم/الأرقام/الأمثلة فقط لتوليد تدريبات جديدة.",
+    "- إذا لم تجد تمارين في المقاطع، اطرح أسئلة مبنية على نفس مفاهيم الملزمة دون نسخ حرفي ودون الخروج عن نطاقها.",
+    "- النبرة: بسيطة جداً وممتعة، بالعامية اليمنية، وبأسلوب سقراطي (اسأل قبل أن تشرح، واترك الطالب يتوقّع ثم اكشف).",
+    "- عند الحاجة لإضافة من خارج الملزمة (خطأ/نقص واضح فقط) صدّرها بـ «(إضافة توضيحية خارج الملزمة)» كما في الطبقة ٦.",
+  ].join("\n");
+
+  return [L1, L2, DISCIPLINE, L3, L4, L5, L6, L7, L8, L9].join("\n\n");
+}
+
+// ─── Lazy exam/lab question generation (Phase G) ────────────────────────────
+// Questions are NOT authored at upload time. The first time a student opens an
+// exam or a lab we pull the bound source pages (+ top similar chunks) and ask
+// Gemini to author questions STRICTLY grounded in that content, then the route
+// caches them so submit grades a stable set. Generators never persist — the
+// route owns caching (set-if-absent, row-locked).
+
+// Pack retrieved chunks into a single grounding block, page-labelled, capped.
+function buildBookletContextText(chunks: RetrievedChunk[], budget = 7000): string {
+  const blocks: string[] = [];
+  let used = 0;
+  for (const c of chunks) {
+    const body = String(c.text ?? "").replace(/\s+/g, " ").trim();
+    if (!body) continue;
+    const block = `--- صفحة ${c.pageNumber} ---\n${body}`;
+    if (used + block.length > budget && blocks.length) break;
+    blocks.push(block);
+    used += block.length;
+    if (used >= budget) break;
+  }
+  return blocks.join("\n\n");
+}
+
+export type GeneratedBookletExamQuestion = {
+  id: number;
+  questionIndex: number;
+  kind: "mcq";
+  prompt: string;
+  choices: string[];
+  correctIndex: number;
+  explanation?: string;
+};
+
+// Booklet exams are MCQ-only so grading is deterministic + free (no AI at
+// submit time). Throws on thin content / unusable output so the route can
+// surface a friendly retry instead of caching a broken set.
+export async function generateBookletExamQuestions(opts: {
+  bookletId: number;
+  bookletTitle: string;
+  examTitle: string;
+  scope: "unit" | "final";
+  sourcePages: [number, number];
+  count: number;
+}): Promise<GeneratedBookletExamQuestion[]> {
+  const count = Math.max(3, Math.min(12, Math.floor(opts.count) || 5));
+  const { chunks } = await retrieveBookletContext({
+    bookletId: opts.bookletId,
+    lessonPages: opts.sourcePages,
+    query: opts.examTitle,
+  });
+  const context = buildBookletContextText(chunks);
+  if (!context.trim()) throw new Error("booklet_exam_no_context");
+
+  const systemPrompt = [
+    "أنت مصمّم اختبارات تعليمية. تستلم مقاطع من ملزمة جامعية وتؤلّف منها أسئلة اختيار من متعدد (MCQ) فقط.",
+    "أعِد JSON صالحاً فقط دون أي شرح أو markdown، بالشكل:",
+    `{"questions":[{"prompt":"...","choices":["...","...","...","..."],"correctIndex":0,"explanation":"..."}]}`,
+    "",
+    "قواعد صارمة:",
+    "- الأسئلة حصراً من محتوى المقاطع المرفقة؛ لا تستعن بأي معرفة خارجية ولا تخترع مفاهيم غير موجودة فيها.",
+    "- لا تخترع نوع سؤال غير موجود في الملزمة؛ يمكنك تغيير الأرقام/الصياغة فقط، مع البقاء ضمن نطاق المحتوى.",
+    "- كل سؤال: متن واضح + ٣ إلى ٤ خيارات + correctIndex (يبدأ من 0) للخيار الصحيح + explanation جملة قصيرة تبرّر الإجابة.",
+    "- خيار واحد صحيح فقط، والخيارات الخاطئة معقولة وقريبة (لا خيارات سخيفة).",
+    "- متن السؤال والخيارات بالعربية، وأي شيفرة برمجية بالإنجليزية داخل ```code```.",
+    `- أنشئ ${count} أسئلة متنوّعة تغطّي أهم أفكار المحتوى.`,
+  ].join("\n");
+
+  const userText = [
+    `عنوان الاختبار: ${opts.examTitle}`,
+    `الملزمة: ${opts.bookletTitle}`,
+    "",
+    "محتوى الملزمة (المصدر الوحيد للأسئلة):",
+    context,
+  ].join("\n");
+
+  const result = await generateGemini({
+    systemPrompt,
+    userParts: [{ type: "text", text: userText }],
+    model: V4_CONTENT_GEN_MODEL,
+    temperature: 0.4,
+    maxOutputTokens: 4096,
+    jsonMode: true,
+    logTag: "v4-booklet-exam-gen",
+  });
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(result.text);
+  } catch {
+    const m = result.text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error("booklet_exam_invalid_json");
+    parsed = JSON.parse(m[0]);
+  }
+
+  const rawQs = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  const out: GeneratedBookletExamQuestion[] = [];
+  for (const q of rawQs) {
+    const prompt = String(q?.prompt ?? "").trim();
+    const choices = Array.isArray(q?.choices)
+      ? q.choices.map((c: any) => String(c ?? "").trim()).filter((c: string) => c.length > 0).slice(0, 6)
+      : [];
+    if (!prompt || choices.length < 2) continue;
+    let correctIndex = Math.floor(Number(q?.correctIndex));
+    if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= choices.length) correctIndex = 0;
+    const explanation = typeof q?.explanation === "string" && q.explanation.trim()
+      ? q.explanation.trim().slice(0, 400)
+      : undefined;
+    out.push({
+      id: out.length + 1,
+      questionIndex: out.length + 1,
+      kind: "mcq",
+      prompt,
+      choices,
+      correctIndex,
+      explanation,
+    });
+  }
+  // Cache the EXACT requested size: slice down extras, throw (→ 503 retry) if
+  // the model under-produced so a thin set never becomes the stable assessment.
+  if (out.length < count) throw new Error("booklet_exam_too_few_questions");
+  return out.slice(0, count);
+}
+
+// The canonical 5-kind lab sequence (same order the v4 custom path uses). We
+// assign kinds positionally so the runner always shows the full progression
+// even if the model mislabels.
+const BOOKLET_LAB_KIND_ORDER = ["diagnostic", "decision", "application", "analysis", "connection"] as const;
+
+export type GeneratedBookletLabSpec = {
+  scenario: string;
+  completionCriterion: string;
+  questions: Array<{
+    id: number;
+    questionIndex: number;
+    kind: string;
+    prompt: string;
+    rubric?: string;          // server-only grading anchor
+    solutionOutline?: string; // server-only grading anchor
+  }>;
+};
+
+// Labs are 5 open-ended typed questions over a single grounded scenario; graded
+// by Haiku at submit. When the unit has real exercises we mirror their type
+// (vary values); otherwise we author application questions from the concepts.
+export async function generateBookletLabSpec(opts: {
+  bookletId: number;
+  bookletTitle: string;
+  labTitle: string;
+  hasExercises: boolean;
+  sourcePages: [number, number];
+}): Promise<GeneratedBookletLabSpec> {
+  const { chunks } = await retrieveBookletContext({
+    bookletId: opts.bookletId,
+    lessonPages: opts.sourcePages,
+    query: opts.labTitle,
+  });
+  const context = buildBookletContextText(chunks);
+  if (!context.trim()) throw new Error("booklet_lab_no_context");
+
+  const exercisesNote = opts.hasExercises
+    ? "تحتوي هذه الصفحات على تمارين/مسائل فعلية: ابنِ الأسئلة على غرارها (نفس النوع) مع تغيير الأرقام/المعطيات دون نسخها حرفياً."
+    : "لا توجد تمارين صريحة في هذه الصفحات: ولّد أسئلة تطبيقية مبنية على نفس مفاهيم المحتوى.";
+
+  const systemPrompt = [
+    "أنت مصمّم معامل تعليمية تطبيقية. تستلم مقاطع من ملزمة جامعية وتبني منها معملاً عملياً واحداً.",
+    "أعِد JSON صالحاً فقط دون شرح أو markdown، بالشكل:",
+    `{"scenario":"...","completionCriterion":"...","questions":[{"kind":"diagnostic","prompt":"...","rubric":"...","solutionOutline":"..."},{"kind":"decision","prompt":"...","rubric":"...","solutionOutline":"..."},{"kind":"application","prompt":"...","rubric":"...","solutionOutline":"..."},{"kind":"analysis","prompt":"...","rubric":"...","solutionOutline":"..."},{"kind":"connection","prompt":"...","rubric":"...","solutionOutline":"..."}]}`,
+    "",
+    "قواعد صارمة:",
+    "- كل المحتوى حصراً من المقاطع المرفقة؛ لا معرفة خارجية ولا مفاهيم مخترعة.",
+    exercisesNote,
+    "- scenario: سيناريو واقعي قصير (يُفضّل سياق يمني مألوف) مرتبط مباشرة بمحتوى الوحدة.",
+    "- completionCriterion: جملة واحدة تحدّد متى يُعتبر المعمل مكتملاً.",
+    "- بالضبط ٥ أسئلة مفتوحة بالترتيب: diagnostic ثم decision ثم application ثم analysis ثم connection.",
+    "- لكل سؤال: rubric = معايير تصحيح موجزة (ما الذي يجب أن تتضمنه الإجابة الصحيحة)، وsolutionOutline = الخطوط العريضة للإجابة النموذجية، كلاهما من المقاطع المرفقة فقط (تُستخدم داخلياً للتصحيح ولا تُعرض للطالب).",
+    "- المتن بالعربية، وأي شيفرة بالإنجليزية داخل ```code```. أسئلة مفتوحة بلا خيارات.",
+  ].join("\n");
+
+  const userText = [
+    `عنوان المعمل: ${opts.labTitle}`,
+    `الملزمة: ${opts.bookletTitle}`,
+    "",
+    "محتوى الملزمة (المصدر الوحيد):",
+    context,
+  ].join("\n");
+
+  const result = await generateGemini({
+    systemPrompt,
+    userParts: [{ type: "text", text: userText }],
+    model: V4_CONTENT_GEN_MODEL,
+    temperature: 0.5,
+    maxOutputTokens: 2048,
+    jsonMode: true,
+    logTag: "v4-booklet-lab-gen",
+  });
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(result.text);
+  } catch {
+    const m = result.text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error("booklet_lab_invalid_json");
+    parsed = JSON.parse(m[0]);
+  }
+
+  const scenario = String(parsed?.scenario ?? "").trim();
+  if (!scenario) throw new Error("booklet_lab_no_scenario");
+  const completionCriterion = String(parsed?.completionCriterion ?? "").trim()
+    || "أكمل جميع خطوات المعمل بإجابات صحيحة ومترابطة.";
+
+  // Take questions in model order (it's instructed to emit the 5 kinds in order)
+  // and assign canonical kinds positionally so the FE always shows the full
+  // progression regardless of mislabeling. Keep the server-only rubric +
+  // solutionOutline so the open-ended grader stays anchored to the booklet.
+  const rawQ: any[] = (Array.isArray(parsed?.questions) ? parsed.questions : [])
+    .filter((q: any) => String(q?.prompt ?? "").trim().length > 0)
+    .slice(0, BOOKLET_LAB_KIND_ORDER.length);
+  // Require the full 5-step sequence; a short set throws → 503 retry rather than
+  // caching an under-sized lab as the student's stable assessment.
+  if (rawQ.length < BOOKLET_LAB_KIND_ORDER.length) throw new Error("booklet_lab_too_few_questions");
+
+  const questions = rawQ.map((q: any, i: number) => ({
+    id: i + 1,
+    questionIndex: i + 1,
+    kind: BOOKLET_LAB_KIND_ORDER[i] ?? "application",
+    prompt: String(q.prompt).trim(),
+    rubric: typeof q?.rubric === "string" && q.rubric.trim() ? q.rubric.trim().slice(0, 800) : undefined,
+    solutionOutline: typeof q?.solutionOutline === "string" && q.solutionOutline.trim() ? q.solutionOutline.trim().slice(0, 1200) : undefined,
+  }));
+
+  return { scenario, completionCriterion, questions };
 }

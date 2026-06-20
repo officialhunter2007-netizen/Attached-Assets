@@ -29,6 +29,9 @@ import V4Exam from "@/pages/v4-exam";
 import V4Lesson from "@/pages/v4-lesson";
 import PathBooklet from "@/pages/path-booklet";
 import BookletSession from "@/pages/booklet-session";
+import BookletMap from "@/pages/booklet-map";
+import BookletLab from "@/pages/booklet-lab";
+import BookletExam from "@/pages/booklet-exam";
 
 const queryClient = new QueryClient();
 
@@ -194,6 +197,9 @@ function Router() {
       <Route path="/path/:slug" component={() => <ProtectedRoute component={PathChoice} />} />
       <Route path="/path/:slug/custom" component={() => <ProtectedRoute component={PathCustom} />} />
       <Route path="/path/:slug/booklet" component={() => <ProtectedRoute component={PathBooklet} />} />
+      <Route path="/booklet/:id/map" component={() => <ProtectedRoute component={BookletMap} />} />
+      <Route path="/booklet/:id/lab/:labCode" component={() => <ProtectedRoute component={BookletLab} />} />
+      <Route path="/booklet/:id/exam/:examCode" component={() => <ProtectedRoute component={BookletExam} />} />
       <Route path="/booklet/:id" component={() => <ProtectedRoute component={BookletSession} />} />
       <Route path="/specialty/demo/map" component={V4Map} />
       <Route path="/specialty/:slug/map" component={() => <ProtectedRoute component={V4Map} />} />

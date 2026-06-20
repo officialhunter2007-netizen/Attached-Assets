@@ -41,17 +41,38 @@ import {
   embedAndStoreChunks,
   getBooklet,
   findLessonInTree,
+  findLabInTree,
+  findExamInTree,
+  generateBookletExamQuestions,
+  generateBookletLabSpec,
   retrieveBookletContext,
   buildBookletTeacherPrompt,
   type BookletTree,
 } from "../lib/v4-booklet";
-import { loadBookletProgress, buildBookletMap, recordBookletLessonStars } from "../lib/v4-booklet-progress";
+import {
+  loadBookletProgress,
+  buildBookletMap,
+  recordBookletLessonStars,
+  recordBookletExamResult,
+  recordBookletLabResult,
+  cacheBookletExam,
+  cacheBookletLab,
+  BOOKLET_EXAM_PASS_PCT,
+  BOOKLET_LAB_PASS_PCT,
+  type BookletExamCache,
+  type BookletLabCache,
+} from "../lib/v4-booklet-progress";
+import { evaluateExamAnswer, evaluateLabAnswer } from "../lib/v4-exam-evaluator";
 import { chargeV4Ai, refundV4Ai, getOrCreateV4Wallet } from "../lib/v4-gem-wallet";
 import { streamGeminiTeaching, type GeminiMessage } from "../lib/gemini-stream";
 import { V4_TEACHING_MODEL, assertGeminiForTeaching } from "../lib/v4-teaching-core";
 import { emitFriendlyAiFailure } from "./ai";
 
 const router: IRouter = Router();
+
+// Upper bound on a single graded lab answer (chars). Keeps the open-ended AI
+// grader's token cost bounded even though billing is currently free.
+const BOOKLET_LAB_ANSWER_MAX = 4000;
 
 // ── auth + csrf helpers (parallel to v4_path) ─────────────────────────────
 function getUserId(req: Request): number | null {
@@ -454,14 +475,30 @@ router.delete("/v4/booklet/:id", requireUser, requireSameOriginCsrf, async (req,
   if (!Number.isInteger(id)) { res.status(400).json({ error: "bad_id" }); return; }
   try {
     const [own] = await db
-      .select({ id: v4StudentBookletsTable.id })
+      .select({ id: v4StudentBookletsTable.id, status: v4StudentBookletsTable.status })
       .from(v4StudentBookletsTable)
       .where(and(eq(v4StudentBookletsTable.id, id), eq(v4StudentBookletsTable.userId, uid)));
     if (!own) { res.status(404).json({ error: "not_found" }); return; }
 
-    await db.delete(v4BookletChunksTable).where(eq(v4BookletChunksTable.bookletId, id));
-    await db.delete(v4StudentBookletsTable)
-      .where(and(eq(v4StudentBookletsTable.id, id), eq(v4StudentBookletsTable.userId, uid)));
+    // Refuse to delete while the background processing job is still running:
+    // the row would vanish but the in-flight worker could still insert chunks
+    // for this id (there's no FK cascade), orphaning them. A ready/failed
+    // status means the job has finished, so no further chunk writes can occur.
+    if (own.status === "processing") {
+      res.status(409).json({
+        error: "still_processing",
+        message: "لا يمكن حذف الملزمة أثناء تحضيرها. انتظر حتى تكتمل أو تفشل ثم احذفها.",
+      });
+      return;
+    }
+
+    // One transaction so a partial failure can't leave a surviving booklet
+    // with its chunks wiped (chunks first, then the row + its progress jsonb).
+    await db.transaction(async (tx) => {
+      await tx.delete(v4BookletChunksTable).where(eq(v4BookletChunksTable.bookletId, id));
+      await tx.delete(v4StudentBookletsTable)
+        .where(and(eq(v4StudentBookletsTable.id, id), eq(v4StudentBookletsTable.userId, uid)));
+    });
     logger.info?.(`[v4/booklet/delete] booklet=${id} user=${uid} wiped (chunks + progress)`);
     res.json({ ok: true });
   } catch (e: any) {
@@ -710,10 +747,13 @@ router.post("/v4/booklet/teach", requireUser, requireSameOriginCsrf, async (req,
       },
     });
 
-    // Charge wallet post-stream.
+    // Billing seam — booklet teaching is FREE for now. The full cost
+    // computation + chargeV4Ai call stay wired behind this flag so metering
+    // can be re-enabled later by flipping it to true (one line).
+    const BOOKLET_TEACH_BILLING_ENABLED = false;
     const usdCost = ((result.inputTokens || 0) * 0.10 + (result.outputTokens || 0) * 0.40) / 1_000_000;
     let charged = false;
-    if (usdCost > 0) {
+    if (BOOKLET_TEACH_BILLING_ENABLED && usdCost > 0) {
       const c = await chargeV4Ai({
         requestId,
         userId: uid,
@@ -827,6 +867,284 @@ router.get("/v4/booklet/active-paths/:slug", requireUser, async (req, res) => {
   } catch (e: any) {
     logger.error?.(`[v4/booklet/active-paths] ${String(e?.message ?? e)}`);
     res.status(500).json({ error: "internal" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase G — exam + lab runner (assessment-only; never gates navigation).
+//
+// Questions are lazy-generated grounded in the booklet's own chunks the first
+// time a student opens an exam/lab, then cached in the progress jsonb so a
+// reload shows the same set and submit grades against a stable answer key the
+// client never sees. Booklet exams are MCQ-only (free, deterministic grading
+// via correctIndex); labs are 5 typed open-ended questions graded by Haiku.
+//
+// Billing is FREE for now (no chargeV4Ai call here) but the seam stays: these
+// routes already resolve the per-(user,subject) wallet context via getBooklet
+// so a future charge slots in without restructuring.
+// ─────────────────────────────────────────────────────────────────────────
+
+// In-process dedupe so a double-click / reload mid-generation doesn't fire two
+// paid generations. The cache write is set-if-absent anyway (first writer
+// wins), so this is purely a cost/latency optimization.
+const _examGenInflight = new Map<string, Promise<BookletExamCache | null>>();
+const _labGenInflight = new Map<string, Promise<BookletLabCache | null>>();
+
+// ── GET /v4/booklet/:id/exam/:examCode ─────────────────────────────────────
+// Returns the (lazy-generated, cached) MCQ set WITHOUT the answer key.
+router.get("/v4/booklet/:id/exam/:examCode", requireUser, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const id = Number(req.params.id);
+  const examCode = decodeURIComponent(String(req.params.examCode ?? "")).trim();
+  if (!Number.isInteger(id) || !examCode) { res.status(400).json({ error: "bad_params" }); return; }
+  try {
+    const row = await getBooklet(id, uid);
+    if (!row) { res.status(404).json({ error: "not_found" }); return; }
+    if (row.status !== "ready") { res.status(409).json({ error: "booklet_not_ready", status: row.status }); return; }
+    const tree = (row.instructionTree ?? { units: [] }) as BookletTree;
+    const found = findExamInTree(tree, examCode);
+    if (!found) { res.status(404).json({ error: "exam_not_found" }); return; }
+
+    const progress = loadBookletProgress((row as any).progress);
+    let cache: BookletExamCache | null = progress.examQuestions[examCode] ?? null;
+    if (!cache) {
+      const key = `${id}:${examCode}`;
+      let p = _examGenInflight.get(key);
+      if (!p) {
+        p = (async () => {
+          const questions = await generateBookletExamQuestions({
+            bookletId: id,
+            bookletTitle: row.title,
+            examTitle: found.exam.title,
+            scope: found.exam.scope,
+            sourcePages: found.exam.sourcePages,
+            count: found.exam.scope === "final" ? 10 : 6,
+          });
+          return cacheBookletExam(id, uid, examCode, { questions, generatedAt: new Date().toISOString() });
+        })();
+        _examGenInflight.set(key, p);
+        void p.finally(() => { if (_examGenInflight.get(key) === p) _examGenInflight.delete(key); });
+      }
+      cache = await p;
+    }
+    if (!cache || !cache.questions.length) {
+      res.status(503).json({ error: "exam_generation_failed", message: "تعذّر إنشاء أسئلة الاختبار الآن، أعد المحاولة بعد لحظات." });
+      return;
+    }
+
+    const prior = progress.examResults[examCode] ?? null;
+    res.json({
+      booklet: { id: row.id, title: row.title },
+      exam: {
+        code: examCode,
+        title: found.exam.title,
+        scope: found.exam.scope,
+        questions: cache.questions.map((q) => ({
+          id: q.id, questionIndex: q.questionIndex, kind: q.kind, prompt: q.prompt, choices: q.choices,
+        })),
+      },
+      passThreshold: BOOKLET_EXAM_PASS_PCT,
+      prior: prior ? { score: prior.score, passed: prior.passed, attempts: prior.attempts, correct: prior.correct, total: prior.total } : null,
+    });
+  } catch (e: any) {
+    logger.error?.(`[v4/booklet/exam:get] ${String(e?.message ?? e)}`);
+    res.status(503).json({ error: "exam_generation_failed", message: "تعذّر تجهيز الاختبار الآن، أعد المحاولة." });
+  }
+});
+
+// ── POST /v4/booklet/:id/exam/:examCode/submit ─────────────────────────────
+// Grades the cached MCQ set (deterministic/free), persists the best attempt.
+router.post("/v4/booklet/:id/exam/:examCode/submit", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const id = Number(req.params.id);
+  const examCode = decodeURIComponent(String(req.params.examCode ?? "")).trim();
+  const answers: Array<string | number | null> = Array.isArray(req.body?.answers) ? req.body.answers : [];
+  if (!Number.isInteger(id) || !examCode) { res.status(400).json({ error: "bad_params" }); return; }
+  try {
+    const row = await getBooklet(id, uid);
+    if (!row) { res.status(404).json({ error: "not_found" }); return; }
+    const tree = (row.instructionTree ?? { units: [] }) as BookletTree;
+    if (!findExamInTree(tree, examCode)) { res.status(404).json({ error: "exam_not_found" }); return; }
+    const progress = loadBookletProgress((row as any).progress);
+    const cache = progress.examQuestions[examCode];
+    if (!cache || !cache.questions.length) {
+      res.status(409).json({ error: "exam_not_started", message: "افتح الاختبار أولاً قبل التسليم." });
+      return;
+    }
+
+    const evaluatorLog: any[] = [];
+    let sum = 0;
+    let correct = 0;
+    for (let i = 0; i < cache.questions.length; i++) {
+      const q = cache.questions[i];
+      const ans = answers[i] ?? null;
+      const r = await evaluateExamAnswer(
+        { id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, correctIndex: q.correctIndex, explanation: q.explanation ?? null },
+        ans,
+      );
+      sum += r.score;
+      if (r.verdict === "correct") correct++;
+      const ansText = typeof ans === "number" && q.choices[ans] != null ? q.choices[ans] : String(ans ?? "");
+      evaluatorLog.push({
+        questionId: q.id, questionIndex: q.questionIndex, kind: q.kind, prompt: q.prompt,
+        studentAnswer: ansText, verdict: r.verdict, score: r.score, explanation: r.explanation,
+      });
+    }
+    const total = cache.questions.length;
+    const score = total > 0 ? Math.round(sum / total) : 0;
+    const passed = score >= BOOKLET_EXAM_PASS_PCT;
+    await recordBookletExamResult(id, uid, examCode, { score, passed, correct, total });
+    res.json({ score, passed, passThreshold: BOOKLET_EXAM_PASS_PCT, correct, total, evaluatorLog });
+  } catch (e: any) {
+    logger.error?.(`[v4/booklet/exam:submit] ${String(e?.message ?? e)}`);
+    res.status(500).json({ error: "internal", message: "تعذّر تصحيح الاختبار الآن، أعد المحاولة." });
+  }
+});
+
+// ── GET /v4/booklet/:id/lab/:labCode ───────────────────────────────────────
+// Returns the (lazy-generated, cached) lab scenario + 5 typed questions.
+router.get("/v4/booklet/:id/lab/:labCode", requireUser, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const id = Number(req.params.id);
+  const labCode = decodeURIComponent(String(req.params.labCode ?? "")).trim();
+  if (!Number.isInteger(id) || !labCode) { res.status(400).json({ error: "bad_params" }); return; }
+  try {
+    const row = await getBooklet(id, uid);
+    if (!row) { res.status(404).json({ error: "not_found" }); return; }
+    if (row.status !== "ready") { res.status(409).json({ error: "booklet_not_ready", status: row.status }); return; }
+    const tree = (row.instructionTree ?? { units: [] }) as BookletTree;
+    const found = findLabInTree(tree, labCode);
+    if (!found) { res.status(404).json({ error: "lab_not_found" }); return; }
+
+    const progress = loadBookletProgress((row as any).progress);
+    let spec: BookletLabCache | null = progress.labSpecs[labCode] ?? null;
+    if (!spec) {
+      const key = `${id}:${labCode}`;
+      let p = _labGenInflight.get(key);
+      if (!p) {
+        p = (async () => {
+          const gen = await generateBookletLabSpec({
+            bookletId: id,
+            bookletTitle: row.title,
+            labTitle: found.lab.title,
+            hasExercises: !!found.lab.hasExercises,
+            sourcePages: found.lab.pages,
+          });
+          return cacheBookletLab(id, uid, labCode, { ...gen, generatedAt: new Date().toISOString() });
+        })();
+        _labGenInflight.set(key, p);
+        void p.finally(() => { if (_labGenInflight.get(key) === p) _labGenInflight.delete(key); });
+      }
+      spec = await p;
+    }
+    if (!spec || !spec.questions.length) {
+      res.status(503).json({ error: "lab_generation_failed", message: "تعذّر إنشاء أسئلة المعمل الآن، أعد المحاولة بعد لحظات." });
+      return;
+    }
+
+    const prior = progress.labResults[labCode] ?? null;
+    res.json({
+      booklet: { id: row.id, title: row.title },
+      lab: {
+        code: labCode,
+        title: found.lab.title,
+        scenario: spec.scenario,
+        completionCriterion: spec.completionCriterion,
+        questions: spec.questions.map((q) => ({ id: q.id, questionIndex: q.questionIndex, kind: q.kind, prompt: q.prompt })),
+      },
+      passThreshold: BOOKLET_LAB_PASS_PCT,
+      prior: prior ? { score: prior.score, passed: prior.passed, attempts: prior.attempts } : null,
+    });
+  } catch (e: any) {
+    logger.error?.(`[v4/booklet/lab:get] ${String(e?.message ?? e)}`);
+    res.status(503).json({ error: "lab_generation_failed", message: "تعذّر تجهيز المعمل الآن، أعد المحاولة." });
+  }
+});
+
+// ── POST /v4/booklet/:id/lab/:labCode/evaluate ─────────────────────────────
+// Live per-question feedback (Haiku). Does NOT persist — only the final submit
+// records a result. Body: { questionIndex, answer }.
+router.post("/v4/booklet/:id/lab/:labCode/evaluate", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const id = Number(req.params.id);
+  const labCode = decodeURIComponent(String(req.params.labCode ?? "")).trim();
+  const questionIndex = Number(req.body?.questionIndex);
+  // Bound the graded input so a single answer can't balloon the AI token cost.
+  const answer = String(req.body?.answer ?? "").slice(0, BOOKLET_LAB_ANSWER_MAX);
+  if (!Number.isInteger(id) || !labCode) { res.status(400).json({ error: "bad_params" }); return; }
+  try {
+    const row = await getBooklet(id, uid);
+    if (!row) { res.status(404).json({ error: "not_found" }); return; }
+    const tree = (row.instructionTree ?? { units: [] }) as BookletTree;
+    if (!findLabInTree(tree, labCode)) { res.status(404).json({ error: "lab_not_found" }); return; }
+    const progress = loadBookletProgress((row as any).progress);
+    const spec = progress.labSpecs[labCode];
+    if (!spec) { res.status(409).json({ error: "lab_not_started", message: "افتح المعمل أولاً." }); return; }
+    const q = spec.questions.find((x) => x.questionIndex === questionIndex);
+    if (!q) { res.status(400).json({ error: "bad_question" }); return; }
+    const r = await evaluateLabAnswer(
+      {
+        id: q.id, prompt: q.prompt, kind: q.kind,
+        scenario: spec.scenario, completionCriterion: spec.completionCriterion,
+        rubric: q.rubric ?? null, solutionOutline: q.solutionOutline ?? null,
+      },
+      answer,
+    );
+    res.json({ verdict: r.verdict, score: r.score, explanation: r.explanation });
+  } catch (e: any) {
+    logger.error?.(`[v4/booklet/lab:evaluate] ${String(e?.message ?? e)}`);
+    res.status(500).json({ error: "internal", message: "تعذّر التقييم الآن، أعد المحاولة." });
+  }
+});
+
+// ── POST /v4/booklet/:id/lab/:labCode/submit ───────────────────────────────
+// Re-grades all 5 answers (Haiku), averages, persists the best attempt.
+router.post("/v4/booklet/:id/lab/:labCode/submit", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const id = Number(req.params.id);
+  const labCode = decodeURIComponent(String(req.params.labCode ?? "")).trim();
+  const answers: string[] = Array.isArray(req.body?.answers)
+    ? req.body.answers.map((a: any) => String(a ?? "").slice(0, BOOKLET_LAB_ANSWER_MAX))
+    : [];
+  if (!Number.isInteger(id) || !labCode) { res.status(400).json({ error: "bad_params" }); return; }
+  try {
+    const row = await getBooklet(id, uid);
+    if (!row) { res.status(404).json({ error: "not_found" }); return; }
+    const tree = (row.instructionTree ?? { units: [] }) as BookletTree;
+    if (!findLabInTree(tree, labCode)) { res.status(404).json({ error: "lab_not_found" }); return; }
+    const progress = loadBookletProgress((row as any).progress);
+    const spec = progress.labSpecs[labCode];
+    if (!spec || !spec.questions.length) {
+      res.status(409).json({ error: "lab_not_started", message: "افتح المعمل أولاً قبل التسليم." });
+      return;
+    }
+
+    const evaluatorLog: any[] = [];
+    let sum = 0;
+    for (let i = 0; i < spec.questions.length; i++) {
+      const q = spec.questions[i];
+      const ans = answers[i] ?? "";
+      const r = await evaluateLabAnswer(
+        {
+          id: q.id, prompt: q.prompt, kind: q.kind,
+          scenario: spec.scenario, completionCriterion: spec.completionCriterion,
+          rubric: q.rubric ?? null, solutionOutline: q.solutionOutline ?? null,
+        },
+        ans,
+      );
+      sum += r.score;
+      evaluatorLog.push({
+        questionId: q.id, questionIndex: q.questionIndex, kind: q.kind, prompt: q.prompt,
+        studentAnswer: ans, verdict: r.verdict, score: r.score, explanation: r.explanation,
+      });
+    }
+    const score = spec.questions.length ? Math.round(sum / spec.questions.length) : 0;
+    const passed = score >= BOOKLET_LAB_PASS_PCT;
+    await recordBookletLabResult(id, uid, labCode, { score, passed });
+    res.json({ score, passed, passThreshold: BOOKLET_LAB_PASS_PCT, evaluatorLog });
+  } catch (e: any) {
+    logger.error?.(`[v4/booklet/lab:submit] ${String(e?.message ?? e)}`);
+    res.status(500).json({ error: "internal", message: "تعذّر إنهاء المعمل الآن، أعد المحاولة." });
   }
 });
 

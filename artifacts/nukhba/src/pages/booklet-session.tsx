@@ -93,6 +93,10 @@ export default function BookletSession() {
         const data = await r.json();
         const b: Booklet = data?.booklet;
         setBooklet(b);
+        // Map nodes deep-link a specific lesson via ?lesson=CODE — honour it
+        // when the code exists in the tree, else fall back to the first lesson.
+        const focus = new URLSearchParams(window.location.search).get("lesson");
+        const focusValid = !!focus && (b?.tree?.units ?? []).some((u) => (u.lessons ?? []).some((l) => l.code === focus));
         let firstLesson: string | null = null;
         for (const u of (b?.tree?.units ?? [])) {
           for (const l of (u.lessons ?? [])) {
@@ -100,7 +104,7 @@ export default function BookletSession() {
           }
           if (firstLesson) break;
         }
-        setActiveCode(firstLesson);
+        setActiveCode(focusValid ? focus : firstLesson);
       } catch (e: any) {
         setErr(String(e?.message ?? e));
       }
