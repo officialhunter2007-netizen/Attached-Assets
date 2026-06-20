@@ -4,6 +4,25 @@ import { logger } from "./lib/logger";
 import { runStartupMigrations } from "./lib/auto-migrate";
 import { startScheduledJobs } from "./lib/scheduled-jobs";
 
+// Promise.try polyfill — native in Node 22+, absent in Node 20.
+// unpdf@1.6.0 calls Promise.try() internally when parsing PDFs.
+// Without this, any PDF booklet upload triggers an unhandled TypeError
+// that crashes the entire API process.
+if (typeof (Promise as any).try !== "function") {
+  (Promise as any).try = function <T>(
+    fn: (...args: unknown[]) => T | PromiseLike<T>,
+    ...args: unknown[]
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      try {
+        resolve(fn(...args) as T | PromiseLike<T>);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  };
+}
+
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {
@@ -69,6 +88,27 @@ async function start() {
     startScheduledJobs();
   });
 }
+
+// Global safety net — Express 4 does NOT auto-catch async route errors,
+// so an unhandled rejection from any route kills the whole process.
+// This handler keeps the server alive and logs the error. The individual
+// request that caused it will time-out on the client side, but every other
+// route continues to work. Root-cause fixes (REQUIRED_COLUMNS, polyfills,
+// try/catch in routes) are still the right long-term solution; this is
+// the last line of defense while those are being added incrementally.
+process.on("unhandledRejection", (reason: unknown) => {
+  logger.error(
+    { reason: reason instanceof Error ? reason.message : String(reason) },
+    "unhandledRejection caught — server staying alive",
+  );
+});
+
+process.on("uncaughtException", (err: Error) => {
+  logger.error(
+    { err: err.message, stack: err.stack },
+    "uncaughtException caught — server staying alive",
+  );
+});
 
 start().catch((err) => {
   logger.error({ err }, "Fatal startup error");

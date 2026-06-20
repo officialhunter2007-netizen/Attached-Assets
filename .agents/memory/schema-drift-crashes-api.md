@@ -15,7 +15,11 @@ Add a `REQUIRED_COLUMNS` block in `auto-migrate.ts` covering **every** column th
 - `text NOT NULL DEFAULT ''`, `integer NOT NULL DEFAULT 0`, `timestamp with time zone NOT NULL DEFAULT now()`.
 - A DB `DEFAULT` does NOT conflict with a Drizzle `.notNull()` that has no `.default()`: app inserts still supply the value; the default only backfills existing rows and covers omitted-column SQL.
 
+## Tables confirmed to have legacy shape drift
+`lesson_summaries` (missing subject_name/title/conversation_date/messages_count), `lab_reports` (missing subject_name/env_title/env_briefing/report_text/feedback_html), `quiz_attempts` (missing material_id/kind/questions/per_question_results/weak_areas/total_questions/correct_count/status/submitted_at). All fixed via REQUIRED_COLUMNS + direct psql backfill.
+
+## Global unhandledRejection handler (last-line defense)
+Added to `artifacts/api-server/src/index.ts`: `process.on("unhandledRejection", ...)` + `process.on("uncaughtException", ...)` that LOG but do NOT `process.exit()`. This keeps the server alive when an async route throws without try/catch — the individual request times out, but every other route keeps serving. This does NOT replace root-cause column fixes; it just prevents a single bad request from taking down the whole backend.
+
 ## Verify
 `psql "$DATABASE_URL" -c "\d <table>"` shows the new columns; re-run the exact crashing SELECT (EXIT=0); port 8080 returns 401 (up) not `000` (down).
-
-**Note:** the broader fragility (async route with no try/catch crashing the process) is real but out of scope for a targeted column-drift fix — flag it, don't refactor every route.

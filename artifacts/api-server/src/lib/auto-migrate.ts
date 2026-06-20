@@ -1085,6 +1085,25 @@ async function seedPaymentSettings(): Promise<void> {
 
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
+    // Legacy `quiz_attempts` tables predate the current schema and are missing
+    // several columns added when the quiz-attempt system was extended for the
+    // materials/professor feature. Backfill-safe DDLs (defaults or nullable).
+    table: "quiz_attempts",
+    columns: [
+      { name: "material_id", ddl: "integer" },
+      { name: "kind", ddl: "text NOT NULL DEFAULT 'quiz'" },
+      { name: "chapter_index", ddl: "integer" },
+      { name: "chapter_title", ddl: "text" },
+      { name: "questions", ddl: "text NOT NULL DEFAULT '[]'" },
+      { name: "per_question_results", ddl: "text NOT NULL DEFAULT '[]'" },
+      { name: "weak_areas", ddl: "text NOT NULL DEFAULT '[]'" },
+      { name: "total_questions", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "correct_count", ddl: "integer NOT NULL DEFAULT 0" },
+      { name: "status", ddl: "text NOT NULL DEFAULT 'in_progress'" },
+      { name: "submitted_at", ddl: "timestamp with time zone" },
+    ],
+  },
+  {
     // Legacy `lab_reports` tables predate the current schema and are missing
     // the columns the current Drizzle schema and the lab_reports SELECT need.
     // Same crash pattern as lesson_summaries: async route with no try/catch →
