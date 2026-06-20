@@ -1540,18 +1540,34 @@ export function buildBookletReferenceLayer(opts: {
   bookletTitle: string;
   lessonPages: [number, number];
   chunks: Array<{ pageNumber: number; text: string }>;
+  /** (synthetic) page number → section heading. Present for Word (.docx)
+   *  booklets so each citation can surface its section name. */
+  pageLabels?: Record<string, string>;
+  sourceKind?: "pdf" | "docx";
 }): string {
   const [pStart, pEnd] = opts.lessonPages;
+  const labels = opts.pageLabels;
+  const isDocx = opts.sourceKind === "docx";
+  const locator = (pn: number) => {
+    const lbl = labels?.[String(pn)];
+    return lbl ? `[صفحة ${pn} · ${lbl}]` : `[صفحة ${pn}]`;
+  };
   const body = opts.chunks.length
-    ? opts.chunks.map((c) => `[صفحة ${c.pageNumber}] ${c.text}`).join("\n\n")
+    ? opts.chunks.map((c) => `${locator(c.pageNumber)} ${c.text}`).join("\n\n")
     : "(لا توجد مقاطع مسترجَعة — تحقّق من ربط الدرس بالصفحات)";
+  const scopeLine = isDocx
+    ? `- الأقسام المربوطة بهذا الدرس: ${pStart}–${pEnd} (كل رقم يقابل قسماً وعنوانه ظاهر بجانب مقطعه).`
+    : `- الصفحات المربوطة بهذا الدرس: ${pStart}–${pEnd}`;
   return [
     "## 6. المادة المرجعية (المصدر الوحيد المسموح — RAG من ملزمة الطالب)",
     `- الملزمة: "${opts.bookletTitle}"`,
-    `- الصفحات المربوطة بهذا الدرس: ${pStart}–${pEnd}`,
+    scopeLine,
     "- اعتمد فقط على المقاطع التالية. ممنوع منعاً باتاً إضافة معلومات من معرفتك العامة أو من خارج هذه المقاطع.",
     "- كل ادعاء يجب أن يُذيَّل برقم صفحته بالشكل [ص:N] (للصفحة الواحدة) أو [ص:N-M] (لمدى).",
     "- استخدم الصيغة بهذا الشكل بالضبط داخل أقواس مربعة [ ] — الواجهة تحوّلها إلى شارة قابلة للنقر تفتح نص الصفحة للطالب.",
+    ...(isDocx
+      ? ["- هذا المصدر ملف Word: الرقم N يقابل قسماً وعنوانه مذكور بجانب المقطع؛ استشهد بـ [ص:N] واذكر اسم القسم في شرحك إن ساعد الطالب."]
+      : []),
     "- إذا الطالب سأل سؤالاً خارج هذه المقاطع، اعتذر بأدب وأعد توجيهه للصفحات المربوطة.",
     "- ممنوع اختلاق أرقام صفحات؛ استشهد فقط بأرقام موجودة أدناه.",
     "",

@@ -25,6 +25,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { generateGemini } from "./openrouter-generate";
+import { ocrPdfWithGemini, splitOcrTextIntoPages } from "./pdf-ocr";
 import { embedTexts, embedQuery, cosineSim, EmbeddingError } from "./openai-embeddings";
 import {
   buildPersonaLayer,
@@ -106,6 +107,142 @@ export async function extractBookletPages(buf: Buffer): Promise<{
     const encrypted = /encrypt|password/i.test(msg);
     return { pages, totalPages: 0, encrypted, error: msg };
   }
+}
+
+// ─── Word (.docx) extraction (mammoth — headings as section locators) ─────────
+// Each top-level heading starts a new "section". Sections get sequential
+// synthetic page numbers (1,2,3…) so the rest of the pipeline (chunking, tree
+// page-binding, [ص:N] citations) works unchanged, and a pageLabels map lets
+// the teacher reference layer surface the heading next to each citation.
+async function extractDocxSections(buf: Buffer): Promise<{
+  pages: Map<number, string>;
+  pageLabels: Map<number, string>;
+  totalPages: number;
+  error?: string;
+}> {
+  const pages = new Map<number, string>();
+  const pageLabels = new Map<number, string>();
+  const stripTags = (s: string) =>
+    s.replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+      .replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  try {
+    const mammoth: any = await import("mammoth");
+    const { value: html } = await mammoth.convertToHtml({ buffer: buf });
+
+    const headingRe = /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi;
+    const marks: Array<{ heading: string; start: number }> = [];
+    let m: RegExpExecArray | null;
+    while ((m = headingRe.exec(html)) !== null) {
+      marks.push({ heading: stripTags(m[2]).slice(0, 120) || `قسم ${marks.length + 1}`, start: m.index });
+    }
+
+    if (!marks.length) {
+      // No headings — treat the whole document as one section.
+      const raw = stripTags(html);
+      if (raw) { pages.set(1, raw); pageLabels.set(1, "المستند"); }
+      return { pages, pageLabels, totalPages: pages.size };
+    }
+
+    let pageNo = 0;
+    const preamble = stripTags(html.slice(0, marks[0].start));
+    if (preamble) {
+      pageNo++;
+      pages.set(pageNo, preamble);
+      pageLabels.set(pageNo, "مقدمة");
+    }
+    for (let i = 0; i < marks.length; i++) {
+      const segEnd = i + 1 < marks.length ? marks[i + 1].start : html.length;
+      const body = stripTags(html.slice(marks[i].start, segEnd)); // keeps the heading text
+      pageNo++;
+      pages.set(pageNo, body || marks[i].heading);
+      pageLabels.set(pageNo, marks[i].heading);
+    }
+    return { pages, pageLabels, totalPages: pageNo };
+  } catch (e: any) {
+    return { pages, pageLabels, totalPages: 0, error: String(e?.message || e) };
+  }
+}
+
+// ─── Unified extractor ───────────────────────────────────────────────────────
+// PDF (with shared multi-provider OCR fallback for scans) OR DOCX (mammoth).
+// Returns the same { pages, totalPages } shape the pipeline consumes, plus the
+// source kind and (for docx) a per-page heading-label map for citations.
+export async function extractBookletContent(buf: Buffer, opts: {
+  kind: "pdf" | "docx";
+  userId: number;
+  subjectId: string;
+}): Promise<{
+  pages: Map<number, string>;
+  totalPages: number;
+  encrypted: boolean;
+  sourceKind: "pdf" | "docx";
+  pageLabels?: Record<string, string>;
+  ocrUsed?: boolean;
+  error?: string;
+}> {
+  if (opts.kind === "docx") {
+    const d = await extractDocxSections(buf);
+    const pageLabels: Record<string, string> = {};
+    for (const [k, v] of d.pageLabels) pageLabels[String(k)] = v;
+    return {
+      pages: d.pages,
+      totalPages: d.totalPages,
+      encrypted: false,
+      sourceKind: "docx",
+      pageLabels: Object.keys(pageLabels).length ? pageLabels : undefined,
+      error: d.error,
+    };
+  }
+
+  // PDF — native unpdf extraction first.
+  const native = await extractBookletPages(buf);
+  if (native.encrypted) {
+    return { pages: native.pages, totalPages: native.totalPages, encrypted: true, sourceKind: "pdf", error: native.error };
+  }
+
+  // Coverage check — mirror materials.ts: OCR when text coverage is low or the
+  // extracted text is tiny relative to page count (i.e. a scanned PDF).
+  const totalPages = native.totalPages || native.pages.size;
+  const nonEmptyPages = native.pages.size;
+  const totalChars = Array.from(native.pages.values()).reduce((s, t) => s + t.length, 0);
+  const coverageRatio = totalPages > 0 ? nonEmptyPages / totalPages : 0;
+  const lowCoverage =
+    nonEmptyPages === 0 ||
+    coverageRatio < 0.6 ||
+    (totalChars < 200 && coverageRatio < 0.8);
+
+  if (!lowCoverage) {
+    return { pages: native.pages, totalPages, encrypted: false, sourceKind: "pdf" };
+  }
+
+  // OCR fallback (shared chain). Merge OCR'd pages OVER native (OCR wins for
+  // pages unpdf couldn't read).
+  logger.info?.(`[v4-booklet] low PDF text coverage (${nonEmptyPages}/${totalPages}, ${totalChars} chars); running OCR fallback`);
+  try {
+    const ocr = await ocrPdfWithGemini(buf, totalPages || 0, { userId: opts.userId, subjectId: opts.subjectId });
+    if (ocr.text && ocr.text.trim()) {
+      const ocrPages = splitOcrTextIntoPages(ocr.text);
+      const merged = new Map<number, string>(native.pages);
+      if (ocrPages.size > 0) {
+        for (const [pn, txt] of ocrPages) {
+          const t = (txt || "").trim();
+          if (t) merged.set(pn, t);
+        }
+      } else {
+        merged.set(1, ocr.text.trim());
+      }
+      const finalTotal = Math.max(totalPages, ...Array.from(merged.keys()), 0) || merged.size;
+      logger.info?.(`[v4-booklet] OCR recovered ${merged.size - nonEmptyPages} page(s)`);
+      return { pages: merged, totalPages: finalTotal, encrypted: false, sourceKind: "pdf", ocrUsed: true };
+    }
+  } catch (e: any) {
+    logger.warn?.(`[v4-booklet] OCR fallback failed: ${String(e?.message || e)}`);
+  }
+
+  // OCR yielded nothing — return native; the route throws "needs OCR" if empty.
+  return { pages: native.pages, totalPages, encrypted: false, sourceKind: "pdf", error: native.error };
 }
 
 // ─── Chunking ───────────────────────────────────────────────────────────────
@@ -211,6 +348,11 @@ export type BookletTree = {
   levels?: BookletLevelGroup[];         // optional grouping over unit codes
   finalTest?: BookletExamRef | null;    // booklet-wide assessment
   depth?: BookletDepth;
+  // Source provenance (Phase C). 'pdf' (default) cites by page number; 'docx'
+  // maps each section to a synthetic page number and carries the section
+  // heading in pageLabels so the reference layer can cite by heading.
+  sourceKind?: "pdf" | "docx";
+  pageLabels?: Record<string, string>;  // (synthetic) page number → heading
 };
 
 const MAX_PAGES_FOR_TREE = 200; // hard cap on what we feed Gemini
@@ -517,7 +659,23 @@ export function normalizeBookletTree(raw: any, totalPages: number): BookletTree 
 
   const depth = inferBookletDepth(levels, cleanUnits);
 
-  return { units: cleanUnits, levels, finalTest, depth };
+  // Preserve source provenance (Phase C) across read-normalization so docx
+  // booklets keep citing by heading and PDF booklets by page.
+  const sourceKind: "pdf" | "docx" | undefined =
+    raw?.sourceKind === "docx" ? "docx" : raw?.sourceKind === "pdf" ? "pdf" : undefined;
+  const pageLabels =
+    raw?.pageLabels && typeof raw.pageLabels === "object" && !Array.isArray(raw.pageLabels)
+      ? (raw.pageLabels as Record<string, string>)
+      : undefined;
+
+  return {
+    units: cleanUnits,
+    levels,
+    finalTest,
+    depth,
+    ...(sourceKind ? { sourceKind } : {}),
+    ...(pageLabels ? { pageLabels } : {}),
+  };
 }
 
 // Post-normalization invariant gate for the GENERATION path only (read paths
@@ -756,6 +914,10 @@ export function buildBookletTeacherPrompt(opts: {
   /** Compressed older-history block (same shape as the custom path). */
   compressedHistoryLayer9?: string;
   language?: "ar" | "en";
+  /** Source provenance (Phase C) so L6 cites by page (PDF) or section
+   *  heading (Word/.docx). */
+  pageLabels?: Record<string, string>;
+  sourceKind?: "pdf" | "docx";
 }): string {
   const lang = opts.language ?? "ar";
   const studentForL1: V4PromptStudent = opts.student ?? {
@@ -792,6 +954,8 @@ export function buildBookletTeacherPrompt(opts: {
     bookletTitle: opts.bookletTitle,
     lessonPages: opts.lesson.pages,
     chunks: opts.retrieved,
+    pageLabels: opts.pageLabels,
+    sourceKind: opts.sourceKind,
   });
   const L7 = buildUnitLabsPlaceholderLayer();
   // L8 — booklet flow has no per-concept mastery; provide a neutral hint

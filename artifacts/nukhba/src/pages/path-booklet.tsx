@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { motion } from "framer-motion";
-import { Loader2, Upload, BookOpen, CheckCircle, XCircle, ChevronLeft, Sparkles, AlertTriangle, FileText, ChevronDown } from "lucide-react";
+import { Loader2, Upload, BookOpen, CheckCircle, XCircle, ChevronLeft, Sparkles, AlertTriangle, FileText, ChevronDown, Trash2 } from "lucide-react";
 import { PathSwitcher } from "@/components/path-switcher";
 
 type Lesson = { lessonIndex: number; code: string; name: string; pages: [number, number]; objective?: string; needsReview?: boolean; needsReviewReason?: string };
@@ -163,7 +163,16 @@ export default function PathBooklet() {
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [details, setDetails] = useState<Record<number, FullBooklet>>({});
+  const [confirmDelete, setConfirmDelete] = useState<BookletRow | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Failed booklets are retryable scaffolding and don't count toward the cap
+  // (mirrors the server-side limit check).
+  const MAX_BOOKLETS = 5;
+  const activeCount = booklets.filter((b) => b.status !== "failed").length;
+  const atLimit = activeCount >= MAX_BOOKLETS;
 
   async function refreshList() {
     try {
@@ -220,8 +229,29 @@ export default function PathBooklet() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booklets]);
 
+  async function doDelete(id: number) {
+    setDeletingId(id); setDeleteErr(null);
+    try {
+      const r = await fetch(`/api/v4/booklet/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: CSRF,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.message ?? data?.error ?? `http_${r.status}`);
+      setDetails((prev) => { const c = { ...prev }; delete c[id]; return c; });
+      setConfirmDelete(null);
+      await refreshList();
+    } catch (e: any) {
+      setDeleteErr(String(e?.message ?? e));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   async function doUpload() {
-    if (!file) { setUploadErr("اختر ملف PDF أولاً."); return; }
+    if (!file) { setUploadErr("اختر ملف PDF أو Word أولاً."); return; }
+    if (atLimit) { setUploadErr(`وصلت للحد الأقصى (${MAX_BOOKLETS} ملازم) في هذا التخصص. احذف ملزمة قديمة أولاً.`); return; }
     if (file.size > 25 * 1024 * 1024) { setUploadErr("الحد الأقصى ٢٥ ميجابايت."); return; }
     setUploading(true); setUploadErr(null);
     try {
@@ -243,7 +273,7 @@ export default function PathBooklet() {
             : `رصيد غير كافٍ. تحتاج ~${data?.needsGems ?? 150} جوهرة لتجهيز الملزمة.`);
           return;
         }
-        throw new Error(data?.error ?? `http_${r.status}`);
+        throw new Error(data?.message ?? data?.error ?? `http_${r.status}`);
       }
       const id = Number(data?.bookletId);
       if (Number.isInteger(id)) setPendingId(id);
@@ -276,7 +306,7 @@ export default function PathBooklet() {
           </div>
           <h1 className="text-2xl md:text-3xl font-black mb-2">مسار ملازم جامعية</h1>
           <p className="text-white/60 text-sm leading-relaxed max-w-xl mx-auto">
-            ارفع ملزمة مقرّرك (PDF) ونعدّ لك خريطة وحدات ودروس تلقائياً.
+            ارفع ملزمة مقرّرك (PDF أو Word) ونعدّ لك خريطة وحدات ودروس تلقائياً.
             كلفة التجهيز: ~١٥٠ جوهرة لمرة واحدة لكل ملزمة.
           </p>
         </div>
@@ -300,17 +330,24 @@ export default function PathBooklet() {
               />
             </div>
             <div>
-              <label className="text-xs text-white/60 block mb-1">ملف PDF (حد أقصى ٢٥ ميجا / ٤٠٠ صفحة)</label>
+              <label className="text-xs text-white/60 block mb-1">ملف PDF أو Word (حد أقصى ٢٥ ميجا / ٤٠٠ صفحة)</label>
               <input
-                ref={fileRef} type="file" accept="application/pdf,.pdf"
+                ref={fileRef} type="file"
+                accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-sm text-white/80 file:ml-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-emerald/20 file:text-emerald file:cursor-pointer"
+                disabled={atLimit}
+                className="block w-full text-sm text-white/80 file:ml-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-emerald/20 file:text-emerald file:cursor-pointer disabled:opacity-50"
               />
             </div>
+            {atLimit && (
+              <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+                وصلت للحد الأقصى ({MAX_BOOKLETS} ملازم) في هذا التخصص. احذف ملزمة قديمة لإضافة جديدة.
+              </div>
+            )}
             {uploadErr && <div className="text-sm text-red-400">{uploadErr}</div>}
             <button
               onClick={doUpload}
-              disabled={uploading || !file}
+              disabled={uploading || !file || atLimit}
               className="px-5 py-2.5 rounded-xl bg-emerald text-black font-bold text-sm hover:bg-emerald/90 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
             >
               {uploading ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الرفع…</> : <><Sparkles className="w-4 h-4" /> ارفع وحلّل</>}
@@ -368,6 +405,16 @@ export default function PathBooklet() {
                           <XCircle className="w-3.5 h-3.5" /> فشل
                         </span>
                       )}
+                      {!isProcessing && (
+                        <button
+                          onClick={() => { setDeleteErr(null); setConfirmDelete(b); }}
+                          title="حذف الملزمة"
+                          aria-label="حذف الملزمة"
+                          className="p-1.5 rounded-lg text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -391,6 +438,48 @@ export default function PathBooklet() {
           </div>
         )}
       </div>
+
+      {/* Delete confirmation modal */}
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => { if (deletingId == null) setConfirmDelete(null); }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            className="glass rounded-2xl border border-red-500/40 p-5 max-w-sm w-full text-center"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-red-500/15 border border-red-500/40 mx-auto mb-3 flex items-center justify-center">
+              <Trash2 className="w-6 h-6 text-red-400" />
+            </div>
+            <h3 className="font-black text-lg mb-1">حذف الملزمة؟</h3>
+            <p className="text-sm text-white/60 mb-1 truncate">«{confirmDelete.title}»</p>
+            <p className="text-xs text-white/50 mb-4 leading-relaxed">
+              سيُحذف هيكل الملزمة وكل تقدّمك فيها (النجوم، نتائج الاختبارات والتمارين) نهائياً. لا يمكن التراجع.
+            </p>
+            {deleteErr && <div className="text-sm text-red-400 mb-3">تعذّر الحذف: {deleteErr}</div>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                disabled={deletingId != null}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-bold hover:bg-white/10 disabled:opacity-50"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={() => void doDelete(confirmDelete.id)}
+                disabled={deletingId != null}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 text-white text-sm font-bold hover:bg-red-600 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              >
+                {deletingId != null
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الحذف…</>
+                  : <><Trash2 className="w-4 h-4" /> احذف نهائياً</>}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

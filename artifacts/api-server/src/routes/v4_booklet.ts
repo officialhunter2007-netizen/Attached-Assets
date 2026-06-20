@@ -35,7 +35,7 @@ import {
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import {
-  extractBookletPages,
+  extractBookletContent,
   chunkPages,
   generateBookletTree,
   embedAndStoreChunks,
@@ -95,6 +95,8 @@ const upload = multer({
 // matches the spec's $0.10-$0.30 range. Any over-charge is refunded on
 // failure; under-charge is platform-absorbed (acceptable per spec).
 const BOOKLET_PREP_USD = 0.15;
+// Max booklets a student may keep per specialty (failed rows excluded).
+const MAX_BOOKLETS_PER_SPECIALTY = 5;
 
 // ── POST /v4/booklet/upload  (multipart: file=<pdf>, slug=<subject slug>, title=<...>) ─
 router.post(
@@ -110,10 +112,25 @@ router.post(
 
     if (!file) { res.status(400).json({ error: "file required" }); return; }
     if (!slug) { res.status(400).json({ error: "slug required" }); return; }
-    if (file.mimetype && !/pdf/i.test(file.mimetype) && !/pdf$/i.test(file.originalname || "")) {
-      res.status(400).json({ error: "pdf_only" });
+
+    // Accept PDF or Word (.docx). Old binary .doc is NOT supported (mammoth
+    // only reads .docx) — reject it with a clear Arabic message.
+    const nameLower = (file.originalname || "").toLowerCase();
+    const mime = file.mimetype || "";
+    const isPdf = /pdf/i.test(mime) || nameLower.endsWith(".pdf");
+    const isDocx =
+      /officedocument\.wordprocessingml\.document/i.test(mime) || nameLower.endsWith(".docx");
+    const isLegacyDoc =
+      !isDocx && (/msword/i.test(mime) || nameLower.endsWith(".doc"));
+    if (isLegacyDoc) {
+      res.status(400).json({ error: "doc_unsupported", message: "صيغة .doc القديمة غير مدعومة. احفظ الملف بصيغة .docx ثم أعد الرفع." });
       return;
     }
+    if (!isPdf && !isDocx) {
+      res.status(400).json({ error: "pdf_or_docx_only", message: "الصيغ المدعومة: PDF أو Word (.docx) فقط." });
+      return;
+    }
+    const sourceKind: "pdf" | "docx" = isDocx ? "docx" : "pdf";
 
     // Verify specialty exists (we don't require v4 enabled — booklets can
     // run on any subject_id key, but we prefer the v4 slug so the wallet
@@ -189,9 +206,36 @@ router.post(
       logger.warn?.(`[v4/booklet/upload] dedupe lookup failed: ${String(e?.message ?? e)}`);
     }
 
+    // ── 1b. Enforce the per-(student, specialty) booklet cap. Reached only on
+    //        a genuinely NEW upload (reuse/retry returned/cleared above).
+    //        Failed rows don't count — they're retryable scaffolding. A small
+    //        concurrency race (two simultaneous new uploads) is acceptable for
+    //        this soft limit.
+    try {
+      const [{ cnt }] = await db
+        .select({ cnt: sql<number>`count(*)::int` })
+        .from(v4StudentBookletsTable)
+        .where(and(
+          eq(v4StudentBookletsTable.userId, uid),
+          eq(v4StudentBookletsTable.subjectId, slug),
+          sql`${v4StudentBookletsTable.status} <> 'failed'`,
+        ));
+      if ((cnt ?? 0) >= MAX_BOOKLETS_PER_SPECIALTY) {
+        res.status(400).json({
+          error: "booklet_limit",
+          limit: MAX_BOOKLETS_PER_SPECIALTY,
+          message: `وصلت للحد الأقصى (${MAX_BOOKLETS_PER_SPECIALTY} ملازم) في هذا التخصص. احذف ملزمة قديمة لإضافة جديدة.`,
+        });
+        return;
+      }
+    } catch (e: any) {
+      // Non-fatal — a count failure must not block a legitimate upload.
+      logger.warn?.(`[v4/booklet/upload] limit count failed: ${String(e?.message ?? e)}`);
+    }
+
     // ── 2. Insert booklet row (status=processing). Handle the race where
     //       a concurrent request just inserted the same (uid, slug, hash). ──
-    const title = titleRaw.slice(0, 160) || (file.originalname || "ملزمة").replace(/\.pdf$/i, "").slice(0, 160);
+    const title = titleRaw.slice(0, 160) || (file.originalname || "ملزمة").replace(/\.(pdf|docx)$/i, "").slice(0, 160);
     let inserted: V4StudentBooklet;
     try {
       const [row] = await db
@@ -306,13 +350,25 @@ router.post(
 
       try {
         await setStage("extracting", 5);
-        const extracted = await extractBookletPages(file.buffer);
+        const extracted = await extractBookletContent(file.buffer, {
+          kind: sourceKind,
+          userId: uid,
+          subjectId: slug,
+        });
         if (extracted.encrypted) throw new Error("ملف محمي بكلمة مرور.");
         if (extracted.totalPages === 0 || extracted.pages.size === 0) {
-          throw new Error("تعذّر استخراج نص من الملف (قد يكون مسحاً ضوئياً يحتاج OCR).");
+          throw new Error(
+            sourceKind === "docx"
+              ? "تعذّر استخراج نص من ملف Word (قد يكون فارغاً أو تالفاً)."
+              : "تعذّر استخراج نص من الملف (قد يكون مسحاً ضوئياً تعذّر قراءته حتى بعد OCR).",
+          );
         }
         if (extracted.totalPages > 400) {
-          throw new Error(`الملف ${extracted.totalPages} صفحة. الحد الأقصى ٤٠٠ صفحة لمسار الملازم.`);
+          throw new Error(
+            sourceKind === "docx"
+              ? `الملف ${extracted.totalPages} قسماً. الحد الأقصى ٤٠٠ لمسار الملازم.`
+              : `الملف ${extracted.totalPages} صفحة. الحد الأقصى ٤٠٠ صفحة لمسار الملازم.`,
+          );
         }
         await setStage("extracting", 100);
 
@@ -336,6 +392,10 @@ router.post(
           specialtyName: sp.name,
           bookletTitle: title,
         });
+        // Stamp source provenance onto the persisted tree so the teacher's
+        // reference layer cites by page (PDF) or section heading (docx).
+        tree.sourceKind = extracted.sourceKind;
+        if (extracted.pageLabels) tree.pageLabels = extracted.pageLabels;
         await setStage("binding", 100);
 
         await db.update(v4StudentBookletsTable)
@@ -379,6 +439,33 @@ router.get("/v4/booklet/list/:slug", requireUser, async (req, res) => {
     res.json({ booklets: rows });
   } catch (e: any) {
     logger.error?.(`[v4/booklet/list] ${String(e?.message ?? e)}`);
+    res.status(500).json({ error: "internal" });
+  }
+});
+
+// ── DELETE /v4/booklet/:id ─────────────────────────────────────────────────
+// Wipes a booklet the student owns: its chunks first, then the row itself
+// (per-booklet progress lives on the row's `progress` jsonb, so it's gone with
+// it). Ownership is checked before anything is touched; an unknown/other-user
+// id returns 404 without leaking existence. Mutating → CSRF-guarded.
+router.delete("/v4/booklet/:id", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "bad_id" }); return; }
+  try {
+    const [own] = await db
+      .select({ id: v4StudentBookletsTable.id })
+      .from(v4StudentBookletsTable)
+      .where(and(eq(v4StudentBookletsTable.id, id), eq(v4StudentBookletsTable.userId, uid)));
+    if (!own) { res.status(404).json({ error: "not_found" }); return; }
+
+    await db.delete(v4BookletChunksTable).where(eq(v4BookletChunksTable.bookletId, id));
+    await db.delete(v4StudentBookletsTable)
+      .where(and(eq(v4StudentBookletsTable.id, id), eq(v4StudentBookletsTable.userId, uid)));
+    logger.info?.(`[v4/booklet/delete] booklet=${id} user=${uid} wiped (chunks + progress)`);
+    res.json({ ok: true });
+  } catch (e: any) {
+    logger.error?.(`[v4/booklet/delete] ${String(e?.message ?? e)}`);
     res.status(500).json({ error: "internal" });
   }
 });
@@ -577,6 +664,8 @@ router.post("/v4/booklet/teach", requireUser, requireSameOriginCsrf, async (req,
       lesson,
       unitName,
       retrieved: retrieved.chunks,
+      pageLabels: tree.pageLabels,
+      sourceKind: tree.sourceKind,
     });
   } catch (e) {
     emitFriendlyAiFailure(res, "v4/booklet/teach:retrieval", e);
