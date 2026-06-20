@@ -83,6 +83,81 @@ function toPgvectorLiteral(emb: number[]): string {
   return "[" + emb.map((x) => (Number.isFinite(x) ? x : 0)).join(",") + "]";
 }
 
+// ─── Timeout guard for the background pipeline ──────────────────────────────
+// The upload pipeline calls external services (unpdf/OCR, OpenAI embeddings,
+// Gemini tree-gen) that can occasionally hang with no natural timeout. A hang
+// leaves the booklet stuck in `processing` forever and the FE spinner never
+// resolves. Wrapping each slow step in withTimeout converts a hang into a
+// thrown error → the route's catch marks the booklet `failed` with a clear
+// retry message instead of an infinite spinner. NOTE: Promise.race does not
+// cancel the losing promise; the detached work finishes/errors harmlessly in
+// the background — what matters is the booklet status no longer hangs.
+export async function withTimeout<T>(p: Promise<T>, ms: number, timeoutMessage: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// ─── Startup reaper for orphaned `processing` booklets ──────────────────────
+// Background processing is an in-memory fire-and-forget task that does NOT
+// survive a server restart (deploy, crash, or manual restart). Any booklet
+// still in `processing` when the server boots is therefore orphaned — its
+// task is dead and will never resume, so the FE would poll a 1% spinner
+// forever. Mark every such row `failed` with a clear Arabic retry message so
+// the student can re-upload (the upload route deletes a prior `failed` row
+// with the same content hash and re-processes from a clean slate; the prep
+// charge is idempotent on requestId, so the retry completes the already-paid
+// work without double-charging — no refund is issued). Only the single live
+// instance runs this: it is invoked from the app.listen success callback, so
+// the duplicate api-server workflow (which loses the port bind and exits on
+// EADDRINUSE) never reaches it.
+//
+// `minAgeMinutes` is an age floor protecting rows young enough to still be
+// owned by a LIVE pipeline. Two callers:
+//   - startup (floor = 1min, from the app.listen callback, runs once): the
+//     previous instance is provably dead (we just won its port), so every
+//     `processing` row is orphaned. The small floor only spares uploads
+//     accepted in the brief window between listen and this sweep.
+//   - periodic (floor = 20min, from scheduled-jobs): a safety net for a row
+//     orphaned by a crash within 60s of its own creation — too young for the
+//     startup floor, so it would otherwise stay `processing` forever. This
+//     runs in the SAME live process, so it CANNOT use a small floor (that
+//     would reap a legit in-flight upload). It is safe ONLY because the
+//     pipeline's own timeouts (extract 5m + embed 5m + tree 4m ≈ 14m worst
+//     case) guarantee no genuine job stays `processing` past ~20min — so any
+//     `processing` row older than that is provably dead.
+export async function reapOrphanedProcessingBooklets(minAgeMinutes = 1): Promise<number> {
+  try {
+    const reaped = await db
+      .update(v4StudentBookletsTable)
+      .set({
+        status: "failed",
+        errorMessage: "تعذّر إكمال التحضير (انقطعت المعالجة على الخادم). أعد رفع الملف للمحاولة من جديد.",
+      })
+      .where(and(
+        eq(v4StudentBookletsTable.status, "processing"),
+        sql`${v4StudentBookletsTable.createdAt} < now() - make_interval(mins => ${minAgeMinutes})`,
+      ))
+      .returning({ id: v4StudentBookletsTable.id });
+    const n = Array.isArray(reaped) ? reaped.length : 0;
+    if (n > 0) {
+      logger.warn?.(`[v4-booklet] reaped ${n} orphaned processing booklet(s) on startup: ${reaped.map((r) => r.id).join(", ")}`);
+    }
+    return n;
+  } catch (e: any) {
+    logger.error?.(`[v4-booklet] startup reap of orphaned booklets failed: ${String(e?.message ?? e)}`);
+    return 0;
+  }
+}
+
 // ─── PDF extraction (reuse unpdf — same lib materials.ts uses) ──────────────
 export async function extractBookletPages(buf: Buffer): Promise<{
   pages: Map<number, string>;
@@ -681,7 +756,8 @@ export function normalizeBookletTree(raw: any, totalPages: number): BookletTree 
 // Post-normalization invariant gate for the GENERATION path only (read paths
 // stay tolerant so old booklets always load). Throws on a degenerate tree that
 // would teach nothing — a transient/garbage LLM response — so the upload is
-// marked failed + refunded rather than persisting an unusable booklet.
+// marked failed (no refund — prep is pay-once per file) rather than
+// persisting an unusable booklet.
 export function assertValidBookletTree(tree: BookletTree): void {
   if (!Array.isArray(tree.units) || !tree.units.length) {
     throw new Error("booklet_tree_no_units");

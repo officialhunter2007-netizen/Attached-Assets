@@ -3,6 +3,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { runStartupMigrations } from "./lib/auto-migrate";
 import { startScheduledJobs } from "./lib/scheduled-jobs";
+import { reapOrphanedProcessingBooklets } from "./lib/v4-booklet";
 
 // Promise.try polyfill — native in Node 22+, absent in Node 20.
 // unpdf@1.6.0 calls Promise.try() internally when parsing PDFs.
@@ -82,6 +83,19 @@ async function start() {
     }
 
     logger.info({ port }, "Server listening");
+
+    // Reap orphaned `processing` booklets — but ONLY here, AFTER we have
+    // successfully bound the port. The port is the mutex: the duplicate
+    // workflow that loses the bind race gets EADDRINUSE and exits before
+    // reaching this callback, so it never reaps. Acquiring the port means
+    // the previous holder (and its in-memory background jobs) is already
+    // dead, so any row still in `processing` is genuinely orphaned (its
+    // task can never resume) and safe to fail. Running the reaper before
+    // app.listen instead would let the losing instance reap the WINNER's
+    // live, actively-processing booklet. Fire-and-forget: a reap failure
+    // must not take the server down.
+    void reapOrphanedProcessingBooklets();
+
     // Hourly rollover sweep — guarantees daily forfeit fires within ~1h of
     // Yemen midnight even if the server was asleep at the moment of
     // midnight. Idempotent on already-rolled-over rows. See scheduled-jobs.
@@ -104,6 +118,18 @@ process.on("unhandledRejection", (reason: unknown) => {
 });
 
 process.on("uncaughtException", (err: Error) => {
+  // EADDRINUSE is the EXPECTED outcome when this is the duplicate api-server
+  // instance racing the platform's other api-server workflow for port 8080.
+  // The losing instance must exit cleanly (0) — NOT linger as a non-listening
+  // zombie — so the winner serves uncontested. Only non-port errors get the
+  // stay-alive treatment.
+  if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+    logger.warn(
+      { port },
+      "api-server: port already bound (listen race) — exiting as no-op duplicate.",
+    );
+    process.exit(0);
+  }
   logger.error(
     { err: err.message, stack: err.stack },
     "uncaughtException caught — server staying alive",

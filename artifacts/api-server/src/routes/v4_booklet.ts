@@ -11,7 +11,9 @@
 // Gem semantics:
 //   - Prep cost (extract + tree-gen + embeddings) is charged ONCE per
 //     booklet from the v4 wallet via chargeV4Ai with a deterministic
-//     requestId. Failures refund.
+//     content-hash requestId. Pay-once-per-file: failures do NOT refund —
+//     the charge is idempotent, so a same-file retry re-runs the
+//     already-paid work without a second debit.
 //   - Each teach turn is charged like /v4/teach: post-stream chargeV4Ai
 //     using a server-generated requestId.
 //
@@ -36,6 +38,7 @@ import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import {
   extractBookletContent,
+  withTimeout,
   chunkPages,
   generateBookletTree,
   embedAndStoreChunks,
@@ -113,8 +116,9 @@ const upload = multer({
 
 // Estimated prep cost charged upfront against the v4 wallet. Real cost is
 // hard to know before extraction; we pick a flat $0.15 (~150 gems) which
-// matches the spec's $0.10-$0.30 range. Any over-charge is refunded on
-// failure; under-charge is platform-absorbed (acceptable per spec).
+// matches the spec's $0.10-$0.30 range. Pay-once-per-file: this single
+// upfront charge is never refunded (a failed attempt retries the same file
+// for no extra debit); over/under-charge vs real cost is platform-absorbed.
 const BOOKLET_PREP_USD = 0.15;
 // Max booklets a student may keep per specialty (failed rows excluded).
 const MAX_BOOKLETS_PER_SPECIALTY = 5;
@@ -186,30 +190,26 @@ router.post(
         ));
       if (existing) {
         // Retry semantics: only reuse rows that are still healthy. A
-        // prior `failed` attempt (transient OpenAI/Gemini/DB hiccup)
-        // must NOT trap the user — we delete the failed row + any
-        // orphan chunks, refund the original prep charge if it ever
-        // landed (best-effort), and fall through to re-process from a
-        // clean slate. The partial unique index excludes failed rows
-        // so the re-insert below won't conflict.
+        // prior `failed` attempt (transient OpenAI/Gemini/DB hiccup, or
+        // a server restart that orphaned the in-memory job) must NOT trap
+        // the user — we delete the failed row + any orphan chunks and
+        // fall through to re-process from a clean slate. The partial
+        // unique index excludes failed rows so the re-insert won't
+        // conflict.
+        //
+        // Crucially, we do NOT refund here. The prep charge is idempotent
+        // on the content-hash requestId, so the original debit stands and
+        // the re-charge below is a NO_OP ("already paid") that lets the
+        // retry complete the already-paid work — pay-once-per-file. A
+        // refund here would reverse that debit while the NO_OP re-charge
+        // still lets processing proceed, i.e. a free booklet (revenue
+        // leak). See reapOrphanedProcessingBooklets() — same contract.
         if (existing.status === "failed") {
           try {
             await db.delete(v4BookletChunksTable)
               .where(eq(v4BookletChunksTable.bookletId, existing.id));
             await db.delete(v4StudentBookletsTable)
               .where(eq(v4StudentBookletsTable.id, existing.id));
-            // Best-effort refund of the previous prep attempt so the
-            // student isn't double-charged on retry. Idempotent via
-            // requestId; safe to call when no original charge existed.
-            try {
-              await refundV4Ai({
-                requestId: prepRequestId,
-                userId: uid,
-                subjectId: slug,
-                source: "v4_booklet_prep",
-                reason: "retry_after_failed",
-              });
-            } catch {}
             logger.info?.(`[v4/booklet/upload] retrying after prior failed booklet=${existing.id} user=${uid}`);
           } catch (e: any) {
             logger.warn?.(`[v4/booklet/upload] failed-row cleanup error: ${String(e?.message ?? e)}`);
@@ -295,12 +295,29 @@ router.post(
     // ── 3. Charge prep cost upfront. Three outcomes from chargeV4Ai:
     //       a) charged=true → proceed.
     //       b) charged=false + (noWallet || insufficient) → real billing
-    //          failure → mark booklet failed and refund.
+    //          failure → mark booklet failed (no refund — prep is pay-once).
     //       c) charged=false with NEITHER flag → ledger-level dedupe hit
     //          (e.g. a prior attempt left a ledger row but failed to insert
     //          this booklet row). Treat as already-paid and proceed.
+    //
+    // Defensive rebill: we no longer refund prep, but legacy buggy code may
+    // have left a `${prepRequestId}:refund` row in production. A refunded
+    // debit means the student was made whole, so chargeV4Ai NO_OP'ing on the
+    // original (idempotent) requestId would hand them a free booklet. If a
+    // prior refund exists, charge under a stable `:rebill` key so the retry
+    // debits exactly once. No new refunds are ever created, so at most one
+    // refund can exist per family and this key stays idempotent.
+    const [priorPrepRefund] = await db
+      .select({ id: gemLedgerTable.id })
+      .from(gemLedgerTable)
+      .where(and(
+        eq(gemLedgerTable.userId, uid),
+        eq((gemLedgerTable as any).requestId, `${prepRequestId}:refund`),
+      ))
+      .limit(1);
+    const chargeRequestId = priorPrepRefund ? `${prepRequestId}:rebill` : prepRequestId;
     const charge = await chargeV4Ai({
-      requestId: prepRequestId,
+      requestId: chargeRequestId,
       userId: uid,
       subjectId: slug,
       costUsd: BOOKLET_PREP_USD,
@@ -329,7 +346,7 @@ router.post(
         .from(gemLedgerTable)
         .where(and(
           eq(gemLedgerTable.userId, uid),
-          eq((gemLedgerTable as any).requestId, prepRequestId),
+          eq((gemLedgerTable as any).requestId, chargeRequestId),
         ))
         .limit(1);
       if (!ledgerHit) {
@@ -349,18 +366,6 @@ router.post(
 
     // ── 4. Background pipeline. ────────────────────────────────────────
     (async () => {
-      const refund = async (reason: string) => {
-        try {
-          await refundV4Ai({
-            requestId: prepRequestId,
-            userId: uid,
-            subjectId: slug,
-            source: "v4_booklet_prep",
-            reason,
-          });
-        } catch {}
-      };
-
       const setStage = async (stage: string, percent: number) => {
         try {
           await db.update(v4StudentBookletsTable)
@@ -371,11 +376,15 @@ router.post(
 
       try {
         await setStage("extracting", 5);
-        const extracted = await extractBookletContent(file.buffer, {
-          kind: sourceKind,
-          userId: uid,
-          subjectId: slug,
-        });
+        const extracted = await withTimeout(
+          extractBookletContent(file.buffer, {
+            kind: sourceKind,
+            userId: uid,
+            subjectId: slug,
+          }),
+          5 * 60_000,
+          "تعذّر استخراج النص خلال المهلة المحددة (قد يكون الملف كبيراً جداً أو ممسوحاً ضوئياً يصعب قراءته). جرّب ملفاً أصغر أو أوضح.",
+        );
         if (extracted.encrypted) throw new Error("ملف محمي بكلمة مرور.");
         if (extracted.totalPages === 0 || extracted.pages.size === 0) {
           throw new Error(
@@ -403,35 +412,64 @@ router.post(
         await setStage("chunking", 100);
 
         await setStage("embedding", 30);
-        await embedAndStoreChunks(inserted.id, chunks);
+        await withTimeout(
+          embedAndStoreChunks(inserted.id, chunks),
+          5 * 60_000,
+          "تعذّر حساب التضمينات (embeddings) خلال المهلة المحددة. أعد المحاولة.",
+        );
         await setStage("embedding", 100);
 
         await setStage("binding", 40);
-        const tree = await generateBookletTree({
-          pages: extracted.pages,
-          totalPages: extracted.totalPages,
-          specialtyName: sp.name,
-          bookletTitle: title,
-        });
+        const tree = await withTimeout(
+          generateBookletTree({
+            pages: extracted.pages,
+            totalPages: extracted.totalPages,
+            specialtyName: sp.name,
+            bookletTitle: title,
+          }),
+          4 * 60_000,
+          "تعذّر بناء خريطة الدروس خلال المهلة المحددة. أعد المحاولة.",
+        );
         // Stamp source provenance onto the persisted tree so the teacher's
         // reference layer cites by page (PDF) or section heading (docx).
         tree.sourceKind = extracted.sourceKind;
         if (extracted.pageLabels) tree.pageLabels = extracted.pageLabels;
         await setStage("binding", 100);
 
-        await db.update(v4StudentBookletsTable)
+        // Status-guarded flip: only promote to `ready` if the row is STILL
+        // `processing`. If a startup reaper (or any other path) already
+        // marked it `failed` — e.g. this is a stale background run whose
+        // process was thought dead — we must NOT resurrect it to `ready`.
+        const promoted = await db.update(v4StudentBookletsTable)
           .set({ status: "ready", instructionTree: tree as any, processingStage: "done", processingPercent: 100 })
-          .where(eq(v4StudentBookletsTable.id, inserted.id));
-        logger.info?.(`[v4/booklet/upload] booklet=${inserted.id} ready (${extracted.totalPages}p, ${chunks.length} chunks)`);
+          .where(and(
+            eq(v4StudentBookletsTable.id, inserted.id),
+            eq(v4StudentBookletsTable.status, "processing"),
+          ))
+          .returning({ id: v4StudentBookletsTable.id });
+        if (!promoted.length) {
+          logger.warn?.(`[v4/booklet/upload] booklet=${inserted.id} no longer 'processing' at completion — skipping ready flip (likely reaped).`);
+        } else {
+          logger.info?.(`[v4/booklet/upload] booklet=${inserted.id} ready (${extracted.totalPages}p, ${chunks.length} chunks)`);
+        }
       } catch (err: any) {
         const msg = String(err?.message ?? err).slice(0, 500);
         logger.error?.(`[v4/booklet/upload] processing failed booklet=${inserted.id} user=${uid}: ${msg}`);
+        // Status-guarded fail flip (mirror of the ready flip): only move a
+        // row that is STILL `processing` to `failed`, so a late error from a
+        // stale background run can't clobber a row another path already
+        // resolved. NO refund — the prep charge is idempotent per content
+        // hash; the student retries the same file and the NO_OP re-charge
+        // completes the already-paid work (pay-once-per-file). Refunding
+        // here would leak a free booklet on retry.
         try {
           await db.update(v4StudentBookletsTable)
             .set({ status: "failed", errorMessage: msg })
-            .where(eq(v4StudentBookletsTable.id, inserted.id));
+            .where(and(
+              eq(v4StudentBookletsTable.id, inserted.id),
+              eq(v4StudentBookletsTable.status, "processing"),
+            ));
         } catch {}
-        await refund("processing_failed");
       }
     })().catch(() => {});
   },

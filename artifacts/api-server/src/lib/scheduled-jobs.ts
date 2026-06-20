@@ -34,8 +34,14 @@ import { logger } from "./logger";
 import { startTeacherImageMaintenance } from "./teacher-image-store";
 import { sweepV4ExpiredWallets } from "./v4-gem-wallet";
 import { runWeeklyMemorySweep } from "./v4-memory";
+import { reapOrphanedProcessingBooklets } from "./v4-booklet";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const FIVE_MIN_MS = 5 * 60 * 1000;
+// Floor (minutes) for the periodic orphan-booklet sweep. Must exceed the
+// pipeline's worst-case wall time (extract 5m + embed 5m + tree 4m ≈ 14m) so
+// it never reaps a legitimately in-flight upload; 20m leaves a safe margin.
+const BOOKLET_ORPHAN_FLOOR_MIN = 20;
 
 let started = false;
 
@@ -149,4 +155,17 @@ export function startScheduledJobs(): void {
   // students go a long stretch without triggering new image generations
   // (which would otherwise be the only thing kicking eviction).
   startTeacherImageMaintenance();
+
+  // Orphaned-booklet safety net. The startup reaper (index.ts) clears
+  // orphans left by a dead previous instance with a 1-minute floor, but a
+  // row orphaned by a crash within 60s of its creation is too young for that
+  // one-shot pass and would otherwise stay `processing` forever. This
+  // periodic sweep reaps such rows once they cross BOOKLET_ORPHAN_FLOOR_MIN —
+  // safe because the upload pipeline's timeouts cap any legitimate
+  // processing well under that. Runs in the single live instance only (the
+  // duplicate workflow exits on the port check).
+  const orphanTick = setInterval(() => {
+    void reapOrphanedProcessingBooklets(BOOKLET_ORPHAN_FLOOR_MIN);
+  }, FIVE_MIN_MS);
+  orphanTick.unref?.();
 }
