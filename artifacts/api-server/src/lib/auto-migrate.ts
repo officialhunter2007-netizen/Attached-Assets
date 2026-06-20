@@ -1085,6 +1085,21 @@ async function seedPaymentSettings(): Promise<void> {
 
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
+    // Legacy `lesson_summaries` tables predate the current schema and are
+    // missing these columns. The plans route SELECTs all of them, and because
+    // the handler is async with no try/catch, a missing column surfaces as an
+    // unhandled rejection that CRASHES the whole API process — taking every
+    // other route (booklets included) down with it. Backfill-safe DDLs (every
+    // added column has a default) so existing rows keep validating.
+    table: "lesson_summaries",
+    columns: [
+      { name: "subject_name", ddl: "text NOT NULL DEFAULT ''" },
+      { name: "title", ddl: "text NOT NULL DEFAULT ''" },
+      { name: "conversation_date", ddl: "timestamp with time zone NOT NULL DEFAULT now()" },
+      { name: "messages_count", ddl: "integer NOT NULL DEFAULT 0" },
+    ],
+  },
+  {
     // High-precision adaptive placement — stage/unit targeting columns.
     table: "v4_placement_test_questions",
     columns: [

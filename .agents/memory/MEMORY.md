@@ -4,6 +4,7 @@
 - [App-wide CSRF gap](app-wide-csrf-gap.md) — CORS is `origin:true, credentials:true` + prod cookies SameSite=none; any admin mutating endpoint needs local CSRF defense until a global fix lands.
 - [chargeV4Ai NO_OP overload](charge-no-op-overload.md) — `charged:false` with no flag means EITHER ledger dedupe hit OR transient DB error; callers must inspect the ledger to disambiguate or risk granting free work.
 - [Column-before-index migrations](column-before-index-migration.md) — partial-unique indexes that reference columns added via REQUIRED_COLUMNS must be created AFTER ensureRequiredColumns(), not in REQUIRED_TABLES.indexes.
+- [Schema drift crashes API](schema-drift-crashes-api.md) — a legacy table missing a schema column makes an async route's unhandled rejection crash the WHOLE Express 4 process; fix = REQUIRED_COLUMNS block covering every column w/ backfill-safe DEFAULTs.
 - [Idempotent prep requestIds](idempotent-prep-request-id-scope.md) — one-shot file-prep requestIds must be scoped by user + subject + full content hash to prevent cross-subject billing suppression and hash-prefix collisions.
 - [pgvector availability is uncertain](pgvector-availability.md) — on managed Postgres, CREATE EXTENSION may fail or silently downgrade; always probe at startup and keep a JSONB fallback path.
 - [v4 labs future vision](v4-labs-future-vision.md) — labs are admin-authored questions now, but planned to become a full real-world simulation env; don't treat the question format as final.
