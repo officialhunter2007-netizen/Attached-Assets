@@ -2,10 +2,21 @@
 // v4 task #8 — Booklet path schema.
 //
 // student_booklets : one row per uploaded PDF.
-//   - instruction_tree (jsonb) — Gemini-generated outline:
-//       { units: [{ unitIndex, code, name, pages:[start,end],
+//   - instruction_tree (jsonb) — Gemini-generated adaptive outline. `units`
+//     is the canonical flat list (single source of truth for routes + FE):
+//       { depth: 'lessons'|'units'|'stages'|'levels',
+//         units: [{ unitIndex, code, name, pages:[start,end],
 //                   lessons:[{ lessonIndex, code, name, pages:[start,end],
-//                              objective:string }] }] }
+//                              objective:string, needsReview? }],
+//                   labs:[{ labIndex, code, title, pages, hasExercises }],
+//                   unitTest:{ code, title, scope:'unit', sourcePages } }],
+//         levels: [{ levelIndex, name,
+//                    stages:[{ stageIndex, name, unitCodes:[...] }] }],
+//         finalTest:{ code:'FINAL', title, scope:'final', sourcePages } }
+//     `levels` is a lightweight grouping OVER unit codes (adaptive depth);
+//     `labs`/`unitTest`/`finalTest` are assessment/practice refs whose
+//     questions are generated lazily. Old v1 trees ({units:[...]} only) are
+//     upgraded on read by normalizeBookletTree().
 //   - status: 'processing' | 'ready' | 'failed'
 //
 // booklet_chunks   : ~500-word chunks with embeddings (stored as jsonb
@@ -36,6 +47,12 @@ export const v4StudentBookletsTable = pgTable("v4_student_booklets", {
   // SHA-256 of the full PDF bytes. Used for explicit (user, subject, hash)
   // dedupe so re-uploads return the existing booklet instead of re-paying.
   contentHash: text("content_hash"),
+  // Per-booklet progress (Phase B). JSONB blob, one per booklet:
+  //   { lessonStars: { [lessonCode]: 0|1|2|3 },
+  //     labResults:  { [labCode]:  { score, passed, attempts, updatedAt } },
+  //     examResults: { [examCode]: { score, passed, correct, total, attempts, updatedAt } } }
+  // Row-locked merges (SELECT … FOR UPDATE); stars/scores are monotonic.
+  progress: jsonb("progress").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("idx_v4_booklets_user_subject").on(t.userId, t.subjectId),

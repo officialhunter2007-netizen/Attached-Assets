@@ -45,6 +45,7 @@ import {
   buildBookletTeacherPrompt,
   type BookletTree,
 } from "../lib/v4-booklet";
+import { loadBookletProgress, buildBookletMap, recordBookletLessonStars } from "../lib/v4-booklet-progress";
 import { chargeV4Ai, refundV4Ai, getOrCreateV4Wallet } from "../lib/v4-gem-wallet";
 import { streamGeminiTeaching, type GeminiMessage } from "../lib/gemini-stream";
 import { V4_TEACHING_MODEL, assertGeminiForTeaching } from "../lib/v4-teaching-core";
@@ -239,7 +240,7 @@ router.post(
       subjectId: slug,
       costUsd: BOOKLET_PREP_USD,
       source: "v4_booklet_prep",
-      model: "gemini-2.0-flash+text-embedding-3-small",
+      model: "gemini-2.5-flash+text-embedding-3-small",
       note: `تجهيز ملزمة: ${title}`,
     });
     if (!charge.charged) {
@@ -406,6 +407,69 @@ router.get("/v4/booklet/:id", requireUser, async (req, res) => {
     });
   } catch (e: any) {
     logger.error?.(`[v4/booklet/get] ${String(e?.message ?? e)}`);
+    res.status(500).json({ error: "internal" });
+  }
+});
+
+// ── GET /v4/booklet/:id/map ────────────────────────────────────────────────
+// Read-only projection of the booklet's normalized tree + stored progress into
+// a map shaped like the custom-path map (Phase E FE reuse). Every node is
+// UNLOCKED — booklet navigation is free; exams/labs are assessment-only.
+// Optional ?level=N browses a specific level (defaults to the active level).
+router.get("/v4/booklet/:id/map", requireUser, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "bad_id" }); return; }
+  try {
+    const row = await getBooklet(id, uid);
+    if (!row) { res.status(404).json({ error: "not_found" }); return; }
+    if (row.status !== "ready") {
+      res.status(409).json({ error: "booklet_not_ready", status: row.status });
+      return;
+    }
+    const tree = (row.instructionTree ?? { units: [] }) as BookletTree;
+    const progress = loadBookletProgress((row as any).progress);
+    const level = parseInt(String((req.query as any)?.level ?? ""), 10);
+    const map = buildBookletMap(
+      { id: row.id, title: row.title, subjectId: row.subjectId, status: row.status },
+      tree,
+      progress,
+      { level: Number.isFinite(level) ? level : undefined },
+    );
+    res.json(map);
+  } catch (e: any) {
+    logger.error?.(`[v4/booklet/map] ${String(e?.message ?? e)}`);
+    res.status(500).json({ error: "internal" });
+  }
+});
+
+// ── POST /v4/booklet/:id/lesson-stars ──────────────────────────────────────
+// Persists the star count the student earned on a booklet lesson (row-locked,
+// monotonic merge into the booklet's progress blob). Body: { lessonCode, stars }.
+router.post("/v4/booklet/:id/lesson-stars", requireUser, requireSameOriginCsrf, async (req, res) => {
+  const uid: number = (req as any).userId;
+  const id = Number(req.params.id);
+  const lessonCode = String(req.body?.lessonCode ?? "").trim();
+  const stars = Number(req.body?.stars);
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "bad_id" }); return; }
+  if (!lessonCode || ![0, 1, 2, 3].includes(stars)) {
+    res.status(400).json({ error: "lessonCode and stars (0-3) required" });
+    return;
+  }
+  try {
+    const row = await getBooklet(id, uid);
+    if (!row) { res.status(404).json({ error: "not_found" }); return; }
+    // Reject codes that aren't real lessons in this booklet (keeps progress clean).
+    const tree = (row.instructionTree ?? { units: [] }) as BookletTree;
+    if (!findLessonInTree(tree, lessonCode)) {
+      res.status(404).json({ error: "lesson_not_found" });
+      return;
+    }
+    const progress = await recordBookletLessonStars(id, uid, lessonCode, stars);
+    if (!progress) { res.status(404).json({ error: "not_found" }); return; }
+    res.json({ ok: true, stars: progress.lessonStars[lessonCode] ?? 0 });
+  } catch (e: any) {
+    logger.error?.(`[v4/booklet/lesson-stars] ${String(e?.message ?? e)}`);
     res.status(500).json({ error: "internal" });
   }
 });

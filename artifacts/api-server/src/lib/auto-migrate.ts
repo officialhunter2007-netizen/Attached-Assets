@@ -1212,6 +1212,8 @@ const REQUIRED_COLUMNS: TableSpec[] = [
       // R1 — live processing progress for the FE 4-stage bar.
       { name: "processing_stage", ddl: "text NOT NULL DEFAULT 'extracting'" },
       { name: "processing_percent", ddl: "integer NOT NULL DEFAULT 0" },
+      // Phase B — per-booklet progress (lesson stars, lab/exam results).
+      { name: "progress", ddl: "jsonb NOT NULL DEFAULT '{}'::jsonb" },
     ],
   },
   {

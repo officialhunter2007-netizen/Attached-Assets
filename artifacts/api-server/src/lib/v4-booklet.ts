@@ -33,6 +33,7 @@ import {
   buildBookletReferenceLayer,
   buildUnitLabsPlaceholderLayer,
   buildLanguageLayer,
+  V4_CONTENT_GEN_MODEL,
   type V4PromptStudent,
 } from "./v4-teaching-core";
 
@@ -149,14 +150,68 @@ export type BookletLesson = {
   needsReview?: boolean;
   needsReviewReason?: string;
 };
+
+// A lab = a practical-application block bound to a page range. When the
+// booklet has an explicit exercises/problems section we bind the lab to it
+// (hasExercises=true) and later turn those exercises into interactive
+// practice; for pure-theory units we still emit ONE lab (hasExercises=false)
+// whose questions are generated GROUNDED in the unit's own content.
+export type BookletLab = {
+  labIndex: number;
+  code: string;            // "U<n>.LAB<m>"
+  title: string;
+  pages: [number, number]; // source pages (exercises section or unit content)
+  hasExercises: boolean;
+  needsReview?: boolean;
+  needsReviewReason?: string;
+};
+
+// An exam reference. Questions are generated lazily on first attempt from
+// `sourcePages`; `scope` separates a per-unit test from the booklet-wide
+// final. Exams are assessment-only (stars/mastery) — they never gate nav.
+export type BookletExamRef = {
+  code: string;            // "U<n>.TEST" | "FINAL"
+  title: string;
+  scope: "unit" | "final";
+  sourcePages: [number, number];
+};
+
 export type BookletUnit = {
   unitIndex: number;
   code: string;
   name: string;
   pages: [number, number];
   lessons: BookletLesson[];
+  // Additive (optional for backward-compat with v1 flat trees).
+  labs?: BookletLab[];
+  unitTest?: BookletExamRef | null;
 };
-export type BookletTree = { units: BookletUnit[] };
+
+// Lightweight grouping layer OVER the flat `units` list. Stages reference
+// unit *codes* (not nested unit objects) so `units` stays the single source
+// of truth and every existing consumer (routes + FE) keeps working unchanged
+// while the map renders the full levels→stages→units→lessons hierarchy.
+export type BookletStageGroup = {
+  stageIndex: number;
+  name: string;
+  unitCodes: string[];
+};
+export type BookletLevelGroup = {
+  levelIndex: number;
+  name: string;
+  stages: BookletStageGroup[];
+};
+
+// `depth` records how much hierarchy the booklet actually warranted so the FE
+// can render adaptively (a 6-page handout shouldn't fake 5 layers).
+export type BookletDepth = "lessons" | "units" | "stages" | "levels";
+
+export type BookletTree = {
+  units: BookletUnit[];                 // canonical flat list (unchanged)
+  levels?: BookletLevelGroup[];         // optional grouping over unit codes
+  finalTest?: BookletExamRef | null;    // booklet-wide assessment
+  depth?: BookletDepth;
+};
 
 const MAX_PAGES_FOR_TREE = 200; // hard cap on what we feed Gemini
 const MAX_CHARS_PER_PAGE_FOR_TREE = 600; // first-N chars from each page
@@ -180,17 +235,34 @@ export async function generateBookletTree(opts: {
   const pageSummaries = buildPageSummariesForTree(opts.pages);
 
   const systemPrompt = [
-    "أنت مساعد بنّاء فهارس تعليمية. تستلم نصوص صفحات ملزمة جامعية وتنتج فهرساً منظماً.",
-    "أعِد JSON صالحاً فقط (بدون markdown). الشكل:",
-    `{"units":[{"unitIndex":1,"code":"U1","name":"...","pages":[1,8],"lessons":[{"lessonIndex":1,"code":"U1.L1","name":"...","pages":[1,3],"objective":"..."}]}]}`,
+    "أنت خبير بناء فهارس تعليمية تكيّفية. تستلم نصوص صفحات ملزمة جامعية وتبني منها هيكلاً تعليمياً متدرّجاً.",
+    "أعِد JSON صالحاً فقط (بدون أي شرح أو markdown). الشكل:",
+    `{"depth":"lessons|units|stages|levels","units":[{"unitIndex":1,"code":"U1","name":"...","pages":[1,8],"lessons":[{"lessonIndex":1,"code":"U1.L1","name":"...","pages":[1,3],"objective":"..."}],"labs":[{"labIndex":1,"code":"U1.LAB1","title":"...","pages":[7,8],"hasExercises":true}],"unitTest":{"code":"U1.TEST","title":"...","sourcePages":[1,8]}}],"levels":[{"levelIndex":1,"name":"...","stages":[{"stageIndex":1,"name":"...","unitCodes":["U1"]}]}],"finalTest":{"code":"FINAL","title":"...","sourcePages":[1,8]}}`,
     "",
-    "قواعد:",
-    "- استنتج وحدات منطقية من العناوين/المحتوى (٣-١٠ وحدات حسب الحجم).",
-    "- كل وحدة فيها ٢-٨ دروس متسلسلة.",
-    "- نطاق الصفحات [start,end] يجب أن يكون داخل [1, totalPages] وغير متداخل بين الدروس.",
-    "- الـ code: \"U<n>\" للوحدة، \"U<n>.L<m>\" للدرس.",
-    "- objective: جملة قصيرة (٨-٢٠ كلمة) توصف ما سيتعلمه الطالب.",
-    "- إذا الملف صغير جداً (أقل من ٥ صفحات) أرجع وحدة واحدة بدرس واحد يغطي كل الصفحات.",
+    "العمق التكيّفي (depth) — اختر حسب الحجم والبنية الفعلية، ولا تختلق طبقات وهمية:",
+    "- \"lessons\": ملزمة صغيرة/موضوع واحد → وحدة واحدة فيها دروس.",
+    "- \"units\": عدة مواضيع بلا فصول واضحة → عدة وحدات، مستوى ومرحلة واحدة.",
+    "- \"stages\": توجد فصول → اجمع الوحدات في مراحل ضمن مستوى واحد.",
+    "- \"levels\": توجد أجزاء وفصول → مستويات تحوي مراحل تحوي وحدات.",
+    "الربط الطبيعي: الأجزاء→مستويات، الفصول→مراحل، الأقسام→وحدات، المواضيع→دروس، التمارين→معامل.",
+    "",
+    "قواعد الوحدات والدروس:",
+    "- استنتج الوحدات والدروس من العناوين والمحتوى الفعلي (٣-١٠ وحدات، وكل وحدة ٢-٨ دروس حسب الحجم).",
+    "- نطاق [start,end] داخل [1, totalPages]، غير متداخل بين الدروس، ومرتب تصاعدياً.",
+    "- code: \"U<n>\" للوحدة، \"U<n>.L<m>\" للدرس، \"U<n>.LAB<m>\" للمعمل، \"U<n>.TEST\" لاختبار الوحدة، \"FINAL\" للنهائي.",
+    "- objective: جملة قصيرة (٨-٢٠ كلمة) لِما سيتعلمه الطالب.",
+    "- دقة أرقام الصفحات أولوية قصوى: إذا تعذّر ربط درس بثقة فاربطه بأضيق تقدير ولا توسّع النطاق ليشمل الملزمة كلها.",
+    "",
+    "المعامل (labs) — التطبيق العملي:",
+    "- إن احتوت الوحدة على تمارين/مسائل/أسئلة، أنشئ معملاً يشير إلى صفحات تلك التمارين مع hasExercises=true.",
+    "- إن كانت الوحدة نظرية بلا تمارين، أنشئ معملاً واحداً hasExercises=false يشير إلى صفحات محتوى الوحدة.",
+    "",
+    "الاختبارات (exams) — تقييمية فقط (لا تكتب نص الأسئلة الآن، فقط المراجع والنطاقات):",
+    "- لكل وحدة unitTest يشير إلى صفحات أسئلة المراجعة/نهاية الفصل إن وُجدت، وإلا صفحات محتوى الوحدة.",
+    "- finalTest واحد يغطي الملزمة (sourcePages غالباً [1, totalPages]).",
+    "",
+    "التجميع (levels): ضع كل وحدة في مرحلة واحدة فقط ضمن مستوى واحد، وغطِّ كل الوحدات دون تكرار. للملازم الصغيرة: مستوى واحد ومرحلة واحدة تضم كل الوحدات.",
+    "إن كان الملف أصغر من ٥ صفحات: وحدة واحدة ودرس واحد يغطي كل الصفحات وdepth=\"lessons\".",
   ].join("\n");
 
   const userText = [
@@ -205,9 +277,9 @@ export async function generateBookletTree(opts: {
   const result = await generateGemini({
     systemPrompt,
     userParts: [{ type: "text", text: userText }],
-    model: "gemini-2.0-flash",
+    model: V4_CONTENT_GEN_MODEL,
     temperature: 0.3,
-    maxOutputTokens: 4096,
+    maxOutputTokens: 8192,
     jsonMode: true,
     logTag: "v4-booklet-tree",
   });
@@ -225,31 +297,83 @@ export async function generateBookletTree(opts: {
   const units = Array.isArray(parsed?.units) ? parsed.units : [];
   if (!units.length) throw new Error("booklet_tree_no_units");
 
-  // Normalise + validate page ranges. Spec: when the LLM cannot bind a
-  // lesson to specific pages (missing/invalid/out-of-range/inverted), we
-  // mark it `needsReview` instead of fabricating defaults like [1, total].
-  // A fabricated wide range would let the teacher cite any page in the
-  // book under the guise of "this lesson", breaking citation integrity.
-  function validatePages(raw: any): { ok: true; pages: [number, number] } | { ok: false; reason: string } {
-    if (!Array.isArray(raw) || raw.length < 2) return { ok: false, reason: "missing_pages" };
-    const start = Number(raw[0]);
-    const end = Number(raw[1]);
+  const tree = normalizeBookletTree(parsed, opts.totalPages);
+  assertValidBookletTree(tree); // reject degenerate/garbage LLM output
+  return tree;
+}
+
+// ─── Tree normalization / validation ────────────────────────────────────────
+// Single entry point that turns a raw tree (fresh from the LLM OR an old
+// flat {units:[]} tree read back from storage) into a canonical BookletTree:
+//   - validates every page range (lessons keep the strict needsReview gate;
+//     labs/exams clamp to the unit/booklet envelope since a slightly-off
+//     practice range is acceptable but a missing lab/exam is not),
+//   - guarantees ≥1 lab + a unit test per unit,
+//   - builds a `levels` grouping that covers every unit exactly once
+//     (sweeping any LLM-omitted units into a trailing stage),
+//   - derives the booklet-wide final test,
+//   - infers an adaptive `depth`.
+// Idempotent: re-normalizing an already-canonical tree returns the same shape.
+// Derive depth purely from the NORMALIZED structure so a malformed raw `depth`
+// can never claim a hierarchy the grouping doesn't actually support.
+function inferBookletDepth(levels: BookletLevelGroup[], units: BookletUnit[]): BookletDepth {
+  if (levels.length > 1) return "levels";
+  const maxStages = Math.max(0, ...levels.map((l) => l.stages.length));
+  if (maxStages > 1) return "stages";
+  if (units.length > 1) return "units";
+  return "lessons";
+}
+
+export function normalizeBookletTree(raw: any, totalPages: number): BookletTree {
+  const tp = Number.isFinite(totalPages) && totalPages > 0 ? Math.floor(totalPages) : 1;
+
+  function validatePages(rawP: any): { ok: true; pages: [number, number] } | { ok: false; reason: string } {
+    if (!Array.isArray(rawP) || rawP.length < 2) return { ok: false, reason: "missing_pages" };
+    const start = Number(rawP[0]);
+    const end = Number(rawP[1]);
     if (!Number.isFinite(start) || !Number.isFinite(end)) return { ok: false, reason: "non_numeric_pages" };
     const s = Math.floor(start);
     const e = Math.floor(end);
     if (s < 1 || e < 1) return { ok: false, reason: "non_positive_pages" };
-    if (s > opts.totalPages || e > opts.totalPages) return { ok: false, reason: "pages_out_of_range" };
+    if (s > tp || e > tp) return { ok: false, reason: "pages_out_of_range" };
     if (s > e) return { ok: false, reason: "inverted_pages" };
     return { ok: true, pages: [s, e] as [number, number] };
   }
 
-  const cleanUnits: BookletUnit[] = units.map((u: any, ui: number) => {
+  // Clamp a valid page range to a unit/booklet envelope. A practice/exam range
+  // that drifts outside its unit is pulled back inside; a range with no overlap
+  // at all falls back to the whole envelope (a slightly-off range is acceptable
+  // but a lab/exam pointing at the wrong chapter is not).
+  function clampToEnvelope(pages: [number, number], env: [number, number]): [number, number] {
+    const lo = Math.max(pages[0], env[0]);
+    const hi = Math.min(pages[1], env[1]);
+    return lo > hi ? env : [lo, hi];
+  }
+
+  const rawUnits = Array.isArray(raw?.units) ? raw.units : [];
+
+  // Canonicalize unit codes positionally so they are GLOBALLY UNIQUE even when
+  // the LLM emits duplicates (e.g. two "U1"). Remember each LLM original code →
+  // canonical mapping so the `levels` grouping (which references units by code)
+  // can be translated through it below. First occurrence of a duplicate original
+  // code wins the mapping; later dupes fall through to the uncovered sweep so
+  // two distinct units are never conflated into one map/progress node.
+  const origToCanon = new Map<string, string>();
+
+  const cleanUnits: BookletUnit[] = rawUnits.map((u: any, ui: number) => {
+    const code = `U${ui + 1}`;
+    const origCode = u?.code != null ? String(u.code) : "";
+    if (origCode && !origToCanon.has(origCode)) origToCanon.set(origCode, code);
+
+    // Lessons — strict page-binding gate (citation integrity).
     const lessons = Array.isArray(u?.lessons) ? u.lessons : [];
     const cleanLessons: BookletLesson[] = lessons.map((l: any, li: number) => {
       const pageCheck = validatePages(l?.pages);
       const base: BookletLesson = {
         lessonIndex: Number.isInteger(l?.lessonIndex) ? l.lessonIndex : li + 1,
-        code: String(l?.code ?? `U${ui + 1}.L${li + 1}`),
+        // Derive codes positionally from the canonical unit code so they are
+        // globally unique (the LLM's own lesson codes can collide across units).
+        code: `${code}.L${li + 1}`,
         name: String(l?.name ?? `الدرس ${li + 1}`).slice(0, 160),
         pages: pageCheck.ok ? pageCheck.pages : [1, 1],
         objective: String(l?.objective ?? "").slice(0, 280),
@@ -260,6 +384,7 @@ export async function generateBookletTree(opts: {
       }
       return base;
     });
+
     const upCheck = validatePages(u?.pages);
     const upages: [number, number] = upCheck.ok
       ? upCheck.pages
@@ -273,24 +398,155 @@ export async function generateBookletTree(opts: {
           const hi = Math.max(...bound.map((x) => x.pages[1]));
           return [lo, hi] as [number, number];
         })();
+
+    // Labs — clamp bad ranges to the unit envelope; guarantee ≥1 lab.
+    const rawLabs = Array.isArray(u?.labs) ? u.labs : [];
+    const cleanLabs: BookletLab[] = rawLabs.map((lab: any, ki: number) => {
+      const pc = validatePages(lab?.pages);
+      return {
+        labIndex: Number.isInteger(lab?.labIndex) ? lab.labIndex : ki + 1,
+        code: `${code}.LAB${ki + 1}`,
+        title: String(lab?.title ?? `تطبيق عملي ${ki + 1}`).slice(0, 160),
+        pages: pc.ok ? clampToEnvelope(pc.pages, upages) : upages,
+        hasExercises: Boolean(lab?.hasExercises),
+      };
+    });
+    if (!cleanLabs.length) {
+      cleanLabs.push({ labIndex: 1, code: `${code}.LAB1`, title: "تطبيق عملي", pages: upages, hasExercises: false });
+    }
+
+    // Unit test (assessment-only; questions generated lazily on first attempt).
+    let unitTest: BookletExamRef;
+    const rawTest = u?.unitTest;
+    if (rawTest && typeof rawTest === "object") {
+      const pc = validatePages(rawTest?.sourcePages);
+      unitTest = {
+        code: `${code}.TEST`,
+        title: String(rawTest?.title ?? `اختبار: ${String(u?.name ?? `الوحدة ${ui + 1}`)}`).slice(0, 160),
+        scope: "unit",
+        sourcePages: pc.ok ? clampToEnvelope(pc.pages, upages) : upages,
+      };
+    } else {
+      unitTest = {
+        code: `${code}.TEST`,
+        title: `اختبار: ${String(u?.name ?? `الوحدة ${ui + 1}`)}`.slice(0, 160),
+        scope: "unit",
+        sourcePages: upages,
+      };
+    }
+
     return {
       unitIndex: Number.isInteger(u?.unitIndex) ? u.unitIndex : ui + 1,
-      code: String(u?.code ?? `U${ui + 1}`),
+      code,
       name: String(u?.name ?? `الوحدة ${ui + 1}`).slice(0, 160),
       pages: upages,
       lessons: cleanLessons.length ? cleanLessons : [{
         lessonIndex: 1,
-        code: `U${ui + 1}.L1`,
+        code: `${code}.L1`,
         name: String(u?.name ?? `الوحدة ${ui + 1}`).slice(0, 160),
         pages: upages,
         objective: "",
         needsReview: true,
         needsReviewReason: "unit_has_no_lessons",
       }],
+      labs: cleanLabs,
+      unitTest,
     };
   });
 
-  return { units: cleanUnits };
+  // Levels grouping — every unit code must appear in exactly one stage.
+  const unitCodeSet = new Set(cleanUnits.map((u) => u.code));
+  const seen = new Set<string>();
+  let levels: BookletLevelGroup[] = [];
+  const rawLevels = Array.isArray(raw?.levels) ? raw.levels : [];
+  if (rawLevels.length) {
+    levels = rawLevels
+      .map((lv: any, li: number) => {
+        const stages = Array.isArray(lv?.stages) ? lv.stages : [];
+        const cleanStages: BookletStageGroup[] = stages
+          .map((st: any, si: number) => {
+            const codes = (Array.isArray(st?.unitCodes) ? st.unitCodes : [])
+              // Translate the LLM's original unit code → its canonical code, then
+              // keep only real, not-yet-claimed units (dedupes + drops dangling).
+              .map((c: any) => {
+                const r = String(c);
+                return origToCanon.get(r) ?? r;
+              })
+              .filter((c: string) => unitCodeSet.has(c) && !seen.has(c));
+            codes.forEach((c: string) => seen.add(c));
+            return {
+              stageIndex: Number.isInteger(st?.stageIndex) ? st.stageIndex : si + 1,
+              name: String(st?.name ?? `المرحلة ${si + 1}`).slice(0, 160),
+              unitCodes: codes,
+            };
+          })
+          .filter((s: BookletStageGroup) => s.unitCodes.length);
+        return {
+          levelIndex: Number.isInteger(lv?.levelIndex) ? lv.levelIndex : li + 1,
+          name: String(lv?.name ?? `المستوى ${li + 1}`).slice(0, 160),
+          stages: cleanStages,
+        };
+      })
+      .filter((l: BookletLevelGroup) => l.stages.length);
+  }
+  // Sweep any uncovered units into a trailing stage so the map never drops one.
+  const uncovered = cleanUnits.map((u) => u.code).filter((c) => !seen.has(c));
+  if (uncovered.length) {
+    if (!levels.length) {
+      levels = [{ levelIndex: 1, name: "المستوى الأول", stages: [{ stageIndex: 1, name: "المحتوى", unitCodes: uncovered }] }];
+    } else {
+      const last = levels[levels.length - 1];
+      last.stages.push({ stageIndex: last.stages.length + 1, name: "محتوى إضافي", unitCodes: uncovered });
+    }
+  }
+
+  // Booklet-wide final test.
+  let finalTest: BookletExamRef | null = null;
+  const rawFinal = raw?.finalTest;
+  if (rawFinal && typeof rawFinal === "object") {
+    const pc = validatePages(rawFinal?.sourcePages);
+    finalTest = {
+      code: String(rawFinal?.code ?? "FINAL"),
+      title: String(rawFinal?.title ?? "الاختبار النهائي").slice(0, 160),
+      scope: "final",
+      sourcePages: pc.ok ? pc.pages : [1, tp],
+    };
+  } else if (cleanUnits.length) {
+    finalTest = { code: "FINAL", title: "الاختبار النهائي", scope: "final", sourcePages: [1, tp] };
+  }
+
+  const depth = inferBookletDepth(levels, cleanUnits);
+
+  return { units: cleanUnits, levels, finalTest, depth };
+}
+
+// Post-normalization invariant gate for the GENERATION path only (read paths
+// stay tolerant so old booklets always load). Throws on a degenerate tree that
+// would teach nothing — a transient/garbage LLM response — so the upload is
+// marked failed + refunded rather than persisting an unusable booklet.
+export function assertValidBookletTree(tree: BookletTree): void {
+  if (!Array.isArray(tree.units) || !tree.units.length) {
+    throw new Error("booklet_tree_no_units");
+  }
+  const codes = tree.units.map((u) => u.code);
+  if (new Set(codes).size !== codes.length) {
+    throw new Error("booklet_tree_duplicate_unit_codes");
+  }
+  const teachable = tree.units.some((u) => (u.lessons ?? []).some((l) => !l.needsReview));
+  if (!teachable) {
+    throw new Error("booklet_tree_no_bindable_lessons");
+  }
+  // Every unit must be claimed by exactly one stage (the normalizer guarantees
+  // this via the uncovered sweep; assert it so a future change can't regress).
+  const claimed = new Set<string>();
+  for (const lv of tree.levels ?? []) {
+    for (const st of lv.stages ?? []) {
+      for (const c of st.unitCodes ?? []) claimed.add(c);
+    }
+  }
+  if (codes.some((c) => !claimed.has(c))) {
+    throw new Error("booklet_tree_unit_not_grouped");
+  }
 }
 
 // ─── Embeddings storage ─────────────────────────────────────────────────────
@@ -349,7 +605,16 @@ export async function getBooklet(bookletId: number, userId: number): Promise<V4S
     .select()
     .from(v4StudentBookletsTable)
     .where(and(eq(v4StudentBookletsTable.id, bookletId), eq(v4StudentBookletsTable.userId, userId)));
-  return row ?? null;
+  if (!row) return null;
+  // Normalize on read so old flat {units:[]} trees AND any pre-canonical tree
+  // are upgraded to the current hierarchical shape — routes, the teach loop, the
+  // map endpoint, and the FE all then see ONE canonical shape. Idempotent, so
+  // re-normalizing an already-canonical tree is a no-op.
+  const tree = (row as any).instructionTree;
+  if (tree && typeof tree === "object" && Array.isArray(tree.units) && tree.units.length) {
+    (row as any).instructionTree = normalizeBookletTree(tree, row.pagesCount || tree.units.length);
+  }
+  return row;
 }
 
 export function findLessonInTree(tree: BookletTree, lessonCode: string): BookletLesson | null {

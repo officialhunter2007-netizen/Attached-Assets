@@ -53,7 +53,10 @@ export type GemLedgerSource =
   | "v4_ai_image"
   | "v4_ai_memory"
   | "v4_lab_grade"
-  | "v4_exam_attempt";
+  | "v4_exam_attempt"
+  | "v4_ai_practice"     // v4: adaptive practice-question AI turns
+  | "v4_booklet_prep"    // v4: one-time booklet extraction + tree-gen + embed
+  | "v4_booklet_teach";  // v4: per-turn booklet RAG teaching
 
 export type WriteGemLedgerOpts = {
   userId: number;
