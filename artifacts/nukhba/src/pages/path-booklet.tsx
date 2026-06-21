@@ -336,8 +336,30 @@ export default function PathBooklet() {
                 accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 disabled={atLimit}
-                className="block w-full text-sm text-white/80 file:ml-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-emerald/20 file:text-emerald file:cursor-pointer disabled:opacity-50"
+                className="hidden"
               />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={atLimit}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/20 text-sm text-white/80 hover:bg-white/10 hover:border-emerald/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Upload className="w-4 h-4 text-emerald" />
+                {file ? (
+                  <span className="max-w-[200px] truncate text-emerald font-medium">{file.name}</span>
+                ) : (
+                  <span>اختر ملفاً…</span>
+                )}
+              </button>
+              {file && (
+                <button
+                  type="button"
+                  onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }}
+                  className="mr-2 text-xs text-white/40 hover:text-red-400 transition-colors"
+                >
+                  ✕ إلغاء
+                </button>
+              )}
             </div>
             {atLimit && (
               <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
