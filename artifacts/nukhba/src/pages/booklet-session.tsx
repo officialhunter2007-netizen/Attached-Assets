@@ -1,27 +1,36 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Booklet Session — Redesign (Task #1).
+// Booklet Session — v2 (proactive teacher).
 //
-// Layout (mobile-first):
-//   - Fixed header: back→map | booklet title + current lesson | lessons button
-//   - Collapsible context strip: unit name + bound pages + objective
-//   - Full-height scrollable chat area
-//   - Fixed input bar at bottom
-//   - Lessons panel: bottom sheet on mobile, right side drawer on md+
-//   - Citation Drawer (unchanged functionality, improved style)
+// Key differences vs v1:
+//   • Teacher starts automatically when a lesson opens — no static "اسألني"
+//     welcome. A hidden auto-kick message fires the SSE stream so the AI
+//     begins explaining on its own.
+//   • Full rich rendering pipeline: marked → DOMPurify → KaTeX → enhanceTeacherDom
+//     (same as v4-lesson.tsx) — bold, code, math, citations all work correctly.
+//   • Chat UI visually matches the custom-path session (v4-lesson).
 //
-// RTL corrections:
-//   - User messages: justify-end (right side), gold bubble
-//   - AI messages:   justify-start (left side), dark bubble + 📖 avatar
-//
-// PathSwitcher removed from this surface.
+// Unchanged:
+//   • Lessons panel (bottom sheet mobile / right drawer md+)
+//   • Collapsible context strip
+//   • Citation drawer
+//   • /api/v4/booklet/teach SSE protocol
 // ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import {
+  enhanceTeacherDom,
+  extractMathBlocks,
+  restoreMathPlaceholders,
+} from "@/lib/teacher-render";
 import {
   Loader2, Send, BookOpen, FileText, X,
-  AlertTriangle, ChevronRight, ChevronDown, ChevronUp, LayoutList, Map,
+  AlertTriangle, ChevronRight, ChevronDown, ChevronUp,
+  LayoutList, Map, Sparkles,
 } from "lucide-react";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 type Lesson = {
   lessonIndex: number;
   code: string;
@@ -33,7 +42,6 @@ type Lesson = {
 };
 type Unit = { unitIndex: number; code: string; name: string; pages: [number, number]; lessons: Lesson[] };
 type Tree = { units: Unit[] };
-
 type Booklet = {
   id: number;
   title: string;
@@ -44,9 +52,9 @@ type Booklet = {
   tree: Tree;
 };
 
-// isWelcome: true → this message is a local UI-only greeting, excluded from
-// the history array sent to the API on every user turn.
-type Msg = { role: "user" | "assistant"; content: string; isWelcome?: boolean };
+// isAutoKick: hidden trigger message (not rendered, stripped from apiHistory)
+// isWelcome: true if this is a ui-only "needsReview" block message
+type Msg = { role: "user" | "assistant"; content: string; isAutoKick?: boolean; isWelcome?: boolean };
 
 type DrawerState =
   | { kind: "closed" }
@@ -56,38 +64,142 @@ type DrawerState =
 
 const CSRF = { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" };
 
-// ─── Citation renderer ────────────────────────────────────────────────────────
+// ─── Citation badge helpers ───────────────────────────────────────────────────
 const CITATION_RE =
   /\[ص:\s*(\d+)(?:\s*[-–]\s*(\d+))?\]|\(\s*ص\.?\s*(\d+)(?:\s*[-–]\s*(\d+))?\s*\)/g;
 
-function renderWithCitations(
-  text: string,
-  onClick: (page: number, pageEnd?: number) => void,
-): React.ReactNode[] {
-  const out: React.ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  let key = 0;
-  CITATION_RE.lastIndex = 0;
-  while ((m = CITATION_RE.exec(text))) {
-    if (m.index > last) out.push(<span key={`t${key++}`}>{text.slice(last, m.index)}</span>);
-    const p1 = Number(m[1] ?? m[3]);
-    const p2 = m[2] ?? m[4];
-    const pageEnd = p2 ? Number(p2) : undefined;
-    out.push(
-      <button
-        key={`c${key++}`}
-        onClick={() => onClick(p1, pageEnd)}
-        className="inline-flex items-center gap-0.5 mx-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald/15 border border-emerald/40 text-emerald hover:bg-emerald/30 transition-colors align-baseline"
-        title="افتح نص الصفحة من الملزمة"
-      >
-        📄 ص {pageEnd ? `${p1}-${pageEnd}` : p1}
-      </button>,
-    );
-    last = m.index + m[0].length;
+function injectCitationButtons(
+  html: string,
+  onClick: (p: number, pe?: number) => void,
+): string {
+  return html.replace(CITATION_RE, (_m, a, b, c, d) => {
+    const p1 = Number(a ?? c);
+    const p2 = b ?? d;
+    const rangeLabel = p2 ? `${p1}–${Number(p2)}` : `${p1}`;
+    const encoded = JSON.stringify({ p1, p2: p2 ? Number(p2) : undefined });
+    return `<button
+      class="citation-badge inline-flex items-center gap-0.5 mx-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 transition-colors align-baseline cursor-pointer"
+      data-cite="${encodeURIComponent(encoded)}"
+      title="افتح نص الصفحة من الملزمة"
+    >📄 ص ${rangeLabel}</button>`;
+  });
+}
+
+// ─── Minimal render helpers (subset of v4-lesson's renderHtml) ───────────────
+function normalizeFences(src: string): string {
+  if (!src || src.indexOf("```") === -1) return src;
+  const FENCE_LANG_RE =
+    /^(python|py|javascript|js|typescript|ts|jsx|tsx|html|css|bash|sh|json|yaml|sql|c|cpp|java|rust|go|php|ruby|kotlin|swift|dart)$/i;
+  const parts = src.split("```");
+  let out = "";
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) {
+      let seg = parts[i];
+      if (i > 0 && seg && !seg.startsWith("\n")) seg = "\n" + seg;
+      out += seg;
+    } else {
+      let body = parts[i];
+      let lang = "";
+      const m = body.match(/^[ \t]*([A-Za-z0-9+#_.\-]+)(?=[ \t\n]|$)/);
+      if (m && FENCE_LANG_RE.test(m[1])) {
+        lang = m[1].toLowerCase();
+        body = body.slice(m[0].length).replace(/^[ \t]+/, "").replace(/^\r?\n/, "");
+      } else {
+        body = body.replace(/^\r?\n/, "");
+      }
+      body = body.replace(/[ \t\r\n]+$/, "");
+      if (out.length && !out.endsWith("\n")) out += "\n";
+      out += "```" + lang + "\n" + body + "\n```";
+    }
   }
-  if (last < text.length) out.push(<span key={`t${key++}`}>{text.slice(last)}</span>);
   return out;
+}
+
+function renderHtml(raw: string): string {
+  if (!raw) return "";
+  const withFences = normalizeFences(raw);
+  const { text: stripped, blocks } = extractMathBlocks(withFences);
+  const html = marked.parse(stripped ?? "", { async: false }) as string;
+  const withMath = restoreMathPlaceholders(html, blocks);
+  return DOMPurify.sanitize(withMath, {
+    ADD_ATTR: ["target"],
+    ADD_TAGS: ["figure", "figcaption"],
+  });
+}
+
+// ─── TeacherBubble ────────────────────────────────────────────────────────────
+function TeacherBubble({
+  content,
+  isStreaming,
+  onCite,
+}: {
+  content: string;
+  isStreaming: boolean;
+  onCite: (p: number, pe?: number) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  const html = useMemo(() => {
+    if (!content) return "";
+    const base = renderHtml(content);
+    return injectCitationButtons(base, onCite);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content]);
+
+  useEffect(() => {
+    enhanceTeacherDom(ref.current);
+  }, [html]);
+
+  useEffect(() => {
+    if (isStreaming) return;
+    const id = requestAnimationFrame(() => enhanceTeacherDom(ref.current));
+    return () => cancelAnimationFrame(id);
+  }, [isStreaming]);
+
+  // Wire citation button clicks after DOM update
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const handler = (e: MouseEvent) => {
+      const btn = (e.target as HTMLElement).closest("[data-cite]");
+      if (!btn) return;
+      try {
+        const raw = decodeURIComponent((btn as HTMLElement).dataset.cite ?? "");
+        const { p1, p2 } = JSON.parse(raw);
+        onCite(p1, p2);
+      } catch {}
+    };
+    el.addEventListener("click", handler);
+    return () => el.removeEventListener("click", handler);
+  }, [html, onCite]);
+
+  if (!content && isStreaming) {
+    return (
+      <div className="flex justify-start items-end gap-2">
+        <div className="shrink-0 w-8 h-8 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-base select-none">
+          📖
+        </div>
+        <div className="rounded-3xl bg-white/5 border border-white/10 px-4 py-3">
+          <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex justify-start items-end gap-2">
+      <div className="shrink-0 w-8 h-8 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-base select-none mb-0.5">
+        📖
+      </div>
+      <div className="max-w-[78%] px-4 py-3 rounded-3xl rounded-bl-sm bg-white/[0.06] border border-white/10">
+        <div
+          ref={ref}
+          className="ai-msg"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      </div>
+    </div>
+  );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -102,12 +214,18 @@ export default function BookletSession() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<DrawerState>({ kind: "closed" });
   const [lessonsOpen, setLessonsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // ── Fetch booklet ──────────────────────────────────────────────────────────
+  // Track in-flight SSE so we can abort on lesson switch
+  const inflightRef = useRef<AbortController | null>(null);
+  // Prevent double auto-kick
+  const autoKickedRef = useRef(false);
+
+  // ── Fetch booklet ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!Number.isInteger(id) || id <= 0) return;
     (async () => {
@@ -124,10 +242,7 @@ export default function BookletSession() {
         let firstLesson: string | null = null;
         for (const u of b?.tree?.units ?? []) {
           for (const l of u.lessons ?? []) {
-            if (!l.needsReview) {
-              firstLesson = l.code;
-              break;
-            }
+            if (!l.needsReview) { firstLesson = l.code; break; }
           }
           if (firstLesson) break;
         }
@@ -138,7 +253,7 @@ export default function BookletSession() {
     })();
   }, [id]);
 
-  // ── Derive active lesson ───────────────────────────────────────────────────
+  // ── Derive active lesson ─────────────────────────────────────────────────
   const activeLesson = useMemo(() => {
     if (!booklet || !activeCode) return null;
     for (const u of booklet.tree.units ?? []) {
@@ -149,45 +264,22 @@ export default function BookletSession() {
     return null;
   }, [booklet, activeCode]);
 
-  // ── Welcome message when lesson changes ───────────────────────────────────
-  // Fires when the resolved lesson code changes (not on every render).
-  // The welcome message is UI-only: marked isWelcome:true so it is stripped
-  // from the history array sent to the API.
-  useEffect(() => {
-    if (!activeLesson) {
-      setMessages([]);
-      return;
-    }
-    const { lesson, unit } = activeLesson;
-    if (lesson.needsReview) {
-      setMessages([{
-        role: "assistant",
-        content: `هذا الدرس (${lesson.name}) يحتاج مراجعة من المشرف قبل البدء. الرجاء اختيار درس آخر من القائمة.`,
-        isWelcome: true,
-      }]);
-      return;
-    }
-    const obj = lesson.objective?.trim();
-    setMessages([{
-      role: "assistant",
-      content:
-        `أهلاً! نحن الآن في **${lesson.name}** (${unit.name})` +
-        (obj ? `\n\n🎯 **هدف الدرس:** ${obj}` : "") +
-        `\n\n📄 يغطي هذا الدرس الصفحات **${lesson.pages[0]}–${lesson.pages[1]}** من الملزمة. اسألني عن أي شيء! 😊`,
-      isWelcome: true,
-    }]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLesson?.lesson.code]);
-
-  // ── Auto-scroll ────────────────────────────────────────────────────────────
+  // ── Auto-scroll ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, streaming]);
 
-  // ── Citation opener ────────────────────────────────────────────────────────
-  async function openCitation(page: number, pageEnd?: number) {
+  // ── Abort in-flight on unmount ───────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      try { inflightRef.current?.abort(); } catch {}
+    };
+  }, []);
+
+  // ── Citation drawer opener ───────────────────────────────────────────────
+  const openCitation = async (page: number, pageEnd?: number) => {
     if (!booklet) return;
     setDrawer({ kind: "loading", page, pageEnd });
     try {
@@ -208,33 +300,42 @@ export default function BookletSession() {
     } catch (e: unknown) {
       setDrawer({ kind: "error", page, pageEnd, error: String((e as Error)?.message ?? e) });
     }
-  }
+  };
 
-  // ── Send message ───────────────────────────────────────────────────────────
-  // History passed to the API excludes welcome messages.
-  // State is built directly from the filtered history — never from `prev` +
-  // history together, which would duplicate earlier turns on turn 2+.
-  async function send() {
-    const msg = input.trim();
+  // ── Core send function ───────────────────────────────────────────────────
+  // `hidden` = true for the auto-kick trigger — the user msg is not rendered.
+  async function sendMessage(text: string, opts?: { hidden?: boolean }) {
+    const msg = text.trim();
     if (!msg || !booklet || !activeCode || streaming) return;
-    setInput("");
+    setError(null);
 
-    // Build history for API call (strip UI-only welcome messages).
-    const apiHistory: Msg[] = messages.filter((m) => !m.isWelcome);
+    // Strip auto-kick and welcome messages from history sent to API
+    const apiHistory: Msg[] = messages.filter((m) => !m.isAutoKick && !m.isWelcome);
 
-    // The new conversation state: everything the user has said + typed + empty AI slot.
+    const userMsg: Msg = {
+      role: "user",
+      content: msg,
+      ...(opts?.hidden ? { isAutoKick: true } : {}),
+    };
     const nextMessages: Msg[] = [
       ...apiHistory,
-      { role: "user", content: msg },
+      userMsg,
       { role: "assistant", content: "" },
     ];
     setMessages(nextMessages);
+    if (!opts?.hidden) setInput("");
     setStreaming(true);
+
+    // Abort previous in-flight if any (e.g. rapid lesson switch)
+    try { inflightRef.current?.abort(); } catch {}
+    const controller = new AbortController();
+    inflightRef.current = controller;
 
     try {
       const r = await fetch("/api/v4/booklet/teach", {
         method: "POST",
         credentials: "include",
+        signal: controller.signal,
         headers: CSRF,
         body: JSON.stringify({
           bookletId: booklet.id,
@@ -244,8 +345,9 @@ export default function BookletSession() {
         }),
       });
       if (!r.ok || !r.body) {
-        const t = await r.text().catch(() => "");
-        throw new Error(t.slice(0, 200) || `http_${r.status}`);
+        let errMsg = `http_${r.status}`;
+        try { const j = await r.json(); if (j?.error) errMsg = j.error; } catch {}
+        throw new Error(errMsg);
       }
       const reader = r.body.getReader();
       const dec = new TextDecoder();
@@ -253,6 +355,7 @@ export default function BookletSession() {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        if (controller.signal.aborted) { try { reader.cancel(); } catch {} return; }
         buf += dec.decode(value, { stream: true });
         const events = buf.split("\n\n");
         buf = events.pop() ?? "";
@@ -260,7 +363,12 @@ export default function BookletSession() {
           const line = ev.split("\n").find((l) => l.startsWith("data: "));
           if (!line) continue;
           try {
-            const payload = JSON.parse(line.slice(6)) as { content?: string; done?: boolean };
+            const payload = JSON.parse(line.slice(6)) as {
+              content?: string;
+              done?: boolean;
+              error?: string;
+              friendlyMessage?: string;
+            };
             if (payload?.content) {
               setMessages((prev) => {
                 const copy = prev.slice();
@@ -271,27 +379,81 @@ export default function BookletSession() {
                 return copy;
               });
             }
-            if (payload?.done) setStreaming(false);
+            if (payload?.done) {
+              setStreaming(false);
+            }
+            if (payload?.error || payload?.friendlyMessage) {
+              setError(payload.friendlyMessage ?? payload.error ?? "حدث خطأ");
+            }
           } catch {
             // ignore SSE parse errors
           }
         }
       }
     } catch (e: unknown) {
+      if ((e as Error)?.name === "AbortError") return;
+      const msg2 = String((e as Error)?.message ?? e);
       setMessages((prev) => {
         const copy = prev.slice();
-        copy[copy.length - 1] = {
-          role: "assistant",
-          content: `تعذّر الرد: ${String((e as Error)?.message ?? e).slice(0, 160)}`,
-        };
+        const last = copy[copy.length - 1];
+        if (last?.role === "assistant") {
+          copy[copy.length - 1] = {
+            ...last,
+            content: `تعذّر الوصول للمعلم الآن. تحقّق من اتصالك وحاول مرة أخرى. (${msg2.slice(0, 80)})`,
+          };
+        }
         return copy;
       });
     } finally {
-      setStreaming(false);
+      if (!controller.signal.aborted) setStreaming(false);
     }
   }
 
-  // ── Error / loading / not-ready screens ──────────────────────────────────
+  // ── Auto-kick: fire when lesson changes and no history exists ────────────
+  // Mirrors v4-lesson.tsx's first-turn auto-kick pattern.
+  // The trigger message is hidden — the teacher appears to start on its own.
+  useEffect(() => {
+    if (!activeLesson) {
+      // Abort any in-flight from previous lesson
+      try { inflightRef.current?.abort(); } catch {}
+      inflightRef.current = null;
+      autoKickedRef.current = false;
+      setMessages([]);
+      setStreaming(false);
+      setError(null);
+      return;
+    }
+    const { lesson } = activeLesson;
+
+    // Reset state for new lesson
+    try { inflightRef.current?.abort(); } catch {}
+    inflightRef.current = null;
+    autoKickedRef.current = false;
+    setMessages([]);
+    setStreaming(false);
+    setError(null);
+
+    if (lesson.needsReview) {
+      // Show a static warning — no API call needed
+      setMessages([{
+        role: "assistant",
+        content: `هذا الدرس (${lesson.name}) يحتاج مراجعة من المشرف قبل البدء. الرجاء اختيار درس آخر من القائمة.`,
+        isWelcome: true,
+      }]);
+      return;
+    }
+
+    // Fire the auto-kick after state has settled
+    const timer = setTimeout(() => {
+      if (autoKickedRef.current) return;
+      autoKickedRef.current = true;
+      void sendMessage("ابدأ معي شرح محتوى هذا الدرس من الملزمة بأسلوبك التفاعلي.", { hidden: true });
+    }, 80);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLesson?.lesson.code]);
+
+  // ── Loading / error screens ──────────────────────────────────────────────
   if (err) {
     return (
       <div
@@ -300,10 +462,7 @@ export default function BookletSession() {
       >
         <div className="text-5xl mb-3">⚠️</div>
         <p className="text-white/70">{err}</p>
-        <button
-          onClick={() => navigate("/learn")}
-          className="mt-4 px-4 py-2 rounded-xl bg-white/10 text-sm"
-        >
+        <button onClick={() => navigate("/learn")} className="mt-4 px-4 py-2 rounded-xl bg-white/10 text-sm">
           رجوع
         </button>
       </div>
@@ -312,7 +471,7 @@ export default function BookletSession() {
   if (!booklet) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald" />
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
       </div>
     );
   }
@@ -343,7 +502,6 @@ export default function BookletSession() {
     <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
       {(booklet.tree.units ?? []).map((u) => (
         <div key={u.code}>
-          {/* Unit header */}
           <div className="flex items-center gap-2 mb-2">
             <span className="shrink-0 text-[11px] font-bold text-white/50 bg-white/5 border border-white/10 px-2 py-0.5 rounded-md">
               {u.code}
@@ -351,7 +509,6 @@ export default function BookletSession() {
             <span className="text-xs font-bold text-white/70 flex-1 truncate">{u.name}</span>
             <span className="shrink-0 text-[11px] text-white/30">ص. {u.pages[0]}-{u.pages[1]}</span>
           </div>
-          {/* Lessons */}
           <div className="space-y-1.5 pr-2 border-r border-white/[0.07]">
             {(u.lessons ?? []).map((l) => {
               const active = l.code === activeCode;
@@ -371,7 +528,7 @@ export default function BookletSession() {
                     blocked
                       ? "bg-white/[0.02] border-amber-500/20 text-white/35 cursor-not-allowed"
                       : active
-                      ? "bg-emerald/15 border-emerald/50 text-white"
+                      ? "bg-emerald-500/15 border-emerald-500/50 text-white"
                       : "bg-white/[0.03] border-white/10 text-white/65 hover:bg-white/[0.07] hover:border-white/20 hover:text-white"
                   }`}
                 >
@@ -379,7 +536,7 @@ export default function BookletSession() {
                     {blocked ? (
                       <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
                     ) : active ? (
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald shrink-0 animate-pulse" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
                     ) : (
                       <FileText className="w-3 h-3 text-white/30 shrink-0" />
                     )}
@@ -389,7 +546,7 @@ export default function BookletSession() {
                         مراجعة
                       </span>
                     ) : (
-                      <span className="shrink-0 text-[9px] text-emerald/70">
+                      <span className="shrink-0 text-[9px] text-emerald-400/70">
                         ص.{l.pages[0]}-{l.pages[1]}
                       </span>
                     )}
@@ -398,9 +555,7 @@ export default function BookletSession() {
                     <p className="mt-0.5 text-[10px] text-white/35 truncate pr-4">{l.objective}</p>
                   )}
                   {blocked && l.needsReviewReason && (
-                    <p className="mt-0.5 text-[10px] text-amber-400/60 truncate pr-4">
-                      {l.needsReviewReason}
-                    </p>
+                    <p className="mt-0.5 text-[10px] text-amber-400/60 truncate pr-4">{l.needsReviewReason}</p>
                   )}
                 </button>
               );
@@ -408,7 +563,6 @@ export default function BookletSession() {
           </div>
         </div>
       ))}
-      {/* Back to booklets list */}
       <div className="pt-2 border-t border-white/10">
         <button
           onClick={() => {
@@ -430,9 +584,8 @@ export default function BookletSession() {
       className="h-[100dvh] flex flex-col bg-background text-white overflow-hidden"
       style={{ direction: "rtl", fontFamily: "Tajawal, Cairo, sans-serif" }}
     >
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="shrink-0 flex items-center gap-2 px-3 h-14 border-b border-white/10 bg-background/90 backdrop-blur-sm z-10">
-        {/* Back to map */}
         <button
           onClick={() => navigate(`/booklet/${id}/map`)}
           className="shrink-0 p-2 rounded-xl hover:bg-white/10 transition-colors text-white/60 hover:text-white"
@@ -440,8 +593,6 @@ export default function BookletSession() {
         >
           <Map className="w-5 h-5" />
         </button>
-
-        {/* Center: booklet title + lesson name */}
         <div className="flex-1 min-w-0 text-center">
           <p className="text-[11px] text-white/50 leading-none truncate">{booklet.title}</p>
           {activeLesson ? (
@@ -452,8 +603,6 @@ export default function BookletSession() {
             <p className="text-xs text-white/40 mt-0.5">اختر درساً من القائمة</p>
           )}
         </div>
-
-        {/* Lessons toggle button */}
         <button
           onClick={() => setLessonsOpen((v) => !v)}
           className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/15 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
@@ -463,14 +612,14 @@ export default function BookletSession() {
         </button>
       </header>
 
-      {/* ── Collapsible context strip ────────────────────────────────────────── */}
+      {/* ── Collapsible context strip ───────────────────────────────────────── */}
       {activeLesson && (
-        <div className="shrink-0 border-b border-emerald/20 bg-emerald/[0.04]">
+        <div className="shrink-0 border-b border-emerald-500/20 bg-emerald-500/[0.04]">
           <button
             onClick={() => setContextOpen((v) => !v)}
-            className="w-full flex items-center gap-2 px-4 py-2 text-right text-xs hover:bg-emerald/5 transition-colors"
+            className="w-full flex items-center gap-2 px-4 py-2 text-right text-xs hover:bg-emerald-500/5 transition-colors"
           >
-            <span className="text-emerald font-semibold truncate flex-1">
+            <span className="text-emerald-400 font-semibold truncate flex-1">
               {activeLesson.unit.name}
             </span>
             <span className="shrink-0 text-white/50">
@@ -488,196 +637,201 @@ export default function BookletSession() {
         </div>
       )}
 
-      {/* ── Chat messages ───────────────────────────────────────────────────── */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-5 space-y-4">
-        {messages.map((m, i) => {
-          const isUser = m.role === "user";
-          const isLast = i === messages.length - 1;
-          return (
-            <div
-              key={i}
-              className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}
-            >
-              {/* Teacher avatar (AI side only) */}
-              {!isUser && (
-                <div className="shrink-0 w-8 h-8 rounded-full bg-emerald/15 border border-emerald/30 flex items-center justify-center text-base select-none mb-0.5">
+      {/* ── Main area: chat + side drawer ──────────────────────────────────── */}
+      <div className="flex-1 flex overflow-hidden relative">
+
+        {/* ── Chat messages ─────────────────────────────────────────────────── */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+
+            {/* Empty / loading state while waiting for first AI message */}
+            {messages.filter((m) => !m.isAutoKick).length === 0 && !streaming && (
+              <div className="text-center text-white/50 text-sm py-12">
+                <Sparkles className="w-8 h-8 mx-auto mb-3 text-amber-400/70" />
+                جاري تجهيز الجلسة…
+              </div>
+            )}
+
+            {messages.map((m, i) => {
+              // Hide the hidden trigger message from the UI
+              if (m.isAutoKick) return null;
+
+              const isLast = i === messages.length - 1;
+              const isUser = m.role === "user";
+
+              if (isUser) {
+                return (
+                  <div key={i} className="flex justify-end">
+                    <div className="max-w-[78%] px-4 py-2.5 rounded-3xl rounded-br-sm bg-amber-400/15 border border-amber-400/30 text-white text-sm leading-relaxed">
+                      {m.content}
+                    </div>
+                  </div>
+                );
+              }
+
+              // AI bubble — use rich rendering
+              return (
+                <TeacherBubble
+                  key={i}
+                  content={m.content}
+                  isStreaming={streaming && isLast}
+                  onCite={openCitation}
+                />
+              );
+            })}
+
+            {/* Typing indicator after user sends (before AI starts streaming) */}
+            {streaming && messages[messages.length - 1]?.role === "user" && (
+              <div className="flex justify-start items-end gap-2">
+                <div className="shrink-0 w-8 h-8 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-base select-none">
                   📖
                 </div>
-              )}
-              {/* Message bubble */}
-              <div
-                className={`max-w-[78%] px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-                  isUser
-                    ? "rounded-2xl rounded-bl-sm bg-amber-400/15 border border-amber-400/30 text-white"
-                    : m.isWelcome
-                    ? "rounded-2xl rounded-br-sm bg-emerald/[0.07] border border-emerald/25 text-white/90"
-                    : "rounded-2xl rounded-br-sm bg-white/[0.06] border border-white/10 text-white/90"
-                }`}
-              >
-                {isUser
-                  ? m.content
-                  : m.content
-                  ? renderWithCitations(m.content, openCitation)
-                  : streaming && isLast
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin inline text-emerald" />
-                  : null}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ── Input bar ───────────────────────────────────────────────────────── */}
-      <div className="shrink-0 border-t border-white/10 bg-card/40 px-3 py-3">
-        <div className="flex items-end gap-2 max-w-2xl mx-auto">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            rows={1}
-            placeholder={
-              activeLesson
-                ? "اسأل عن أي شيء في الصفحات المخصّصة لهذا الدرس…"
-                : "اختر درساً أولاً…"
-            }
-            disabled={streaming || !activeLesson || !!activeLesson.lesson.needsReview}
-            className="flex-1 resize-none px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-emerald/60 max-h-32 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          />
-          <button
-            onClick={() => void send()}
-            disabled={streaming || !input.trim() || !activeLesson || !!activeLesson.lesson.needsReview}
-            className="shrink-0 p-2.5 rounded-xl bg-emerald text-black disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald/90 transition-colors"
-          >
-            {streaming
-              ? <Loader2 className="w-5 h-5 animate-spin" />
-              : <Send className="w-5 h-5" />}
-          </button>
-        </div>
-      </div>
-
-      {/* ── Lessons panel ───────────────────────────────────────────────────── */}
-      {/* Shared backdrop — dims the chat area behind the panel on both breakpoints. */}
-      <div
-        className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 ${
-          lessonsOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
-        onClick={() => setLessonsOpen(false)}
-      />
-
-      {/*
-        Mobile (< md): bottom sheet — slides up from the bottom edge.
-          Hidden:  translate-y-full
-          Visible: translate-y-0
-
-        Desktop (md+): right side drawer — slides in from the right edge.
-          Hidden:  translate-x-full  (translate-y reset to 0 via md:translate-y-0)
-          Visible: translate-x-0 translate-y-0
-
-        Tailwind transform utilities compose via CSS custom properties
-        (--tw-translate-x, --tw-translate-y), so combining them across
-        breakpoints works correctly without conflicts.
-      */}
-      <div
-        className={`
-          fixed z-50 flex flex-col bg-[hsl(222,28%,9%)] border-white/15 shadow-2xl
-          transition-transform duration-300 ease-out
-          inset-x-0 bottom-0 max-h-[78dvh] rounded-t-3xl border-t
-          md:inset-x-auto md:bottom-auto md:top-0 md:right-0
-          md:h-[100dvh] md:max-h-none md:w-80 md:rounded-none md:rounded-l-3xl md:border-t-0 md:border-l
-          ${lessonsOpen
-            ? "translate-y-0 md:translate-y-0 md:translate-x-0"
-            : "translate-y-full md:translate-y-0 md:translate-x-full"
-          }
-        `}
-        style={{ direction: "rtl" }}
-      >
-        {/* Drag handle (mobile only) */}
-        <div className="md:hidden flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 rounded-full bg-white/20" />
-        </div>
-
-        {/* Panel header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
-          <div>
-            <h2 className="font-black text-sm flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-emerald shrink-0" />
-              <span className="truncate">{booklet.title}</span>
-            </h2>
-            <p className="text-xs text-white/40 mt-0.5">{booklet.pagesCount} صفحة</p>
-          </div>
-          <button
-            onClick={() => setLessonsOpen(false)}
-            className="shrink-0 p-2 rounded-xl hover:bg-white/10 transition-colors text-white/60 hover:text-white"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Lesson tree (shared render variable) */}
-        {lessonsTree}
-      </div>
-
-      {/* ── Citation Drawer ──────────────────────────────────────────────────── */}
-      {drawer.kind !== "closed" && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/60 z-40"
-            onClick={() => setDrawer({ kind: "closed" })}
-          />
-          <aside
-            className="fixed top-0 left-0 h-[100dvh] w-full sm:w-[30rem] bg-[hsl(222,28%,9%)] border-l border-white/10 z-50 flex flex-col shadow-2xl"
-            style={{ direction: "rtl" }}
-          >
-            <header className="px-4 py-3 border-b border-emerald/20 bg-emerald/[0.08] flex items-center justify-between shrink-0">
-              <div>
-                <div className="text-[11px] text-emerald/60 font-medium">من الملزمة</div>
-                <div className="font-bold text-sm">
-                  📄{" "}
-                  {drawer.pageEnd
-                    ? `الصفحات ${drawer.page}-${drawer.pageEnd}`
-                    : `صفحة ${drawer.page}`}
+                <div className="rounded-3xl bg-white/5 border border-white/10 px-4 py-3">
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
                 </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+                {error}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Lessons panel — desktop right drawer ───────────────────────────
+             Mobile: translate-y-full (hidden) / translate-y-0 (open)
+             Desktop md+: translate-x-full (hidden) / translate-x-0 (open)       */}
+        <div
+          className={`
+            absolute inset-x-0 bottom-0 top-0
+            md:inset-y-0 md:right-0 md:left-auto md:w-72
+            bg-card border-t border-white/10 md:border-t-0 md:border-r md:border-white/10
+            flex flex-col z-20
+            transition-transform duration-300 ease-in-out
+            ${lessonsOpen
+              ? "translate-y-0 md:translate-y-0 md:translate-x-0"
+              : "translate-y-full md:translate-y-0 md:translate-x-full"
+            }
+          `}
+          style={{ maxHeight: "100%" }}
+        >
+          {/* Panel header */}
+          <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-white/10">
+            <div className="flex items-center gap-2 text-sm font-bold text-white/80">
+              <BookOpen className="w-4 h-4 text-emerald-400" />
+              دروس الملزمة
+            </div>
+            <button
+              onClick={() => setLessonsOpen(false)}
+              className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {lessonsTree}
+        </div>
+
+        {/* Backdrop for mobile lessons panel */}
+        {lessonsOpen && (
+          <div
+            className="absolute inset-0 bg-black/50 z-10 md:hidden"
+            onClick={() => setLessonsOpen(false)}
+          />
+        )}
+      </div>
+
+      {/* ── Input bar ─────────────────────────────────────────────────────── */}
+      <div className="shrink-0 border-t border-white/5 bg-background/95 backdrop-blur-md">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!streaming && input.trim()) void sendMessage(input);
+            }}
+          >
+            <div className="flex items-end gap-2">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!streaming && input.trim()) void sendMessage(input);
+                  }
+                }}
+                disabled={streaming}
+                rows={1}
+                placeholder="اكتب ردّك للمعلم…"
+                className="flex-1 resize-none bg-black/30 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50 disabled:opacity-60 max-h-40"
+                style={{ minHeight: 48 }}
+              />
+              <button
+                type="submit"
+                disabled={streaming || !input.trim()}
+                className="shrink-0 h-12 w-12 rounded-2xl bg-gradient-to-l from-amber-500 to-amber-400 text-black flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
+                title="إرسال"
+              >
+                {streaming
+                  ? <Loader2 className="w-5 h-5 animate-spin" />
+                  : <Send className="w-5 h-5" />}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {/* ── Citation drawer ────────────────────────────────────────────────── */}
+      {drawer.kind !== "closed" && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setDrawer({ kind: "closed" }); }}
+        >
+          <div
+            className="w-full max-w-lg mx-4 mb-4 rounded-3xl border border-white/15 bg-card shadow-2xl overflow-hidden"
+            style={{ maxHeight: "60dvh", display: "flex", flexDirection: "column" }}
+          >
+            {/* Drawer header */}
+            <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-white/10">
+              <div className="flex items-center gap-2 text-sm font-bold text-white/80">
+                <BookOpen className="w-4 h-4 text-emerald-400" />
+                {drawer.kind === "loading"
+                  ? "جاري تحميل الصفحات…"
+                  : drawer.kind === "error"
+                  ? "تعذّر تحميل الصفحة"
+                  : `ص. ${drawer.page}${drawer.pageEnd && drawer.pageEnd !== drawer.page ? `–${drawer.pageEnd}` : ""} من الملزمة`}
               </div>
               <button
                 onClick={() => setDrawer({ kind: "closed" })}
-                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-white/60 hover:text-white"
+                className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
-            </header>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            </div>
+            {/* Drawer body */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               {drawer.kind === "loading" && (
-                <div className="text-center py-12 text-white/50">
-                  <Loader2 className="w-6 h-6 animate-spin inline" />
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
                 </div>
               )}
               {drawer.kind === "error" && (
-                <div className="text-sm text-red-400">تعذّر التحميل: {drawer.error}</div>
+                <p className="text-rose-300 text-sm">{drawer.error}</p>
               )}
               {drawer.kind === "ready" && drawer.chunks.length === 0 && (
-                <div className="text-sm text-white/50 text-center py-8">
-                  لا توجد مقاطع محفوظة لهذه الصفحة.
-                </div>
+                <p className="text-white/50 text-sm text-center py-8">لا يوجد نص لهذه الصفحة</p>
               )}
               {drawer.kind === "ready" &&
                 drawer.chunks.map((c) => (
-                  <div key={c.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                    <div className="text-[10px] text-emerald font-bold mb-1.5">
-                      صفحة {c.pageNumber}
-                    </div>
-                    <div className="text-xs text-white/80 leading-relaxed whitespace-pre-wrap">
-                      {c.chunkText}
-                    </div>
+                  <div key={c.id} className="bg-white/[0.04] border border-white/10 rounded-2xl p-4">
+                    <div className="text-[11px] text-white/40 mb-2 font-bold">ص. {c.pageNumber}</div>
+                    <p className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap">{c.chunkText}</p>
                   </div>
                 ))}
             </div>
-          </aside>
-        </>
+          </div>
+        </div>
       )}
     </div>
   );
