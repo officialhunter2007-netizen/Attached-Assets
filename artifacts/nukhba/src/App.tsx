@@ -161,11 +161,23 @@ function SubjectGate() {
           navigate(`/path/${encodeURIComponent(slug)}`);
           return;
         }
-        // v4 cutover (task #17): v4-enabled specialty WITH an existing
-        // path → send students to the v4 map instead of the legacy
-        // subject screen.
+        // v4 cutover: v4-enabled specialty WITH an existing path.
+        // If the student has uploaded booklets for this specialty, send them
+        // to their booklet list. Otherwise fall through to the v4 map.
         if (data?.available && data?.existingPath) {
-          navigate(`/specialty/${encodeURIComponent(slug)}/map`);
+          try {
+            const br = await fetch(`/api/v4/booklet/list/${encodeURIComponent(slug)}`, { credentials: "include" });
+            if (br.ok) {
+              const bd = await br.json();
+              const hasBooklets = Array.isArray(bd?.booklets) &&
+                bd.booklets.some((b: { status: string }) => b.status !== "failed");
+              if (hasBooklets) {
+                if (!cancelled) navigate(`/path/${encodeURIComponent(slug)}/booklet`);
+                return;
+              }
+            }
+          } catch {}
+          if (!cancelled) navigate(`/specialty/${encodeURIComponent(slug)}/map`);
           return;
         }
         setChecked(true);

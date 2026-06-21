@@ -24,6 +24,8 @@ import {
   extractMathBlocks,
   restoreMathPlaceholders,
 } from "@/lib/teacher-render";
+import { extractAskOptions } from "@/lib/ask-options";
+import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import {
   Loader2, Send, BookOpen, FileText, X,
   AlertTriangle, ChevronRight, ChevronDown, ChevronUp,
@@ -86,6 +88,16 @@ function injectCitationButtons(
 }
 
 // ─── Minimal render helpers (subset of v4-lesson's renderHtml) ───────────────
+// Strip complete and partial [[ASK_OPTIONS:...]] and status tags so they never
+// leak into the markdown renderer as raw text.
+function sanitizeProtocol(raw: string): string {
+  return raw
+    .replace(/\[\[\s*ASK_OPTIONS\s*:[\s\S]*?\]\](?!\])/g, "")
+    .replace(/\[\[\s*ASK_OPTIONS\s*:(?:(?!\]\])[\s\S])*$/g, "")
+    .replace(/\[(SESSION_COMPLETE|LESSON_MASTERED|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE)\]/g, "")
+    .replace(/\[(SESSION_COMPLETE|LESSON_MASTERED)?$/i, "");
+}
+
 function normalizeFences(src: string): string {
   if (!src || src.indexOf("```") === -1) return src;
   const FENCE_LANG_RE =
@@ -117,7 +129,8 @@ function normalizeFences(src: string): string {
 
 function renderHtml(raw: string): string {
   if (!raw) return "";
-  const withFences = normalizeFences(raw);
+  const clean = sanitizeProtocol(raw);
+  const withFences = normalizeFences(clean);
   const { text: stripped, blocks } = extractMathBlocks(withFences);
   const html = marked.parse(stripped ?? "", { async: false }) as string;
   const withMath = restoreMathPlaceholders(html, blocks);
@@ -132,19 +145,24 @@ function TeacherBubble({
   content,
   isStreaming,
   onCite,
+  onAnswerOption,
 }: {
   content: string;
   isStreaming: boolean;
   onCite: (p: number, pe?: number) => void;
+  onAnswerOption?: (answer: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
+  // Extract ASK_OPTIONS BEFORE rendering so the tag is never passed to marked
+  const { stripped, ask } = useMemo(() => extractAskOptions(content ?? ""), [content]);
+
   const html = useMemo(() => {
-    if (!content) return "";
-    const base = renderHtml(content);
+    if (!stripped) return "";
+    const base = renderHtml(stripped);
     return injectCitationButtons(base, onCite);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content]);
+  }, [stripped]);
 
   useEffect(() => {
     enhanceTeacherDom(ref.current);
@@ -187,16 +205,31 @@ function TeacherBubble({
   }
 
   return (
-    <div className="flex justify-start items-end gap-2">
-      <div className="shrink-0 w-8 h-8 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-base select-none mb-0.5">
+    <div className="flex justify-start items-end gap-2 w-full">
+      <div className="shrink-0 w-8 h-8 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-base select-none mb-0.5 self-start mt-1">
         📖
       </div>
-      <div className="max-w-[78%] px-4 py-3 rounded-3xl rounded-bl-sm bg-white/[0.06] border border-white/10">
-        <div
-          ref={ref}
-          className="ai-msg"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+      <div className="flex-1 min-w-0 space-y-2">
+        {html && (
+          <div className="max-w-[92%] px-4 py-3 rounded-3xl rounded-bl-sm bg-white/[0.06] border border-white/10">
+            <div
+              ref={ref}
+              className="ai-msg"
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          </div>
+        )}
+        {/* Render ASK_OPTIONS as clickable buttons (only when streaming is done) */}
+        {ask && !isStreaming && onAnswerOption && (
+          <div className="max-w-[92%]">
+            <OptionsQuestion
+              question={ask.question}
+              options={ask.options}
+              allowOther={ask.allowOther}
+              onAnswer={onAnswerOption}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -215,6 +248,7 @@ export default function BookletSession() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionComplete, setSessionComplete] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>({ kind: "closed" });
   const [lessonsOpen, setLessonsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(true);
@@ -381,6 +415,9 @@ export default function BookletSession() {
             }
             if (payload?.done) {
               setStreaming(false);
+              if ((payload as { sessionComplete?: boolean }).sessionComplete) {
+                setSessionComplete(true);
+              }
             }
             if (payload?.error || payload?.friendlyMessage) {
               setError(payload.friendlyMessage ?? payload.error ?? "حدث خطأ");
@@ -432,6 +469,9 @@ export default function BookletSession() {
     setMessages([]);
     setStreaming(false);
     setError(null);
+
+    // Reset session-complete flag for new lesson
+    setSessionComplete(false);
 
     if (lesson.needsReview) {
       // Show a static warning — no API call needed
@@ -670,12 +710,14 @@ export default function BookletSession() {
               }
 
               // AI bubble — use rich rendering
+              const isLastAi = isLast && m.role === "assistant";
               return (
                 <TeacherBubble
                   key={i}
                   content={m.content}
                   isStreaming={streaming && isLast}
                   onCite={openCitation}
+                  onAnswerOption={isLastAi && !streaming ? (ans) => { void sendMessage(ans); } : undefined}
                 />
               );
             })}
@@ -695,6 +737,28 @@ export default function BookletSession() {
             {error && (
               <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-200">
                 {error}
+              </div>
+            )}
+
+            {/* Session-complete banner — shown once the teacher signals all
+                lesson concepts are covered (server emits [SESSION_COMPLETE]). */}
+            {sessionComplete && !streaming && (
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                <span className="text-xl shrink-0 mt-0.5">🎉</span>
+                <div>
+                  <p className="font-bold text-emerald-300 mb-0.5">أتممت دراسة هذا الدرس!</p>
+                  <p className="text-emerald-200/80 text-[13px]">
+                    غطّينا جميع مفاهيم الدرس. إذا كان لديك سؤال يمكنك الاستمرار،
+                    أو ارجع إلى الخريطة لاختيار درس جديد.
+                  </p>
+                  <button
+                    onClick={() => navigate(`/booklet/${id}/map`)}
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-300 hover:text-white transition-colors"
+                  >
+                    <Map className="w-3.5 h-3.5" />
+                    العودة إلى الخريطة
+                  </button>
+                </div>
               </div>
             )}
           </div>
