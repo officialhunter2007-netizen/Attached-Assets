@@ -15,7 +15,7 @@
 //   • Citation drawer
 //   • /api/v4/booklet/teach SSE protocol
 // ─────────────────────────────────────────────────────────────────────────────
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
