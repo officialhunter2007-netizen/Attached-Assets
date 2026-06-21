@@ -29,8 +29,11 @@ import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import {
   Loader2, Send, BookOpen, FileText, X,
   AlertTriangle, ChevronRight, ChevronDown, ChevronUp,
-  LayoutList, Map, Sparkles,
+  LayoutList, Map, Sparkles, Code2,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { CodeEditorPanel } from "@/components/code-editor-panel";
+import { detectCodeTask } from "@/components/code-input-area";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Lesson = {
@@ -94,6 +97,8 @@ function sanitizeProtocol(raw: string): string {
   return raw
     .replace(/\[\[\s*ASK_OPTIONS\s*:[\s\S]*?\]\](?!\])/g, "")
     .replace(/\[\[\s*ASK_OPTIONS\s*:(?:(?!\]\])[\s\S])*$/g, "")
+    .replace(/\[\[\s*CODE_TASK\s*:[\s\S]*?\]\](?!\])/g, "")
+    .replace(/\[\[\s*CODE_TASK\s*:(?:(?!\]\])[\s\S])*$/g, "")
     .replace(/\[(SESSION_COMPLETE|LESSON_MASTERED|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE)\]/g, "")
     .replace(/\[(SESSION_COMPLETE|LESSON_MASTERED)?$/i, "");
 }
@@ -249,6 +254,10 @@ export default function BookletSession() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionComplete, setSessionComplete] = useState(false);
+  const [ideOpen, setIdeOpen] = useState(false);
+  const [pendingCodeTask, setPendingCodeTask] =
+    useState<{ requirement: string; lang: string } | null>(null);
+  const [codeTaskCardCollapsed, setCodeTaskCardCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>({ kind: "closed" });
   const [lessonsOpen, setLessonsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(true);
@@ -297,6 +306,21 @@ export default function BookletSession() {
     }
     return null;
   }, [booklet, activeCode]);
+
+  // Show IDE button only for programming/coding booklets (same regex as v4-lesson)
+  const isProgramming = useMemo(
+    () => /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp)/i
+      .test(booklet?.subjectId ?? ""),
+    [booklet?.subjectId],
+  );
+
+  // Share-code handler: injects code + output into the conversation as a user message
+  const handleShareWithTeacher = useCallback((code: string, language: string, output: string) => {
+    const preview = output.trim().slice(0, 400);
+    const shareMsg = `جرّبت الكود (${language}):\n\`\`\`${language}\n${code}\n\`\`\`\n${preview ? `**النتيجة:**\n\`\`\`\n${preview}\n\`\`\`` : ""}`;
+    setIdeOpen(false);
+    void sendMessage(shareMsg);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-scroll ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -415,8 +439,16 @@ export default function BookletSession() {
             }
             if (payload?.done) {
               setStreaming(false);
-              if ((payload as { sessionComplete?: boolean }).sessionComplete) {
-                setSessionComplete(true);
+              const p = payload as { sessionComplete?: boolean; codeTask?: { requirement: string; lang: string | null } | null };
+              if (p.sessionComplete) setSessionComplete(true);
+              if (p.codeTask?.requirement) {
+                const lang = (
+                  p.codeTask.lang ||
+                  detectCodeTask([p.codeTask.requirement]).lang ||
+                  "python"
+                ).toLowerCase();
+                setPendingCodeTask({ requirement: p.codeTask.requirement, lang });
+                setCodeTaskCardCollapsed(false);
               }
             }
             if (payload?.error || payload?.friendlyMessage) {
@@ -470,8 +502,10 @@ export default function BookletSession() {
     setStreaming(false);
     setError(null);
 
-    // Reset session-complete flag for new lesson
+    // Reset session-complete flag and IDE state for new lesson
     setSessionComplete(false);
+    setIdeOpen(false);
+    setPendingCodeTask(null);
 
     if (lesson.needsReview) {
       // Show a static warning — no API call needed
@@ -643,6 +677,54 @@ export default function BookletSession() {
             <p className="text-xs text-white/40 mt-0.5">اختر درساً من القائمة</p>
           )}
         </div>
+        {/* IDE button — only for coding specialties */}
+        {isProgramming && (
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setIdeOpen(true)}
+              className={`p-2 rounded-xl transition-colors ${
+                pendingCodeTask
+                  ? "text-amber-300 bg-amber-400/15 hover:bg-amber-400/25"
+                  : "text-white/50 hover:text-white hover:bg-white/10"
+              }`}
+              title={pendingCodeTask ? "محرّر نُخبة — لديك مهمّة برمجية بانتظارك" : "محرّر نُخبة"}
+            >
+              <Code2 className="w-5 h-5" />
+              {pendingCodeTask && (
+                <span className="absolute -top-0.5 -left-0.5 flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400/70 animate-ping" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-background" />
+                </span>
+              )}
+            </button>
+            {/* Bouncing tooltip pill when teacher pushes a code task */}
+            <AnimatePresence>
+              {pendingCodeTask && !ideOpen && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.8, y: -4 }}
+                  transition={{ duration: 0.35, delay: 1.2 }}
+                  className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 flex flex-col items-center"
+                  style={{ direction: "rtl" }}
+                >
+                  <div className="w-0 h-0"
+                    style={{ borderLeft: "7px solid transparent", borderRight: "7px solid transparent", borderBottom: "7px solid #F59E0B", filter: "drop-shadow(0 -2px 6px rgba(245,158,11,0.6))" }}
+                  />
+                  <motion.button
+                    onClick={() => setIdeOpen(true)}
+                    animate={{ y: [0, 5, 0] }}
+                    transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                    className="rounded-2xl font-black text-[11px] whitespace-nowrap select-none"
+                    style={{ background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)", color: "#1a0d00", padding: "5px 13px", boxShadow: "0 4px 20px rgba(245,158,11,0.55), 0 0 0 3px rgba(245,158,11,0.15)" }}
+                  >
+                    ↑ جرّب محرّر نُخبة
+                  </motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
         <button
           onClick={() => setLessonsOpen((v) => !v)}
           className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/15 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
@@ -845,6 +927,51 @@ export default function BookletSession() {
           </form>
         </div>
       </div>
+
+      {/* ── Nukhba IDE overlay ─────────────────────────────────────────────── */}
+      {ideOpen && (
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
+          <div className="shrink-0 flex items-center gap-2 px-4 h-12 border-b border-white/10">
+            <button
+              onClick={() => setIdeOpen(false)}
+              className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+              title="أغلق المحرّر"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <span className="text-sm font-bold text-white/80 flex items-center gap-1.5">
+              <Code2 className="w-4 h-4 text-amber-400" />
+              محرّر نُخبة
+            </span>
+            {/* Pinned code-task card inside IDE */}
+            {pendingCodeTask && (
+              <div className="flex-1 flex justify-end">
+                <div className="flex items-center gap-2 max-w-xs">
+                  <button
+                    onClick={() => setCodeTaskCardCollapsed((v) => !v)}
+                    className="text-[10px] text-amber-300/70 hover:text-amber-300 transition-colors whitespace-nowrap"
+                  >
+                    {codeTaskCardCollapsed ? "عرض المهمّة" : "طيّ"}
+                  </button>
+                  {!codeTaskCardCollapsed && (
+                    <div className="text-[11px] bg-amber-400/10 border border-amber-400/30 rounded-xl px-3 py-1.5 text-amber-200 leading-snug line-clamp-2">
+                      <span className="font-bold text-amber-300 ml-1">{pendingCodeTask.lang}</span>
+                      {pendingCodeTask.requirement}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-h-0">
+            <CodeEditorPanel
+              sectionContent={activeLesson?.lesson.objective ?? ""}
+              subjectId={booklet?.subjectId}
+              onShareWithTeacher={handleShareWithTeacher}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── Citation drawer ────────────────────────────────────────────────── */}
       {drawer.kind !== "closed" && (

@@ -810,9 +810,21 @@ router.post("/v4/booklet/teach", requireUser, requireSameOriginCsrf, async (req,
     const fullText = result.fullResponse || "";
     const sessionComplete = /\[SESSION_COMPLETE\]/.test(fullText);
 
+    // Parse [[CODE_TASK: lang=python | المطلوب: ...]] from fullText so the FE
+    // can light up the IDE button without ever rendering the raw tag.
+    let codeTask: { requirement: string; lang: string | null } | null = null;
+    const ctMatch = fullText.match(/\[\[\s*CODE_TASK\s*:\s*([\s\S]+?)\]\](?!\])/);
+    if (ctMatch) {
+      const parts = ctMatch[1].split("|").map((s) => s.trim()).filter(Boolean);
+      const langPart = parts.find((p) => /^lang\s*=/i.test(p));
+      const lang = langPart ? (langPart.replace(/^lang\s*=\s*/i, "").trim() || null) : null;
+      const requirement = parts.filter((p) => !/^lang\s*=/i.test(p)).join(" | ").trim();
+      if (requirement) codeTask = { requirement, lang };
+    }
+
     if (!res.writableEnded) {
       try {
-        res.write(`data: ${JSON.stringify({ done: true, charged, sessionComplete })}\n\n`);
+        res.write(`data: ${JSON.stringify({ done: true, charged, sessionComplete, codeTask })}\n\n`);
         res.end();
       } catch {}
     }

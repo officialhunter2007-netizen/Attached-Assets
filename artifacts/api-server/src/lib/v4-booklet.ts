@@ -34,6 +34,7 @@ import {
   buildBookletReferenceLayer,
   buildUnitLabsPlaceholderLayer,
   buildLanguageLayer,
+  buildCodeEditorLayer,
   V4_CONTENT_GEN_MODEL,
   type V4PromptStudent,
 } from "./v4-teaching-core";
@@ -1068,6 +1069,13 @@ export function buildBookletTeacherPrompt(opts: {
   ].join("\n");
   const L9 = buildLanguageLayer(lang);
 
+  // Inject the Nukhba code-editor layer for programming/coding specialties.
+  // KEEP IN SYNC with `isProgramming` in booklet-session.tsx — same regex.
+  const isCodingSpecialty =
+    /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp)/i
+      .test(opts.specialtyName);
+  const LCODE = isCodingSpecialty ? buildCodeEditorLayer() : "";
+
   // Booklet grounding discipline (Phase F): strict scope + question-type
   // constraint + tone. Complements the L6 citation/exception rules; placed
   // right after the content layer so scope rules sit with what's taught.
@@ -1080,7 +1088,9 @@ export function buildBookletTeacherPrompt(opts: {
     "- عند الحاجة لإضافة من خارج الملزمة (خطأ/نقص واضح فقط) صدّرها بـ «(إضافة توضيحية خارج الملزمة)» كما في الطبقة ٦.",
   ].join("\n");
 
-  return [L1, L2, DISCIPLINE, L3, L4, L5, L6, L7, L8, L9].join("\n\n");
+  return [L1, L2, DISCIPLINE, L3, L4, L5, L6, L7, L8, LCODE, L9]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 // ─── Lazy exam/lab question generation (Phase G) ────────────────────────────
