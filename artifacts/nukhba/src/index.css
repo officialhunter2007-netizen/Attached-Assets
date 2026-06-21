@@ -171,6 +171,8 @@
   .glow-emerald { box-shadow: 0 0 20px rgba(16,185,129,0.3); }
   .text-gold { color: #F59E0B; }
   .text-emerald { color: #10B981; }
+  .bg-emerald { background-color: #10B981; }
+  .bg-gold { background-color: #F59E0B; }
 
   /* ── NEON TEXT GLOWS ── */
   .neon-text-gold {
