@@ -1,19 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // OpenAI embeddings client (text-embedding-3-small, 1536 dims).
 //
-// Used by v4 task #8 booklet RAG. We deliberately do NOT route through
-// OpenRouter — OpenRouter does not proxy /v1/embeddings, so we call
-// api.openai.com directly using the Replit-managed OpenAI integration key
-// (AI_INTEGRATIONS_OPENAI_API_KEY) with OPENAI_API_KEY as override.
+// Used by v4 task #8 booklet RAG. We route through OpenRouter
+// (https://openrouter.ai/api/v1/embeddings) which proxies OpenAI's
+// text-embedding-3-small. This avoids requiring a separate OPENAI_API_KEY;
+// the same OPENROUTER_API_KEY used for all AI teaching calls works here.
 //
-// Failure mode: throws a typed error. Callers should refund any prep
-// charge and surface a friendly Arabic apology.
+// The model ID on OpenRouter is "openai/text-embedding-3-small"; the vector
+// shape is identical to direct OpenAI (1536 dims), so existing pgvector
+// rows remain compatible.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const OPENAI_BASE = "https://api.openai.com/v1";
-export const EMBED_MODEL = "text-embedding-3-small";
+import { getOpenRouterKey } from "./openrouter-key";
+
+const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
+// OpenRouter model ID for OpenAI's text-embedding-3-small.
+export const EMBED_MODEL = "openai/text-embedding-3-small";
 export const EMBED_DIMS = 1536;
-// $0.020 / 1M input tokens (May 2026 OpenAI pricing).
+// $0.020 / 1M input tokens (OpenAI pricing, passed through by OpenRouter).
 const EMBED_USD_PER_TOKEN = 0.020 / 1_000_000;
 
 export class EmbeddingError extends Error {
@@ -28,8 +32,8 @@ export class EmbeddingError extends Error {
 }
 
 function getKey(): string {
-  const k = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  if (!k) throw new EmbeddingError("OPENAI_API_KEY not configured", { status: 0, unconfigured: true });
+  const k = getOpenRouterKey();
+  if (!k) throw new EmbeddingError("OPENROUTER_API_KEY not configured", { status: 0, unconfigured: true });
   return k;
 }
 
@@ -54,11 +58,13 @@ export async function embedTexts(texts: string[]): Promise<EmbedResult> {
 
   for (let i = 0; i < texts.length; i += BATCH) {
     const batch = texts.slice(i, i + BATCH).map((t) => (t || "").slice(0, 24_000)); // ~6k tokens hard cap
-    const resp = await fetch(`${OPENAI_BASE}/embeddings`, {
+    const resp = await fetch(`${OPENROUTER_BASE}/embeddings`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${key}`,
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://learnukhba.com",
+        "X-Title": "Nukhba Booklet RAG",
       },
       body: JSON.stringify({
         model: EMBED_MODEL,
@@ -67,7 +73,7 @@ export async function embedTexts(texts: string[]): Promise<EmbedResult> {
     });
     if (!resp.ok) {
       const body = await resp.text().catch(() => "");
-      throw new EmbeddingError(`OpenAI embeddings failed: HTTP ${resp.status} — ${body.slice(0, 300)}`, { status: resp.status });
+      throw new EmbeddingError(`OpenRouter embeddings failed: HTTP ${resp.status} — ${body.slice(0, 300)}`, { status: resp.status });
     }
     const data: any = await resp.json();
     const items: Array<{ embedding: number[] }> = data?.data ?? [];
