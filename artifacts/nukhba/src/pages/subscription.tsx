@@ -1112,42 +1112,8 @@ export default function Subscription() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-5">
-            {/* Card A — AI tech branding */}
-            <div className="glass rounded-3xl border-2 border-gold/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(245,158,11,0.06)] flex flex-col">
-              <div className="flex items-center gap-4 mb-5">
-                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
-                  <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-gold" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-[11px] sm:text-xs font-bold text-gold/80 mb-1 tracking-wide">
-                    POWERED BY AI
-                  </div>
-                  <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
-                    {ts.techAiTitle}
-                  </h3>
-                </div>
-              </div>
-              <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
-                {ts.techAiDesc}
-              </p>
-              <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>
-                    <span className="font-bold text-foreground">{ts.techAiDeep}</span> {ts.techAiDeepDesc}
-                  </span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>
-                    <span className="font-bold text-foreground">{ts.techAiFast}</span> {ts.techAiFastDesc}
-                  </span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Card B — Smart daily rotation reassurance */}
+          <div className="max-w-2xl mx-auto">
+            {/* Smart daily rotation reassurance */}
             <div className="glass rounded-3xl border-2 border-emerald-500/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(16,185,129,0.06)] flex flex-col">
               <div className="flex items-center gap-4 mb-5">
                 <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
