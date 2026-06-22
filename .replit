@@ -35,7 +35,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=5000 pnpm --filter @workspace/nukhba run dev & PORT=8080 pnpm --filter @workspace/api-server run dev"
+args = "PORT=8080 pnpm --filter @workspace/api-server run dev & PORT=5000 pnpm --filter @workspace/nukhba run dev"
 waitForPort = 5000
 
 [agent]
