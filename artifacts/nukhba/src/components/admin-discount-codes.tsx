@@ -124,7 +124,7 @@ export function AdminDiscountCodes() {
     try {
       const r = await fetch("/api/admin/discount-codes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
         credentials: "include",
         body: JSON.stringify({
           code,
@@ -155,7 +155,7 @@ export function AdminDiscountCodes() {
   const handleToggleActive = async (c: DiscountCode) => {
     const r = await fetch(`/api/admin/discount-codes/${c.id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
       credentials: "include",
       body: JSON.stringify({ active: !c.active }),
     });
@@ -194,7 +194,7 @@ export function AdminDiscountCodes() {
     try {
       const r = await fetch(`/api/admin/discount-codes/${editingCode.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
         credentials: "include",
         body: JSON.stringify({
           maxUses: editMaxUses.trim() === "" ? null : parseInt(editMaxUses, 10),
