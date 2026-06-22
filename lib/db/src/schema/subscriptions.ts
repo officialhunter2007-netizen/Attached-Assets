@@ -297,16 +297,15 @@ export const paymentSettingsTable = pgTable("payment_settings", {
 export type PaymentSetting = typeof paymentSettingsTable.$inferSelect;
 
 // ── v4 Monthly per-subject gem wallet ─────────────────────────────────────────
-// Parallel to the legacy `user_subject_subscriptions` daily-cap wallet (kept
-// in service until the full FE cutover in task #10). Built for the v4
-// monthly-pool + 50/50 split + welcome-gift model:
+// The single source of truth for a student's spendable balance per specialty:
 //   - One row per (userId, subjectId). Unique-indexed.
 //   - `gemsBalance` is the entire monthly pool (no daily cap, no midnight forfeit).
 //   - `expiresAt` is the renewal deadline. A 3-day grace period after expiry
 //     allows top-up (carry-over). Past the grace window, a cron sweep zeros
 //     the balance and writes a `monthly_expiry` ledger row.
-//   - `welcomeGiftClaimed` flips to true on first wallet creation; the +100
-//     gem welcome gift is never granted twice for the same subject.
+//   - `welcomeGiftClaimed` is VESTIGIAL — the per-subject welcome gift is
+//     retired in favour of the global one-time 150-gem welcome pool (see
+//     studentWelcomeGiftsTable). It stays false and is no longer read.
 //   - `lastRenewalAt` records the most recent purchase that extended the wallet
 //     (used for renewal-carryover ledger metadata).
 export const studentGemWalletsTable = pgTable("student_gem_wallets", {
@@ -326,3 +325,52 @@ export const studentGemWalletsTable = pgTable("student_gem_wallets", {
 
 export type StudentGemWallet = typeof studentGemWalletsTable.$inferSelect;
 export type InsertStudentGemWallet = typeof studentGemWalletsTable.$inferInsert;
+
+// ── v4 Global one-time welcome gift ───────────────────────────────────────────
+// Every student gets a SINGLE 150-gem welcome gift to spend across the platform.
+// They allocate it (in free chunks) across up to 3 specialties. The pool row
+// tracks the global budget; one allocation row per chosen specialty records how
+// much landed in that subject's wallet.
+//   - One pool row per user (unique). `totalGems` is the budget (150),
+//     `allocatedGems` is how much has been distributed so far.
+//   - `shownAt` records when the first-entry welcome modal was shown (so it is
+//     shown once). NULL = not shown yet.
+//   - `finalizedAt` records when the student locked in their final choice; after
+//     that no further allocation is allowed.
+export const studentWelcomeGiftsTable = pgTable("student_welcome_gifts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique(),
+  totalGems: integer("total_gems").notNull().default(150),
+  allocatedGems: integer("allocated_gems").notNull().default(0),
+  shownAt: timestamp("shown_at", { withTimezone: true }),
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StudentWelcomeGift = typeof studentWelcomeGiftsTable.$inferSelect;
+export type InsertStudentWelcomeGift = typeof studentWelcomeGiftsTable.$inferInsert;
+
+// One row per (userId, subjectId) the student directed part of the welcome gift
+// to. The unique index makes a re-allocation to the same subject an upsert (so
+// incremental top-ups during the choose flow accumulate rather than duplicate).
+export const studentWelcomeGiftAllocationsTable = pgTable(
+  "student_welcome_gift_allocations",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").notNull(),
+    subjectId: text("subject_id").notNull(),
+    gemsAllocated: integer("gems_allocated").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("uq_welcome_gift_alloc_user_subject").on(t.userId, t.subjectId),
+    index("idx_welcome_gift_alloc_user").on(t.userId),
+  ],
+);
+
+export type StudentWelcomeGiftAllocation =
+  typeof studentWelcomeGiftAllocationsTable.$inferSelect;
+export type InsertStudentWelcomeGiftAllocation =
+  typeof studentWelcomeGiftAllocationsTable.$inferInsert;

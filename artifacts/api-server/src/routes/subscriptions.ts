@@ -37,6 +37,13 @@ import {
   YER_PER_USD_FALLBACK,
   setYerToUsdRates,
   getYerPerUsdMap,
+  PACKAGE_GEMS,
+  TEACHING_REF_USD_PER_1M_TOKENS,
+  DEFAULT_GEMS_PER_1M_TEACHING_TOKENS,
+  GEMS_PER_1M_SETTING_KEY,
+  getGemsPer1MTeachingTokens,
+  getGemsPerUsd,
+  setGemsPer1MTeachingTokens,
 } from "../lib/pricing-formula";
 
 const router: IRouter = Router();
@@ -2251,6 +2258,82 @@ router.put("/admin/payment-settings/:key", async (req, res): Promise<void> => {
     })
     .returning();
   res.json(row);
+});
+
+// ── Admin: gem charge rate ("gems per 1M teaching tokens") ────────────────────
+// Single admin knob that maps the friendly "gems per 1M tokens" number to the
+// internal gems-per-USD constant used by every AI charge. The generic
+// payment-settings PUT only persists the row — this dedicated endpoint ALSO
+// refreshes the in-memory cache (setGemsPer1MTeachingTokens) so the new rate
+// applies to live charges immediately, with no restart.
+function buildGemRatePayload() {
+  const gemsPer1M = getGemsPer1MTeachingTokens();
+  const gemsPerUsd = getGemsPerUsd();
+  return {
+    gemsPer1M,
+    defaultGemsPer1M: DEFAULT_GEMS_PER_1M_TEACHING_TOKENS,
+    refUsdPer1MTokens: TEACHING_REF_USD_PER_1M_TOKENS,
+    gemsPerUsd,
+    costPerGemUsd: gemsPerUsd > 0 ? 1 / gemsPerUsd : 0,
+    packageGems: { ...PACKAGE_GEMS },
+    settingKey: GEMS_PER_1M_SETTING_KEY,
+  };
+}
+
+router.get("/admin/v4/gem-rate", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+  res.json(buildGemRatePayload());
+});
+
+router.put("/admin/v4/gem-rate", requireSameOriginCsrf, async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const gemsPer1M = Number(req.body?.gemsPer1M);
+  if (!Number.isFinite(gemsPer1M) || gemsPer1M <= 0) {
+    res.status(400).json({ error: "قيمة غير صالحة — يجب أن يكون عدداً موجباً" });
+    return;
+  }
+  // Guard against fat-finger extremes that would make every turn cost 0 or
+  // drain a wallet in one message. 1 .. 1,000,000 gems / 1M tokens is plenty.
+  if (gemsPer1M > 1_000_000) {
+    res.status(400).json({ error: "القيمة كبيرة جداً (الحد الأقصى ١٬٠٠٠٬٠٠٠)" });
+    return;
+  }
+
+  try {
+    // Persist to the same payment_settings row the startup loader reads.
+    await db
+      .insert(paymentSettingsTable)
+      .values({
+        key: GEMS_PER_1M_SETTING_KEY,
+        value: String(gemsPer1M),
+        label: "عدد الجواهر لكل مليون رمز (نموذج التدريس)",
+        category: "ai",
+        updatedByUserId: adminId,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: paymentSettingsTable.key,
+        set: {
+          value: String(gemsPer1M),
+          category: "ai",
+          updatedByUserId: adminId,
+          updatedAt: new Date(),
+        },
+      });
+    // Refresh the live cache so charges use the new rate immediately.
+    setGemsPer1MTeachingTokens(gemsPer1M);
+    res.json(buildGemRatePayload());
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "admin/v4/gem-rate: update failed");
+    res.status(500).json({ error: "فشل حفظ سعر الجوهرة" });
+  }
 });
 
 // ── Admin: list discount codes (with usage counts) ────────────────────────────

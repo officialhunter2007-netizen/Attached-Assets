@@ -21,6 +21,7 @@ import v4TeachRouter from "./v4_teach";
 import v4LabExamRouter from "./v4_lab_exam";
 import v4BookletRouter from "./v4_booklet";
 import v4HandsOnRouter from "./v4_handson";
+import v4WelcomeGiftRouter from "./v4_welcome_gift";
 
 const router: IRouter = Router();
 
@@ -46,5 +47,6 @@ router.use(v4TeachRouter);
 router.use(v4LabExamRouter);
 router.use(v4BookletRouter);
 router.use(v4HandsOnRouter);
+router.use(v4WelcomeGiftRouter);
 
 export default router;

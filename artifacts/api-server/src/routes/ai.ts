@@ -455,6 +455,19 @@ const TEACHER_CSS = `
 `;
 
 router.post("/ai/lesson", async (req, res): Promise<void> => {
+  // ── RETIRED (v4 unification) ──────────────────────────────────────────────
+  // The legacy free-first-lesson + daily-cap teaching engine has been retired.
+  // Every specialty now runs on the v4 engine (POST /v4/teach) backed by the
+  // per-subject gem wallet. This route is kept mounted only so any stale client
+  // gets an explicit, non-billing signal instead of silently re-entering the
+  // old free-lesson/daily-cap path. It MUST NOT touch access.ts / gems.ts /
+  // charge-ai-usage.ts ever again.
+  res.status(410).json({
+    error: "v4_required",
+    message: "تم تحديث نظام التعلّم. افتح المادة من المسار الجديد لمواصلة الدرس.",
+  });
+  return;
+  // eslint-disable-next-line no-unreachable
   const userId = getUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -1332,6 +1345,16 @@ You are talking to a human, not writing an academic report. Dryness kills learni
 }
 
 router.post("/ai/teach", async (req, res): Promise<void> => {
+  // ── RETIRED (v4 unification) ──────────────────────────────────────────────
+  // The legacy free-first-lesson + daily-cap teaching engine is retired. All
+  // student teaching now flows through POST /v4/teach (per-subject gem wallet,
+  // no daily cap, no free-first-lesson). This route returns an explicit
+  // non-billing signal so no stale client can re-enter the old charge path.
+  res.status(410).json({
+    error: "v4_required",
+    message: "تم تحديث نظام التعلّم. افتح المادة من المسار الجديد لمواصلة الدرس.",
+  });
+  return;
   // ── Top-level safety net ─────────────────────────────────────────────────
   // Wraps the ENTIRE handler. Any throw — DB blip, undefined reference,
   // upstream provider crash before SSE opened, post-stream bookkeeping

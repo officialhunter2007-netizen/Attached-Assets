@@ -1,7 +1,13 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./logger";
-import { setYerToUsdRates, YER_PER_USD_FALLBACK } from "./pricing-formula";
+import {
+  setYerToUsdRates,
+  YER_PER_USD_FALLBACK,
+  setGemsPer1MTeachingTokens,
+  GEMS_PER_1M_SETTING_KEY,
+  DEFAULT_GEMS_PER_1M_TEACHING_TOKENS,
+} from "./pricing-formula";
 
 type ColumnSpec = {
   name: string;
@@ -275,6 +281,42 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     indexes: [
       `CREATE UNIQUE INDEX IF NOT EXISTS "uq_student_gem_wallets_user_subject" ON "student_gem_wallets" ("user_id", "subject_id")`,
       `CREATE INDEX IF NOT EXISTS "idx_student_gem_wallets_expires" ON "student_gem_wallets" ("expires_at")`,
+    ],
+  },
+  {
+    // v4 global one-time welcome gift — a 150-gem budget per user, allocated
+    // across up to 3 specialties. See schema/subscriptions.ts.
+    table: "student_welcome_gifts",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "student_welcome_gifts" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL UNIQUE,
+        "total_gems" integer NOT NULL DEFAULT 150,
+        "allocated_gems" integer NOT NULL DEFAULT 0,
+        "shown_at" timestamp with time zone,
+        "finalized_at" timestamp with time zone,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [],
+  },
+  {
+    // v4 welcome-gift per-subject allocation rows (upsert by user + subject).
+    table: "student_welcome_gift_allocations",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "student_welcome_gift_allocations" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "subject_id" text NOT NULL,
+        "gems_allocated" integer NOT NULL DEFAULT 0,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_welcome_gift_alloc_user_subject" ON "student_welcome_gift_allocations" ("user_id", "subject_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_welcome_gift_alloc_user" ON "student_welcome_gift_allocations" ("user_id")`,
     ],
   },
   {
@@ -1013,6 +1055,14 @@ const DEFAULT_PAYMENT_SETTINGS: Array<{
   { key: "kuraimi.north.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الشمال", category: "payment" },
   { key: "kuraimi.south.number", value: "3167076083",            label: "رقم حساب كريمي — الجنوب", category: "payment" },
   { key: "kuraimi.south.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الجنوب", category: "payment" },
+  // AI charge rate — the single admin knob. "Gems per 1,000,000 teaching-model
+  // tokens." Translated to the internal gems-per-USD constant in pricing-formula.
+  {
+    key: GEMS_PER_1M_SETTING_KEY,
+    value: String(DEFAULT_GEMS_PER_1M_TEACHING_TOKENS),
+    label: "عدد الجواهر لكل مليون توكن (النموذج التعليمي)",
+    category: "ai",
+  },
 ];
 
 // Default YER→USD divisors used to seed `exchange_rates` on first boot only.
@@ -1079,6 +1129,28 @@ async function seedPaymentSettings(): Promise<void> {
     logger.error(
       { err: err?.message },
       "auto-migrate: failed to seed payment_settings defaults",
+    );
+  }
+}
+
+// Load the admin-configured AI charge rate (gems per 1M teaching tokens) from
+// payment_settings and push it into the pricing-formula cache so every charge
+// uses the live value immediately at startup (mirrors loadExchangeRatesIntoFormula).
+// The admin PATCH endpoint calls setGemsPer1MTeachingTokens directly after an edit.
+async function loadGemsRateIntoFormula(): Promise<void> {
+  try {
+    const rows = await db.execute<{ value: string }>(sql`
+      SELECT "value" FROM "payment_settings" WHERE "key" = ${GEMS_PER_1M_SETTING_KEY} LIMIT 1
+    `);
+    const raw = rows.rows[0]?.value;
+    const gemsPer1M = raw != null ? Number(raw) : NaN;
+    if (Number.isFinite(gemsPer1M) && gemsPer1M > 0) {
+      setGemsPer1MTeachingTokens(gemsPer1M);
+    }
+  } catch (err: any) {
+    logger.warn(
+      { err: err?.message },
+      "auto-migrate: failed to load gems-per-1M rate; using default",
     );
   }
 }
@@ -1542,6 +1614,7 @@ export async function runStartupMigrations(): Promise<void> {
     await seedExchangeRates();
     await loadExchangeRatesIntoFormula();
     await seedPaymentSettings();
+    await loadGemsRateIntoFormula();
     const { added, errors } = await ensureRequiredColumns();
     // Spec requires pgvector for booklet RAG. Attempt to enable the
     // extension and add the `embedding_v vector(1536)` mirror column on

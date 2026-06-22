@@ -19,6 +19,7 @@ import Dashboard from "@/pages/dashboard";
 import Subscription from "@/pages/subscription";
 import Usage from "@/pages/usage";
 import { WelcomeOfferModal } from "@/components/welcome-offer-modal";
+import { WelcomeGiftModal } from "@/components/welcome-gift-modal";
 import Admin from "@/pages/admin";
 import Support from "@/pages/support";
 import PathChoice from "@/pages/path-choice";
@@ -239,6 +240,7 @@ function App() {
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
               <Router />
               <WelcomeOfferModal />
+              <WelcomeGiftModal />
             </WouterRouter>
             <Toaster />
           </TooltipProvider>

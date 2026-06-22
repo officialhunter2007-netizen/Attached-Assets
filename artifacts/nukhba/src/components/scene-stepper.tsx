@@ -261,7 +261,7 @@ type FetchState =
   | { status: "ready"; scene: Scene }
   | { status: "error"; topic: string };
 
-export function SceneMount({ topic, lessonName }: { topic: string; lessonName?: string }) {
+export function SceneMount({ topic, lessonName, slug }: { topic: string; lessonName?: string; slug?: string }) {
   const cacheKey = makeCacheKey(topic, lessonName);
 
   // Initialise directly from the module-level cache so a remounted SceneMount
@@ -290,7 +290,7 @@ export function SceneMount({ topic, lessonName }: { topic: string; lessonName?: 
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
-          body: JSON.stringify({ topic, lessonName }),
+          body: JSON.stringify({ topic, lessonName, slug }),
           signal: ctrl.signal,
         });
         if (!r.ok) throw new Error(`http ${r.status}`);
@@ -308,7 +308,7 @@ export function SceneMount({ topic, lessonName }: { topic: string; lessonName?: 
       }
     })();
     return () => { cancelled = true; ctrl.abort(); };
-  }, [cacheKey, topic, lessonName]);
+  }, [cacheKey, topic, lessonName, slug]);
 
   if (state.status === "loading") {
     return (

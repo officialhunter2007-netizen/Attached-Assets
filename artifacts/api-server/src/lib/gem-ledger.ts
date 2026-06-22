@@ -26,7 +26,7 @@ export type GemLedgerReason =
   // ── v4 monthly-wallet reasons ──────────────────────────────────────────
   | "purchase_gems"      // v4: student-share half of a paid plan (positive)
   | "platform_revenue"   // v4: platform-share half (zero-delta audit row)
-  | "welcome_gift"       // v4: one-time +100 on first wallet creation
+  | "welcome_gift"       // v4: global one-time 150-gem gift allocated to a subject
   | "monthly_expiry"     // v4: post-grace cron sweep zeroes the wallet
   | "renewal_carryover"; // v4: leftover balance preserved across a renewal
 
@@ -56,7 +56,9 @@ export type GemLedgerSource =
   | "v4_exam_attempt"
   | "v4_ai_practice"     // v4: adaptive practice-question AI turns
   | "v4_booklet_prep"    // v4: one-time booklet extraction + tree-gen + embed
-  | "v4_booklet_teach";  // v4: per-turn booklet RAG teaching
+  | "v4_booklet_teach"   // v4: per-turn booklet RAG teaching
+  | "v4_ai_scene"        // v4: lazy [[SCENE]] interactive-story generation (Sonnet)
+  | "v4_ai_placement";   // v4: adaptive placement-test question generation
 
 export type WriteGemLedgerOpts = {
   userId: number;

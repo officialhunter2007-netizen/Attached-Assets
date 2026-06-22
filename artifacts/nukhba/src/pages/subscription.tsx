@@ -87,7 +87,7 @@ const plans: Record<PlanKey, {
   silver: {
     name: "الفضية",
     icon: <Star className="w-7 h-7 text-slate-300" />,
-    gems: 2000,
+    gems: 2200,
     gemsPerDay: 142,
     desc: "للطالب الجاد — تعلّم أعمق في جميع التخصصات",
     color: "text-slate-300",
@@ -104,7 +104,7 @@ const plans: Record<PlanKey, {
   gold: {
     name: "الذهبية",
     icon: <Gem className="w-7 h-7 text-gold" />,
-    gems: 3000,
+    gems: 3600,
     gemsPerDay: 214,
     desc: "الخيار الأشمل — تعلّم كثيف بلا توقف",
     color: "text-gold",
@@ -783,7 +783,7 @@ export default function Subscription() {
                   <span>{plan.gems.toLocaleString(lang === "ar" ? "ar-EG" : "en-US")} {ts.gemsTotal}</span>
                 </div>
                 <div className="text-xs text-emerald-400 font-bold mb-6">
-                  {ts.upToGemsPerDay.replace("{n}", String(plan.gemsPerDay))}
+                  {ts.upToGemsPerDay}
                 </div>
                 <ul className="space-y-2 text-sm">
                   {plan.features.map((f, fi) => (

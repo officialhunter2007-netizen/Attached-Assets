@@ -60,6 +60,7 @@ import {
 import { capturePersonalDictionaryFromDiagnostic } from "../lib/v4-memory";
 import { subscribeProgressEvents } from "../lib/v4-progress-events";
 import { generateScene, SceneGenerationError } from "../lib/v4-scene-store";
+import { runV4PaidWork } from "../lib/v4-gem-wallet";
 import { studentGemWalletsTable } from "@workspace/db";
 import {
   resolveTestoutScope,
@@ -206,6 +207,64 @@ router.get("/v4/path/:slug/wallet", requireUser, async (req, res) => {
     });
   } catch (e) {
     logger.error?.(`[v4/path/wallet] ${slug} user=${uid}: ${String((e as any)?.message ?? e)}`);
+    res.status(500).json({ error: "internal" });
+  }
+});
+
+// ── GET /v4/wallets/summary ────────────────────────────────────────────────
+// Cross-subject wallet snapshot for the app shell (the global gem badge shown
+// on pages that are NOT inside a specific subject — dashboard, learn, usage…).
+// This is the v4 replacement for the legacy /api/subscriptions/gems-balance*
+// endpoints: pure per-subject wallet balances, NO daily cap, NO first-lesson
+// free counter, NO derived gems. Returns the per-wallet rows plus a few
+// pre-computed aggregates so the FE never has to know wallet internals.
+router.get("/v4/wallets/summary", requireUser, async (req, res) => {
+  const uid: number = (req as any).userId;
+  try {
+    const rows = await db
+      .select()
+      .from(studentGemWalletsTable)
+      .where(eq(studentGemWalletsTable.userId, uid));
+
+    const now = Date.now();
+    const wallets = rows.map((w: any) => {
+      const gemsBalance = Number(w.gemsBalance ?? 0);
+      const expiresAt: string | null = w.expiresAt ?? null;
+      return { subjectId: String(w.subjectId), gemsBalance, expiresAt };
+    });
+
+    const totalBalance = wallets.reduce((s, w) => s + Math.max(0, w.gemsBalance), 0);
+    // "Active" = still holds gems. Expiry is informational here; the canonical
+    // expiry/grace enforcement lives in the charge path, not this read.
+    const active = wallets.filter((w) => w.gemsBalance > 0);
+    const activeSubjectCount = active.length;
+
+    // Nearest upcoming expiry among wallets that still hold gems.
+    let nearestExpiresAt: string | null = null;
+    let nearestMs = Infinity;
+    for (const w of active) {
+      if (!w.expiresAt) continue;
+      const t = new Date(w.expiresAt).getTime();
+      if (Number.isFinite(t) && t < nearestMs) { nearestMs = t; nearestExpiresAt = w.expiresAt; }
+    }
+    const nearestExpiresInDays = nearestExpiresAt != null
+      ? Math.max(0, Math.ceil((nearestMs - now) / 86_400_000))
+      : null;
+
+    // Single-subject convenience label so the badge can name the one wallet.
+    const worstSubject = active.length === 1 ? active[0] : null;
+
+    res.json({
+      hasAnyWallet: wallets.length > 0,
+      totalBalance,
+      activeSubjectCount,
+      nearestExpiresAt,
+      nearestExpiresInDays,
+      worstSubject,
+      wallets,
+    });
+  } catch (e) {
+    logger.error?.(`[v4/wallets/summary] user=${uid}: ${String((e as any)?.message ?? e)}`);
     res.status(500).json({ error: "internal" });
   }
 });
@@ -438,6 +497,16 @@ function serializePath(row: any) {
 // across all probes in the adaptive descent.
 // Body: {} (no parameters needed — the active instruction version is inferred)
 // Returns: { questionCount: number }
+// Fixed USD cost basis for one placement-test generation batch (~3 MCQs per
+// sampled unit via Gemini Flash Lite). Charged once per (student, version) —
+// a retry after a failed/abandoned generation reuses the same requestId so it
+// never double-charges. Overridable via env for ops tuning.
+const PLACEMENT_GEN_USD = (() => {
+  const raw = parseFloat(process.env.V4_PLACEMENT_GEN_USD ?? "");
+  return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : 0.02;
+})();
+const PLACEMENT_GEN_MODEL = "gemini-2.5-flash-lite";
+
 router.post("/v4/path/:slug/placement/generate", requireUser, requireSameOriginCsrf, async (req, res) => {
   const uid: number = (req as any).userId;
   const slug = String(req.params.slug);
@@ -472,13 +541,30 @@ router.post("/v4/path/:slug/placement/generate", requireUser, requireSameOriginC
       return;
     }
 
-    // Generate questions via Haiku
+    // Generate questions via Gemini Flash Lite — a PAID call: pre-gate the
+    // wallet, charge (idempotent on (user, version)), refund on failure. A
+    // zero-balance / no-wallet student is blocked here with 402.
     let questions: AnyPlacementQuestion[];
     try {
-      questions = await generatePlacementQuestions({ versionId: resolved.versionId });
+      const paid = await runV4PaidWork({
+        requestId: `v4placementgen_${uid}_${slug}_${resolved.versionId}`,
+        userId: uid,
+        subjectId: slug,
+        costUsd: PLACEMENT_GEN_USD,
+        source: "v4_ai_placement",
+        model: PLACEMENT_GEN_MODEL,
+        note: "توليد أسئلة اختبار تحديد المستوى",
+        run: () => generatePlacementQuestions({ versionId: resolved.versionId }),
+      });
+      if (!paid.ok) {
+        res.status(402).json({ error: "insufficient_gems", reason: paid.reason, balance: paid.balance });
+        return;
+      }
+      questions = paid.result;
     } catch (genErr: any) {
       logger.warn({ err: genErr?.message, slug }, "[v4_path] placement question generation failed");
-      // Fallback: use whatever admin questions exist (even if < 13)
+      // Generation threw → runV4PaidWork already refunded the debit. Fall back
+      // to whatever admin questions exist (even if < 13).
       res.json({ questionCount: existingCount, source: "admin" as const, fallback: true });
       return;
     }
@@ -1345,17 +1431,35 @@ router.get("/v4/path/:slug/events", requireUser, (req, res) => {
 router.post("/v4/scene", requireUser, requireSameOriginCsrf, async (req, res) => {
   const topic = typeof req.body?.topic === "string" ? req.body.topic : "";
   const lessonName = typeof req.body?.lessonName === "string" ? req.body.lessonName : undefined;
+  const slug = typeof req.body?.slug === "string" ? req.body.slug.trim() : "";
   if (!topic || topic.trim().length < 3) {
     res.status(400).json({ error: "bad_request", message: "topic مطلوب" });
     return;
   }
+  if (!slug) {
+    res.status(400).json({ error: "bad_request", message: "slug مطلوب" });
+    return;
+  }
   const uid = getUserId(req);
   try {
-    const scene = await generateScene(topic, { lessonName, userId: uid ?? undefined });
+    // Validate the specialty so a bogus slug never spins up a junk wallet.
+    const resolved = await resolveActiveSpecialty(slug);
+    if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
+
+    const scene = await generateScene(topic, { lessonName, userId: uid ?? undefined, subjectId: slug });
     res.json({ scene });
   } catch (e) {
     const reason = e instanceof SceneGenerationError ? e.reason : "internal";
     logger.warn?.(`[v4/scene] failed reason=${reason}: ${String((e as any)?.message ?? e)}`);
+    // Insufficient balance → 402 so the FE shows the paywall (degrades to text).
+    if (reason === "insufficient") {
+      res.status(402).json({
+        error: "insufficient_gems",
+        reason,
+        message: "رصيد الجواهر لا يكفي لتوليد المشهد التفاعلي.",
+      });
+      return;
+    }
     // Per-user burst limit — tell the client to slow down (FE degrades to text).
     if (reason === "rate_limited") {
       const retryAfterSec = e instanceof SceneGenerationError ? e.retryAfterSec : undefined;

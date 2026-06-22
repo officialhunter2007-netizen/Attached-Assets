@@ -41,6 +41,7 @@ import { AdminConversations } from "@/components/admin-conversations";
 import { AdminAlerts } from "@/components/admin-alerts";
 import { AdminGemLedger } from "@/components/admin-gem-ledger";
 import { AdminPaymentSettings } from "@/components/admin-payment-settings";
+import { AdminGemRate } from "@/components/admin-gem-rate";
 import { AdminAiTeacherProvider } from "@/components/admin-ai-teacher-provider";
 import { AdminV4Instructions } from "@/components/admin-v4-instructions";
 import { AdminV4Booklets } from "@/components/admin-v4-booklets";
@@ -1005,6 +1006,10 @@ export default function Admin() {
               <CreditCard className="w-3.5 h-3.5 text-gold" />
               إعدادات الدفع
             </TabsTrigger>
+            <TabsTrigger value="gem-rate" className="flex items-center gap-1.5 bg-gradient-to-l from-gold/10 to-emerald-500/10 data-[state=active]:from-gold/25 data-[state=active]:to-emerald-500/20 data-[state=active]:border-gold/40">
+              <Gem className="w-3.5 h-3.5 text-gold" />
+              سعر الجوهرة
+            </TabsTrigger>
             <TabsTrigger value="v4-instructions" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-emerald-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-emerald-500/20 data-[state=active]:border-amber-400/40">
               <BookOpen className="w-3.5 h-3.5 text-amber-400" />
               ملفات التعليمات (v4)
@@ -1844,6 +1849,10 @@ export default function Admin() {
           {/* Payment Settings Tab */}
           <TabsContent value="payment-settings">
             <AdminPaymentSettings />
+          </TabsContent>
+
+          <TabsContent value="gem-rate">
+            <AdminGemRate />
           </TabsContent>
 
           {/* v4 Instruction Files Tab */}

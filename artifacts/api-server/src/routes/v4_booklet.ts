@@ -66,7 +66,13 @@ import {
   type BookletLabCache,
 } from "../lib/v4-booklet-progress";
 import { evaluateExamAnswer, evaluateLabAnswer } from "../lib/v4-exam-evaluator";
-import { chargeV4Ai, refundV4Ai, getOrCreateV4Wallet } from "../lib/v4-gem-wallet";
+import {
+  chargeV4Ai,
+  refundV4Ai,
+  getOrCreateV4Wallet,
+  canAffordV4Turn,
+  runV4PaidWork,
+} from "../lib/v4-gem-wallet";
 import { streamGeminiTeaching, type GeminiMessage } from "../lib/gemini-stream";
 import { V4_TEACHING_MODEL, assertGeminiForTeaching } from "../lib/v4-teaching-core";
 import { emitFriendlyAiFailure } from "./ai";
@@ -723,6 +729,21 @@ router.post("/v4/booklet/teach", requireUser, requireSameOriginCsrf, async (req,
   const unitName = unit?.name ?? "—";
   const slug = booklet.subjectId;
 
+  // Pre-gate: booklet teaching is billed from the v4 wallet. Block a
+  // zero-balance / past-grace student up front (clean 402) before spending
+  // tokens on retrieval + streaming.
+  {
+    const afford = await canAffordV4Turn(uid, slug);
+    if (!afford.ok) {
+      res.status(402).json({
+        error: "insufficient_gems",
+        reason: afford.noWallet ? "no_wallet" : "insufficient",
+        balance: afford.balance,
+      });
+      return;
+    }
+  }
+
   const requestId = `v4bt_${Date.now()}_${randomBytes(8).toString("hex")}`;
 
   // ── 2. Build retrieval context. ──────────────────────────────────────
@@ -785,13 +806,13 @@ router.post("/v4/booklet/teach", requireUser, requireSameOriginCsrf, async (req,
       },
     });
 
-    // Billing seam — booklet teaching is FREE for now. The full cost
-    // computation + chargeV4Ai call stay wired behind this flag so metering
-    // can be re-enabled later by flipping it to true (one line).
-    const BOOKLET_TEACH_BILLING_ENABLED = false;
+    // Bill the turn from the v4 wallet at the admin-configured gem rate using
+    // REAL post-hoc token cost. drainIfInsufficient: a turn whose cost exceeds
+    // the remaining balance drains the wallet to zero (the next turn's pre-gate
+    // then blocks) rather than being served for free.
     const usdCost = ((result.inputTokens || 0) * 0.10 + (result.outputTokens || 0) * 0.40) / 1_000_000;
     let charged = false;
-    if (BOOKLET_TEACH_BILLING_ENABLED && usdCost > 0) {
+    if (usdCost > 0) {
       const c = await chargeV4Ai({
         requestId,
         userId: uid,
@@ -800,6 +821,7 @@ router.post("/v4/booklet/teach", requireUser, requireSameOriginCsrf, async (req,
         source: "v4_booklet_teach",
         model: V4_TEACHING_MODEL,
         note: `ملزمة:${bookletId} درس ${lessonCode}`,
+        drainIfInsufficient: true,
       });
       charged = c.charged;
     }
@@ -940,6 +962,15 @@ router.get("/v4/booklet/active-paths/:slug", requireUser, async (req, res) => {
 const _examGenInflight = new Map<string, Promise<BookletExamCache | null>>();
 const _labGenInflight = new Map<string, Promise<BookletLabCache | null>>();
 
+// Fixed USD cost estimates for the non-stream booklet AI surfaces billed via
+// the v4 wallet. The generators/evaluators don't surface token usage, so —
+// mirroring the placement-generation pattern — we charge a flat estimate that
+// runV4PaidWork converts to gems at the admin-configured rate. (Booklet
+// teaching is billed on REAL post-hoc token cost instead; see its handler.)
+const BOOKLET_EXAM_GEN_USD = 0.012;   // grounded MCQ set (6 unit / 10 final)
+const BOOKLET_LAB_GEN_USD = 0.012;    // scenario + 5 typed questions
+const BOOKLET_LAB_GRADE_USD = 0.006;  // Haiku grading of a lab (per eval / per submit)
+
 // ── GET /v4/booklet/:id/exam/:examCode ─────────────────────────────────────
 // Returns the (lazy-generated, cached) MCQ set WITHOUT the answer key.
 router.get("/v4/booklet/:id/exam/:examCode", requireUser, async (req, res) => {
@@ -958,24 +989,53 @@ router.get("/v4/booklet/:id/exam/:examCode", requireUser, async (req, res) => {
     const progress = loadBookletProgress((row as any).progress);
     let cache: BookletExamCache | null = progress.examQuestions[examCode] ?? null;
     if (!cache) {
+      // First open → a PAID grounded-MCQ generation. Pre-gate + charge (fixed
+      // estimate at the admin gem rate), refund on failure. Cached after the
+      // first success so a reload / re-open hits the cache and is NOT recharged.
       const key = `${id}:${examCode}`;
       let p = _examGenInflight.get(key);
       if (!p) {
         p = (async () => {
-          const questions = await generateBookletExamQuestions({
-            bookletId: id,
-            bookletTitle: row.title,
-            examTitle: found.exam.title,
-            scope: found.exam.scope,
-            sourcePages: found.exam.sourcePages,
-            count: found.exam.scope === "final" ? 10 : 6,
+          const paid = await runV4PaidWork({
+            requestId: `v4bexamgen_${uid}_${id}_${examCode}`,
+            userId: uid,
+            subjectId: row.subjectId,
+            costUsd: BOOKLET_EXAM_GEN_USD,
+            source: "v4_exam_attempt",
+            note: `ملزمة:${id} توليد اختبار ${examCode}`,
+            run: async () => {
+              const questions = await generateBookletExamQuestions({
+                bookletId: id,
+                bookletTitle: row.title,
+                examTitle: found.exam.title,
+                scope: found.exam.scope,
+                sourcePages: found.exam.sourcePages,
+                count: found.exam.scope === "final" ? 10 : 6,
+              });
+              return cacheBookletExam(id, uid, examCode, { questions, generatedAt: new Date().toISOString() });
+            },
           });
-          return cacheBookletExam(id, uid, examCode, { questions, generatedAt: new Date().toISOString() });
+          if (!paid.ok) {
+            const e: any = new Error("insufficient_gems");
+            e.kind = "insufficient_gems";
+            e.reason = paid.reason;
+            e.balance = paid.balance;
+            throw e;
+          }
+          return paid.result;
         })();
         _examGenInflight.set(key, p);
         void p.finally(() => { if (_examGenInflight.get(key) === p) _examGenInflight.delete(key); });
       }
-      cache = await p;
+      try {
+        cache = await p;
+      } catch (e: any) {
+        if (e?.kind === "insufficient_gems") {
+          res.status(402).json({ error: "insufficient_gems", reason: e.reason, balance: e.balance });
+          return;
+        }
+        throw e;
+      }
     }
     if (!cache || !cache.questions.length) {
       res.status(503).json({ error: "exam_generation_failed", message: "تعذّر إنشاء أسئلة الاختبار الآن، أعد المحاولة بعد لحظات." });
@@ -1069,23 +1129,52 @@ router.get("/v4/booklet/:id/lab/:labCode", requireUser, async (req, res) => {
     const progress = loadBookletProgress((row as any).progress);
     let spec: BookletLabCache | null = progress.labSpecs[labCode] ?? null;
     if (!spec) {
+      // First open → a PAID grounded lab generation (scenario + 5 questions).
+      // Pre-gate + charge (fixed estimate), refund on failure, cache-once so a
+      // reload / re-open hits the cache and is NOT recharged.
       const key = `${id}:${labCode}`;
       let p = _labGenInflight.get(key);
       if (!p) {
         p = (async () => {
-          const gen = await generateBookletLabSpec({
-            bookletId: id,
-            bookletTitle: row.title,
-            labTitle: found.lab.title,
-            hasExercises: !!found.lab.hasExercises,
-            sourcePages: found.lab.pages,
+          const paid = await runV4PaidWork({
+            requestId: `v4blabgen_${uid}_${id}_${labCode}`,
+            userId: uid,
+            subjectId: row.subjectId,
+            costUsd: BOOKLET_LAB_GEN_USD,
+            source: "v4_lab_grade",
+            note: `ملزمة:${id} توليد معمل ${labCode}`,
+            run: async () => {
+              const gen = await generateBookletLabSpec({
+                bookletId: id,
+                bookletTitle: row.title,
+                labTitle: found.lab.title,
+                hasExercises: !!found.lab.hasExercises,
+                sourcePages: found.lab.pages,
+              });
+              return cacheBookletLab(id, uid, labCode, { ...gen, generatedAt: new Date().toISOString() });
+            },
           });
-          return cacheBookletLab(id, uid, labCode, { ...gen, generatedAt: new Date().toISOString() });
+          if (!paid.ok) {
+            const e: any = new Error("insufficient_gems");
+            e.kind = "insufficient_gems";
+            e.reason = paid.reason;
+            e.balance = paid.balance;
+            throw e;
+          }
+          return paid.result;
         })();
         _labGenInflight.set(key, p);
         void p.finally(() => { if (_labGenInflight.get(key) === p) _labGenInflight.delete(key); });
       }
-      spec = await p;
+      try {
+        spec = await p;
+      } catch (e: any) {
+        if (e?.kind === "insufficient_gems") {
+          res.status(402).json({ error: "insufficient_gems", reason: e.reason, balance: e.balance });
+          return;
+        }
+        throw e;
+      }
     }
     if (!spec || !spec.questions.length) {
       res.status(503).json({ error: "lab_generation_failed", message: "تعذّر إنشاء أسئلة المعمل الآن، أعد المحاولة بعد لحظات." });
@@ -1132,14 +1221,35 @@ router.post("/v4/booklet/:id/lab/:labCode/evaluate", requireUser, requireSameOri
     if (!spec) { res.status(409).json({ error: "lab_not_started", message: "افتح المعمل أولاً." }); return; }
     const q = spec.questions.find((x) => x.questionIndex === questionIndex);
     if (!q) { res.status(400).json({ error: "bad_question" }); return; }
-    const r = await evaluateLabAnswer(
-      {
-        id: q.id, prompt: q.prompt, kind: q.kind,
-        scenario: spec.scenario, completionCriterion: spec.completionCriterion,
-        rubric: q.rubric ?? null, solutionOutline: q.solutionOutline ?? null,
+    // Live per-question feedback is a paid Haiku call — pre-gate + charge a
+    // small fixed estimate (unique requestId per click), refund on failure.
+    // evaluateLabAnswer swallows its own errors into a FAIL_RESULT, so throw on
+    // evaluatorFailed to trigger the refund instead of billing a dud grade.
+    const evalPaid = await runV4PaidWork({
+      requestId: `v4blabeval_${uid}_${id}_${labCode}_${questionIndex}_${Date.now()}_${randomBytes(4).toString("hex")}`,
+      userId: uid,
+      subjectId: row.subjectId,
+      costUsd: BOOKLET_LAB_GRADE_USD,
+      source: "v4_lab_grade",
+      note: `ملزمة:${id} تقييم معمل ${labCode} سؤال ${questionIndex}`,
+      run: async () => {
+        const out = await evaluateLabAnswer(
+          {
+            id: q.id, prompt: q.prompt, kind: q.kind,
+            scenario: spec.scenario, completionCriterion: spec.completionCriterion,
+            rubric: q.rubric ?? null, solutionOutline: q.solutionOutline ?? null,
+          },
+          answer,
+        );
+        if ((out as any).evaluatorFailed) throw new Error("lab_eval_failed");
+        return out;
       },
-      answer,
-    );
+    });
+    if (!evalPaid.ok) {
+      res.status(402).json({ error: "insufficient_gems", reason: evalPaid.reason, balance: evalPaid.balance });
+      return;
+    }
+    const r = evalPaid.result;
     res.json({ verdict: r.verdict, score: r.score, explanation: r.explanation });
   } catch (e: any) {
     logger.error?.(`[v4/booklet/lab:evaluate] ${String(e?.message ?? e)}`);
@@ -1169,29 +1279,54 @@ router.post("/v4/booklet/:id/lab/:labCode/submit", requireUser, requireSameOrigi
       return;
     }
 
-    const evaluatorLog: any[] = [];
-    let sum = 0;
-    for (let i = 0; i < spec.questions.length; i++) {
-      const q = spec.questions[i];
-      const ans = answers[i] ?? "";
-      const r = await evaluateLabAnswer(
-        {
-          id: q.id, prompt: q.prompt, kind: q.kind,
-          scenario: spec.scenario, completionCriterion: spec.completionCriterion,
-          rubric: q.rubric ?? null, solutionOutline: q.solutionOutline ?? null,
-        },
-        ans,
-      );
-      sum += r.score;
-      evaluatorLog.push({
-        questionId: q.id, questionIndex: q.questionIndex, kind: q.kind, prompt: q.prompt,
-        studentAnswer: ans, verdict: r.verdict, score: r.score, explanation: r.explanation,
-      });
+    // Submitting re-grades all 5 answers via Haiku — a paid call. Pre-gate +
+    // charge a fixed estimate (unique requestId per attempt), refund on a hard
+    // failure. Per-question grader hiccups degrade to a 0 for that question
+    // (the batch still produces a usable score), so we only throw — and refund
+    // — when the whole batch is unusable.
+    const labPaid = await runV4PaidWork({
+      requestId: `v4blabsubmit_${uid}_${id}_${labCode}_${Date.now()}_${randomBytes(4).toString("hex")}`,
+      userId: uid,
+      subjectId: row.subjectId,
+      costUsd: BOOKLET_LAB_GRADE_USD,
+      source: "v4_lab_grade",
+      note: `ملزمة:${id} تصحيح معمل ${labCode}`,
+      run: async () => {
+        const evaluatorLog: any[] = [];
+        let sum = 0;
+        for (let i = 0; i < spec.questions.length; i++) {
+          const q = spec.questions[i];
+          const ans = answers[i] ?? "";
+          const r = await evaluateLabAnswer(
+            {
+              id: q.id, prompt: q.prompt, kind: q.kind,
+              scenario: spec.scenario, completionCriterion: spec.completionCriterion,
+              rubric: q.rubric ?? null, solutionOutline: q.solutionOutline ?? null,
+            },
+            ans,
+          );
+          sum += r.score;
+          evaluatorLog.push({
+            questionId: q.id, questionIndex: q.questionIndex, kind: q.kind, prompt: q.prompt,
+            studentAnswer: ans, verdict: r.verdict, score: r.score, explanation: r.explanation,
+          });
+        }
+        const score = spec.questions.length ? Math.round(sum / spec.questions.length) : 0;
+        const passed = score >= BOOKLET_LAB_PASS_PCT;
+        await recordBookletLabResult(id, uid, labCode, { score, passed });
+        return { score, passed, evaluatorLog };
+      },
+    });
+    if (!labPaid.ok) {
+      res.status(402).json({ error: "insufficient_gems", reason: labPaid.reason, balance: labPaid.balance });
+      return;
     }
-    const score = spec.questions.length ? Math.round(sum / spec.questions.length) : 0;
-    const passed = score >= BOOKLET_LAB_PASS_PCT;
-    await recordBookletLabResult(id, uid, labCode, { score, passed });
-    res.json({ score, passed, passThreshold: BOOKLET_LAB_PASS_PCT, evaluatorLog });
+    res.json({
+      score: labPaid.result.score,
+      passed: labPaid.result.passed,
+      passThreshold: BOOKLET_LAB_PASS_PCT,
+      evaluatorLog: labPaid.result.evaluatorLog,
+    });
   } catch (e: any) {
     logger.error?.(`[v4/booklet/lab:submit] ${String(e?.message ?? e)}`);
     res.status(500).json({ error: "internal", message: "تعذّر إنهاء المعمل الآن، أعد المحاولة." });

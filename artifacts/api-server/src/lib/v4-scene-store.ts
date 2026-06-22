@@ -33,6 +33,7 @@ import { z } from "zod";
 import { generateGemini, GenerateGeminiError } from "./openrouter-generate";
 import { robustJsonParse } from "./json-repair";
 import { logger } from "./logger";
+import { canAffordV4Turn, chargeV4Ai, refundV4Ai } from "./v4-gem-wallet";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const CACHE_DIR =
@@ -55,6 +56,17 @@ const SCENE_MODEL = (process.env.SCENE_MODEL || "anthropic/claude-sonnet-4-5").t
 const SCENE_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.V4_SCENE_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(raw) && raw >= 5_000 && raw <= 120_000 ? raw : 70_000;
+})();
+
+/**
+ * Fixed USD cost basis for ONE scene generation (a Claude Sonnet call). The
+ * student wallet is debited `usdToGems(SCENE_USD)` via the admin-configured
+ * rate; mirrors the fixed-estimate model used by the other non-stream paid
+ * surfaces (hands-on, lab, exam). Overridable via env for ops tuning.
+ */
+const SCENE_USD = (() => {
+  const raw = parseFloat(process.env.V4_SCENE_USD ?? "");
+  return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : 0.05;
 })();
 
 // ── Schema ────────────────────────────────────────────────────────────────
@@ -88,7 +100,7 @@ export type Scene = z.infer<typeof SceneSchema>;
 
 // ── Error type ──────────────────────────────────────────────────────────────
 export class SceneGenerationError extends Error {
-  reason: "unconfigured" | "credits" | "transient" | "bad_output" | "internal" | "rate_limited";
+  reason: "unconfigured" | "credits" | "transient" | "bad_output" | "internal" | "rate_limited" | "insufficient";
   retryAfterSec?: number;
   constructor(message: string, reason: SceneGenerationError["reason"], retryAfterSec?: number) {
     super(message);
@@ -368,6 +380,12 @@ export type GenerateSceneOptions = {
   lessonName?: string;
   /** When provided, enforces the per-user burst limit on the paid miss path. */
   userId?: number;
+  /**
+   * v4 specialty slug. When present (with userId), a genuine cache-miss model
+   * call is charged against the student's gem wallet for this subject and
+   * refunded if generation fails. Omitted ⇒ no billing (free).
+   */
+  subjectId?: string;
   signal?: AbortSignal;
 };
 
@@ -406,7 +424,34 @@ export async function generateScene(
     }
   }
 
+  // 4. Billing — a genuine cache miss is a paid Sonnet call. Pre-gate the
+  //    wallet, then charge (idempotent on the topic-hash requestId, so a
+  //    failed→retried scene bills at most once per topic). Active only when a
+  //    subject context is supplied by the caller; otherwise the call is free.
+  let chargeRequestId: string | null = null;
+  const billable = typeof options.userId === "number" && !!options.subjectId;
+  if (billable) {
+    const afford = await canAffordV4Turn(options.userId!, options.subjectId!);
+    if (!afford.ok) {
+      throw new SceneGenerationError("insufficient gems for scene", "insufficient");
+    }
+    chargeRequestId = `v4scene_${options.userId}_${hash}`;
+    const charge = await chargeV4Ai({
+      requestId: chargeRequestId,
+      userId: options.userId!,
+      subjectId: options.subjectId!,
+      costUsd: SCENE_USD,
+      source: "v4_ai_scene",
+      model: SCENE_MODEL,
+      note: "مشهد تفاعلي",
+    });
+    if (!charge.charged && charge.insufficient) {
+      throw new SceneGenerationError("insufficient gems for scene", "insufficient");
+    }
+  }
+
   const job = (async (): Promise<Scene> => {
+   try {
     let result;
     try {
       result = await generateGemini({
@@ -452,6 +497,20 @@ export async function generateScene(
     }
     await writeCached(hash, scene);
     return scene;
+   } catch (sceneErr) {
+     // Refund on ANY failure (transport, parse, validation) so a scene the
+     // student never received is never billed.
+     if (chargeRequestId && billable) {
+       await refundV4Ai({
+         requestId: chargeRequestId,
+         userId: options.userId!,
+         subjectId: options.subjectId!,
+         source: "v4_ai_scene",
+         reason: "scene_failed",
+       }).catch(() => {});
+     }
+     throw sceneErr;
+   }
   })();
 
   inflight.set(hash, job);

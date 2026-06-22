@@ -432,7 +432,7 @@ ${bodyHtml}
 </body></html>`;
 }
 
-function TeacherBubble({ html, isStreaming, imageMap, lessonName }: { html: string; isStreaming: boolean; imageMap: Map<string, V4ImageState>; lessonName?: string }) {
+function TeacherBubble({ html, isStreaming, imageMap, lessonName, slug }: { html: string; isStreaming: boolean; imageMap: Map<string, V4ImageState>; lessonName?: string; slug?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { enhanceTeacherDom(ref.current); }, [html]);
   // Run once more when streaming ends — the final `html` string is often
@@ -648,7 +648,7 @@ function TeacherBubble({ html, isStreaming, imageMap, lessonName }: { html: stri
         r = createRoot(el);
         sceneRootsRef.current.set(el, r);
       }
-      r.render(createElement(SceneMount, { topic, lessonName }));
+      r.render(createElement(SceneMount, { topic, lessonName, slug }));
     }
     for (const [node, r] of sceneRootsRef.current.entries()) {
       if (!alive.has(node)) {
@@ -1501,6 +1501,7 @@ export default function V4Lesson() {
                 isStreaming={streaming && isLast && m.role === "assistant"}
                 imageMap={imageMap}
                 lessonName={lessonMeta?.name}
+                slug={slug}
                 onAnswerOption={
                   isLast && m.role === "assistant" && !streaming
                     ? (ans: string) => void sendMessage(ans)
@@ -1791,12 +1792,14 @@ const MessageBubble = ({
   isStreaming,
   imageMap,
   lessonName,
+  slug,
   onAnswerOption,
 }: {
   msg: ChatMsg;
   isStreaming: boolean;
   imageMap: Map<string, V4ImageState>;
   lessonName?: string;
+  slug?: string;
   onAnswerOption?: (answer: string) => void;
 }) => {
   // Normalise Arabic text (stuck words, missing spaces) on assistant messages.
@@ -1874,7 +1877,7 @@ const MessageBubble = ({
     <div className="flex justify-start">
       <div className="max-w-[92%] rounded-3xl rounded-br-none bg-[#1f2937] border border-gray-700/50 p-5 shadow-sm leading-relaxed">
         {html ? (
-          <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} lessonName={lessonName} />
+          <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} lessonName={lessonName} slug={slug} />
         ) : (
           <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
         )}

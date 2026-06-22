@@ -30,11 +30,6 @@ import { useLang } from "@/lib/lang-context";
 
 const asArray = <T,>(raw: unknown): T[] => (Array.isArray(raw) ? (raw as T[]) : []);
 
-interface GemsBalanceProbe {
-  source?: string | null;
-  hasActiveSub?: boolean;
-}
-
 export default function Dashboard() {
   const { user } = useAuth();
   const { tr } = useLang();
@@ -60,11 +55,14 @@ export default function Dashboard() {
     raw => asArray<SubjectSub>(raw),
     [],
   );
-  const legacyProbe = useDashboardFetch<boolean | null>(
-    "/api/subscriptions/gems-balance",
+  // Whether the student holds ANY active v4 gem wallet (replaces the retired
+  // legacy gems-balance probe). Drives the dashboard's "no access / blocked"
+  // gating alongside the legacy pre-gems plan check.
+  const v4AccessProbe = useDashboardFetch<boolean | null>(
+    "/api/v4/wallets/summary",
     raw => {
-      const d = raw as GemsBalanceProbe | null;
-      return !!(d && d.source === "legacy" && d.hasActiveSub);
+      const d = raw as { hasAnyWallet?: boolean; activeSubjectCount?: number } | null;
+      return !!(d && d.hasAnyWallet && (d.activeSubjectCount ?? 0) > 0);
     },
     null,
   );
@@ -203,7 +201,7 @@ export default function Dashboard() {
   }));
 
   const { usableSubs, expiredSubs, expiringSoonSubs, isBlocked } = useMemo(() => {
-    if (subjectSubs.loading || subjectSubs.error || legacyProbe.loading || legacyProbe.error) {
+    if (subjectSubs.loading || subjectSubs.error || v4AccessProbe.loading || v4AccessProbe.error) {
       return { usableSubs: [] as SubjectSub[], expiredSubs: [] as SubjectSub[], expiringSoonSubs: [] as SubjectSub[], isBlocked: false };
     }
     const now = new Date();
@@ -221,7 +219,7 @@ export default function Dashboard() {
       new Date(user.subscriptionExpiresAt) > now &&
       (user.messagesUsed ?? 0) < (user.messagesLimit ?? 0)
     );
-    const hasAnyLegacyAccess = hasLegacyPreGemsAccess || legacyProbe.data === true;
+    const hasAnyLegacyAccess = hasLegacyPreGemsAccess || v4AccessProbe.data === true;
 
     const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
     const allExpired = subs.filter(s => new Date(s.expiresAt) <= now);
@@ -242,7 +240,7 @@ export default function Dashboard() {
       !!user?.firstLessonComplete &&
       !usable.length &&
       !hasAnyLegacyAccess &&
-      legacyProbe.data === false &&
+      v4AccessProbe.data === false &&
       recentlyExpired.length === 0;
 
     return {
@@ -253,7 +251,7 @@ export default function Dashboard() {
     };
   }, [
     subjectSubs.data, subjectSubs.loading, subjectSubs.error,
-    legacyProbe.data, legacyProbe.loading, legacyProbe.error,
+    v4AccessProbe.data, v4AccessProbe.loading, v4AccessProbe.error,
     user?.nukhbaPlan, user?.subscriptionExpiresAt, user?.messagesUsed, user?.messagesLimit, user?.firstLessonComplete,
   ]);
 
@@ -323,15 +321,15 @@ export default function Dashboard() {
             <div>
               <SectionHeading accent="gold">{tr.dashboard.subscriptionStatus}</SectionHeading>
               <SectionState
-                loading={subjectSubs.loading || legacyProbe.loading}
+                loading={subjectSubs.loading || v4AccessProbe.loading}
                 error={
-                  subjectSubs.error || legacyProbe.error
+                  subjectSubs.error || v4AccessProbe.error
                     ? tr.dashboard.errorSubscription
                     : null
                 }
                 empty={false}
                 emptyMessage=""
-                onRetry={() => { subjectSubs.refetch(); legacyProbe.refetch(); }}
+                onRetry={() => { subjectSubs.refetch(); v4AccessProbe.refetch(); }}
               >
                 <SubscriptionSummaryCard usableSubs={usableSubs} locked={isBlocked} />
               </SectionState>

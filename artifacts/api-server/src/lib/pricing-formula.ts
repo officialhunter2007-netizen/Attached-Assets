@@ -19,6 +19,76 @@
 /** Subscription duration in days. Drives dailyGemLimit calculation. */
 export const SUB_DURATION_DAYS = 14;
 
+// ── v4 fixed package gems + admin-configurable charge rate ──────────────────
+// Under the redesigned model the gems per package are FIXED. The admin sets the
+// PRICE per package per region (plan_prices); the gem grant never changes.
+export const PACKAGE_GEMS: Record<string, number> = {
+  bronze: 1000,
+  silver: 2200,
+  gold: 3600,
+};
+
+/** Resolve the fixed gem grant for a plan type. Returns 0 for unknown plans. */
+export function packageGems(planType: string | null | undefined): number {
+  if (!planType) return 0;
+  return PACKAGE_GEMS[planType.toLowerCase()] ?? 0;
+}
+
+/**
+ * Assumed blended teaching-model price (USD per 1,000,000 tokens). Used ONLY
+ * to translate the admin's friendly "gems per 1M tokens" knob into the internal
+ * gems-per-USD constant. Actual AI charges ALWAYS use the real per-call token
+ * cost (estimateGenerationCostUsd) × getGemsPerUsd(), so this reference never
+ * affects billing accuracy — it only maps the admin number to the constant.
+ * Gemini 2.5 Flash Lite is $0.10 in / $0.40 out per 1M; the midpoint ($0.25)
+ * is used as the reference blend.
+ */
+export const TEACHING_REF_USD_PER_1M_TOKENS = 0.25;
+
+/**
+ * Default admin knob (gems per 1M teaching tokens). Chosen so the derived
+ * gems-per-USD == 1000 (1 gem ≈ $0.001), preserving the economics that were
+ * previously hardcoded as usdToGems(usd × 1000).
+ */
+export const DEFAULT_GEMS_PER_1M_TEACHING_TOKENS = 250;
+
+/** payment_settings key that stores the admin knob. */
+export const GEMS_PER_1M_SETTING_KEY = "ai.gems_per_1m_teaching_tokens";
+
+// In-memory cache of the derived gems-per-USD constant. Initialised to the
+// default so charging is correct before the DB loader runs. Replaced by
+// `setGemsPer1MTeachingTokens` (called from auto-migrate at startup and from
+// the admin PATCH endpoint after a successful update).
+let LIVE_GEMS_PER_USD =
+  DEFAULT_GEMS_PER_1M_TEACHING_TOKENS / TEACHING_REF_USD_PER_1M_TOKENS;
+
+/** Replace the live gems-per-USD constant from the admin knob value. */
+export function setGemsPer1MTeachingTokens(gemsPer1M: number): void {
+  if (Number.isFinite(gemsPer1M) && gemsPer1M > 0) {
+    LIVE_GEMS_PER_USD = gemsPer1M / TEACHING_REF_USD_PER_1M_TOKENS;
+  }
+}
+
+/** Internal gems-per-USD constant (cost-per-gem in USD = 1 / this). */
+export function getGemsPerUsd(): number {
+  return LIVE_GEMS_PER_USD;
+}
+
+/** Current admin knob value (gems per 1M teaching tokens), derived from cache. */
+export function getGemsPer1MTeachingTokens(): number {
+  return LIVE_GEMS_PER_USD * TEACHING_REF_USD_PER_1M_TOKENS;
+}
+
+/**
+ * Convert a real USD AI cost to gems using the live admin-configured rate.
+ * SINGLE SOURCE OF TRUTH — every AI charge MUST go through this. Floors at 1
+ * gem for any positive cost so a sub-cent turn still costs something.
+ */
+export function usdToGems(usd: number): number {
+  if (!Number.isFinite(usd) || usd <= 0) return 0;
+  return Math.max(1, Math.floor(usd * LIVE_GEMS_PER_USD));
+}
+
 /**
  * Static fallback YER→USD conversion rates (stored as the YER-per-USD divisor).
  * Used only when the DB seed has not yet run or the DB read fails. The live

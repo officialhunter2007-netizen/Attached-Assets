@@ -43,12 +43,18 @@ import {
 import { logger } from "./logger";
 import {
   computePricingBreakdown,
+  packageGems,
+  usdToGems,
   type PricingBreakdown,
 } from "./pricing-formula";
 import type { GemLedgerSource } from "./gem-ledger";
 
-/** One-time welcome bonus granted on first wallet creation per subject. */
-export const V4_WELCOME_GIFT_GEMS = 100;
+/**
+ * Per-subject welcome gift is DISABLED — replaced by the global one-time
+ * 150-gem welcome pool the student allocates across up to 3 specialties
+ * (see lib/v4-welcome-gift.ts). Kept at 0 so any residual reference is a no-op.
+ */
+export const V4_WELCOME_GIFT_GEMS = 0;
 
 /** Days after expiry during which a renewal preserves leftover balance. */
 export const V4_GRACE_DAYS = 3;
@@ -57,13 +63,11 @@ export const V4_GRACE_DAYS = 3;
 export const V4_SUB_DURATION_DAYS = 30;
 
 /**
- * Convert a USD cost (from the AI billing layer) to gem count.
- * Single source of truth — every AI charge MUST go through this.
+ * Re-exported from pricing-formula so the many existing
+ * `import { usdToGems } from "../lib/v4-gem-wallet"` call sites keep working.
+ * The conversion rate is admin-configurable (gems per 1M teaching tokens).
  */
-export function usdToGems(usd: number): number {
-  if (!Number.isFinite(usd) || usd <= 0) return 0;
-  return Math.max(1, Math.floor(usd * 1000));
-}
+export { usdToGems };
 
 export type V4Wallet = {
   id: number;
@@ -86,18 +90,18 @@ export async function getOrCreateV4Wallet(
   userId: number,
   subjectId: string,
 ): Promise<V4Wallet> {
-  // First-touch: wallet creation AND welcome-gift ledger row must be one
-  // atomic unit. If either side fails, both roll back — we never leave a
-  // +100 wallet balance without a matching audit row (or vice versa).
+  // First touch creates an EMPTY wallet (the per-subject welcome gift is
+  // retired). The wallet is funded later by a global welcome-gift allocation
+  // or a package purchase.
   return await db.transaction(async (tx) => {
     const inserted = await tx
       .insert(studentGemWalletsTable)
       .values({
         userId,
         subjectId,
-        gemsBalance: V4_WELCOME_GIFT_GEMS,
-        welcomeGiftClaimed: true,
-        // expiresAt left NULL until first real purchase.
+        gemsBalance: 0,
+        welcomeGiftClaimed: false,
+        // expiresAt left NULL until first real purchase or gift allocation.
       })
       .onConflictDoNothing({
         target: [studentGemWalletsTable.userId, studentGemWalletsTable.subjectId],
@@ -106,20 +110,8 @@ export async function getOrCreateV4Wallet(
 
     if (inserted.length > 0) {
       const w = inserted[0];
-      // Same transaction → wallet + ledger commit together. A duplicate
-      // welcome-gift ledger row across racing callers is prevented by the
-      // wallet-row UNIQUE (user_id, subject_id) constraint above — only the
-      // winning insert reaches this branch.
-      await tx.insert(gemLedgerTable).values({
-        userId,
-        subjectId,
-        delta: V4_WELCOME_GIFT_GEMS,
-        balanceAfter: V4_WELCOME_GIFT_GEMS,
-        reason: "welcome_gift",
-        source: "v4_welcome_gift",
-        note: "هدية الترحيب لفتح تخصص جديد",
-        metadata: { walletId: w.id },
-      } as any);
+      // No per-subject welcome gift — a fresh wallet starts empty. The student
+      // funds it via the global welcome-gift allocation or a package purchase.
       return {
         id: w.id,
         userId: w.userId,
@@ -281,14 +273,11 @@ export async function purchaseV4GemsTx(
     let walletId: number;
     let priorBalance = 0;
     let priorExpiresAt: Date | null = null;
-    let priorWelcomeClaimed = false;
-    let isFirstTouch = false;
 
     if (existing) {
       walletId = existing.id;
       priorBalance = existing.gemsBalance ?? 0;
       priorExpiresAt = existing.expiresAt;
-      priorWelcomeClaimed = existing.welcomeGiftClaimed;
     } else {
       const [created] = await tx
         .insert(studentGemWalletsTable)
@@ -300,7 +289,6 @@ export async function purchaseV4GemsTx(
         })
         .returning();
       walletId = created.id;
-      isFirstTouch = true;
     }
 
     // Compute carryover. Past-grace = lose it; in-window or grace = keep.
@@ -311,18 +299,21 @@ export async function purchaseV4GemsTx(
     const insideWindow = priorExpiresAt ? now.getTime() <= priorExpiresAt.getTime() : false;
     const carriedOver = insideWindow || insideGrace ? priorBalance : 0;
 
-    // Welcome gift (one-time per subject). Added to the same transaction so
-    // the student sees ONE merged balance.
-    const welcomeGift = priorWelcomeClaimed ? 0 : V4_WELCOME_GIFT_GEMS;
+    // FIXED package grant (Bronze/Silver/Gold). The gems per package never vary
+    // with price — the admin only edits the PRICE. The per-subject welcome gift
+    // is retired; gifting is handled by the global 150-gem welcome pool.
+    const gemsGranted = packageGems(opts.planType);
+    if (gemsGranted <= 0) {
+      throw new Error("V4_UNKNOWN_PLAN");
+    }
 
-    const newBalance = carriedOver + welcomeGift + breakdown.gemsGranted;
+    const newBalance = carriedOver + gemsGranted;
 
     await tx
       .update(studentGemWalletsTable)
       .set({
         gemsBalance: newBalance,
         expiresAt: newExpiresAt,
-        welcomeGiftClaimed: true,
         lastRenewalAt: now,
         updatedAt: now,
       })
@@ -335,34 +326,19 @@ export async function purchaseV4GemsTx(
       paidPriceYer: opts.paidPriceYer,
       region: opts.region ?? null,
       priceUsd: breakdown.priceUsd,
-      studentShareUsd: breakdown.studentShareUsd,
-      platformShareUsd: breakdown.platformShareUsd,
       yerToUsdRate: breakdown.yerToUsdRate,
-      gemsGranted: breakdown.gemsGranted,
+      gemsGranted,
       planType: opts.planType ?? null,
       activationCode: opts.activationCode ?? null,
       subscriptionRequestId: opts.subscriptionRequestId ?? null,
     };
-
-    if (welcomeGift > 0) {
-      await tx.insert(gemLedgerTable).values({
-        userId: opts.userId,
-        subjectId: opts.subjectId,
-        delta: welcomeGift,
-        balanceAfter: carriedOver + welcomeGift,
-        reason: "welcome_gift",
-        source: "v4_welcome_gift",
-        note: "هدية الترحيب لفتح تخصص جديد",
-        metadata: { walletId, isFirstTouch },
-      } as any);
-    }
 
     if (carriedOver > 0 && existing && (insideGrace || insideWindow)) {
       await tx.insert(gemLedgerTable).values({
         userId: opts.userId,
         subjectId: opts.subjectId,
         delta: 0,
-        balanceAfter: carriedOver + welcomeGift,
+        balanceAfter: carriedOver,
         reason: "renewal_carryover",
         source: "v4_renewal",
         note: insideWindow
@@ -381,7 +357,7 @@ export async function purchaseV4GemsTx(
     await tx.insert(gemLedgerTable).values({
       userId: opts.userId,
       subjectId: opts.subjectId,
-      delta: breakdown.gemsGranted,
+      delta: gemsGranted,
       balanceAfter: newBalance,
       reason: "purchase_gems",
       source: "v4_purchase",
@@ -390,9 +366,9 @@ export async function purchaseV4GemsTx(
     } as any);
 
     // Platform-revenue audit row. delta=0 because it does NOT touch the
-    // student's wallet — it's a parallel record of where the OTHER half of
-    // the payment went, so finance reporting can sum platform earnings
-    // directly from the ledger without joining payment_requests.
+    // student's wallet — it records the FULL payment as platform revenue so
+    // finance reporting can sum earnings directly from the ledger. The AI cost
+    // is tracked separately via the per-call `debit` rows.
     await tx.insert(gemLedgerTable).values({
       userId: opts.userId,
       subjectId: opts.subjectId,
@@ -400,16 +376,16 @@ export async function purchaseV4GemsTx(
       balanceAfter: newBalance,
       reason: "platform_revenue",
       source: "v4_purchase",
-      note: `حصة المنصة: ${breakdown.platformShareUsd.toFixed(4)} دولار`,
+      note: `إيراد المنصة: ${breakdown.priceUsd.toFixed(4)} دولار`,
       metadata: {
         ...ledgerMetadata,
-        platformShareUsd: breakdown.platformShareUsd,
+        revenueUsd: breakdown.priceUsd,
       },
     } as any);
 
     return {
       walletId,
-      breakdown,
+      breakdown: { ...breakdown, gemsGranted },
       balanceAfter: newBalance,
       carriedOver,
       expiresAt: newExpiresAt,
@@ -446,6 +422,13 @@ export type ChargeV4Result = {
   insufficient?: boolean;
   /** Set when there is no v4 wallet for this (user, subject). */
   noWallet?: boolean;
+  /**
+   * Set when the charge transaction itself failed (DB / driver error) — i.e.
+   * the no-op is NOT a legitimate "free by rate" or "already settled" outcome.
+   * Callers (runV4PaidWork) must fail closed on this rather than serve the
+   * paid work for free.
+   */
+  error?: boolean;
 };
 
 const NO_OP: ChargeV4Result = { charged: false, gemsDeducted: 0, balanceAfter: null };
@@ -593,7 +576,9 @@ export async function chargeV4Ai(opts: ChargeV4Opts): Promise<ChargeV4Result> {
       { err: err?.message, userId: opts.userId, requestId: opts.requestId, source: opts.source },
       "chargeV4Ai: transaction failed",
     );
-    return NO_OP;
+    // Flag the transient failure so runV4PaidWork can fail closed instead of
+    // mistaking it for a "free by rate" / "already settled" no-op.
+    return { ...NO_OP, error: true };
   }
 }
 
@@ -690,6 +675,88 @@ export async function refundV4Ai(opts: RefundV4Opts): Promise<{ refunded: number
       "refundV4Ai: transaction failed",
     );
     return { refunded: 0 };
+  }
+}
+
+export type RunV4PaidWorkOpts<T> = {
+  requestId: string;
+  userId: number;
+  subjectId: string;
+  costUsd: number;
+  source: GemLedgerSource;
+  model?: string | null;
+  note?: string | null;
+  /** The actual paid AI work. Must throw on failure so the charge is refunded. */
+  run: () => Promise<T>;
+};
+
+export type RunV4PaidWorkResult<T> =
+  | { ok: true; result: T; charge: ChargeV4Result }
+  | { ok: false; reason: "insufficient" | "no_wallet"; balance: number | null };
+
+/**
+ * Canonical non-stream "paid AI surface" wrapper used by every lazy/one-shot
+ * AI call (placement generation, scenes, …). Sequence:
+ *   1. PRE-GATE — refuse up-front when the wallet is empty / past grace.
+ *   2. CHARGE   — idempotent on `requestId` (a duplicate / transient no-op that
+ *      is NOT flagged `insufficient` falls through to run, mirroring the other
+ *      non-stream surfaces; the requestId guards against a real double-debit).
+ *   3. RUN      — execute the work; on ANY throw, refund the debit so a failed
+ *      call is never billed, then re-throw for the caller to map to a response.
+ *
+ * Streaming surfaces (teach) keep their own charge-after-stream logic because
+ * they bill real post-hoc token cost; this helper is for fixed-cost calls.
+ */
+export async function runV4PaidWork<T>(
+  opts: RunV4PaidWorkOpts<T>,
+): Promise<RunV4PaidWorkResult<T>> {
+  const afford = await canAffordV4Turn(opts.userId, opts.subjectId);
+  if (!afford.ok) {
+    return {
+      ok: false,
+      reason: afford.noWallet ? "no_wallet" : "insufficient",
+      balance: afford.balance,
+    };
+  }
+
+  const charge = await chargeV4Ai({
+    requestId: opts.requestId,
+    userId: opts.userId,
+    subjectId: opts.subjectId,
+    costUsd: opts.costUsd,
+    source: opts.source,
+    model: opts.model ?? null,
+    note: opts.note ?? null,
+  });
+  if (!charge.charged && (charge.insufficient || charge.noWallet)) {
+    return {
+      ok: false,
+      reason: charge.noWallet ? "no_wallet" : "insufficient",
+      balance: charge.balanceAfter,
+    };
+  }
+  // Fail closed on a transient charge failure: running the paid work here would
+  // serve it for free. Surface the failure so the caller retries / falls back
+  // rather than leaking unbilled AI. (A "free by rate" gems<=0 no-op or an
+  // idempotent duplicate still falls through to run — those are intentional.)
+  if (!charge.charged && charge.error) {
+    throw new Error("V4_CHARGE_FAILED");
+  }
+
+  try {
+    const result = await opts.run();
+    return { ok: true, result, charge };
+  } catch (err) {
+    if (charge.charged) {
+      await refundV4Ai({
+        requestId: opts.requestId,
+        userId: opts.userId,
+        subjectId: opts.subjectId,
+        source: opts.source,
+        reason: "فشل الاستدعاء — استرداد تلقائي",
+      }).catch(() => {});
+    }
+    throw err;
   }
 }
 

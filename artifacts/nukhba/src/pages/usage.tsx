@@ -17,21 +17,15 @@ type LedgerRow = {
 };
 
 type Summary = {
-  hasActiveSub: boolean;
-  canUseGems: boolean;
-  totalDailyRemaining: number;
-  totalDailyLimit: number;
+  hasAnyWallet: boolean;
   totalBalance: number;
   activeSubjectCount: number;
-  subjects: Array<{
+  nearestExpiresInDays: number | null;
+  wallets: Array<{
     subjectId: string;
-    subjectName: string | null;
-    dailyRemaining: number;
-    gemsDailyLimit: number;
     gemsBalance: number;
-    gemsExpiresAt: string;
+    expiresAt: string | null;
   }>;
-  source: "per-subject" | "legacy" | "none";
 };
 
 const REASON_LABEL: Record<string, string> = {
@@ -83,7 +77,7 @@ export default function UsagePage() {
       setLoading(true);
       try {
         const [s, h] = await Promise.all([
-          fetch("/api/subscriptions/gems-balance-summary", { credentials: "include" }).then(r => r.json()),
+          fetch("/api/v4/wallets/summary", { credentials: "include" }).then(r => r.json()),
           fetch("/api/subscriptions/gems-history?limit=50", { credentials: "include" }).then(r => r.json()),
         ]);
         if (!alive) return;
@@ -136,43 +130,29 @@ export default function UsagePage() {
           </h2>
           {loading ? (
             <p className="text-sm text-muted-foreground">جاري التحميل…</p>
-          ) : !summary?.hasActiveSub ? (
+          ) : !summary?.hasAnyWallet || (summary?.activeSubjectCount ?? 0) === 0 ? (
             <div className="text-sm text-muted-foreground space-y-2">
-              <p>لا توجد اشتراكات نشطة حالياً.</p>
+              <p>لا توجد جواهر نشطة حالياً.</p>
               <Link href="/subscription">
                 <Button size="sm" className="gradient-gold text-primary-foreground">اشترك الآن</Button>
               </Link>
             </div>
-          ) : summary.subjects.length === 0 ? (
-            <div className="rounded-xl border border-white/5 bg-black/30 p-3 flex items-center justify-between text-sm">
-              <span>اشتراك عام (قديم)</span>
-              <span className="text-emerald-400 font-bold">
-                {summary.totalDailyRemaining.toLocaleString("ar-EG")} / {summary.totalDailyLimit.toLocaleString("ar-EG")}
-              </span>
-            </div>
           ) : (
             <div className="grid sm:grid-cols-2 gap-3">
-              {summary.subjects.map(s => {
-                const dailyPct = s.gemsDailyLimit > 0 ? Math.round(((s.gemsDailyLimit - s.dailyRemaining) / s.gemsDailyLimit) * 100) : 0;
-                return (
-                  <div key={s.subjectId} className="rounded-xl border border-white/5 bg-black/30 p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-sm truncate">{s.subjectName || s.subjectId}</span>
-                      <span className="text-xs text-muted-foreground">رصيد: {s.gemsBalance.toLocaleString("ar-EG")}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      اليوم: {(s.gemsDailyLimit - s.dailyRemaining).toLocaleString("ar-EG")} / {s.gemsDailyLimit.toLocaleString("ar-EG")}
-                    </div>
-                    <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-amber-400 to-amber-600" style={{ width: `${dailyPct}%` }} />
-                    </div>
+              {summary.wallets.filter(w => w.gemsBalance > 0).map(s => (
+                <div key={s.subjectId} className="rounded-xl border border-white/5 bg-black/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-sm truncate">{s.subjectId}</span>
+                    <span className="text-sm text-gold font-bold">💎 {s.gemsBalance.toLocaleString("ar-EG")}</span>
+                  </div>
+                  {s.expiresAt && (
                     <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                       <Clock className="w-3 h-3" />
-                      ينتهي: {new Date(s.gemsExpiresAt).toLocaleDateString("ar-EG")}
+                      ينتهي: {new Date(s.expiresAt).toLocaleDateString("ar-EG")}
                     </div>
-                  </div>
-                );
-              })}
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </section>

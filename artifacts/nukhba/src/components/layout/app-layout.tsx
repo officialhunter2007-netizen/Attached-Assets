@@ -10,13 +10,12 @@ import { PlatformChatWidget } from "@/components/platform-chat-widget";
 import { startActivityTracker, trackPageView } from "@/lib/activity-tracker";
 import { motion, AnimatePresence } from "framer-motion";
 
+// v4 wallet badge state. Pure per-subject gem balance — no daily cap, no
+// free-first-lesson counter, no derived gems. `gemsBalance` is the current
+// subject's wallet when inside a subject, otherwise the cross-subject total.
 type GemsState = {
   gemsBalance: number;
-  dailyRemaining: number;
-  gemsDailyLimit: number;
-  hasActiveSub: boolean;
-  isFirstLesson?: boolean;
-  activeSubjectCount?: number;
+  activeSubjectCount: number;
   label?: string | null;
   expiresInDays?: number | null;
 } | null;
@@ -72,96 +71,57 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
   const { tr, lang } = useLang();
   if (!gems) return null;
 
-  if (gems.isFirstLesson && !gems.hasActiveSub) {
-    const remaining = Math.max(0, gems.gemsBalance);
-    const limit = gems.gemsDailyLimit > 0 ? gems.gemsDailyLimit : 100;
-    const exhausted = remaining <= 0;
-    const label = gems.label ? ` — ${gems.label}` : "";
-    const fmt = (n: number) => n.toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
-    const tooltip = exhausted
-      ? lang === "ar"
-        ? `انتهت جواهر الجلسة المجانية${label} — اشترك لمواصلة التعلم`
-        : `Free session gems exhausted${label} — Subscribe to continue`
-      : lang === "ar"
-      ? `لديك ${fmt(remaining)} من ${fmt(limit)} جوهرة مجانية في هذه الجلسة${label}`
-      : `You have ${fmt(remaining)} of ${fmt(limit)} free gems this session${label}`;
+  const fmt = (n: number) => n.toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
+  const balance = Math.max(0, gems.gemsBalance);
+  const empty = balance <= 0;
+  const days = gems.expiresInDays;
+  const expiringCritical = days != null && days >= 0 && days < 2;
+  const expiringSoon = days != null && days >= 0 && days < 7;
+  const lowBalance = !empty && balance < 200;
+  const alert = empty || expiringCritical || lowBalance;
+  const warn = !alert && expiringSoon;
 
+  const multiSub = (gems.activeSubjectCount ?? 1) > 1;
+  const scopeLabel = multiSub
+    ? `${gems.activeSubjectCount} ${tr.gems.subjects}`
+    : (gems.label ?? null);
+
+  // Zero balance → explicit "subscribe to continue" paywall pill.
+  if (empty) {
+    const tip = lang === "ar"
+      ? "نفد رصيد جواهرك — اشترك أو اشحن لمواصلة التعلّم"
+      : "Your gems are depleted — subscribe to keep learning";
     return (
       <Link href="/subscription">
         <motion.span
           whileHover={{ scale: 1.05 }}
           className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-all whitespace-nowrap max-w-[260px] ${compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1.5 text-xs"}`}
-          style={exhausted ? {
+          style={{
             background: "rgba(239,68,68,0.15)",
             border: "1px solid rgba(239,68,68,0.4)",
             color: "#F87171",
             boxShadow: "0 0 12px rgba(239,68,68,0.2)",
-          } : {
-            background: "rgba(16,185,129,0.12)",
-            border: "1px solid rgba(16,185,129,0.4)",
-            color: "#34D399",
-            boxShadow: "0 0 10px rgba(16,185,129,0.18)",
           }}
-          title={tooltip}
+          title={tip}
         >
-          💎
-          {exhausted ? (
-            <span>{tr.gems.subscribe}</span>
-          ) : (
-            <>
-              <span>{fmt(remaining)}</span>
-              {!compact && (
-                <span className="opacity-70 font-normal">
-                  / {fmt(limit)} {tr.gems.free}
-                </span>
-              )}
-            </>
-          )}
+          💎<span>{tr.gems.subscribe}</span>
         </motion.span>
       </Link>
     );
   }
 
-  if (!gems.hasActiveSub) return null;
-
-  const fmt = (n: number) => n.toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
-  const balanceEmpty = gems.gemsBalance <= 0;
-  const dailyExhausted = gems.dailyRemaining <= 0 && gems.gemsDailyLimit > 0;
-  const lowDaily = gems.dailyRemaining < 20;
-  const lowBalance = gems.gemsBalance < 200;
-  const days = gems.expiresInDays;
-  const expiringCritical = days != null && days >= 0 && days < 2;
-  const expiringSoon = days != null && days >= 0 && days < 7;
-  const alert = balanceEmpty || dailyExhausted || lowDaily || lowBalance || expiringCritical;
-  const warn = !alert && expiringSoon;
-
-  const multiSub = (gems.activeSubjectCount ?? 1) > 1;
-  const subjectsPart = multiSub
-    ? lang === "ar"
-      ? ` — لديك ${gems.activeSubjectCount} مادة نشطة`
-      : ` — ${gems.activeSubjectCount} active ${tr.gems.subjects}`
-    : gems.label ? ` (${gems.label})` : "";
+  const dayLabel = days === 0
+    ? tr.gems.lastDay
+    : lang === "ar" ? `${days}ي` : `${days}d`;
   const baseTooltip = lang === "ar"
-    ? `المتبقي اليوم: ${fmt(gems.dailyRemaining)} / ${fmt(gems.gemsDailyLimit)} 💎${subjectsPart} — الرصيد الكلي: ${fmt(gems.gemsBalance)}`
-    : `Today: ${fmt(gems.dailyRemaining)} / ${fmt(gems.gemsDailyLimit)} 💎${subjectsPart} — Total: ${fmt(gems.gemsBalance)}`;
+    ? `رصيدك: ${fmt(balance)} 💎${scopeLabel ? ` — ${scopeLabel}` : ""}`
+    : `Balance: ${fmt(balance)} 💎${scopeLabel ? ` — ${scopeLabel}` : ""}`;
   const expiryPart = expiringSoon
     ? lang === "ar"
       ? ` — ينتهي ${days === 0 ? "اليوم" : `خلال ${days} يوم`}`
       : ` — expires ${days === 0 ? "today" : `in ${days} days`}`
     : "";
-  const tooltip = balanceEmpty
-    ? lang === "ar"
-      ? `${baseTooltip}${expiryPart} — نفد الرصيد، اشتراكك ساري لكنك بحاجة لتجديد الجواهر`
-      : `${baseTooltip}${expiryPart} — Balance depleted, subscription active but gems need renewal`
-    : `${baseTooltip}${expiryPart}`;
-
-  const scopeLabel = multiSub
-    ? `${gems.activeSubjectCount} ${tr.gems.subjects}`
-    : (gems.label ?? null);
-
-  const dayLabel = days === 0
-    ? tr.gems.lastDay
-    : lang === "ar" ? `${days}ي` : `${days}d`;
+  const tooltip = `${baseTooltip}${expiryPart}`;
 
   return (
     <Link href="/subscription">
@@ -188,10 +148,7 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
         title={tooltip}
       >
         💎
-        <span>{fmt(gems.dailyRemaining)}</span>
-        {!compact && (
-          <span className="opacity-60 font-normal">/ {fmt(gems.gemsDailyLimit)} {tr.gems.todayLimit}</span>
-        )}
+        <span>{fmt(balance)}</span>
         {warn && !compact && (
           <span className="opacity-90 font-bold border-r pr-1 mr-0.5"
             style={{ borderColor: "rgba(249,115,22,0.4)" }}
@@ -351,81 +308,60 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [user, location]);
 
+  // Resolve the specialty slug from any v4 route that is scoped to one subject
+  // so the badge shows that subject's wallet. Falls back to the cross-subject
+  // summary on non-scoped pages (dashboard, learn, usage…).
   const currentSubjectId = (() => {
-    const m = location.match(/^\/(?:subject|lesson)\/([^/?#]+)/);
-    return m ? decodeURIComponent(m[1]) : null;
+    let m = location.match(/^\/(?:specialty|path)\/([^/?#]+)/);
+    if (m) return decodeURIComponent(m[1]);
+    m = location.match(/^\/(?:lab|exam)\/([^/?#]+)/);
+    if (m) return decodeURIComponent(m[1]);
+    // Legacy (retired) pages — still resolve to a slug so the badge shows the
+    // v4 wallet if one is somehow reached.
+    m = location.match(/^\/(?:subject|lesson)\/([^/?#]+)/);
+    if (m) return decodeURIComponent(m[1]);
+    return null;
   })();
 
   useEffect(() => {
     if (!user) { setGems(null); return; }
     const fetchGems = () => {
       if (currentSubjectId) {
-        const url = `/api/subscriptions/gems-balance?subjectId=${encodeURIComponent(currentSubjectId)}`;
+        // In a subject → that subject's v4 wallet (no daily cap, no free tier).
+        const url = `/api/v4/path/${encodeURIComponent(currentSubjectId)}/wallet`;
         fetch(url, { credentials: "include" })
           .then(r => r.ok ? r.json() : null)
           .then(d => {
             if (!d) return;
-            const label =
-              (typeof d.subjectName === "string" && d.subjectName.trim()) ||
-              (typeof d.subjectId === "string" && d.subjectId.trim() && d.subjectId !== "all" ? d.subjectId : null) ||
-              currentSubjectId ||
-              (lang === "ar" ? "اشتراكي" : "My Plan");
+            if (!d.exists) {
+              // No wallet for this subject yet → empty balance triggers the
+              // "subscribe" paywall pill.
+              setGems({ gemsBalance: 0, activeSubjectCount: 0, label: null, expiresInDays: null });
+              return;
+            }
             let expiresInDays: number | null = null;
-            const expiryRaw = d.gemsExpiresAt ?? d.expiresAt;
-            if (expiryRaw) {
-              const ms = new Date(expiryRaw).getTime() - Date.now();
+            if (d.expiresAt) {
+              const ms = new Date(d.expiresAt).getTime() - Date.now();
               if (Number.isFinite(ms)) expiresInDays = Math.max(0, Math.ceil(ms / 86_400_000));
             }
             setGems({
               gemsBalance: d.gemsBalance ?? 0,
-              dailyRemaining: d.dailyRemaining ?? 0,
-              gemsDailyLimit: d.gemsDailyLimit ?? 0,
-              hasActiveSub: d.hasActiveSub ?? false,
-              isFirstLesson: d.isFirstLesson ?? d.source === "first-lesson",
               activeSubjectCount: 1,
-              label,
+              label: null,
               expiresInDays,
             });
           })
           .catch(() => {});
       } else {
-        fetch("/api/subscriptions/gems-balance-summary", { credentials: "include" })
+        // Not in a subject → cross-subject v4 wallet summary.
+        fetch("/api/v4/wallets/summary", { credentials: "include" })
           .then(r => r.ok ? r.json() : null)
           .then(d => {
-            if (!d) { setGems(null); return; }
-            if (!d.hasActiveSub && d.isFirstLesson) {
-              setGems({
-                gemsBalance: d.totalBalance ?? 0,
-                dailyRemaining: d.totalDailyRemaining ?? 0,
-                gemsDailyLimit: d.totalDailyLimit ?? 0,
-                hasActiveSub: false,
-                isFirstLesson: true,
-                activeSubjectCount: 0,
-                label: null,
-                expiresInDays: null,
-              });
-              return;
-            }
-            if (!d.hasActiveSub) { setGems(null); return; }
-            let label: string | null = null;
-            if (d.activeSubjectCount === 1) {
-              const w = d.worstSubject;
-              if (w) {
-                label =
-                  (typeof w.subjectName === "string" && w.subjectName.trim()) ||
-                  (typeof w.subjectId === "string" && w.subjectId.trim() && w.subjectId !== "all" ? w.subjectId : null) ||
-                  (lang === "ar" ? "اشتراكي" : "My Plan");
-              } else {
-                label = lang === "ar" ? "كل المواد" : "All Subjects";
-              }
-            }
+            if (!d || !d.hasAnyWallet || (d.activeSubjectCount ?? 0) === 0) { setGems(null); return; }
             setGems({
               gemsBalance: d.totalBalance ?? 0,
-              dailyRemaining: d.totalDailyRemaining ?? 0,
-              gemsDailyLimit: d.totalDailyLimit ?? 0,
-              hasActiveSub: true,
-              activeSubjectCount: d.activeSubjectCount ?? 1,
-              label,
+              activeSubjectCount: d.activeSubjectCount ?? 0,
+              label: null,
               expiresInDays: typeof d.nearestExpiresInDays === "number" ? d.nearestExpiresInDays : null,
             });
           })

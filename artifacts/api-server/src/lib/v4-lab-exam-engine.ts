@@ -61,9 +61,9 @@ export function examCostUsd(scope: ExamScope): number {
     case "level": return 0.020;   // ~20 gems
   }
 }
-export function usdToGems(usd: number): number {
-  return Math.max(1, Math.floor(usd * 1000));
-}
+// Re-exported from pricing-formula so lab/exam charges use the SAME
+// admin-configurable gems-per-USD rate as every other AI surface.
+export { usdToGems } from "./pricing-formula";
 
 export type ExamScope = "unit" | "stage" | "level";
 
