@@ -678,6 +678,43 @@ export async function refundV4Ai(opts: RefundV4Opts): Promise<{ refunded: number
   }
 }
 
+/**
+ * Refund-aware idempotency key resolver. A deterministic `requestId` is
+ * idempotent on the gem_ledger(user_id, request_id) unique index: charging it
+ * twice NO_OPs. That's correct for a genuine duplicate, but a money LEAK after a
+ * REFUND — a failed paid call refunds its debit, so a retry under the SAME id
+ * would NO_OP and then run the paid work for FREE (net 0 gems, 2 executions).
+ *
+ * Each failed attempt leaves exactly one `${key}:refund` row. We walk the
+ * family (`base`, `base#r1`, `base#r2`, …) and return the FIRST key whose debit
+ * has NOT yet been refunded:
+ *   - happy path (no prior refund): a single probe, returns `base`.
+ *   - concurrent retries: both observe the same first-unrefunded key → collapse
+ *     to ONE debit (bill-once-under-concurrency preserved).
+ *   - genuine post-refund retry: the refunded key is skipped → a fresh key is
+ *     charged exactly once (no free work).
+ * Exact-equality probes (no LIKE) so underscores in keys can't false-match.
+ */
+export async function resolveRebillKey(userId: number, base: string): Promise<string> {
+  if (!base) return base;
+  for (let n = 0; n <= 50; n++) {
+    const candidate = n === 0 ? base : `${base}#r${n}`;
+    const [refunded] = await db
+      .select({ id: gemLedgerTable.id })
+      .from(gemLedgerTable)
+      .where(and(
+        eq(gemLedgerTable.userId, userId),
+        eq(gemLedgerTable.reason, "refund"),
+        eq((gemLedgerTable as any).requestId, `${candidate}:refund`),
+      ))
+      .limit(1);
+    if (!refunded) return candidate;
+  }
+  // Pathological: 50+ failed retries on one base. Fall through to a unique key
+  // so the work is still BILLED rather than silently served free.
+  return `${base}#r${Date.now()}`;
+}
+
 export type RunV4PaidWorkOpts<T> = {
   requestId: string;
   userId: number;
@@ -719,8 +756,11 @@ export async function runV4PaidWork<T>(
     };
   }
 
+  // Refund-aware key: a prior failed attempt under `opts.requestId` left a
+  // refund row; charging the same id again would NO_OP and serve free work.
+  const chargeRequestId = await resolveRebillKey(opts.userId, opts.requestId);
   const charge = await chargeV4Ai({
-    requestId: opts.requestId,
+    requestId: chargeRequestId,
     userId: opts.userId,
     subjectId: opts.subjectId,
     costUsd: opts.costUsd,
@@ -749,7 +789,7 @@ export async function runV4PaidWork<T>(
   } catch (err) {
     if (charge.charged) {
       await refundV4Ai({
-        requestId: opts.requestId,
+        requestId: chargeRequestId,
         userId: opts.userId,
         subjectId: opts.subjectId,
         source: opts.source,

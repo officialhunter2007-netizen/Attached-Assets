@@ -129,6 +129,12 @@ const BOOKLET_PREP_USD = 0.15;
 // Max booklets a student may keep per specialty (failed rows excluded).
 const MAX_BOOKLETS_PER_SPECIALTY = 5;
 
+// Per-wallet in-flight lock for booklet teaching — mirrors `inflightTeachTurns`
+// in v4_teach.ts. Keyed by `${uid}:${slug}` (the wallet identity), NOT by
+// booklet: two booklets under the same specialty bill ONE wallet, so concurrent
+// turns across them must serialize too.
+const inflightBookletTeachTurns = new Set<string>();
+
 // ── POST /v4/booklet/upload  (multipart: file=<pdf>, slug=<subject slug>, title=<...>) ─
 router.post(
   "/v4/booklet/upload",
@@ -744,124 +750,153 @@ router.post("/v4/booklet/teach", requireUser, requireSameOriginCsrf, async (req,
     }
   }
 
-  const requestId = `v4bt_${Date.now()}_${randomBytes(8).toString("hex")}`;
-
-  // ── 2. Build retrieval context. ──────────────────────────────────────
-  let systemPrompt: string;
-  try {
-    const retrieved = await retrieveBookletContext({
-      bookletId,
-      lessonPages: lesson.pages,
-      query: message,
-    });
-    systemPrompt = buildBookletTeacherPrompt({
-      specialtyName: slug,
-      bookletTitle: booklet.title,
-      lesson,
-      unitName,
-      retrieved: retrieved.chunks,
-      pageLabels: tree.pageLabels,
-      sourceKind: tree.sourceKind,
-    });
-  } catch (e) {
-    emitFriendlyAiFailure(res, "v4/booklet/teach:retrieval", e);
+  // Per-wallet in-flight lock — the pre-gate is a check, not a reservation:
+  // parallel turns for the same wallet could each stream a full reply while only
+  // one charge lands (later ones drain a now-empty wallet for free). Reject a
+  // concurrent second turn with the same terminal SSE contract the FE knows.
+  const turnLockKey = `${uid}:${slug}`;
+  if (inflightBookletTeachTurns.has(turnLockKey)) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+    try {
+      res.write(
+        `data: ${JSON.stringify({ done: true, charged: false, turnInFlight: true, error: "turn_in_flight" })}\n\n`,
+      );
+    } catch {}
+    res.end();
     return;
   }
+  inflightBookletTeachTurns.add(turnLockKey);
 
-  // ── 3. SSE stream. ───────────────────────────────────────────────────
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-  res.flushHeaders?.();
+  const requestId = `v4bt_${Date.now()}_${randomBytes(8).toString("hex")}`;
 
-  const heartbeat = setInterval(() => {
-    try { if (!res.writableEnded) res.write(`: ping ${Date.now()}\n\n`); } catch {}
-  }, 15_000);
-  const abort = new AbortController();
-  const onClose = () => { try { abort.abort(); } catch {} };
-  req.on("close", onClose);
-
-  const geminiMessages: GeminiMessage[] = [
-    ...history.map((m) => ({ role: m.role, content: m.content })),
-    { role: "user" as const, content: message },
-  ];
-
+  // Everything after the lock acquisition runs inside ONE try/finally so the
+  // in-flight lock is ALWAYS released — an early return or an unexpected throw
+  // anywhere between acquisition and the stream (retrieval, header setup,
+  // heartbeat wiring) would otherwise strand it and wedge the wallet forever.
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let onClose: (() => void) | undefined;
   try {
-    const result = await streamGeminiTeaching({
-      systemPrompt,
-      messages: geminiMessages,
-      maxOutputTokens: 1400,
-      model: V4_TEACHING_MODEL,
-      temperature: 0.6,
-      signal: abort.signal,
-      logTag: `v4-booklet-teach:${bookletId}:${lessonCode}`,
-      onChunk: (text) => {
-        if (!text || res.writableEnded) return;
-        // Strip the SESSION_COMPLETE tag from the visible stream.
-        const display = text.replace(/\[SESSION_COMPLETE\]/g, "");
-        if (display) {
-          try { res.write(`data: ${JSON.stringify({ content: display })}\n\n`); } catch {}
-        }
-      },
-    });
+    // ── 2. Build retrieval context. ──────────────────────────────────────
+    let systemPrompt: string;
+    try {
+      const retrieved = await retrieveBookletContext({
+        bookletId,
+        lessonPages: lesson.pages,
+        query: message,
+      });
+      systemPrompt = buildBookletTeacherPrompt({
+        specialtyName: slug,
+        bookletTitle: booklet.title,
+        lesson,
+        unitName,
+        retrieved: retrieved.chunks,
+        pageLabels: tree.pageLabels,
+        sourceKind: tree.sourceKind,
+      });
+    } catch (e) {
+      emitFriendlyAiFailure(res, "v4/booklet/teach:retrieval", e);
+      return;
+    }
 
-    // Bill the turn from the v4 wallet at the admin-configured gem rate using
-    // REAL post-hoc token cost. drainIfInsufficient: a turn whose cost exceeds
-    // the remaining balance drains the wallet to zero (the next turn's pre-gate
-    // then blocks) rather than being served for free.
-    const usdCost = ((result.inputTokens || 0) * 0.10 + (result.outputTokens || 0) * 0.40) / 1_000_000;
-    let charged = false;
-    if (usdCost > 0) {
-      const c = await chargeV4Ai({
+    // ── 3. SSE stream. ───────────────────────────────────────────────────
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    heartbeat = setInterval(() => {
+      try { if (!res.writableEnded) res.write(`: ping ${Date.now()}\n\n`); } catch {}
+    }, 15_000);
+    const abort = new AbortController();
+    onClose = () => { try { abort.abort(); } catch {} };
+    req.on("close", onClose);
+
+    const geminiMessages: GeminiMessage[] = [
+      ...history.map((m) => ({ role: m.role, content: m.content })),
+      { role: "user" as const, content: message },
+    ];
+
+    try {
+      const result = await streamGeminiTeaching({
+        systemPrompt,
+        messages: geminiMessages,
+        maxOutputTokens: 1400,
+        model: V4_TEACHING_MODEL,
+        temperature: 0.6,
+        signal: abort.signal,
+        logTag: `v4-booklet-teach:${bookletId}:${lessonCode}`,
+        onChunk: (text) => {
+          if (!text || res.writableEnded) return;
+          // Strip the SESSION_COMPLETE tag from the visible stream.
+          const display = text.replace(/\[SESSION_COMPLETE\]/g, "");
+          if (display) {
+            try { res.write(`data: ${JSON.stringify({ content: display })}\n\n`); } catch {}
+          }
+        },
+      });
+
+      // Bill the turn from the v4 wallet at the admin-configured gem rate using
+      // REAL post-hoc token cost. drainIfInsufficient: a turn whose cost exceeds
+      // the remaining balance drains the wallet to zero (the next turn's pre-gate
+      // then blocks) rather than being served for free.
+      const usdCost = ((result.inputTokens || 0) * 0.10 + (result.outputTokens || 0) * 0.40) / 1_000_000;
+      let charged = false;
+      if (usdCost > 0) {
+        const c = await chargeV4Ai({
+          requestId,
+          userId: uid,
+          subjectId: slug,
+          costUsd: usdCost,
+          source: "v4_booklet_teach",
+          model: V4_TEACHING_MODEL,
+          note: `ملزمة:${bookletId} درس ${lessonCode}`,
+          drainIfInsufficient: true,
+        });
+        charged = c.charged;
+      }
+
+      // streamGeminiTeaching returns `fullResponse`, not `text`. Reading
+      // the wrong key meant sessionComplete was always false, breaking
+      // terminal-metadata signalling for the FE.
+      const fullText = result.fullResponse || "";
+      const sessionComplete = /\[SESSION_COMPLETE\]/.test(fullText);
+
+      // Parse [[CODE_TASK: lang=python | المطلوب: ...]] from fullText so the FE
+      // can light up the IDE button without ever rendering the raw tag.
+      let codeTask: { requirement: string; lang: string | null } | null = null;
+      const ctMatch = fullText.match(/\[\[\s*CODE_TASK\s*:\s*([\s\S]+?)\]\](?!\])/);
+      if (ctMatch) {
+        const parts = ctMatch[1].split("|").map((s) => s.trim()).filter(Boolean);
+        const langPart = parts.find((p) => /^lang\s*=/i.test(p));
+        const lang = langPart ? (langPart.replace(/^lang\s*=\s*/i, "").trim() || null) : null;
+        const requirement = parts.filter((p) => !/^lang\s*=/i.test(p)).join(" | ").trim();
+        if (requirement) codeTask = { requirement, lang };
+      }
+
+      if (!res.writableEnded) {
+        try {
+          res.write(`data: ${JSON.stringify({ done: true, charged, sessionComplete, codeTask })}\n\n`);
+          res.end();
+        } catch {}
+      }
+    } catch (err) {
+      void refundV4Ai({
         requestId,
         userId: uid,
         subjectId: slug,
-        costUsd: usdCost,
         source: "v4_booklet_teach",
-        model: V4_TEACHING_MODEL,
-        note: `ملزمة:${bookletId} درس ${lessonCode}`,
-        drainIfInsufficient: true,
-      });
-      charged = c.charged;
+        reason: "stream_failure",
+      }).catch(() => {});
+      emitFriendlyAiFailure(res, "v4/booklet/teach", err);
     }
-
-    // streamGeminiTeaching returns `fullResponse`, not `text`. Reading
-    // the wrong key meant sessionComplete was always false, breaking
-    // terminal-metadata signalling for the FE.
-    const fullText = result.fullResponse || "";
-    const sessionComplete = /\[SESSION_COMPLETE\]/.test(fullText);
-
-    // Parse [[CODE_TASK: lang=python | المطلوب: ...]] from fullText so the FE
-    // can light up the IDE button without ever rendering the raw tag.
-    let codeTask: { requirement: string; lang: string | null } | null = null;
-    const ctMatch = fullText.match(/\[\[\s*CODE_TASK\s*:\s*([\s\S]+?)\]\](?!\])/);
-    if (ctMatch) {
-      const parts = ctMatch[1].split("|").map((s) => s.trim()).filter(Boolean);
-      const langPart = parts.find((p) => /^lang\s*=/i.test(p));
-      const lang = langPart ? (langPart.replace(/^lang\s*=\s*/i, "").trim() || null) : null;
-      const requirement = parts.filter((p) => !/^lang\s*=/i.test(p)).join(" | ").trim();
-      if (requirement) codeTask = { requirement, lang };
-    }
-
-    if (!res.writableEnded) {
-      try {
-        res.write(`data: ${JSON.stringify({ done: true, charged, sessionComplete, codeTask })}\n\n`);
-        res.end();
-      } catch {}
-    }
-  } catch (err) {
-    void refundV4Ai({
-      requestId,
-      userId: uid,
-      subjectId: slug,
-      source: "v4_booklet_teach",
-      reason: "stream_failure",
-    }).catch(() => {});
-    emitFriendlyAiFailure(res, "v4/booklet/teach", err);
   } finally {
-    clearInterval(heartbeat);
-    req.off("close", onClose);
+    inflightBookletTeachTurns.delete(turnLockKey);
+    if (heartbeat) clearInterval(heartbeat);
+    if (onClose) req.off("close", onClose);
   }
 });
 

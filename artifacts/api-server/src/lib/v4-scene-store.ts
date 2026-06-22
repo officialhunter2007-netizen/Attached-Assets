@@ -33,7 +33,7 @@ import { z } from "zod";
 import { generateGemini, GenerateGeminiError } from "./openrouter-generate";
 import { robustJsonParse } from "./json-repair";
 import { logger } from "./logger";
-import { canAffordV4Turn, chargeV4Ai, refundV4Ai } from "./v4-gem-wallet";
+import { canAffordV4Turn, chargeV4Ai, refundV4Ai, resolveRebillKey } from "./v4-gem-wallet";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const CACHE_DIR =
@@ -429,13 +429,17 @@ export async function generateScene(
   //    failed→retried scene bills at most once per topic). Active only when a
   //    subject context is supplied by the caller; otherwise the call is free.
   let chargeRequestId: string | null = null;
+  let didCharge = false;
   const billable = typeof options.userId === "number" && !!options.subjectId;
   if (billable) {
     const afford = await canAffordV4Turn(options.userId!, options.subjectId!);
     if (!afford.ok) {
       throw new SceneGenerationError("insufficient gems for scene", "insufficient");
     }
-    chargeRequestId = `v4scene_${options.userId}_${hash}`;
+    // Refund-aware key: a prior failed scene on this topic refunded its debit;
+    // reusing the bare `v4scene_${user}_${hash}` would NO_OP on retry and serve
+    // the regenerated scene for free.
+    chargeRequestId = await resolveRebillKey(options.userId!, `v4scene_${options.userId}_${hash}`);
     const charge = await chargeV4Ai({
       requestId: chargeRequestId,
       userId: options.userId!,
@@ -448,6 +452,13 @@ export async function generateScene(
     if (!charge.charged && charge.insufficient) {
       throw new SceneGenerationError("insufficient gems for scene", "insufficient");
     }
+    // Fail closed on a transient charge error: otherwise the (paid) scene below
+    // is generated and served for FREE. A genuine ledger-dedupe NO_OP (no error
+    // flag) still falls through — that's a real duplicate, already billed.
+    if (!charge.charged && charge.error) {
+      throw new SceneGenerationError("scene charge failed (transient)", "transient");
+    }
+    didCharge = charge.charged;
   }
 
   const job = (async (): Promise<Scene> => {
@@ -500,7 +511,7 @@ export async function generateScene(
    } catch (sceneErr) {
      // Refund on ANY failure (transport, parse, validation) so a scene the
      // student never received is never billed.
-     if (chargeRequestId && billable) {
+     if (chargeRequestId && billable && didCharge) {
        await refundV4Ai({
          requestId: chargeRequestId,
          userId: options.userId!,

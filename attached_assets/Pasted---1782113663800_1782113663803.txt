@@ -1,0 +1,518 @@
+دعنا نناقش الان نضام الدفع والاشتراك والجواهر . النضام اريده كالاتي منصه نخبه توفر ثلاث باقات الباقه البرونزية 1000جوهره والباقي الفضيه 2200جوهره والباقه الذهبيه 3600 جوهره تعطي الطالب. سعر كل باقه يحدده المشرف في قسم اسعار الباقات في صفحه الاداره. طبعا لكل تخصص او مهاره اشتراك مستقل . عندما يدخل الطالب المنصه لاول مره تضهر له رساله جميله فخمه بأنه لديه هديه 150 جوهره يمكن تقسيمها على 3 تخصصات ويمكن تقسيمها على تخصصين ويمكن استخدام جميع الجواهر لتخصص او مهاره واحده بعد الانتهاء تضهر رساله بأنه يجب الاشتراك. آليه الخصم من الجواهر تكون كالتالي من المعروف أن المستهلك الرئيسي في المنصه هي الai وسيتم الخصم حسب التوكن المستهلك من قبل الطالب سوائا كان في انشاء شرح او اختبار او صوره او انميشن او اي شئ اخر كل توكن يجب أن يخصم مقدار من الجواهر يتم تحديد قيمه المليون التوكن مقابل الجواهر في صفحه الاداره في قسم مستقل . ارجو مناقشه معمقة حتى نتفادا اي مشاكل مستقبليه
+
+3 hours ago
+دعنا نناقش الان نضام الدفع والاشتراك والجواهر . النضام اريده كالاتي منصه نخبه توفر ثلاث باقات الباقه البرونزية 1000جوهره والباقي الفضيه 2200جوهره والباقه الذهبيه 3600 جوهره تعطي الطالب. سعر كل باقه يحدده المشرف في قسم اسعار الباقات في صفحه الاداره. طبعا لكل تخصص او مهاره اشتراك مستقل . عندما يدخل الطالب المنصه لاول مره تضهر له رساله جميله فخمه بأنه لديه هديه 150 جوهره يمكن تقسيمها على 3 تخصصات ويمكن تقسيمها على تخصصين ويمكن استخدام جميع الجواهر لتخصص او مهاره واحده بعد الانتهاء تضهر رساله بأنه يجب الاشتراك. آليه الخصم من الجواهر تكون كالتالي من المعروف أن المستهلك الرئيسي في المنصه هي الai وسيتم الخصم حسب التوكن المستهلك من قبل الطالب سوائا كان في انشاء شرح او اختبار او صوره او انميشن او اي شئ اخر كل توكن يجب أن يخصم مقدار من الجواهر يتم تحديد قيمه المليون التوكن مقابل الجواهر في صفحه الاداره في قسم مستقل . ارجو مناقشه معمقة حتى نتفادا اي مشاكل مستقبليه
+
+2 hours ago
+The user wants a deep design discussion on the payments/subscription/gems system — not implementation. Before I weigh in, I need to ground myself in exactly what already exists, because there's already a substantial gems/wallet/subscription system here and the new vision conflicts with parts of it. Let me explore the current implementation precisely.
+
+I dug into your current system so we're grounded in what already exists (we're far from zero here). Here's where things stand and the decisions we need to nail down before touching any code.
+
+ما هو موجود فعلاً اليوم
+نظامك الحالي (v4) فيه بنية تحتية قوية نعيد استخدام معظمها:
+
+محفظة جواهر لكل (طالب + تخصص) — student_gem_wallets. هذا يطابق رؤيتك «لكل تخصص اشتراك مستقل» ✓
+سجل حركات الجواهر (gem_ledger) — كل خصم/شحن/استرداد مُسجّل ولا يُحذف ✓
+خصم واسترداد ذرّي (chargeV4Ai / refundV4Ai) محمي ضد التكرار ✓
+عدّاد التوكن موجود أصلاً — النظام يقرأ promptTokenCount و candidatesTokenCount من رد الذكاء الاصطناعي ✓ (هذا مهم جداً لرؤيتك)
+صفحة إدارة فيها تبويبات payment-settings و gem-ledger جاهزة.
+لكن ثلاثة أشياء جوهرية تختلف عن رؤيتك، وهي بالضبط مصدر «المشاكل المستقبلية» التي تريد تفاديها:
+
+١. الباقات: جواهر ثابتة + خطر اقتصادي
+اليوم الجواهر مُشتقّة من السعر (تدفع كذا ريال → تتحول لجواهر تلقائياً بنسبة 50/50)، وهذا يضمن أن المنصة لا تخسر.
+
+رؤيتك: جواهر ثابتة (1000 / 2200 / 3600) والمشرف يحدد السعر بحرية. هذا ممكن، لكنه يكسر ضمان عدم الخسارة.
+
+⚠️ أهم نقطة في النقاش كلها: عندما تفصل «عدد الجواهر» عن «السعر»، يصبح لديك زرّان مستقلّان (سعر الباقة + معدّل الخصم بالتوكن) وهما مترابطان اقتصادياً. مثال واقعي بأرقامك:
+
+نموذج التعليم (Gemini Flash Lite) يكلّف ~$0.10 لكل مليون توكن دخل / $0.40 خرج.
+الدرس النموذجي ~3000 توكن دخل + 700 خرج ≈ $0.0006 (أقل من جوهرة بالمعدل الحالي حيث 1 جوهرة = $0.001).
+يعني 1000 جوهرة ≈ $1 تكلفة ذكاء اصطناعي. فلو بِعت الباقة البرونزية بأقل من ~$2، تخسر دون أن تشعر.
+لذلك سأقترح حاسبة أمان في الإدارة: عند تحديد سعر الباقة، تعرض لك «1000 جوهرة = X توكن = $Y تكلفة فعلية — أنت تبيعها بـ $Z — هامش الربح = ...» وتحذّرك إذا كان الهامش سالباً.
+
+٢. الخصم بالتوكن: ثلاث مشاكل خفية
+رؤيتك (الخصم حسب التوكن × معدّل يحدده المشرف) ممتازة، لكن فيها ثلاثة فخاخ:
+
+توكن الدخل ≠ توكن الخرج في التكلفة: الخرج أغلى ~4 أضعاف. «معدّل واحد للمليون» يجب أن يُحسب بحذر أو نفصل الدخل عن الخرج.
+النماذج تختلف تكلفتها بشدة: التعليم على Gemini رخيص، لكن «الخطة» تستخدم GPT-4o و«التلخيص» يستخدم Claude — أغلى 25–40 ضعفاً. لو خصمت بنفس المعدّل للجميع، المحادثات الغالية تلتهم تكلفة أكبر بكثير من الجواهر المخصومة → خسارة. الحل المقترح: معدّل أساسي واحد + مضاعفة تلقائية حسب تكلفة كل نموذج فعلياً (يبقى زرّاً واحداً تتحكم به، والنظام يحسب الباقي).
+الصور والأنميشن ليست توكنات بنفس المعنى: الأنميشن فعلياً نص (HTML/CSS/JS) فيُحسب بالتوكن طبيعياً ✓، لكن الصور (FLUX) تُسعّر بالقطعة لا بالتوكن — تحتاج سعر جوهرة مستقل لكل صورة.
+٣. هدية الـ150 جوهرة: تعارض مع النظام الحالي
+اليوم النظام يعطي 100 جوهرة تلقائياً لكل تخصص (طالب يفتح 3 تخصصات = 300 جوهرة مجانية!). رؤيتك أكثر انضباطاً: 150 جوهرة لمرة واحدة فقط، الطالب يوزّعها بنفسه على 3 تخصصات كحد أقصى. سننفّذها كـ«رصيد ترحيبي عام على مستوى الطالب» + شاشة توزيع، مع تعطيل الهدية التلقائية القديمة حتى لا يحدث ازدواج.
+
+النقاط الجاهزة للإعادة (المحفظة، السجل، الخصم/الاسترداد، عدّاد التوكن) تختصر علينا الكثير. الخلاف الحقيقي في القرارات أدناه — جاوب عليها ونبني خطة دقيقة:
+
+كيف يوزّع الطالب هدية الـ150 جوهرة على التخصصات؟
+
+تقسيم حر (الطالب يكتب أي مبالغ يريدها، المجموع ≤ 150 على 3 تخصصات كحد أقصى)
+الباقات (1000/2200/3600 جوهرة) — هل هي شحنة لمرة واحدة أم اشتراك شهري؟
+
+اشتراك شهري — الجواهر تنتهي بعد 30 يوماً من الشراء (مع مهلة 3 أيام) [السلوك الحالي]
+كيف نتعامل مع اختلاف تكلفة النماذج (تعليم رخيص مقابل خطة/تلخيص غالية) عند الخصم؟
+
+معدّل أساسي واحد + مضاعفة تلقائية حسب التكلفة الحقيقية لكل نموذج/ميزة (موصى به — يحمي الربح)
+الجواهر المشتراة عبر الباقات — هل تُربط بتخصص واحد أم رصيد عام؟
+
+مرتبطة بتخصص واحد يختاره الطالب عند الشراء (اشتراك مستقل لكل تخصص)
+هل تريد حاسبة/تحذير أمان في صفحة الإدارة تمنعك من تسعير باقة بأقل من تكلفتها الفعلية؟
+
+نعم، أضف حاسبة الأمان
+2 hours ago
+مُمتاز، القرارات الخمسة واضحة الآن. قبل أن أرسم الخطة النهائية، فيه نتيجة جميلة لاختيارك (المعدّل الأساسي + المضاعفة التلقائية) أريد أتأكد منها عملياً، وسؤال أخير كبير عن التعايش مع النظام القديم. دعني أتحقق من السلكنة الحالية أولاً حتى لا أبني على افتراض خاطئ.
+
+الصورة الآن مكتملة، وفيها اكتشاف يبسّط كل شيء.
+
+أولاً — ما يجري تحت الغطاء الآن (مهم)
+منصتك تشغّل محرّكَي فوترة متوازيين:
+
+القديم يحكم صفحات التخصصات الكلاسيكية (/subject): فيه حد يومي + درس أول مجاني (80 جوهرة) + جواهر مشتقّة من السعر.
+الجديد (v4) يحكم صفحات المنهج الجديدة: محفظة شهرية بلا حد يومي، والبوابة = الرصيد > 0.
+رؤيتك الجديدة تنطبق تماماً على المحرّك الجديد. القديم هو بالضبط مصدر «المشاكل المستقبلية» (الطالب يرى سلوكين مختلفين حسب الصفحة).
+
+ثانياً — اكتشاف يبسّط كل شيء (خبر سار)
+المحرّك الجديد يحسب التكلفة الحقيقية بالدولار أصلاً (عدد التوكنات × سعر كل نموذج، وحتى الصور لها تكلفة دولارية فعلية). لذلك اختيارك «معدّل أساسي + مضاعفة تلقائية» يتحقق بمجرد جعل معدّل التحويل (دولار→جوهرة) قابلاً للضبط من الإدارة، بدل الرقم الثابت المخفي حالياً.
+
+النتيجة المهمة:
+
+الجوهرة الواحدة تساوي دائماً مقداراً ثابتاً من التكلفة الحقيقية = (1 ÷ معدّلك) — مهما كان النموذج أو الميزة.
+
+وهذا يحلّ ثلاث مشاكل دفعة واحدة، بلا أي تعقيد إضافي:
+
+خطة GPT‑4o الغالية تخصم جواهر أكثر تلقائياً (تكلفتها الحقيقية أعلى) ✓
+الصور والأنميشن والصوت تُخصم تلقائياً — بلا جداول أسعار منفصلة لكل ميزة ✓
+حاسبة الأمان تصبح بسيطة ومضمونة رياضياً: «سعر بيع الجوهرة يجب أن يتجاوز تكلفتها» فقط، لأن التكلفة لكل جوهرة ثابتة.
+أنت تضبط زرّاً واحداً في الإدارة: «جواهر لكل مليون توكن (مرجع نموذج التعليم)»، والنظام يحسب الباقي.
+
+ثالثاً — افتراضات سأمضي عليها (صحّح أي واحدة)
+جواهر الهدية (150) تُخصّص داخل محافظ التخصصات وتتبع نفس نافذة الـ30 يوماً.
+التخصيص تدريجي ونهائي: ما يُسنَد لتخصص يُقفل عليه، 3 تخصصات كحد أقصى، المجموع ≤ 150.
+لا حدّ يومي (يطابق رؤيتك والمحرك الجديد).
+تعطيل الهدية التلقائية القديمة (100/تخصص) لتفادي الازدواج.
+رابعاً — قراران أخيران
+قبل أن أكتب الخطة التفصيلية، هذان القراران يحدّدان حجم العمل ومخاطره:
+
+لديك محرّكا فوترة متوازيان — كيف نتعامل معهما؟
+
+وحّد كل التخصصات على المحرك الجديد (تقاعد الحد اليومي والدرس المجاني القديم 80 جوهرة) — اتساق كامل، لكنه تغيير أكبر وأوصي به
+تسعير الباقات — هل نفرّق حسب المنطقة؟
+
+سعر لكل منطقة (شمال/جنوب) لكل باقة — كما هو الآن (بسبب فرق سعر الصرف)
+2 hours ago
+كل القرارات الكبيرة محسومة الآن. إليك المرجع الموحّد لما اتفقنا عليه، ثم نقطتان أخيرتان فقط لتفادي مشاكل مستقبلية حقيقية.
+
+الخلاصة النهائية المتفق عليها
+الباقات (جواهر ثابتة، المشرف يحدّد السعر):
+
+برونزية 1000 | فضية 2200 | ذهبية 3600 جوهرة
+سعر لكل باقة لكل منطقة (شمال/جنوب) يحدّده المشرف
+اشتراك شهري: ينتهي بعد 30 يوماً + مهلة 3 أيام (مع ترحيل المتبقّي عند التجديد داخل المهلة)
+الجواهر المشتراة مقفلة على تخصص واحد يُختار عند الشراء
+هدية الترحيب:
+
+150 جوهرة لمرة واحدة لكل طالب (رسالة فخمة عند أول دخول)
+توزيع حر: المجموع ≤ 150 على 3 تخصصات كحد أقصى، تدريجي ونهائي
+تتبع نافذة 30 يوماً + تعطيل الهدية التلقائية القديمة (100/تخصص)
+الخصم (بالتوكن = تكلفة حقيقية × معدّل):
+
+زر إداري واحد: «جواهر لكل مليون توكن (مرجع نموذج التعليم)»
+كل عملية ذكاء يطلبها الطالب تخصم؛ النماذج الغالية والصور تُخصم بنسبتها تلقائياً
+بوابة قبل البث (الرصيد > 0) + خصم ذرّي بعد البث + استرداد عند الفشل + لا حدّ يومي
+الإدارة: قسم أسعار الباقات (سعر/باقة/منطقة) + قسم معدّل التوكن + حاسبة أمان تمنع التسعير بأقل من التكلفة.
+
+التوحيد: كل التخصصات تنتقل للمحرك الجديد، وتقاعد الحد اليومي والدرس المجاني القديم (80).
+
+سأتكفّل بها افتراضياً دون إزعاجك: منع التسرّب عند الطلبات المتزامنة (خصم ذرّي)، وبذور أولية آمنة للأسعار والمعدّل تحافظ على اقتصاديات اليوم (الجوهرة ≈ $0.001 تكلفة).
+
+نقطتان أخيرتان
+عند توحيد النظام — ماذا نفعل بالطلاب الحاليين الذين لديهم أرصدة أو اشتراكات قديمة؟
+
+ابدأ الجميع من الصفر على النظام الجديد (مناسب إذا لم يطلق التطبيق بعد أو لا يوجد مشتركون حقيقيون)
+ميزات الذكاء المجانية حالياً (تعليم الملازم الجامعية واختباراتها) — هل تخصم جواهر الآن؟
+
+نعم — كل عمليات الذكاء التي يطلبها الطالب تخصم (يشمل الملازم) — يطابق رؤيتك «أي شيء آخر»
+2 hours ago
+ممتاز — «البدء من الصفر» يلغي الحاجة لأي ترحيل معقّد، وخصم الملازم يجعل الـseam موحّداً. الآن الصورة كاملة ومتسقة. هذا المرجع النهائي:
+
+المواصفة النهائية الكاملة
+الباقات: برونزية 1000 / فضية 2200 / ذهبية 3600 جوهرة (ثابتة) — سعر لكل باقة لكل منطقة يحدّده المشرف — اشتراك شهري (30 يوم + مهلة 3 أيام مع ترحيل المتبقّي) — مقفلة على تخصص واحد عند الشراء.
+
+الهدية: 150 جوهرة لمرة واحدة، توزيع حر ≤ 150 على 3 تخصصات كحد أقصى، رسالة فخمة عند أول دخول، تتبع نافذة 30 يوماً، وتعطيل الهدية التلقائية القديمة.
+
+الخصم: معدّل إداري واحد «جواهر/مليون توكن» × التكلفة الحقيقية ⇒ النماذج الغالية والصور تتدرّج تلقائياً. كل عمليات الذكاء تخصم (شرح، اختبار، صورة، أنميشن، ملازم، تحديد مستوى…). بوابة قبل + خصم ذرّي بعد + استرداد عند الفشل + بلا حدّ يومي.
+
+الإدارة: أسعار الباقات + معدّل التوكن + حاسبة أمان تحذّر عند تسعير باقة بأقل من تكلفتها.
+
+التوحيد: كل التخصصات على المحرك الجديد، الجميع يبدأ من الصفر، تقاعد الحد اليومي والدرس المجاني القديم.
+
+خارطة التنفيذ المقترحة (بالترتيب)
+قاعدة البيانات والإعدادات — ثوابت الباقات، أسعار/منطقة، معدّل التوكن، رصيد الهدية على مستوى الطالب + سجل تخصيصها، بذور آمنة.
+نواة الفوترة — تحويل الخصم إلى (تكلفة حقيقية × المعدّل) بدل الثابت، وتوسيع الـseam ليشمل كل مسارات الذكاء، مع منع التسرّب المتزامن.
+الباقات + الهدية — الشراء (جواهر ثابتة مقفلة على تخصص)، ومنطق التوزيع الحر للهدية.
+التوحيد — توجيه كل التخصصات للمحرك الجديد وإيقاف المسار القديم وتوحيد قراءة الرصيد في الواجهة.
+واجهة الإدارة — قسم الأسعار + قسم المعدّل + حاسبة الأمان.
+واجهة الطالب — رسالة الترحيب الفخمة + شاشة توزيع الهدية + عرض الرصيد + رسالة «يجب الاشتراك» + صفحة الباقات.
+لن أكتب أي كود قبل موافقتك. هل أبدأ التنفيذ بهذه الخارطة؟
+
+هل أبدأ تنفيذ النظام الجديد بهذه الخارطة؟
+
+نعم، ابدأ التنفيذ
+2 hours ago
+موافقة مستلمة. سأبدأ التنفيذ. أولاً أتعمّق في الملفات الأساسية بدقة ثم أستشير المخطّط المعماري (architect) لرسم المسار قبل أي كود.
+
+I have the wallet core. Let me read the pricing formula and schema before consulting the architect, so the plan is grounded.
+
+I have the core grounding. Now let me consult the architect to shape the implementation trajectory before writing any code, passing the key files.
+
+The architect's plan is clear and matches our spec. Let me write a session plan, then ground myself in the remaining structures (auto-migrate, call sites) before implementing.
+
+The bash call needs a timeout. Let me retry with the required parameter.
+
+I see the charge surfaces and that there are TWO usdToGems definitions (v4-gem-wallet.ts + v4-lab-exam-engine.ts). Let me dispatch an explorer to map all AI charge surfaces while I ground myself in auto-migrate and the ledger enum.
+
+Let me read the key auto-migrate sections to understand table-spec/seed structure before writing the migration.
+
+The auto-migrate structure is clear. Before editing the billing core, let me check the duplicate usdToGems in the lab-exam engine and how the pricing functions are used in subscriptions/cost-cap, to avoid breaking compilation.
+
+Now I'll implement T001+T002. Let me start with the pricing-formula additions (fixed package gems + admin-configurable charge rate cache), and in parallel confirm two call-site details.
+
+usdToGems in the lab-exam engine is a separate hardcoded copy — I'll route it through the shared rate. Now applying the billing-core edits to v4-gem-wallet.ts and v4-lab-exam-engine.ts.
+
+The explorer confirms the charge map: placement gen/grading (v4_path.ts) and scenes (v4-scene-store.ts) are currently FREE and need charging; images and booklets already charge; legacy settleAiCharge/gems.ts/access.ts power the old paths to retire in T005. Let me finish the billing-core edits — re-read the current purchaseV4GemsTx region (line numbers shifted).
+
+Now applying the purchase-flow rewrite (fixed package gems, no welcome gift, full-price revenue audit) and the lab-exam engine re-export.
+
+Let me fix the now-inaccurate comments and locate the Drizzle schema for the wallet table so I can add the two new welcome-gift tables.
+
+Let me read the exact comment text before editing.
+
+Now let me fix the comment and read the wallet/ledger table definitions to mirror for the two new tables.
+
+Now I'll add the two welcome-gift Drizzle tables and correct the wallet doc comment.
+
+T001 schema added. Now wiring the two tables into auto-migrate, seeding the token-rate setting, and loading it into the pricing cache at startup.
+
+Now seed the token-rate setting and add the loader that pushes it into the pricing cache at startup.
+
+Let me verify the pricing-formula exports I'm depending on actually exist (T002 was edited pre-compression), and check the build compiles.
+
+pricing-formula confirms all exports. Let me typecheck the api-server to verify T001/T002 compile before moving on.
+
+The typecheck errors are all pre-existing (missing dist builds for integration packages, and unrelated tables like v4ConceptDrillsTable/instructionFilesTable) — none touch my edited files. The dev path uses esbuild, not tsc. Let me run the actual esbuild build to confirm my changes bundle cleanly.
+
+Build is clean. Let me restart the app so auto-migrate creates the new tables, then verify they exist.
+
+Tables didn't appear. Let me check whether psql is hitting the same DB the app uses (look for an existing table) and inspect the startup migration logs.
+
+The serving api-server is the standalone "API Server" workflow (the "Start application" one exited as a port-bound duplicate). Let me check the migration logs to see why the tables weren't created.
+
+No migration logs — the serving process (standalone "API Server" workflow) is running stale code from before my edits; the "Start application" api-server exited because 8080 was already bound. I need to restart the standalone workflow so it rebuilds from my new source and runs auto-migrate.
+
+The two workflows both bind 8080, causing a race. The standalone is now down and 8080 is free, so restarting "Start application" should let its api-server bind 8080 with fresh code and run the migration.
+
+T001 verified — both welcome-gift tables created and the ai.gems_per_1m_teaching_tokens setting seeded (250). The standalone "API Server" failed state is the benign stepped-aside duplicate.
+
+Now T003 (welcome-gift allocation service + routes). Let me gather the patterns I need: ledger union types, wallet constants/expiry logic, the CSRF/requireUser middleware, and the route mount point.
+
+The standalone API Server's "failed" state is the benign duplicate; "Start application" serves 8080 with fresh code. Let me look at the exact CSRF/requireUser middleware and a sample handler to mirror in the new welcome-gift routes.
+
+The middleware (getUserId/requireUser/requireSameOriginCsrf) is defined locally per route file — the established pattern. Let me read the exact implementation to mirror it in a new v4_welcome_gift.ts.
+
+Now I'll build T003. First let me confirm the v4 specialty table columns (to validate the slug before crediting a wallet) and update the stale welcome_gift ledger comment.
+
+I have everything needed for T003. Let me create the service, the routes, mount them, and fix the stale ledger comment.
+
+Now the routes file and mounting it, plus fixing the stale ledger comment.
+
+Now mount the router and fix the stale ledger comment.
+
+T001 + T003 in place. Let me build to verify T003 compiles cleanly.
+
+Build clean. Let me restart the app and smoke-test that the new welcome-gift routes are mounted (expect 401 Unauthorized, not 404).
+
+The artifacts/api-server: API Server failed state is the expected benign duplicate. Let me smoke-test that the welcome-gift routes are mounted (expect 401, not 404) and confirm the gem-rate setting loaded.
+
+Routes mounted correctly. Now T004 — charging unification. Let me read the charge primitives and an existing non-stream charge pattern to design the helper, plus the two FREE surfaces (scenes + placement).
+
+The artifacts/api-server: API Server failed is the benign port-duplicate. The handson pattern (pre-gate → charge → run → refund-on-fail) is the canonical non-stream flow. Let me read refundV4Ai, the scene store, and the placement + scene routes to design the helper and wire the two free surfaces.
+
+The benign duplicate API Server failure is expected. I understand the charge primitives now. Let me read the scene store and scene route to design cost handling, plus check how placement generation cost should be modeled.
+
+Scenes need a subjectId to charge against, but the /v4/scene route only has userId. Let me check the FE call sites for scene + placement to see what context is available, and how cache-miss-only charging should hook in (scenes are disk-cached).
+
+The FE scene path shows mangled as /api/n — let me read the actual call to see if the specialty slug is available at the scene call site (needed to charge the right wallet).
+
+SceneMount has no slug — charging scenes against the right wallet needs slug threaded through the teacher-markdown render chain. Let me trace where SceneMount is created and whether slug is available there, and check the SceneGenerationError reason union.
+
+The render chain is clear: v4-lesson.tsx creates SceneMount with {topic, lessonName} and has the slug. Let me check existing imports in v4_path.ts and the slug context in v4-lesson.tsx before editing.
+
+I have the server context. Now let me read the FE threading points in v4-lesson.tsx to pass slug down to SceneMount.
+
+I have the full FE threading picture. Let me read the remaining server bits I need before editing: end of gem-ledger source list, end of refundV4Ai, scene-store imports + options type, and v4_path import/constant region.
+
+I have everything. The artifacts/api-server: API Server failed is the benign port duplicate — won't touch it. Now let me make the edits. First, ledger sources:
+
+The artifacts/api-server: API Server failed is the benign duplicate. Now add the runV4PaidWork helper after refundV4Ai. Let me check the exact end of that function.
+
+Now insert the runV4PaidWork helper after refundV4Ai:
+
+The artifacts/api-server: API Server failed state is the benign duplicate. Now let me find the canonical teaching-model constant and confirm the scene-store options block before editing.
+
+The model constant export got masked in grep output. Let me read the exact lines I need to edit (options type + error class) and confirm.
+
+The artifacts/api-server: API Server failed is the benign port duplicate. Now I'll make all scene-store edits in one batch:
+
+The artifacts/api-server: API Server failed is the benign duplicate. Now wire placement charging + scene route slug in v4_path.ts:
+
+The benign duplicate is confirmed in the status. Now the FE threading. Let me read the exact SceneMount block to edit precisely.
+
+The artifacts/api-server: API Server failed is the benign duplicate. Now I'll thread slug through the FE in one batch (scene-stepper + v4-lesson):
+
+All edits complete. The artifacts/api-server: API Server failed is the benign port duplicate. Let me build the api-server to catch errors, then typecheck just my changed surface.
+
+Build is clean. Now let me restart the app workflow (to load the rebuilt API bundle) and typecheck the FE in parallel.
+
+Workflow restarted (the api-server standalone "failed" is the benign duplicate that steps aside for "Start application"). Let me typecheck both changed packages and smoke-test the endpoints.
+
+Now let me typecheck both packages in parallel:
+
+The typecheck output shows no errors in any of my changed files (v4-gem-wallet.ts, v4-scene-store.ts, v4_path.ts, scene-stepper.tsx, v4-lesson.tsx). Everything listed is pre-existing: stale .d.ts build artifacts (TS6305) and pre-existing i18n/implicit-any issues in unrelated files.
+
+But two errors deserve verification — v4-welcome-gift.ts can't find studentWelcomeGiftsTable/studentWelcomeGiftAllocationsTable from @workspace/db. That's the T003 code I need working. Let me confirm those tables are actually defined and exported in the db package source, and how api-server resolves @workspace/db.
+
+The grep confirms both welcome-gift tables ARE defined and exported in lib/db/src/schema/subscriptions.ts (identifier names masked to n/ln by redaction), and v4-welcome-gift.ts imports them. The tsc "no exported member" errors are the stale dist/index.d.ts (TS6305 family) — a cosmetic monorepo dev-mode condition. Let me confirm how esbuild resolves @workspace/db at runtime, so T003's route isn't silently broken.
+
+@workspace/db exports "." → "./src/index.ts", so esbuild bundles directly from source — the welcome-gift tables are in the runtime bundle (T003 works at runtime). The tsc errors are purely the stale dist/.d.ts (TS6305) and are cosmetic. No type errors exist in any of my T004 files.
+
+Let me smoke-test the running server to confirm the new routes are healthy:
+
+All three routes respond (401 = server healthy and auth-gating correctly; /specialties/available 401 is pre-existing unrelated behavior). My T004 routes gate correctly.
+
+Now let me verify T004 coverage across ALL AI surfaces the plan requires (teach, placement, scenes, booklets, labs/exams, handson, practice, images) — to confirm what's already charged vs. still needs wiring before I close T004.
+
+All required surfaces are charged: teach (core + route), booklets, handson, labs/exams, practice, scenes (new), placement gen (new). Placement grading is intentionally free (MCQ-by-index). The one remaining item in the T004 acceptance list is images. Let me verify whether teacher image generation is charged.
+
+Image generation lives in image-generation.ts and the legacy routes/ai.ts. I need to confirm whether the v4 teach path generates billable images and whether that's gated. Let me check the v4 teach surface for image handling.
+
+The v4 teach path imports generateTeacherImage, FLUX_SCHNELL_USD_PER_IMAGE, and passes subjectId: slug — strongly implying images are already charged there. Let me read the image block in v4_teach.ts to confirm.
+
+Image charging is confirmed — v4_teach.ts runs a full per-image pipeline that bills fal.ai spend idempotently (lines 466-470, 561-568) with subjectId: slug. T004 is now complete: every required surface charges — teach (tokens + images), placement gen, scenes, booklets, labs/exams, handson, practice. Placement grading stays free (MCQ-by-index, intended).
+
+The api-server standalone "failed" remains the benign duplicate.
+
+T005 (retire legacy billing) is risky and cross-cutting, so let me gather its scope precisely before touching anything. I'll read my plan file and dispatch an explorer in parallel.
+
+T004 is complete and the legacy-billing scope for T005 is now mapped. T005 retires billing paths students currently use and forces all specialties onto v4 — broad, cross-cutting, and hard to reverse. Per my workflow this warrants an architect plan first. Let me mark T004 done in the plan and read the code_review skill to consult the architect.
+
+The api-server standalone "failed" is the benign duplicate. Now let me consult the architect to plan T005 (the riskiest task — retiring billing paths students actively use) before touching code.
+
+The architect's plan is clear, and it flagged one genuine product decision: whether to make only v4-enabled specialties available and show the rest as "coming soon". Before asking the user anything, I need to know the actual coverage gap — how many subjects lack v4 content. Let me query the database.
+
+The data is decisive: 0 legacy subjects, 1 v4 specialty (published). "Start everyone fresh" is effectively already in place at the data layer — there are no non-v4 subjects to hide, so the architect's one user-decision point (locking non-v4 catalog items) is moot. I can proceed with the v4-only strategy without a user question.
+
+This makes T005 primarily an FE balance-read migration + retiring the legacy student AI/billing paths. Let me read the exact code I'll edit (batched).
+
+Let me find the GemsState type, the FE balance fetch logic, and all FE call sites that hit the legacy AI/balance endpoints — so I know exactly what breaks if I retire them.
+
+I now have the full FE balance-read picture. Legacy balance/teach endpoints are used by app-layout.tsx, usage.tsx, dashboard.tsx, and the (bypassed) legacy subject.tsx/lesson.tsx. Let me read the GemsState type and the legacy route entry points so I can migrate cleanly and disable the billing paths.
+
+I have the full legacy chain mapped. Given 0 legacy subjects and the v4-only student flow, my safe T005 approach: (1) add a v4 wallets-summary endpoint, (2) hard-disable the legacy student teaching/billing routes (/ai/teach, /ai/lesson) so no free-lesson/daily-cap path is reachable even by direct API calls, (3) migrate FE balance reads (app-layout, usage, dashboard) onto v4. I'll retain the legacy display libs as dead code (full file deletion is risky given subscriptions.ts entanglement and low-value) — documenting that as drift.
+
+Let me read the route entry points and v4_path imports to implement.
+
+Now I'll implement T005. The api-server standalone "failed" is the benign duplicate. Let me make the backend changes: add the v4 wallets-summary endpoint and hard-disable the legacy student teaching/billing routes.
+
+Summary endpoint added. Now disable the legacy student teaching/billing routes with early returns.
+
+Now disable /ai/teach the same way.
+
+The api-server standalone "failed" is the benign port-8080 duplicate — ignoring as established. Now the FE migration. I need to know the v4 lesson route so the badge resolves the right wallet. Let me check the router and the v4 paywall/balance reads.
+
+The v4 lesson route is /specialty/:slug/lesson/:code (plus /lab/:slug, /exam/:slug, /path/:slug). Now I'll migrate app-layout.tsx: simplify the GemsState type, rewrite GemsBadge for the v4 wallet model (balance + expiry + zero→subscribe), update the slug extractor, and point the fetch at the v4 endpoints.
+
+The api-server standalone "failed" remains the benign duplicate. Now rewrite GemsBadge and the fetch effect (including the slug extractor) for the v4 model.
+
+Now update the slug extractor and the fetch effect to use the v4 endpoints.
+
+The slug extractor is updated. Now let me read and rewrite the fetch effect to hit the v4 endpoints.
+
+Now I'll replace the fetch effect body with v4 endpoint calls.
+
+app-layout migrated. Now let me check the balance reads in usage.tsx and dashboard.tsx.
+
+Let me read the relevant sections of both pages to migrate them.
+
+Now migrate usage.tsx. Replace the Summary type, the fetch, and the snapshot rendering with the v4 wallet model.
+
+The api-server standalone "failed" is the benign port-8080 duplicate. Now update the fetch call and the snapshot rendering in usage.tsx.
+
+Now rewrite the snapshot rendering block in usage.tsx to use the v4 wallet model (balance + expiry, no daily progress).
+
+usage.tsx migrated. Now dashboard.tsx — let me read the relevant regions to migrate its balance reads.
+
+The dashboard's subject/materials logic is tied to the legacy my-subjects model (returns empty under start-fresh) and a legacyProbe balance read. Let me see the rest of the useMemo to understand isBlocked before deciding how surgical to be.
+
+The api-server "failed" remains the benign duplicate. The dashboard's only remaining legacy balance read is legacyProbe hitting /api/subscriptions/gems-balance; the subject cards come from my-subjects (empty under start-fresh, so harmless). I'll repoint that probe to the v4 summary and rename it. Let me remove the now-unused interface and rename the probe.
+
+Now update the v4AccessProbe declaration to read the v4 summary endpoint.
+
+Now update the probe declaration to read the v4 summary endpoint.
+
+FE migration complete. Now rebuild the api-server bundle and restart the workflow (dev is esbuild, no watch).
+
+Build succeeded. Now restart the workflow to load the new bundle.
+
+Workflow restarted (the api-server standalone "failed" is the benign duplicate). Let me smoke-test: /ai/teach should now return 410, and the new v4 summary endpoint should exist (401 unauth, not 404).
+
+Connection refused via the public domain — likely the proxy/mTLS or the server is still booting. Let me check the logs and test the API directly on localhost:8080.
+
+All three smoke tests pass: /ai/teach→410, /ai/lesson→410, /v4/wallets/summary→401 (exists, auth-gated). The api-server standalone "failed" is the benign duplicate. Now let me verify no leftover references to removed fields and typecheck the FE.
+
+The only leftover legacy balance reads are in the bypassed legacy subject.tsx (unreachable: no legacy subjects + SubjectGate redirects v4→/path) and a stray subject.tsx.bak backup (not compiled). Those are the documented-drift legacy pages. The usage.tsx hit is LedgerRow.source (history), which is correct. Let me typecheck both packages to confirm my edits compile.
+
+Let me typecheck both packages in parallel to confirm my edits compile cleanly.
+
+Most errors are pre-existing environmental noise: TS6305 (workspace lib dist not built — affects ~20 files I never touched) and TS7006 implicit-any on v callbacks (pre-existing recentViews/map patterns). The typecheck script requires pre-built lib packages, so it was already red before my work — the actual build (esbuild/vite) is the real gate and it passed. Let me confirm my changes are localized and that the ai.ts errors at 4630+ are in pre-existing dead code, not my edits.
+
+My ai.ts edits are localized to lines 458 and 1348 only — the 4630+ errors are in pre-existing dead code, and the TS6305 errors are environmental (unbuilt workspace libs), so the red typecheck predates my work. The build (the real gate) passed. T005 is complete.
+
+The api-server standalone remains the benign port-8080 duplicate. Let me update the session plan, then gather the backend shapes I need for T006 (admin UI) and T007 (student FE).
+
+I have the backend shapes. AdminPaymentSettings component + payment-settings tab exist (T006 likely needs the token-rate + calculator UI added there). Welcome-gift routes exist (T007 needs FE). Let me update the session plan, then read the key files for T006/T007 in parallel.
+
+The regex broke on {. Let me read the actual files for T006/T007 in parallel.
+
+Now let me read the welcome-gift route, the admin payment settings component (T006 target), and the subscription packages page (T007 target) in parallel.
+
+I have the welcome-gift + admin shapes. The plan-prices and exchange-rates admin tabs already exist, so T006's new work is the token-rate editor + safety calculator. Let me locate the billing constants/cache and existing admin price components before building.
+
+I have the full billing model: TEACHING_REF_USD_PER_1M_TOKENS=0.25, LIVE_GEMS_PER_USD=gemsPer1M/0.25, getters/setters in pricing-formula.ts, and the rate persists in payment_settings under ai.gems_per_1m_teaching_tokens. Let me verify whether the existing payment-settings PUT refreshes the live rate cache, and read the economics helpers + an admin component to mirror styling.
+
+I now have the complete billing model. Key facts for T006:
+
+Knob: ai.gems_per_1m_teaching_tokens (default 250 → gems-per-USD=1000). cost-per-gem USD = 0.25 / gemsPer1M.
+The generic PUT /admin/payment-settings/:key persists but does not refresh the live rate cache — so the token-rate needs a dedicated endpoint that also calls setGemsPer1MTeachingTokens.
+PACKAGE_GEMS = {bronze:1000, silver:2200, gold:3600} exists server-side. Existing AdminPlanPrices still shows the legacy derived-gems/daily preview (stale under fixed packages).
+Let me check the pricing-formula import block in subscriptions.ts so I can extend it for the new gem-rate endpoint.
+
+I have everything for T006. Let me implement the backend gem-rate endpoints first — extend the pricing-formula import, then add GET/PUT /admin/v4/gem-rate near the payment-settings handlers.
+
+Now add the gem-rate endpoints after the payment-settings PUT handler.
+
+T006 backend done. Now the FE component — token-rate editor + safety calculator. The calculator recomputes live against the draft rate (like the existing price preview) so the admin sees margin impact before saving.
+
+Now wire the component into admin.tsx. Let me find the import line and the payment-settings tab content/trigger to place the new tab next to it.
+
+I'll add the import, tab trigger, and content. Using the already-imported Gem icon for the trigger to avoid a new import. Three independent edits to the same file in one batch.
+
+T006 wired. Now rebuild the api-server bundle and restart, then smoke-test the new gem-rate endpoint.
+
+Build passed. Now restart the app workflow and smoke-test the new gem-rate endpoints.
+
+App restarted (the standalone "API Server" failure is the benign port-8080 duplicate). Let me smoke-test the new gem-rate endpoints.
+
+404 — the route path is wrong. The FE calls /api/admin/plan-prices (not /api/subscriptions/...), so the subscriptions router is mounted at /api. My endpoint is at /api/admin/v4/gem-rate. Let me confirm the mount and fix both the smoke test and the FE fetch URLs.
+
+Route works at /api/admin/v4/gem-rate (401 unauth). My FE component used the wrong /api/subscriptions/... prefix. Let me fix both fetch URLs.
+
+T006 complete (backend + FE). Now starting T007 (student FE: welcome modal, allocation, balance, packages, paywall). Let me map the existing student payment/paywall flow and confirm the welcome-gift backend shapes in parallel.
+
+Now I understand the FE flow. Balance display (T005) and 402 paywall gating already exist. The new T007 work: welcome-gift modal + allocation screen, and rewriting the packages page to fixed gems/no daily cap. Let me read the welcome-gift backend shapes and the current subscription page.
+
+I have the full welcome-gift contract. Now let me gather the specialties-list endpoint shape, the current package constants in subscription.tsx, the existing modal style template, and how modals mount in app-layout — so I can build the welcome-gift modal/allocation and rewrite the packages page.
+
+Let me read the package definitions in subscription.tsx and the app-layout wallet/render sections to plan the package rewrite and where to mount the welcome modal.
+
+The API Server failure is the benign port-8080 duplicate. I have everything for T007. Let me read the existing modal style template and locate the i18n subscription keys before building.
+
+I have the full picture. The standalone API Server failure is the benign port-8080 duplicate. Let me read the exact translation blocks (ar + en) so I can update the package copy precisely.
+
+Now I'll make all the i18n + package edits. First let me confirm the render loop iterates translatedPlans (so feature text comes from the keys I'm editing).
+
+Confirmed — render uses translatedPlans with feature text from the i18n keys. Now I'll batch all the package edits: i18n (ar + en) and the subscription page constants/rendering.
+
+i18n updated. Now the subscription page constants and removing the daily-cap render block.
+
+Package page and i18n done. Now the main new deliverable — the welcome-gift modal + allocation. Let me check the FE CSRF pattern and lang hook so the component matches conventions.
+
+I have all the patterns. Let me write the welcome-gift modal component and read the App.tsx mount area in parallel.
+
+Let me check the App.tsx imports to mount the modal consistently (the grep showed an aliased import).
+
+The grep output was a display artifact — the real import is clean. Let me mount the welcome-gift modal.
+
+The API Server failure is the benign port-8080 duplicate (Start application already holds 8080). Now let me typecheck the FE to catch any compile errors in my new component.
+
+Let me run the FE typecheck to validate the new component.
+
+These typecheck errors are all pre-existing and unrelated to my work: TS6305 is the api-client-react dist not being prebuilt (monorepo build-order), the TS2719 is the existing as const ar-vs-en literal mismatch in lang-context.tsx, and the curriculum-map/lesson/dashboard ones are in files I never touched. None reference my new welcome-gift-modal.tsx, admin-gem-rate.tsx, App.tsx, or my subscription.tsx/translations.ts edits — so I introduced zero new type errors. Let me confirm the Vite dev server compiled cleanly and the app renders.
+
+Vite is running cleanly (no error overlay), the old 404s are pre-fix log noise, and the latest gem-rate calls return 401 (route exists). The API Server failure is the benign port-8080 duplicate. Let me take a screenshot to confirm the FE compiles without a Vite error overlay.
+
+The screenshot got cancelled (likely by the incoming message). T007's pieces are in place — modal created + mounted, packages updated, i18n done, balance/paywall from T005. Let me confirm the FE renders without a Vite error overlay and gather the changeset for the architect review.
+
+FE compiles and renders cleanly (no Vite overlay; the 401 is the expected unauth welcome-gift probe). Now T008. Let me run the architect review on the full changeset. First I'll recall the exact architect call signature.
+
+Now let me run the architect review on the full changeset.
+
+The architect flagged real issues. Let me verify them against the actual code before fixing — some may be pre-existing/intentional, others are genuine spec gaps. Let me investigate the key areas in parallel.
+
+Let me read the actual implementations to judge severity precisely.
+
+Now I have the lay of the land. The architect found genuine issues. Let me read the precise code for the in-scope fixes: welcome-gift finalize logic, chargeV4Ai NO_OP semantics, the booklet billing seam, and the FE safety calculator.
+
+Now I have a clear picture. The architect found a mix of genuine in-scope spec gaps and deeper pre-existing engine subtleties. Let me read the remaining targeted spots to finalize my fix plan: the placement billing call, the booklet billing seam structure, the FE safety calculator, and the strong CSRF helper.
+
+The FE safety calculator already implements warn-with-override (loss/thin/healthy badges + window.confirm block on save), satisfying the "warn/block" spec at the UI. Now let me read the booklet teach charge block and exam/lab generation to scope the billing enablement precisely.
+
+Let me read the booklet exam/lab generation/grading section to scope billing there before making all edits.
+
+I now have the full booklet billing surface. Before editing, let me confirm whether the booklet generators/evaluators return real token usage (so I charge real cost) or whether I should use fixed estimates like placement does. Let me also check canAffordV4Turn and runV4PaidWork exports.
+
+The generators/evaluators don't surface token usage, so I'll bill booklet exam/lab generation + lab grading at fixed USD estimates via runV4PaidWork (mirroring the placement pattern), and bill teach at real token cost. First I must confirm the GemLedgerSource union accepts new v4_booklet_* sources and where model constants live.
+
+Sources v4_exam_attempt and v4_lab_grade already exist in the union. Let me read the remainder of the lab submit route, then apply all edits in one batch.
+
+I have everything I need. Applying all fixes now — billing-engine hardening in v4-gem-wallet.ts, welcome-gift finalize robustness in v4-welcome-gift.ts, and booklet billing enablement in v4_booklet.ts.
+
+API Server standalone failure is the benign port-8080 duplicate. Continuing with the remaining edits in batch.
+
+Workflow is healthy. Now the welcome-gift finalize robustness and the booklet import/constants.
+
+Now the distinct-subject check in welcome-gift (skip it for gems:0 finalize) — let me read the exact current text.
+
+Now the booklet edits. Let me read the exact import line and the inflight-map constants location.
+
+Applying the booklet import, constants, teach pre-gate, and teach charge enablement.
+
+Now the booklet teach pre-gate and charge enablement.
+
+The standalone API Server failure is the known benign port-8080 duplicate. Now the teach charge block, then the exam/lab generation and grading edits.
+
+Let me verify chargeV4Ai accepts drainIfInsufficient, then apply the exam-generation billing edit.
+
+drainIfInsufficient exists. Let me read the full exam, lab-GET, lab-evaluate blocks to get exact replacement text.
+
+Now applying the exam-generation billing wrap, and reading the lab blocks in parallel.
+
+The API Server standalone is the expected benign duplicate. Let me read the lab GET and lab evaluate blocks to apply their billing wraps.
+
+The standalone API Server failure is the known benign duplicate (port 8080 owned by Start application). Let me read the lab evaluate block, then apply lab GET, evaluate, and submit edits.
+
+I have the lab GET and evaluate blocks. Let me read the submit block while applying the lab-GET and evaluate billing wraps in the same batch.
+
+Now applying the final three booklet billing wraps (lab GET, lab evaluate, lab submit) in one batch.
+
+Now the lab evaluate and lab submit billing wraps.
+
+Now the final edit — lab submit grading loop wrapped in a single paid charge.
+
+All edits applied. Now rebuild the api-server bundle (dev is esbuild, no watch) and typecheck.
+
+Build succeeded. esbuild doesn't typecheck, so let me restart the app workflow and run a real typecheck in parallel.
+
+Workflow restarted and running. Let me run a typecheck and verify the server responds and loaded the new bundle without errors.
+
+All typecheck errors are pre-existing (integration dist not built, plus unrelated v4-memory.ts/test/index.ts issues) — none in my edited files. Let me confirm my three files are clean and the server booted without errors.
+
+Two errors in v4-welcome-gift.ts imports — but at lines 19-20 (pre-existing imports, not my edits). This is the same stale-dist class as the TS6305 integration errors: tsc reads @workspace/db's built .d.ts, which predates the T001 welcome-gift tables. Let me confirm the tables exist in db source and whether dist is just stale.
+
+The ability to use Replit Agent has been disabled by your admin.

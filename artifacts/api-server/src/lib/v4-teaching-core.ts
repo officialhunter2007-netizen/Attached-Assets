@@ -340,6 +340,11 @@ export async function getOrGenerateLessonContent(opts: GetOrGenerateOpts): Promi
       source: "v4_ai_lesson",
       model: V4_CONTENT_GEN_MODEL,
       note: `توليد محتوى الدرس ${lesson.code}`,
+      // Drain rather than skip: a student parked at a tiny positive balance could
+      // otherwise trigger one-time content generation for MANY lessons without
+      // ever paying (charge skipped each time). Draining to zero on the first
+      // lesson blocks the next via its pre-gate. Caps free exposure to one turn.
+      drainIfInsufficient: true,
     });
     if (charge.charged) {
       // Surface the key so the caller (`/v4/teach`) can refund it if the

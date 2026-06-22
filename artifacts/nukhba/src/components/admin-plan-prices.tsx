@@ -13,16 +13,20 @@ import {
 type Region = "north" | "south";
 type PlanType = "bronze" | "silver" | "gold";
 
-// ── Pricing formula (mirrors pricing-formula.ts on the server) ─────────────
-// SUB_DURATION_DAYS is constant; the YER→USD rates come from the live admin
-// settings (`/api/admin/exchange-rates`) so the preview reflects whatever the
-// admin has configured rather than a stale hardcoded constant.
-const SUB_DURATION_DAYS = 14;
+// ── Pricing preview (mirrors pricing-formula.ts on the server) ─────────────
+// Under the v4 monthly-wallet model the gems per package are FIXED — the admin
+// only edits the PRICE. There is NO daily cap. The YER→USD rates come from the
+// live admin settings (`/api/admin/exchange-rates`) so the AI cost-cap preview
+// (platform share = priceUsd / 2) reflects whatever the admin has configured.
+const PACKAGE_GEMS: Record<PlanType, number> = {
+  bronze: 1000,
+  silver: 2200,
+  gold: 3600,
+};
 const FALLBACK_YER_PER_USD: Record<Region, number> = { north: 600, south: 2800 };
 
 type PricingPreview = {
   gemsGranted: number;
-  dailyGemLimit: number;
   aiCostCapUsd: number;
   priceUsd: number;
 };
@@ -30,16 +34,15 @@ type PricingPreview = {
 function computePreview(
   priceYer: number,
   region: Region,
+  planType: PlanType,
   yerPerUsd: Record<Region, number>,
 ): PricingPreview {
   const divisor = yerPerUsd[region] || FALLBACK_YER_PER_USD[region];
   const rate = 1 / divisor;
   const priceUsd = priceYer * rate;
-  const studentShareUsd = priceUsd / 2;
   const platformShareUsd = priceUsd / 2;
-  const gemsGranted = Math.floor(studentShareUsd * 100 * 10);
-  const dailyGemLimit = Math.floor(gemsGranted / SUB_DURATION_DAYS);
-  return { gemsGranted, dailyGemLimit, aiCostCapUsd: platformShareUsd, priceUsd };
+  const gemsGranted = PACKAGE_GEMS[planType] ?? 0;
+  return { gemsGranted, aiCostCapUsd: platformShareUsd, priceUsd };
 }
 
 function fmtGems(n: number): string {
@@ -403,19 +406,15 @@ export function AdminPlanPrices() {
                         const rawDraft = toEnglishDigits(draft).trim();
                         const previewYer = /^\d+$/.test(rawDraft) ? Number(rawDraft) : NaN;
                         if (!Number.isFinite(previewYer) || previewYer <= 0) return null;
-                        const pv = computePreview(previewYer, reg.key, rates);
+                        const pv = computePreview(previewYer, reg.key, p.key, rates);
                         return (
                           <div className="mt-2 rounded-lg bg-white/5 border border-white/10 px-2.5 py-2 text-[11px] space-y-1">
                             <div className="text-muted-foreground font-medium mb-1">معاينة الاشتراك بهذا السعر:</div>
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-muted-foreground flex items-center gap-1">
-                                <Gem className="w-3 h-3 inline-block" /> جواهر الطالب
+                                <Gem className="w-3 h-3 inline-block" /> جواهر الطالب (ثابتة)
                               </span>
                               <span className="font-bold text-foreground">{fmtGems(pv.gemsGranted)} 💎</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-muted-foreground">الحد اليومي</span>
-                              <span className="font-bold text-foreground">{fmtGems(pv.dailyGemLimit)} / يوم</span>
                             </div>
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-muted-foreground">سقف تكلفة AI</span>
@@ -461,17 +460,13 @@ export function AdminPlanPrices() {
               </div>
 
               {confirmRow.newPrice != null && confirmRow.newPrice > 0 && (() => {
-                const pv = computePreview(confirmRow.newPrice, confirmRow.region, rates);
+                const pv = computePreview(confirmRow.newPrice, confirmRow.region, confirmRow.planType, rates);
                 return (
                   <div className="rounded-lg bg-white/5 border border-white/10 p-3 text-xs space-y-1.5">
                     <div className="text-muted-foreground font-medium mb-1">الاشتراكات الجديدة بهذا السعر ستحصل على:</div>
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">جواهر الطالب</span>
+                      <span className="text-muted-foreground">جواهر الطالب (ثابتة)</span>
                       <span className="font-bold">{fmtGems(pv.gemsGranted)} 💎</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">الحد اليومي</span>
-                      <span className="font-bold">{fmtGems(pv.dailyGemLimit)} / يوم</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">سقف تكلفة AI</span>

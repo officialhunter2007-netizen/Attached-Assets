@@ -43,5 +43,18 @@ normalizer in lockstep, and audit every GET projection to confirm it is omitted.
 
 ## Note — bounded AI input vs. rate limiting
 Lab answers are length-capped (`BOOKLET_LAB_ANSWER_MAX`) before grading to bound token
-cost. Per-user rate-limit infra was intentionally deferred while booklet grading is
-FREE; revisit if it becomes paid or high-traffic.
+cost.
+
+## Booklet billing is now ACTIVE (was FREE)
+The redesign turned booklet billing ON: booklet **teach** charges the v4 wallet
+(`source: v4_booklet_teach`, real post-hoc token cost, `drainIfInsufficient:true`,
+guarded by a per-wallet in-flight lock so parallel turns can't each stream free) and
+lab/exam **generation** charges on first open. Exam **grading** stays deterministic-free
+(MCQ `correctIndex`); lab grading is paid (Haiku). Any "booklet is free" note elsewhere
+(incl. replit.md) is stale.
+**Residual gaps (deferred, systemic — not booklet-specific):** charge-after-stream means
+a transient DB error on the post-stream charge still leaks one free turn (pre-gate +
+drain + in-flight lock mitigate the common races but not this); and the paid exam/lab
+generation endpoints are still GET + `requireUser` only (no same-origin CSRF). Both need
+a billing-architecture pass (pre-reservation / durable settlement; POST+CSRF), not a
+point patch. Per-user rate-limiting is now relevant since these became paid.
