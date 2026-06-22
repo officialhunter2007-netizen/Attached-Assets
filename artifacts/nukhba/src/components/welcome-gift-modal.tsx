@@ -277,7 +277,7 @@ export function WelcomeGiftModal() {
       <button
         onClick={reopen}
         dir={ar ? "rtl" : "ltr"}
-        className="fixed top-0 left-0 right-0 z-[150] flex items-center justify-center gap-2 bg-gradient-to-r from-sky-400 via-sky-300 to-sky-400 px-4 py-2.5 text-sm font-bold text-zinc-900 shadow-md hover:opacity-90 transition animate-in fade-in slide-in-from-top-2"
+        className="fixed top-0 left-0 right-0 z-[150] flex gap-2 bg-gradient-to-r from-sky-400 via-sky-300 to-sky-400 px-4 py-2.5 text-zinc-900 shadow-md hover:opacity-90 transition animate-in fade-in slide-in-from-top-2 text-[14px] font-normal text-center flex-row justify-center items-center mt-[60px] mb-[60px] border-t-[#2e2e2e] border-r-[#2e2e2e] border-b-[#2e2e2e] border-l-[#2e2e2e]"
         data-testid="welcome-gift-pill"
       >
         <span className="text-base">🎉</span>
