@@ -798,207 +798,7 @@ export default function Subscription() {
           })}
         </div>
 
-        <div className="mb-14">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl sm:text-3xl font-black flex items-center justify-center gap-3 mb-3">
-              <Sparkles className="w-7 h-7 text-gold" />
-              {ts.cmpTitle}
-            </h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
-              {ts.cmpDesc} <span className="text-gold font-bold">{ts.cmpHighlight}</span>
-            </p>
-          </div>
-
-          <div className="glass rounded-3xl border-2 border-gold/20 overflow-hidden shadow-[0_0_40px_rgba(245,158,11,0.08)]">
-            <div className="overflow-x-auto">
-              <table className="w-full text-right" dir="rtl">
-                <thead>
-                  <tr className="border-b border-white/10 bg-gradient-to-l from-gold/10 via-gold/5 to-transparent">
-                    <th className="p-3 sm:p-4 text-sm sm:text-base font-bold text-foreground/80 w-[40%]">{ts.cmpFeature}</th>
-                    <th className="p-3 sm:p-4 text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        <Crown className="w-5 h-5 text-gold" />
-                        <span className="text-sm sm:text-base font-black text-gold">نُخبة</span>
-                      </div>
-                    </th>
-                    <th className="p-3 sm:p-4 text-center">
-                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">ChatGPT</span>
-                    </th>
-                    <th className="p-3 sm:p-4 text-center">
-                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">DeepSeek</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm">
-                  {ts.cmpRows.map((row, i) => (
-                    <tr key={i} className={`border-b border-white/5 last:border-0 ${i % 2 === 0 ? "bg-white/[0.015]" : ""} hover:bg-gold/[0.03] transition-colors`}>
-                      <td className="p-3 sm:p-4 font-medium text-foreground/90 text-xs sm:text-sm leading-relaxed">{row.feature}</td>
-                      <td className="p-3 sm:p-4 text-center">
-                        {row.n ? (
-                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gold/15 border border-gold/30">
-                            <Check className="w-4 h-4 sm:w-5 sm:h-5 text-gold" strokeWidth={3} />
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500/10 border border-red-500/20">
-                            <X className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" strokeWidth={3} />
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3 sm:p-4 text-center">
-                        {row.c ? (
-                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
-                        ) : (
-                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
-                        )}
-                      </td>
-                      <td className="p-3 sm:p-4 text-center">
-                        {row.d ? (
-                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
-                        ) : (
-                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="p-4 sm:p-5 bg-gradient-to-l from-gold/10 to-transparent border-t border-gold/15">
-              <p className="text-xs sm:text-sm text-center text-foreground/80 leading-relaxed">
-                {ts.cmpSummary}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Claude branding + smart-rotation reassurance ─────────────────── */}
-        <div className="mb-14" dir="rtl">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl sm:text-3xl font-black flex items-center justify-center gap-3 mb-3">
-              <ShieldCheck className="w-7 h-7 text-gold" />
-              {ts.techTitle}
-            </h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
-              {ts.techDesc}
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-5">
-            {/* Card A — AI tech branding */}
-            <div className="glass rounded-3xl border-2 border-gold/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(245,158,11,0.06)] flex flex-col">
-              <div className="flex items-center gap-4 mb-5">
-                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
-                  <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-gold" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-[11px] sm:text-xs font-bold text-gold/80 mb-1 tracking-wide">
-                    POWERED BY AI
-                  </div>
-                  <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
-                    {ts.techAiTitle}
-                  </h3>
-                </div>
-              </div>
-              <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
-                {ts.techAiDesc}
-              </p>
-              <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>
-                    <span className="font-bold text-foreground">{ts.techAiDeep}</span> {ts.techAiDeepDesc}
-                  </span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>
-                    <span className="font-bold text-foreground">{ts.techAiFast}</span> {ts.techAiFastDesc}
-                  </span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Card B — Smart daily rotation reassurance */}
-            <div className="glass rounded-3xl border-2 border-emerald-500/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(16,185,129,0.06)] flex flex-col">
-              <div className="flex items-center gap-4 mb-5">
-                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-                  <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-400" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-[11px] sm:text-xs font-bold text-emerald-400/90 mb-1 tracking-wide">
-                    {ts.techGuaranteeTag}
-                  </div>
-                  <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
-                    {ts.techGuaranteeTitle}
-                  </h3>
-                </div>
-              </div>
-              <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
-                {ts.techGuaranteeDesc} <span className="text-emerald-400 font-bold">{ts.techGuaranteeHighlight}</span> {ts.techGuaranteeDescEnd}
-              </p>
-              <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>{ts.techContinuityItem}</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>{ts.techRotationItem}</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>{ts.techRenewItem}</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-14">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-black flex items-center justify-center gap-3 mb-2">
-              <ClipboardCheck className="w-7 h-7 text-gold" />
-              {ts.stepsTitle}
-            </h2>
-            <p className="text-muted-foreground">{ts.stepsDesc}</p>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { step: lang === "ar" ? "١" : "1", icon: <Crown className="w-6 h-6 text-gold" />, title: ts.subStepTitle1 || "اختر الباقة", desc: ts.subStepDesc1 || "" },
-              { step: lang === "ar" ? "٢" : "2", icon: <Banknote className="w-6 h-6 text-emerald-400" />, title: ts.subStepTitle2 || "حوّل المبلغ", desc: ts.subStepDesc2 || "" },
-              { step: lang === "ar" ? "٣" : "3", icon: <Send className="w-6 h-6 text-blue-400" />, title: ts.subStepTitle3 || "أرسل الطلب", desc: ts.subStepDesc3 || "" },
-              { step: lang === "ar" ? "٤" : "4", icon: <UserCheck className="w-6 h-6 text-purple-400" />, title: ts.subStepTitle4 || "التفعيل الفوري", desc: ts.subStepDesc4 || "" },
-            ].map(s => (
-              <div key={s.step} className="glass rounded-2xl p-5 border border-white/5 relative">
-                <div className="absolute -top-3 -right-2 w-8 h-8 rounded-full gradient-gold flex items-center justify-center text-sm font-black text-black">{s.step}</div>
-                <div className="mb-3 mt-1">{s.icon}</div>
-                <h3 className="font-bold text-base mb-1.5">{s.title}</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">{s.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="mb-14 p-6 rounded-3xl border-2 border-emerald-500/20 bg-emerald-500/5">
-          <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
-              <ShieldCheck className="w-8 h-8 text-emerald-400" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-xl font-black text-emerald-400 mb-3">{ts.guaranteeTitle}</h3>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {[ts.guaranteeItem1, ts.guaranteeItem2, ts.guaranteeItem3, ts.guaranteeItem4].map((item, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
-                    <span className="text-sm text-foreground/90">{item}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="grid md:grid-cols-2 gap-8 mb-14">
           <div className="glass p-8 rounded-3xl border-white/5">
             <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
               <CreditCard className="w-6 h-6 text-gold" />
@@ -1258,6 +1058,207 @@ export default function Subscription() {
             </div>
           </div>
         </div>
+
+        <div className="mb-14">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl sm:text-3xl font-black flex items-center justify-center gap-3 mb-3">
+              <Sparkles className="w-7 h-7 text-gold" />
+              {ts.cmpTitle}
+            </h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
+              {ts.cmpDesc} <span className="text-gold font-bold">{ts.cmpHighlight}</span>
+            </p>
+          </div>
+
+          <div className="glass rounded-3xl border-2 border-gold/20 overflow-hidden shadow-[0_0_40px_rgba(245,158,11,0.08)]">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right" dir="rtl">
+                <thead>
+                  <tr className="border-b border-white/10 bg-gradient-to-l from-gold/10 via-gold/5 to-transparent">
+                    <th className="p-3 sm:p-4 text-sm sm:text-base font-bold text-foreground/80 w-[40%]">{ts.cmpFeature}</th>
+                    <th className="p-3 sm:p-4 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <Crown className="w-5 h-5 text-gold" />
+                        <span className="text-sm sm:text-base font-black text-gold">نُخبة</span>
+                      </div>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center">
+                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">ChatGPT</span>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center">
+                      <span className="text-xs sm:text-sm font-bold text-muted-foreground">DeepSeek</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {ts.cmpRows.map((row, i) => (
+                    <tr key={i} className={`border-b border-white/5 last:border-0 ${i % 2 === 0 ? "bg-white/[0.015]" : ""} hover:bg-gold/[0.03] transition-colors`}>
+                      <td className="p-3 sm:p-4 font-medium text-foreground/90 text-xs sm:text-sm leading-relaxed">{row.feature}</td>
+                      <td className="p-3 sm:p-4 text-center">
+                        {row.n ? (
+                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gold/15 border border-gold/30">
+                            <Check className="w-4 h-4 sm:w-5 sm:h-5 text-gold" strokeWidth={3} />
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500/10 border border-red-500/20">
+                            <X className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" strokeWidth={3} />
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 sm:p-4 text-center">
+                        {row.c ? (
+                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
+                        ) : (
+                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
+                        )}
+                      </td>
+                      <td className="p-3 sm:p-4 text-center">
+                        {row.d ? (
+                          <Check className="w-5 h-5 text-emerald-400/80 mx-auto" strokeWidth={2.5} />
+                        ) : (
+                          <X className="w-5 h-5 text-red-400/60 mx-auto" strokeWidth={2.5} />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 sm:p-5 bg-gradient-to-l from-gold/10 to-transparent border-t border-gold/15">
+              <p className="text-xs sm:text-sm text-center text-foreground/80 leading-relaxed">
+                {ts.cmpSummary}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Claude branding + smart-rotation reassurance ─────────────────── */}
+        <div className="mb-14" dir="rtl">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl sm:text-3xl font-black flex items-center justify-center gap-3 mb-3">
+              <ShieldCheck className="w-7 h-7 text-gold" />
+              {ts.techTitle}
+            </h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
+              {ts.techDesc}
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-5">
+            {/* Card A — AI tech branding */}
+            <div className="glass rounded-3xl border-2 border-gold/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(245,158,11,0.06)] flex flex-col">
+              <div className="flex items-center gap-4 mb-5">
+                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
+                  <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-gold" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-[11px] sm:text-xs font-bold text-gold/80 mb-1 tracking-wide">
+                    POWERED BY AI
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
+                    {ts.techAiTitle}
+                  </h3>
+                </div>
+              </div>
+              <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
+                {ts.techAiDesc}
+              </p>
+              <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>
+                    <span className="font-bold text-foreground">{ts.techAiDeep}</span> {ts.techAiDeepDesc}
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-gold mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>
+                    <span className="font-bold text-foreground">{ts.techAiFast}</span> {ts.techAiFastDesc}
+                  </span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Card B — Smart daily rotation reassurance */}
+            <div className="glass rounded-3xl border-2 border-emerald-500/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(16,185,129,0.06)] flex flex-col">
+              <div className="flex items-center gap-4 mb-5">
+                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+                  <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-[11px] sm:text-xs font-bold text-emerald-400/90 mb-1 tracking-wide">
+                    {ts.techGuaranteeTag}
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
+                    {ts.techGuaranteeTitle}
+                  </h3>
+                </div>
+              </div>
+              <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
+                {ts.techGuaranteeDesc} <span className="text-emerald-400 font-bold">{ts.techGuaranteeHighlight}</span> {ts.techGuaranteeDescEnd}
+              </p>
+              <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>{ts.techContinuityItem}</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>{ts.techRotationItem}</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
+                  <span>{ts.techRenewItem}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-14">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-black flex items-center justify-center gap-3 mb-2">
+              <ClipboardCheck className="w-7 h-7 text-gold" />
+              {ts.stepsTitle}
+            </h2>
+            <p className="text-muted-foreground">{ts.stepsDesc}</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { step: lang === "ar" ? "١" : "1", icon: <Crown className="w-6 h-6 text-gold" />, title: ts.subStepTitle1 || "اختر الباقة", desc: ts.subStepDesc1 || "" },
+              { step: lang === "ar" ? "٢" : "2", icon: <Banknote className="w-6 h-6 text-emerald-400" />, title: ts.subStepTitle2 || "حوّل المبلغ", desc: ts.subStepDesc2 || "" },
+              { step: lang === "ar" ? "٣" : "3", icon: <Send className="w-6 h-6 text-blue-400" />, title: ts.subStepTitle3 || "أرسل الطلب", desc: ts.subStepDesc3 || "" },
+              { step: lang === "ar" ? "٤" : "4", icon: <UserCheck className="w-6 h-6 text-purple-400" />, title: ts.subStepTitle4 || "التفعيل الفوري", desc: ts.subStepDesc4 || "" },
+            ].map(s => (
+              <div key={s.step} className="glass rounded-2xl p-5 border border-white/5 relative">
+                <div className="absolute -top-3 -right-2 w-8 h-8 rounded-full gradient-gold flex items-center justify-center text-sm font-black text-black">{s.step}</div>
+                <div className="mb-3 mt-1">{s.icon}</div>
+                <h3 className="font-bold text-base mb-1.5">{s.title}</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-14 p-6 rounded-3xl border-2 border-emerald-500/20 bg-emerald-500/5">
+          <div className="flex items-start gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-8 h-8 text-emerald-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-xl font-black text-emerald-400 mb-3">{ts.guaranteeTitle}</h3>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {[ts.guaranteeItem1, ts.guaranteeItem2, ts.guaranteeItem3, ts.guaranteeItem4].map((item, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                    <span className="text-sm text-foreground/90">{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
 
         <div className="mb-14">
           <div className="text-center mb-8">
