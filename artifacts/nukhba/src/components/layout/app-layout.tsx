@@ -344,10 +344,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
               const ms = new Date(d.expiresAt).getTime() - Date.now();
               if (Number.isFinite(ms)) expiresInDays = Math.max(0, Math.ceil(ms / 86_400_000));
             }
+            const icon = d.specialtyIcon ? `${d.specialtyIcon} ` : "";
+            const name = d.specialtyName ?? currentSubjectId ?? "";
             setGems({
               gemsBalance: d.gemsBalance ?? 0,
               activeSubjectCount: 1,
-              label: null,
+              label: name ? `${icon}${name}` : null,
               expiresInDays,
             });
           })

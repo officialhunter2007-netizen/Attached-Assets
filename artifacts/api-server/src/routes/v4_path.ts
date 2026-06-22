@@ -192,18 +192,31 @@ router.get("/v4/path/:slug/wallet", requireUser, async (req, res) => {
   const uid: number = (req as any).userId;
   const slug = String(req.params.slug);
   try {
-    const [w] = await db
-      .select()
-      .from(studentGemWalletsTable)
-      .where(and(
-        eq(studentGemWalletsTable.userId, uid),
-        eq(studentGemWalletsTable.subjectId, slug),
-      ));
-    if (!w) { res.json({ exists: false, gemsBalance: 0, expiresAt: null }); return; }
+    const [[w], [sp]] = await Promise.all([
+      db
+        .select()
+        .from(studentGemWalletsTable)
+        .where(and(
+          eq(studentGemWalletsTable.userId, uid),
+          eq(studentGemWalletsTable.subjectId, slug),
+        )),
+      db
+        .select({ name: v4SpecialtiesTable.name, nameAr: (v4SpecialtiesTable as any).nameAr, icon: v4SpecialtiesTable.icon })
+        .from(v4SpecialtiesTable)
+        .where(eq(v4SpecialtiesTable.slug, slug)),
+    ]);
+    const specialtyName: string = (sp as any)?.nameAr ?? (sp as any)?.name ?? slug;
+    const specialtyIcon: string | null = (sp as any)?.icon ?? null;
+    if (!w) {
+      res.json({ exists: false, gemsBalance: 0, expiresAt: null, specialtyName, specialtyIcon });
+      return;
+    }
     res.json({
       exists: true,
       gemsBalance: Number((w as any).gemsBalance ?? 0),
       expiresAt: (w as any).expiresAt ?? null,
+      specialtyName,
+      specialtyIcon,
     });
   } catch (e) {
     logger.error?.(`[v4/path/wallet] ${slug} user=${uid}: ${String((e as any)?.message ?? e)}`);
