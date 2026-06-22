@@ -38,7 +38,6 @@ export function OptionsQuestion({
           <span className="opt-question-text">{question}</span>
         </div>
       )}
-
       {!tooFewOptions && (
         <div className="opt-list">
           {options.map((opt, i) => {
@@ -71,7 +70,6 @@ export function OptionsQuestion({
           })}
         </div>
       )}
-
       {/* Show the typed custom answer as a selected pill once submitted. */}
       {pickedIsCustom && (
         <div className="opt-btn opt-btn-selected opt-btn-custom">
@@ -80,7 +78,6 @@ export function OptionsQuestion({
           <span className="opt-check">✓</span>
         </div>
       )}
-
       {allowOther && !showOther && !locked && !tooFewOptions && (
         <button
           type="button"
@@ -88,10 +85,9 @@ export function OptionsQuestion({
           className="opt-other-trigger"
         >
           <span className="opt-other-pencil">✏️</span>
-          <span>غير ذلك (اكتب بنفسك)</span>
+          <span>هل لديك سؤال عالق في ذهنك؟</span>
         </button>
       )}
-
       {showOther && !locked && (
         <form
           onSubmit={(e) => {
