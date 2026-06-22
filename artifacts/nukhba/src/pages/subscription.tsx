@@ -484,7 +484,7 @@ export default function Subscription() {
 
   return (
     <AppLayout>
-      <div className="relative">
+      <div className="relative overflow-x-hidden">
         {/* Background */}
         <div className="absolute inset-0 bg-grid-fine opacity-25 pointer-events-none" />
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[400px] pointer-events-none"
@@ -782,7 +782,7 @@ export default function Subscription() {
                   {ts.upToGemsPerDay}
                 </div>
                 <ul className="space-y-2 text-sm">
-                  {plan.features.map((f, fi) => (
+                  {plan.features.filter(Boolean).map((f, fi) => (
                     <li key={fi} className="flex items-center gap-2">
                       <CheckCircle2 className={`w-4 h-4 shrink-0 ${isSelected ? plan.color : 'text-emerald'}`} />
                       {f}
