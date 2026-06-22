@@ -4,6 +4,7 @@ import { useLang } from "@/lib/lang-context";
 import { LogOut, LogIn, Menu, User, MessageCircle, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ReactNode, useState, useEffect, useRef } from "react";
 import { NukhbaLogo } from "@/components/nukhba-logo";
 import { PlatformChatWidget } from "@/components/platform-chat-widget";
@@ -13,11 +14,13 @@ import { motion, AnimatePresence } from "framer-motion";
 // v4 wallet badge state. Pure per-subject gem balance — no daily cap, no
 // free-first-lesson counter, no derived gems. `gemsBalance` is the current
 // subject's wallet when inside a subject, otherwise the cross-subject total.
+type WalletDetail = { subjectId: string; gemsBalance: number; specialtyName: string | null; specialtyIcon: string | null; expiresAt: string | null };
 type GemsState = {
   gemsBalance: number;
   activeSubjectCount: number;
   label?: string | null;
   expiresInDays?: number | null;
+  activeWallets?: WalletDetail[];
 } | null;
 
 // ─────────────────────────────────────────────────────────
@@ -86,6 +89,26 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
     ? `${gems.activeSubjectCount} ${tr.gems.subjects}`
     : (gems.label ?? null);
 
+  const pillStyle = alert ? {
+    background: "rgba(239,68,68,0.15)",
+    border: "1px solid rgba(239,68,68,0.4)",
+    color: "#F87171",
+    boxShadow: "0 0 12px rgba(239,68,68,0.2)",
+    animation: !empty ? "neon-border-pulse 2s ease-in-out infinite" : undefined,
+  } : warn ? {
+    background: "rgba(249,115,22,0.12)",
+    border: "1px solid rgba(249,115,22,0.4)",
+    color: "#FB923C",
+    boxShadow: "0 0 10px rgba(249,115,22,0.18)",
+  } : {
+    background: "rgba(245,158,11,0.1)",
+    border: "1px solid rgba(245,158,11,0.3)",
+    color: "#F59E0B",
+    boxShadow: "0 0 10px rgba(245,158,11,0.15)",
+  };
+
+  const pillClass = `inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-all whitespace-nowrap max-w-[260px] ${compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1.5 text-xs"}`;
+
   // Zero balance → explicit "subscribe to continue" paywall pill.
   if (empty) {
     const tip = lang === "ar"
@@ -93,15 +116,8 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
       : "Your gems are depleted — subscribe to keep learning";
     return (
       <Link href="/subscription">
-        <motion.span
-          whileHover={{ scale: 1.05 }}
-          className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-all whitespace-nowrap max-w-[260px] ${compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1.5 text-xs"}`}
-          style={{
-            background: "rgba(239,68,68,0.15)",
-            border: "1px solid rgba(239,68,68,0.4)",
-            color: "#F87171",
-            boxShadow: "0 0 12px rgba(239,68,68,0.2)",
-          }}
+        <motion.span whileHover={{ scale: 1.05 }} className={pillClass}
+          style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", color: "#F87171", boxShadow: "0 0 12px rgba(239,68,68,0.2)" }}
           title={tip}
         >
           💎<span>{tr.gems.subscribe}</span>
@@ -110,9 +126,75 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
     );
   }
 
-  const dayLabel = days === 0
-    ? tr.gems.lastDay
-    : lang === "ar" ? `${days}ي` : `${days}d`;
+  const dayLabel = days === 0 ? tr.gems.lastDay : lang === "ar" ? `${days}ي` : `${days}d`;
+
+  const PillInner = () => (
+    <>
+      💎
+      <span>{fmt(balance)}</span>
+      {warn && !compact && (
+        <span className="opacity-90 font-bold border-r pr-1 mr-0.5" style={{ borderColor: "rgba(249,115,22,0.4)" }}>
+          ⏰ {dayLabel}
+        </span>
+      )}
+      {scopeLabel && (
+        <span className="opacity-80 font-normal truncate max-w-[120px] border-r pr-1 mr-0.5"
+          style={{ borderColor: alert ? "rgba(239,68,68,0.4)" : warn ? "rgba(249,115,22,0.4)" : "rgba(245,158,11,0.3)" }}
+        >
+          {scopeLabel}
+        </span>
+      )}
+    </>
+  );
+
+  // Multi-subject: wrap in a dropdown that shows per-subject breakdown.
+  if (multiSub && (gems.activeWallets?.length ?? 0) > 1) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <motion.span whileHover={{ scale: 1.05 }} className={pillClass} style={pillStyle}>
+            <PillInner />
+          </motion.span>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="p-2 min-w-[200px]"
+          style={{ background: "hsl(222,28%,10%)", border: "1px solid rgba(245,158,11,0.25)", borderRadius: "12px", direction: "rtl" }}
+        >
+          <div className="text-xs font-bold mb-2 px-1" style={{ color: "#F59E0B" }}>
+            {lang === "ar" ? "جواهرك لكل مادة" : "Gems per subject"}
+          </div>
+          {gems.activeWallets!.map((w) => {
+            const wBal = Math.max(0, w.gemsBalance);
+            const name = w.specialtyName ?? w.subjectId;
+            const icon = w.specialtyIcon ?? "📚";
+            return (
+              <div key={w.subjectId}
+                className="flex items-center justify-between gap-3 px-2 py-1.5 rounded-lg mb-1 last:mb-0"
+                style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.12)" }}
+              >
+                <span className="text-xs font-medium truncate max-w-[120px]" style={{ color: "#F5F0E0" }}>
+                  {icon} {name}
+                </span>
+                <span className="text-xs font-bold shrink-0" style={{ color: wBal < 200 ? "#F87171" : "#F59E0B" }}>
+                  💎 {fmt(wBal)}
+                </span>
+              </div>
+            );
+          })}
+          <div className="mt-2 pt-2" style={{ borderTop: "1px solid rgba(245,158,11,0.15)" }}>
+            <Link href="/subscription">
+              <div className="text-center text-xs cursor-pointer py-1 rounded-lg transition-colors hover:bg-amber-500/10" style={{ color: "#F59E0B" }}>
+                {lang === "ar" ? "إدارة الاشتراكات ←" : "Manage subscriptions →"}
+              </div>
+            </Link>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  // Single subject or inside a subject → simple link pill.
   const baseTooltip = lang === "ar"
     ? `رصيدك: ${fmt(balance)} 💎${scopeLabel ? ` — ${scopeLabel}` : ""}`
     : `Balance: ${fmt(balance)} 💎${scopeLabel ? ` — ${scopeLabel}` : ""}`;
@@ -121,48 +203,11 @@ function GemsBadge({ gems, compact = false }: { gems: GemsState; compact?: boole
       ? ` — ينتهي ${days === 0 ? "اليوم" : `خلال ${days} يوم`}`
       : ` — expires ${days === 0 ? "today" : `in ${days} days`}`
     : "";
-  const tooltip = `${baseTooltip}${expiryPart}`;
 
   return (
     <Link href="/subscription">
-      <motion.span
-        whileHover={{ scale: 1.05 }}
-        className={`inline-flex items-center gap-1 rounded-full font-bold cursor-pointer transition-all whitespace-nowrap max-w-[260px] ${compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1.5 text-xs"}`}
-        style={alert ? {
-          background: "rgba(239,68,68,0.15)",
-          border: "1px solid rgba(239,68,68,0.4)",
-          color: "#F87171",
-          boxShadow: "0 0 12px rgba(239,68,68,0.2)",
-          animation: "neon-border-pulse 2s ease-in-out infinite",
-        } : warn ? {
-          background: "rgba(249,115,22,0.12)",
-          border: "1px solid rgba(249,115,22,0.4)",
-          color: "#FB923C",
-          boxShadow: "0 0 10px rgba(249,115,22,0.18)",
-        } : {
-          background: "rgba(245,158,11,0.1)",
-          border: "1px solid rgba(245,158,11,0.3)",
-          color: "#F59E0B",
-          boxShadow: "0 0 10px rgba(245,158,11,0.15)",
-        }}
-        title={tooltip}
-      >
-        💎
-        <span>{fmt(balance)}</span>
-        {warn && !compact && (
-          <span className="opacity-90 font-bold border-r pr-1 mr-0.5"
-            style={{ borderColor: "rgba(249,115,22,0.4)" }}
-          >
-            ⏰ {dayLabel}
-          </span>
-        )}
-        {scopeLabel && (
-          <span className="opacity-80 font-normal truncate max-w-[120px] border-r pr-1 mr-0.5"
-            style={{ borderColor: alert ? "rgba(239,68,68,0.4)" : warn ? "rgba(249,115,22,0.4)" : "rgba(245,158,11,0.3)" }}
-          >
-            {scopeLabel}
-          </span>
-        )}
+      <motion.span whileHover={{ scale: 1.05 }} className={pillClass} style={pillStyle} title={`${baseTooltip}${expiryPart}`}>
+        <PillInner />
       </motion.span>
     </Link>
   );
@@ -360,11 +405,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
           .then(r => r.ok ? r.json() : null)
           .then(d => {
             if (!d || !d.hasAnyWallet || (d.activeSubjectCount ?? 0) === 0) { setGems(null); return; }
+            const singleIcon = d.singleSpecialtyIcon ? `${d.singleSpecialtyIcon} ` : "";
+            const singleName = d.singleSpecialtyName ?? null;
             setGems({
               gemsBalance: d.totalBalance ?? 0,
               activeSubjectCount: d.activeSubjectCount ?? 0,
-              label: (d.activeSubjectCount === 1 && d.singleSpecialtyName) ? d.singleSpecialtyName : null,
+              label: (d.activeSubjectCount === 1 && singleName) ? `${singleIcon}${singleName}` : null,
               expiresInDays: typeof d.nearestExpiresInDays === "number" ? d.nearestExpiresInDays : null,
+              activeWallets: Array.isArray(d.activeWallets) ? d.activeWallets : undefined,
             });
           })
           .catch(() => {});

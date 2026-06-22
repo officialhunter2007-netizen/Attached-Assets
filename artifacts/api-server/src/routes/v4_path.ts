@@ -267,21 +267,26 @@ router.get("/v4/wallets/summary", requireUser, async (req, res) => {
     // Single-subject convenience label so the badge can name the one wallet.
     const worstSubject = active.length === 1 ? active[0] : null;
 
-    // When there is exactly one active wallet, look up the specialty name/icon
-    // so the gem badge in the app shell can display "💎 450 — أمن المعلومات".
-    let singleSpecialtyName: string | null = null;
-    let singleSpecialtyIcon: string | null = null;
-    if (active.length === 1) {
-      const sid = Number(active[0].subjectId);
+    // Enrich every active wallet with specialty name/icon so the FE badge can
+    // show a per-subject breakdown without a second request.
+    const enrichedActive: { subjectId: string; gemsBalance: number; expiresAt: string | null; specialtyName: string | null; specialtyIcon: string | null }[] = [];
+    for (const w of active) {
+      const sid = Number(w.subjectId);
+      let specialtyName: string | null = null;
+      let specialtyIcon: string | null = null;
       if (!Number.isNaN(sid)) {
         const [sp] = await db
           .select({ name: v4SpecialtiesTable.name, nameAr: (v4SpecialtiesTable as any).nameAr, icon: v4SpecialtiesTable.icon })
           .from(v4SpecialtiesTable)
           .where(eq(v4SpecialtiesTable.id, sid));
-        singleSpecialtyName = (sp as any)?.nameAr ?? (sp as any)?.name ?? null;
-        singleSpecialtyIcon = (sp as any)?.icon ?? null;
+        specialtyName = (sp as any)?.nameAr ?? (sp as any)?.name ?? null;
+        specialtyIcon = (sp as any)?.icon ?? null;
       }
+      enrichedActive.push({ ...w, specialtyName, specialtyIcon });
     }
+
+    const singleSpecialtyName = enrichedActive.length === 1 ? enrichedActive[0].specialtyName : null;
+    const singleSpecialtyIcon = enrichedActive.length === 1 ? enrichedActive[0].specialtyIcon : null;
 
     res.json({
       hasAnyWallet: wallets.length > 0,
@@ -291,6 +296,7 @@ router.get("/v4/wallets/summary", requireUser, async (req, res) => {
       nearestExpiresInDays,
       worstSubject,
       wallets,
+      activeWallets: enrichedActive,
       singleSpecialtyName,
       singleSpecialtyIcon,
     });
