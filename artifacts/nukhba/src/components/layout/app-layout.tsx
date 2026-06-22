@@ -363,7 +363,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             setGems({
               gemsBalance: d.totalBalance ?? 0,
               activeSubjectCount: d.activeSubjectCount ?? 0,
-              label: null,
+              label: (d.activeSubjectCount === 1 && d.singleSpecialtyName) ? d.singleSpecialtyName : null,
               expiresInDays: typeof d.nearestExpiresInDays === "number" ? d.nearestExpiresInDays : null,
             });
           })

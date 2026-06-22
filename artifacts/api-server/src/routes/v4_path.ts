@@ -267,6 +267,22 @@ router.get("/v4/wallets/summary", requireUser, async (req, res) => {
     // Single-subject convenience label so the badge can name the one wallet.
     const worstSubject = active.length === 1 ? active[0] : null;
 
+    // When there is exactly one active wallet, look up the specialty name/icon
+    // so the gem badge in the app shell can display "💎 450 — أمن المعلومات".
+    let singleSpecialtyName: string | null = null;
+    let singleSpecialtyIcon: string | null = null;
+    if (active.length === 1) {
+      const sid = Number(active[0].subjectId);
+      if (!Number.isNaN(sid)) {
+        const [sp] = await db
+          .select({ name: v4SpecialtiesTable.name, nameAr: (v4SpecialtiesTable as any).nameAr, icon: v4SpecialtiesTable.icon })
+          .from(v4SpecialtiesTable)
+          .where(eq(v4SpecialtiesTable.id, sid));
+        singleSpecialtyName = (sp as any)?.nameAr ?? (sp as any)?.name ?? null;
+        singleSpecialtyIcon = (sp as any)?.icon ?? null;
+      }
+    }
+
     res.json({
       hasAnyWallet: wallets.length > 0,
       totalBalance,
@@ -275,6 +291,8 @@ router.get("/v4/wallets/summary", requireUser, async (req, res) => {
       nearestExpiresInDays,
       worstSubject,
       wallets,
+      singleSpecialtyName,
+      singleSpecialtyIcon,
     });
   } catch (e) {
     logger.error?.(`[v4/wallets/summary] user=${uid}: ${String((e as any)?.message ?? e)}`);
