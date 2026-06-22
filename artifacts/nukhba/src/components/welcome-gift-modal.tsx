@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useAuth } from "@/lib/use-auth";
 import { useLang } from "@/lib/lang-context";
+import { useLocation } from "wouter";
 import { Gift, X, Sparkles, Check, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -51,6 +52,7 @@ function mapErr(code: unknown, ar: boolean): string {
 export function WelcomeGiftModal() {
   const { user } = useAuth();
   const { lang } = useLang();
+  const [location] = useLocation();
   const ar = lang === "ar";
 
   const [status, setStatus] = useState<GiftStatus | null>(null);
@@ -265,6 +267,9 @@ export function WelcomeGiftModal() {
 
   // Don't render anything once the gift is locked or before status loads.
   if (!user || !status || status.finalizedAt) return null;
+
+  // Only show the welcome-gift UI on the /learn page.
+  if (location !== "/learn") return null;
 
   // Floating "claim" pill when the modal is closed but the gift is unclaimed.
   if (!open) {
