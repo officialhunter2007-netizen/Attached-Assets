@@ -271,16 +271,16 @@ export function WelcomeGiftModal() {
   // Only show the welcome-gift UI on the /learn page.
   if (location !== "/learn") return null;
 
-  // Floating "claim" pill when the modal is closed but the gift is unclaimed.
+  // Top banner bar when the modal is closed but the gift is unclaimed.
   if (!open) {
     return (
       <button
         onClick={reopen}
         dir={ar ? "rtl" : "ltr"}
-        className="fixed bottom-5 left-5 z-[150] flex items-center gap-2 rounded-full border border-gold/40 bg-gradient-to-r from-gold via-amber-400 to-gold px-4 py-2.5 text-sm font-bold text-zinc-900 shadow-lg shadow-gold/30 hover:opacity-90 transition animate-in fade-in slide-in-from-bottom-2"
+        className="fixed top-0 left-0 right-0 z-[150] flex items-center justify-center gap-2 bg-gradient-to-r from-sky-400 via-sky-300 to-sky-400 px-4 py-2.5 text-sm font-bold text-zinc-900 shadow-md hover:opacity-90 transition animate-in fade-in slide-in-from-top-2"
         data-testid="welcome-gift-pill"
       >
-        <Gift className="w-4 h-4" />
+        <span className="text-base">🎉</span>
         {ar ? "هديتك الترحيبية" : "Your welcome gift"}
         <span className="rounded-full bg-zinc-900/15 px-2 py-0.5 text-xs">
           {remaining} 💎
