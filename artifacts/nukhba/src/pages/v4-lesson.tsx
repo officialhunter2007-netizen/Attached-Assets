@@ -22,7 +22,7 @@ import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@
 import { getVizComponent } from "@/components/viz/registry";
 import { SceneMount } from "@/components/scene-stepper";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
-import { detectCodeTask } from "@/components/code-input-area";
+import { CodeInputArea, detectCodeTask } from "@/components/code-input-area";
 import { useAuth } from "@/lib/use-auth";
 import { readUserJson, writeUserJson, userKey } from "@/lib/user-storage";
 import { extractAskOptions, normalizeArabicText } from "@/lib/ask-options";
@@ -1687,15 +1687,17 @@ export default function V4Lesson() {
                 type="button"
                 onClick={() => setCodeMode((c) => !c)}
                 disabled={streaming}
-                className={`shrink-0 h-12 w-12 rounded-2xl border flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
+                className={`shrink-0 h-12 px-3 rounded-2xl border flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-bold whitespace-nowrap ${
                   codeMode
                     ? "bg-emerald-500/20 border-emerald-400/50 text-emerald-300"
                     : "bg-white/5 border-white/10 text-white/60 hover:text-emerald-300 hover:border-emerald-400/40"
                 }`}
                 title={codeMode ? "وضع النص العادي" : "كتابة كود"}
                 aria-label={codeMode ? "وضع النص العادي" : "كتابة كود"}
+                style={{ direction: "rtl" }}
               >
-                <Code2 className="w-5 h-5" />
+                <Code2 className="w-4 h-4 shrink-0" />
+                <span>{codeMode ? "نص" : "كود"}</span>
               </button>
 
               {/* Normal textarea — hidden in code mode */}
