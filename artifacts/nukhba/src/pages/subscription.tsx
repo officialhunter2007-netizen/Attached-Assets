@@ -758,12 +758,12 @@ export default function Subscription() {
                   }
                   setSelectedPlan(key);
                 }}
-                className={`rounded-3xl p-8 transition-all duration-300 border-2 relative ${
+                className={`rounded-3xl p-8 transition-all duration-300 border-2 relative glass plan-card-${key} ${
                   !selectedSubject
-                    ? 'glass border-white/5 opacity-50 cursor-not-allowed'
+                    ? 'opacity-50 cursor-not-allowed'
                     : isSelected
-                    ? 'cursor-pointer border-gold bg-gold/5 shadow-[0_0_30px_rgba(245,158,11,0.2)] transform scale-105 z-10'
-                    : 'cursor-pointer glass border-white/5 hover:border-gold/30'
+                    ? 'cursor-pointer is-selected transform scale-105 z-10'
+                    : 'cursor-pointer'
                 }`}
               >
                 {plan.popular && (
@@ -772,10 +772,10 @@ export default function Subscription() {
                   </div>
                 )}
                 <div className="mb-4">{plan.icon}</div>
-                <h3 className={`text-2xl font-bold mb-1 ${isSelected ? 'text-gold' : ''}`}>{plan.name}</h3>
+                <h3 className={`text-2xl font-bold mb-1 ${isSelected ? plan.color : ''}`}>{plan.name}</h3>
                 <p className="text-xs text-muted-foreground mb-4">{plan.desc}</p>
                 <div className="mb-2">
-                  <span className={`text-3xl font-black ${isSelected ? 'text-gold' : ''}`}>{price}</span>
+                  <span className={`text-3xl font-black ${isSelected ? plan.color : ''}`}>{price}</span>
                   <span className="text-sm text-muted-foreground mr-1">{ts.rialPer14Days}</span>
                 </div>
                 <div className="text-xs text-gold font-bold mb-2 flex items-center gap-1">
@@ -788,7 +788,7 @@ export default function Subscription() {
                 <ul className="space-y-2 text-sm">
                   {plan.features.map((f, fi) => (
                     <li key={fi} className="flex items-center gap-2">
-                      <CheckCircle2 className={`w-4 h-4 shrink-0 ${isSelected ? 'text-gold' : 'text-emerald'}`} />
+                      <CheckCircle2 className={`w-4 h-4 shrink-0 ${isSelected ? plan.color : 'text-emerald'}`} />
                       {f}
                     </li>
                   ))}

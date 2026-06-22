@@ -2173,3 +2173,23 @@
   box-shadow: 0 0 8px rgba(245,158,11,0.55);
 }
 .compact-path-dot.is-locked  { background: rgba(255,255,255,0.06); }
+
+/* ── Plan card per-colour border + shimmer pulse (4 s cycle) ─────────── */
+@keyframes plan-bronze-pulse {
+  0%, 65%, 100% { box-shadow: none; }
+  20%, 48%      { box-shadow: 0 0 22px rgba(205,127,50,0.65), 0 0 50px rgba(205,127,50,0.28); }
+}
+@keyframes plan-silver-pulse {
+  0%, 65%, 100% { box-shadow: none; }
+  20%, 48%      { box-shadow: 0 0 22px rgba(192,192,192,0.60), 0 0 50px rgba(192,192,192,0.25); }
+}
+@keyframes plan-gold-pulse {
+  0%, 65%, 100% { box-shadow: none; }
+  20%, 48%      { box-shadow: 0 0 22px rgba(245,158,11,0.65), 0 0 50px rgba(245,158,11,0.28); }
+}
+.plan-card-bronze { border-color: rgba(205,127,50,0.55) !important; animation: plan-bronze-pulse 4s ease-in-out infinite; }
+.plan-card-silver { border-color: rgba(192,192,192,0.55) !important; animation: plan-silver-pulse 4s ease-in-out infinite; }
+.plan-card-gold   { border-color: rgba(245,158,11,0.55) !important;  animation: plan-gold-pulse   4s ease-in-out infinite; }
+.plan-card-bronze.is-selected { border-color: #cd7f32 !important; background: rgba(205,127,50,0.07) !important; }
+.plan-card-silver.is-selected { border-color: #c0c0c0 !important; background: rgba(192,192,192,0.07) !important; }
+.plan-card-gold.is-selected   { border-color: #F59E0B !important; background: rgba(245,158,11,0.07) !important; }
