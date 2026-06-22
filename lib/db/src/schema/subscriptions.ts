@@ -98,8 +98,17 @@ export const referralsTable = pgTable("referrals", {
   referredUserId: integer("referred_user_id").notNull(),
   referralCode: text("referral_code").notNull(),
   accessDaysGranted: integer("access_days_granted").default(0),
+  // Set ONCE when the mutual 300-gem reward is paid into BOTH pools. This is
+  // the idempotency anchor for the payout: the claim is a conditional UPDATE
+  // ... SET reward_paid_at = now() WHERE reward_paid_at IS NULL, so two racing
+  // payout attempts can never double-credit. NULL = not yet rewarded.
+  rewardPaidAt: timestamp("reward_paid_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  // One referral row per referred user — a friend can be referred only once.
+  uniqueIndex("uq_referrals_referred_user").on(t.referredUserId),
+  index("idx_referrals_referrer_user").on(t.referrerUserId),
+]);
 
 export const insertReferralSchema = createInsertSchema(referralsTable).omit({ id: true, createdAt: true });
 export type InsertReferral = z.infer<typeof insertReferralSchema>;
@@ -374,3 +383,51 @@ export type StudentWelcomeGiftAllocation =
   typeof studentWelcomeGiftAllocationsTable.$inferSelect;
 export type InsertStudentWelcomeGiftAllocation =
   typeof studentWelcomeGiftAllocationsTable.$inferInsert;
+
+// ── Referral reward pools ─────────────────────────────────────────────────────
+// A student earns 300 gems for EACH qualifying referral (both the referrer and
+// the referred friend must each hold an active Silver/Gold subscription at the
+// same time). Like the welcome gift, the gems are NOT auto-deposited — the
+// student chooses which subject wallet(s) they land in.
+//
+// Mirrors the welcome-gift pool model, EXCEPT gems accrue over time (one +300
+// credit per qualifying pair) instead of being a single fixed budget, so there
+// is NO finalize lock. `earnedGems` is the running lifetime total earned from
+// referrals; `allocatedGems` is how much has been directed into subject wallets.
+// remaining = earnedGems - allocatedGems. The pool row is the serialization
+// point for allocation (locked FOR UPDATE) AND the payout target (+300 upsert).
+export const referralRewardPoolsTable = pgTable("referral_reward_pools", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique(),
+  earnedGems: integer("earned_gems").notNull().default(0),
+  allocatedGems: integer("allocated_gems").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ReferralRewardPool = typeof referralRewardPoolsTable.$inferSelect;
+export type InsertReferralRewardPool = typeof referralRewardPoolsTable.$inferInsert;
+
+// One row per (userId, subjectId) the student directed referral gems to. The
+// unique index makes a re-allocation to the same subject an upsert (top-ups
+// accumulate rather than duplicate), exactly like the welcome-gift allocations.
+export const referralRewardAllocationsTable = pgTable(
+  "referral_reward_allocations",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").notNull(),
+    subjectId: text("subject_id").notNull(),
+    gemsAllocated: integer("gems_allocated").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("uq_referral_reward_alloc_user_subject").on(t.userId, t.subjectId),
+    index("idx_referral_reward_alloc_user").on(t.userId),
+  ],
+);
+
+export type ReferralRewardAllocation =
+  typeof referralRewardAllocationsTable.$inferSelect;
+export type InsertReferralRewardAllocation =
+  typeof referralRewardAllocationsTable.$inferInsert;
