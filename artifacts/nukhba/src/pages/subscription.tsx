@@ -1014,34 +1014,6 @@ export default function Subscription() {
           </div>
 
           <div className="space-y-8">
-            <div className="glass p-8 rounded-3xl border-emerald/20 relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-40 h-40 bg-emerald/10 rounded-br-full -z-10" />
-              <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
-                <Key className="w-6 h-6 text-emerald" />
-                {ts.activationTitle}
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                {ts.activationDesc}
-              </p>
-
-              <div className="space-y-4">
-                <Input
-                  placeholder={ts.activationPlaceholder}
-                  className="bg-black/40 h-14 text-center tracking-widest text-lg font-mono uppercase focus-visible:ring-emerald focus-visible:border-emerald"
-                  dir="ltr"
-                  value={activationCode}
-                  onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
-                />
-                <Button
-                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-12 rounded-xl text-lg shadow-lg shadow-emerald/20"
-                  disabled={!activationCode || activateMutation.isPending}
-                  onClick={handleActivationSubmit}
-                >
-                  {activateMutation.isPending ? ts.activatingBtn : ts.activationBtn}
-                </Button>
-              </div>
-            </div>
-
             <div className="glass p-6 rounded-3xl border-white/5">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <HelpCircle className="w-5 h-5 text-gold" />
@@ -1321,6 +1293,35 @@ export default function Subscription() {
                   <p key={i} className="flex items-start gap-2"><span className="text-gold font-bold shrink-0">{lang === "ar" ? ["١","٢","٣","٤"][i] : i + 1}.</span> {step}</p>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-14 max-w-2xl mx-auto">
+          <div className="glass p-8 rounded-3xl border-emerald/20 relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-40 h-40 bg-emerald/10 rounded-br-full -z-10" />
+            <h3 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <Key className="w-6 h-6 text-emerald" />
+              {ts.activationTitle}
+            </h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              {ts.activationDesc}
+            </p>
+            <div className="space-y-4">
+              <Input
+                placeholder={ts.activationPlaceholder}
+                className="bg-black/40 h-14 text-center tracking-widest text-lg font-mono uppercase focus-visible:ring-emerald focus-visible:border-emerald"
+                dir="ltr"
+                value={activationCode}
+                onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
+              />
+              <Button
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-12 rounded-xl text-lg shadow-lg shadow-emerald/20"
+                disabled={!activationCode || activateMutation.isPending}
+                onClick={handleActivationSubmit}
+              >
+                {activateMutation.isPending ? ts.activatingBtn : ts.activationBtn}
+              </Button>
             </div>
           </div>
         </div>
