@@ -291,11 +291,7 @@ export default function Welcome() {
                 <h4 className="font-bold">{tr.welcome.step4RefTitle}</h4>
                 <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full px-2 py-0.5">{tr.welcome.step4RefBadge}</span>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {tr.welcome.step4RefDesc
-                  .replace("{n}", <strong key="n" className="text-foreground">٥</strong> as unknown as string)
-                  .replace("{r}", <strong key="r" className="text-blue-400">٣</strong> as unknown as string)}
-              </p>
+              <p className="text-sm text-muted-foreground">{tr.welcome.step4RefDesc}</p>
             </div>
           </div>
         </div>
