@@ -1100,55 +1100,6 @@ export default function Subscription() {
           </div>
         </div>
 
-        {/* ── Claude branding + smart-rotation reassurance ─────────────────── */}
-        <div className="mb-14" dir="rtl">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl sm:text-3xl font-black flex items-center justify-center gap-3 mb-3">
-              <ShieldCheck className="w-7 h-7 text-gold" />
-              {ts.techTitle}
-            </h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
-              {ts.techDesc}
-            </p>
-          </div>
-
-          <div className="max-w-2xl mx-auto">
-            {/* Smart daily rotation reassurance */}
-            <div className="glass rounded-3xl border-2 border-emerald-500/20 p-6 sm:p-7 shadow-[0_0_40px_rgba(16,185,129,0.06)] flex flex-col">
-              <div className="flex items-center gap-4 mb-5">
-                <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-                  <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-400" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-[11px] sm:text-xs font-bold text-emerald-400/90 mb-1 tracking-wide">
-                    {ts.techGuaranteeTag}
-                  </div>
-                  <h3 className="text-lg sm:text-xl font-black text-foreground leading-tight">
-                    {ts.techGuaranteeTitle}
-                  </h3>
-                </div>
-              </div>
-              <p className="text-sm sm:text-[15px] text-foreground/85 leading-relaxed mb-4">
-                {ts.techGuaranteeDesc} <span className="text-emerald-400 font-bold">{ts.techGuaranteeHighlight}</span> {ts.techGuaranteeDescEnd}
-              </p>
-              <ul className="space-y-2.5 text-sm text-foreground/80 mt-auto">
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>{ts.techContinuityItem}</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>{ts.techRotationItem}</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
-                  <span>{ts.techRenewItem}</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
         <div className="mb-14">
           <div className="text-center mb-8">
             <h2 className="text-2xl font-black flex items-center justify-center gap-3 mb-2">
