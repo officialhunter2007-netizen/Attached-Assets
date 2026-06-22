@@ -1100,31 +1100,6 @@ export default function Subscription() {
           </div>
         </div>
 
-        <div className="mb-14">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-black flex items-center justify-center gap-3 mb-2">
-              <ClipboardCheck className="w-7 h-7 text-gold" />
-              {ts.stepsTitle}
-            </h2>
-            <p className="text-muted-foreground">{ts.stepsDesc}</p>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { step: lang === "ar" ? "١" : "1", icon: <Crown className="w-6 h-6 text-gold" />, title: ts.subStepTitle1 || "اختر الباقة", desc: ts.subStepDesc1 || "" },
-              { step: lang === "ar" ? "٢" : "2", icon: <Banknote className="w-6 h-6 text-emerald-400" />, title: ts.subStepTitle2 || "حوّل المبلغ", desc: ts.subStepDesc2 || "" },
-              { step: lang === "ar" ? "٣" : "3", icon: <Send className="w-6 h-6 text-blue-400" />, title: ts.subStepTitle3 || "أرسل الطلب", desc: ts.subStepDesc3 || "" },
-              { step: lang === "ar" ? "٤" : "4", icon: <UserCheck className="w-6 h-6 text-purple-400" />, title: ts.subStepTitle4 || "التفعيل الفوري", desc: ts.subStepDesc4 || "" },
-            ].map(s => (
-              <div key={s.step} className="glass rounded-2xl p-5 border border-white/5 relative">
-                <div className="absolute -top-3 -right-2 w-8 h-8 rounded-full gradient-gold flex items-center justify-center text-sm font-black text-black">{s.step}</div>
-                <div className="mb-3 mt-1">{s.icon}</div>
-                <h3 className="font-bold text-base mb-1.5">{s.title}</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">{s.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
         <div className="mb-14 p-6 rounded-3xl border-2 border-emerald-500/20 bg-emerald-500/5">
           <div className="flex items-start gap-4">
             <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
