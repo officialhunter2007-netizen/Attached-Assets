@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, sql, gt, gte, lte, count } from "drizzle-orm";
+import { eq, and, desc, sql, gt, gte, lte, count, inArray } from "drizzle-orm";
 import {
   db,
   subscriptionRequestsTable,
@@ -13,6 +13,8 @@ import {
   exchangeRatesTable,
   gemLedgerTable,
   paymentSettingsTable,
+  studentGemWalletsTable,
+  v4SpecialtiesTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import {
@@ -55,6 +57,21 @@ const router: IRouter = Router();
 function requireSameOriginCsrf(req: any, res: any, next: any): void {
   if (!req.headers["x-nukhba-csrf"]) {
     res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
+    return;
+  }
+  // Global CORS is permissive (origin:true, credentials:true) and prod cookies are
+  // SameSite=none, so the custom header alone is not enough — a same-origin check on
+  // Origin/Referer is required to match the v4 mutating-endpoint security contract.
+  const host = (req.headers.host || "").toLowerCase();
+  const origin = (req.headers.origin || "").toLowerCase();
+  const referer = (req.headers.referer || "").toLowerCase();
+  const sourceHost = origin
+    ? (() => { try { return new URL(origin).host; } catch { return ""; } })()
+    : referer
+      ? (() => { try { return new URL(referer).host; } catch { return ""; } })()
+      : "";
+  if (!sourceHost || sourceHost !== host) {
+    res.status(403).json({ error: "CSRF protection: cross-origin request rejected" });
     return;
   }
   next();
@@ -2157,14 +2174,22 @@ router.get("/admin/gem-ledger", async (req, res): Promise<void> => {
   if (!isNaN(userIdQ)) conditions.push(eq(gemLedgerTable.userId, userIdQ));
   const subQ = req.query.subjectSubId ? parseInt(String(req.query.subjectSubId), 10) : NaN;
   if (!isNaN(subQ)) conditions.push(eq(gemLedgerTable.subjectSubId, subQ));
+  // v4 attribution: filter by the specialty slug stored on the top-level
+  // `subject_id` column (v4 rows leave subjectSubId null).
+  const subjectIdQ = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
+  if (subjectIdQ) conditions.push(eq(gemLedgerTable.subjectId, subjectIdQ));
   const reasonQ = typeof req.query.reason === "string" ? req.query.reason.trim() : "";
   if (reasonQ) conditions.push(eq(gemLedgerTable.reason, reasonQ));
   const sourceQ = typeof req.query.source === "string" ? req.query.source.trim() : "";
   if (sourceQ) conditions.push(eq(gemLedgerTable.source, sourceQ));
   const requestIdQ = typeof req.query.requestId === "string" ? req.query.requestId.trim() : "";
   if (requestIdQ) {
-    // requestId lives inside metadata jsonb. Use ->> to compare as text.
-    conditions.push(sql`${gemLedgerTable.metadata}->>'requestId' = ${requestIdQ}` as any);
+    // requestId is written to the top-level `request_id` column (v4 + legacy AI
+    // settle). Older rows only carried it inside metadata jsonb. Match EITHER so
+    // an audit lookup never misses a settlement row.
+    conditions.push(
+      sql`(${gemLedgerTable.requestId} = ${requestIdQ} OR ${gemLedgerTable.metadata}->>'requestId' = ${requestIdQ})` as any,
+    );
   }
   if (typeof req.query.from === "string") {
     const d = new Date(req.query.from);
@@ -2185,17 +2210,197 @@ router.get("/admin/gem-ledger", async (req, res): Promise<void> => {
 
   // Join user email/name in JS (small N — admin UI capped at 500 rows).
   const userIds = Array.from(new Set(rows.map(r => r.userId).concat(rows.map(r => r.adminUserId).filter((x): x is number => x != null))));
-  const users = userIds.length > 0
-    ? await db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName }).from(usersTable)
-    : [];
+  // Resolve a human-readable subject name for BOTH attribution schemes:
+  //   • legacy rows → subjectSubId → user_subject_subscriptions.subjectName
+  //   • v4 rows     → subjectId(slug) → v4_specialties.name
+  const subSubIds = Array.from(new Set(rows.map(r => r.subjectSubId).filter((x): x is number => x != null)));
+  const slugs = Array.from(new Set(rows.map(r => r.subjectId).filter((x): x is string => !!x)));
+  const [users, legacySubs, v4Specs] = await Promise.all([
+    userIds.length > 0
+      ? db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
+          .from(usersTable).where(inArray(usersTable.id, userIds))
+      : Promise.resolve([] as Array<{ id: number; email: string | null; displayName: string | null }>),
+    subSubIds.length > 0
+      ? db.select({ id: userSubjectSubscriptionsTable.id, subjectName: userSubjectSubscriptionsTable.subjectName, subjectId: userSubjectSubscriptionsTable.subjectId })
+          .from(userSubjectSubscriptionsTable).where(inArray(userSubjectSubscriptionsTable.id, subSubIds))
+      : Promise.resolve([] as Array<{ id: number; subjectName: string | null; subjectId: string | null }>),
+    slugs.length > 0
+      ? db.select({ slug: v4SpecialtiesTable.slug, name: v4SpecialtiesTable.name })
+          .from(v4SpecialtiesTable).where(inArray(v4SpecialtiesTable.slug, slugs))
+      : Promise.resolve([] as Array<{ slug: string; name: string }>),
+  ]);
   const userMap = new Map(users.map(u => [u.id, u]));
+  const legacySubMap = new Map(legacySubs.map(s => [s.id, s]));
+  const specMap = new Map(v4Specs.map(s => [s.slug, s.name]));
+
+  const resolveSubjectName = (r: typeof rows[number]): string | null => {
+    if (r.subjectSubId != null) {
+      const ls = legacySubMap.get(r.subjectSubId);
+      if (ls?.subjectName) return ls.subjectName;
+      if (ls?.subjectId) return specMap.get(ls.subjectId) ?? ls.subjectId;
+    }
+    if (r.subjectId) return specMap.get(r.subjectId) ?? r.subjectId;
+    return null;
+  };
 
   res.json(rows.map(r => ({
     ...r,
     userEmail: userMap.get(r.userId)?.email ?? "",
     userName: userMap.get(r.userId)?.displayName ?? null,
     adminEmail: r.adminUserId ? userMap.get(r.adminUserId)?.email ?? null : null,
+    subjectName: resolveSubjectName(r),
   })));
+});
+
+// ── Admin: v4 monthly gem wallets — list ──────────────────────────────────────
+// student_gem_wallets is the v4 source of truth for a student's spendable
+// balance per specialty (chargeV4Ai debits it; /v4/wallets/summary reads it).
+// This is DISTINCT from /admin/all-subject-subscriptions (legacy only): a
+// welcome-gift-only student has a v4 wallet but NO legacy subscription row, so
+// they are invisible in the legacy view and only show up here.
+// Query params: userId, subjectId (slug), status (active|expired|exhausted).
+router.get("/admin/v4/wallets", async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const conditions = [] as any[];
+  const userIdQ = req.query.userId ? parseInt(String(req.query.userId), 10) : NaN;
+  if (!isNaN(userIdQ)) conditions.push(eq(studentGemWalletsTable.userId, userIdQ));
+  const subjectIdQ = typeof req.query.subjectId === "string" ? req.query.subjectId.trim() : "";
+  if (subjectIdQ) conditions.push(eq(studentGemWalletsTable.subjectId, subjectIdQ));
+
+  const base = db.select().from(studentGemWalletsTable);
+  const wallets = conditions.length > 0
+    ? await base.where(and(...conditions)).orderBy(desc(studentGemWalletsTable.updatedAt)).limit(500)
+    : await base.orderBy(desc(studentGemWalletsTable.updatedAt)).limit(500);
+
+  const userIds = Array.from(new Set(wallets.map(w => w.userId)));
+  const slugs = Array.from(new Set(wallets.map(w => w.subjectId)));
+  const [users, specs] = await Promise.all([
+    userIds.length > 0
+      ? db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
+          .from(usersTable).where(inArray(usersTable.id, userIds))
+      : Promise.resolve([] as Array<{ id: number; email: string | null; displayName: string | null }>),
+    slugs.length > 0
+      ? db.select({ slug: v4SpecialtiesTable.slug, name: v4SpecialtiesTable.name, icon: v4SpecialtiesTable.icon })
+          .from(v4SpecialtiesTable).where(inArray(v4SpecialtiesTable.slug, slugs))
+      : Promise.resolve([] as Array<{ slug: string; name: string; icon: string | null }>),
+  ]);
+  const userMap = new Map(users.map(u => [u.id, u]));
+  const specMap = new Map(specs.map(s => [s.slug, s]));
+
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const statusFilter = typeof req.query.status === "string" ? req.query.status.trim() : "";
+
+  let result = wallets.map(w => {
+    const expMs = w.expiresAt ? new Date(w.expiresAt).getTime() : null;
+    const isExpired = expMs != null && expMs < now;
+    const isExhausted = (w.gemsBalance ?? 0) <= 0;
+    // Expired takes precedence over exhausted (an expired wallet is unusable
+    // regardless of balance); a positive-balance, in-window wallet is active.
+    const status = isExpired ? "expired" : isExhausted ? "exhausted" : "active";
+    const daysRemaining = expMs != null ? Math.max(0, Math.ceil((expMs - now) / dayMs)) : null;
+    const spec = specMap.get(w.subjectId);
+    return {
+      id: w.id,
+      userId: w.userId,
+      userEmail: userMap.get(w.userId)?.email ?? "",
+      userName: userMap.get(w.userId)?.displayName ?? null,
+      subjectId: w.subjectId,
+      specialtyName: spec?.name ?? w.subjectId,
+      specialtyIcon: spec?.icon ?? null,
+      gemsBalance: w.gemsBalance ?? 0,
+      expiresAt: w.expiresAt,
+      lastRenewalAt: w.lastRenewalAt,
+      status,
+      daysRemaining,
+      createdAt: w.createdAt,
+      updatedAt: w.updatedAt,
+    };
+  });
+  if (statusFilter === "active" || statusFilter === "expired" || statusFilter === "exhausted") {
+    result = result.filter(r => r.status === statusFilter);
+  }
+  res.json(result);
+});
+
+// ── Admin: v4 wallet adjust / refund ──────────────────────────────────────────
+// Body: { delta: signed nonzero int, reason: string (≥3 chars) }
+// Positive delta = refund/credit, negative = punitive deduction. Balance clamps
+// at 0 (no negatives). Unlike the legacy /refund-gems route there is NO
+// messagesLimit ceiling — v4 monthly wallets have no per-plan cap. The UPDATE is
+// atomic (GREATEST in SQL) and always paired with an append-only ledger row so
+// /v4/wallets/summary and chargeV4Ai immediately see the new balance.
+router.post("/admin/v4/wallets/:walletId/adjust", requireSameOriginCsrf, async (req, res): Promise<void> => {
+  const adminId = getUserId(req);
+  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const admin = await getUser(adminId);
+  if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const walletId = parseInt(String(req.params.walletId), 10);
+  if (isNaN(walletId)) { res.status(400).json({ error: "معرف المحفظة غير صالح" }); return; }
+
+  const rawDelta = Number(req.body?.delta);
+  if (!Number.isInteger(rawDelta) || rawDelta === 0) {
+    res.status(400).json({ error: "أدخل عدداً صحيحاً غير صفر للتعديل" });
+    return;
+  }
+  if (Math.abs(rawDelta) > 100_000) {
+    res.status(400).json({ error: "أقصى تعديل مسموح هو ١٠٠٬٠٠٠ جوهرة في المرة الواحدة" });
+    return;
+  }
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (reason.length < 3) {
+    res.status(400).json({ error: "يجب كتابة سبب مفصّل (٣ أحرف على الأقل)" });
+    return;
+  }
+
+  const [wallet] = await db.select().from(studentGemWalletsTable).where(eq(studentGemWalletsTable.id, walletId));
+  if (!wallet) { res.status(404).json({ error: "المحفظة غير موجودة" }); return; }
+
+  const [updated] = await db
+    .update(studentGemWalletsTable)
+    .set({
+      gemsBalance: sql`GREATEST(0, ${studentGemWalletsTable.gemsBalance} + ${rawDelta})`,
+      updatedAt: new Date(),
+    })
+    .where(eq(studentGemWalletsTable.id, walletId))
+    .returning();
+
+  if (!updated) { res.status(500).json({ error: "تعذّر تطبيق التعديل" }); return; }
+
+  // The balance is clamped at 0 (GREATEST), so a large negative delta may only
+  // partially apply (e.g. balance 50, delta -1000 → balance 0, applied -50). The
+  // ledger row MUST record the ACTUAL applied delta so append-only reconciliation
+  // (delta == balanceAfter − balanceBefore) holds; the requested delta is kept in
+  // metadata for audit. Direction (refund vs adjust) follows the admin's intent.
+  const appliedDelta = (updated.gemsBalance ?? 0) - (wallet.gemsBalance ?? 0);
+  await writeGemLedger({
+    userId: wallet.userId,
+    subjectId: wallet.subjectId,
+    delta: appliedDelta,
+    balanceAfter: updated.gemsBalance ?? 0,
+    reason: rawDelta > 0 ? "refund" : "adjust",
+    source: rawDelta > 0 ? "admin_refund" : "admin_adjust",
+    adminUserId: adminId,
+    note: reason,
+    metadata: {
+      walletId: wallet.id,
+      kind: "v4_wallet_adjust",
+      requestedDelta: rawDelta,
+      appliedDelta,
+      previousBalance: wallet.gemsBalance ?? 0,
+    },
+  });
+
+  res.json({
+    success: true,
+    wallet: updated,
+    appliedDelta,
+  });
 });
 
 // ── Public: payment settings (Kuraimi numbers etc.) ──────────────────────────

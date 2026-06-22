@@ -1,7 +1,8 @@
 - [DB migration in Replit](db-migration-replit.md) — drizzle-kit push is interactive; use raw psql SQL to create missing tables in fresh environments.
 - [v4 wallet parallel to legacy](v4-wallet-parallel-legacy.md) — v4 monthly wallet writes are best-effort post-tx; legacy daily-cap path remains source of truth for student reads until FE cutover.
 - [Express route prefix](express-route-prefix.md) — routes mounted via `app.use("/api", router)` must define paths without `/api/` prefix or they 404.
-- [App-wide CSRF gap](app-wide-csrf-gap.md) — CORS is `origin:true, credentials:true` + prod cookies SameSite=none; any admin mutating endpoint needs local CSRF defense until a global fix lands.
+- [App-wide CSRF gap](app-wide-csrf-gap.md) — CORS is `origin:true, credentials:true` + prod cookies SameSite=none; admin mutating endpoints need local CSRF defense; `requireSameOriginCsrf` is copy-pasted per file & DIVERGES (subscriptions.ts was header-only) — read the body, don't trust the name.
+- [Ledger applied delta on clamp](ledger-applied-delta-on-clamp.md) — SQL-clamped wallet mutations (GREATEST/LEAST) must ledger newBalance−oldBalance, not the requested delta, or append-only reconciliation overstates burn.
 - [chargeV4Ai NO_OP overload](charge-no-op-overload.md) — `charged:false` with no flag means EITHER ledger dedupe hit OR transient DB error; callers must inspect the ledger to disambiguate or risk granting free work.
 - [Column-before-index migrations](column-before-index-migration.md) — partial-unique indexes that reference columns added via REQUIRED_COLUMNS must be created AFTER ensureRequiredColumns(), not in REQUIRED_TABLES.indexes.
 - [Schema drift crashes API](schema-drift-crashes-api.md) — a legacy table missing a schema column makes an async route's unhandled rejection crash the WHOLE Express 4 process; fix = REQUIRED_COLUMNS block covering every column w/ backfill-safe DEFAULTs + global unhandledRejection handler as last-line defense.

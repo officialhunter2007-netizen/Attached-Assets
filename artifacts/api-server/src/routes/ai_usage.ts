@@ -1,10 +1,13 @@
 import { Router, type IRouter } from "express";
-import { eq, and, gte, lte, desc, sql, asc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, asc, inArray } from "drizzle-orm";
 import {
   db,
   aiUsageEventsTable,
   usersTable,
   userSubjectSubscriptionsTable,
+  gemLedgerTable,
+  studentGemWalletsTable,
+  v4SpecialtiesTable,
 } from "@workspace/db";
 import { getCostCapStatus } from "../lib/cost-cap";
 import { getStartOfTodayYemen } from "../lib/yemen-time";
@@ -554,6 +557,136 @@ router.get("/admin/ai-usage/daily-budget-top", async (req, res): Promise<any> =>
   } catch (e: any) {
     console.error("[ai-usage/daily-budget-top] error:", e?.message || e);
     res.status(500).json({ error: "DAILY_BUDGET_FAILED" });
+  }
+});
+
+// ── GET /api/admin/ai-usage/v4-wallet-burn-top ──────────────────────────────
+// v4-native counterpart to daily-budget-top. v4 monthly wallets have NO daily
+// cap, so instead of a cap-consumption ratio we rank by today's RAW gem burn.
+// Source of truth is the append-only gem_ledger (v4 debits = negative-delta rows
+// carrying a subjectId slug; legacy debits carry subjectSubId instead, so the
+// `subject_id IS NOT NULL` clause isolates v4). Joined to student_gem_wallets
+// for the live balance + expiry. This deliberately surfaces welcome-gift-only
+// students who never created a legacy subscription row (invisible to the legacy
+// daily-budget view). 1¢ = 10 gems → $1 = 1000 gems, so todayUsd = gems / 1000.
+router.get("/admin/ai-usage/v4-wallet-burn-top", async (req, res): Promise<any> => {
+  const adminId = getUserId(req);
+  if (!(await isAdmin(adminId))) return res.status(403).json({ error: "Forbidden" });
+  const limit = Math.min(20, Math.max(1, Number(req.query.limit || 5)));
+
+  try {
+    const startOfToday = getStartOfTodayYemen();
+    const sevenDaysAgo = new Date(startOfToday.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+    // Step 1: today's gem burn per (user, specialty-slug), ranked by absolute
+    // gems debited. The HAVING clause drops zero/positive net rows (e.g. a
+    // same-day refund that fully offset a debit).
+    const burn = await db.execute<{ user_id: number; subject_id: string; today_gems: string }>(sql`
+      SELECT
+        ${gemLedgerTable.userId} AS user_id,
+        ${gemLedgerTable.subjectId} AS subject_id,
+        coalesce(sum(-${gemLedgerTable.delta}), 0)::text AS today_gems
+      FROM ${gemLedgerTable}
+      WHERE ${gemLedgerTable.delta} < 0
+        AND ${gemLedgerTable.reason} = 'debit'
+        AND ${gemLedgerTable.subjectId} IS NOT NULL
+        AND ${gemLedgerTable.createdAt} >= ${startOfToday.toISOString()}
+      GROUP BY ${gemLedgerTable.userId}, ${gemLedgerTable.subjectId}
+      HAVING coalesce(sum(-${gemLedgerTable.delta}), 0) > 0
+      ORDER BY sum(-${gemLedgerTable.delta}) DESC
+      LIMIT ${limit}
+    `);
+
+    const top = burn.rows.map((r) => ({
+      userId: Number(r.user_id),
+      subjectId: r.subject_id,
+      todayGems: Number(r.today_gems) || 0,
+    }));
+
+    if (top.length === 0) {
+      return res.json({
+        asOf: new Date().toISOString(),
+        startOfTodayYemen: startOfToday.toISOString(),
+        rows: [],
+      });
+    }
+
+    // Step 2: bulk-enrich with user identity, specialty name, and live wallet.
+    const userIds = Array.from(new Set(top.map((t) => t.userId)));
+    const slugs = Array.from(new Set(top.map((t) => t.subjectId)));
+    const [users, specs, wallets] = await Promise.all([
+      db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
+        .from(usersTable).where(inArray(usersTable.id, userIds)),
+      db.select({ slug: v4SpecialtiesTable.slug, name: v4SpecialtiesTable.name })
+        .from(v4SpecialtiesTable).where(inArray(v4SpecialtiesTable.slug, slugs)),
+      db.select().from(studentGemWalletsTable).where(inArray(studentGemWalletsTable.userId, userIds)),
+    ]);
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const specMap = new Map(specs.map((s) => [s.slug, s.name]));
+    const walletMap = new Map(wallets.map((w) => [`${w.userId}::${w.subjectId}`, w]));
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    // Step 3: per-row 7-day burn trend (small N — limit ≤ 20).
+    const rows = await Promise.all(top.map(async (t) => {
+      const trend = await db.execute<{ day: string; total: string }>(sql`
+        SELECT
+          to_char((${gemLedgerTable.createdAt} + interval '3 hours')::date, 'YYYY-MM-DD') AS day,
+          coalesce(sum(-${gemLedgerTable.delta}), 0)::text AS total
+        FROM ${gemLedgerTable}
+        WHERE ${gemLedgerTable.userId} = ${t.userId}
+          AND ${gemLedgerTable.subjectId} = ${t.subjectId}
+          AND ${gemLedgerTable.delta} < 0
+          AND ${gemLedgerTable.reason} = 'debit'
+          AND ${gemLedgerTable.createdAt} >= ${sevenDaysAgo.toISOString()}
+        GROUP BY day
+        ORDER BY day ASC
+      `);
+      const byDay = new Map<string, number>();
+      for (const tr of trend.rows) byDay.set(tr.day, Number(tr.total) || 0);
+      const last7DaysGems: { day: string; gems: number }[] = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(sevenDaysAgo.getTime() + i * dayMs);
+        const yemenDate = new Date(d.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        last7DaysGems.push({ day: yemenDate, gems: byDay.get(yemenDate) || 0 });
+      }
+
+      const wallet = walletMap.get(`${t.userId}::${t.subjectId}`);
+      const balance = wallet?.gemsBalance ?? 0;
+      const expMs = wallet?.expiresAt ? new Date(wallet.expiresAt).getTime() : null;
+      const isExpired = expMs != null && expMs < now;
+      const daysRemaining = expMs != null ? Math.max(0, Math.ceil((expMs - now) / dayMs)) : null;
+      // % of the wallet's start-of-today balance burned today. The pre-burn
+      // balance ≈ current balance + today's burn (ignoring same-day top-ups).
+      const preBurn = balance + t.todayGems;
+      const pctConsumedToday = preBurn > 0 ? t.todayGems / preBurn : 0;
+
+      return {
+        userId: t.userId,
+        userEmail: userMap.get(t.userId)?.email ?? "",
+        userName: userMap.get(t.userId)?.displayName ?? null,
+        subjectId: t.subjectId,
+        specialtyName: specMap.get(t.subjectId) ?? t.subjectId,
+        todayGems: t.todayGems,
+        todayUsd: t.todayGems / 1000,
+        gemsBalance: balance,
+        expiresAt: wallet?.expiresAt ?? null,
+        daysRemaining,
+        status: !wallet ? "no_wallet" : isExpired ? "expired" : balance <= 0 ? "exhausted" : "active",
+        pctConsumedToday,
+        last7DaysGems,
+      };
+    }));
+
+    res.json({
+      asOf: new Date().toISOString(),
+      startOfTodayYemen: startOfToday.toISOString(),
+      rows,
+    });
+  } catch (e: any) {
+    console.error("[ai-usage/v4-wallet-burn-top] error:", e?.message || e);
+    res.status(500).json({ error: "V4_WALLET_BURN_FAILED" });
   }
 });
 

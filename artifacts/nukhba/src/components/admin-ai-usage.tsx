@@ -78,6 +78,30 @@ type DailyBudgetTop = {
   rows: DailyBudgetRow[];
 };
 
+// v4 monthly-wallet burn (gem_ledger). No daily cap → ranked by raw gem burn
+// today. Surfaces welcome-gift-only students invisible to the legacy view.
+type V4WalletBurnRow = {
+  userId: number;
+  userEmail: string;
+  userName: string | null;
+  subjectId: string;
+  specialtyName: string;
+  todayGems: number;
+  todayUsd: number;
+  gemsBalance: number;
+  expiresAt: string | null;
+  daysRemaining: number | null;
+  status: "active" | "expired" | "exhausted" | "no_wallet";
+  pctConsumedToday: number;
+  last7DaysGems: { day: string; gems: number }[];
+};
+
+type V4WalletBurnTop = {
+  asOf: string;
+  startOfTodayYemen: string;
+  rows: V4WalletBurnRow[];
+};
+
 type UserDetail = {
   window: Window;
   user: { id: number; email: string | null; displayName: string | null; role: string | null };
@@ -152,6 +176,7 @@ export function AdminAiUsage() {
   const [timeseries, setTimeseries] = useState<Timeseries | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [dailyBudgetTop, setDailyBudgetTop] = useState<DailyBudgetTop | null>(null);
+  const [v4WalletBurn, setV4WalletBurn] = useState<V4WalletBurnTop | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [drillUserId, setDrillUserId] = useState<number | null>(null);
@@ -172,18 +197,22 @@ export function AdminAiUsage() {
     setLoading(true);
     try {
       const qs = `from=${encodeURIComponent(window.from)}&to=${encodeURIComponent(window.to)}`;
-      const [s, t, u, b] = await Promise.all([
+      const [s, t, u, b, w] = await Promise.all([
         fetch(`/api/admin/ai-usage/summary?${qs}`, { credentials: "include" }).then((r) => r.json()),
         fetch(`/api/admin/ai-usage/timeseries?${qs}&granularity=${granularity}`, { credentials: "include" }).then((r) => r.json()),
         fetch(`/api/admin/ai-usage/users?${qs}&limit=25&sortBy=cost`, { credentials: "include" }).then((r) => r.json()),
-        // Daily-budget-top is window-independent (always "today" in Yemen TZ).
+        // Daily-budget-top (legacy) + v4-wallet-burn-top are both window-
+        // independent (always "today" in Yemen TZ); the legacy cap is daily-
+        // rolling, the v4 wallet is monthly so we rank by raw burn today.
         fetch(`/api/admin/ai-usage/daily-budget-top?limit=5`, { credentials: "include" }).then((r) => r.json()),
+        fetch(`/api/admin/ai-usage/v4-wallet-burn-top?limit=5`, { credentials: "include" }).then((r) => r.json()),
       ]);
       if (s?.error) throw new Error(s.error);
       setSummary(s);
       setTimeseries(t);
       setUsers(u?.users || []);
       setDailyBudgetTop(b?.error ? null : b);
+      setV4WalletBurn(w?.error ? null : w);
     } catch (err: any) {
       toast({ title: "فشل تحميل البيانات", description: String(err?.message || err), variant: "destructive" });
     } finally {
@@ -419,6 +448,112 @@ export function AdminAiUsage() {
                             ضمن الميزانية
                           </Badge>
                         )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </section>
+
+      {/* v4 monthly-wallet burn — top gem spenders TODAY (Yemen TZ).
+         The v4 counterpart to the legacy daily-budget section above. v4 wallets
+         have no daily cap, so we rank by raw gems burned today. This is the
+         ONLY place welcome-gift-only students (no legacy subscription) appear. */}
+      <section className="glass rounded-2xl border border-white/10 overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between flex-wrap gap-2">
+          <h3 className="font-bold text-sm flex items-center gap-2">
+            <Zap className="w-4 h-4 text-gold" />
+            أعلى استهلاك جواهر اليوم — محافظ v4 الشهرية
+          </h3>
+          <span className="text-[11px] text-muted-foreground">
+            {v4WalletBurn ? `حتى ${fmtFullDateTime(v4WalletBurn.asOf)}` : "—"}
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          {!v4WalletBurn || v4WalletBurn.rows.length === 0 ? (
+            <div className="p-6 text-center text-xs text-muted-foreground">
+              لا يوجد استهلاك من محافظ v4 اليوم بعد.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="bg-black/30">
+                <TableRow className="border-white/5">
+                  <TableHead className="text-right">الطالب</TableHead>
+                  <TableHead className="text-right">التخصص</TableHead>
+                  <TableHead className="text-right">جواهر اليوم</TableHead>
+                  <TableHead className="text-right">تكلفة اليوم</TableHead>
+                  <TableHead className="text-right">الرصيد الحالي</TableHead>
+                  <TableHead className="text-right">نسبة استهلاك اليوم</TableHead>
+                  <TableHead className="text-right">أيام متبقية</TableHead>
+                  <TableHead className="text-right">آخر ٧ أيام</TableHead>
+                  <TableHead className="text-right">الحالة</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {v4WalletBurn.rows.map((r) => {
+                  const pct = Math.min(100, Math.round(r.pctConsumedToday * 100));
+                  const tone = pct >= 90 ? "text-rose-400" : pct >= 60 ? "text-amber-400" : "text-emerald-400";
+                  const statusBadge = r.status === "expired"
+                    ? { txt: "منتهية", cls: "bg-rose-500/15 border-rose-500/30 text-rose-300" }
+                    : r.status === "exhausted"
+                      ? { txt: "نفدت", cls: "bg-amber-500/15 border-amber-500/30 text-amber-300" }
+                      : r.status === "no_wallet"
+                        ? { txt: "بلا محفظة", cls: "bg-white/10 border-white/20 text-muted-foreground" }
+                        : { txt: "نشطة", cls: "bg-emerald-500/15 border-emerald-500/30 text-emerald-300" };
+                  return (
+                    <TableRow key={`${r.userId}-${r.subjectId}`} className="border-white/5">
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold">{r.userName || "—"}</span>
+                          <span className="text-[10px] text-muted-foreground" dir="ltr">{r.userEmail || ""}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">{r.specialtyName || r.subjectId || "—"}</TableCell>
+                      <TableCell className="font-mono text-xs text-gold">{fmtArabicNumber(r.todayGems)}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{fmtMoney(r.todayUsd)}</TableCell>
+                      <TableCell className="font-mono text-xs">{fmtArabicNumber(r.gemsBalance)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2 min-w-[120px]">
+                          <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                            <div
+                              className={`h-full ${pct >= 90 ? "bg-rose-500" : pct >= 60 ? "bg-amber-500" : "bg-emerald-500"}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className={`text-[11px] font-bold ${tone} tabular-nums`}>{pct}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">{r.daysRemaining != null ? fmtArabicNumber(r.daysRemaining) : "—"}</TableCell>
+                      <TableCell>
+                        {(() => {
+                          const series = r.last7DaysGems ?? [];
+                          const max = Math.max(1, ...series.map((d) => d.gems));
+                          return (
+                            <div className="flex items-end gap-[2px] h-7" dir="ltr" title={series.map((d) => `${d.day}: ${d.gems} جوهرة`).join("\n")}>
+                              {series.map((d, i) => {
+                                const h = Math.max(2, Math.round((d.gems / max) * 28));
+                                const isToday = i === series.length - 1;
+                                return (
+                                  <div
+                                    key={d.day}
+                                    style={{ height: `${h}px` }}
+                                    className={`w-2 rounded-sm ${
+                                      isToday ? "bg-amber-400" : d.gems > 0 ? "bg-gold/60" : "bg-white/10"
+                                    }`}
+                                  />
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={`${statusBadge.cls} text-[10px]`} variant="outline">
+                          {statusBadge.txt}
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   );

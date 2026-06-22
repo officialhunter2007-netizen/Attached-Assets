@@ -29,7 +29,7 @@ import {
   Copy, Plus, Filter, RefreshCw, AlertTriangle, Ban,
   Zap, Star, Gem, MessageCircle, Activity, Search, Key,
   BookOpen, Gift, Trash2, Clock, CalendarDays, ChevronDown, Brain,
-  Percent, Eye, Power, Loader2, Cpu,
+  Percent, Eye, Power, Loader2, Cpu, Wallet,
 } from "lucide-react";
 import { AdminInsightsChat } from "@/components/admin-insights-chat";
 import { AdminDiscountCodes } from "@/components/admin-discount-codes";
@@ -45,6 +45,7 @@ import { AdminGemRate } from "@/components/admin-gem-rate";
 import { AdminAiTeacherProvider } from "@/components/admin-ai-teacher-provider";
 import { AdminV4Instructions } from "@/components/admin-v4-instructions";
 import { AdminV4Booklets } from "@/components/admin-v4-booklets";
+import { AdminV4Wallets } from "@/components/admin-v4-wallets";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -1010,6 +1011,10 @@ export default function Admin() {
               <Gem className="w-3.5 h-3.5 text-gold" />
               سعر الجوهرة
             </TabsTrigger>
+            <TabsTrigger value="v4-wallets" className="flex items-center gap-1.5 bg-gradient-to-l from-gold/10 to-sky-500/10 data-[state=active]:from-gold/25 data-[state=active]:to-sky-500/20 data-[state=active]:border-gold/40">
+              <Wallet className="w-3.5 h-3.5 text-gold" />
+              محافظ v4
+            </TabsTrigger>
             <TabsTrigger value="v4-instructions" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-emerald-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-emerald-500/20 data-[state=active]:border-amber-400/40">
               <BookOpen className="w-3.5 h-3.5 text-amber-400" />
               ملفات التعليمات (v4)
@@ -1853,6 +1858,10 @@ export default function Admin() {
 
           <TabsContent value="gem-rate">
             <AdminGemRate />
+          </TabsContent>
+
+          <TabsContent value="v4-wallets">
+            <AdminV4Wallets />
           </TabsContent>
 
           {/* v4 Instruction Files Tab */}

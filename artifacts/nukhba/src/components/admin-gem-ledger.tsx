@@ -12,6 +12,7 @@ type LedgerRow = {
   id: number;
   userId: number | null;
   subjectSubId: number | null;
+  subjectId: string | null;
   delta: number;
   balanceAfter: number | null;
   reason: string;
@@ -69,6 +70,7 @@ export function AdminGemLedger() {
 
   const [userId, setUserId] = useState("");
   const [subjectSubId, setSubjectSubId] = useState("");
+  const [subjectId, setSubjectId] = useState("");
   const [reason, setReason] = useState("");
   const [source, setSource] = useState("");
   const [requestId, setRequestId] = useState("");
@@ -81,6 +83,7 @@ export function AdminGemLedger() {
       const params = new URLSearchParams();
       if (userId.trim()) params.set("userId", userId.trim());
       if (subjectSubId.trim()) params.set("subjectSubId", subjectSubId.trim());
+      if (subjectId.trim()) params.set("subjectId", subjectId.trim());
       if (reason) params.set("reason", reason);
       if (source) params.set("source", source);
       if (requestId.trim()) params.set("requestId", requestId.trim());
@@ -96,7 +99,7 @@ export function AdminGemLedger() {
     } finally {
       setLoading(false);
     }
-  }, [userId, subjectSubId, reason, source, requestId, from, to, toast]);
+  }, [userId, subjectSubId, subjectId, reason, source, requestId, from, to, toast]);
 
   useEffect(() => { load(); /* initial */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -124,8 +127,12 @@ export function AdminGemLedger() {
             <Input className="bg-black/40 h-9" value={userId} onChange={e => setUserId(e.target.value)} placeholder="مثال: 12" />
           </div>
           <div>
-            <Label className="text-[11px]">Subject Sub ID</Label>
+            <Label className="text-[11px]">معرف اشتراك (قديم)</Label>
             <Input className="bg-black/40 h-9" value={subjectSubId} onChange={e => setSubjectSubId(e.target.value)} placeholder="مثال: 88" />
+          </div>
+          <div>
+            <Label className="text-[11px]">تخصص v4 (slug)</Label>
+            <Input className="bg-black/40 h-9 font-mono text-xs" value={subjectId} onChange={e => setSubjectId(e.target.value)} placeholder="مثال: cyber" />
           </div>
           <div>
             <Label className="text-[11px]">السبب</Label>
@@ -214,7 +221,9 @@ export function AdminGemLedger() {
                       {r.userName || r.userEmail || (r.userId != null ? `#${r.userId}` : "—")}
                     </td>
                     <td className="p-2 text-xs">
-                      {r.subjectName || (r.subjectSubId != null ? `#${r.subjectSubId}` : "—")}
+                      {r.subjectName
+                        || r.subjectId
+                        || (r.subjectSubId != null ? `#${r.subjectSubId}` : "—")}
                     </td>
                     <td className={`p-2 font-bold whitespace-nowrap ${r.delta >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                       {r.delta > 0 ? "+" : ""}{r.delta.toLocaleString("ar-EG")}

@@ -13,11 +13,13 @@ import {
 //
 // ONE knob — "gems per 1M teaching tokens" — maps to the internal gems-per-USD
 // constant that every AI charge uses. The calculator shows, for each package
-// (FIXED gems) at the current YER price + exchange rate, whether the price the
-// student pays covers the platform's MAX AI cost if they spend every gem:
-//   price-per-gem (USD)  must be ≥  cost-per-gem (USD)
-// It recomputes live against the DRAFT rate so the admin sees margin impact
-// before saving.
+// (FIXED gems) at the current YER price + exchange rate, whether the v4 AI
+// funding share (HALF the price under the 50/50 split) covers the platform's
+// MAX AI cost if the student spends every gem:
+//   funding-share (= price × 0.5)  must be ≥  max AI cost (= gems × cost-per-gem)
+// This mirrors the platform policy "AI cost never exceeds 50% of subscription
+// payment" — the other 50% is platform margin and never funds AI. It recomputes
+// live against the DRAFT rate so the admin sees margin impact before saving.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Region = "north" | "south";
@@ -38,6 +40,10 @@ const FALLBACK_YER_PER_USD: Record<Region, number> = { north: 600, south: 2800 }
 
 // Margin band: ≥1.5× of cost = healthy, 1.0–1.5× = thin, <1.0× = loss (block).
 const HEALTHY_RATIO = 1.5;
+
+// Only HALF of the subscription price is allowed to fund AI (50/50 split).
+// Coverage = AI funding share ÷ max AI cost. See header note + platform policy.
+const AI_FUNDING_SHARE = 0.5;
 
 type GemRate = {
   gemsPer1M: number;
@@ -132,6 +138,7 @@ export function AdminGemRate() {
   }
 
   // Any package at a loss under the draft rate? → block saving with a warning.
+  // "Loss" now means the 50% AI funding share doesn't cover max AI cost.
   const lossCells = useMemo(() => {
     if (!rate || !Number.isFinite(draftCostPerGemUsd)) return [] as string[];
     const out: string[] = [];
@@ -142,8 +149,9 @@ export function AdminGemRate() {
         if (!gems || priceYer == null) continue;
         const divisor = yerPerUsd[reg.key] || FALLBACK_YER_PER_USD[reg.key];
         const priceUsd = priceYer / divisor;
-        const pricePerGem = priceUsd / gems;
-        if (pricePerGem < draftCostPerGemUsd) out.push(`${reg.label}/${p.label}`);
+        const fundingUsd = priceUsd * AI_FUNDING_SHARE;
+        const maxAiCost = gems * draftCostPerGemUsd;
+        if (fundingUsd < maxAiCost) out.push(`${reg.label}/${p.label}`);
       }
     }
     return out;
@@ -282,10 +290,10 @@ export function AdminGemRate() {
                   const priceYer = priceYerFor(reg.key, p.key);
                   const divisor = yerPerUsd[reg.key] || FALLBACK_YER_PER_USD[reg.key];
                   const priceUsd = priceYer != null ? priceYer / divisor : NaN;
-                  const pricePerGem = Number.isFinite(priceUsd) && gems > 0 ? priceUsd / gems : NaN;
+                  const fundingUsd = Number.isFinite(priceUsd) ? priceUsd * AI_FUNDING_SHARE : NaN;
                   const maxAiCost = Number.isFinite(draftCostPerGemUsd) && gems > 0 ? gems * draftCostPerGemUsd : NaN;
-                  const ratio = Number.isFinite(pricePerGem) && Number.isFinite(draftCostPerGemUsd) && draftCostPerGemUsd > 0
-                    ? pricePerGem / draftCostPerGemUsd : NaN;
+                  const ratio = Number.isFinite(fundingUsd) && Number.isFinite(maxAiCost) && maxAiCost > 0
+                    ? fundingUsd / maxAiCost : NaN;
 
                   let badge: { txt: string; cls: string; icon: React.ReactNode };
                   if (!Number.isFinite(ratio)) {
@@ -313,6 +321,8 @@ export function AdminGemRate() {
                         <span className="font-bold text-left">{priceYer != null ? fmtYer(priceYer) : "—"}</span>
                         <span className="text-muted-foreground">السعر بالدولار</span>
                         <span className="font-bold text-left">{fmtUsd(priceUsd)}</span>
+                        <span className="text-muted-foreground">حصة تمويل الذكاء (٥٠٪)</span>
+                        <span className="font-bold text-left text-sky-300">{fmtUsd(fundingUsd)}</span>
                         <span className="text-muted-foreground">أقصى تكلفة ذكاء</span>
                         <span className="font-bold text-left">{fmtUsd(maxAiCost)}</span>
                         <span className="text-muted-foreground flex items-center gap-1"><TrendingUp className="w-3 h-3" /> نسبة التغطية</span>
@@ -328,7 +338,7 @@ export function AdminGemRate() {
           ))}
         </div>
         <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
-          «نسبة التغطية» = سعر الباقة ÷ أقصى تكلفة ذكاء لو استُهلكت كل الجواهر. تحت ١.٠٠× يعني خسارة، و١.٠٠–{HEALTHY_RATIO.toFixed(2)}× هامش ضعيف، وفوق ذلك ربح جيد. الخصم الفعلي دائماً بالتكلفة الحقيقية للرموز — هذا تقدير للحالة القصوى.
+          «نسبة التغطية» = حصة تمويل الذكاء (٥٠٪ من سعر الباقة) ÷ أقصى تكلفة ذكاء لو استُهلكت كل الجواهر. النصف الآخر هامش المنصة ولا يموّل الذكاء أبداً (سياسة: تكلفة الذكاء لا تتجاوز ٥٠٪ من قيمة الاشتراك). تحت ١.٠٠× يعني خسارة، و١.٠٠–{HEALTHY_RATIO.toFixed(2)}× هامش ضعيف، وفوق ذلك ربح جيد. الخصم الفعلي دائماً بالتكلفة الحقيقية للرموز — هذا تقدير للحالة القصوى.
         </p>
       </div>
     </div>
