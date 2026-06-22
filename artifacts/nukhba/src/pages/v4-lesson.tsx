@@ -759,6 +759,7 @@ export default function V4Lesson() {
     useState<{ requirement: string; lang: string } | null>(null);
   const [codeTaskCardCollapsed, setCodeTaskCardCollapsed] = useState(false);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const [codeMode, setCodeMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -1264,7 +1265,12 @@ export default function V4Lesson() {
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    void sendMessage(input, attachedImage ?? undefined);
+    if (codeMode && input.trim()) {
+      const { lang } = detectCodeTask([input]);
+      void sendMessage(`\`\`\`${lang}\n${input.trim()}\n\`\`\``);
+    } else {
+      void sendMessage(input, attachedImage ?? undefined);
+    }
   }
 
   function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1627,9 +1633,9 @@ export default function V4Lesson() {
       {/* Composer */}
       <div className="shrink-0 border-t border-white/5 bg-background/95 backdrop-blur-md">
         <div className="max-w-2xl mx-auto px-4 py-3">
-          {/* ── Text composer ── */}
+          {/* ── Text / Code composer ── */}
           <form onSubmit={onSubmit}>
-            {attachedImage && (
+            {attachedImage && !codeMode && (
               <div className="mb-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-2 w-fit">
                 <img src={attachedImage} alt="الصورة المرفقة" className="w-12 h-12 rounded-lg object-cover" />
                 <span className="text-xs text-white/70">صورة مرفقة</span>
@@ -1643,6 +1649,18 @@ export default function V4Lesson() {
                 </button>
               </div>
             )}
+
+            {/* Inline code editor (shown when code mode is active) */}
+            {codeMode && (
+              <div className="mb-2">
+                <CodeInputArea
+                  value={input}
+                  onChange={setInput}
+                  disabled={streaming}
+                />
+              </div>
+            )}
+
             <div className="flex items-end gap-2">
               <input
                 ref={fileInputRef}
@@ -1651,31 +1669,56 @@ export default function V4Lesson() {
                 className="hidden"
                 onChange={onPickImage}
               />
+              {/* Image attach — hidden in code mode */}
+              {!codeMode && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={streaming}
+                  className="shrink-0 h-12 w-12 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-300 hover:border-amber-400/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="إرفاق صورة"
+                  aria-label="إرفاق صورة"
+                >
+                  <ImagePlus className="w-5 h-5" />
+                </button>
+              )}
+              {/* Code mode toggle */}
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => setCodeMode((c) => !c)}
                 disabled={streaming}
-                className="shrink-0 h-12 w-12 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-300 hover:border-amber-400/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-                title="إرفاق صورة"
-                aria-label="إرفاق صورة"
+                className={`shrink-0 h-12 w-12 rounded-2xl border flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
+                  codeMode
+                    ? "bg-emerald-500/20 border-emerald-400/50 text-emerald-300"
+                    : "bg-white/5 border-white/10 text-white/60 hover:text-emerald-300 hover:border-emerald-400/40"
+                }`}
+                title={codeMode ? "وضع النص العادي" : "كتابة كود"}
+                aria-label={codeMode ? "وضع النص العادي" : "كتابة كود"}
               >
-                <ImagePlus className="w-5 h-5" />
+                <Code2 className="w-5 h-5" />
               </button>
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!streaming) void sendMessage(input, attachedImage ?? undefined);
-                  }
-                }}
-                disabled={streaming}
-                rows={1}
-                placeholder="اكتب ردّك للمعلم..."
-                className="flex-1 resize-none bg-black/30 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50 disabled:opacity-60 max-h-40"
-                style={{ minHeight: 48 }}
-              />
+
+              {/* Normal textarea — hidden in code mode */}
+              {!codeMode ? (
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!streaming) void sendMessage(input, attachedImage ?? undefined);
+                    }
+                  }}
+                  disabled={streaming}
+                  rows={1}
+                  placeholder="اكتب ردّك للمعلم..."
+                  className="flex-1 resize-none bg-black/30 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50 disabled:opacity-60 max-h-40"
+                  style={{ minHeight: 48 }}
+                />
+              ) : (
+                <span className="flex-1" />
+              )}
+
               <button
                 type="submit"
                 disabled={streaming || (!input.trim() && !attachedImage)}
