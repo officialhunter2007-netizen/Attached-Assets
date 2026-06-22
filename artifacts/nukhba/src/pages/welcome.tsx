@@ -296,37 +296,6 @@ export default function Welcome() {
           </div>
         </div>
 
-        <div className="glass p-5 rounded-2xl border-gold/20 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-32 h-32 bg-gold/10 rounded-br-full -z-10" />
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
-              <Crown className="w-5 h-5 text-gold" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <h4 className="font-bold">{tr.welcome.step4SubTitle}</h4>
-                <span className="text-xs bg-gold/20 text-gold border border-gold/30 rounded-full px-2 py-0.5">{tr.welcome.step4SubBadge}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="bg-black/30 rounded-xl p-2 text-center border border-amber-700/20">
-                  <div className="font-bold text-amber-600">{tr.welcome.step4Bronze}</div>
-                  <div className="text-muted-foreground">{tr.welcome.step4DailyMsg.replace("{n}", "٢٠")}</div>
-                  <div className="text-muted-foreground">{tr.welcome.step4Duration}</div>
-                </div>
-                <div className="bg-black/30 rounded-xl p-2 text-center border border-zinc-400/20">
-                  <div className="font-bold text-zinc-300">{tr.welcome.step4Silver}</div>
-                  <div className="text-muted-foreground">{tr.welcome.step4DailyMsg.replace("{n}", "٤٠")}</div>
-                  <div className="text-muted-foreground">{tr.welcome.step4Duration}</div>
-                </div>
-                <div className="bg-black/30 rounded-xl p-2 text-center border border-gold/20">
-                  <div className="font-bold text-gold">{tr.welcome.step4Gold}</div>
-                  <div className="text-muted-foreground">{tr.welcome.step4DailyMsg.replace("{n}", "٧٠")}</div>
-                  <div className="text-muted-foreground">{tr.welcome.step4Duration}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div className="flex gap-3">
