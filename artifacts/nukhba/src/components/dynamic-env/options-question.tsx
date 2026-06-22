@@ -4,6 +4,55 @@ import { useState } from "react";
 const OPTION_LETTERS = ["أ", "ب", "ج", "د", "هـ", "و", "ز", "ح"];
 
 /**
+ * Expand common single-line code constructs (Python/JS) into proper
+ * multi-line form.  Applied only to full-block code options so the
+ * model's one-liner habit becomes readable without a prompt change alone.
+ *
+ * Examples:
+ *   "if x > 0: print(x) else: print(-x)"
+ *   → "if x > 0:\n    print(x)\nelse:\n    print(-x)"
+ */
+function expandCodeOneLiner(raw: string): string {
+  // Normalise literal \n escape sequences the model occasionally emits
+  let code = raw.replace(/\\n/g, "\n").replace(/\\t/g, "    ");
+
+  // Already multi-line — nothing to do
+  if (code.includes("\n")) return code;
+
+  // ── Python if / elif … else ─────────────────────────────────────────
+  // Pattern: "if COND: BODY else: BODY2"  (else is optional)
+  // We match the FIRST colon-space that ends the condition header,
+  // not a colon buried inside a string literal.
+  const ifElse = code.match(
+    /^((?:if|elif)\s+.+?):\s+([\s\S]+?)\s+else:\s+([\s\S]+)$/
+  );
+  if (ifElse) {
+    return `${ifElse[1]}:\n    ${ifElse[2]}\nelse:\n    ${ifElse[3]}`;
+  }
+
+  // Pattern: "if COND: BODY"  (no else)
+  const ifOnly = code.match(/^((?:if|elif)\s+.+?):\s+([\s\S]+)$/);
+  if (ifOnly) return `${ifOnly[1]}:\n    ${ifOnly[2]}`;
+
+  // Pattern: "for VAR in ITER: BODY"
+  const forLoop = code.match(/^(for\s+.+?):\s+([\s\S]+)$/);
+  if (forLoop) return `${forLoop[1]}:\n    ${forLoop[2]}`;
+
+  // Pattern: "while COND: BODY"
+  const whileLoop = code.match(/^(while\s+.+?):\s+([\s\S]+)$/);
+  if (whileLoop) return `${whileLoop[1]}:\n    ${whileLoop[2]}`;
+
+  // Pattern: "def NAME(ARGS): BODY"  or  "function NAME(ARGS) { BODY }"
+  const defFn = code.match(/^(def\s+\w+\([^)]*\)):\s+([\s\S]+)$/);
+  if (defFn) return `${defFn[1]}:\n    ${defFn[2]}`;
+
+  // Pattern: JS arrow "const f = (x) => { BODY }" or "{ BODY }"  — leave as-is,
+  // too varied to expand safely.
+
+  return code;
+}
+
+/**
  * Render option text with inline/block code formatting.
  *
  * - Entire text wrapped in backticks → opt-code-block (full-width monospace block, LTR)
@@ -16,7 +65,8 @@ function renderOptionContent(text: string) {
   // Full option is a code block: `...`
   const fullMatch = trimmed.match(/^`([\s\S]+)`$/);
   if (fullMatch) {
-    return <code className="opt-code-block">{fullMatch[1]}</code>;
+    const formatted = expandCodeOneLiner(fullMatch[1]);
+    return <code className="opt-code-block">{formatted}</code>;
   }
 
   // Mixed: some inline `code` segments inside Arabic text

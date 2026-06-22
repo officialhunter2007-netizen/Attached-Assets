@@ -1224,6 +1224,7 @@ ${imageTagDoc}
 \`\`\`
 هذا غلط! السؤال نفسه يجب أن يكون **داخل** الوسم قبل أول \`|||\`.
 ❌ **خطأ تقني:** \`ASK_OPTIONS(...)\` أو \`[ask_options: ...]\` أو \`[OPTIONS: ...]\` أو استخدام \`،\` بدل \`|||\`
+✅ **كود في الخيارات — أسطر متعددة (إلزامي)**: إذا كان الخيار كوداً يحتوي على \`if/else\` أو \`for\` أو \`while\` أو \`def\`، اكتبه على أسطر حقيقية داخل الخيار. ❌ خطأ: \`if grade >= 50: print('ناجح') else: print('راسب')\` — ✅ صحيح: ضع \`if\` في سطر والـ\`print\` في سطر التالي والـ\`else\` في سطر منفصل.
 
 ✅ **صحيح:** \`[[CREATE_LAB_ENV: محاكاة شبكة شركة فيها 3 موظفين، تستطيع ضبط الجدار الناري ومراقبة الـ packets، الهدف اكتشاف محاولة اختراق]]\`
 ❌ **خطأ:** \`<button>افتح المختبر</button>\` أو \`[CREATE_LAB: ...]\` (قوس مفرد بدل المزدوج)
@@ -1323,6 +1324,7 @@ ${imageTagDocEN}
 
 ✅ **Correct:** \`[[ASK_OPTIONS: What do you find easier? ||| Programming ||| Analysis ||| Design ||| Other]]\`
 ❌ **Wrong:** \`ASK_OPTIONS(...)\` or \`[ask_options: ...]\` or using \`,\` instead of \`|||\`
+✅ **Code options — multi-line (mandatory)**: If an option contains a code block with \`if/else\`, \`for\`, \`while\`, or \`def\`, write it on proper separate lines inside the backtick wrapper. ❌ Wrong: \`if x >= 50: print("pass") else: print("fail")\` — ✅ Right: each clause on its own line with proper indentation.
 
 ✅ **Correct:** \`[[CREATE_LAB_ENV: A company network simulation with 3 employees, firewall controls, and packet monitoring. The goal is to detect an intrusion attempt and identify which port was exploited.]]\`
 ❌ **Wrong:** \`<button>Open Lab</button>\` or \`[CREATE_LAB: ...]\` (single bracket instead of double)
@@ -2256,6 +2258,7 @@ ${formattingRulesEN}`;
   \`[[ASK_OPTIONS: قبل الحل، أين تشعر أن التعثّر؟ ||| لم أفهم السؤال أصلاً ||| أعرف القاعدة لكن أربك في تطبيقها ||| نسيت التعريف ||| الحساب صعب علي ||| غير ذلك]]\`
 - **القاعدة:** أي سؤال له ≤ 5 إجابات منطقية متوقعة → \`ASK_OPTIONS\` إجبارية. السؤال المفتوح الحقيقي (يحتاج شرحاً من الطالب) يبقى نصاً.
 - **تنسيق الوسم:** \`[[ASK_OPTIONS: السؤال ||| خيار1 ||| خيار2 ||| ... ||| غير ذلك]]\` — الفاصل ثلاث شرطات \`|||\`، و"غير ذلك" آخر خيار حرفياً دائماً.
+- **🚨 كود متعدد الأسطر في الخيارات**: أي خيار يحتوي على \`if/else\` أو \`for\` أو \`while\` أو \`def\` يُكتب على أسطر حقيقية، لا سطراً واحداً مضغوطاً — الكود المضغوط غير مقروء للطالب.
 
 ${dbPlanContext ? `--- خطة الطالب الشخصية (مرجعك المقدّس في كل جلسة) ---\n${dbPlanContext}\n---\n` : ""}
 ${(currentStageContract && !isDiagnosticPhase) ? `━━━ 📋 عقد المرحلة الحالية مع الطالب (ملزم — تُدرَّس ضمنه فقط) ━━━
