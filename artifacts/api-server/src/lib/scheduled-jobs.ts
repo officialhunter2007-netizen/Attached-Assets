@@ -101,8 +101,8 @@ async function runRolloverSweep(): Promise<void> {
       );
     }
 
-    // v4 monthly expiry sweep — zeroes any wallet past its 3-day grace
-    // window and writes a `monthly_expiry` audit row. Idempotent; runs
+    // v4 monthly expiry sweep — zeroes any wallet past its expiry (grace = 0)
+    // and writes a `monthly_expiry` audit row. Idempotent; runs
     // every tick (same cadence as legacy sweep) so an expiry never lags
     // by more than an hour.
     try {

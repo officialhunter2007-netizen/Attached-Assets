@@ -7,7 +7,7 @@
  *
  *   purchaseV4Gems        — atomic: split price 50/50, write purchase_gems +
  *                           platform_revenue rows, merge balance, extend expiry.
- *                           Carries leftover across the grace window as a
+ *                           Carries leftover on a renewal at/before expiry as a
  *                           `renewal_carryover` audit row when applicable.
  *   getOrCreateV4Wallet   — first-touch wallet creation + one-shot +100
  *                           `welcome_gift`. Idempotent on (userId, subjectId).
@@ -15,7 +15,7 @@
  *                           same DB-unique-on-(user_id, request_id) index
  *                           that powers settleAiCharge.
  *   refundV4Ai            — reverse a debit by requestId. Idempotent.
- *   sweepV4ExpiredWallets — cron entry-point: after the 3-day grace window
+ *   sweepV4ExpiredWallets — cron entry-point: after expiry (grace = 0)
  *                           zero out positive balances and audit as
  *                           `monthly_expiry`.
  *
@@ -56,8 +56,14 @@ import type { GemLedgerSource } from "./gem-ledger";
  */
 export const V4_WELCOME_GIFT_GEMS = 0;
 
-/** Days after expiry during which a renewal preserves leftover balance. */
-export const V4_GRACE_DAYS = 3;
+/**
+ * Grace days after expiry. Set to 0 — a subscription ends EXACTLY at
+ * `expiresAt` with no extra free days; the one-time 150-gem welcome gift is the
+ * trial instead. Kept as a named constant so the grace-window logic (charge
+ * gate, carryover, expiry sweep) degenerates cleanly to "no grace" and can be
+ * re-enabled by bumping this value.
+ */
+export const V4_GRACE_DAYS = 0;
 
 /** Monthly subscription window length. */
 export const V4_SUB_DURATION_DAYS = 30;
@@ -228,12 +234,10 @@ export type PurchaseV4Result = {
  * is granted INSIDE this same transaction so the student gets a single
  * unified balance immediately.
  *
- * Renewal semantics:
- *   - Bought BEFORE expiry → leftover gems are preserved (no carryover row,
- *     it's a simple merge).
- *   - Bought DURING the 3-day grace → leftover preserved AND audited as
- *     `renewal_carryover`.
- *   - Bought AFTER grace (or wallet never existed) → start fresh.
+ * Renewal semantics (grace = 0):
+ *   - Bought AT/BEFORE expiry → leftover gems are preserved AND audited as a
+ *     `renewal_carryover` row.
+ *   - Bought AFTER expiry (or wallet never existed) → start fresh.
  */
 export async function purchaseV4Gems(opts: PurchaseV4Opts): Promise<PurchaseV4Result> {
   return await db.transaction(async (tx) => purchaseV4GemsTx(tx, opts));
@@ -291,7 +295,8 @@ export async function purchaseV4GemsTx(
       walletId = created.id;
     }
 
-    // Compute carryover. Past-grace = lose it; in-window or grace = keep.
+    // Compute carryover. After expiry = lose it; at/before expiry = keep.
+    // With grace = 0, insideGrace collapses onto insideWindow (same boundary).
     const graceCutoff = priorExpiresAt
       ? new Date(priorExpiresAt.getTime() + V4_GRACE_DAYS * 24 * 60 * 60 * 1000)
       : null;
@@ -801,7 +806,7 @@ export async function runV4PaidWork<T>(
 }
 
 /**
- * Cron entry-point. For every v4 wallet whose `expires_at + 3 days < now`
+ * Cron entry-point. For every v4 wallet whose `expires_at < now` (grace = 0)
  * AND whose `gems_balance > 0`, zero out the balance and write a
  * `monthly_expiry` audit row.
  *
@@ -865,7 +870,7 @@ export async function sweepV4ExpiredWallets(): Promise<{ swept: number; errors: 
             balanceAfter: 0,
             reason: "monthly_expiry",
             source: "v4_expiry_sweep",
-            note: `انتهت فترة السماح (${V4_GRACE_DAYS} أيام) — تم تصفير الرصيد`,
+            note: `انتهى الاشتراك — تم تصفير الرصيد`,
             metadata: {
               walletId: w.id,
               expiredBalance: burned,

@@ -59,7 +59,7 @@ const SOURCE_LABEL: Record<string, string> = {
   // v4 sources
   v4_purchase: "شراء باقة شهرية",
   v4_welcome_gift: "هدية فتح تخصص",
-  v4_expiry_sweep: "تصفير بعد فترة السماح",
+  v4_expiry_sweep: "تصفير بعد انتهاء الاشتراك",
   v4_renewal: "تجديد باقة",
   v4_ai_teach: "جلسة مع المعلم (v4)",
   v4_ai_lesson: "توليد درس (v4)",
