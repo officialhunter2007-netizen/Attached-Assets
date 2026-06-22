@@ -280,22 +280,6 @@ export default function Welcome() {
       </div>
 
       <div className="space-y-4 mb-8">
-        <div className="glass p-5 rounded-2xl border-emerald/20 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-32 h-32 bg-emerald/10 rounded-br-full -z-10" />
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-xl bg-emerald/10 border border-emerald/30 flex items-center justify-center shrink-0">
-              <Unlock className="w-5 h-5 text-emerald" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-bold">{tr.welcome.step4FreeTitle}</h4>
-                <span className="text-xs bg-emerald/20 text-emerald border border-emerald/30 rounded-full px-2 py-0.5">{tr.welcome.step4FreeBadge}</span>
-              </div>
-              <p className="text-sm text-muted-foreground">{tr.welcome.step4FreeDesc}</p>
-            </div>
-          </div>
-        </div>
-
         <div className="glass p-5 rounded-2xl border-blue-500/20 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-32 h-32 bg-blue-500/10 rounded-br-full -z-10" />
           <div className="flex items-start gap-4">
