@@ -3,6 +3,37 @@ import { useState } from "react";
 // Arabic ordinal letters used as option badges (أ، ب، ج، د …).
 const OPTION_LETTERS = ["أ", "ب", "ج", "د", "هـ", "و", "ز", "ح"];
 
+/**
+ * Render option text with inline/block code formatting.
+ *
+ * - Entire text wrapped in backticks → opt-code-block (full-width monospace block, LTR)
+ * - Mixed text with `inline code` segments → opt-code-inline spans
+ * - No backticks → plain string (current behaviour, unchanged)
+ */
+function renderOptionContent(text: string) {
+  const trimmed = text.trim();
+
+  // Full option is a code block: `...`
+  const fullMatch = trimmed.match(/^`([\s\S]+)`$/);
+  if (fullMatch) {
+    return <code className="opt-code-block">{fullMatch[1]}</code>;
+  }
+
+  // Mixed: some inline `code` segments inside Arabic text
+  const segments = trimmed.split(/(`[^`\n]+`)/);
+  if (segments.length === 1) return text; // no backticks — plain text
+
+  return (
+    <>
+      {segments.map((seg, i) => {
+        const inline = seg.match(/^`([^`\n]+)`$/);
+        if (inline) return <code key={i} className="opt-code-inline">{inline[1]}</code>;
+        return seg || null;
+      })}
+    </>
+  );
+}
+
 export function OptionsQuestion({
   question,
   options,
@@ -43,6 +74,7 @@ export function OptionsQuestion({
           {options.map((opt, i) => {
             const isSelected = opt === picked;
             const dimmed = locked && !isSelected;
+            const hasBlockCode = /^`[\s\S]+`$/.test(opt.trim());
             return (
               <button
                 key={opt}
@@ -55,6 +87,7 @@ export function OptionsQuestion({
                 }}
                 className={[
                   "opt-btn",
+                  hasBlockCode ? "opt-btn-has-code" : "",
                   isSelected ? "opt-btn-selected" : "",
                   dimmed ? "opt-btn-dimmed" : "",
                 ]
@@ -63,7 +96,7 @@ export function OptionsQuestion({
                 style={{ animationDelay: `${i * 55}ms` }}
               >
                 <span className="opt-badge">{OPTION_LETTERS[i] ?? String(i + 1)}</span>
-                <span className="opt-text">{opt}</span>
+                <span className="opt-text">{renderOptionContent(opt)}</span>
                 {isSelected && <span className="opt-check">✓</span>}
               </button>
             );

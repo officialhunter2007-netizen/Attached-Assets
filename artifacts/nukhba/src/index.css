@@ -2007,6 +2007,43 @@
 }
 .opt-btn:hover:not(:disabled) .opt-badge { background: rgba(245,158,11,0.3); }
 .opt-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* Code segments inside option buttons */
+.opt-code-block {
+  display: block;
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', 'Lucida Console', monospace;
+  font-size: 0.78rem;
+  direction: ltr;
+  unicode-bidi: embed;
+  text-align: left;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(125,211,252,0.2);
+  border-radius: 7px;
+  padding: 7px 12px;
+  color: #93c5fd;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  margin-top: 4px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+.opt-code-inline {
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', 'Lucida Console', monospace;
+  font-size: 0.82em;
+  direction: ltr;
+  unicode-bidi: embed;
+  display: inline;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(125,211,252,0.2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #93c5fd;
+  vertical-align: middle;
+}
+/* When button contains a code block, align badge to top */
+.opt-btn-has-code { align-items: flex-start; }
+.opt-btn-has-code .opt-badge { margin-top: 3px; }
+.opt-btn-has-code .opt-check { margin-top: 3px; }
 .opt-check {
   flex-shrink: 0;
   color: #fbbf24;
