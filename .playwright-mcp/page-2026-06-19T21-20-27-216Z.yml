@@ -1,0 +1,188 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e6]:
+        - link "شعار نُخبة نُخبة" [ref=e7] [cursor=pointer]:
+          - /url: /learn
+          - generic [ref=e9]:
+            - img "شعار نُخبة" [ref=e10]:
+              - generic [ref=e17]: ن
+            - generic [ref=e20]: نُخبة
+        - navigation [ref=e21]:
+          - link "تعلّم" [ref=e22] [cursor=pointer]:
+            - /url: /learn
+          - link "لوحتي" [ref=e23] [cursor=pointer]:
+            - /url: /dashboard
+          - link "الاشتراك" [ref=e24] [cursor=pointer]:
+            - /url: /subscription
+          - link "إدارة" [ref=e25] [cursor=pointer]:
+            - /url: /admin
+            - generic [ref=e26]: إدارة
+          - link "الدعم 1" [ref=e28] [cursor=pointer]:
+            - /url: /support
+            - generic [ref=e30]:
+              - img [ref=e31]
+              - text: الدعم
+              - generic [ref=e33]: "1"
+        - generic [ref=e34]:
+          - button "Switch to English" [ref=e35]:
+            - img [ref=e36]
+            - generic [ref=e39]: EN
+          - link "💎 ٨٧ / ١٠٠ مجانية" [ref=e41] [cursor=pointer]:
+            - /url: /subscription
+            - generic "لديك ٨٧ من ١٠٠ جوهرة مجانية في هذه الجلسة" [ref=e42]:
+              - text: 💎
+              - generic [ref=e43]: ٨٧
+              - generic [ref=e44]: / ١٠٠ مجانية
+          - img [ref=e47]
+          - button "خروج" [ref=e50]:
+            - img [ref=e51]
+            - generic [ref=e54]: خروج
+    - main [ref=e55]:
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - heading "لوحة الإدارة" [level=1] [ref=e58]:
+            - img [ref=e59]
+            - text: لوحة الإدارة
+          - button "تحديث" [ref=e61]:
+            - img
+            - text: تحديث
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - img [ref=e65]
+            - generic [ref=e67]:
+              - paragraph [ref=e68]: طلبات معلقة
+              - paragraph [ref=e69]: "0"
+          - generic [ref=e70]:
+            - img [ref=e72]
+            - generic [ref=e74]:
+              - paragraph [ref=e75]: اشتراكات فعالة
+              - paragraph [ref=e76]: "3"
+          - generic [ref=e77]:
+            - img [ref=e79]
+            - generic [ref=e84]:
+              - paragraph [ref=e85]: إجمالي المستخدمين
+              - paragraph [ref=e86]: "18"
+          - generic [ref=e87]:
+            - img [ref=e89]
+            - generic [ref=e91]:
+              - paragraph [ref=e92]: إجمالي البطاقات
+              - paragraph [ref=e93]: "7"
+        - generic [ref=e94]:
+          - img [ref=e96]
+          - generic [ref=e98]:
+            - paragraph [ref=e99]: اشتراكات منتهية مؤخراً
+            - paragraph [ref=e100]: 1 اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل
+        - generic [ref=e101]:
+          - generic [ref=e102]:
+            - heading "متصلون الآن (1)" [level=3] [ref=e103]: متصلون الآن (1)
+            - generic [ref=e105]: يتحدث كل ١٥ ثانية
+          - generic [ref=e107]:
+            - img [ref=e109]
+            - generic [ref=e114]:
+              - paragraph [ref=e115]: مختبر
+              - paragraph [ref=e116]: الإدارة
+        - generic [ref=e117]:
+          - tablist [ref=e118]:
+            - tab "طلبات الاشتراك" [selected] [ref=e119]
+            - tab "المستخدمون" [ref=e120]:
+              - img [ref=e121]
+              - text: المستخدمون
+            - tab "اشتراكات المواد" [ref=e126]:
+              - img [ref=e127]
+              - text: اشتراكات المواد
+            - tab "بطاقات التفعيل" [ref=e129]
+            - tab "الرسائل 1" [ref=e130]:
+              - img [ref=e131]
+              - text: الرسائل
+              - generic [ref=e133]: "1"
+            - tab "أكواد الخصم" [ref=e134]:
+              - img [ref=e135]
+              - text: أكواد الخصم
+            - tab "أسعار الباقات" [ref=e139]:
+              - img [ref=e140]
+              - text: أسعار الباقات
+            - tab "أسعار الصرف" [ref=e142]:
+              - img [ref=e143]
+              - text: أسعار الصرف
+            - tab "مساعد ذكي AI" [ref=e145]:
+              - img [ref=e146]
+              - text: مساعد ذكي
+              - generic [ref=e154]: AI
+            - tab "تكاليف الذكاء الاصطناعي" [ref=e155]:
+              - img [ref=e156]
+              - text: تكاليف الذكاء الاصطناعي
+            - tab "قاعدة البيانات" [ref=e164]:
+              - img [ref=e165]
+              - text: قاعدة البيانات
+            - tab "محادثات المعلم" [ref=e167]:
+              - img [ref=e168]
+              - text: محادثات المعلم
+            - tab "تنبيهات النظام 3" [ref=e170]:
+              - img [ref=e171]
+              - text: تنبيهات النظام
+              - generic [ref=e173]: "3"
+            - tab "سجل الجواهر" [ref=e174]:
+              - img [ref=e175]
+              - text: سجل الجواهر
+            - tab "إعدادات الدفع" [ref=e178]:
+              - img [ref=e179]
+              - text: إعدادات الدفع
+            - tab "ملفات التعليمات (v4)" [ref=e181]:
+              - img [ref=e182]
+              - text: ملفات التعليمات (v4)
+            - tab "ملازم (v4)" [ref=e184]:
+              - img [ref=e185]
+              - text: ملازم (v4)
+            - tab "مزوّد المعلم (AI)" [ref=e187]:
+              - img [ref=e188]
+              - text: مزوّد المعلم (AI)
+          - tabpanel "طلبات الاشتراك" [ref=e191]:
+            - generic [ref=e192]:
+              - generic [ref=e193]:
+                - img "كريمي" [ref=e194]
+                - generic [ref=e195]:
+                  - paragraph [ref=e196]: المحافظات الشمالية (ريال يمني)
+                  - paragraph [ref=e197]: "3165778412"
+                  - paragraph [ref=e198]: "باسم: عمرو خالد عبد المولى"
+              - generic [ref=e199]:
+                - img "كريمي" [ref=e200]
+                - generic [ref=e201]:
+                  - paragraph [ref=e202]: المحافظات الجنوبية (عملة جنوبية)
+                  - paragraph [ref=e203]: "3167076083"
+                  - paragraph [ref=e204]: "باسم: عمرو خالد عبد المولى"
+            - generic [ref=e205]:
+              - img [ref=e206]
+              - button "معلق" [ref=e208]
+              - button "ناقص" [ref=e209]
+              - button "مقبول" [ref=e210]
+              - button "مرفوض" [ref=e211]
+              - button "الكل" [ref=e212]
+            - table [ref=e215]:
+              - rowgroup [ref=e216]:
+                - row "المستخدم الخطة المادة المنطقة اسم الحساب المرسل ملاحظات التاريخ الحالة إجراءات" [ref=e217]:
+                  - columnheader "المستخدم" [ref=e218]
+                  - columnheader "الخطة" [ref=e219]
+                  - columnheader "المادة" [ref=e220]
+                  - columnheader "المنطقة" [ref=e221]
+                  - columnheader "اسم الحساب المرسل" [ref=e222]
+                  - columnheader "ملاحظات" [ref=e223]
+                  - columnheader "التاريخ" [ref=e224]
+                  - columnheader "الحالة" [ref=e225]
+                  - columnheader "إجراءات" [ref=e226]
+              - rowgroup [ref=e227]:
+                - row "لا توجد طلبات معلقة 🎉" [ref=e228]:
+                  - cell "لا توجد طلبات معلقة 🎉" [ref=e229]
+    - button "افتح مساعد نُخبة" [ref=e230]:
+      - generic [ref=e232]:
+        - img [ref=e233]
+        - generic [ref=e236]: مساعد نُخبة
+    - contentinfo [ref=e238]:
+      - generic [ref=e239]:
+        - generic [ref=e241]:
+          - img "شعار نُخبة" [ref=e242]:
+            - generic [ref=e249]: ن
+          - generic [ref=e252]: نُخبة
+        - paragraph [ref=e253]: جميع الحقوق محفوظة 2026 © نُخبة
+  - region "Notifications (F8)":
+    - list

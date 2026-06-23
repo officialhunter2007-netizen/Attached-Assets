@@ -1,0 +1,57 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - button "رجوع" [ref=e6]:
+        - img [ref=e7]
+        - text: رجوع
+      - button "اختر مساراً" [ref=e40]:
+        - img [ref=e41]
+        - text: اختر مساراً
+    - generic [ref=e12]:
+      - img [ref=e14]
+      - heading "مسار ملازم جامعية" [level=1] [ref=e16]
+      - paragraph [ref=e17]: "ارفع ملزمة مقرّرك (PDF أو Word) ونعدّ لك خريطة وحدات ودروس تلقائياً. كلفة التجهيز: ~١٥٠ جوهرة لمرة واحدة لكل ملزمة."
+    - generic [ref=e18]:
+      - heading "ارفع ملزمة جديدة" [level=2] [ref=e19]:
+        - img [ref=e20]
+        - text: ارفع ملزمة جديدة
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - generic [ref=e25]: عنوان الملزمة (اختياري)
+          - 'textbox "مثال: ملزمة قواعد البيانات — د. أحمد" [ref=e26]'
+        - generic [ref=e27]:
+          - generic [ref=e28]: ملف PDF أو Word (حد أقصى ٢٥ ميجا / ٤٠٠ صفحة)
+          - button "اختر ملفاً…" [ref=e54]:
+            - img [ref=e30]
+            - generic [ref=e33]: اختر ملفاً…
+        - button "ارفع وحلّل" [disabled] [ref=e34]:
+          - img [ref=e55]
+          - text: ارفع وحلّل
+    - heading "ملازمك في هذا التخصص" [level=2] [ref=e38]
+    - generic [ref=e58]:
+      - generic [ref=e59]:
+        - generic [ref=e60]:
+          - generic [ref=e61]: test_booklet
+          - generic [ref=e62]: 5 صفحة • 23‏/6‏/2026
+        - generic [ref=e64]:
+          - img [ref=e65]
+          - text: جاري التحضير…
+      - generic [ref=e67]:
+        - generic [ref=e68]:
+          - generic [ref=e69]: 85%
+          - generic [ref=e70]: جاري…
+        - generic [ref=e73]:
+          - generic [ref=e74]:
+            - generic [ref=e75]: "1"
+            - generic [ref=e76]: استخراج النص من الـPDF
+          - generic [ref=e77]:
+            - generic [ref=e78]: "2"
+            - generic [ref=e79]: تقسيم الصفحات لمقاطع
+          - generic [ref=e80]:
+            - generic [ref=e81]: "3"
+            - generic [ref=e82]: حساب التضمينات (embeddings)
+          - generic [ref=e83]:
+            - generic [ref=e84]: "4"
+            - generic [ref=e85]: ربط الدروس بالصفحات
+  - region "Notifications (F8)":
+    - list

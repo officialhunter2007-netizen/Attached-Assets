@@ -1,0 +1,34 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - button "رجوع" [ref=e6]:
+        - img [ref=e7]
+        - text: رجوع
+      - button "اختر مساراً" [ref=e40]:
+        - img [ref=e41]
+        - text: اختر مساراً
+    - generic [ref=e12]:
+      - img [ref=e14]
+      - heading "مسار ملازم جامعية" [level=1] [ref=e16]
+      - paragraph [ref=e17]: "ارفع ملزمة مقرّرك (PDF أو Word) ونعدّ لك خريطة وحدات ودروس تلقائياً. كلفة التجهيز: ~١٥٠ جوهرة لمرة واحدة لكل ملزمة."
+    - generic [ref=e18]:
+      - heading "ارفع ملزمة جديدة" [level=2] [ref=e19]:
+        - img [ref=e20]
+        - text: ارفع ملزمة جديدة
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - generic [ref=e25]: عنوان الملزمة (اختياري)
+          - 'textbox "مثال: ملزمة قواعد البيانات — د. أحمد" [ref=e26]'
+        - generic [ref=e27]:
+          - generic [ref=e28]: ملف PDF أو Word (حد أقصى ٢٥ ميجا / ٤٠٠ صفحة)
+          - button "test_booklet.pdf" [active] [ref=e44]:
+            - img [ref=e30]
+            - generic [ref=e33]: test_booklet.pdf
+          - button "✕ إلغاء" [ref=e45]
+        - button "ارفع وحلّل" [ref=e34]:
+          - img [ref=e35]
+          - text: ارفع وحلّل
+    - heading "ملازمك في هذا التخصص" [level=2] [ref=e38]
+    - generic [ref=e39]: لا توجد ملازم بعد. ابدأ بالرفع أعلاه.
+  - region "Notifications (F8)":
+    - list

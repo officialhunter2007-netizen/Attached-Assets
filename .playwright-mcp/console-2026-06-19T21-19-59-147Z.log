@@ -1,0 +1,16 @@
+[    1331ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/stats:0
+[    1332ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/activation-cards:0
+[    1332ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/users:0
+[    1336ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/subscription-requests:0
+[    3534ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/stats:0
+[    3590ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/activation-cards:0
+[    3591ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/users:0
+[    3785ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/subscription-requests:0
+[    5611ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/stats:0
+[    5822ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/activation-cards:0
+[    5842ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/users:0
+[    6086ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/subscription-requests:0
+[    9676ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/stats:0
+[    9866ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/activation-cards:0
+[    9890ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/users:0
+[   10170ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://learnukhba.com/api/admin/subscription-requests:0

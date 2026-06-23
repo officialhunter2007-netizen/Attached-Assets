@@ -1,0 +1,371 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - banner [ref=e4]:
+        - generic [ref=e6]:
+          - link "شعار نُخبة نُخبة" [ref=e7] [cursor=pointer]:
+            - /url: /learn
+            - generic [ref=e9]:
+              - img "شعار نُخبة" [ref=e10]:
+                - generic [ref=e17]: ن
+              - generic [ref=e20]: نُخبة
+          - navigation [ref=e21]:
+            - link "تعلّم" [ref=e22] [cursor=pointer]:
+              - /url: /learn
+            - link "لوحتي" [ref=e23] [cursor=pointer]:
+              - /url: /dashboard
+            - link "الاشتراك" [ref=e24] [cursor=pointer]:
+              - /url: /subscription
+            - link "إدارة" [ref=e25] [cursor=pointer]:
+              - /url: /admin
+              - generic [ref=e26]: إدارة
+            - link "الدعم 1" [ref=e28] [cursor=pointer]:
+              - /url: /support
+              - generic [ref=e30]:
+                - img [ref=e31]
+                - text: الدعم
+                - generic [ref=e33]: "1"
+          - generic [ref=e34]:
+            - button "Switch to English" [ref=e35]:
+              - img [ref=e36]
+              - generic [ref=e39]: EN
+            - link "💎 ٨٧ / ١٠٠ مجانية" [ref=e41] [cursor=pointer]:
+              - /url: /subscription
+              - generic "لديك ٨٧ من ١٠٠ جوهرة مجانية في هذه الجلسة" [ref=e42]:
+                - text: 💎
+                - generic [ref=e43]: ٨٧
+                - generic [ref=e44]: / ١٠٠ مجانية
+            - img [ref=e47]
+            - button "خروج" [ref=e50]:
+              - img [ref=e51]
+              - generic [ref=e54]: خروج
+      - main [ref=e55]:
+        - generic [ref=e56]:
+          - generic [ref=e57]:
+            - heading "لوحة الإدارة" [level=1] [ref=e58]:
+              - img [ref=e59]
+              - text: لوحة الإدارة
+            - button "تحديث" [ref=e61]:
+              - img
+              - text: تحديث
+          - generic [ref=e62]:
+            - generic [ref=e63]:
+              - img [ref=e65]
+              - generic [ref=e67]:
+                - paragraph [ref=e68]: طلبات معلقة
+                - paragraph [ref=e69]: "0"
+            - generic [ref=e70]:
+              - img [ref=e72]
+              - generic [ref=e74]:
+                - paragraph [ref=e75]: اشتراكات فعالة
+                - paragraph [ref=e76]: "3"
+            - generic [ref=e77]:
+              - img [ref=e79]
+              - generic [ref=e84]:
+                - paragraph [ref=e85]: إجمالي المستخدمين
+                - paragraph [ref=e86]: "18"
+            - generic [ref=e87]:
+              - img [ref=e89]
+              - generic [ref=e91]:
+                - paragraph [ref=e92]: إجمالي البطاقات
+                - paragraph [ref=e93]: "7"
+          - generic [ref=e94]:
+            - img [ref=e96]
+            - generic [ref=e98]:
+              - paragraph [ref=e99]: اشتراكات منتهية مؤخراً
+              - paragraph [ref=e100]: 1 اشتراك انتهى خلال آخر ٧ أيام — تحقق من تبويب "اشتراكات المواد" للتفاصيل
+          - generic [ref=e101]:
+            - generic [ref=e102]:
+              - heading "متصلون الآن (1)" [level=3] [ref=e103]: متصلون الآن (1)
+              - generic [ref=e105]: يتحدث كل ١٥ ثانية
+            - generic [ref=e107]:
+              - img [ref=e109]
+              - generic [ref=e114]:
+                - paragraph [ref=e115]: مختبر
+                - paragraph [ref=e116]: الإدارة
+          - generic [ref=e117]:
+            - tablist [ref=e118]:
+              - tab "طلبات الاشتراك" [ref=e119]
+              - tab "المستخدمون" [ref=e120]:
+                - img [ref=e121]
+                - text: المستخدمون
+              - tab "اشتراكات المواد" [ref=e126]:
+                - img [ref=e127]
+                - text: اشتراكات المواد
+              - tab "بطاقات التفعيل" [ref=e129]
+              - tab "الرسائل 1" [ref=e130]:
+                - img [ref=e131]
+                - text: الرسائل
+                - generic [ref=e133]: "1"
+              - tab "أكواد الخصم" [ref=e134]:
+                - img [ref=e135]
+                - text: أكواد الخصم
+              - tab "أسعار الباقات" [ref=e139]:
+                - img [ref=e140]
+                - text: أسعار الباقات
+              - tab "أسعار الصرف" [ref=e142]:
+                - img [ref=e143]
+                - text: أسعار الصرف
+              - tab "مساعد ذكي AI" [ref=e145]:
+                - img [ref=e146]
+                - text: مساعد ذكي
+                - generic [ref=e154]: AI
+              - tab "تكاليف الذكاء الاصطناعي" [ref=e155]:
+                - img [ref=e156]
+                - text: تكاليف الذكاء الاصطناعي
+              - tab "قاعدة البيانات" [ref=e164]:
+                - img [ref=e165]
+                - text: قاعدة البيانات
+              - tab "محادثات المعلم" [ref=e167]:
+                - img [ref=e168]
+                - text: محادثات المعلم
+              - tab "تنبيهات النظام 3" [ref=e170]:
+                - img [ref=e171]
+                - text: تنبيهات النظام
+                - generic [ref=e173]: "3"
+              - tab "سجل الجواهر" [ref=e174]:
+                - img [ref=e175]
+                - text: سجل الجواهر
+              - tab "إعدادات الدفع" [ref=e178]:
+                - img [ref=e179]
+                - text: إعدادات الدفع
+              - tab "ملفات التعليمات (v4)" [selected] [ref=e181]:
+                - img [ref=e182]
+                - text: ملفات التعليمات (v4)
+              - tab "ملازم (v4)" [ref=e184]:
+                - img [ref=e185]
+                - text: ملازم (v4)
+              - tab "مزوّد المعلم (AI)" [ref=e187]:
+                - img [ref=e188]
+                - text: مزوّد المعلم (AI)
+            - tabpanel "ملفات التعليمات (v4)" [ref=e254]:
+              - generic [ref=e255]:
+                - generic [ref=e256]:
+                  - generic [ref=e257]:
+                    - generic [ref=e258]:
+                      - img [ref=e259]
+                      - heading "اختر التخصص أو المهارة" [level=3] [ref=e262]
+                    - paragraph [ref=e263]: اختر من القائمة ثم اكتب ملف التعليمات (٥ مستويات × ٧ مراحل × ٩ وحدات × ١٠ دروس). بعد النشر يصبح هذا التخصص مبرمجاً تلقائياً على تعليماتك ولن يرى الطالب الصفحة القديمة.
+                    - combobox [ref=e264]:
+                      - option "— اختر تخصصاً أو مهارة —"
+                      - option "● 💻 تقنية المعلومات (uni-it)" [selected]
+                      - option "● 🛡️ أمن سيبراني (uni-cybersecurity)"
+                      - option "● 📊 علوم بيانات (uni-data-science)"
+                      - option "○ 📉 محاسبة (uni-accounting)"
+                      - option "○ 📈 إدارة أعمال (uni-business)"
+                      - option "○ ⚙️ هندسة برمجية (uni-software-eng)"
+                      - option "○ 🤖 ذكاء اصطناعي (uni-ai)"
+                      - option "○ 📱 تطوير موبايل (uni-mobile)"
+                      - option "○ ☁️ حوسبة سحابية (uni-cloud)"
+                      - option "○ 🌐 شبكات متقدمة (uni-networks)"
+                      - option "○ 🔬 هندسة غذائية (uni-food-eng)"
+                      - option "○ 🌐 HTML (skill-html)"
+                      - option "○ 🎨 CSS (skill-css)"
+                      - option "○ ⚡ JavaScript (skill-js)"
+                      - option "● 🐍 Python (skill-python)"
+                      - option "○ ⚙️ C++ (skill-cpp)"
+                      - option "○ 💻 C (skill-c)"
+                      - option "○ ☕ Java (skill-java)"
+                      - option "○ 🐧 Linux (skill-linux)"
+                      - option "○ 🪟 Windows (skill-windows)"
+                      - option "○ 🔌 أساسيات الشبكات (skill-net-basics)"
+                      - option "○ 👁️ Nmap (skill-nmap)"
+                      - option "○ 🦈 Wireshark (skill-wireshark)"
+                      - option "○ 🏢 يمن سوفت (skill-yemensoft)"
+                    - generic [ref=e265]:
+                      - generic [ref=e266]:
+                        - generic [ref=e267]: ●
+                        - text: منشور v4
+                      - generic [ref=e268]:
+                        - generic [ref=e269]: ○
+                        - text: لم يُنشر بعد (20)
+                  - generic [ref=e270]:
+                    - heading "المنشور حالياً" [level=3] [ref=e271]
+                    - generic [ref=e272]:
+                      - button "تحديث" [ref=e273]:
+                        - img
+                      - button "مسودة فارغة" [ref=e274]:
+                        - img
+                  - generic [ref=e275]:
+                    - button "🛡️ الأمن السيبراني cybersecurity-pro" [ref=e276]:
+                      - generic [ref=e277]:
+                        - generic [ref=e278]: 🛡️
+                        - generic [ref=e279]: الأمن السيبراني
+                      - generic [ref=e280]: cybersecurity-pro
+                    - button "📚 اسم التخصص example-specialty" [ref=e281]:
+                      - generic [ref=e282]:
+                        - generic [ref=e283]: 📚
+                        - generic [ref=e284]: اسم التخصص
+                      - generic [ref=e285]: example-specialty
+                    - button "📘 علوم البيانات v1 skill-data-science" [ref=e286]:
+                      - generic [ref=e287]:
+                        - generic [ref=e288]: 📘
+                        - generic [ref=e289]: علوم البيانات
+                        - generic [ref=e290]: v1
+                      - generic [ref=e291]: skill-data-science
+                    - button "📘 البرمجة بلغة بايثون v2 skill-python" [ref=e292]:
+                      - generic [ref=e293]:
+                        - generic [ref=e294]: 📘
+                        - generic [ref=e295]: البرمجة بلغة بايثون
+                        - generic [ref=e296]: v2
+                      - generic [ref=e297]: skill-python
+                    - button "🛡️ الأمن السيبراني v5 uni-cybersecurity" [ref=e298]:
+                      - generic [ref=e299]:
+                        - generic [ref=e300]: 🛡️
+                        - generic [ref=e301]: الأمن السيبراني
+                        - generic [ref=e302]: v5
+                      - generic [ref=e303]: uni-cybersecurity
+                    - button "📘 علوم البيانات v1 uni-data-science" [ref=e304]:
+                      - generic [ref=e305]:
+                        - generic [ref=e306]: 📘
+                        - generic [ref=e307]: علوم البيانات
+                        - generic [ref=e308]: v1
+                      - generic [ref=e309]: uni-data-science
+                    - button "📘 تكنولوجيا المعلومات v1 uni-it" [ref=e310]:
+                      - generic [ref=e311]:
+                        - generic [ref=e312]: 📘
+                        - generic [ref=e313]: تكنولوجيا المعلومات
+                        - generic [ref=e314]: v1
+                      - generic [ref=e315]: uni-it
+                  - heading "الإصدارات" [level=3] [ref=e566]
+                  - generic [ref=e584]:
+                    - button "v1 نشط ٥‏/٦‏/٢٠٢٦، ٤:٠٥:٢٢ م · 3144 درس" [ref=e585]:
+                      - generic [ref=e586]:
+                        - generic [ref=e587]: v1
+                        - generic [ref=e588]: نشط
+                      - generic [ref=e589]: ٥‏/٦‏/٢٠٢٦، ٤:٠٥:٢٢ م · 3144 درس
+                    - button "حذف" [ref=e590]:
+                      - img
+                  - button "تنزيل قالب JSON فارغ" [ref=e316]:
+                    - img
+                    - text: تنزيل قالب JSON فارغ
+                - generic [ref=e317]:
+                  - generic [ref=e318]:
+                    - generic [ref=e319]:
+                      - img [ref=e320]
+                      - 'heading "تحرير: uni-it · v1" [level=3] [ref=e571]'
+                    - generic [ref=e323]:
+                      - button "رفع ملف" [active] [ref=e324]:
+                        - img
+                        - text: رفع ملف
+                      - button "تحقق" [ref=e325]:
+                        - img
+                        - text: تحقق
+                      - button "إصلاح كل الأخطاء" [ref=e326]:
+                        - img
+                        - text: إصلاح كل الأخطاء
+                      - button "نشر إصدار جديد" [ref=e327]:
+                        - img
+                        - text: نشر إصدار جديد
+                  - generic [ref=e572]:
+                    - img [ref=e573]
+                    - generic [ref=e576]: توليد أسئلة تحديد المستوى (AI)
+                    - generic [ref=e577]: "المستوى:"
+                    - combobox [ref=e578]:
+                      - option "الكل" [selected]
+                      - option "المستوى 1"
+                      - option "المستوى 2"
+                      - option "المستوى 3"
+                      - option "المستوى 4"
+                      - option "المستوى 5"
+                    - generic [ref=e579]: "لكل وحدة:"
+                    - combobox [ref=e580]:
+                      - option "1"
+                      - option "2" [selected]
+                      - option "3"
+                      - option "4"
+                      - option "5"
+                    - button "توليد" [ref=e581]:
+                      - img
+                      - text: توليد
+                    - generic [ref=e582]: يقرأ وحدات الإصدار المنشور حالياً ويُولّد أسئلة موسومة بالوحدة، ثم يدمجها في المحرر للمراجعة قبل النشر.
+                  - generic [ref=e591]:
+                    - generic [ref=e592]: "المستويات: 5"
+                    - generic [ref=e593]: "المراحل: 35"
+                    - generic [ref=e594]: "الوحدات: 315"
+                    - generic [ref=e595]: "الدروس: 3144"
+                    - generic [ref=e596]: "المعامل: 629 (3145 سؤال)"
+                    - generic [ref=e597]: "المفاهيم: 9365"
+                    - generic [ref=e598]: "الأخطاء الشائعة: 7110"
+                    - generic [ref=e599]: "أسئلة الاختبارات: 11325"
+                    - generic [ref=e600]: "تحديد المستوى: 20"
+                  - generic [ref=e330]:
+                    - generic "This document contains many ambiguous unicode characters" [ref=e601]:
+                      - generic [ref=e603]: 
+                      - generic [ref=e605]: This document contains many ambiguous unicode characters
+                      - button "Disable Ambiguous Highlight" [ref=e607] [cursor=pointer]
+                      - toolbar [ref=e610]:
+                        - button "Close Banner" [ref=e611] [cursor=pointer]: 
+                    - code [ref=e331]:
+                      - generic [ref=e332]:
+                        - textbox "Editor content" [ref=e333]
+                        - textbox [ref=e334]
+                        - generic [ref=e336]:
+                          - generic [ref=e613]: "1"
+                          - generic [ref=e615]: "2"
+                          - generic [ref=e617]: "3"
+                          - generic [ref=e619]: "4"
+                          - generic [ref=e621]: "5"
+                          - generic [ref=e623]: "6"
+                          - generic [ref=e625]: "7"
+                          - generic [ref=e627]: "8"
+                          - generic [ref=e629]: "9"
+                          - generic [ref=e632]: "10"
+                          - generic [ref=e634]: "11"
+                          - generic [ref=e636]: "12"
+                          - generic [ref=e638]: "13"
+                          - generic [ref=e640]: "14"
+                          - generic [ref=e642]: "15"
+                          - generic [ref=e644]: "16"
+                          - generic [ref=e646]: "17"
+                          - generic [ref=e648]: "18"
+                          - generic [ref=e650]: "19"
+                          - generic [ref=e652]: "20"
+                          - generic [ref=e654]: "21"
+                          - generic [ref=e656]: "22"
+                          - generic [ref=e658]: "23"
+                          - generic [ref=e660]: "24"
+                          - generic [ref=e662]: "25"
+                        - generic [ref=e505]:
+                          - generic [ref=e807]: "{"
+                          - generic [ref=e809]: "\"levels\": ["
+                          - generic [ref=e811]: "{"
+                          - generic [ref=e813]: "\"exam\": {"
+                          - generic [ref=e815]: "\"question_types\": [],"
+                          - generic [ref=e817]: "\"time_limit_minutes\": 45,"
+                          - generic [ref=e819]: "\"pass_threshold_percent\": 60"
+                          - generic [ref=e821]: "},"
+                          - generic [ref=e823]: "\"goal\": \"إكساب الطالب المفاهيم الأساسية والأدوات الأولية لفهم عالم"
+                          - generic [ref=e825]: تكنولوجيا المعلومات وبناء قاعدة معرفية صلبة.",
+                          - generic [ref=e827]: "\"name\": \"أساسيات تكنولوجيا المعلومات\","
+                          - generic [ref=e829]: "\"stages\": ["
+                          - generic [ref=e831]: "{"
+                          - generic [ref=e833]: "\"exam\": {"
+                          - generic [ref=e835]: "\"question_types\": [],"
+                          - generic [ref=e837]: "\"pass_threshold_percent\": 60"
+                          - generic [ref=e839]: "},"
+                          - generic [ref=e841]: "\"goal\": \"فهم المكونات الأساسية للحاسوب ووظائفها، وتاريخ تطوره.\","
+                          - generic [ref=e843]: "\"name\": \"مقدمة للحاسوب\","
+                          - generic [ref=e845]: "\"units\": ["
+                          - generic [ref=e847]: "{"
+                          - generic [ref=e849]: "\"exam\": {"
+                          - generic [ref=e851]: "\"question_types\": [],"
+                          - generic [ref=e853]: "\"pass_threshold_percent\": 60"
+                          - generic [ref=e855]: "},"
+                          - generic [ref=e857]: "\"goal\": \"التعرف على الأجزاء الرئيسية للحاسوب ووظيفة كل منها.\","
+      - button "افتح مساعد نُخبة" [ref=e230]:
+        - generic [ref=e232]:
+          - img [ref=e233]
+          - generic [ref=e236]: مساعد نُخبة
+      - contentinfo [ref=e238]:
+        - generic [ref=e239]:
+          - generic [ref=e241]:
+            - img "شعار نُخبة" [ref=e242]:
+              - generic [ref=e249]: ن
+            - generic [ref=e252]: نُخبة
+          - paragraph [ref=e253]: جميع الحقوق محفوظة 2026 © نُخبة
+    - region "Notifications (F8)":
+      - list
+  - generic [ref=e561]:
+    - alert
+    - alert

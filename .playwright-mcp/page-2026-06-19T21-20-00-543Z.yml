@@ -1,0 +1,49 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e6]:
+        - link "شعار نُخبة نُخبة" [ref=e7] [cursor=pointer]:
+          - /url: /learn
+          - generic [ref=e9]:
+            - img "شعار نُخبة" [ref=e10]:
+              - generic [ref=e17]: ن
+            - generic [ref=e20]: نُخبة
+        - navigation [ref=e21]:
+          - link "تعلّم" [ref=e22] [cursor=pointer]:
+            - /url: /learn
+          - link "لوحتي" [ref=e23] [cursor=pointer]:
+            - /url: /dashboard
+          - link "الاشتراك" [ref=e24] [cursor=pointer]:
+            - /url: /subscription
+          - link "الدعم" [ref=e25] [cursor=pointer]:
+            - /url: /support
+            - generic [ref=e27]:
+              - img [ref=e28]
+              - text: الدعم
+        - generic [ref=e30]:
+          - button "Switch to English" [ref=e31]:
+            - img [ref=e32]
+            - generic [ref=e35]: EN
+          - img [ref=e39]
+          - button "خروج" [ref=e42]:
+            - img [ref=e43]
+            - generic [ref=e46]: خروج
+    - main [ref=e47]:
+      - generic [ref=e48]:
+        - img [ref=e49]
+        - heading "غير مصرح" [level=1] [ref=e51]
+        - paragraph [ref=e52]: ليس لديك صلاحية للوصول إلى هذه الصفحة
+        - button "العودة للرئيسية" [ref=e53]
+    - button "افتح مساعد نُخبة" [ref=e54]:
+      - generic [ref=e56]:
+        - img [ref=e57]
+        - generic [ref=e60]: مساعد نُخبة
+    - contentinfo [ref=e62]:
+      - generic [ref=e63]:
+        - generic [ref=e65]:
+          - img "شعار نُخبة" [ref=e66]:
+            - generic [ref=e73]: ن
+          - generic [ref=e76]: نُخبة
+        - paragraph [ref=e77]: جميع الحقوق محفوظة 2026 © نُخبة
+  - region "Notifications (F8)":
+    - list

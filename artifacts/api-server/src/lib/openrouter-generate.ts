@@ -48,6 +48,10 @@ function toOpenRouterModel(model: string): string {
     "gemini-2.0-flash-lite": "google/gemini-2.5-flash-lite",
     "gemini-1.5-flash":      "google/gemini-flash-1.5",
     "gemini-1.5-pro":        "google/gemini-pro-1.5",
+    // DeepSeek models via OpenRouter
+    "deepseek-v4":           "deepseek/deepseek-v4-pro",
+    "deepseek-v3":           "deepseek/deepseek-chat",
+    "deepseek-r1":           "deepseek/deepseek-r1",
   };
   const resolved = map[model] ?? (model.includes("/") ? model : `google/${model}`);
   // Defensive: any caller still passing a retired full 2.0 slug gets
