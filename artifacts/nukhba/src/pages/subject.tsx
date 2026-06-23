@@ -4376,6 +4376,15 @@ function SubjectPathChat({
   const gemLowBalance = !!gemState && gemState.remaining > 0 && gemState.remaining < 70;
   const gemEmpty = !!gemState && gemState.remaining <= 0;
 
+  // Seed gemsRemaining from the fetched gemState so the gem badge appears
+  // immediately on page load — not only after the first SSE turn.
+  // The functional updater keeps any SSE-provided value once it arrives.
+  useEffect(() => {
+    if (gemState !== null) {
+      setGemsRemaining(prev => prev ?? gemState.remaining);
+    }
+  }, [gemState?.remaining]);
+
   // ── Welcome empty-state starters ──────────────────────────────────────────
   // Same heuristics as the inline suggestion chips, exposed here so the
   // empty-state card can show them too.
