@@ -201,11 +201,11 @@ router.get("/v4/path/:slug/wallet", requireUser, async (req, res) => {
           eq(studentGemWalletsTable.subjectId, slug),
         )),
       db
-        .select({ name: v4SpecialtiesTable.name, nameAr: (v4SpecialtiesTable as any).nameAr, icon: v4SpecialtiesTable.icon })
+        .select({ name: v4SpecialtiesTable.name, icon: v4SpecialtiesTable.icon })
         .from(v4SpecialtiesTable)
         .where(eq(v4SpecialtiesTable.slug, slug)),
     ]);
-    const specialtyName: string = (sp as any)?.nameAr ?? (sp as any)?.name ?? slug;
+    const specialtyName: string = (sp as any)?.name ?? slug;
     const specialtyIcon: string | null = (sp as any)?.icon ?? null;
     if (!w) {
       res.json({ exists: false, gemsBalance: 0, expiresAt: null, specialtyName, specialtyIcon });

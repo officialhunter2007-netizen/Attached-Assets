@@ -150,6 +150,14 @@ function StructuralTree({ tree }: { tree: Tree }) {
   );
 }
 
+const BOOKLET_PREP_GEMS = 150;
+
+type WalletInfo = {
+  exists: boolean;
+  gemsBalance: number;
+  expiresAt: string | null;
+};
+
 export default function PathBooklet() {
   const [, params] = useRoute<{ slug: string }>("/path/:slug/booklet");
   const slug = params?.slug ?? "";
@@ -167,12 +175,26 @@ export default function PathBooklet() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [wallet, setWallet] = useState<WalletInfo | null>(null);
 
-  // Failed booklets are retryable scaffolding and don't count toward the cap
-  // (mirrors the server-side limit check).
   const MAX_BOOKLETS = 5;
   const activeCount = booklets.filter((b) => b.status !== "failed").length;
   const atLimit = activeCount >= MAX_BOOKLETS;
+
+  const walletExpired = wallet?.exists && wallet.expiresAt
+    ? new Date(wallet.expiresAt).getTime() < Date.now()
+    : false;
+  const walletBalance = wallet?.gemsBalance ?? 0;
+  const canAffordBooklet = !walletExpired && walletBalance >= BOOKLET_PREP_GEMS;
+
+  async function refreshWallet() {
+    try {
+      const r = await fetch(`/api/v4/path/${encodeURIComponent(slug)}/wallet`, { credentials: "include" });
+      if (!r.ok) return;
+      const data = await r.json();
+      setWallet({ exists: !!data.exists, gemsBalance: Number(data.gemsBalance ?? 0), expiresAt: data.expiresAt ?? null });
+    } catch {}
+  }
 
   async function refreshList() {
     try {
@@ -194,7 +216,11 @@ export default function PathBooklet() {
     } catch {}
   }
 
-  useEffect(() => { if (slug) void refreshList(); }, [slug]);
+  useEffect(() => {
+    if (!slug) return;
+    void refreshList();
+    void refreshWallet();
+  }, [slug]);
 
   // Clear pendingId once it reaches a terminal state — otherwise the
   // polling loop below would keep firing forever after the booklet is
@@ -311,6 +337,39 @@ export default function PathBooklet() {
           </p>
         </div>
 
+        {/* Wallet balance banner */}
+        {wallet !== null && (
+          <div className={`rounded-xl border px-4 py-3 mb-4 flex items-center gap-3 text-sm ${
+            canAffordBooklet
+              ? "bg-emerald/10 border-emerald/30 text-emerald"
+              : walletExpired
+                ? "bg-red-500/10 border-red-500/30 text-red-400"
+                : "bg-amber-500/10 border-amber-500/30 text-amber-300"
+          }`}>
+            <span className="text-xl">💎</span>
+            <div className="flex-1 min-w-0">
+              {!wallet.exists ? (
+                <span>لا توجد محفظة لهذا التخصص. يجب الاشتراك أو توزيع هدية الترحيب أولاً.</span>
+              ) : walletExpired ? (
+                <span>
+                  رصيدك في هذا التخصص: <strong>{walletBalance}</strong> جوهرة — <strong>المحفظة منتهية الصلاحية.</strong>{" "}
+                  جدّد اشتراكك لتتمكن من رفع ملازم جديدة.
+                </span>
+              ) : (
+                <span>
+                  رصيدك في هذا التخصص: <strong>{walletBalance}</strong> جوهرة
+                  {!canAffordBooklet && ` — تحتاج ${BOOKLET_PREP_GEMS} جوهرة لتجهيز الملزمة`}
+                  {wallet.expiresAt && (
+                    <span className="opacity-70 text-xs mr-2">
+                      (صالح حتى {new Date(wallet.expiresAt).toLocaleDateString("ar")})
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Upload form */}
         <motion.div
           initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
@@ -335,13 +394,13 @@ export default function PathBooklet() {
                 ref={fileRef} type="file"
                 accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                disabled={atLimit}
+                disabled={atLimit || !canAffordBooklet}
                 className="hidden"
               />
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                disabled={atLimit}
+                disabled={atLimit || !canAffordBooklet}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/20 text-sm text-white/80 hover:bg-white/10 hover:border-emerald/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Upload className="w-4 h-4 text-emerald" />
@@ -369,7 +428,7 @@ export default function PathBooklet() {
             {uploadErr && <div className="text-sm text-red-400">{uploadErr}</div>}
             <button
               onClick={doUpload}
-              disabled={uploading || !file || atLimit}
+              disabled={uploading || !file || atLimit || !canAffordBooklet}
               className="px-5 py-2.5 rounded-xl bg-emerald text-black font-bold text-sm hover:bg-emerald/90 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
             >
               {uploading ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الرفع…</> : <><Sparkles className="w-4 h-4" /> ارفع وحلّل</>}
