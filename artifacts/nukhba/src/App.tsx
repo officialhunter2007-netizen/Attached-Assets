@@ -242,7 +242,6 @@ function App() {
               <Router />
               <WelcomeOfferModal />
               <WelcomeGiftModal />
-              <ReferralGemsModal />
             </WouterRouter>
             <Toaster />
           </TooltipProvider>

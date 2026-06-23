@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { CheckCircle2, Star, GraduationCap, Terminal, Sparkles, ArrowLeft } from "lucide-react";
 import { useLang } from "@/lib/lang-context";
+import { ReferralGemsModal } from "@/components/referral-gems-modal";
 
 /* Map Tailwind color class prefix to actual hex for glow */
 const colorGlowMap: Record<string, { glow: string; gradFrom: string; gradTo: string; border: string }> = {
@@ -213,6 +214,9 @@ export default function Learn() {
               {tr.learn.desc}
             </p>
           </motion.div>
+
+          {/* Referral gems banner — inline, signed-in only */}
+          <ReferralGemsModal inline />
 
           {/* Tabs */}
           <Tabs defaultValue="university" className="w-full">

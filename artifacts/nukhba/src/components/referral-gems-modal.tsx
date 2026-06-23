@@ -73,7 +73,7 @@ function mapAllocErr(code: unknown, ar: boolean): string {
   }
 }
 
-export function ReferralGemsModal() {
+export function ReferralGemsModal({ inline = false }: { inline?: boolean }) {
   const { user } = useAuth();
   const { lang } = useLang();
   const ar = lang === "ar";
@@ -281,13 +281,19 @@ export function ReferralGemsModal() {
   // Signed-out → render nothing (the ?ref capture effect above still ran).
   if (!user) return null;
 
-  // ── Floating sky-blue button (top-left) ────────────────────────────────────
+  // ── Trigger button ─────────────────────────────────────────────────────────
   if (!open) {
+    // inline=true → full-width banner embedded in the page (used in /learn)
+    // inline=false → fixed floating pill (legacy; no longer used by default)
+    const buttonClass = inline
+      ? "w-full flex items-center gap-3 rounded-2xl px-5 py-3.5 text-sm font-extrabold text-white mb-6"
+      : "fixed left-3 top-[76px] z-[120] flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-extrabold text-white";
+
     return (
       <motion.button
         onClick={openModal}
         dir={ar ? "rtl" : "ltr"}
-        initial={{ opacity: 0, y: -8 }}
+        initial={{ opacity: 0, y: inline ? 12 : -8 }}
         animate={{
           opacity: 1,
           y: 0,
@@ -302,9 +308,9 @@ export function ReferralGemsModal() {
           y: { duration: 0.4 },
           boxShadow: { duration: 2.4, repeat: Infinity, ease: "easeInOut" },
         }}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.96 }}
-        className="fixed left-3 top-[76px] z-[120] flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-extrabold text-white"
+        whileHover={{ scale: inline ? 1.01 : 1.05 }}
+        whileTap={{ scale: 0.97 }}
+        className={buttonClass}
         style={{
           background: "linear-gradient(135deg, #7dd3fc 0%, #38bdf8 45%, #0ea5e9 100%)",
           border: "1px solid rgba(186,230,253,0.7)",
@@ -312,8 +318,10 @@ export function ReferralGemsModal() {
         }}
         data-testid="referral-gems-button"
       >
-        <Sparkles className="w-4 h-4" />
-        <span>{ar ? "احصل على جواهر اضافية" : "Get extra gems"}</span>
+        <Sparkles className="w-4 h-4 shrink-0" />
+        <span className="flex-1 text-start">
+          {ar ? "احصل على جواهر اضافية" : "Get extra gems"}
+        </span>
         {remaining > 0 && (
           <span className="rounded-full bg-white/25 px-2 py-0.5 text-xs font-black tabular-nums">
             {remaining} 💎
