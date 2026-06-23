@@ -148,26 +148,32 @@ export async function attributeReferral(
   if (!referrer) throw new ReferralError("UNKNOWN_CODE", "رمز الدعوة غير صحيح");
   if (referrer.id === userId) throw new ReferralError("SELF_REFERRAL", "لا يمكنك دعوة نفسك");
 
-  const [existing] = await db
-    .select({ referrerUserId: referralsTable.referrerUserId })
-    .from(referralsTable)
-    .where(eq(referralsTable.referredUserId, userId));
-  if (existing) {
-    if (existing.referrerUserId === referrer.id) return { ok: true, status: "already" };
-    throw new ReferralError("ALREADY_REFERRED", "تم ربط حسابك بدعوة سابقة");
-  }
+  // All read-checks + the insert run in ONE transaction so concurrent
+  // attribution attempts (or a subscription landing between the prior-sub
+  // check and the insert) can't slip a second code in or report a wrong
+  // status. The unique index on referred_user_id is the final integrity
+  // backstop; on a lost race we re-read and report the accurate outcome.
+  return await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ referrerUserId: referralsTable.referrerUserId })
+      .from(referralsTable)
+      .where(eq(referralsTable.referredUserId, userId))
+      .for("update");
+    if (existing) {
+      if (existing.referrerUserId === referrer.id) return { ok: true, status: "already" };
+      throw new ReferralError("ALREADY_REFERRED", "تم ربط حسابك بدعوة سابقة");
+    }
 
-  // Only accounts with no prior subscription can attach a referral code, so an
-  // established (already-paid) user can't retroactively claim a friend's code.
-  const [priorSub] = await db
-    .select({ id: userSubjectSubscriptionsTable.id })
-    .from(userSubjectSubscriptionsTable)
-    .where(eq(userSubjectSubscriptionsTable.userId, userId))
-    .limit(1);
-  if (priorSub) throw new ReferralError("NOT_ELIGIBLE", "هذا الحساب غير مؤهل لربط دعوة");
+    // Only accounts with no prior subscription can attach a referral code, so an
+    // established (already-paid) user can't retroactively claim a friend's code.
+    const [priorSub] = await tx
+      .select({ id: userSubjectSubscriptionsTable.id })
+      .from(userSubjectSubscriptionsTable)
+      .where(eq(userSubjectSubscriptionsTable.userId, userId))
+      .limit(1);
+    if (priorSub) throw new ReferralError("NOT_ELIGIBLE", "هذا الحساب غير مؤهل لربط دعوة");
 
-  try {
-    await db
+    const inserted = await tx
       .insert(referralsTable)
       .values({
         referrerUserId: referrer.id,
@@ -175,11 +181,20 @@ export async function attributeReferral(
         referralCode: code,
         accessDaysGranted: 0,
       })
-      .onConflictDoNothing({ target: referralsTable.referredUserId });
-  } catch (e: any) {
-    if (!isUniqueViolation(e)) throw e; // concurrent attribution — harmless
-  }
-  return { ok: true, status: "recorded" };
+      .onConflictDoNothing({ target: referralsTable.referredUserId })
+      .returning({ id: referralsTable.id });
+
+    if (inserted.length === 0) {
+      // Lost a concurrent race — re-read to report the accurate status.
+      const [winner] = await tx
+        .select({ referrerUserId: referralsTable.referrerUserId })
+        .from(referralsTable)
+        .where(eq(referralsTable.referredUserId, userId));
+      if (winner && winner.referrerUserId === referrer.id) return { ok: true, status: "already" };
+      throw new ReferralError("ALREADY_REFERRED", "تم ربط حسابك بدعوة سابقة");
+    }
+    return { ok: true, status: "recorded" };
+  });
 }
 
 // ── Eligibility ──────────────────────────────────────────────────────────────

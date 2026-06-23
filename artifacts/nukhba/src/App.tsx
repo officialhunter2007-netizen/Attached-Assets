@@ -20,6 +20,7 @@ import Subscription from "@/pages/subscription";
 import Usage from "@/pages/usage";
 import { WelcomeOfferModal } from "@/components/welcome-offer-modal";
 import { WelcomeGiftModal } from "@/components/welcome-gift-modal";
+import { ReferralGemsModal } from "@/components/referral-gems-modal";
 import Admin from "@/pages/admin";
 import Support from "@/pages/support";
 import PathChoice from "@/pages/path-choice";
@@ -241,6 +242,7 @@ function App() {
               <Router />
               <WelcomeOfferModal />
               <WelcomeGiftModal />
+              <ReferralGemsModal />
             </WouterRouter>
             <Toaster />
           </TooltipProvider>
