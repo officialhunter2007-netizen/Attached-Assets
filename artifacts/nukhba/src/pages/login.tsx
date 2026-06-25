@@ -54,10 +54,23 @@ export default function Login() {
       // Match Google OAuth behaviour: onboardingDone → /learn, otherwise → /welcome
       navigate(user.onboardingDone ? "/learn" : "/welcome");
     } catch (err: any) {
-      // ApiError stores the parsed JSON body in `.data` (matching admin page's extractServerError).
-      const msg = err?.data?.error || err?.body?.error || err?.message || "";
+      // ApiError stores the parsed JSON body in `.data`.
+      // Guard against HTML responses (e.g. Replit proxy returning a 404 page
+      // when the API server is still starting up).
+      const jsonMsg = err?.data?.error || err?.body?.error || "";
+      const rawMsg: string = err?.message || "";
+      const isHtmlResponse =
+        rawMsg.includes("<!DOCTYPE") ||
+        rawMsg.includes("<html") ||
+        rawMsg.includes("<title>") ||
+        rawMsg.includes("text/html");
+
+      const msg = jsonMsg || (isHtmlResponse ? "" : rawMsg);
+
       if (msg.includes("غير صحيحة") || msg.includes("Invalid")) {
         setError(tr.login.invalidCredentials);
+      } else if (isHtmlResponse || (!msg && err?.status >= 500)) {
+        setError("تعذّر الاتصال بالخادم، يرجى المحاولة مجدداً بعد لحظات");
       } else {
         setError(msg || tr.login.invalidCredentials);
       }
