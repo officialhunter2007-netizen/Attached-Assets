@@ -59,13 +59,17 @@ export default function Support() {
       return;
     }
     setSending(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       const res = await fetch("/api/support/send", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subject: subject.trim(), message: message.trim() }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (res.ok) {
         toast({ title: tr.support.toastSentTitle, description: tr.support.toastSentDesc, className: "bg-emerald-600 border-none text-white" });
         setMessage("");
@@ -74,9 +78,11 @@ export default function Support() {
         toast({ variant: "destructive", title: tr.support.toastFailTitle, description: tr.support.toastFailDesc });
       }
     } catch {
+      clearTimeout(timeout);
       toast({ variant: "destructive", title: tr.support.toastErrTitle, description: tr.support.toastErrGeneric });
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   };
 
   const formatDate = (d: string) => {

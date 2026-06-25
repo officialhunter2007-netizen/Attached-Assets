@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, or, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db, supportMessagesTable, usersTable } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -21,13 +21,16 @@ router.get("/support/my-messages", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const msgs = await db
-    .select()
-    .from(supportMessagesTable)
-    .where(eq(supportMessagesTable.userId, userId))
-    .orderBy(desc(supportMessagesTable.createdAt));
-
-  res.json(msgs);
+  try {
+    const msgs = await db
+      .select()
+      .from(supportMessagesTable)
+      .where(eq(supportMessagesTable.userId, userId))
+      .orderBy(desc(supportMessagesTable.createdAt));
+    res.json(msgs);
+  } catch (err: any) {
+    res.status(500).json({ error: "تعذّر تحميل الرسائل" });
+  }
 });
 
 router.post("/support/send", async (req, res) => {
@@ -39,33 +42,39 @@ router.post("/support/send", async (req, res) => {
     res.status(400).json({ error: "الموضوع والرسالة مطلوبان" }); return;
   }
 
-  const user = await db.select().from(usersTable).where(eq(usersTable.id, userId)).then(r => r[0]);
+  try {
+    const user = await db.select().from(usersTable).where(eq(usersTable.id, userId)).then(r => r[0]);
 
-  const [msg] = await db.insert(supportMessagesTable).values({
-    userId,
-    userName: user?.displayName ?? null,
-    userEmail: user?.email ?? null,
-    subject: subject.trim(),
-    message: message.trim(),
-    isFromAdmin: false,
-    isRead: false,
-    threadId: threadId ?? null,
-  }).returning();
+    const [msg] = await db.insert(supportMessagesTable).values({
+      userId,
+      userName: user?.displayName ?? null,
+      userEmail: user?.email ?? null,
+      subject: subject.trim(),
+      message: message.trim(),
+      isFromAdmin: false,
+      isRead: false,
+      threadId: threadId ?? null,
+    }).returning();
 
-  res.json(msg);
+    res.json(msg);
+  } catch (err: any) {
+    res.status(500).json({ error: "تعذّر إرسال الرسالة، يرجى المحاولة مجدداً" });
+  }
 });
 
 router.post("/support/mark-read", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  await db.update(supportMessagesTable)
-    .set({ isRead: true })
-    .where(and(
-      eq(supportMessagesTable.userId, userId),
-      eq(supportMessagesTable.isFromAdmin, true),
-      eq(supportMessagesTable.isRead, false),
-    ));
+  try {
+    await db.update(supportMessagesTable)
+      .set({ isRead: true })
+      .where(and(
+        eq(supportMessagesTable.userId, userId),
+        eq(supportMessagesTable.isFromAdmin, true),
+        eq(supportMessagesTable.isRead, false),
+      ));
+  } catch {}
 
   res.json({ success: true });
 });
@@ -74,62 +83,69 @@ router.get("/support/unread-count", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const [result] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(supportMessagesTable)
-    .where(and(
-      eq(supportMessagesTable.userId, userId),
-      eq(supportMessagesTable.isFromAdmin, true),
-      eq(supportMessagesTable.isRead, false),
-    ));
-
-  res.json({ count: result?.count ?? 0 });
+  try {
+    const [result] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(supportMessagesTable)
+      .where(and(
+        eq(supportMessagesTable.userId, userId),
+        eq(supportMessagesTable.isFromAdmin, true),
+        eq(supportMessagesTable.isRead, false),
+      ));
+    res.json({ count: result?.count ?? 0 });
+  } catch {
+    res.json({ count: 0 });
+  }
 });
 
 router.get("/admin/support/threads", async (req, res) => {
   if (!(await isAdmin(req))) { res.status(403).json({ error: "Forbidden" }); return; }
 
-  const allMessages = await db
-    .select()
-    .from(supportMessagesTable)
-    .orderBy(desc(supportMessagesTable.createdAt));
+  try {
+    const allMessages = await db
+      .select()
+      .from(supportMessagesTable)
+      .orderBy(desc(supportMessagesTable.createdAt));
 
-  const threadMap = new Map<number, {
-    userId: number;
-    userName: string | null;
-    userEmail: string | null;
-    lastSubject: string;
-    lastMessage: string;
-    lastAt: string;
-    unreadCount: number;
-    totalMessages: number;
-    messages: typeof allMessages;
-  }>();
+    const threadMap = new Map<number, {
+      userId: number;
+      userName: string | null;
+      userEmail: string | null;
+      lastSubject: string;
+      lastMessage: string;
+      lastAt: string;
+      unreadCount: number;
+      totalMessages: number;
+      messages: typeof allMessages;
+    }>();
 
-  for (const msg of allMessages) {
-    if (!threadMap.has(msg.userId)) {
-      threadMap.set(msg.userId, {
-        userId: msg.userId,
-        userName: msg.userName,
-        userEmail: msg.userEmail,
-        lastSubject: msg.subject,
-        lastMessage: msg.message,
-        lastAt: msg.createdAt?.toISOString() ?? "",
-        unreadCount: 0,
-        totalMessages: 0,
-        messages: [],
-      });
+    for (const msg of allMessages) {
+      if (!threadMap.has(msg.userId)) {
+        threadMap.set(msg.userId, {
+          userId: msg.userId,
+          userName: msg.userName,
+          userEmail: msg.userEmail,
+          lastSubject: msg.subject,
+          lastMessage: msg.message,
+          lastAt: msg.createdAt?.toISOString() ?? "",
+          unreadCount: 0,
+          totalMessages: 0,
+          messages: [],
+        });
+      }
+      const thread = threadMap.get(msg.userId)!;
+      thread.totalMessages++;
+      if (!msg.isFromAdmin && !msg.isRead) thread.unreadCount++;
+      thread.messages.push(msg);
     }
-    const thread = threadMap.get(msg.userId)!;
-    thread.totalMessages++;
-    if (!msg.isFromAdmin && !msg.isRead) thread.unreadCount++;
-    thread.messages.push(msg);
+
+    const threads = Array.from(threadMap.values())
+      .sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
+
+    res.json(threads);
+  } catch (err: any) {
+    res.status(500).json({ error: "تعذّر تحميل المحادثات" });
   }
-
-  const threads = Array.from(threadMap.values())
-    .sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
-
-  res.json(threads);
 });
 
 router.post("/admin/support/reply", async (req, res) => {
@@ -140,60 +156,69 @@ router.post("/admin/support/reply", async (req, res) => {
     res.status(400).json({ error: "Missing fields" }); return;
   }
 
-  const [msg] = await db.insert(supportMessagesTable).values({
-    userId: Number(userId),
-    userName: "المشرف",
-    userEmail: "admin",
-    subject: subject?.trim() || "رد من المشرف",
-    message: message.trim(),
-    isFromAdmin: true,
-    isRead: false,
-    threadId: null,
-  }).returning();
+  try {
+    const [msg] = await db.insert(supportMessagesTable).values({
+      userId: Number(userId),
+      userName: "المشرف",
+      userEmail: "admin",
+      subject: subject?.trim() || "رد من المشرف",
+      message: message.trim(),
+      isFromAdmin: true,
+      isRead: false,
+      threadId: null,
+    }).returning();
 
-  await db.update(supportMessagesTable)
-    .set({ isRead: true })
-    .where(and(
-      eq(supportMessagesTable.userId, Number(userId)),
-      eq(supportMessagesTable.isFromAdmin, false),
-      eq(supportMessagesTable.isRead, false),
-    ));
+    await db.update(supportMessagesTable)
+      .set({ isRead: true })
+      .where(and(
+        eq(supportMessagesTable.userId, Number(userId)),
+        eq(supportMessagesTable.isFromAdmin, false),
+        eq(supportMessagesTable.isRead, false),
+      ));
 
-  res.json(msg);
+    res.json(msg);
+  } catch (err: any) {
+    res.status(500).json({ error: "تعذّر إرسال الرد" });
+  }
 });
 
 router.get("/admin/support/unread-count", async (req, res) => {
   if (!(await isAdmin(req))) { res.status(403).json({ error: "Forbidden" }); return; }
 
-  const [result] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(supportMessagesTable)
-    .where(and(
-      eq(supportMessagesTable.isFromAdmin, false),
-      eq(supportMessagesTable.isRead, false),
-    ));
-
-  res.json({ count: result?.count ?? 0 });
+  try {
+    const [result] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(supportMessagesTable)
+      .where(and(
+        eq(supportMessagesTable.isFromAdmin, false),
+        eq(supportMessagesTable.isRead, false),
+      ));
+    res.json({ count: result?.count ?? 0 });
+  } catch {
+    res.json({ count: 0 });
+  }
 });
 
 router.post("/heartbeat", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
   const { page } = req.body;
-  const existing = liveUsers.get(userId);
-  if (existing) {
-    existing.page = page || "/";
-    existing.lastSeen = Date.now();
-  } else {
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-    liveUsers.set(userId, {
-      name: user?.displayName || "",
-      email: user?.email || "",
-      page: page || "/",
-      profileImage: user?.profileImage || null,
-      lastSeen: Date.now(),
-    });
-  }
+  try {
+    const existing = liveUsers.get(userId);
+    if (existing) {
+      existing.page = page || "/";
+      existing.lastSeen = Date.now();
+    } else {
+      const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+      liveUsers.set(userId, {
+        name: user?.displayName || "",
+        email: user?.email || "",
+        page: page || "/",
+        profileImage: user?.profileImage || null,
+        lastSeen: Date.now(),
+      });
+    }
+  } catch {}
   res.json({ ok: true });
 });
 
