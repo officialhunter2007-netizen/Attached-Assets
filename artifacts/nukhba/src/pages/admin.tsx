@@ -424,17 +424,25 @@ export default function Admin() {
 
   // Extract a server-supplied Arabic error from orval/axios/fetch errors.
   const extractServerError = (err: unknown): string | null => {
-    const e = err as { data?: { error?: unknown; message?: unknown }; response?: { data?: { error?: unknown; message?: unknown } }; message?: unknown } | null | undefined;
+    const e = err as { data?: { error?: unknown; message?: unknown }; response?: { data?: { error?: unknown; message?: unknown } }; message?: unknown; status?: unknown } | null | undefined;
     const candidates = [e?.data, e?.response?.data];
     for (const data of candidates) {
       const errVal = data?.error;
-      if (typeof errVal === "string" && errVal.trim()) return errVal.trim();
+      if (typeof errVal === "string" && errVal.trim() && !errVal.trimStart().startsWith("<")) return errVal.trim();
       const msgVal = data?.message;
-      if (typeof msgVal === "string" && msgVal.trim()) return msgVal.trim();
+      if (typeof msgVal === "string" && msgVal.trim() && !msgVal.trimStart().startsWith("<")) return msgVal.trim();
     }
     const m = e?.message;
     if (typeof m === "string" && m.trim() && m !== "Network Error") {
+      // Strip the "HTTP NNN StatusText: " prefix injected by the API client.
       const cleaned = m.replace(/^HTTP\s+\d+\s+[^:]+:\s*/i, "").trim();
+      // Never surface raw HTML (e.g. proxy 502 pages) as an error description.
+      if (cleaned.startsWith("<") || cleaned.toLowerCase().startsWith("<!doctype")) {
+        // Fall back to a status-code-based friendly message.
+        const status = typeof e?.status === "number" ? e.status : parseInt(m.match(/^HTTP\s+(\d+)/i)?.[1] ?? "", 10);
+        if (status === 502 || status === 503 || status === 504) return "الخادم مؤقتاً غير متاح — أعد المحاولة بعد لحظات.";
+        return "تعذّر الاتصال بالخادم.";
+      }
       return cleaned || m;
     }
     return null;

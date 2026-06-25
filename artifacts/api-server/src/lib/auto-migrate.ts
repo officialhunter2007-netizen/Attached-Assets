@@ -1557,6 +1557,8 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     // Newer fields on subscription_requests (discount + per-subject fields)
     // that may be missing on legacy databases. Without them, request
     // creation works but approve later cannot read e.g. finalPrice/region.
+    // NOTE: legacy DBs stored plan in a column called "plan"; the Drizzle schema
+    // uses "plan_type". Both can coexist — ADD COLUMN IF NOT EXISTS is safe.
     table: "subscription_requests",
     columns: [
       { name: "account_name", ddl: "text NOT NULL DEFAULT ''" },
@@ -1568,6 +1570,40 @@ const REQUIRED_COLUMNS: TableSpec[] = [
       { name: "discount_percent", ddl: "integer" },
       { name: "base_price", ddl: "integer" },
       { name: "final_price", ddl: "integer" },
+      // Columns present in the Drizzle schema but absent from legacy DBs that
+      // were created before the schema was updated to use plan_type/region/etc.
+      { name: "plan_type", ddl: "text" },
+      { name: "transaction_id", ddl: "text" },
+      { name: "region", ddl: "text" },
+      { name: "activation_code", ddl: "text" },
+      { name: "notes", ddl: "text" },
+    ],
+  },
+  {
+    // activation_cards: legacy DBs used "code" and "plan"; Drizzle schema uses
+    // "activation_code" and "plan_type". Add the new names alongside old ones.
+    table: "activation_cards",
+    columns: [
+      { name: "activation_code", ddl: "text" },
+      { name: "plan_type", ddl: "text" },
+      { name: "region", ddl: "text" },
+      { name: "subject_id", ddl: "text" },
+      { name: "subject_name", ddl: "text" },
+      { name: "subscription_request_id", ddl: "integer" },
+      { name: "used_by_user_id", ddl: "integer" },
+      { name: "used_at", ddl: "timestamp with time zone" },
+      { name: "expires_at", ddl: "timestamp with time zone" },
+    ],
+  },
+  {
+    // support_messages: older DBs are missing columns added when threading and
+    // richer message metadata were introduced.
+    table: "support_messages",
+    columns: [
+      { name: "user_name", ddl: "text" },
+      { name: "user_email", ddl: "text" },
+      { name: "subject", ddl: "text NOT NULL DEFAULT ''" },
+      { name: "thread_id", ddl: "integer" },
     ],
   },
   {
