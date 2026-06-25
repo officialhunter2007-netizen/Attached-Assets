@@ -6,6 +6,9 @@ import { hashPassword, verifyPassword, isLegacyPasswordHash } from "../lib/auth"
 import { signSession } from "../lib/session";
 import { isAdminEmail } from "../lib/admins";
 import { OAuth2Client } from "google-auth-library";
+import * as https from "https";
+
+const ipv4Agent = new https.Agent({ family: 4 });
 
 const router: IRouter = Router();
 
@@ -203,6 +206,13 @@ function getGoogleClient() {
     callbackUrl
   );
 }
+
+// Override the transporter to force IPv4 (server has no IPv6 connectivity)
+const origGetToken = OAuth2Client.prototype.getToken;
+OAuth2Client.prototype.getToken = async function(this: OAuth2Client, code: string) {
+  (this as any).transporter = { ...(this as any).transporter, agent: ipv4Agent };
+  return origGetToken.call(this, code);
+};
 
 function getFrontendUrl(path = "") {
   return `https://${getAppDomain()}${path}`;

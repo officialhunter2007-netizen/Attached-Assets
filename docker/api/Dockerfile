@@ -51,4 +51,4 @@ COPY --from=builder /app/artifacts/api-server/dist/ ./dist/
 
 EXPOSE 8080
 
-CMD ["node", "--enable-source-maps", "./dist/index.mjs"]
+CMD ["node", "--dns-result-order=ipv4first", "--enable-source-maps", "./dist/index.mjs"]

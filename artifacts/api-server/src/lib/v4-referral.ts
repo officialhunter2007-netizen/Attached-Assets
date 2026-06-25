@@ -109,12 +109,75 @@ export type ReferralInfo = {
   referredCount: number;
   rewardedCount: number;
   rewardGems: number;
+  hasEligibleSubscription: boolean;
+  referralStatus: "none" | "attributed" | "rewarded" | null;
+  referrerName: string | null;
 };
 
 // Public referral info for the modal. Contains NO PII about referred friends —
 // only the caller's own code and aggregate counts.
 export async function getReferralInfo(userId: number): Promise<ReferralInfo> {
   const code = await ensureReferralCode(userId);
+  const now = new Date();
+
+  // Check if user has an active qualifying subscription (Silver/Gold)
+  let hasEligibleSubscription = false;
+  try {
+    // Check per-subject v4 subscriptions
+    const [v4Sub] = await db
+      .select({ id: userSubjectSubscriptionsTable.id })
+      .from(userSubjectSubscriptionsTable)
+      .where(
+        and(
+          eq(userSubjectSubscriptionsTable.userId, userId),
+          inArray(userSubjectSubscriptionsTable.plan, QUALIFYING_PLANS as unknown as string[]),
+          gt(userSubjectSubscriptionsTable.expiresAt, now),
+        ),
+      )
+      .limit(1);
+    if (v4Sub) hasEligibleSubscription = true;
+
+    // Also check legacy global subscription (nukhbaPlan on users table)
+    if (!hasEligibleSubscription) {
+      const [legacy] = await db
+        .select({ nukhbaPlan: usersTable.nukhbaPlan, expiresAt: usersTable.subscriptionExpiresAt })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId));
+      if (legacy && QUALIFYING_PLANS.includes(legacy.nukhbaPlan as any) && legacy.expiresAt && new Date(legacy.expiresAt) > now) {
+        hasEligibleSubscription = true;
+      }
+    }
+  } catch { /* non-critical, default to false */ }
+
+  // Check referral status: was this user referred? has reward been paid?
+  let referralStatus: ReferralInfo["referralStatus"] = null;
+  let referrerName: string | null = null;
+  try {
+    const [ref] = await db
+      .select({
+        paid: referralsTable.rewardPaidAt,
+        referrerId: referralsTable.referrerUserId,
+      })
+      .from(referralsTable)
+      .where(eq(referralsTable.referredUserId, userId))
+      .limit(1);
+    if (ref) {
+      if (ref.paid) {
+        referralStatus = "rewarded";
+      } else {
+        referralStatus = "attributed";
+      }
+      // Get referrer display name
+      const [referrer] = await db
+        .select({ displayName: usersTable.displayName, email: usersTable.email })
+        .from(usersTable)
+        .where(eq(usersTable.id, ref.referrerId));
+      if (referrer) {
+        referrerName = referrer.displayName || referrer.email;
+      }
+    }
+  } catch { /* non-critical */ }
+
   const rows = await db
     .select({ id: referralsTable.id, paid: referralsTable.rewardPaidAt })
     .from(referralsTable)
@@ -124,6 +187,9 @@ export async function getReferralInfo(userId: number): Promise<ReferralInfo> {
     referredCount: rows.length,
     rewardedCount: rows.filter((r) => r.paid != null).length,
     rewardGems: REFERRAL_REWARD_GEMS,
+    hasEligibleSubscription,
+    referralStatus,
+    referrerName,
   };
 }
 
@@ -166,12 +232,23 @@ export async function attributeReferral(
 
     // Only accounts with no prior subscription can attach a referral code, so an
     // established (already-paid) user can't retroactively claim a friend's code.
+    // Check both legacy subscriptions AND v4 wallets.
     const [priorSub] = await tx
       .select({ id: userSubjectSubscriptionsTable.id })
       .from(userSubjectSubscriptionsTable)
       .where(eq(userSubjectSubscriptionsTable.userId, userId))
       .limit(1);
     if (priorSub) throw new ReferralError("NOT_ELIGIBLE", "هذا الحساب غير مؤهل لربط دعوة");
+
+    const [priorWallet] = await tx
+      .select({ id: studentGemWalletsTable.id })
+      .from(studentGemWalletsTable)
+      .where(and(
+        eq(studentGemWalletsTable.userId, userId),
+        gt(studentGemWalletsTable.gemsBalance, 0),
+      ))
+      .limit(1);
+    if (priorWallet) throw new ReferralError("NOT_ELIGIBLE", "هذا الحساب غير مؤهل لربط دعوة");
 
     const inserted = await tx
       .insert(referralsTable)
@@ -198,7 +275,10 @@ export async function attributeReferral(
 }
 
 // ── Eligibility ──────────────────────────────────────────────────────────────
+const QUALIFYING_LEGACY_PLANS = ["silver", "gold"] as const;
+
 async function hasActiveQualifyingSub(tx: Tx, userId: number, now: Date): Promise<boolean> {
+  // Check per-subject v4 subscriptions
   const rows = await tx
     .select({ id: userSubjectSubscriptionsTable.id })
     .from(userSubjectSubscriptionsTable)
@@ -210,7 +290,18 @@ async function hasActiveQualifyingSub(tx: Tx, userId: number, now: Date): Promis
       ),
     )
     .limit(1);
-  return rows.length > 0;
+  if (rows.length > 0) return true;
+
+  // Also check legacy global subscription (nukhbaPlan on users table)
+  const [legacy] = await tx
+    .select({ nukhbaPlan: usersTable.nukhbaPlan, expiresAt: usersTable.subscriptionExpiresAt })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId));
+  if (legacy && QUALIFYING_LEGACY_PLANS.includes(legacy.nukhbaPlan as any) && legacy.expiresAt && new Date(legacy.expiresAt) > now) {
+    return true;
+  }
+
+  return false;
 }
 
 async function creditRewardPoolTx(tx: Tx, userId: number, gems: number): Promise<void> {

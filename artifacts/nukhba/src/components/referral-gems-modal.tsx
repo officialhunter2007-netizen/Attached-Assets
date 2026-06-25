@@ -34,7 +34,15 @@ const TERMINAL_ATTR_ERRORS = new Set([
   "BAD_CODE",
 ]);
 
-type ReferralInfo = { code: string; referredCount: number; rewardedCount: number; rewardGems: number };
+type ReferralInfo = {
+  code: string;
+  referredCount: number;
+  rewardedCount: number;
+  rewardGems: number;
+  hasEligibleSubscription?: boolean;
+  referralStatus?: "none" | "attributed" | "rewarded" | null;
+  referrerName?: string | null;
+};
 type RewardAllocation = { subjectId: string; gemsAllocated: number };
 type RewardStatus = {
   earnedGems: number;
@@ -283,11 +291,36 @@ export function ReferralGemsModal({ inline = false }: { inline?: boolean }) {
 
   // ── Trigger button ─────────────────────────────────────────────────────────
   if (!open) {
-    // inline=true → full-width banner embedded in the page (used in /learn)
-    // inline=false → fixed floating pill (legacy; no longer used by default)
+    const isEligible = info?.hasEligibleSubscription !== false;
     const buttonClass = inline
       ? "w-full flex items-center gap-3 rounded-2xl px-5 py-3.5 text-sm font-extrabold text-white mb-6"
       : "fixed left-3 top-[76px] z-[120] flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-extrabold text-white";
+
+    if (!isEligible) {
+      return (
+        <motion.div
+          dir={ar ? "rtl" : "ltr"}
+          initial={{ opacity: 0, y: inline ? 12 : -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ opacity: { duration: 0.4 }, y: { duration: 0.4 } }}
+          className={buttonClass}
+          style={{
+            background: "linear-gradient(135deg, #6b7280 0%, #4b5563 45%, #374151 100%)",
+            border: "1px solid rgba(156,163,175,0.5)",
+            cursor: "default",
+            opacity: 0.65,
+          }}
+          data-testid="referral-gems-banner-inactive"
+        >
+          <Sparkles className="w-4 h-4 shrink-0 opacity-50" />
+          <span className="flex-1 text-start text-white/70">
+            {ar
+              ? "احصل على جواهر اضافية — غير مفعلة (تحتاج باقة فضية أو ذهبية)"
+              : "Get extra gems — inactive (requires Silver or Gold plan)"}
+          </span>
+        </motion.div>
+      );
+    }
 
     return (
       <motion.button
@@ -350,6 +383,9 @@ export function ReferralGemsModal({ inline = false }: { inline?: boolean }) {
           onClick={() => {
             setOpen(false);
             setError(null);
+            setSelectedSlug("");
+            setAmount(100);
+            setAllocating(false);
           }}
           className={`absolute top-3 ${ar ? "left-3" : "right-3"} text-zinc-400 hover:text-white p-1 rounded-full hover:bg-white/10 transition`}
           aria-label={ar ? "إغلاق" : "Close"}
@@ -375,6 +411,33 @@ export function ReferralGemsModal({ inline = false }: { inline?: boolean }) {
             </h2>
           </div>
         </div>
+
+        {/* Invite landing message for attributed users */}
+        {info?.referralStatus === "attributed" && info?.referrerName && (
+          <div className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300 text-center">
+            <Users className="w-4 h-4 inline-block mr-1 -mt-0.5" />
+            {" "}
+            {ar
+              ? `تم ربط حسابك بدعوة من ${info.referrerName}. عندما تشترك أنت وصديقك معاً في باقة Silver أو Gold، ستحصلان على ${info.rewardGems} جوهرة لكل منكما.`
+              : `Your account has been linked to an invite from ${info.referrerName}. When BOTH of you hold an active Silver or Gold subscription, you'll each earn ${info.rewardGems} gems.`}
+          </div>
+        )}
+        {info?.referralStatus === "rewarded" && (
+          <div className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300 text-center">
+            <Check className="w-4 h-4 inline-block mr-1 -mt-0.5" />
+            {" "}
+            {ar ? "تمت مكافأتك! يمكنك تخصيص الجواهر لأي تخصص." : "You've been rewarded! Allocate your gems to any specialty."}
+          </div>
+        )}
+        {!info?.hasEligibleSubscription && (
+          <div className="mt-5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300 text-center">
+            <Crown className="w-4 h-4 inline-block mr-1 -mt-0.5" />
+            {" "}
+            {ar
+              ? "للحصول على مكافأة الإحالة (300 جوهرة لك ولصديقك)، يجب أن تكونا مشتركين في باقة فضية أو ذهبية على الأقل. الباقة البرونزية غير مؤهلة."
+              : "To earn the referral reward (300 gems for you + your friend), both of you must hold at least a Silver or Gold subscription. Bronze does not qualify."}
+          </div>
+        )}
 
         {/* How it works */}
         <div className="mt-5 rounded-2xl border border-sky-400/20 bg-sky-500/5 p-4 space-y-3 text-sm text-zinc-300">

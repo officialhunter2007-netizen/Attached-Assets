@@ -269,20 +269,26 @@ router.get("/v4/wallets/summary", requireUser, async (req, res) => {
 
     // Enrich every active wallet with specialty name/icon so the FE badge can
     // show a per-subject breakdown without a second request.
+    // Batch-fetch all specialty metadata in one query keyed by slug.
+    const walletSlugs = active.map(w => w.subjectId).filter(Boolean);
+    const slugMap = new Map<string, { name: string | null; icon: string | null }>();
+    if (walletSlugs.length > 0) {
+      const specs = await db
+        .select({ slug: v4SpecialtiesTable.slug, name: v4SpecialtiesTable.name, icon: v4SpecialtiesTable.icon })
+        .from(v4SpecialtiesTable)
+        .where(inArray(v4SpecialtiesTable.slug, walletSlugs));
+      for (const sp of specs) {
+        slugMap.set(sp.slug, { name: sp.name, icon: sp.icon });
+      }
+    }
     const enrichedActive: { subjectId: string; gemsBalance: number; expiresAt: string | null; specialtyName: string | null; specialtyIcon: string | null }[] = [];
     for (const w of active) {
-      const sid = Number(w.subjectId);
-      let specialtyName: string | null = null;
-      let specialtyIcon: string | null = null;
-      if (!Number.isNaN(sid)) {
-        const [sp] = await db
-          .select({ name: v4SpecialtiesTable.name, nameAr: (v4SpecialtiesTable as any).nameAr, icon: v4SpecialtiesTable.icon })
-          .from(v4SpecialtiesTable)
-          .where(eq(v4SpecialtiesTable.id, sid));
-        specialtyName = (sp as any)?.nameAr ?? (sp as any)?.name ?? null;
-        specialtyIcon = (sp as any)?.icon ?? null;
-      }
-      enrichedActive.push({ ...w, specialtyName, specialtyIcon });
+      const meta = slugMap.get(w.subjectId);
+      enrichedActive.push({
+        ...w,
+        specialtyName: meta?.name ?? null,
+        specialtyIcon: meta?.icon ?? null,
+      });
     }
 
     const singleSpecialtyName = enrichedActive.length === 1 ? enrichedActive[0].specialtyName : null;

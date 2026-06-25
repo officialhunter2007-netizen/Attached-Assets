@@ -1,0 +1,238 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - banner [ref=e6]:
+      - generic [ref=e8]:
+        - link "شعار نُخبة نُخبة" [ref=e9] [cursor=pointer]:
+          - /url: /learn
+          - generic [ref=e11]:
+            - img "شعار نُخبة" [ref=e12]:
+              - generic [ref=e19]: ن
+            - generic [ref=e22]: نُخبة
+        - navigation [ref=e23]:
+          - link "تعلّم" [ref=e24] [cursor=pointer]:
+            - /url: /learn
+            - generic [ref=e25]: تعلّم
+          - link "لوحتي" [ref=e27] [cursor=pointer]:
+            - /url: /dashboard
+          - link "الاشتراك" [ref=e28] [cursor=pointer]:
+            - /url: /subscription
+          - link "الدعم" [ref=e29] [cursor=pointer]:
+            - /url: /support
+            - generic [ref=e31]:
+              - img [ref=e32]
+              - text: الدعم
+        - generic [ref=e34]:
+          - button "Switch to English" [ref=e35]:
+            - img [ref=e36]
+            - generic [ref=e39]: EN
+          - generic [ref=e41] [cursor=pointer]:
+            - text: 💎
+            - generic [ref=e326]: ٩٠٠
+            - generic [ref=e327]: 2 مواد
+          - img [ref=e46]
+          - button "خروج" [ref=e49]:
+            - img [ref=e50]
+            - generic [ref=e53]: خروج
+    - main [ref=e54]:
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - generic [ref=e58]:
+            - img [ref=e59]
+            - text: اختر مسارك التعليمي
+          - heading "مسارات التعلّم" [level=1] [ref=e62]
+          - paragraph [ref=e63]: اختر مادتك وابدأ مع معلّمك الذكي الذي يعرفك ويتذكّر تقدّمك
+        - button "احصل على جواهر اضافية" [ref=e64]:
+          - img [ref=e65]
+          - generic [ref=e68]: احصل على جواهر اضافية
+        - generic [ref=e69]:
+          - tablist [ref=e71]:
+            - tab "الجامعي" [selected] [ref=e72]:
+              - img [ref=e73]
+              - text: الجامعي
+            - tab "المهارات" [ref=e76]:
+              - img [ref=e77]
+              - text: المهارات
+          - tabpanel "الجامعي" [ref=e79]:
+            - generic [ref=e80]:
+              - link "💻 تقنية المعلومات ابدأ الآن" [ref=e81] [cursor=pointer]:
+                - /url: /subject/uni-it
+                - generic [ref=e83]:
+                  - generic [ref=e84]: 💻
+                  - heading "تقنية المعلومات" [level=3] [ref=e85]
+                  - generic [ref=e86]:
+                    - generic [ref=e87]: ابدأ الآن
+                    - img [ref=e88]
+              - link "🛡️ أمن سيبراني ابدأ الآن" [ref=e90] [cursor=pointer]:
+                - /url: /subject/uni-cybersecurity
+                - generic [ref=e92]:
+                  - generic [ref=e93]: 🛡️
+                  - heading "أمن سيبراني" [level=3] [ref=e94]
+                  - generic [ref=e95]:
+                    - generic [ref=e96]: ابدأ الآن
+                    - img [ref=e97]
+              - link "📊 علوم بيانات ابدأ الآن" [ref=e99] [cursor=pointer]:
+                - /url: /subject/uni-data-science
+                - generic [ref=e101]:
+                  - generic [ref=e102]: 📊
+                  - heading "علوم بيانات" [level=3] [ref=e103]
+                  - generic [ref=e104]:
+                    - generic [ref=e105]: ابدأ الآن
+                    - img [ref=e106]
+              - link "📉 محاسبة ابدأ الآن" [ref=e108] [cursor=pointer]:
+                - /url: /subject/uni-accounting
+                - generic [ref=e110]:
+                  - generic [ref=e111]: 📉
+                  - heading "محاسبة" [level=3] [ref=e112]
+                  - generic [ref=e113]:
+                    - generic [ref=e114]: ابدأ الآن
+                    - img [ref=e115]
+              - link "📈 إدارة أعمال ابدأ الآن" [ref=e117] [cursor=pointer]:
+                - /url: /subject/uni-business
+                - generic [ref=e119]:
+                  - generic [ref=e120]: 📈
+                  - heading "إدارة أعمال" [level=3] [ref=e121]
+                  - generic [ref=e122]:
+                    - generic [ref=e123]: ابدأ الآن
+                    - img [ref=e124]
+              - link "⚙️ هندسة برمجية ابدأ الآن" [ref=e126] [cursor=pointer]:
+                - /url: /subject/uni-software-eng
+                - generic [ref=e128]:
+                  - generic [ref=e129]: ⚙️
+                  - heading "هندسة برمجية" [level=3] [ref=e130]
+                  - generic [ref=e131]:
+                    - generic [ref=e132]: ابدأ الآن
+                    - img [ref=e133]
+              - link "🤖 ذكاء اصطناعي ابدأ الآن" [ref=e135] [cursor=pointer]:
+                - /url: /subject/uni-ai
+                - generic [ref=e137]:
+                  - generic [ref=e138]: 🤖
+                  - heading "ذكاء اصطناعي" [level=3] [ref=e139]
+                  - generic [ref=e140]:
+                    - generic [ref=e141]: ابدأ الآن
+                    - img [ref=e142]
+              - link "📱 تطوير موبايل ابدأ الآن" [ref=e144] [cursor=pointer]:
+                - /url: /subject/uni-mobile
+                - generic [ref=e146]:
+                  - generic [ref=e147]: 📱
+                  - heading "تطوير موبايل" [level=3] [ref=e148]
+                  - generic [ref=e149]:
+                    - generic [ref=e150]: ابدأ الآن
+                    - img [ref=e151]
+              - link "☁️ حوسبة سحابية ابدأ الآن" [ref=e153] [cursor=pointer]:
+                - /url: /subject/uni-cloud
+                - generic [ref=e155]:
+                  - generic [ref=e156]: ☁️
+                  - heading "حوسبة سحابية" [level=3] [ref=e157]
+                  - generic [ref=e158]:
+                    - generic [ref=e159]: ابدأ الآن
+                    - img [ref=e160]
+              - link "🌐 شبكات متقدمة ابدأ الآن" [ref=e162] [cursor=pointer]:
+                - /url: /subject/uni-networks
+                - generic [ref=e164]:
+                  - generic [ref=e165]: 🌐
+                  - heading "شبكات متقدمة" [level=3] [ref=e166]
+                  - generic [ref=e167]:
+                    - generic [ref=e168]: ابدأ الآن
+                    - img [ref=e169]
+              - link "🔬 هندسة غذائية ابدأ الآن" [ref=e171] [cursor=pointer]:
+                - /url: /subject/uni-food-eng
+                - generic [ref=e173]:
+                  - generic [ref=e174]: 🔬
+                  - heading "هندسة غذائية" [level=3] [ref=e175]
+                  - generic [ref=e176]:
+                    - generic [ref=e177]: ابدأ الآن
+                    - img [ref=e178]
+        - generic [ref=e180]:
+          - generic [ref=e181]:
+            - heading "كلام طلاب سبقوك" [level=2] [ref=e182]
+            - paragraph [ref=e183]: تجارب من طلاب بدأوا مثلك وحققوا تقدّماً حقيقياً
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - generic: "\""
+              - generic [ref=e186]:
+                - img [ref=e187]
+                - img [ref=e189]
+                - img [ref=e191]
+                - img [ref=e193]
+                - img [ref=e195]
+              - paragraph [ref=e197]: "\"كنت أضيع وقتاً كثيراً أدوّر شروحات. لما بدأت مع نُخبة، التعلم صار منظماً وكل جلسة تبني على اللي قبلها.\""
+              - generic [ref=e198]:
+                - generic [ref=e199]: خالد ص.
+                - generic [ref=e200]: البرمجة
+            - generic [ref=e201]:
+              - generic: "\""
+              - generic [ref=e202]:
+                - img [ref=e203]
+                - img [ref=e205]
+                - img [ref=e207]
+                - img [ref=e209]
+                - img [ref=e211]
+              - paragraph [ref=e213]: "\"المعلم الذكي شرحها بطريقة بسيطة وربطها بأمثلة من حياتنا. حرفياً أنقذني قبل الاختبار.\""
+              - generic [ref=e214]:
+                - generic [ref=e215]: ريم ع.
+                - generic [ref=e216]: قواعد البيانات
+            - generic [ref=e217]:
+              - generic: "\""
+              - generic [ref=e218]:
+                - img [ref=e219]
+                - img [ref=e221]
+                - img [ref=e223]
+                - img [ref=e225]
+                - img [ref=e227]
+              - paragraph [ref=e229]: "\"أحلى شي إنك تقدر تسأل أي سؤال مهما كان بسيط. بديت أبني مشاريعي الخاصة بعد أسابيع.\""
+              - generic [ref=e230]:
+                - generic [ref=e231]: عمار ح.
+                - generic [ref=e232]: تطوير الويب
+            - generic [ref=e233]:
+              - generic: "\""
+              - generic [ref=e234]:
+                - img [ref=e235]
+                - img [ref=e237]
+                - img [ref=e239]
+                - img [ref=e241]
+                - img [ref=e243]
+              - paragraph [ref=e245]: "\"بعد شهر مع نُخبة، صرت أفهم كيف أحلل المسألة وأختار الحل المناسب. التقدم الذي حققته كان مفاجأة.\""
+              - generic [ref=e246]:
+                - generic [ref=e247]: منى أ.
+                - generic [ref=e248]: الخوارزميات
+            - generic [ref=e249]:
+              - generic: "\""
+              - generic [ref=e250]:
+                - img [ref=e251]
+                - img [ref=e253]
+                - img [ref=e255]
+                - img [ref=e257]
+                - img [ref=e259]
+              - paragraph [ref=e261]: "\"المعلم يعرف مستواك ويبدأ معك من نقطتك. ما يفترض إنك فاهم شي ما تعرفه — هذا اللي خلاني أستمر.\""
+              - generic [ref=e262]:
+                - generic [ref=e263]: باسم ن.
+                - generic [ref=e264]: الشبكات
+            - generic [ref=e265]:
+              - generic: "\""
+              - generic [ref=e266]:
+                - img [ref=e267]
+                - img [ref=e269]
+                - img [ref=e271]
+                - img [ref=e273]
+                - img [ref=e275]
+              - paragraph [ref=e277]: "\"بدأت من صفر ما أعرف شي عن البرمجة. الآن أكتب برامج كاملة. الـ ١٥ رسالة المجانية أثبتت إن المنصة تستاهل.\""
+              - generic [ref=e278]:
+                - generic [ref=e279]: هدى م.
+                - generic [ref=e280]: Python
+    - button "افتح مساعد نُخبة" [ref=e281]:
+      - generic [ref=e283]:
+        - img [ref=e284]
+        - generic [ref=e287]: مساعد نُخبة
+    - contentinfo [ref=e289]:
+      - generic [ref=e290]:
+        - generic [ref=e292]:
+          - img "شعار نُخبة" [ref=e293]:
+            - generic [ref=e300]: ن
+          - generic [ref=e303]: نُخبة
+        - paragraph [ref=e304]: جميع الحقوق محفوظة 2026 © نُخبة
+  - button "🎉 هديتك الترحيبية 150 💎" [ref=e328]:
+    - generic [ref=e329]: 🎉
+    - text: هديتك الترحيبية
+    - generic [ref=e330]: 150 💎
+  - region "Notifications (F8)":
+    - list

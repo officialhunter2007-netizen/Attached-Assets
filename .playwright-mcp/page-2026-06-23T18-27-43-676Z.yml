@@ -1,0 +1,12 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - button "رجوع" [ref=e6]:
+        - img [ref=e7]
+        - generic [ref=e9]: رجوع
+      - generic [ref=e12]: 0%
+    - generic [ref=e13]:
+      - img [ref=e16]
+      - generic [ref=e25]: جارٍ التجهيز…
+  - region "Notifications (F8)":
+    - list
