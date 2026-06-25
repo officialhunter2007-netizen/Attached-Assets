@@ -31,6 +31,7 @@ import {
   v4DiagnosticSessionsTable,
   v4ConceptMasteryTable,
   v4StudentPathsTable,
+  aiTeacherMessagesTable,
   type V4ConceptFacets,
   type V4FacetKey,
 } from "@workspace/db";
@@ -92,6 +93,16 @@ function extractV4ImageDataUrl(text: string): { dataUrl: string | null; cleaned:
     .replace(V4_DATA_URL_RE, "[صورة مرفقة]")
     .trim();
   return { dataUrl, cleaned };
+}
+
+function countWordsV4(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+function excerptV4(text: string, maxChars = 16000): string {
+  const s = text.trim();
+  if (s.length <= maxChars) return s;
+  const mid = Math.floor(maxChars * 0.7);
+  return s.slice(0, mid) + "\n…[مقتطع]\n" + s.slice(s.length - (maxChars - mid));
 }
 
 function getUserId(req: Request): number | null {
@@ -521,6 +532,30 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       }
     }
 
+    // ── 4b. Persist user message to ai_teacher_messages ─────────────
+    // Gives the admin "محادثات المعلم" tab visibility into v4 lessons.
+    // Fire-and-forget — a DB error must never block the teaching turn.
+    const __safeUserMsg = message
+      .replace(/data:image\/[a-zA-Z+.\-]+;base64,[A-Za-z0-9+/=]+/g, "[صورة مرفقة]")
+      .slice(0, 8000);
+    const __subjectNameLog: string | null = resolved.specialty.name ?? null;
+    const __stageIndexLog: number | null = (() => {
+      const parts = lessonCode.split(".");
+      const n = parts.length >= 2 ? parseInt(parts[1], 10) : NaN;
+      return Number.isFinite(n) ? n : null;
+    })();
+    db.insert(aiTeacherMessagesTable).values({
+      userId: uid,
+      subjectId: slug,
+      subjectName: __subjectNameLog,
+      role: "user",
+      content: __safeUserMsg,
+      isDiagnostic: 0,
+      stageIndex: __stageIndexLog,
+    }).catch((e: any) =>
+      logger.warn?.(`[v4/teach] persist user msg error: ${String(e?.message ?? e)}`),
+    );
+
     // ── 5. Open SSE + stream ──────────────────────────────────────────
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -812,6 +847,30 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         .where(eq(v4StudentPathsTable.id, studentPath.id))
         .execute()
         .catch(() => {}); // non-blocking
+    }
+
+    // ── 7a-b. Persist assistant message to ai_teacher_messages ─────────
+    // Recorded AFTER effects so word-count reflects the clean reply the
+    // student actually received. Fire-and-forget — must not block the turn.
+    {
+      const __cleanedReply = stripProtocolTags(fullText).trim();
+      if (__cleanedReply.length > 0) {
+        const __excerpt = excerptV4(__cleanedReply);
+        const __wc = countWordsV4(__excerpt);
+        db.insert(aiTeacherMessagesTable).values({
+          userId: uid,
+          subjectId: slug,
+          subjectName: __subjectNameLog,
+          role: "assistant",
+          content: __excerpt,
+          isDiagnostic: 0,
+          stageIndex: __stageIndexLog,
+          wordCount: __wc,
+          overLength: __wc > 350 ? 1 : 0,
+        }).catch((e: any) =>
+          logger.warn?.(`[v4/teach] persist assistant msg error: ${String(e?.message ?? e)}`),
+        );
+      }
     }
 
     // ── 7b. Hands-on ("التطبيق العملي") offer — server-driven trigger ──
