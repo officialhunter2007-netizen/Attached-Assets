@@ -18,3 +18,9 @@ id = "oklZDm9ga_mBjkYpDclgw"
 uri = "file://out/test-python-basics.json"
 type = "unspecified"
 title = "ملف تعليمات تجريبي — أساسيات بايثون (3 وحدات)"
+
+[[outputs]]
+id = "inPghiyeowJCUqTEsPDQd"
+uri = "file://nukhba_prompt_engineering_report.md"
+type = "text"
+title = "تقرير هندسة التوجيهات — نُخبة"
