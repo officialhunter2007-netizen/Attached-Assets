@@ -19,6 +19,7 @@ import { logger } from "../lib/logger";
 import {
   getTeacherProviderStatus,
   normaliseEndpoint,
+  invalidateTeacherProviderCache,
 } from "../lib/ai-teacher-provider";
 
 const router: IRouter = Router();
@@ -125,6 +126,10 @@ router.put("/admin/ai-teacher-provider", requireAdmin, requireSameOriginCsrf, as
         set: { enabled, baseUrl, apiKeyEnv, model, updatedByUserId: adminId, updatedAt: new Date() },
       })
       .returning();
+
+    // Invalidate the in-process cache so the next teaching turn picks up the
+    // new settings immediately (no need to wait for the 30-second TTL).
+    invalidateTeacherProviderCache();
 
     // Return the safe status (with key presence) rather than the raw row.
     const status = await getTeacherProviderStatus();

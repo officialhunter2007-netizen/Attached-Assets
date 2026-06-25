@@ -61,7 +61,22 @@ export function normaliseEndpoint(baseUrl: string): string {
   return `${b}/chat/completions`;
 }
 
-async function readSettingsRow() {
+// ─── In-process cache (30 s TTL) ────────────────────────────────────────────
+// Without this, every single teaching turn hits the DB just to read one row.
+// The cache is invalidated immediately when the admin saves new settings via
+// `invalidateTeacherProviderCache()`, so changes take effect right away.
+type CachedRow = Awaited<ReturnType<typeof _readSettingsRowFromDB>>;
+let _cachedRow: CachedRow | undefined;
+let _cacheExpiresAt = 0;
+const CACHE_TTL_MS = 30_000;
+
+/** Call this from the PUT /admin/ai-teacher-provider route after a save. */
+export function invalidateTeacherProviderCache(): void {
+  _cachedRow = undefined;
+  _cacheExpiresAt = 0;
+}
+
+async function _readSettingsRowFromDB() {
   try {
     const rows = await db
       .select()
@@ -74,6 +89,17 @@ async function readSettingsRow() {
     logger.warn?.({ err: String(e) }, "[ai-teacher-provider] settings read failed");
     return null;
   }
+}
+
+async function readSettingsRow() {
+  const now = Date.now();
+  if (_cachedRow !== undefined && now < _cacheExpiresAt) {
+    return _cachedRow;
+  }
+  const row = await _readSettingsRowFromDB();
+  _cachedRow = row;
+  _cacheExpiresAt = now + CACHE_TTL_MS;
+  return row;
 }
 
 /**
