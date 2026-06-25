@@ -142,6 +142,16 @@ export function extractAskOptions(content: string): AskOptionsResult {
     return /^(هل|شو|كيف|كيفية|لماذا|ليش|وين|أين|متى|ماذا|أيّ|أيُّ|أي\s|ما\s|ماهو|ما\s*هو|ما\s*هي|كم\s|اختر|اختَر|أكمل|حدّد|حدد|صنّف|صنف|رتّب|رتب|اذكر|عرّف|عرف|أيّهما|أيهما)/u.test(t);
   };
 
+  // Strings that look like answers/options rather than questions.
+  // When the first segment matches this pattern it is almost certainly a
+  // mis-slotted option — the model wrote the real question in the prose body
+  // and started the tag directly with the first option text.
+  const readsLikeAnswer = (s: string): boolean => {
+    const t = (s || "").trim();
+    if (!t) return false;
+    return /^(نعم|لا\s|لا،|أفضل|صحيح|يمكن|يعتمد|غالباً|بالتأكيد|ممكن|أعتقد|أظن|ليس|سهل|صعب|مجاني|مدفوع|كلا|كلاهما|واحد|اثنان|أكثر|أقل|الأول|الثاني|الثالث|سأ|جاري|انتهيت|واجهتني|يظهر|ظهر)/u.test(t);
+  };
+
   // Strip tags then check whether the body's final sentence is a question.
   // Tolerate trailing markdown emphasis (**bold**, _italic_, `code`), quotes,
   // brackets and emoji after the mark, since the model frequently ends its
@@ -157,7 +167,22 @@ export function extractAskOptions(content: string): AskOptionsResult {
     );
   const bodyEndsWithQuestion = /[؟?]$/.test(bodyTail);
 
-  if (question && !readsLikeQuestion(question) && bodyEndsWithQuestion) {
+  // Also check the last 300 characters of the body for a question mark.
+  // This catches the case where the model writes "...مهم في البرمجة؟ حتى لو
+  // كان الشرح بالعربي، الكود لازم يكون واضح عالمياً." — the ؟ exists but
+  // isn't the last character, so bodyEndsWithQuestion misses it.
+  const bodyLast300 = strippedOut
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(-300);
+  const bodyHasRecentQuestion = /[؟?]/.test(bodyLast300);
+
+  if (
+    question &&
+    !readsLikeQuestion(question) &&
+    (bodyEndsWithQuestion || bodyHasRecentQuestion || readsLikeAnswer(question))
+  ) {
     options = [question, ...options];
     question = "";
   }
