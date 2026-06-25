@@ -56,7 +56,7 @@ import { getOrGenerateConceptFacets } from "./v4-concept-facets-engine";
 export const V4_TEACHING_MODEL = "gemini-2.5-flash-lite" as const;
 
 /** Locked lesson-content generation model. */
-export const V4_CONTENT_GEN_MODEL = "deepseek-v4" as const;
+export const V4_CONTENT_GEN_MODEL = "gemini-2.5-flash-lite" as const;
 
 /** Exclusive allow-list — STRICT equality, no Pro/non-Flash leak. */
 const V4_ALLOWED_TEACHING_MODELS = new Set<string>([
