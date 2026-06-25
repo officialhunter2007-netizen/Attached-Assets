@@ -698,7 +698,7 @@ export async function buildTeacherSystemPrompt(opts: {
   // but the FE doesn't render the button, the teacher describes a control the
   // student can't see (and CODE_TASK pushes are invisible).
   const isCodingSpecialty =
-    /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp)/i.test(
+    /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp|data|mobile|cloud|flutter|appdev|sql|linux|bash|power|windows|security|nmap|wireshark|\bai\b|\bos\b)/i.test(
       opts.subjectSlug,
     );
   const LCODE = isCodingSpecialty ? buildCodeEditorLayer() : "";

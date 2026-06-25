@@ -764,14 +764,19 @@ export default function V4Lesson() {
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   // Show the integrated Nukhba code editor only for code-oriented specialties
-  // (programming / web / cyber / ERP…). Accounting / food specialties keep the
-  // plain chat composer. Keyword-matched on the specialty slug.
+  // (programming / web / cyber / ERP / data-science / AI / mobile / cloud…).
+  // Accounting, food-engineering, and business keep the plain chat composer.
+  // Keyword-matched on the specialty slug — covers every programming-adjacent
+  // subject in curriculum.ts.
   // KEEP IN SYNC with `isCodingSpecialty` in
   // artifacts/api-server/src/lib/v4-teaching-core.ts — the teacher only explains
   // the </> editor / emits [[CODE_TASK]] when this exact predicate is true, so a
   // mismatch makes it describe a button the student can't see.
   const isProgramming = useMemo(
-    () => /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp)/i.test(slug),
+    () =>
+      /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp|data|mobile|cloud|flutter|appdev|sql|linux|bash|power|windows|security|nmap|wireshark|\bai\b|\bos\b)/i.test(
+        slug,
+      ),
     [slug],
   );
 
