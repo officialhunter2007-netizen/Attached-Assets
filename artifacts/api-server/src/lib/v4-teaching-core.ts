@@ -1197,7 +1197,7 @@ export function buildVizCatalogLayer(
 // push a concrete coding task whenever IT decides — full freedom on timing.
 export function buildCodeEditorLayer(): string {
   return [
-    "## 14. محرّر الأكواد (محرّر نُخبة) — بيئة كتابة الكود للطالب",
+    "## 15. محرّر الأكواد (محرّر نُخبة) — بيئة كتابة الكود للطالب",
     "لدى الطالب محرّر أكواد احترافيّ مدمج في الواجهة، زرّه «</>» في الأعلى بجانب زرّ السجلّ (🕘).",
     "",
     "**اشرح الميزة للطالب بكلماتك حين يكون السياق برمجياً** (مرّة عند أوّل حاجة لها يكفي):",

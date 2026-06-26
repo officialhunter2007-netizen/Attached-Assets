@@ -1,7 +1,7 @@
 /**
  * v4-diagnostic-engine.ts — the "genius weakness hunter".
  *
- * PROBLEM this solves: the teaching model (Gemini 2.0 Flash, locked) is weak.
+ * PROBLEM this solves: the teaching model (Gemini 2.5 Flash Lite, locked) is weak.
  * Left on its own it forgets to probe weak points, picks concepts at random,
  * and emits mastery/needs-review tags inconsistently — so the student never
  * feels the "it knows exactly where I'm weak and drills it" experience.
@@ -296,7 +296,7 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
   const target = decision.target;
 
   const lines: string[] = [
-    "## 14. موجّه التشخيص الذكي — خطة هذا الدور (إلزامية، نفّذها بدقّة)",
+    "## 16. موجّه التشخيص الذكي — خطة هذا الدور (إلزامية، نفّذها بدقّة)",
     "هذه خطة محسوبة آلياً من سجلّ إتقان الطالب الفعلي. التزم بها هذا الدور — هي ما يجعل الطالب يشعر أنك تعرف نقاط ضعفه بالضبط وتعالجها.",
     `- خريطة الإتقان الحالية (مفهوم:سكور): ${mapLine}  →  متقن ${masteredCount}/${withState.length}`,
   ];

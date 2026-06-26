@@ -394,24 +394,48 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       }
     }
 
-    // ت١ — already-mastered lesson gate: if ALL concepts in this lesson have
-    // been mastered (score ≥ 75) and this is not the first turn (student has
-    // already received the lesson at least once), emit a free gem-less nudge
-    // pointing to the unit exam rather than calling Gemini and burning gems.
-    // This handles the "last lesson in the unit is mastered but currentLessonCode
-    // hasn't advanced" case — the student is stuck reopening a completed lesson.
+    // ت١ — already-mastered lesson gate: if the diagnostic engine would
+    // "advance" (all required W1/W2/W3/W4 facets cleared for every concept)
+    // and this is not the first turn, emit a free gem-less nudge pointing to
+    // the unit exam rather than calling Gemini and burning gems.
+    // Uses decideDiagnosticMove (same engine as the prompt builder) so the
+    // gate fires only when ALL facets required for important (weight>1) concepts
+    // are also covered — not just when W1 scores ≥ 75. Checking W1 scores alone
+    // was a bug: it could fire while the engine still wanted RATIONALE/BOUNDARY
+    // moves, sending the student to the exam prematurely.
     if (concepts.length > 0 && history.length > 0) {
       const masteryRows = await db
-        .select({ conceptIndex: v4ConceptMasteryTable.conceptIndex, score: v4ConceptMasteryTable.score })
+        .select({
+          conceptIndex: v4ConceptMasteryTable.conceptIndex,
+          score: v4ConceptMasteryTable.score,
+          appliedAt: v4ConceptMasteryTable.appliedAt,
+          facets: v4ConceptMasteryTable.facets,
+        })
         .from(v4ConceptMasteryTable)
         .where(and(
           eq(v4ConceptMasteryTable.userId, uid),
           eq(v4ConceptMasteryTable.lessonId, lesson.id),
         ));
-      const allMastered = concepts.every(
-        (c) => (masteryRows.find((r) => r.conceptIndex === c.conceptIndex)?.score ?? 0) >= 75,
-      );
-      if (allMastered) {
+      const _gateMastery = new Map<number, number>();
+      const _gateApplied = new Set<number>();
+      const _gateFacets = new Map<number, V4ConceptFacets>();
+      for (const r of masteryRows) {
+        _gateMastery.set(r.conceptIndex, r.score);
+        if (r.appliedAt) _gateApplied.add(r.conceptIndex);
+        _gateFacets.set(r.conceptIndex, r.facets);
+      }
+      const _gateDecision = decideDiagnosticMove({
+        concepts: concepts.map((c) => ({
+          conceptIndex: c.conceptIndex,
+          name: c.name,
+          masteryCriterion: c.masteryCriterion,
+          weight: Math.max(1, ((c as any).weight ?? 1) as number),
+        })),
+        masteryByConcept: _gateMastery,
+        appliedByConcept: _gateApplied,
+        facetsByConcept: _gateFacets,
+      });
+      if (_gateDecision.move === "advance") {
         inflightTeachTurns.delete(turnLockKey);
         if (!res.headersSent) {
           res.setHeader("Content-Type", "text/event-stream");
@@ -1102,7 +1126,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
 });
 
 /**
- * Conservative Gemini 2.0 Flash cost estimate via OpenRouter.
+ * Conservative Gemini 2.5 Flash Lite cost estimate via OpenRouter.
  * Pricing as of May 2026: $0.10 / 1M in, $0.40 / 1M out.
  */
 function estimateTeachingCostUsd(inputTokens: number, outputTokens: number): number {
