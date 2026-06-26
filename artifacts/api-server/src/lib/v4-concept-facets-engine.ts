@@ -41,6 +41,7 @@ import {
 import { generateGeminiJson } from "./openrouter-generate";
 import { evaluateLabAnswer, type EvalResult } from "./v4-exam-evaluator";
 import { V4_TEACHING_MODEL } from "./v4-teaching-core";
+import { getTeacherProviderOverride } from "./ai-teacher-provider";
 import { logger } from "./logger";
 
 /** W2 «لماذا» — the rationale facet. */
@@ -210,11 +211,20 @@ async function generateConceptFacets(input: {
     (mistakesBlock ? `\n${mistakesBlock}\n` : "") +
     `\nصمّم وجهَي «لماذا» و«الحدود» لهذا المفهوم تحديداً، بحيث يكمل بهما فهم الطالب فهماً عملياً ناضجاً.`;
 
+  // Propagate admin model override so the facet generator uses the same
+  // model as the teaching chat (Flash / Haiku / default Flash Lite).
+  let facetProvider: { endpoint: string; apiKey: string; model: string } | null = null;
+  try {
+    const ov = await getTeacherProviderOverride();
+    if (ov) facetProvider = { endpoint: ov.endpoint, apiKey: ov.apiKey, model: ov.model };
+  } catch { /* fall back to default */ }
+
   try {
     const res = await generateGeminiJson({
       systemPrompt: sys,
       userPrompt: user,
       model: V4_TEACHING_MODEL,
+      provider: facetProvider,
       temperature: 0.5,
       maxOutputTokens: 1400,
       timeoutMs: 30_000,

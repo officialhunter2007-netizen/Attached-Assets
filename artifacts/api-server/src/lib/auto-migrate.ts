@@ -403,6 +403,7 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     createSql: `
       CREATE TABLE IF NOT EXISTS "ai_teacher_provider_settings" (
         "id" integer PRIMARY KEY DEFAULT 1,
+        "or_model_override" text NOT NULL DEFAULT '',
         "enabled" boolean NOT NULL DEFAULT false,
         "base_url" text NOT NULL DEFAULT '',
         "api_key_env" text NOT NULL DEFAULT '',
@@ -1551,6 +1552,16 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     table: "gem_ledger",
     columns: [
       { name: "request_id", ddl: "text" },
+    ],
+  },
+  {
+    // ai_teacher_provider_settings: or_model_override column added for the
+    // admin model picker (switch between Gemini Flash Lite / Flash / Haiku
+    // without changing the API key — all go through OPENROUTER_API_KEY).
+    // Existing rows default to '' which keeps the current Flash Lite behaviour.
+    table: "ai_teacher_provider_settings",
+    columns: [
+      { name: "or_model_override", ddl: "TEXT NOT NULL DEFAULT ''" },
     ],
   },
   {

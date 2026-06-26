@@ -5,15 +5,20 @@
  * The v4 smart teacher (teaching chat + lesson-content generation) calls
  * `getTeacherProviderOverride()` before every AI request:
  *
- *   - returns a concrete { baseUrl, apiKey, model } when the admin has
- *     enabled a custom OpenAI-compatible provider AND the named env var
- *     actually holds a key;
- *   - returns null otherwise, in which case the caller keeps its existing
- *     default behaviour (OpenRouter + gemini-2.0-flash). This guarantees
- *     zero breakage when the feature is unconfigured.
+ *   1. OpenRouter Model Override (model picker): when `orModelOverride` is set
+ *      to one of the allowed slugs (gemini-2.5-flash / claude-3.5-haiku), the
+ *      teacher uses that model via the same OPENROUTER_API_KEY — no extra
+ *      config needed. This is the primary switch for the admin.
  *
- * SECURITY: the API key is read from process.env by NAME. The key value is
- * never stored in the database — only the env-var name (e.g. FREEMODEL_API_KEY).
+ *   2. Custom Provider (advanced): when `enabled` + baseUrl + apiKeyEnv + model
+ *      are all set, the teacher routes calls to that OpenAI-compatible endpoint.
+ *      Useful for self-hosted or alternative providers.
+ *
+ *   - returns a concrete { baseUrl, apiKey, model } when either of the above
+ *     applies; returns null otherwise to use the default channel.
+ *
+ * SECURITY: API keys are read from process.env by NAME. Key values are never
+ * stored in the database — only the env-var name (e.g. OPENROUTER_API_KEY).
  */
 
 import { db, aiTeacherProviderSettingsTable } from "@workspace/db";
@@ -23,17 +28,21 @@ import { logger } from "./logger";
 export type TeacherProviderOverride = {
   /** Normalised chat-completions endpoint (always ends with /chat/completions). */
   endpoint: string;
-  /** Raw base URL as the admin entered it (for display/diagnostics). */
+  /** Raw base URL as entered (for display/diagnostics). */
   baseUrl: string;
   /** The resolved API key (from process.env[apiKeyEnv]). */
   apiKey: string;
-  /** The model id passed verbatim to the provider. */
+  /** The model id passed verbatim to the provider (full OpenRouter slug). */
   model: string;
   /** The env-var name the key came from (for logs — never the value). */
   apiKeyEnv: string;
 };
 
 export type TeacherProviderStatus = {
+  /** Which OpenRouter model is selected via the model picker. Empty = default. */
+  orModelOverride: string;
+  /** Human-readable label for the active model (for the status banner). */
+  activeModelLabel: string;
   enabled: boolean;
   baseUrl: string;
   apiKeyEnv: string;
@@ -42,10 +51,24 @@ export type TeacherProviderStatus = {
   keyPresent: boolean;
   /** Last 4 chars of the key when present — safe to render in admin. */
   keyTail: string;
-  /** True when enabled + all fields set + key present (i.e. will be used). */
+  /** True when a custom provider will be used (OR model override OR custom provider). */
   active: boolean;
   updatedAt: string | null;
 };
+
+/**
+ * Allowed OpenRouter model slugs for the model picker.
+ * Key = slug stored in DB. Value = display label.
+ * Empty string = default (gemini-2.5-flash-lite, no override needed).
+ */
+export const OR_PICKER_MODELS: Record<string, string> = {
+  "": "Gemini 2.5 Flash Lite (الافتراضي)",
+  "google/gemini-2.5-flash": "Gemini 2.5 Flash",
+  "anthropic/claude-3-5-haiku-20241022": "Claude 3.5 Haiku",
+};
+
+const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_BASE_URL  = "https://openrouter.ai/api/v1";
 
 /**
  * Build the chat-completions endpoint from a base URL the admin typed.
@@ -62,9 +85,6 @@ export function normaliseEndpoint(baseUrl: string): string {
 }
 
 // ─── In-process cache (30 s TTL) ────────────────────────────────────────────
-// Without this, every single teaching turn hits the DB just to read one row.
-// The cache is invalidated immediately when the admin saves new settings via
-// `invalidateTeacherProviderCache()`, so changes take effect right away.
 type CachedRow = Awaited<ReturnType<typeof _readSettingsRowFromDB>>;
 let _cachedRow: CachedRow | undefined;
 let _cacheExpiresAt = 0;
@@ -85,7 +105,6 @@ async function _readSettingsRowFromDB() {
       .limit(1);
     return rows[0] ?? null;
   } catch (e) {
-    // Table may not exist yet on a brand-new DB before auto-migrate runs.
     logger.warn?.({ err: String(e) }, "[ai-teacher-provider] settings read failed");
     return null;
   }
@@ -105,14 +124,42 @@ async function readSettingsRow() {
 /**
  * Returns the active custom provider, or null to use the default channel.
  * Never throws — any failure degrades gracefully to the default channel.
+ *
+ * Priority order:
+ *   1. OR model override (model picker) — uses OPENROUTER_API_KEY + selected model.
+ *   2. Custom provider (advanced) — uses admin-configured endpoint + env key.
+ *   3. null → default channel (OpenRouter + gemini-2.5-flash-lite).
  */
 export async function getTeacherProviderOverride(): Promise<TeacherProviderOverride | null> {
   const row = await readSettingsRow();
+
+  // ── 1. OpenRouter model picker override ─────────────────────────────────
+  const orModelOverride = String(row?.orModelOverride || "").trim();
+  if (orModelOverride && orModelOverride in OR_PICKER_MODELS) {
+    // Non-empty + valid slug → use OpenRouter with the selected model
+    const apiKey = String(process.env["OPENROUTER_API_KEY"] || "").trim();
+    if (!apiKey) {
+      logger.warn?.(
+        { orModelOverride },
+        "[ai-teacher-provider] OR model override set but OPENROUTER_API_KEY missing — falling back to default",
+      );
+      return null;
+    }
+    return {
+      endpoint: OPENROUTER_ENDPOINT,
+      baseUrl: OPENROUTER_BASE_URL,
+      apiKey,
+      model: orModelOverride,
+      apiKeyEnv: "OPENROUTER_API_KEY",
+    };
+  }
+
+  // ── 2. Custom provider (advanced) ───────────────────────────────────────
   if (!row || !row.enabled) return null;
 
-  const baseUrl = String(row.baseUrl || "").trim();
+  const baseUrl  = String(row.baseUrl  || "").trim();
   const apiKeyEnv = String(row.apiKeyEnv || "").trim();
-  const model = String(row.model || "").trim();
+  const model    = String(row.model    || "").trim();
   if (!baseUrl || !apiKeyEnv || !model) return null;
 
   const endpoint = normaliseEndpoint(baseUrl);
@@ -120,8 +167,6 @@ export async function getTeacherProviderOverride(): Promise<TeacherProviderOverr
 
   const apiKey = String(process.env[apiKeyEnv] || "").trim();
   if (!apiKey) {
-    // Enabled but the key is missing from .env — fall back rather than
-    // hard-fail, so the teacher keeps working on the default channel.
     logger.warn?.(
       { apiKeyEnv },
       "[ai-teacher-provider] custom provider enabled but env key missing — falling back to default channel",
@@ -135,15 +180,22 @@ export async function getTeacherProviderOverride(): Promise<TeacherProviderOverr
 /** Admin-facing status (never exposes the key value). */
 export async function getTeacherProviderStatus(): Promise<TeacherProviderStatus> {
   const row = await readSettingsRow();
-  const enabled = !!row?.enabled;
-  const baseUrl = String(row?.baseUrl || "");
+  const orModelOverride = String(row?.orModelOverride || "").trim();
+  const activeModelLabel = OR_PICKER_MODELS[orModelOverride] ?? OR_PICKER_MODELS[""];
+  const enabled   = !!row?.enabled;
+  const baseUrl   = String(row?.baseUrl   || "");
   const apiKeyEnv = String(row?.apiKeyEnv || "");
-  const model = String(row?.model || "");
-  const keyVal = apiKeyEnv ? String(process.env[apiKeyEnv] || "").trim() : "";
+  const model     = String(row?.model     || "");
+  const keyVal    = apiKeyEnv ? String(process.env[apiKeyEnv] || "").trim() : "";
   const keyPresent = keyVal.length > 0;
-  const keyTail = keyPresent && keyVal.length >= 4 ? keyVal.slice(-4) : "";
-  const active = enabled && !!baseUrl && !!apiKeyEnv && !!model && keyPresent;
+  const keyTail   = keyPresent && keyVal.length >= 4 ? keyVal.slice(-4) : "";
+  // active = OR model override is set to a non-default valid slug, OR custom provider is fully configured
+  const orActive  = !!(orModelOverride && orModelOverride in OR_PICKER_MODELS);
+  const custActive = enabled && !!baseUrl && !!apiKeyEnv && !!model && keyPresent;
+  const active = orActive || custActive;
   return {
+    orModelOverride,
+    activeModelLabel,
     enabled,
     baseUrl,
     apiKeyEnv,

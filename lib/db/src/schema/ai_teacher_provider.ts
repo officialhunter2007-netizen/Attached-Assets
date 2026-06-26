@@ -18,6 +18,14 @@ import { pgTable, text, integer, boolean, timestamp } from "drizzle-orm/pg-core"
  */
 export const aiTeacherProviderSettingsTable = pgTable("ai_teacher_provider_settings", {
   id: integer("id").primaryKey().default(1),
+  /**
+   * OpenRouter model override (model picker).
+   * When set to a non-default slug (e.g. "google/gemini-2.5-flash" or
+   * "anthropic/claude-3-5-haiku-20241022"), the teacher uses that model
+   * via the same OPENROUTER_API_KEY — no custom provider needed.
+   * Empty string = use default (gemini-2.5-flash-lite).
+   */
+  orModelOverride: text("or_model_override").notNull().default(""),
   /** Master switch — when false, the teacher uses the default channel. */
   enabled: boolean("enabled").notNull().default(false),
   /** OpenAI-compatible base URL, e.g. "https://api.freemodel.dev/v1". */

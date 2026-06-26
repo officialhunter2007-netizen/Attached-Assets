@@ -1,16 +1,28 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Admin routes — AI teacher provider settings (custom OpenAI-compatible
-// provider for the v4 smart teacher ONLY: teaching chat + lesson content gen).
+// Admin routes — AI teacher provider settings.
 //
-// Singleton row (id = 1). API keys are NEVER stored here — only the NAME of
-// the .env var that holds the key. When disabled or misconfigured the teacher
-// falls back to the default OpenRouter + gemini-2.0-flash channel.
+// Two independent features share one singleton row (id = 1):
+//
+//   1. OR Model Picker (primary): admin selects which OpenRouter model the
+//      teacher uses — Gemini 2.5 Flash Lite (default), Gemini 2.5 Flash, or
+//      Claude 3.5 Haiku — via `or_model_override`. No extra keys needed; the
+//      existing OPENROUTER_API_KEY is reused automatically.
+//
+//   2. Custom Provider (advanced): admin supplies a fully custom OpenAI-
+//      compatible endpoint + env-var holding the key + model id. Useful for
+//      self-hosted or alternative AI providers.
+//
+// Priority: OR model override > custom provider > default channel.
+//
+// API keys are NEVER stored here — only the NAME of the env var.
+// When neither feature is active the teacher uses the default channel
+// (OpenRouter + gemini-2.5-flash-lite) with zero behaviour change.
 //
 // All endpoints require `role = 'admin'`. Mutating endpoints additionally
-// require the same same-origin + X-Nukhba-Csrf defense used by the other v4
-// admin routes (app-wide CORS is origin:true/credentials:true).
+// require the same same-origin + X-Nukhba-Csrf defense used by the other
+// v4 admin routes.
 //
-// Mounted under /api by app.ts, so paths here are relative to /api.
+// Mounted under /api — paths here are relative to /api.
 // ─────────────────────────────────────────────────────────────────────────────
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { eq } from "drizzle-orm";
@@ -20,6 +32,7 @@ import {
   getTeacherProviderStatus,
   normaliseEndpoint,
   invalidateTeacherProviderCache,
+  OR_PICKER_MODELS,
 } from "../lib/ai-teacher-provider";
 
 const router: IRouter = Router();
@@ -42,17 +55,16 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction): Pr
   next();
 }
 
-// Same CSRF defense as v4_admin_instructions: custom header + same-origin.
 function requireSameOriginCsrf(req: Request, res: Response, next: NextFunction): void {
   if (!req.headers["x-nukhba-csrf"]) {
     res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
     return;
   }
-  const host = (req.headers.host || "").toLowerCase();
-  const origin = (req.headers.origin || "").toLowerCase();
-  const referer = (req.headers.referer || "").toLowerCase();
+  const host       = (req.headers.host    || "").toLowerCase();
+  const origin     = (req.headers.origin  || "").toLowerCase();
+  const referer    = (req.headers.referer || "").toLowerCase();
   const sourceHost = origin
-    ? (() => { try { return new URL(origin).host; } catch { return ""; } })()
+    ? (() => { try { return new URL(origin).host;  } catch { return ""; } })()
     : referer
       ? (() => { try { return new URL(referer).host; } catch { return ""; } })()
       : "";
@@ -64,7 +76,6 @@ function requireSameOriginCsrf(req: Request, res: Response, next: NextFunction):
 }
 
 // ── GET /admin/ai-teacher-provider ───────────────────────────────────────────
-// Admin status (never exposes the key value — only keyPresent + keyTail).
 router.get("/admin/ai-teacher-provider", requireAdmin, async (_req: Request, res: Response): Promise<void> => {
   try {
     const status = await getTeacherProviderStatus();
@@ -76,44 +87,55 @@ router.get("/admin/ai-teacher-provider", requireAdmin, async (_req: Request, res
 });
 
 // ── PUT /admin/ai-teacher-provider ───────────────────────────────────────────
-// Upsert the singleton row. Body: { enabled, baseUrl, apiKeyEnv, model }.
+// Body: { orModelOverride?, enabled?, baseUrl?, apiKeyEnv?, model? }
 router.put("/admin/ai-teacher-provider", requireAdmin, requireSameOriginCsrf, async (req: Request, res: Response): Promise<void> => {
   const adminId = (req as any).adminUserId as number;
 
-  const enabled = req.body?.enabled === true || req.body?.enabled === "true";
-  const baseUrl = typeof req.body?.baseUrl === "string" ? req.body.baseUrl.trim() : "";
-  const apiKeyEnv = typeof req.body?.apiKeyEnv === "string" ? req.body.apiKeyEnv.trim() : "";
-  const model = typeof req.body?.model === "string" ? req.body.model.trim() : "";
-
-  // Validate lengths to keep the row sane.
-  if (baseUrl.length > 300) { res.status(400).json({ error: "الرابط طويل جداً" }); return; }
-  if (apiKeyEnv.length > 120) { res.status(400).json({ error: "اسم متغيّر المفتاح طويل جداً" }); return; }
-  if (model.length > 200) { res.status(400).json({ error: "اسم النموذج طويل جداً" }); return; }
-
-  // When enabling, base URL + env-var name are required (model may be left
-  // empty for the admin to fill later — the resolver treats an empty model as
-  // "not configured" and falls back to the default channel automatically).
-  if (baseUrl) {
-    if (!/^https?:\/\//i.test(baseUrl)) {
-      res.status(400).json({ error: "الرابط يجب أن يبدأ بـ http:// أو https://" });
-      return;
-    }
-    try { new URL(baseUrl); } catch { res.status(400).json({ error: "رابط غير صالح" }); return; }
-  }
-  if (apiKeyEnv && !/^[A-Z0-9_]+$/i.test(apiKeyEnv)) {
-    res.status(400).json({ error: "اسم متغيّر المفتاح يجب أن يحوي حروفاً/أرقاماً/شرطة سفلية فقط" });
+  // ── OR model picker ──────────────────────────────────────────────────────
+  const orModelOverride = typeof req.body?.orModelOverride === "string"
+    ? req.body.orModelOverride.trim()
+    : undefined;
+  if (orModelOverride !== undefined && !(orModelOverride in OR_PICKER_MODELS)) {
+    res.status(400).json({ error: "نموذج غير مدعوم. اختر أحد النماذج المتاحة." });
     return;
+  }
+
+  // ── Custom provider ──────────────────────────────────────────────────────
+  const enabled    = req.body?.enabled === true || req.body?.enabled === "true";
+  const baseUrl    = typeof req.body?.baseUrl    === "string" ? req.body.baseUrl.trim()    : "";
+  const apiKeyEnv  = typeof req.body?.apiKeyEnv  === "string" ? req.body.apiKeyEnv.trim()  : "";
+  const model      = typeof req.body?.model      === "string" ? req.body.model.trim()      : "";
+
+  if (baseUrl.length > 300)   { res.status(400).json({ error: "الرابط طويل جداً" });                     return; }
+  if (apiKeyEnv.length > 120) { res.status(400).json({ error: "اسم متغيّر المفتاح طويل جداً" });         return; }
+  if (model.length > 200)     { res.status(400).json({ error: "اسم النموذج طويل جداً" });               return; }
+  if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
+    res.status(400).json({ error: "الرابط يجب أن يبدأ بـ http:// أو https://" }); return;
+  }
+  if (baseUrl) { try { new URL(baseUrl); } catch { res.status(400).json({ error: "رابط غير صالح" }); return; } }
+  if (apiKeyEnv && !/^[A-Z0-9_]+$/i.test(apiKeyEnv)) {
+    res.status(400).json({ error: "اسم متغيّر المفتاح يجب أن يحوي حروفاً/أرقاماً/شرطة سفلية فقط" }); return;
   }
   if (enabled && (!baseUrl || !apiKeyEnv)) {
-    res.status(400).json({ error: "للتفعيل: أدخل رابط المزوّد واسم متغيّر المفتاح على الأقل" });
-    return;
+    res.status(400).json({ error: "للتفعيل: أدخل رابط المزوّد واسم متغيّر المفتاح على الأقل" }); return;
   }
 
   try {
+    // Read the existing row so we only overwrite what was sent.
+    const [existing] = await db
+      .select()
+      .from(aiTeacherProviderSettingsTable)
+      .where(eq(aiTeacherProviderSettingsTable.id, 1));
+
+    const newOrModelOverride = orModelOverride !== undefined
+      ? orModelOverride
+      : (existing?.orModelOverride ?? "");
+
     const [row] = await db
       .insert(aiTeacherProviderSettingsTable)
       .values({
         id: 1,
+        orModelOverride: newOrModelOverride,
         enabled,
         baseUrl,
         apiKeyEnv,
@@ -123,17 +145,25 @@ router.put("/admin/ai-teacher-provider", requireAdmin, requireSameOriginCsrf, as
       })
       .onConflictDoUpdate({
         target: aiTeacherProviderSettingsTable.id,
-        set: { enabled, baseUrl, apiKeyEnv, model, updatedByUserId: adminId, updatedAt: new Date() },
+        set: {
+          orModelOverride: newOrModelOverride,
+          enabled,
+          baseUrl,
+          apiKeyEnv,
+          model,
+          updatedByUserId: adminId,
+          updatedAt: new Date(),
+        },
       })
       .returning();
 
-    // Invalidate the in-process cache so the next teaching turn picks up the
-    // new settings immediately (no need to wait for the 30-second TTL).
     invalidateTeacherProviderCache();
 
-    // Return the safe status (with key presence) rather than the raw row.
     const status = await getTeacherProviderStatus();
-    logger.info({ adminId, enabled, baseUrl, apiKeyEnv, model }, "ai-teacher-provider: settings updated");
+    logger.info(
+      { adminId, orModelOverride: newOrModelOverride, enabled, baseUrl, apiKeyEnv, model },
+      "ai-teacher-provider: settings updated",
+    );
     res.json({ ok: true, row: { id: row.id }, status });
   } catch (err: any) {
     logger.error({ err: err?.message }, "ai-teacher-provider: settings update failed");
@@ -142,30 +172,38 @@ router.put("/admin/ai-teacher-provider", requireAdmin, requireSameOriginCsrf, as
 });
 
 // ── POST /admin/ai-teacher-provider/test ─────────────────────────────────────
-// Live connectivity probe: send a 1-token chat-completions request to the
-// configured (or supplied) provider and report success/failure. Never returns
-// the key value. Uses the supplied body if present, else the saved settings.
+// Live connectivity probe. Works for both OR override and custom provider.
 router.post("/admin/ai-teacher-provider/test", requireAdmin, requireSameOriginCsrf, async (req: Request, res: Response): Promise<void> => {
-  // Allow testing unsaved form values (so the admin can verify before saving),
-  // falling back to the persisted row when a field is omitted.
   const [saved] = await db
     .select()
     .from(aiTeacherProviderSettingsTable)
     .where(eq(aiTeacherProviderSettingsTable.id, 1))
     .limit(1);
 
-  const baseUrl = (typeof req.body?.baseUrl === "string" && req.body.baseUrl.trim())
-    ? req.body.baseUrl.trim()
-    : String(saved?.baseUrl || "").trim();
-  const apiKeyEnv = (typeof req.body?.apiKeyEnv === "string" && req.body.apiKeyEnv.trim())
-    ? req.body.apiKeyEnv.trim()
-    : String(saved?.apiKeyEnv || "").trim();
-  const model = (typeof req.body?.model === "string" && req.body.model.trim())
-    ? req.body.model.trim()
-    : String(saved?.model || "").trim();
+  // When testing the OR model override, use OpenRouter URL + OPENROUTER_API_KEY.
+  const orModelOverride = typeof req.body?.orModelOverride === "string"
+    ? req.body.orModelOverride.trim()
+    : String(saved?.orModelOverride || "").trim();
+
+  let baseUrl: string;
+  let apiKeyEnv: string;
+  let model: string;
+
+  if (orModelOverride && orModelOverride in OR_PICKER_MODELS) {
+    baseUrl   = "https://openrouter.ai/api/v1";
+    apiKeyEnv = "OPENROUTER_API_KEY";
+    model     = orModelOverride;
+  } else {
+    baseUrl   = (typeof req.body?.baseUrl    === "string" && req.body.baseUrl.trim())
+      ? req.body.baseUrl.trim()   : String(saved?.baseUrl    || "").trim();
+    apiKeyEnv = (typeof req.body?.apiKeyEnv  === "string" && req.body.apiKeyEnv.trim())
+      ? req.body.apiKeyEnv.trim() : String(saved?.apiKeyEnv  || "").trim();
+    model     = (typeof req.body?.model      === "string" && req.body.model.trim())
+      ? req.body.model.trim()     : String(saved?.model      || "").trim();
+  }
 
   if (!baseUrl || !apiKeyEnv || !model) {
-    res.status(400).json({ ok: false, error: "أدخل رابط المزوّد واسم متغيّر المفتاح والنموذج لإجراء الاختبار" });
+    res.status(400).json({ ok: false, error: "أدخل المعلومات الكافية لإجراء الاختبار" });
     return;
   }
   const apiKey = String(process.env[apiKeyEnv] || "").trim();
@@ -208,19 +246,12 @@ router.post("/admin/ai-teacher-provider/test", requireAdmin, requireSameOriginCs
       });
       return;
     }
-    // Confirm the body parses as a chat-completions-shaped response.
     let parsedOk = false;
     try {
       const j = JSON.parse(text);
       parsedOk = !!(j && (j.choices || j.id || j.object));
     } catch { parsedOk = false; }
-    res.status(200).json({
-      ok: true,
-      status: r.status,
-      parsed: parsedOk,
-      endpoint,
-      model,
-    });
+    res.status(200).json({ ok: true, status: r.status, parsed: parsedOk, endpoint, model });
   } catch (err: any) {
     const aborted = err?.name === "AbortError";
     res.status(200).json({

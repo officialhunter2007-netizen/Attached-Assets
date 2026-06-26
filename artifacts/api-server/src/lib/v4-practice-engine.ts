@@ -29,6 +29,7 @@ import {
 import { generateGeminiJson } from "./openrouter-generate";
 import { evaluateLabAnswer, type EvalResult } from "./v4-exam-evaluator";
 import { V4_TEACHING_MODEL } from "./v4-teaching-core";
+import { getTeacherProviderOverride } from "./ai-teacher-provider";
 import { logger } from "./logger";
 
 export type ConceptDrillQuestion = {
@@ -142,11 +143,20 @@ async function generateDrillPool(input: {
     (mistakesBlock ? `\n${mistakesBlock}\n` : "") +
     `\nولّد ${TARGET_POOL} تمارين تطبيقية تُثبّت هذا المفهوم وتسدّ الثغرة.`;
 
+  // Propagate admin model override so drills are generated on the same
+  // model as the teaching chat.
+  let practiceProvider: { endpoint: string; apiKey: string; model: string } | null = null;
+  try {
+    const ov = await getTeacherProviderOverride();
+    if (ov) practiceProvider = { endpoint: ov.endpoint, apiKey: ov.apiKey, model: ov.model };
+  } catch { /* fall back to default */ }
+
   try {
     const res = await generateGeminiJson({
       systemPrompt: sys,
       userPrompt: user,
       model: V4_TEACHING_MODEL,
+      provider: practiceProvider,
       temperature: 0.6,
       maxOutputTokens: 2200,
       timeoutMs: 30_000,

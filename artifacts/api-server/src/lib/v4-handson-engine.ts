@@ -28,6 +28,7 @@ import {
 import { generateGeminiJson } from "./openrouter-generate";
 import { evaluateLabAnswer, type EvalResult } from "./v4-exam-evaluator";
 import { V4_TEACHING_MODEL } from "./v4-teaching-core";
+import { getTeacherProviderOverride } from "./ai-teacher-provider";
 import { logger } from "./logger";
 
 export type HandsOnTask = {
@@ -157,11 +158,20 @@ async function generateHandsOnTask(input: {
     (mistakesBlock ? `\n${mistakesBlock}\n` : "") +
     `\nصمّم مهمة تطبيق عملي واحدة يطبّق فيها الطالب هذا المفهوم بإنتاج ناتج ملموس في سياق يمني واقعي.`;
 
+  // Propagate admin model override so hands-on tasks are generated on the
+  // same model as the teaching chat.
+  let handsonProvider: { endpoint: string; apiKey: string; model: string } | null = null;
+  try {
+    const ov = await getTeacherProviderOverride();
+    if (ov) handsonProvider = { endpoint: ov.endpoint, apiKey: ov.apiKey, model: ov.model };
+  } catch { /* fall back to default */ }
+
   try {
     const res = await generateGeminiJson({
       systemPrompt: sys,
       userPrompt: user,
       model: V4_TEACHING_MODEL,
+      provider: handsonProvider,
       temperature: 0.6,
       maxOutputTokens: 1400,
       timeoutMs: 30_000,
