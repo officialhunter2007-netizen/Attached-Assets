@@ -26,10 +26,11 @@ import {
   db,
   v4StudentPathsTable,
   v4ConceptMasteryTable,
+  v4LessonConceptsTable,
   v4LessonsTable,
 } from "@workspace/db";
 import { logger } from "./logger";
-import { bumpWeakness, enforceLessonMasteryGate } from "./v4-memory";
+import { bumpWeakness, clearWeakness, enforceLessonMasteryGate } from "./v4-memory";
 import { publishProgressEvent } from "./v4-progress-events";
 
 export type V4ProtocolTag =
@@ -279,10 +280,38 @@ export async function applyTagEffects(
     labEnvRequests: [],
   };
 
+  // ت٦ — Pre-load valid concept indices for this lesson so phantom concept tags
+  // (hallucinated by a model with an off-by-one or fabricated index) are dropped
+  // silently instead of creating orphan mastery rows that corrupt the LDIAG
+  // weighted average and the gate check.
+  let validConceptIndices: Set<number> | null = null;
+  const hasMasteryTags = tags.some(t => t.kind === "mastery" || t.kind === "needs_review");
+  if (hasMasteryTags) {
+    try {
+      const conceptRows = await db
+        .select({ conceptIndex: v4LessonConceptsTable.conceptIndex })
+        .from(v4LessonConceptsTable)
+        .where(eq(v4LessonConceptsTable.lessonId, ctx.lessonId));
+      // Only activate the guard when the DB has rows for this lesson.
+      // If the lesson has no authored concepts yet (possible during dev), skip
+      // the filter so normal operation isn't blocked.
+      if (conceptRows.length > 0) {
+        validConceptIndices = new Set(conceptRows.map(r => r.conceptIndex));
+      }
+    } catch (e) {
+      logger.warn?.(`[v4-protocol-tags] concept pre-load failed lesson=${ctx.lessonId}: ${String((e as any)?.message ?? e)}`);
+    }
+  }
+
   for (const t of tags) {
     try {
       switch (t.kind) {
         case "mastery": {
+          // ت٦ — drop tags for concept indices that don't exist in this lesson
+          if (validConceptIndices && !validConceptIndices.has(t.conceptIndex)) {
+            logger.warn?.(`[v4-protocol-tags] ignored mastery tag for non-existent conceptIndex=${t.conceptIndex} lesson=${ctx.lessonId}`);
+            break;
+          }
           await db
             .insert(v4ConceptMasteryTable)
             .values({
@@ -298,14 +327,33 @@ export async function applyTagEffects(
                 v4ConceptMasteryTable.lessonId,
                 v4ConceptMasteryTable.conceptIndex,
               ],
-              set: { score: t.value, updatedAt: new Date() },
+              // ع١ — monotonic guard: GREATEST ensures a [MASTERY: value=85] that
+              // fires after a previous [MASTERY: value=90] never regresses the score.
+              // Without this an out-of-order retry or a repeated tag in the same turn
+              // could silently lower a high score to a lower one.
+              set: { score: sql`GREATEST(${v4ConceptMasteryTable.score}, ${t.value})`, updatedAt: new Date() },
             });
           result.conceptMasteryUpdates.push({ conceptIndex: t.conceptIndex, score: t.value });
+          // ذ١ — when the concept reaches mastery threshold, clear the cross-session
+          // weakness tracker so Layer 4 stops surfacing it as an unresolved gap.
+          // Best-effort: failure must not block the tag's main mastery write.
+          if (t.value >= 75) {
+            void clearWeakness({
+              userId: ctx.userId,
+              lessonId: ctx.lessonId,
+              conceptIndex: t.conceptIndex,
+            }).catch(() => {});
+          }
           break;
         }
         case "needs_review": {
-          // Soft signal — set the concept's score to min(current, 40) so
-          // the next session-prompt layer flags it as a gap. No upsert
+          // ت٦ — drop tags for concept indices that don't exist in this lesson
+          if (validConceptIndices && !validConceptIndices.has(t.conceptIndex)) {
+            logger.warn?.(`[v4-protocol-tags] ignored needs_review tag for non-existent conceptIndex=${t.conceptIndex} lesson=${ctx.lessonId}`);
+            break;
+          }
+          // Soft signal — set the concept's score to a "gap" band so
+          // the next session-prompt layer flags it. No upsert
           // collision: we read-then-write inside a single statement.
           await db
             .insert(v4ConceptMasteryTable)
@@ -323,7 +371,13 @@ export async function applyTagEffects(
                 v4ConceptMasteryTable.conceptIndex,
               ],
               set: {
-                score: sql`LEAST(${v4ConceptMasteryTable.score}, 40)`,
+                // ع٢ — protect earned mastery from hallucinated NEEDS_REVIEW:
+                // if the concept is already mastered (score ≥ 75), demote it
+                // to "shaky" (60) — not "weak" (40). A truly mastered concept
+                // should not be erased by a single teacher signal that may be
+                // a hallucination. If the concept was already below 75, the
+                // original LEAST(score, 40) behavior is preserved.
+                score: sql`CASE WHEN ${v4ConceptMasteryTable.score} >= 75 THEN 60 ELSE LEAST(${v4ConceptMasteryTable.score}, 40) END`,
                 updatedAt: new Date(),
               },
             });

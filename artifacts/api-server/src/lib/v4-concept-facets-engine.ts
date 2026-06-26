@@ -290,8 +290,11 @@ export async function gradeFacetAnswer(opts: {
 /** Score at/above which a single facet attempt counts as covered. */
 const FACET_PASS = 70;
 /** Hard cap: after this many graded attempts a facet is marked covered to keep
- *  the lesson moving ("دون مبالغة") even if the student never fully nailed it. */
-const FACET_ATTEMPT_CAP = 2;
+ *  the lesson moving ("دون مبالغة") even if the student never fully nailed it.
+ *  ع٥ — raised from 2 to 3: two attempts is too aggressive (marks a facet
+ *  covered even when the student scored 0 on both); three attempts gives one
+ *  genuine extra chance before the engine moves on. */
+const FACET_ATTEMPT_CAP = 3;
 
 /**
  * Mark a concept's middle facet as PENDING a grade — i.e. the directive just

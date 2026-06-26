@@ -419,13 +419,19 @@ async function pickPrimaryWalletSubjectId(opts: {
 }): Promise<string | null> {
   if (opts.preferredSubjectId) {
     const [pref] = await db
-      .select({ subjectId: studentGemWalletsTable.subjectId, gemsBalance: studentGemWalletsTable.gemsBalance })
+      .select({ subjectId: studentGemWalletsTable.subjectId })
       .from(studentGemWalletsTable)
       .where(and(
         eq(studentGemWalletsTable.userId, opts.userId),
         eq(studentGemWalletsTable.subjectId, opts.preferredSubjectId),
       ));
-    if (pref && pref.gemsBalance > 0) return pref.subjectId;
+    // ذ٤ — attribute memory costs to the ACTIVE session's subject even when
+    // its wallet balance is low or zero. Haiku memory passes cost ~$0.001 and
+    // should never bleed onto a different subject's wallet — that contaminates
+    // per-subject cost tracking and can debit a subject the student never
+    // intended to use. The wallet row must exist (student has visited the
+    // subject at least once); `chargeV4Ai` handles 0-balance gracefully.
+    if (pref) return pref.subjectId;
   }
 
   const [funded] = await db
@@ -541,9 +547,10 @@ export async function capturePersonalDictionaryFromDiagnostic(opts: {
       system:
         "استخرج معلومات شخصية مفيدة لمعلم نُخبة من إجابات الطالب التشخيصية. " +
         "أعد JSON فقط بهذا الشكل (بدون أي نص خارجي): " +
-        '{"occupation": string|null, "hobbies": string[], "examples": string[], "places": string[], "family": string[], "extras": string[]}. ' +
+        '{"occupation": string|null, "hobbies": string[], "examples": string[], "places": string[], "family": string[], "extras": string[], "learningStyle": string|null}. ' +
         "الحقول كلها اختيارية — اترك المصفوفات فارغة إذا لم تجد. " +
-        "occupation = مهنة أو تخصص دراسي صريح. examples = أمثلة شخصية يحبها الطالب. extras = أي شيء يساعد المعلم على بناء الصلة.",
+        "occupation = مهنة أو تخصص دراسي صريح. examples = أمثلة شخصية يحبها الطالب. extras = أي شيء يساعد المعلم على بناء الصلة. " +
+        "learningStyle = وصف موجز (حتى ١٠ كلمات) لطريقة تعلّم الطالب المُستنتجة من إجاباته، مثلاً: 'يفضّل الأمثلة العملية' أو 'يميل للاستنتاج بنفسه'. اتركه null إن لم يوجد مؤشر واضح.",
       messages: [{ role: "user", content: transcript }],
     });
 
@@ -564,6 +571,22 @@ export async function capturePersonalDictionaryFromDiagnostic(opts: {
 
     const extracted = normalizeDictionaryShape(parsed);
     await mergePersonalDictionary(opts.userId, extracted);
+
+    // ذ٢ — persist learningStyle when Haiku detected one from the diagnostic.
+    // This is the ideal extraction moment because the 5-question diagnostic
+    // transcript contains the most concentrated personal signal we ever see.
+    // We store it on the profile row (not in personalDictionary) so Layer 1
+    // can surface it as a top-level teaching-style modifier.
+    const lsRaw = typeof parsed.learningStyle === "string" && parsed.learningStyle.trim()
+      ? parsed.learningStyle.trim().slice(0, 120)
+      : null;
+    if (lsRaw) {
+      await db
+        .update(v4StudentProfileTable)
+        .set({ learningStyle: lsRaw, updatedAt: new Date() })
+        .where(eq(v4StudentProfileTable.userId, opts.userId))
+        .catch(() => {});
+    }
   } catch (err) {
     void recordAiUsage({
       userId: opts.userId,
@@ -991,23 +1014,31 @@ function normalizeDictionaryShape(raw: Record<string, unknown>): V4PersonalDicti
  */
 async function mergePersonalDictionary(userId: number, incoming: V4PersonalDictionary): Promise<void> {
   await ensureProfileRow(userId);
-  const [row] = await db
-    .select()
-    .from(v4StudentProfileTable)
-    .where(eq(v4StudentProfileTable.userId, userId));
-  const existing = (row?.personalDictionary as V4PersonalDictionary) ?? {};
-  const merged: V4PersonalDictionary = {
-    occupation: incoming.occupation || existing.occupation,
-    hobbies: unionCapped(existing.hobbies, wrapEntries(incoming.hobbies)),
-    examples: unionCapped(existing.examples, wrapEntries(incoming.examples)),
-    places: unionCapped(existing.places, wrapEntries(incoming.places)),
-    family: unionCapped(existing.family, wrapEntries(incoming.family)),
-    extras: unionCapped(existing.extras, wrapEntries(incoming.extras)),
-  };
-  await db
-    .update(v4StudentProfileTable)
-    .set({ personalDictionary: merged, updatedAt: new Date() })
-    .where(eq(v4StudentProfileTable.userId, userId));
+  // ذ٥ — wrap the read-modify-write in a transaction to reduce the race
+  // window between concurrent Haiku capture passes (e.g. SESSION_COMPLETE and
+  // LESSON_MASTERED firing within milliseconds of each other for the same
+  // student). Without a transaction, the second write can clobber entries
+  // added by the first. READ COMMITTED isolation still applies, but the
+  // atomic {read, merge, write} prevents most practical interleaving.
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(v4StudentProfileTable)
+      .where(eq(v4StudentProfileTable.userId, userId));
+    const existing = (row?.personalDictionary as V4PersonalDictionary) ?? {};
+    const merged: V4PersonalDictionary = {
+      occupation: incoming.occupation || existing.occupation,
+      hobbies: unionCapped(existing.hobbies, wrapEntries(incoming.hobbies)),
+      examples: unionCapped(existing.examples, wrapEntries(incoming.examples)),
+      places: unionCapped(existing.places, wrapEntries(incoming.places)),
+      family: unionCapped(existing.family, wrapEntries(incoming.family)),
+      extras: unionCapped(existing.extras, wrapEntries(incoming.extras)),
+    };
+    await tx
+      .update(v4StudentProfileTable)
+      .set({ personalDictionary: merged, updatedAt: new Date() })
+      .where(eq(v4StudentProfileTable.userId, userId));
+  });
 }
 
 async function mergeWarmthAnchors(userId: number, incoming: V4WarmthAnchors): Promise<void> {

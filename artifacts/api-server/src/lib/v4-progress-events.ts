@@ -57,6 +57,54 @@ type Subscriber = {
 const subscribers = new Map<string, Set<Subscriber>>();
 const keyOf = (userId: number, slug: string): string => `${userId}:${slug}`;
 
+// ت٤ — Recent-event ring buffer for reconnect catch-up.
+// When a subscriber disconnects and reconnects (e.g. tab-reload during a lab
+// submit), they would miss any event published in the gap. We keep the last
+// MAX_BUFFERED events per (userId, slug) for up to BUFFER_TTL_MS (60 s). New
+// subscribers receive the buffered events immediately on subscribe so they
+// converge to live state without a full map refetch.
+const MAX_BUFFERED = 20;
+const BUFFER_TTL_MS = 60_000;
+
+interface BufferedEvent {
+  event: V4ProgressEvent;
+  ts: number; // Date.now() when published
+}
+
+const recentEventsByKey = new Map<string, BufferedEvent[]>();
+
+function pushToBuffer(key: string, event: V4ProgressEvent): void {
+  const now = Date.now();
+  let buf = recentEventsByKey.get(key);
+  if (!buf) {
+    buf = [];
+    recentEventsByKey.set(key, buf);
+  }
+  buf.push({ event, ts: now });
+  // Evict stale entries, then enforce size cap (ring-buffer style).
+  const cutoff = now - BUFFER_TTL_MS;
+  let start = 0;
+  while (start < buf.length && buf[start].ts < cutoff) start++;
+  if (start > 0) buf.splice(0, start);
+  if (buf.length > MAX_BUFFERED) buf.splice(0, buf.length - MAX_BUFFERED);
+}
+
+function replayBuffer(key: string, res: Response): void {
+  const buf = recentEventsByKey.get(key);
+  if (!buf || buf.length === 0) return;
+  const cutoff = Date.now() - BUFFER_TTL_MS;
+  for (const { event, ts } of buf) {
+    if (ts < cutoff) continue;
+    try {
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+    } catch {
+      // subscriber not ready yet — swallow
+    }
+  }
+}
+
 /**
  * Register an open SSE response for `(userId, slug)`. The caller is
  * responsible for having already written the SSE headers + flushed
@@ -84,6 +132,9 @@ export function subscribeProgressEvents(userId: number, slug: string, res: Respo
   }
   set.add(sub);
 
+  // ت٤ — replay recent buffer so a reconnecting tab catches up immediately.
+  replayBuffer(key, res);
+
   return () => {
     try { if (sub.heartbeat) clearInterval(sub.heartbeat); } catch {}
     const s = subscribers.get(key);
@@ -103,6 +154,9 @@ export function subscribeProgressEvents(userId: number, slug: string, res: Respo
  */
 export function publishProgressEvent(userId: number, slug: string, event: V4ProgressEvent): void {
   if (!slug) return;
+  // ت٤ — buffer before fanning out so a subscriber that connects 1 ms later
+  // (race between submit-response and SSE-reconnect) still gets the event.
+  pushToBuffer(keyOf(userId, slug), event);
   const set = subscribers.get(keyOf(userId, slug));
   if (!set || set.size === 0) return;
   const frame = `data: ${JSON.stringify(event)}\n\n`;

@@ -171,11 +171,15 @@ export function extractAskOptions(content: string): AskOptionsResult {
   // This catches the case where the model writes "...مهم في البرمجة؟ حتى لو
   // كان الشرح بالعربي، الكود لازم يكون واضح عالمياً." — the ؟ exists but
   // isn't the last character, so bodyEndsWithQuestion misses it.
+  // ع٨ — widened from 300 to 600 chars: a question near the top of a long
+  // streamed teacher turn was invisible to the 300-char window, causing the
+  // parser to treat option[0] as a non-clickable "body label" instead of
+  // embedding the question in the body where it belongs.
   const bodyLast300 = strippedOut
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(-300);
+    .slice(-600);
   const bodyHasRecentQuestion = /[؟?]/.test(bodyLast300);
 
   if (

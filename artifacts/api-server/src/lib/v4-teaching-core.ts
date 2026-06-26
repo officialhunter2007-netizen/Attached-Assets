@@ -1625,14 +1625,22 @@ function buildDifficultyLayer(
   // v4.1 — weighted average using concept.weight. Defaults to 1 so v4.0
   // files (where every weight is 1) produce the exact same number as the
   // legacy plain average.
+  // ع٤ — only include concepts that have been TESTED (have a mastery score).
+  // A concept the student hasn't seen ≠ a concept they scored 0 on.
+  // Without this guard, untested concepts drag the difficulty estimate down
+  // and the teacher under-challenges fast learners from the very first turn.
   let weightedSum = 0;
   let weightTotal = 0;
   for (const c of concepts) {
+    const s = mastery.get(c.conceptIndex);
+    if (s === undefined) continue; // ع٤ — skip untested concepts
     const w = Math.max(1, ((c as any).weight ?? 1) as number);
-    weightedSum += (mastery.get(c.conceptIndex) ?? 0) * w;
+    weightedSum += s * w;
     weightTotal += w;
   }
-  const avg = weightTotal > 0 ? weightedSum / weightTotal : 0;
+  // ع٤ — if nothing has been tested yet, default to 50 (neutral difficulty)
+  // so the first turn starts at medium level, not trivially easy (0).
+  const avg = weightTotal > 0 ? weightedSum / weightTotal : 50;
   let hint: string;
   if (avg >= 70) hint = "ارفع الصعوبة: أسئلة تطبيقية متشعّبة، أمثلة أعمق، وقتٌ أقل للتلميح.";
   else if (avg >= 35) hint = "حافظ على مستوى متوسط: مزيج من السؤال المباشر والسيناريو التطبيقي.";

@@ -394,6 +394,40 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       }
     }
 
+    // ت١ — already-mastered lesson gate: if ALL concepts in this lesson have
+    // been mastered (score ≥ 75) and this is not the first turn (student has
+    // already received the lesson at least once), emit a free gem-less nudge
+    // pointing to the unit exam rather than calling Gemini and burning gems.
+    // This handles the "last lesson in the unit is mastered but currentLessonCode
+    // hasn't advanced" case — the student is stuck reopening a completed lesson.
+    if (concepts.length > 0 && history.length > 0) {
+      const masteryRows = await db
+        .select({ conceptIndex: v4ConceptMasteryTable.conceptIndex, score: v4ConceptMasteryTable.score })
+        .from(v4ConceptMasteryTable)
+        .where(and(
+          eq(v4ConceptMasteryTable.userId, uid),
+          eq(v4ConceptMasteryTable.lessonId, lesson.id),
+        ));
+      const allMastered = concepts.every(
+        (c) => (masteryRows.find((r) => r.conceptIndex === c.conceptIndex)?.score ?? 0) >= 75,
+      );
+      if (allMastered) {
+        inflightTeachTurns.delete(turnLockKey);
+        if (!res.headersSent) {
+          res.setHeader("Content-Type", "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache, no-transform");
+          res.setHeader("Connection", "keep-alive");
+          res.flushHeaders?.();
+        }
+        if (!res.writableEnded) {
+          res.write(`data: ${JSON.stringify({ content: "✅ أتقنت كل مفاهيم هذا الدرس — انتقل إلى اختبار الوحدة لفتح الوحدة التالية." })}\n\n`);
+          res.write(`data: ${JSON.stringify({ done: true, charged: false, balanceAfter: null, lessonMastered: false })}\n\n`);
+          res.end();
+        }
+        return;
+      }
+    }
+
     // Compress before building the prompt so Layer 9 is populated when needed.
     const compressed = compressHistory([...history, { role: "user", content: message }]);
     // Defensive: the layer9 summary text feeds the system prompt and other
@@ -1006,6 +1040,23 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     // after mastering a lesson). We skip warmth here — a single turn is
     // too thin for reliable laughter/confidence/worry signals.
     if (effects.lessonAdvanced && !effects.sessionComplete) {
+      const cleanedAssistant = stripProtocolTags(fullText).trim();
+      const recentForCapture: Array<{ role: "user" | "assistant"; content: string }> = [
+        ...compressed.recentMessages.slice(-6),
+        { role: "assistant" as const, content: cleanedAssistant },
+      ];
+      void capturePersonalDictionaryFromSession({
+        userId: uid,
+        subjectId: slug,
+        recentMessages: recentForCapture,
+      }).catch(() => {});
+    }
+
+    // ذ٣ — mid-session capture: fire dictionary capture even when neither
+    // SESSION_COMPLETE nor LESSON_MASTERED fired (student closed the tab
+    // mid-lesson). We require ≥ 4 recent messages as a minimum-signal
+    // threshold to avoid capturing noise from very short or abandoned sessions.
+    if (!effects.sessionComplete && !effects.lessonAdvanced && compressed.recentMessages.length >= 4) {
       const cleanedAssistant = stripProtocolTags(fullText).trim();
       const recentForCapture: Array<{ role: "user" | "assistant"; content: string }> = [
         ...compressed.recentMessages.slice(-6),

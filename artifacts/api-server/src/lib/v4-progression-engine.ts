@@ -96,9 +96,25 @@ export interface ProgressionGraph {
   levelExamable: Set<number>;
 }
 
+// ت٣ — In-process TTL cache for progression graphs (5 min).
+// The graph only changes when an admin publishes a new instruction version.
+// Re-loading 4 tables on every map GET (multiple SSE-reconnects per student)
+// wastes DB connections. A 5-min TTL is safe: admin publishes are rare events
+// and a stale cache drifts for at most 5 min before self-healing.
+const _graphCache = new Map<number, { graph: ProgressionGraph; cachedAt: number }>();
+const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/** Invalidate the cached progression graph for a version (call on admin publish). */
+export function invalidateProgressionGraphCache(versionId: number): void {
+  _graphCache.delete(versionId);
+}
+
 /** Load the full curriculum graph for a version (ALL levels — reachability is
  *  a global forward chain, so a single level's slice is not enough). */
 export async function loadProgressionGraph(versionId: number): Promise<ProgressionGraph> {
+  // ت٣ — serve from cache when fresh
+  const _cached = _graphCache.get(versionId);
+  if (_cached && Date.now() - _cached.cachedAt < GRAPH_CACHE_TTL_MS) return _cached.graph;
   const [stages, units, lessons, examRows] = await Promise.all([
     db
       .select({ id: v4StagesTable.id, code: v4StagesTable.code, levelId: v4StagesTable.levelId })
@@ -196,7 +212,7 @@ export async function loadProgressionGraph(versionId: number): Promise<Progressi
     if (stageIds.some((sid) => stageExamable.has(sid))) levelExamable.add(levelId);
   }
 
-  return {
+  const graph: ProgressionGraph = {
     versionId,
     unitsSorted,
     unitById,
@@ -213,6 +229,9 @@ export async function loadProgressionGraph(versionId: number): Promise<Progressi
     stageExamable,
     levelExamable,
   };
+  // ت٣ — cache for future callers
+  _graphCache.set(versionId, { graph, cachedAt: Date.now() });
+  return graph;
 }
 
 // ── Pure progression projection ────────────────────────────────────────────
@@ -404,12 +423,19 @@ export function computeRequiredExamChain(
 }
 
 /** Build the same `${scope}:${scopeRefId}` pass map used elsewhere, querying
- *  attempts directly so this module has no dependency on v4-lab-exam-engine. */
-export async function loadExamPassMapForUser(userId: number): Promise<ExamPassMap> {
+ *  attempts directly so this module has no dependency on v4-lab-exam-engine.
+ *  ت٢ — `versionId` filter: exam passes from a retired instruction version
+ *  (e.g. admin published a revised curriculum) must NOT be counted as passes
+ *  in the new version's progression graph — a student who passed unit 3 of
+ *  v1 has NOT passed unit 3 of v2 (the exam bank is different). Pass the
+ *  current `path.versionId` wherever possible; omit only when unknown. */
+export async function loadExamPassMapForUser(userId: number, versionId?: number): Promise<ExamPassMap> {
   const rows = await db
     .select({ scope: v4ExamAttemptsTable.scope, scopeRefId: v4ExamAttemptsTable.scopeRefId, passed: v4ExamAttemptsTable.passed })
     .from(v4ExamAttemptsTable)
-    .where(eq(v4ExamAttemptsTable.userId, userId));
+    .where(versionId !== undefined
+      ? and(eq(v4ExamAttemptsTable.userId, userId), eq(v4ExamAttemptsTable.versionId, versionId))
+      : eq(v4ExamAttemptsTable.userId, userId));
   const m: ExamPassMap = new Map();
   for (const r of rows as any[]) {
     const k = `${r.scope}:${r.scopeRefId}`;
@@ -435,7 +461,7 @@ export async function recomputeUnlockSnapshot(opts: {
 }): Promise<{ unlocked: string[]; newlyUnlocked: string[]; nextLessonCode: string | null }> {
   const [graph, examPassMap] = await Promise.all([
     loadProgressionGraph(opts.versionId),
-    loadExamPassMapForUser(opts.userId),
+    loadExamPassMapForUser(opts.userId, opts.versionId), // ت٢ — scope to version
   ]);
   const state = computeProgression(graph, examPassMap, opts.existingUnlocked);
   const existingSet = new Set(opts.existingUnlocked);

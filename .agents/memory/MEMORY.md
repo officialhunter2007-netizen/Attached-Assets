@@ -1,4 +1,6 @@
 - [DB migration in Replit](db-migration-replit.md) — drizzle-kit push is interactive; use raw psql SQL to create missing tables in fresh environments.
+- [v4 mastery tag invariants](v4-mastery-tag-invariants.md) — GREATEST monotonicity on mastery upsert; NEEDS_REVIEW floors at 60 (not 40) for mastered concepts; phantom conceptIndex validated against DB before write.
+- [v4 exam-pass versionId scope](v4-exam-pass-versionid-scope.md) — loadExamPassMapForUser must filter by versionId; passes from a retired instruction version must NOT count in the new version's progression graph.
 - [v4 wallet parallel to legacy](v4-wallet-parallel-legacy.md) — v4 monthly wallet writes are best-effort post-tx; legacy daily-cap path remains source of truth for student reads until FE cutover.
 - [Express route prefix](express-route-prefix.md) — routes mounted via `app.use("/api", router)` must define paths without `/api/` prefix or they 404.
 - [App-wide CSRF gap](app-wide-csrf-gap.md) — CORS is `origin:true, credentials:true` + prod cookies SameSite=none; admin mutating endpoints need local CSRF defense; `requireSameOriginCsrf` is copy-pasted per file & DIVERGES (subscriptions.ts was header-only) — read the body, don't trust the name.
