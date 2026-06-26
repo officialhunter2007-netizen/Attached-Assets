@@ -243,9 +243,13 @@ export async function allocateWelcomeGift(
 
       const now = new Date();
       const candidateExpiry = new Date(now.getTime() + V4_SUB_DURATION_DAYS * 24 * 60 * 60 * 1000);
-      // GREATEST(existing, now+30d): the gift never shortens an existing window.
+      // If the student already has an ACTIVE paid subscription (expiresAt > now),
+      // keep it unchanged — don't shorten a longer window and don't extend a
+      // shorter one (which would turn the welcome gift into a free subscription
+      // extender). Only grant the 30-day trial window when no subscription is
+      // currently active (null or already expired).
       const newExpiresAt =
-        priorExpiresAt && priorExpiresAt.getTime() > candidateExpiry.getTime()
+        priorExpiresAt && priorExpiresAt.getTime() > now.getTime()
           ? priorExpiresAt
           : candidateExpiry;
       const newBalance = priorBalance + gems;

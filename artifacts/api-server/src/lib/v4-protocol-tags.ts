@@ -22,6 +22,7 @@
  */
 
 import { and, eq, sql } from "drizzle-orm";
+import { LAB_PASS_THRESHOLD } from "./v4-lab-exam-engine";
 import {
   db,
   v4StudentPathsTable,
@@ -455,9 +456,9 @@ export async function applyTagEffects(
               nodeId: t.labCode,
               nodeKind: "lab",
               score: t.score,
-              passed: t.score >= 70,
+              passed: t.score >= LAB_PASS_THRESHOLD,
             });
-            if (t.score >= 70) {
+            if (t.score >= LAB_PASS_THRESHOLD) {
               publishProgressEvent(ctx.userId, ctx.subjectSlug, {
                 kind: "celebration",
                 slug: ctx.subjectSlug,

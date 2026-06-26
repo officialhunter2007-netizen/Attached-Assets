@@ -1034,7 +1034,7 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
     const { loadProgressionGraph, computeProgression } = await import("../lib/v4-progression-engine");
     const [labCompletions, examPassMap, progressionGraph] = await Promise.all([
       loadLabCompletionsMap(uid),
-      loadExamPassMap(uid),
+      loadExamPassMap(uid, versionId),
       loadProgressionGraph(versionId),
     ]);
 

@@ -231,12 +231,20 @@ export async function loadLabCompletionsMap(userId: number): Promise<Map<number,
 /**
  * For each (scope, scopeRefId), whether the user has any passing attempt.
  * Map key = `${scope}:${scopeRefId}`.
+ *
+ * versionId — when supplied, only rows whose version_id matches are included.
+ * This prevents passes from a retired curriculum version contaminating the
+ * icon colours for a newly-published version.
  */
-export async function loadExamPassMap(userId: number): Promise<Map<string, { passed: boolean; bestScore: number; attempts: number }>> {
+export async function loadExamPassMap(userId: number, versionId?: number): Promise<Map<string, { passed: boolean; bestScore: number; attempts: number }>> {
   const rows = await db
     .select()
     .from(v4ExamAttemptsTable)
-    .where(eq(v4ExamAttemptsTable.userId, userId));
+    .where(
+      versionId !== undefined
+        ? and(eq(v4ExamAttemptsTable.userId, userId), eq(v4ExamAttemptsTable.versionId, versionId))
+        : eq(v4ExamAttemptsTable.userId, userId),
+    );
   const m = new Map<string, { passed: boolean; bestScore: number; attempts: number }>();
   for (const r of rows as any[]) {
     const k = `${r.scope}:${r.scopeRefId}`;
