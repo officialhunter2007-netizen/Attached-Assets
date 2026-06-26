@@ -1103,11 +1103,19 @@ export default function V4Lesson() {
       && lastUserIdRef.current === requestUserId
       && !controller.signal.aborted;
 
+    // Belt-and-braces: if the server hangs (e.g. OpenRouter timeout fires
+    // AFTER the SSE heartbeat starts keeping the connection alive), the FE
+    // would spin forever. A 120-second combined signal ensures the fetch
+    // always resolves — the server-side 90 s cap should fire first, but this
+    // catches any gap (e.g. slow mobile network adding overhead).
+    const _fetchTimeoutSig = AbortSignal.timeout(120_000);
+    const _fetchSig = AbortSignal.any([controller.signal, _fetchTimeoutSig]);
+
     try {
       const res = await fetch("/api/v4/teach", {
         method: "POST",
         credentials: "include",
-        signal: controller.signal,
+        signal: _fetchSig,
         headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
         body: JSON.stringify({
           slug,

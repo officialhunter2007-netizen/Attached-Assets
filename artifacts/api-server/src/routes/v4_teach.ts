@@ -511,6 +511,17 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
   const abort = new AbortController();
   const onClose = (): void => { try { abort.abort(); } catch {} };
 
+  // Hard 90-second cap on the OpenRouter streaming fetch. Without this, a
+  // hung OpenRouter request (no response headers at all) would spin forever
+  // on mobile: the SSE heartbeat keeps the client TCP connection alive, so
+  // `abort.signal` (which fires on client disconnect) never triggers, and
+  // `streamGeminiTeaching` waits indefinitely. The timeout ensures the
+  // route always terminates — fast success, fast failure, never silent hang.
+  // 90 s is deliberately generous: Gemini Flash Lite rarely takes > 30 s
+  // even on long responses, so this only fires on genuine hangs.
+  const _streamTimeout = AbortSignal.timeout(90_000);
+  const streamSignal = AbortSignal.any([abort.signal, _streamTimeout]);
+
   let fullText = "";
   let charged = false;
   let insufficientGems = false;
@@ -804,7 +815,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       model: V4_TEACHING_MODEL,
       provider: teacherProvider,
       temperature: 0.7,
-      signal: abort.signal,
+      signal: streamSignal,
       logTag: `v4-teach:${slug}:${lessonCode}`,
       onChunk: (text) => {
         if (!text) return;
