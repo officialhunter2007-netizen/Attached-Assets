@@ -323,28 +323,39 @@ export async function extractBookletContent(buf: Buffer, opts: {
 
 // ─── Chunking ───────────────────────────────────────────────────────────────
 const CHUNK_WORDS = 350;
-const CHUNK_OVERLAP_WORDS = 50;
+// 10 % overlap across the full word-stream (cross-page).
+// Previous implementation chunked per-page independently, so content at page
+// boundaries was split with zero context carry-over.  The new sliding-window
+// approach treats all pages as a single word stream; each chunk's page number
+// is the page of its first word.  Overlap = 35 words ≈ 10 % of CHUNK_WORDS.
+const CHUNK_OVERLAP_WORDS = Math.round(CHUNK_WORDS * 0.1); // 35 words
 
 export type BookletChunk = { pageNumber: number; chunkIdx: number; text: string };
 
 export function chunkPages(pages: Map<number, string>): BookletChunk[] {
-  const out: BookletChunk[] = [];
-  let globalIdx = 0;
+  // Build a flat (pageNumber, word) stream across all pages in order.
+  const allWords: { page: number; word: string }[] = [];
   const pageNumbers = Array.from(pages.keys()).sort((a, b) => a - b);
   for (const pn of pageNumbers) {
     const text = pages.get(pn) ?? "";
     if (!text) continue;
-    const words = text.split(/\s+/).filter(Boolean);
-    if (words.length <= CHUNK_WORDS) {
-      out.push({ pageNumber: pn, chunkIdx: globalIdx++, text });
-      continue;
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      allWords.push({ page: pn, word });
     }
-    let i = 0;
-    while (i < words.length) {
-      const slice = words.slice(i, i + CHUNK_WORDS).join(" ");
-      out.push({ pageNumber: pn, chunkIdx: globalIdx++, text: slice });
-      i += CHUNK_WORDS - CHUNK_OVERLAP_WORDS;
-    }
+  }
+
+  if (allWords.length === 0) return [];
+
+  const out: BookletChunk[] = [];
+  let chunkIdx = 0;
+  const step = CHUNK_WORDS - CHUNK_OVERLAP_WORDS; // 315
+  for (let i = 0; i < allWords.length; i += step) {
+    const slice = allWords.slice(i, i + CHUNK_WORDS);
+    out.push({
+      pageNumber: slice[0].page,
+      chunkIdx: chunkIdx++,
+      text: slice.map(w => w.word).join(" "),
+    });
   }
   return out;
 }
