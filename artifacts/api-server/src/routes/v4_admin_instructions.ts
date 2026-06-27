@@ -37,6 +37,7 @@ import { cacheValidatedDoc, getValidatedDoc, dropValidatedDoc } from "../lib/v4-
 import type { PublishProgress } from "../lib/v4-instruction-normalizer";
 import { generateGeminiJson, hasGeminiProvider, GenerateGeminiError } from "../lib/openrouter-generate";
 import { compareCodes } from "../lib/v4-path-engine";
+import { prewarmLessonContentForVersion } from "../lib/v4-teaching-core";
 import { recordAiUsage, extractGeminiUsage } from "../lib/ai-usage";
 
 const router: IRouter = Router();
@@ -277,6 +278,9 @@ router.post("/admin/v4/publish", requireAdmin, requireSameOriginCsrf, rawGzipBod
           { specialtyId: result.specialtyId, version: result.version, summary: result.summary },
           "v4: published instruction file (cached fast-path)",
         );
+        // Fire-and-forget pre-warm so first students see instant lesson loads.
+        const prewarmSlug = (cached.parsed as any)?.specialty?.slug ?? `specialty-${result.specialtyId}`;
+        void prewarmLessonContentForVersion(result.versionId, prewarmSlug);
         res.json({ ok: true, ...result });
         return;
       } catch (e: any) {
@@ -300,6 +304,9 @@ router.post("/admin/v4/publish", requireAdmin, requireSameOriginCsrf, rawGzipBod
       { specialtyId: result.specialtyId, version: result.version, summary: result.summary },
       "v4: published instruction file",
     );
+    // Fire-and-forget pre-warm so first students see instant lesson loads.
+    const prewarmSlug = (raw as any)?.specialty?.slug ?? `specialty-${result.specialtyId}`;
+    void prewarmLessonContentForVersion(result.versionId, prewarmSlug);
     res.json({ ok: true, ...result });
   } catch (e: any) {
     if (e?.report) {
@@ -402,6 +409,8 @@ router.post("/admin/v4/specialties/:slug/activate-version", requireAdmin, requir
     .set({ activeInstructionVersionId: versionId, updatedAt: new Date() })
     .where(eq(v4SpecialtiesTable.id, sp.id));
 
+  // Fire-and-forget pre-warm for the newly activated version.
+  void prewarmLessonContentForVersion(versionId, req.params.slug);
   res.json({ ok: true, activeVersionId: versionId });
 });
 

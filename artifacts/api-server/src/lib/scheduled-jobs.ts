@@ -19,11 +19,12 @@
  * per hour per active sub is negligible.
  */
 
-import { and, gt, lt } from "drizzle-orm";
+import { and, gt, isNotNull, lt } from "drizzle-orm";
 import {
   db,
   userSubjectSubscriptionsTable,
   usersTable,
+  v4SpecialtiesTable,
 } from "@workspace/db";
 import {
   applyDailyGemsRollover,
@@ -36,6 +37,7 @@ import { sweepV4ExpiredWallets } from "./v4-gem-wallet";
 import { sweepReferralRewards } from "./v4-referral";
 import { runWeeklyMemorySweep } from "./v4-memory";
 import { reapOrphanedProcessingBooklets } from "./v4-booklet";
+import { prewarmLessonContentForVersion } from "./v4-teaching-core";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const FIVE_MIN_MS = 5 * 60 * 1000;
@@ -150,8 +152,42 @@ async function runRolloverSweep(): Promise<void> {
     } catch (err: any) {
       logger.error({ err: err?.message }, "scheduled-jobs: v4 weekly memory sweep crashed");
     }
+
+    // Lesson-content pre-warm safety net — fills any gaps left by a server
+    // restart at publish time or a partial generation failure.  The function
+    // is a no-op (cheap DB read) when all lessons are already cached.
+    await runLessonContentPrewarm();
   } catch (err: any) {
     logger.error({ err: err?.message }, "scheduled-jobs: sweep crashed");
+  }
+}
+
+/**
+ * Safety-net pre-warm sweep.  Runs every hour alongside the rollover sweep.
+ * For each specialty with an active instruction version, checks for uncached
+ * lessons and generates their content (no-op when all lessons are already
+ * cached — the common case in production).
+ *
+ * The primary warm path fires immediately on publish / activate-version.
+ * This sweep catches any lessons that slipped through because the server was
+ * restarting, or a partial failure left some lessons ungenerated.
+ */
+async function runLessonContentPrewarm(): Promise<void> {
+  try {
+    const specialties = await db
+      .select({
+        slug: v4SpecialtiesTable.slug,
+        versionId: v4SpecialtiesTable.activeInstructionVersionId,
+      })
+      .from(v4SpecialtiesTable)
+      .where(isNotNull(v4SpecialtiesTable.activeInstructionVersionId));
+
+    for (const sp of specialties) {
+      if (!sp.versionId) continue;
+      await prewarmLessonContentForVersion(sp.versionId, sp.slug);
+    }
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "scheduled-jobs: lesson-content prewarm sweep crashed");
   }
 }
 

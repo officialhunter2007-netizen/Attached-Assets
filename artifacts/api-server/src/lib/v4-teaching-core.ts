@@ -1715,3 +1715,185 @@ export function buildLanguageLayer(lang: string): string {
     "- Keep technical terms in their canonical form; translate on first introduction.",
   ].join("\n");
 }
+
+// ── Content-cache pre-warming ─────────────────────────────────────────────
+//
+// Called (fire-and-forget) by:
+//   1. The admin publish route — immediately after a new instruction version
+//      is atomically committed to the DB.
+//   2. The admin activate-version route — after swapping the active pointer.
+//   3. The hourly scheduled-jobs tick — as a safety net for any lessons that
+//      slipped through (server was down at publish time, partial failure, etc).
+//
+// Design:
+//   • Reuses the same atomic INSERT ON CONFLICT DO NOTHING guard as the
+//     per-student lazy-gen path — safe to run concurrently with live traffic.
+//   • No student is ever charged (firstStudentId = null, no wallet debit).
+//     The cost (~$0.001 per lesson) is an admin operational expense.
+//   • Concurrency is capped at PREWARM_CONCURRENCY (4) to avoid saturating
+//     OpenRouter during a large curriculum publish (e.g. 500 lessons).
+//   • The function never throws — per-lesson errors are logged and counted.
+
+const PREWARM_CONCURRENCY = 4;
+
+/**
+ * Pre-warm the lesson-content cache for every lesson in `versionId`.
+ * Returns stats { total, alreadyCached, generated, failed }.
+ */
+export async function prewarmLessonContentForVersion(
+  versionId: number,
+  slugForLog: string,
+): Promise<{ total: number; alreadyCached: number; generated: number; failed: number }> {
+  try {
+    const lessons = await db
+      .select({ id: v4LessonsTable.id, code: v4LessonsTable.code })
+      .from(v4LessonsTable)
+      .where(eq(v4LessonsTable.versionId, versionId))
+      .orderBy(asc(v4LessonsTable.code));
+
+    if (!lessons.length) {
+      return { total: 0, alreadyCached: 0, generated: 0, failed: 0 };
+    }
+
+    const cachedRows = await db
+      .select({ lessonId: v4LessonContentCacheTable.lessonId })
+      .from(v4LessonContentCacheTable)
+      .where(and(
+        eq(v4LessonContentCacheTable.versionId, versionId),
+        eq(v4LessonContentCacheTable.language, "ar"),
+      ));
+    const cachedIds = new Set(cachedRows.map(r => r.lessonId));
+    const uncached = lessons.filter(l => !cachedIds.has(l.id));
+    const alreadyCached = lessons.length - uncached.length;
+
+    if (!uncached.length) {
+      logger.info(
+        { slug: slugForLog, total: lessons.length },
+        "v4-prewarm: all lessons already cached",
+      );
+      return { total: lessons.length, alreadyCached, generated: 0, failed: 0 };
+    }
+
+    logger.info(
+      { slug: slugForLog, total: lessons.length, toGenerate: uncached.length },
+      "v4-prewarm: starting",
+    );
+
+    let generated = 0;
+    let failed = 0;
+    for (let i = 0; i < uncached.length; i += PREWARM_CONCURRENCY) {
+      const batch = uncached.slice(i, i + PREWARM_CONCURRENCY);
+      await Promise.all(batch.map(async (lesson) => {
+        try {
+          await _prewarmSingleLesson(lesson.id, lesson.code, versionId);
+          generated++;
+        } catch (e: any) {
+          failed++;
+          logger.warn(
+            { slug: slugForLog, code: lesson.code, err: String(e?.message ?? e) },
+            "v4-prewarm: lesson failed",
+          );
+        }
+      }));
+    }
+
+    logger.info(
+      { slug: slugForLog, total: lessons.length, alreadyCached, generated, failed },
+      "v4-prewarm: complete",
+    );
+    return { total: lessons.length, alreadyCached, generated, failed };
+  } catch (e: any) {
+    logger.error({ slug: slugForLog, err: String(e?.message ?? e) }, "v4-prewarm: fatal error");
+    return { total: 0, alreadyCached: 0, generated: 0, failed: 0 };
+  }
+}
+
+async function _prewarmSingleLesson(
+  lessonId: number,
+  lessonCode: string,
+  versionId: number,
+): Promise<void> {
+  const language = "ar";
+
+  // Re-check cache — another concurrent prewarm batch may have just cached it.
+  const [hit] = await db
+    .select({ id: v4LessonContentCacheTable.id })
+    .from(v4LessonContentCacheTable)
+    .where(and(
+      eq(v4LessonContentCacheTable.versionId, versionId),
+      eq(v4LessonContentCacheTable.lessonId, lessonId),
+      eq(v4LessonContentCacheTable.language, language),
+    ));
+  if (hit) return;
+
+  const [lesson] = await db
+    .select()
+    .from(v4LessonsTable)
+    .where(eq(v4LessonsTable.id, lessonId));
+  if (!lesson) throw new Error(`prewarm: lesson ${lessonId} not found`);
+
+  const [concepts, mistakes] = await Promise.all([
+    db.select().from(v4LessonConceptsTable)
+      .where(eq(v4LessonConceptsTable.lessonId, lessonId))
+      .orderBy(asc(v4LessonConceptsTable.conceptIndex)),
+    db.select().from(v4LessonCommonMistakesTable)
+      .where(eq(v4LessonCommonMistakesTable.lessonId, lessonId))
+      .orderBy(asc(v4LessonCommonMistakesTable.mistakeIndex)),
+  ]);
+
+  const placeholder = buildFallbackContent(lesson, concepts);
+
+  // Atomic claim — same INSERT ON CONFLICT DO NOTHING guard as the student path.
+  const claimed = await db
+    .insert(v4LessonContentCacheTable)
+    .values({
+      versionId,
+      lessonId,
+      language,
+      contentJson: placeholder as any,
+      generationCostUsd: null,
+      generationRequestId: `prewarm_${versionId}_${lessonId}`,
+      firstStudentId: null,
+    })
+    .onConflictDoNothing({
+      target: [
+        v4LessonContentCacheTable.versionId,
+        v4LessonContentCacheTable.lessonId,
+        v4LessonContentCacheTable.language,
+      ],
+    })
+    .returning({ id: v4LessonContentCacheTable.id });
+
+  if (claimed.length === 0) return; // Lost the race — content was just cached.
+  const claimedId = claimed[0].id;
+
+  assertGeminiForTeaching(V4_CONTENT_GEN_MODEL);
+  const sys = [
+    "أنت مولّد محتوى تعليمي لمنصة نُخبة اليمنية. أنتج JSON صرف يطابق المخطط المطلوب بدون أي شرح إضافي.",
+    "اللغة: عربية فصيحة بسيطة قابلة للقراءة من قبل طلاب يمنيين.",
+    "ممنوع ذكر اسم نموذج أو خدمة. ممنوع اقتراح أدوات أو تطبيقات خارجية.",
+  ].join("\n");
+
+  const genRes = await generateGeminiJson({
+    systemPrompt: sys,
+    userPrompt: buildContentGenerationUserPrompt(lesson, concepts, mistakes),
+    model: V4_CONTENT_GEN_MODEL,
+    provider: null,          // prewarm always uses the default OpenRouter channel
+    temperature: 0.4,
+    maxOutputTokens: 3600,
+    timeoutMs: 50_000,       // slightly more generous for background work
+    logTag: `v4-prewarm:${lessonCode}`,
+  });
+
+  const parsed = safeParseContent(genRes.text);
+  if (!parsed) throw new Error(`prewarm: unparseable JSON for lesson ${lessonCode}`);
+
+  const costUsd = estimateGenerationCostUsd(genRes);
+  await db
+    .update(v4LessonContentCacheTable)
+    .set({
+      contentJson: parsed as any,
+      generationCostUsd: costUsd > 0 ? costUsd.toFixed(8) : null,
+    })
+    .where(eq(v4LessonContentCacheTable.id, claimedId));
+}
