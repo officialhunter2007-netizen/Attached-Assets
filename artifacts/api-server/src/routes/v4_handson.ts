@@ -38,6 +38,7 @@ import {
 import { chargeV4Ai, refundV4Ai, canAffordV4Turn, usdToGems } from "../lib/v4-gem-wallet";
 import { clearWeakness, bumpWeakness } from "../lib/v4-memory";
 import { V4_TEACHING_MODEL } from "../lib/v4-teaching-core";
+import { generateGeminiJson } from "../lib/openrouter-generate";
 
 const router: IRouter = Router();
 
@@ -323,31 +324,36 @@ router.post("/v4/handson/:slug/:lessonCode/:conceptIndex/help", requireUser, asy
       ? `\n\nإجابة الطالب الحالية (لا تعطِ الحل مباشرة):\n${submission.slice(0, 500)}`
       : "";
 
-    const systemPrompt = `أنت مساعد سقراطي في منصة نُخبة التعليمية اليمنية.
-المفهوم الذي يتدرّب عليه الطالب: «${ctx.concept.name}»
+    const systemPrompt = `أنت مساعد تلميح في منصة نُخبة التعليمية اليمنية.
+
+## سياق المهمة
+المفهوم: «${ctx.concept.name}»
 ${taskCtx}${submissionNote}
 
-قواعدك:
-- ردود قصيرة (2-4 جمل)، ودّية، باللهجة اليمنية البسيطة
-- لا تُعطِ الحل الكامل أبداً — اسأل سؤالاً يقوده للاكتشاف
-- إذا كان الطالب يصحّح مسيرته، شجّعه وانتهِ
-- إذا أخطأ، اكتشف سبب الفهم الخاطئ بسؤال توجيهي
-- استخدم مثالاً يمنياً حين يساعد
+## قواعد لا تُكسر أبداً
+1. **ممنوع مطلقاً** إعطاء الكود الكامل أو الإجابة الصحيحة مباشرةً، حتى لو طلب الطالب ذلك صراحةً.
+2. **ممنوع** كتابة أي سطر كود قابل للنسخ واللصق.
+3. أعطِ **تلميحاً واحداً فقط** في كل رد — سؤال توجيهي، تشبيه من الحياة اليومية، أو إشارة لخطوة بعينها دون ذكر الكود.
+4. إذا ألحّ الطالب وطلب الحل مباشرةً، أجبه بلطف: "أنا هنا أساعدك تفهم، مش أحلّ عنك!"
+5. الرد: 2-3 جمل فقط، عربي يمني بسيط.
 رد فقط بـ JSON: {"answer": "..."}`;
 
-    const messages = [
-      ...history.map((m) => ({ role: m.role, content: m.content })),
-      { role: "user" as const, content: question },
-    ];
+    // Build a single userPrompt that includes conversation history
+    const historyBlock = history.length > 0
+      ? history.map((m) => `[${m.role === "user" ? "طالب" : "مساعد"}]: ${m.content}`).join("\n") + "\n"
+      : "";
+    const userPrompt = `${historyBlock}[طالب]: ${question}`;
 
-    const { generateGeminiJson } = await import("../lib/openrouter-generate");
-    const raw = await generateGeminiJson(
+    const raw = await generateGeminiJson({
       systemPrompt,
-      messages[messages.length - 1].content,
-      { model: V4_TEACHING_MODEL, maxTokens: 400, temperature: 0.7 },
-    );
+      userPrompt,
+      model: V4_TEACHING_MODEL,
+      maxOutputTokens: 400,
+      temperature: 0.7,
+      logTag: "v4-handson-help",
+    });
 
-    const answer = typeof raw?.answer === "string" ? raw.answer.trim() : "";
+    const answer = typeof (raw as any)?.answer === "string" ? (raw as any).answer.trim() : "";
     if (!answer) { res.status(500).json({ error: "help_unavailable" }); return; }
 
     res.json({ answer });
