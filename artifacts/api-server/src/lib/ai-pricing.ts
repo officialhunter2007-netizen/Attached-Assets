@@ -53,6 +53,13 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ── Anthropic / OpenRouter-style model IDs (prefix: "anthropic/") ──
+  // Both the dash and dot forms appear in OpenRouter responses — keep both.
+  "anthropic/claude-haiku-4-5": {
+    input: 1.0,
+    output: 5.0,
+    cachedInput: 0.1,
+    label: "Claude Haiku 4.5 (OpenRouter)",
+  },
   "anthropic/claude-haiku-4.5": {
     input: 1.0,
     output: 5.0,

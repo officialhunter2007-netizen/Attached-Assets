@@ -65,9 +65,9 @@ const MODEL_OPTIONS: ModelOption[] = [
     cost: "~4 جم / دور",
   },
   {
-    slug: "anthropic/claude-3-5-haiku-20241022",
-    label: "Claude 3.5 Haiku",
-    labelEn: "anthropic/claude-3-5-haiku-20241022",
+    slug: "anthropic/claude-haiku-4-5",
+    label: "Claude Haiku 4.5",
+    labelEn: "anthropic/claude-haiku-4-5",
     description: "نموذج Anthropic — أسلوب مختلف في الشرح، موثوق جداً في المهام المنظّمة.",
     badge: "Anthropic",
     badgeColor: "bg-purple-500/20 text-purple-300",

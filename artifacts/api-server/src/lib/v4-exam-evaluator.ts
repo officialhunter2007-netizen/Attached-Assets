@@ -25,7 +25,7 @@ import { generateGeminiJson } from "./openrouter-generate";
 import { logger } from "./logger";
 
 // Same OpenRouter id v4-path-engine uses for placement grading.
-const HAIKU_MODEL = "anthropic/claude-3-5-haiku";
+const HAIKU_MODEL = "anthropic/claude-haiku-4-5";
 
 export type Verdict = "correct" | "partial" | "wrong";
 
