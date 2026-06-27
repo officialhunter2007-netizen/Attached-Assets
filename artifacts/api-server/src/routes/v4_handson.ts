@@ -348,7 +348,7 @@ ${taskCtx}${submissionNote}
       : "";
     const userPrompt = `${historyBlock}[طالب]: ${question}`;
 
-    const raw = await generateGeminiJson({
+    const result = await generateGeminiJson({
       systemPrompt,
       userPrompt,
       model: V4_TEACHING_MODEL,
@@ -357,7 +357,14 @@ ${taskCtx}${submissionNote}
       logTag: "v4-handson-help",
     });
 
-    const answer = typeof (raw as any)?.answer === "string" ? (raw as any).answer.trim() : "";
+    let answer = "";
+    try {
+      const parsed = JSON.parse(result.text);
+      answer = typeof parsed?.answer === "string" ? parsed.answer.trim() : "";
+    } catch {
+      // If not valid JSON, use the raw text directly
+      answer = result.text.trim();
+    }
     if (!answer) { res.status(500).json({ error: "help_unavailable" }); return; }
 
     res.json({ answer });
