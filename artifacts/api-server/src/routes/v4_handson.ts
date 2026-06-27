@@ -287,4 +287,74 @@ router.post("/v4/handson/:slug/:lessonCode/:conceptIndex", requireUser, requireS
   }
 });
 
+// ── POST /help — free Socratic AI assistant for the current task ─────────────
+// No gem charge: this is guidance, not assessment. No CSRF needed: read-only
+// (no DB writes). Max 8 turns of history to keep context tight.
+router.post("/v4/handson/:slug/:lessonCode/:conceptIndex/help", requireUser, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const ctx = await resolveContext(req, res);
+    if (!ctx) return;
+
+    const task = await getOrGenerateHandsOnTask({
+      versionId: ctx.versionId,
+      lessonId: ctx.lessonId,
+      conceptIndex: ctx.conceptIndex,
+    });
+
+    const body = (req.body ?? {}) as {
+      question?: unknown;
+      submission?: unknown;
+      history?: unknown;
+    };
+    const question = String(body.question ?? "").slice(0, 1000).trim();
+    if (!question) { res.status(400).json({ error: "empty_question" }); return; }
+
+    const submission = String(body.submission ?? "").slice(0, 3000);
+    const rawHistory = Array.isArray(body.history) ? body.history.slice(-8) : [];
+    const history = rawHistory
+      .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .map((m: any) => ({ role: m.role as "user" | "assistant", content: String(m.content).slice(0, 800) }));
+
+    const taskCtx = task
+      ? `المهمة: ${task.scenario}\nالمطلوب: ${task.deliverable}\nالخطوات: ${(task.steps ?? []).join(" | ")}`
+      : `المفهوم: ${ctx.concept.name}`;
+
+    const submissionNote = submission.trim()
+      ? `\n\nإجابة الطالب الحالية (لا تعطِ الحل مباشرة):\n${submission.slice(0, 500)}`
+      : "";
+
+    const systemPrompt = `أنت مساعد سقراطي في منصة نُخبة التعليمية اليمنية.
+المفهوم الذي يتدرّب عليه الطالب: «${ctx.concept.name}»
+${taskCtx}${submissionNote}
+
+قواعدك:
+- ردود قصيرة (2-4 جمل)، ودّية، باللهجة اليمنية البسيطة
+- لا تُعطِ الحل الكامل أبداً — اسأل سؤالاً يقوده للاكتشاف
+- إذا كان الطالب يصحّح مسيرته، شجّعه وانتهِ
+- إذا أخطأ، اكتشف سبب الفهم الخاطئ بسؤال توجيهي
+- استخدم مثالاً يمنياً حين يساعد
+رد فقط بـ JSON: {"answer": "..."}`;
+
+    const messages = [
+      ...history.map((m) => ({ role: m.role, content: m.content })),
+      { role: "user" as const, content: question },
+    ];
+
+    const { generateGeminiJson } = await import("../lib/openrouter-generate");
+    const raw = await generateGeminiJson(
+      systemPrompt,
+      messages[messages.length - 1].content,
+      { model: V4_TEACHING_MODEL, maxTokens: 400, temperature: 0.7 },
+    );
+
+    const answer = typeof raw?.answer === "string" ? raw.answer.trim() : "";
+    if (!answer) { res.status(500).json({ error: "help_unavailable" }); return; }
+
+    res.json({ answer });
+  } catch (e) {
+    logger.error?.({ err: String((e as any)?.message ?? e) }, "[v4/handson/help] failed");
+    res.status(500).json({ error: "help_unavailable" });
+  }
+});
+
 export default router;
