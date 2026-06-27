@@ -53,7 +53,7 @@ import { generateGeminiJson } from "./openrouter-generate";
 
 // OpenRouter model id — `generateGemini` passes a `/`-containing model
 // through `toOpenRouterModel` unchanged, so this routes to Anthropic.
-const HAIKU_MODEL = "anthropic/claude-haiku-4-5";
+const HAIKU_MODEL = "anthropic/claude-haiku-4.5";
 
 /** Warm, engaging diagnostic prompts with clickable options. Exactly 5, in conversation order.
  *  Each question uses [[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| opt3 ||| غير ذلك]]

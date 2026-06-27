@@ -6,7 +6,7 @@
  * `getTeacherProviderOverride()` before every AI request:
  *
  *   1. OpenRouter Model Override (model picker): when `orModelOverride` is set
- *      to one of the allowed slugs (gemini-2.5-flash / claude-haiku-4-5), the
+ *      to one of the allowed slugs (gemini-2.5-flash / claude-haiku-4.5), the
  *      teacher uses that model via the same OPENROUTER_API_KEY — no extra
  *      config needed. This is the primary switch for the admin.
  *
@@ -64,7 +64,7 @@ export type TeacherProviderStatus = {
 export const OR_PICKER_MODELS: Record<string, string> = {
   "": "Gemini 2.5 Flash Lite (الافتراضي)",
   "google/gemini-2.5-flash": "Gemini 2.5 Flash",
-  "anthropic/claude-haiku-4-5": "Claude Haiku 4.5",
+  "anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
 };
 
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";

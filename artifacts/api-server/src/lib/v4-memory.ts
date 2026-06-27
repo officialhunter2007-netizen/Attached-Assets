@@ -48,7 +48,7 @@ import { logger } from "./logger";
 import { randomUUID } from "node:crypto";
 
 /** Locked Haiku model for all cross-subject memory work. Cheap + fast. */
-const MEMORY_HAIKU_MODEL = "claude-haiku-4-5" as const;
+const MEMORY_HAIKU_MODEL = "anthropic/claude-haiku-4.5" as const;
 
 /** Hard ceiling on what goes into Layer 4 — keeps total prompt < 8K tokens
  *  (spec §6.3 architectural constraint). The weekly summary takes ~300
