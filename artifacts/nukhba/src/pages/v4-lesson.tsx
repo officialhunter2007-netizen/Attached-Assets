@@ -1140,8 +1140,20 @@ export default function V4Lesson() {
       let buffer = "";
       let acc = "";
 
+      // 25-second stale-read watchdog — if no chunk at all arrives (including
+      // the `: ping` heartbeat the server sends every 15 s), the connection
+      // is truly dead and we should stop spinning.  25 s > 15 s heartbeat
+      // interval, giving a 10 s slack for slow networks.
+      const readChunk = (): Promise<ReadableStreamReadResult<Uint8Array>> =>
+        Promise.race([
+          reader.read(),
+          new Promise<never>((_, rej) =>
+            setTimeout(() => rej(new Error("stale_connection")), 25_000),
+          ),
+        ]);
+
       while (true) {
-        const { value, done } = await reader.read();
+        const { value, done } = await readChunk();
         if (done) break;
         if (!stillValid()) { try { reader.cancel(); } catch {}; return; }
         buffer += decoder.decode(value, { stream: true });
@@ -1197,6 +1209,11 @@ export default function V4Lesson() {
               }
               continue;
             }
+            // Server status ping: "preparing" means pre-stream work (content
+            // gen / prompt build) is in progress.  Ignore silently — the
+            // spinner is already visible and the heartbeat proves the
+            // connection is live.
+            if (evt?.status) continue;
             if (evt?.error || evt?.friendlyMessage) {
               setError(evt.friendlyMessage || evt.error);
               continue;

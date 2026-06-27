@@ -319,6 +319,35 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
   }
   inflightTeachTurns.add(turnLockKey);
 
+  // ── SSE channel: open headers + heartbeat IMMEDIATELY after lock ────
+  // CRITICAL UX FIX: the pre-stream phase (lazy content gen + 9-layer
+  // prompt build) can take 40-55 s on a first-visit lesson.  Without
+  // early SSE setup the client `await fetch()` blocks silently for that
+  // entire window — looks identical to a hang, spinner never clears.
+  //
+  // By sending SSE headers NOW the client's fetch() resolves within ~1 s
+  // of sending the message.  Heartbeats arrive every 15 s, confirming the
+  // connection is alive.  Any error in the pre-stream work is delivered as
+  // an SSE event (emitFriendlyAiFailure handles res.headersSent===true),
+  // so the FE's existing error UI triggers naturally.
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  const abort = new AbortController();
+  const onClose = (): void => { try { abort.abort(); } catch {} };
+
+  if (!res.headersSent) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+  }
+  heartbeat = setInterval(() => {
+    try { if (!res.writableEnded) res.write(`: ping ${Date.now()}\n\n`); } catch {}
+  }, 15_000);
+  req.on("close", onClose);
+  // Tell the FE we're alive and preparing (not blank-waiting).
+  try { if (!res.writableEnded) res.write(`data: ${JSON.stringify({ status: "preparing" })}\n\n`); } catch {}
+
   // ── 2. Lazy-generate lesson content (first student pays gen cost) ───
   let content;
   // Captured so the catch path can refund the lazy-gen debit if the
@@ -338,6 +367,8 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     genChargeRequestId = gen.chargedRequestId;
   } catch (e) {
     inflightTeachTurns.delete(turnLockKey);
+    if (heartbeat) clearInterval(heartbeat);
+    req.off("close", onClose);
     emitV4FriendlyFailure(res, "v4/teach:gen", e);
     return;
   }
@@ -498,27 +529,15 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     promptTimeFacet = built.askedFacet;
   } catch (e) {
     inflightTeachTurns.delete(turnLockKey);
+    if (heartbeat) clearInterval(heartbeat);
+    req.off("close", onClose);
     emitV4FriendlyFailure(res, "v4/teach:prompt", e);
     return;
   }
 
-  // Declared BEFORE the try so the `finally` can always release the in-flight
-  // lock (and tear down the heartbeat / close listener) even if SSE setup or
-  // the compression unwrap throws after the lock was acquired. Everything from
-  // here on is inside the try/finally — there is no unguarded path that can
-  // leak `turnLockKey`.
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
-  const abort = new AbortController();
-  const onClose = (): void => { try { abort.abort(); } catch {} };
-
-  // Hard 90-second cap on the OpenRouter streaming fetch. Without this, a
-  // hung OpenRouter request (no response headers at all) would spin forever
-  // on mobile: the SSE heartbeat keeps the client TCP connection alive, so
-  // `abort.signal` (which fires on client disconnect) never triggers, and
-  // `streamGeminiTeaching` waits indefinitely. The timeout ensures the
-  // route always terminates — fast success, fast failure, never silent hang.
-  // 90 s is deliberately generous: Gemini Flash Lite rarely takes > 30 s
-  // even on long responses, so this only fires on genuine hangs.
+  // 90-second cap on the model streaming phase (content gen + prompt build
+  // have their own per-call timeouts above). The 90 s starts here — after
+  // those phases — so the model gets the full budget for generating a reply.
   const _streamTimeout = AbortSignal.timeout(90_000);
   const streamSignal = AbortSignal.any([abort.signal, _streamTimeout]);
 
@@ -625,19 +644,11 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       logger.warn?.(`[v4/teach] persist user msg error: ${String(e?.message ?? e)}`),
     );
 
-    // ── 5. Open SSE + stream ──────────────────────────────────────────
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders?.();
-
-    heartbeat = setInterval(() => {
-      try {
-        if (!res.writableEnded) res.write(`: ping ${Date.now()}\n\n`);
-      } catch {}
-    }, 15_000);
-    req.on("close", onClose);
+    // ── 5. Stream ─────────────────────────────────────────────────────
+    // SSE headers, heartbeat, and close-listener were opened at lock-
+    // acquisition time (above), so the client got immediate feedback while
+    // we ran the pre-stream work.  Nothing to set up here — go straight
+    // to streaming.
 
     // Per-turn length tier — the real lever against the wall of text. A flat
     // ceiling let every ordinary turn balloon; tiering caps normal turns short
