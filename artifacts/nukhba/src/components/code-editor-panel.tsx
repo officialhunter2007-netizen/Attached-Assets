@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import hljs from "highlight.js";
 import { useAuth } from "@/lib/use-auth";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { CodeEditor, type Lang as CMEditorLang } from "./dynamic-env/code-editor";
@@ -3041,7 +3042,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                           </div>
                           <div className="text-[#F59E0B] font-bold text-sm">شرح السطر {explainLines[explainIdx].n}</div>
                         </div>
-                        <code className="block font-mono text-[12px] sm:text-[13px] text-emerald-300 bg-black/30 rounded-lg px-3 py-2 mb-3 whitespace-pre-wrap break-words" dir="ltr">{explainLines[explainIdx].code}</code>
+                        <pre className="block font-mono text-[12px] sm:text-[13px] bg-black/30 rounded-lg px-3 py-2 mb-3 whitespace-pre-wrap break-words overflow-x-auto" dir="ltr"><code className={`hljs language-${activeFile?.language ?? "plaintext"}`} dangerouslySetInnerHTML={{ __html: (() => { try { const lang = activeFile?.language ?? ""; return lang && hljs.getLanguage(lang) ? hljs.highlight(explainLines[explainIdx].code ?? "", { language: lang, ignoreIllegals: true }).value : hljs.highlightAuto(explainLines[explainIdx].code ?? "").value; } catch { return explainLines[explainIdx].code ?? ""; } })() }} /></pre>
                         <p className="text-[#e5e3ee] text-[14px] sm:text-[15px] leading-[2] whitespace-pre-wrap">{explainLines[explainIdx].explanation}</p>
                       </motion.div>
                     </AnimatePresence>
