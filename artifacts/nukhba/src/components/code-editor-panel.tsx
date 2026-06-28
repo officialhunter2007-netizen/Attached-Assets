@@ -1758,8 +1758,14 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const mobileCodeMirrorLang = (): CMEditorLang => {
     const lang = activeFile?.language;
     if (lang === "javascript") return "javascript";
+    if (lang === "typescript") return "typescript";
     if (lang === "css") return "css";
     if (lang === "html") return "html";
+    if (lang === "python") return "python";
+    if (lang === "java") return "java";
+    if (lang === "cpp") return "cpp";
+    if (lang === "c") return "c";
+    if (lang === "sql") return "sql";
     return "text";
   };
 

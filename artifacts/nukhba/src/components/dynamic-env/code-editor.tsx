@@ -7,7 +7,7 @@ import {
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import {
-  bracketMatching, indentOnInput, syntaxHighlighting, defaultHighlightStyle,
+  bracketMatching, indentOnInput, syntaxHighlighting, HighlightStyle,
   foldGutter, foldKeymap,
 } from "@codemirror/language";
 import {
@@ -15,11 +15,23 @@ import {
   type CompletionContext, type CompletionResult,
 } from "@codemirror/autocomplete";
 import { search, highlightSelectionMatches, searchKeymap } from "@codemirror/search";
+import { tags } from "@lezer/highlight";
 import { javascript } from "@codemirror/lang-javascript";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
+import { python } from "@codemirror/lang-python";
+import { java } from "@codemirror/lang-java";
+import { cpp } from "@codemirror/lang-cpp";
+import { sql } from "@codemirror/lang-sql";
 
-export type Lang = "javascript" | "css" | "html" | "text";
+export type Lang =
+  | "javascript" | "typescript"
+  | "css" | "html"
+  | "python"
+  | "java"
+  | "cpp" | "c"
+  | "sql"
+  | "text";
 
 const JS_KEYWORDS = [
   "const", "let", "var", "function", "return", "if", "else", "for", "while", "do",
@@ -34,96 +46,65 @@ const JS_KEYWORDS = [
   "Object.keys", "Object.values", "Object.entries", "Object.assign", "Object.freeze",
   "JSON.stringify", "JSON.parse",
   "Number.parseInt", "Number.parseFloat", "Number.isNaN", "Number.isInteger",
-  "String.fromCharCode", "String.raw",
   "setTimeout", "setInterval", "clearTimeout", "clearInterval", "requestAnimationFrame",
-  "Promise", "Promise.all", "Promise.allSettled", "Promise.resolve", "Promise.reject", "Promise.race",
+  "Promise", "Promise.all", "Promise.allSettled", "Promise.resolve", "Promise.reject",
   "fetch", "Response", "Request", "Headers",
   "localStorage", "sessionStorage", "document", "window", "navigator",
-  "document.querySelector", "document.querySelectorAll", "document.getElementById",
-  "document.createElement", "document.addEventListener",
   "map", "filter", "reduce", "forEach", "find", "findIndex", "some", "every",
-  "includes", "indexOf", "lastIndexOf", "slice", "splice", "push", "pop",
-  "shift", "unshift", "join", "split", "concat", "sort", "reverse",
-  "flat", "flatMap", "fill", "copyWithin", "at",
-  "length", "toString", "valueOf", "hasOwnProperty",
-  "addEventListener", "removeEventListener", "dispatchEvent", "preventDefault", "stopPropagation",
-  "innerHTML", "textContent", "classList", "style", "dataset", "getAttribute", "setAttribute",
-  "appendChild", "removeChild", "insertBefore", "replaceChild", "cloneNode",
-  "trim", "trimStart", "trimEnd", "startsWith", "endsWith", "repeat", "padStart", "padEnd",
-  "replace", "replaceAll", "match", "matchAll", "search", "substring", "charAt", "charCodeAt",
-  "toUpperCase", "toLowerCase",
+  "includes", "indexOf", "slice", "splice", "push", "pop", "shift", "unshift",
+  "join", "split", "concat", "sort", "reverse", "flat", "flatMap", "fill",
+  "trim", "trimStart", "trimEnd", "startsWith", "endsWith", "repeat",
+  "padStart", "padEnd", "replace", "replaceAll", "match", "substring",
+  "toUpperCase", "toLowerCase", "length", "toString", "valueOf",
 ];
 
 const CSS_KEYWORDS = [
   "color", "background", "background-color", "background-image", "background-size",
-  "background-position", "background-repeat", "background-attachment", "background-clip",
   "border", "border-radius", "border-color", "border-width", "border-style",
-  "border-top", "border-right", "border-bottom", "border-left",
   "margin", "margin-top", "margin-bottom", "margin-left", "margin-right",
   "padding", "padding-top", "padding-bottom", "padding-left", "padding-right",
   "width", "height", "min-width", "min-height", "max-width", "max-height",
   "display", "position", "top", "right", "bottom", "left", "z-index",
   "flex", "flex-direction", "flex-wrap", "flex-grow", "flex-shrink", "flex-basis",
-  "justify-content", "align-items", "align-content", "align-self", "gap", "row-gap", "column-gap", "order",
-  "grid", "grid-template-columns", "grid-template-rows", "grid-template-areas",
-  "grid-area", "grid-column", "grid-row", "grid-gap",
-  "font", "font-family", "font-size", "font-weight", "font-style", "font-variant",
-  "line-height", "letter-spacing", "word-spacing", "text-align", "text-decoration",
-  "text-transform", "text-shadow", "text-overflow", "white-space", "word-break",
-  "opacity", "visibility", "overflow", "overflow-x", "overflow-y", "clip-path",
-  "transition", "transform", "animation", "cursor", "pointer-events",
-  "box-shadow", "filter", "backdrop-filter", "object-fit", "object-position",
-  "content", "counter-reset", "counter-increment",
-  "block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "none", "contents",
-  "absolute", "relative", "fixed", "sticky", "static",
-  "center", "flex-start", "flex-end", "space-between", "space-around", "space-evenly", "stretch",
-  "bold", "normal", "italic", "oblique",
-  "uppercase", "lowercase", "capitalize",
-  "auto", "hidden", "visible", "scroll", "clip",
-  "transparent", "currentColor", "inherit", "initial", "unset", "revert",
-  "linear-gradient", "radial-gradient", "conic-gradient",
-  "calc", "var", "min", "max", "clamp", "env",
-  "px", "em", "rem", "vh", "vw", "vmin", "vmax", "%", "fr",
-  "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset",
-  "ease", "ease-in", "ease-out", "ease-in-out", "linear", "step-start", "step-end",
-  "rotate", "scale", "translate", "skew", "translateX", "translateY", "translateZ",
-  "scaleX", "scaleY", "rotateX", "rotateY", "rotateZ",
-  "rgba", "rgb", "hsl", "hsla", "oklch",
-  "@media", "@keyframes", "@import", "@supports", "@layer",
-  "prefers-color-scheme", "prefers-reduced-motion", "max-width", "min-width",
-  "hover", "focus", "active", "visited", "focus-visible", "disabled", "checked",
-  "nth-child", "nth-of-type", "first-child", "last-child", "not", "is", "where", "has",
-  "before", "after", "placeholder", "selection",
+  "justify-content", "align-items", "align-content", "gap",
+  "grid", "grid-template-columns", "grid-template-rows",
+  "font", "font-family", "font-size", "font-weight", "font-style",
+  "line-height", "letter-spacing", "text-align", "text-decoration", "text-transform",
+  "opacity", "visibility", "overflow", "transition", "transform", "animation",
+  "box-shadow", "filter", "cursor", "pointer-events", "content",
+  "block", "inline", "inline-block", "none", "absolute", "relative", "fixed", "sticky",
+  "center", "flex-start", "flex-end", "space-between", "space-around",
+  "bold", "normal", "italic", "auto", "hidden", "visible",
+  "rgba", "rgb", "hsl", "hsla", "calc", "var", "min", "max", "clamp",
+  "px", "em", "rem", "vh", "vw", "%", "fr",
+  "solid", "dashed", "dotted", "ease", "ease-in", "ease-out", "ease-in-out", "linear",
+  "@media", "@keyframes", "@import",
 ];
 
 const HTML_KEYWORDS = [
   "div", "span", "p", "a", "img", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
-  "section", "article", "header", "footer", "nav", "main", "aside", "figure", "figcaption",
-  "button", "input", "form", "label", "select", "option", "optgroup", "textarea",
-  "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "colgroup", "col",
-  "video", "audio", "source", "track", "picture", "canvas", "svg", "path", "circle",
-  "details", "summary", "dialog", "template", "slot",
-  "script", "style", "link", "meta", "title", "base",
-  "blockquote", "cite", "code", "pre", "kbd", "samp", "var",
-  "strong", "em", "b", "i", "u", "s", "del", "ins", "mark", "sub", "sup",
-  "class", "id", "style", "src", "href", "alt", "title", "type", "value",
-  "name", "placeholder", "disabled", "checked", "required", "readonly", "multiple",
-  "action", "method", "enctype", "for", "autocomplete", "autofocus",
-  "data-", "aria-", "role", "tabindex",
-  "width", "height", "loading", "decoding", "crossorigin", "referrerpolicy",
-  "target", "_blank", "_self", "_parent", "_top", "rel", "noopener", "noreferrer",
-  "charset", "content", "viewport", "description", "og:title", "og:image",
-  "lang", "dir", "ltr", "rtl", "translate",
-  "contenteditable", "draggable", "hidden", "spellcheck",
-  "onload", "onerror", "onclick", "onsubmit", "onchange", "oninput",
-  "async", "defer", "crossorigin", "integrity",
-  "media", "sizes", "srcset",
-  "controls", "autoplay", "loop", "muted", "preload", "poster",
-  "download", "ping", "hreflang",
-  "min", "max", "step", "pattern", "list",
-  "rows", "cols", "wrap", "maxlength", "minlength",
-  "colspan", "rowspan", "scope", "headers",
-  "frameborder", "allowfullscreen", "sandbox",
+  "section", "article", "header", "footer", "nav", "main", "aside",
+  "button", "input", "form", "label", "select", "option", "textarea",
+  "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+  "video", "audio", "source", "canvas", "svg",
+  "script", "style", "link", "meta", "title",
+  "strong", "em", "b", "i", "u", "code", "pre",
+  "class", "id", "style", "src", "href", "alt", "type", "value",
+  "name", "placeholder", "disabled", "checked", "required",
+];
+
+const PYTHON_KEYWORDS = [
+  "print", "input", "len", "range", "type", "int", "float", "str", "bool", "list",
+  "dict", "tuple", "set", "if", "else", "elif", "for", "while", "def", "class",
+  "return", "import", "from", "as", "in", "not", "and", "or", "is", "True", "False",
+  "None", "try", "except", "finally", "raise", "with", "pass", "break", "continue",
+  "lambda", "yield", "global", "nonlocal", "del", "assert",
+  "append", "extend", "insert", "remove", "pop", "sort", "reverse", "index", "count",
+  "keys", "values", "items", "get", "update", "clear",
+  "open", "read", "write", "close", "readline", "readlines",
+  "abs", "max", "min", "sum", "round", "sorted", "enumerate", "zip", "map", "filter",
+  "isinstance", "issubclass", "hasattr", "getattr", "setattr",
+  "math", "random", "os", "sys", "json", "re",
 ];
 
 function makeWordCompletion(words: string[]) {
@@ -149,22 +130,78 @@ function makeWordCompletion(words: string[]) {
 function langExtension(lang: Lang): Extension {
   switch (lang) {
     case "javascript":
-      return [javascript({ jsx: true, typescript: false }), autocompletion({ override: [makeWordCompletion(JS_KEYWORDS)] })];
+    case "typescript":
+      return [javascript({ jsx: true, typescript: lang === "typescript" }), autocompletion({ override: [makeWordCompletion(JS_KEYWORDS)] })];
     case "css":
       return [css(), autocompletion({ override: [makeWordCompletion(CSS_KEYWORDS)] })];
     case "html":
       return [html({ matchClosingTags: true, autoCloseTags: true }), autocompletion({ override: [makeWordCompletion(HTML_KEYWORDS)] })];
+    case "python":
+      return [python(), autocompletion({ override: [makeWordCompletion(PYTHON_KEYWORDS)] })];
+    case "java":
+      return [java()];
+    case "cpp":
+    case "c":
+      return [cpp()];
+    case "sql":
+      return [sql()];
     case "text":
     default:
       return [];
   }
 }
 
+// VS Code Dark+ inspired highlight style
+const vscodeHighlightStyle = HighlightStyle.define([
+  { tag: tags.keyword,              color: "#569CD6", fontWeight: "bold" },
+  { tag: tags.controlKeyword,       color: "#C586C0", fontWeight: "bold" },
+  { tag: tags.definitionKeyword,    color: "#569CD6", fontWeight: "bold" },
+  { tag: tags.moduleKeyword,        color: "#569CD6", fontWeight: "bold" },
+  { tag: tags.operatorKeyword,      color: "#569CD6" },
+  { tag: tags.string,               color: "#CE9178" },
+  { tag: tags.special(tags.string), color: "#CE9178" },
+  { tag: tags.escape,               color: "#D7BA7D" },
+  { tag: tags.regexp,               color: "#D16969" },
+  { tag: tags.number,               color: "#B5CEA8" },
+  { tag: tags.bool,                 color: "#569CD6" },
+  { tag: tags.null,                 color: "#569CD6" },
+  { tag: tags.comment,              color: "#6A9955", fontStyle: "italic" },
+  { tag: tags.lineComment,          color: "#6A9955", fontStyle: "italic" },
+  { tag: tags.blockComment,         color: "#6A9955", fontStyle: "italic" },
+  { tag: tags.docComment,           color: "#5C8F5C", fontStyle: "italic" },
+  { tag: tags.function(tags.variableName), color: "#DCDCAA" },
+  { tag: tags.function(tags.propertyName), color: "#DCDCAA" },
+  { tag: tags.definition(tags.variableName), color: "#9CDCFE" },
+  { tag: tags.definition(tags.function(tags.variableName)), color: "#DCDCAA" },
+  { tag: tags.variableName,         color: "#9CDCFE" },
+  { tag: tags.propertyName,         color: "#9CDCFE" },
+  { tag: tags.className,            color: "#4EC9B0", fontWeight: "bold" },
+  { tag: tags.typeName,             color: "#4EC9B0" },
+  { tag: tags.typeOperator,         color: "#569CD6" },
+  { tag: tags.self,                 color: "#569CD6", fontStyle: "italic" },
+  { tag: tags.namespace,            color: "#4EC9B0" },
+  { tag: tags.tagName,              color: "#569CD6" },
+  { tag: tags.attributeName,        color: "#9CDCFE" },
+  { tag: tags.attributeValue,       color: "#CE9178" },
+  { tag: tags.angleBracket,         color: "#808080" },
+  { tag: tags.operator,             color: "#D4D4D4" },
+  { tag: tags.punctuation,          color: "#D4D4D4" },
+  { tag: tags.bracket,              color: "#FFD700" },
+  { tag: tags.squareBracket,        color: "#2F9DD1" },
+  { tag: tags.paren,                color: "#DA70D6" },
+  { tag: tags.brace,                color: "#D4D4D4" },
+  { tag: tags.derefOperator,        color: "#D4D4D4" },
+  { tag: tags.separator,            color: "#D4D4D4" },
+  { tag: tags.meta,                 color: "#DCDCAA" },
+  { tag: tags.annotation,           color: "#DCDCAA", fontStyle: "italic" },
+  { tag: tags.invalid,              color: "#F44747", textDecoration: "underline" },
+]);
+
 const nukhbaNeonTheme = EditorView.theme(
   {
     "&": {
       backgroundColor: "#0b0d17",
-      color: "#E2E8F0",
+      color: "#D4D4D4",
       fontSize: "13px",
       fontFamily: "'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
     },
@@ -214,11 +251,8 @@ const nukhbaNeonTheme = EditorView.theme(
       color: "#e2e8f0",
       border: "1px solid rgba(245,158,11,0.25)",
       borderRadius: "8px",
-      boxShadow: "0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(245,158,11,0.1)",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
       padding: "2px",
-    },
-    ".cm-tooltip-autocomplete > ul": {
-      fontFamily: "inherit",
     },
     ".cm-tooltip-autocomplete > ul > li": {
       padding: "4px 10px",
@@ -228,19 +262,8 @@ const nukhbaNeonTheme = EditorView.theme(
       backgroundColor: "rgba(245,158,11,0.2)",
       color: "#fbbf24",
     },
-    ".cm-tooltip-autocomplete > ul > li:hover": {
-      backgroundColor: "rgba(245,158,11,0.1)",
-    },
-    ".cm-completionIcon": {
-      fontSize: "0.85em",
-    },
-    ".cm-completionLabel": {
-      color: "#e2e8f0",
-    },
-    ".cm-completionDetail": {
-      color: "rgba(245,158,11,0.6)",
-      fontSize: "0.85em",
-    },
+    ".cm-completionLabel": { color: "#e2e8f0" },
+    ".cm-completionDetail": { color: "rgba(245,158,11,0.6)", fontSize: "0.85em" },
     ".cm-foldPlaceholder": {
       backgroundColor: "rgba(245,158,11,0.12)",
       border: "1px solid rgba(245,158,11,0.3)",
@@ -268,10 +291,6 @@ const nukhbaNeonTheme = EditorView.theme(
       padding: "2px 8px",
       outline: "none",
     },
-    ".cm-panel.cm-search input:focus": {
-      borderColor: "rgba(245,158,11,0.5)",
-      boxShadow: "0 0 0 2px rgba(245,158,11,0.15)",
-    },
     ".cm-panel.cm-search button": {
       backgroundColor: "rgba(245,158,11,0.15)",
       border: "1px solid rgba(245,158,11,0.25)",
@@ -279,13 +298,6 @@ const nukhbaNeonTheme = EditorView.theme(
       color: "#F59E0B",
       cursor: "pointer",
       padding: "2px 8px",
-    },
-    ".cm-panel.cm-search button:hover": {
-      backgroundColor: "rgba(245,158,11,0.25)",
-    },
-    ".cm-panel.cm-search label": {
-      color: "#a0a0b0",
-      fontSize: "0.85em",
     },
     ".cm-button": {
       backgroundImage: "none",
@@ -338,7 +350,7 @@ export function CodeEditor({ value, onChange, language, minHeight = 160, classNa
         dropCursor(),
         EditorState.allowMultipleSelections.of(true),
         indentOnInput(),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        syntaxHighlighting(vscodeHighlightStyle, { fallback: true }),
         bracketMatching(),
         closeBrackets(),
         rectangularSelection(),
