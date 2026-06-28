@@ -3043,7 +3043,24 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                           <div className="text-[#F59E0B] font-bold text-sm">شرح السطر {explainLines[explainIdx].n}</div>
                         </div>
                         <pre className="block font-mono text-[12px] sm:text-[13px] bg-black/30 rounded-lg px-3 py-2 mb-3 whitespace-pre-wrap break-words overflow-x-auto" dir="ltr"><code className={`hljs language-${activeFile?.language ?? "plaintext"}`} dangerouslySetInnerHTML={{ __html: (() => { try { const lang = activeFile?.language ?? ""; return lang && hljs.getLanguage(lang) ? hljs.highlight(explainLines[explainIdx].code ?? "", { language: lang, ignoreIllegals: true }).value : hljs.highlightAuto(explainLines[explainIdx].code ?? "").value; } catch { return explainLines[explainIdx].code ?? ""; } })() }} /></pre>
-                        <p className="text-[#e5e3ee] text-[14px] sm:text-[15px] leading-[2] whitespace-pre-wrap">{explainLines[explainIdx].explanation}</p>
+                        <div className="text-[#e5e3ee] text-[14px] sm:text-[15px] leading-[2]">
+                          {explainLines[explainIdx].explanation.split("\n").map((line, i) => {
+                            const bulletMatch = line.match(/^(•\s*)(.+?)\s*(←)\s*(.*)$/);
+                            if (bulletMatch) {
+                              const [, bullet, token, arrow, desc] = bulletMatch;
+                              return (
+                                <div key={i} className="flex flex-wrap gap-x-1 items-baseline my-0.5" dir="rtl">
+                                  <span className="text-white/40">{bullet}</span>
+                                  <code className="font-mono text-[13px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 rounded px-1.5 py-0.5" dir="ltr">{token}</code>
+                                  <span className="text-[#F59E0B] font-bold mx-0.5">{arrow}</span>
+                                  <span>{desc}</span>
+                                </div>
+                              );
+                            }
+                            if (line.trim() === "") return <div key={i} className="h-2" />;
+                            return <div key={i} className="my-0.5">{line}</div>;
+                          })}
+                        </div>
                       </motion.div>
                     </AnimatePresence>
                   </div>
