@@ -992,9 +992,8 @@
   font-weight: 600;
   direction: ltr;
   unicode-bidi: isolate;
-  display: inline;
-  word-break: break-all;
-  overflow-wrap: anywhere;
+  display: inline-block;
+  white-space: nowrap;
   border: 1px solid rgba(245,158,11,0.22);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
 }
