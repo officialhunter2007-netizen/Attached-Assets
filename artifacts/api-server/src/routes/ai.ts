@@ -7999,7 +7999,7 @@ router.post("/ai/explain-code", async (req: any, res: any): Promise<any> => {
     const result = await generateGeminiJson({
       systemPrompt: EXPLAIN_CODE_SYSTEM,
       userPrompt: `اللغة: ${lang}\n\nالكود (كل سطر مسبوق برقمه ثم الرمز │):\n\n${numbered}\n\nأرجع JSON فقط.`,
-      model: "gemini-2.5-flash-lite",
+      model: "anthropic/claude-haiku-4.5",
       temperature: 0.4,
       maxOutputTokens: 4000,
       timeoutMs: 45_000,
