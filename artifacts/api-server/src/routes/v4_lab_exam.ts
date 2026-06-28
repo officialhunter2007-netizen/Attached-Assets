@@ -609,7 +609,12 @@ router.post("/v4/exam/:slug/:examCode/submit", requireUser, requireSameOriginCsr
           });
           return;
         }
-        // charged=false, no insufficient/noWallet → concurrent duplicate.
+        // Fail closed on a transient DB error — don't grade for free.
+        if (charge.error) {
+          res.status(503).json({ error: "charge_failed", message: "تعذّر الخصم — حاول مرة أخرى" });
+          return;
+        }
+        // charged=false, no error/insufficient/noWallet → concurrent duplicate.
         // Treat as success: the row exists, the student paid once.
         gemsDeducted = usdToGems(costUsd);
       } else {

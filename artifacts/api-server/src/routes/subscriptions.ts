@@ -2168,23 +2168,27 @@ router.post("/admin/subject-subscriptions/:subId/refund-gems", requireSameOrigin
 
   if (!updated) { res.status(500).json({ error: "تعذّر تطبيق التعديل" }); return; }
 
+  // The balance is clamped (LEAST/GREATEST), so a large delta may only partially
+  // apply. The ledger MUST record the actual applied delta (newBalance − oldBalance)
+  // so append-only reconciliation holds; rawDelta goes to metadata for audit only.
+  const appliedDelta = (updated.gemsBalance ?? 0) - (sub.gemsBalance ?? 0);
   await writeGemLedger({
     userId: sub.userId,
     subjectSubId: sub.id,
     subjectId: sub.subjectId,
-    delta: rawDelta,
+    delta: appliedDelta,
     balanceAfter: updated.gemsBalance ?? 0,
     reason: rawDelta > 0 ? "refund" : "adjust",
     source: rawDelta > 0 ? "admin_refund" : "admin_adjust",
     adminUserId: adminId,
     note: reason,
-    metadata: { previousBalance: sub.gemsBalance, requestedDelta: rawDelta, cap },
+    metadata: { previousBalance: sub.gemsBalance, requestedDelta: rawDelta, appliedDelta, cap },
   });
 
   res.json({
     ok: true,
     subscription: updated,
-    appliedDelta: (updated.gemsBalance ?? 0) - (sub.gemsBalance ?? 0),
+    appliedDelta,
   });
 });
 

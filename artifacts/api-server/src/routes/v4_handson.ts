@@ -226,6 +226,11 @@ router.post("/v4/handson/:slug/:lessonCode/:conceptIndex", requireUser, requireS
       res.status(402).json({ error: "insufficient_gems", balance: charge.balanceAfter });
       return;
     }
+    // Fail closed on a transient DB error — don't run paid grading for free.
+    if (!charge.charged && charge.error) {
+      res.status(503).json({ error: "charge_failed", message: "تعذّر الخصم — حاول مرة أخرى" });
+      return;
+    }
 
     const result = await gradeHandsOnSubmission({
       conceptName: ctx.concept.name,
