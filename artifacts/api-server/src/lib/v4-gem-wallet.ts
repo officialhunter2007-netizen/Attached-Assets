@@ -448,7 +448,9 @@ export async function chargeV4Ai(opts: ChargeV4Opts): Promise<ChargeV4Result> {
   if (gems <= 0) return NO_OP;
   if (!opts.requestId) {
     logger.error({ userId: opts.userId, source: opts.source }, "chargeV4Ai: missing requestId");
-    return NO_OP;
+    // Return error:true so runV4PaidWork fails closed instead of running paid
+    // work for free. A missing requestId is always a caller programming error.
+    return { ...NO_OP, error: true };
   }
 
   const baseMetadata: Record<string, unknown> = {

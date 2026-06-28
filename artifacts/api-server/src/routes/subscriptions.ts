@@ -283,14 +283,22 @@ async function grantSubjectSubscription(
     region: opts.region,
   });
 
-  // Audit row — best-effort, errors are swallowed inside writeGemLedger so
-  // a transient ledger failure cannot undo a paid subscription.
+  // Legacy approval audit marker — delta=0 intentional.
+  //
+  // purchaseV4GemsTx (called by the invoker right after this function)
+  // already writes the authoritative `purchase_gems` ledger row with the
+  // correct fixed-package gem grant (packageGems). Using the formula-derived
+  // breakdown.gemsGranted here as delta was causing the admin "سجل الجواهر"
+  // page to show DOUBLE gem grants — one real row (+packageGems) and one
+  // legacy row (+formulaGems, a DIFFERENT number) — overstating total grants
+  // in financial reports. Setting delta=0 makes this a pure approval-event
+  // marker without affecting reconciliation or balance sums.
   await writeGemLedger({
     userId: opts.userId,
     subjectSubId: row.id,
     subjectId: row.subjectId,
-    delta: breakdown.gemsGranted,
-    balanceAfter: breakdown.gemsGranted,
+    delta: 0,
+    balanceAfter: 0,
     reason: "grant",
     source,
     adminUserId: opts.adminUserId ?? null,
@@ -299,13 +307,14 @@ async function grantSubjectSubscription(
       planType: opts.planType,
       region: opts.region,
       paidPriceYer: opts.paidPriceYer,
-      gemsGranted: breakdown.gemsGranted,
+      legacyFormulaGemsGranted: breakdown.gemsGranted,
       activationCode: opts.activationCode,
       subscriptionRequestId: opts.subscriptionRequestId,
       yerToUsdRate: breakdown.yerToUsdRate,
       priceUsd: breakdown.priceUsd,
       platformShareUsd: breakdown.platformShareUsd,
       studentShareUsd: breakdown.studentShareUsd,
+      v4Note: "actual_grant_in_purchase_gems_row",
     },
   });
 
@@ -1345,12 +1354,19 @@ router.post("/admin/subscription-requests/:id/approve", requireSameOriginCsrf, a
       priceYer: approvedPriceYer,
       region: request.region,
     });
+    // Legacy approval audit marker — delta=0 intentional.
+    // purchaseV4GemsTx (called inside the approval tx above) already writes
+    // the authoritative `purchase_gems` row with the correct fixed-package
+    // gem grant. Using approvalBreakdown.gemsGranted (formula-derived) as
+    // delta was causing the admin ledger to double-count gem grants — one
+    // real +packageGems row and one wrong +formulaGems row. delta=0 makes
+    // this a pure informational approval marker (who approved, when, price).
     await writeGemLedger({
       userId: request.userId,
       subjectSubId: subscription.id,
       subjectId: subscription.subjectId,
-      delta: approvalBreakdown.gemsGranted,
-      balanceAfter: approvalBreakdown.gemsGranted,
+      delta: 0,
+      balanceAfter: 0,
       reason: "grant",
       source: "approve_request",
       adminUserId: userId,
@@ -1359,13 +1375,14 @@ router.post("/admin/subscription-requests/:id/approve", requireSameOriginCsrf, a
         planType: request.planType,
         region: request.region,
         paidPriceYer: approvedPriceYer,
-        gemsGranted: approvalBreakdown.gemsGranted,
+        legacyFormulaGemsGranted: approvalBreakdown.gemsGranted,
         activationCode: code,
         subscriptionRequestId: id,
         yerToUsdRate: approvalBreakdown.yerToUsdRate,
         priceUsd: approvalBreakdown.priceUsd,
         platformShareUsd: approvalBreakdown.platformShareUsd,
         studentShareUsd: approvalBreakdown.studentShareUsd,
+        v4Note: "actual_grant_in_purchase_gems_row",
       },
     });
 
