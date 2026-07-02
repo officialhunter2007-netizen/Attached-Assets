@@ -132,11 +132,69 @@ function normalizeFences(src: string): string {
   return out;
 }
 
+const _HASH_LANGS = new Set(["python","py","ruby","rb","bash","sh","shell","zsh","r","perl","pl","yaml","yml","toml","ini","env","dotenv","dockerfile","docker","makefile","make"]);
+const _SLASH_LANGS = new Set(["javascript","js","typescript","ts","jsx","tsx","java","kotlin","kt","swift","dart","go","rust","c","cpp","c++","cxx","cc","csharp","cs","scala","groovy","php"]);
+
+function _stripLineComments(code: string, lang: string): string {
+  const L = lang.toLowerCase();
+  const useHash = _HASH_LANGS.has(L);
+  const useSlash = _SLASH_LANGS.has(L);
+  if (!useHash && !useSlash) return code;
+  const out: string[] = [];
+  for (const rawLine of code.split("\n")) {
+    if (useHash && /^\s*#/.test(rawLine)) continue;
+    if (useSlash && /^\s*\/\//.test(rawLine)) continue;
+    let result = "";
+    let inStr: string | null = null;
+    let i = 0;
+    while (i < rawLine.length) {
+      const ch = rawLine[i];
+      if (inStr) {
+        result += ch;
+        if (ch === "\\" && i + 1 < rawLine.length) { i++; result += rawLine[i]; }
+        else if (ch === inStr) inStr = null;
+      } else if (ch === '"' || ch === "'" || ch === "`") {
+        inStr = ch; result += ch;
+      } else if (useHash && ch === "#" && rawLine[i - 1] !== "!") {
+        break;
+      } else if (useSlash && ch === "/" && rawLine[i + 1] === "/" && !/https?:$/.test(result.trimEnd())) {
+        break;
+      } else {
+        result += ch;
+      }
+      i++;
+    }
+    const t = result.trimEnd();
+    if (t) out.push(t);
+  }
+  while (out.length && !out[0].trim()) out.shift();
+  while (out.length && !out[out.length - 1].trim()) out.pop();
+  return out.join("\n");
+}
+
+function stripFenceCommentsBooklet(src: string): string {
+  if (!src || src.indexOf("```") === -1) return src;
+  const parts = src.split("```");
+  let result = "";
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) {
+      result += parts[i];
+    } else {
+      const firstNl = parts[i].indexOf("\n");
+      const lang = firstNl === -1 ? "" : parts[i].slice(0, firstNl).trim();
+      const body = firstNl === -1 ? parts[i] : parts[i].slice(firstNl + 1);
+      result += "```" + lang + "\n" + _stripLineComments(body, lang) + "\n```";
+    }
+  }
+  return result;
+}
+
 function renderHtml(raw: string): string {
   if (!raw) return "";
   const clean = sanitizeProtocol(raw);
   const withFences = normalizeFences(clean);
-  const { text: stripped, blocks } = extractMathBlocks(withFences);
+  const withNoComments = stripFenceCommentsBooklet(withFences);
+  const { text: stripped, blocks } = extractMathBlocks(withNoComments);
   const html = marked.parse(stripped ?? "", { async: false }) as string;
   const withMath = restoreMathPlaceholders(html, blocks);
   return DOMPurify.sanitize(withMath, {

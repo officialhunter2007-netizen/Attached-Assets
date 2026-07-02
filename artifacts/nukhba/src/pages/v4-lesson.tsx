@@ -287,12 +287,87 @@ function mergeSplitCodeTokens(md: string): string {
   );
 }
 
-/* Known fenced-code language identifiers (+ common aliases). Used by
- * normalizeFences to tell a real language tag apart from the first line of
- * actual code, so the tag becomes a <code class="language-…"> attribute
- * instead of leaking into the rendered code body. */
 const FENCE_LANG_RE =
   /^(python|py|javascript|js|typescript|ts|jsx|tsx|node|html|xml|svg|css|scss|sass|less|bash|sh|shell|zsh|console|cmd|bat|cpp|c\+\+|cxx|cc|c|objc|csharp|cs|java|kotlin|kt|scala|groovy|ruby|rb|go|golang|rust|rs|sql|mysql|postgres|psql|graphql|json|json5|yaml|yml|toml|ini|env|dotenv|php|swift|dart|lua|perl|pl|r|matlab|julia|haskell|elixir|erlang|clojure|powershell|ps1|dockerfile|docker|makefile|make|nginx|apache|diff|patch|markdown|md|mdx|tex|latex|text|txt|plaintext|plain|regex|http)$/i;
+
+const HASH_COMMENT_LANGS = new Set([
+  "python","py","ruby","rb","bash","sh","shell","zsh","r","perl","pl",
+  "yaml","yml","toml","ini","env","dotenv","dockerfile","docker","makefile","make",
+]);
+const SLASH_COMMENT_LANGS = new Set([
+  "javascript","js","typescript","ts","jsx","tsx","java","kotlin","kt",
+  "swift","dart","go","golang","rust","rs","c","cpp","c++","cxx","cc","objc",
+  "csharp","cs","scala","groovy","php",
+]);
+const INLINE_ONLY_LANGS = new Set(["html","xml","svg","sql","mysql","postgres","psql"]);
+
+function stripLineComments(code: string, lang: string): string {
+  const L = lang.toLowerCase();
+  const useHash  = HASH_COMMENT_LANGS.has(L);
+  const useSlash = SLASH_COMMENT_LANGS.has(L);
+  if (!useHash && !useSlash) return code;
+
+  const out: string[] = [];
+  let inStr: string | null = null;
+
+  for (const rawLine of code.split("\n")) {
+    if (useHash) {
+      if (/^\s*#/.test(rawLine)) continue;
+    } else {
+      if (/^\s*\/\//.test(rawLine)) continue;
+    }
+
+    let result = "";
+    let i = 0;
+    inStr = null;
+    while (i < rawLine.length) {
+      const ch = rawLine[i];
+      if (inStr) {
+        result += ch;
+        if (ch === "\\" && i + 1 < rawLine.length) {
+          i++;
+          result += rawLine[i];
+        } else if (ch === inStr) {
+          inStr = null;
+        }
+      } else if (ch === '"' || ch === "'" || ch === "`") {
+        inStr = ch;
+        result += ch;
+      } else if (useHash && ch === "#" && rawLine[i - 1] !== "!") {
+        break;
+      } else if (useSlash && ch === "/" && rawLine[i + 1] === "/" && !/https?:$/.test(result.trimEnd())) {
+        break;
+      } else {
+        result += ch;
+      }
+      i++;
+    }
+    const trimmed = result.trimEnd();
+    if (trimmed) out.push(trimmed);
+  }
+
+  while (out.length > 0 && !out[0].trim()) out.shift();
+  while (out.length > 0 && !out[out.length - 1].trim()) out.pop();
+  return out.join("\n");
+}
+
+function stripFenceComments(src: string): string {
+  if (!src || src.indexOf("```") === -1) return src;
+  const parts = src.split("```");
+  let result = "";
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) {
+      result += parts[i];
+    } else {
+      const firstNl = parts[i].indexOf("\n");
+      const lang = firstNl === -1 ? "" : parts[i].slice(0, firstNl).trim();
+      const body = firstNl === -1 ? parts[i] : parts[i].slice(firstNl + 1);
+      const stripped = INLINE_ONLY_LANGS.has(lang.toLowerCase()) ? body : stripLineComments(body, lang);
+      result += "```" + lang + "\n" + stripped + "\n```";
+    }
+  }
+  return result;
+}
 
 /* ── Robust markdown code-fence normaliser ──────────────────────────────────
  * Gemini Flash Lite frequently emits malformed fences that break marked:
@@ -372,13 +447,9 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   // so only genuine markdown fences remain — and it is a no-op when none exist.
   const withFences = normalizeFences(withViz);
 
-  // Deterministic guarantee: force every code identifier to English (comments &
-  // strings stay Arabic). Runs AFTER ANIM/SCENE/VIZ expansion so their JS/HTML
-  // bodies — which legitimately contain backticks — are already encoded into
-  // element attributes and out of reach; only genuine markdown code fences
-  // remain for the latinizer to transform. The model can never surface Arabic
-  // variable/function/class names regardless of prompt adherence.
-  const withLatinCode = latinizeCodeIdentifiers(withFences);
+  const withNoComments = stripFenceComments(withFences);
+
+  const withLatinCode = latinizeCodeIdentifiers(withNoComments);
   // extractMathBlocks returns `{ text, blocks }` — destructuring it as
   // `stripped` left marked() with undefined input and crashed the page.
   const { text: stripped, blocks } = extractMathBlocks(withLatinCode);

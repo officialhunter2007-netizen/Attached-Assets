@@ -1872,6 +1872,52 @@ const IMAGES_ENABLED = false;
 // the matching SSE `imageReady` event resolves the URL.
 // When IMAGES_ENABLED=false the markers are silently stripped so no image
 // or spinner ever appears to the student.
+const _SBJ_HASH = new Set(["python","py","ruby","rb","bash","sh","shell","zsh","r","perl","pl","yaml","yml","toml","ini","env","dotenv","dockerfile","docker","makefile","make"]);
+const _SBJ_SLASH = new Set(["javascript","js","typescript","ts","jsx","tsx","java","kotlin","kt","swift","dart","go","rust","c","cpp","c++","cxx","cc","csharp","cs","scala","groovy","php"]);
+function _sbjStripLines(code: string, lang: string): string {
+  const L = lang.toLowerCase();
+  const useH = _SBJ_HASH.has(L), useS = _SBJ_SLASH.has(L);
+  if (!useH && !useS) return code;
+  const out: string[] = [];
+  for (const raw of code.split("\n")) {
+    if (useH && /^\s*#/.test(raw)) continue;
+    if (useS && /^\s*\/\//.test(raw)) continue;
+    let r = "", inStr: string | null = null, i = 0;
+    while (i < raw.length) {
+      const c = raw[i];
+      if (inStr) {
+        r += c;
+        if (c === "\\" && i + 1 < raw.length) { i++; r += raw[i]; }
+        else if (c === inStr) inStr = null;
+      } else if (c === '"' || c === "'" || c === "`") { inStr = c; r += c; }
+      else if (useH && c === "#" && raw[i-1] !== "!") break;
+      else if (useS && c === "/" && raw[i+1] === "/" && !/https?:$/.test(r.trimEnd())) break;
+      else r += c;
+      i++;
+    }
+    const t = r.trimEnd();
+    if (t) out.push(t);
+  }
+  while (out.length && !out[0].trim()) out.shift();
+  while (out.length && !out[out.length-1].trim()) out.pop();
+  return out.join("\n");
+}
+function sbjStripFenceComments(src: string): string {
+  if (!src || src.indexOf("```") === -1) return src;
+  const parts = src.split("```");
+  let res = "";
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) { res += parts[i]; }
+    else {
+      const nl = parts[i].indexOf("\n");
+      const lang = nl === -1 ? "" : parts[i].slice(0, nl).trim();
+      const body = nl === -1 ? parts[i] : parts[i].slice(nl + 1);
+      res += "```" + lang + "\n" + _sbjStripLines(body, lang) + "\n```";
+    }
+  }
+  return res;
+}
+
 function renderImageMarkers(raw: string, loadingLabel = "جارٍ توليد الصورة التوضيحية…"): string {
   if (!IMAGES_ENABLED) return raw.replace(/\[\[IMAGE:[a-f0-9]{6,16}\]\]/gi, "");
   return raw.replace(/\[\[IMAGE:([a-f0-9]{6,16})\]\]/gi, (_m, id) =>
@@ -1900,11 +1946,8 @@ function renderAssistantHtml(raw: string, loadingLabel?: string): string {
   // markdown parsing so DOMPurify sees them as plain <div data-viz-mount>
   // and the AIMessage effect can attach a React root.
   const withViz = expandVizTags(withImages);
-  // Math is extracted as plain ASCII placeholders BEFORE marked + DOMPurify,
-  // then restored AFTER sanitization with pre-rendered KaTeX HTML. This keeps
-  // KaTeX's inline styles (vertical-align, padding, etc.) intact since they
-  // bypass `stripInlineStyles` and DOMPurify's attribute filter.
-  const { text: withMathStripped, blocks } = extractMathBlocks(withViz);
+  const withNoComments = sbjStripFenceComments(withViz);
+  const { text: withMathStripped, blocks } = extractMathBlocks(withNoComments);
   const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(withMathStripped))) as string;
   const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target', 'data-image-id', 'loading', 'data-viz-mount', 'data-viz-template', 'data-viz-payload'],
@@ -1943,11 +1986,8 @@ function renderStreamingHtml(raw: string): string {
   // imageReady SSE event resolves. Renders BEFORE marked so the raw HTML
   // block survives markdown parsing intact.
   const withImages = renderImageMarkers(normalized);
-  // Math extraction runs mid-stream too: only complete `$$..$$` and `$..$`
-  // blocks match the regex, so partial spans never get rendered. The user
-  // sees raw `$...` until the closing `$` arrives — better than rendering
-  // half-formed TeX or stalling the stream.
-  const { text: withMathStripped, blocks } = extractMathBlocks(withImages);
+  const withNoComments = sbjStripFenceComments(withImages);
+  const { text: withMathStripped, blocks } = extractMathBlocks(withNoComments);
   const cleaned = unwrapHtmlCodeFences(withMathStripped);
   const html = marked.parse(stripInlineStyles(cleaned)) as string;
   const sanitized = DOMPurify.sanitize(html, {
