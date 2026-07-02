@@ -87,6 +87,46 @@ function classifyCallouts(root: HTMLElement): void {
   });
 }
 
+// Inline paragraph patterns the AI frequently writes as plain text instead of
+// blockquotes. We promote matching <p> elements into a styled <blockquote> so
+// they receive the same card treatment without relying on the model to use ">".
+const PARA_CALLOUT_RULES: Array<{ re: RegExp; cls: string }> = [
+  // ✅ / ✔️ / ⭐  →  key (gold)
+  { re: /^\s*(✅|✔️|⭐)\s*(القاعدة|قاعدة|الخلاصة|خلاصة|المفهوم|مفهوم|النتيجة)/u, cls: "callout-key" },
+  // plain "القاعدة:" label without leading emoji
+  { re: /^\s*(القاعدة|قاعدة)\s*:/u, cls: "callout-key" },
+  // 💡 / 🔑  →  tip (emerald)
+  { re: /^\s*(💡|🔑)\s*/u, cls: "callout-tip" },
+  // ⚠️ / ❗  →  warn (orange)
+  { re: /^\s*(⚠️|⚠|🚨|❗)\s*/u, cls: "callout-warn" },
+  // 🎯 / 🚀  →  goal (blue)
+  { re: /^\s*(🎯|🚀)\s*/u, cls: "callout-goal" },
+  // 📌 / 📝 / ℹ️ / 🧠  →  note (violet)
+  { re: /^\s*(📌|📝|ℹ️|🧠)\s*/u, cls: "callout-note" },
+];
+
+function promoteParagraphCallouts(root: HTMLElement): void {
+  // Only promote direct children <p> of the ai-msg root to avoid nesting
+  // blockquotes that already exist or <p> inside lists/tables.
+  const paras = root.querySelectorAll<HTMLElement>(":scope > p");
+  paras.forEach((p) => {
+    if (p.dataset.calloutPromoted === "1") return;
+    const text = (p.textContent || "").trim();
+    for (const { re, cls } of PARA_CALLOUT_RULES) {
+      if (re.test(text)) {
+        const bq = document.createElement("blockquote");
+        bq.className = cls;
+        bq.dataset.calloutApplied = "1";
+        bq.dataset.calloutPromoted = "1";
+        p.parentNode?.insertBefore(bq, p);
+        bq.appendChild(p);
+        p.dataset.calloutPromoted = "1";
+        break;
+      }
+    }
+  });
+}
+
 // Pretty display names for the code-block language label. Anything not
 // listed falls back to the raw tag (upper-cased), or "كود" when unknown.
 const LANG_LABELS: Record<string, string> = {
@@ -192,6 +232,7 @@ const AUTO_DETECT_SUBSET = [
 
 export function enhanceTeacherDom(root: HTMLElement | null): void {
   if (!root) return;
+  promoteParagraphCallouts(root);
   classifyCallouts(root);
   const blocks = root.querySelectorAll<HTMLElement>("pre code");
   blocks.forEach((el) => {
