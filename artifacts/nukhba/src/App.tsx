@@ -34,6 +34,8 @@ import BookletSession from "@/pages/booklet-session";
 import BookletMap from "@/pages/booklet-map";
 import BookletLab from "@/pages/booklet-lab";
 import BookletExam from "@/pages/booklet-exam";
+import CodingRooms from "@/pages/coding-rooms";
+import CodingRoom from "@/pages/coding-room";
 
 const queryClient = new QueryClient();
 
@@ -227,6 +229,8 @@ function Router() {
       <Route path="/usage" component={() => <ProtectedRoute component={Usage} />} />
       <Route path="/admin" component={() => <ProtectedRoute component={Admin} />} />
       <Route path="/support" component={() => <ProtectedRoute component={Support} />} />
+      <Route path="/coding-rooms" component={() => <ProtectedRoute component={CodingRooms} />} />
+      <Route path="/coding-room/:roomId" component={() => <ProtectedRoute component={CodingRoom} />} />
       <Route component={NotFound} />
     </Switch>
   );

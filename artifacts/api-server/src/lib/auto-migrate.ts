@@ -30,6 +30,103 @@ type FullTableSpec = {
 
 const REQUIRED_TABLES: FullTableSpec[] = [
   {
+    table: "coding_rooms",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "coding_rooms" (
+        "id" serial PRIMARY KEY,
+        "title" text NOT NULL,
+        "description" text NOT NULL DEFAULT '',
+        "languages" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "invite_type" text NOT NULL DEFAULT 'private',
+        "host_user_id" integer NOT NULL,
+        "status" text NOT NULL DEFAULT 'active',
+        "closed_at" timestamp with time zone,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_coding_rooms_status" ON "coding_rooms" ("status", "created_at")`,
+      `CREATE INDEX IF NOT EXISTS "idx_coding_rooms_host" ON "coding_rooms" ("host_user_id")`,
+    ],
+  },
+  {
+    table: "coding_room_members",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "coding_room_members" (
+        "id" serial PRIMARY KEY,
+        "room_id" integer NOT NULL,
+        "user_id" integer NOT NULL,
+        "role" text NOT NULL DEFAULT 'member',
+        "can_write" boolean NOT NULL DEFAULT false,
+        "can_run" boolean NOT NULL DEFAULT false,
+        "status" text NOT NULL DEFAULT 'waiting',
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_coding_room_members" ON "coding_room_members" ("room_id", "user_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_coding_room_members_room" ON "coding_room_members" ("room_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_coding_room_members_user" ON "coding_room_members" ("user_id")`,
+    ],
+  },
+  {
+    table: "coding_room_files",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "coding_room_files" (
+        "id" serial PRIMARY KEY,
+        "room_id" integer NOT NULL,
+        "file_path" text NOT NULL,
+        "content" text NOT NULL DEFAULT '',
+        "language" text NOT NULL DEFAULT '',
+        "created_by_user_id" integer,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_coding_room_files" ON "coding_room_files" ("room_id", "file_path")`,
+      `CREATE INDEX IF NOT EXISTS "idx_coding_room_files_room" ON "coding_room_files" ("room_id")`,
+    ],
+  },
+  {
+    table: "coding_room_invitations",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "coding_room_invitations" (
+        "id" serial PRIMARY KEY,
+        "room_id" integer NOT NULL,
+        "invited_user_id" integer NOT NULL,
+        "invited_by_user_id" integer NOT NULL,
+        "status" text NOT NULL DEFAULT 'pending',
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_coding_room_invitations" ON "coding_room_invitations" ("room_id", "invited_user_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_coding_room_inv_user" ON "coding_room_invitations" ("invited_user_id")`,
+    ],
+  },
+  {
+    table: "notifications",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "notifications" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "type" text NOT NULL,
+        "title" text NOT NULL,
+        "body" text NOT NULL DEFAULT '',
+        "data" jsonb,
+        "read" boolean NOT NULL DEFAULT false,
+        "read_at" timestamp with time zone,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_notifications_user" ON "notifications" ("user_id", "read", "created_at")`,
+    ],
+  },
+  {
     // test-out: GLOBAL cached MCQ pool per (versionId, targetUnitCode).
     table: "v4_testout_pools",
     createSql: `

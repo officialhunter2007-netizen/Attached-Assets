@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/use-auth";
 import { useLang } from "@/lib/lang-context";
-import { LogOut, LogIn, Menu, User, MessageCircle, Globe } from "lucide-react";
+import { LogOut, LogIn, Menu, User, MessageCircle, Globe, Code2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -10,6 +10,7 @@ import { NukhbaLogo } from "@/components/nukhba-logo";
 import { PlatformChatWidget } from "@/components/platform-chat-widget";
 import { startActivityTracker, trackPageView } from "@/lib/activity-tracker";
 import { motion, AnimatePresence } from "framer-motion";
+import { NotificationsBell } from "@/components/notifications-bell";
 
 // v4 wallet badge state. Pure per-subject gem balance — no daily cap, no
 // free-first-lesson counter, no derived gems. `gemsBalance` is the current
@@ -503,6 +504,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 </NavLink>
               ))}
               {user && (
+                <NavLink href="/coding-rooms" active={location.startsWith("/coding-room")}>
+                  <span className="relative inline-flex items-center gap-1">
+                    <Code2 className="w-3.5 h-3.5" />
+                    غرف البرمجة
+                  </span>
+                </NavLink>
+              )}
+              {user && (
                 <NavLink href="/support" active={location.startsWith("/support")}>
                   <span className="relative inline-flex items-center gap-1">
                     <MessageCircle className="w-3.5 h-3.5" />
@@ -533,6 +542,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               {user ? (
                 <>
                   <div className="h-6 w-px bg-white/10" />
+                  <NotificationsBell />
                   <GemsBadge gems={gems} />
                   <div className="h-6 w-px bg-white/10 mx-1" />
                   <UserAvatar src={user.profileImage} name={user.displayName} size={34} />
