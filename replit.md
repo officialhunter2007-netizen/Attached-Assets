@@ -9,6 +9,7 @@ Nukhba is an AI-powered Yemeni educational platform offering personalized learni
 - **Interaction Style**: Proactive engagement, offering interactive labs, mini-projects, and visual aids. Seek to understand the user's thought process rather than just confirming correct answers.
 - **Feedback**: Provide specific feedback on mistakes and reincorporate them into future explanations until resolved.
 - **User Interface**: Clear, intuitive, and aesthetically pleasing with a dark luxury theme, gold and emerald accents, and RTL Arabic text.
+- **No code comments**: Never write comments (`#`, `//`, `/* */`) in any code files or code examples. This applies both to agent-edited source files and to AI teacher code snippets shown in lessons.
 
 ## System Architecture
 
