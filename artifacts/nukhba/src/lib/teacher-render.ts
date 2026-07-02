@@ -180,25 +180,26 @@ marked.use({
       }
     },
 
-    paragraph({ text }: { text: string }): string {
-      const plain = text.replace(/<[^>]+>/g, "").trim();
+    paragraph(token: { text: string; tokens: object[] }): string | false {
+      const raw = token.text ?? "";
       for (const { re, cls } of PARA_CALLOUT_RULES) {
-        if (re.test(plain)) {
-          return `<blockquote class="${cls}"><p>${text}</p></blockquote>\n`;
+        if (re.test(raw)) {
+          const body = (this as unknown as { parser: { parseInline(t: object[]): string } }).parser.parseInline(token.tokens);
+          return `<blockquote class="${cls}"><p>${body}</p></blockquote>\n`;
         }
       }
-      return `<p>${text}</p>\n`;
+      return false;
     },
 
-    blockquote({ body }: { body: string }): string {
-      const plain = body.replace(/<[^>]+>/g, "").trim();
+    blockquote(token: { text: string; tokens: object[] }): string | false {
+      const raw = token.text ?? "";
       let cls = "";
       for (const { re, cls: c } of CALLOUT_EMOJI) {
-        if (re.test(plain)) { cls = c; break; }
+        if (re.test(raw)) { cls = c; break; }
       }
-      return cls
-        ? `<blockquote class="${cls}">${body}</blockquote>\n`
-        : `<blockquote>${body}</blockquote>\n`;
+      if (!cls) return false;
+      const body = (this as unknown as { parser: { parse(t: object[]): string } }).parser.parse(token.tokens);
+      return `<blockquote class="${cls}">${body}</blockquote>\n`;
     },
   },
 });
