@@ -1521,7 +1521,7 @@ export default function V4Lesson() {
 
       {/* Chat scroller */}
       <div ref={scrollerRef} className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
           {messages.length === 0 && (
             <div className="text-center text-white/50 text-sm py-12">
               <Sparkles className="w-8 h-8 mx-auto mb-3 text-amber-400/70" />
@@ -1931,7 +1931,7 @@ const MessageBubble = ({
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-3xl rounded-bl-none bg-[#4c1d95] border border-violet-400/20 px-4 py-3 text-sm text-white/95 leading-relaxed whitespace-pre-wrap shadow-lg">
+        <div className="max-w-[85%] rounded-3xl rounded-bl-none bg-[#4c1d95] border border-violet-400/20 px-4 py-3 text-[15px] text-white/95 leading-[1.8] whitespace-pre-wrap shadow-lg">
           {msg.image && (
             <img
               src={msg.image}
@@ -1950,7 +1950,7 @@ const MessageBubble = ({
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[92%] rounded-3xl rounded-br-none bg-[#1f2937] border border-gray-700/50 p-5 shadow-sm leading-relaxed">
+      <div className="max-w-[92%] rounded-3xl rounded-br-none bg-[#1f2937] border border-gray-700/50 px-5 py-4 shadow-md">
         {html ? (
           <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} lessonName={lessonName} slug={slug} />
         ) : (

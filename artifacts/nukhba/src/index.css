@@ -871,10 +871,10 @@
      containers — this block is the single source of truth.
 ═══════════════════════════════════════════════ */
 .ai-msg {
-  color: #e6e7ea;
+  color: #dde1e8;
   font-family: 'Tajawal', 'Cairo', system-ui, -apple-system, sans-serif;
-  font-size: 16px;
-  line-height: 1.95;
+  font-size: 17px;
+  line-height: 1.85;
   direction: rtl;
   text-align: right;
   word-break: normal;
@@ -888,8 +888,8 @@
 }
 @media (max-width: 640px) {
   .ai-msg {
-    font-size: 15px;
-    line-height: 1.9;
+    font-size: 15.5px;
+    line-height: 1.8;
   }
 }
 
@@ -902,73 +902,79 @@
   max-width: 100%;
 }
 
-/* ── Headings — calm, ChatGPT/Claude-style hierarchy ── */
+/* ── Headings — clear, warm hierarchy ── */
 .ai-msg h1 {
-  color: #f4f4f6;
-  font-size: 1.32em;
+  color: #f7f8fa;
+  font-size: 1.38em;
   font-weight: 800;
-  margin: 26px 0 12px;
-  line-height: 1.45;
+  margin: 28px 0 13px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
 }
 .ai-msg h2 {
-  color: #f0f0f3;
-  font-size: 1.18em;
+  color: #f2f3f6;
+  font-size: 1.22em;
   font-weight: 700;
-  margin: 22px 0 10px;
-  line-height: 1.45;
+  margin: 24px 0 11px;
+  line-height: 1.5;
 }
 .ai-msg h3 {
-  color: #ededf0;
-  font-size: 1.07em;
+  color: #eeeef2;
+  font-size: 1.1em;
   font-weight: 700;
-  margin: 18px 0 8px;
-  line-height: 1.45;
+  margin: 20px 0 9px;
+  line-height: 1.5;
 }
 .ai-msg h4, .ai-msg h5, .ai-msg h6 {
-  color: #e6e7ea;
-  font-size: 1em;
+  color: #e4e6ea;
+  font-size: 1.02em;
   font-weight: 700;
-  margin: 14px 0 6px;
-  line-height: 1.45;
+  margin: 16px 0 7px;
+  line-height: 1.5;
 }
 .ai-msg h1:first-child, .ai-msg h2:first-child, .ai-msg h3:first-child { margin-top: 0; }
-/* Prestige accent: a soft gold hairline trailing off from the start (right) of
-   top-level headings — quiet luxury, never a loud full underline. */
+/* Prestige accent: soft gold hairline under top headings. */
 .ai-msg h1, .ai-msg h2 {
-  padding-bottom: 6px;
+  padding-bottom: 7px;
   border-bottom: 1px solid transparent;
-  border-image: linear-gradient(270deg, rgba(245,158,11,0.55), rgba(245,158,11,0.06) 55%, transparent) 1;
+  border-image: linear-gradient(270deg, rgba(245,158,11,0.6), rgba(245,158,11,0.07) 55%, transparent) 1;
 }
 
-/* ── Emphasis — bold is brighter white (not a loud color) ── */
+/* ── Emphasis — bold is bright gold-tinted white ── */
 .ai-msg strong,
 .ai-msg b {
-  color: #ffffff;
-  font-weight: 700;
+  color: #fef9ee;
+  font-weight: 800;
 }
 .ai-msg em,
 .ai-msg i {
+  color: #c9d6e8;
   font-style: italic;
 }
 
 /* ── Paragraphs ── */
 .ai-msg p {
-  margin: 11px 0;
+  margin: 13px 0;
   word-break: break-word;
   overflow-wrap: break-word;
 }
 .ai-msg p:first-child { margin-top: 0; }
 .ai-msg p:last-child  { margin-bottom: 0; }
+/* Opening paragraph — slightly brighter for the welcome/intro line */
+.ai-msg > p:first-of-type {
+  color: #eaecf0;
+  font-size: 1.03em;
+}
 
 /* ── Lists ── */
 .ai-msg ul,
 .ai-msg ol {
-  padding-right: 24px;
-  margin: 10px 0;
+  padding-right: 26px;
+  margin: 12px 0;
 }
 .ai-msg li {
-  margin-bottom: 8px;
-  line-height: 2.0;
+  margin-bottom: 9px;
+  line-height: 1.85;
   word-break: break-word;
   overflow-wrap: break-word;
 }
@@ -978,7 +984,7 @@
 /* Nested lists */
 .ai-msg ul ul, .ai-msg ol ol,
 .ai-msg ul ol, .ai-msg ol ul {
-  margin: 5px 0;
+  margin: 6px 0;
 }
 
 /* ── Inline code (refined gold pill) ── */
