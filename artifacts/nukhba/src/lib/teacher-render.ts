@@ -92,19 +92,15 @@ const PARA_CALLOUT_RULES: Array<{ re: RegExp; cls: string }> = [
 ];
 
 function promoteParagraphCallouts(root: HTMLElement): void {
-  const paras = root.querySelectorAll<HTMLElement>(":scope > p");
-  paras.forEach((p) => {
-    if (p.dataset.calloutPromoted === "1") return;
+  root.querySelectorAll<HTMLElement>("p").forEach((p) => {
+    if (p.closest("blockquote")) return;
     const text = (p.textContent || "").trim();
     for (const { re, cls } of PARA_CALLOUT_RULES) {
       if (re.test(text)) {
         const bq = document.createElement("blockquote");
         bq.className = cls;
-        bq.dataset.calloutApplied = "1";
-        bq.dataset.calloutPromoted = "1";
         p.parentNode?.insertBefore(bq, p);
         bq.appendChild(p);
-        p.dataset.calloutPromoted = "1";
         break;
       }
     }
@@ -182,6 +178,27 @@ marked.use({
       } catch {
         return `<pre><code>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>`;
       }
+    },
+
+    paragraph({ text }: { text: string }): string {
+      const plain = text.replace(/<[^>]+>/g, "").trim();
+      for (const { re, cls } of PARA_CALLOUT_RULES) {
+        if (re.test(plain)) {
+          return `<blockquote class="${cls}"><p>${text}</p></blockquote>\n`;
+        }
+      }
+      return `<p>${text}</p>\n`;
+    },
+
+    blockquote({ body }: { body: string }): string {
+      const plain = body.replace(/<[^>]+>/g, "").trim();
+      let cls = "";
+      for (const { re, cls: c } of CALLOUT_EMOJI) {
+        if (re.test(plain)) { cls = c; break; }
+      }
+      return cls
+        ? `<blockquote class="${cls}">${body}</blockquote>\n`
+        : `<blockquote>${body}</blockquote>\n`;
     },
   },
 });
