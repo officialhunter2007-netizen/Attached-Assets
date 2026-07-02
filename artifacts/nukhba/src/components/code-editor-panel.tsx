@@ -33,6 +33,7 @@ const LANGUAGES = [
   { id: "kotlin",     label: "Kotlin",     ext: "kt",    icon: "🤖", monacoLang: "kotlin" },
   { id: "bash",       label: "Bash",       ext: "sh",    icon: "🐚", monacoLang: "shell" },
   { id: "sql",        label: "SQL",        ext: "sql",   icon: "🗄️", monacoLang: "sql" },
+  { id: "rust",       label: "Rust",       ext: "rs",    icon: "🦀", monacoLang: "rust" },
 ];
 
 const WEB_LANGS = new Set(["html", "css", "javascript"]);
@@ -41,7 +42,7 @@ const EXT_TO_LANG: Record<string, string> = {
   html: "html", htm: "html", css: "css",
   py: "python", js: "javascript", ts: "typescript", java: "java",
   cpp: "cpp", cc: "cpp", cxx: "cpp", c: "c",
-  kt: "kotlin", dart: "dart",
+  kt: "kotlin", dart: "dart", rs: "rust",
   sql: "sql", sh: "bash", bash: "bash",
 };
 
@@ -56,8 +57,9 @@ const DEFAULT_CODE: Record<string, string> = {
   c:          `#include <stdio.h>\n\nint main() {\n    printf("مرحباً من نُخبة! 🎓\\n");\n    return 0;\n}\n`,
   dart:       `void main() {\n    print("مرحباً من نُخبة! 🎓");\n}\n`,
   kotlin:     `fun main() {\n    println("مرحباً من نُخبة! 🎓")\n}\n`,
-  bash:       `#!/bin/bash\n# مرحباً بك\necho "مرحباً من نُخبة! 🎓"\n`,
+  bash:       `#!/bin/bash\necho "مرحباً من نُخبة! 🎓"\n`,
   sql:        `-- استعلام SQL تجريبي\nSELECT 'مرحباً من نُخبة! 🎓' AS greeting;\nSELECT 1+1 AS result;\n`,
+  rust:       `fn main() {\n    println!("مرحباً من نُخبة! 🎓");\n}\n`,
 };
 
 const EDITOR_THEMES = [
@@ -329,6 +331,21 @@ function replaceLastOccurrence(str: string, search: RegExp, replacement: string)
 }
 
 const BROWSER_DOMAIN = "my-project.nukhba.dev";
+
+const CDN_LIBRARIES = [
+  { name: "Tailwind CSS",  icon: "💨", tags: [`<script src="https://cdn.tailwindcss.com"></script>`] },
+  { name: "Bootstrap 5",  icon: "🅱", tags: [`<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">`, `<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>`] },
+  { name: "React 18",     icon: "⚛", tags: [`<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>`, `<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>`] },
+  { name: "Vue 3",        icon: "🟩", tags: [`<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>`] },
+  { name: "jQuery",       icon: "💲", tags: [`<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>`] },
+  { name: "Chart.js",     icon: "📊", tags: [`<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>`] },
+  { name: "GSAP",         icon: "🎬", tags: [`<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>`] },
+  { name: "Anime.js",     icon: "✨", tags: [`<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>`] },
+  { name: "D3.js",        icon: "📈", tags: [`<script src="https://d3js.org/d3.v7.min.js"></script>`] },
+  { name: "Three.js",     icon: "🧊", tags: [`<script src="https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.min.js"></script>`] },
+  { name: "Font Awesome", icon: "🎨", tags: [`<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">`] },
+  { name: "Socket.io",    icon: "🔌", tags: [`<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>`] },
+];
 
 function getHtmlFiles(files: IDEFile[]): IDEFile[] {
   return files.filter(f => f.language === "html" && !f.name.endsWith("/.gitkeep"));
@@ -1134,6 +1151,9 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [selectionAction, setSelectionAction] = useState<SelectionAction | null>(null);
   const [showTimestamps, setShowTimestamps] = useState(false);
+  const [stdin, setStdin] = useState("");
+  const [stdinOpen, setStdinOpen] = useState(false);
+  const [showCdnPicker, setShowCdnPicker] = useState(false);
   const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [quickOpenQuery, setQuickOpenQuery] = useState("");
   const [quickOpenMode, setQuickOpenMode] = useState<"files" | "search">("files");
@@ -1570,6 +1590,25 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     }
   };
 
+  const injectCdn = (tags: string[]) => {
+    const activeF = activeFileRef.current;
+    const htmlFile = activeF?.language === "html"
+      ? activeF
+      : files.find(f => f.language === "html" && !f.name.endsWith("/.gitkeep"));
+    if (!htmlFile) return;
+    const inject = tags.join("\n");
+    let newContent = htmlFile.content;
+    if (/<\/head>/i.test(newContent)) {
+      newContent = newContent.replace(/<\/head>/i, `${inject}\n</head>`);
+    } else if (/<body/i.test(newContent)) {
+      newContent = newContent.replace(/<body/i, `${inject}\n<body`);
+    } else {
+      newContent = inject + "\n" + newContent;
+    }
+    setFiles(prev => prev.map(f => f.id === htmlFile.id ? { ...f, content: newContent } : f));
+    setShowCdnPicker(false);
+  };
+
   const handleRunCode = async () => {
     const file = activeFileRef.current;
     if (runningRef.current || !file) return;
@@ -1577,11 +1616,19 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     setShowOutput(true);
     setOutput(null);
     try {
+      const siblings = files
+        .filter(f => f.language === file.language && f.id !== file.id && !f.name.endsWith("/.gitkeep"))
+        .map(f => ({ file: f.name, code: f.content }));
       const res = await fetch("/api/ai/run-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ code: file.content, language: file.language }),
+        body: JSON.stringify({
+          code: file.content,
+          language: file.language,
+          ...(stdin.trim() ? { stdin } : {}),
+          ...(siblings.length > 0 ? { codes: siblings } : {}),
+        }),
       });
       const data = await res.json();
       const hasError = data.exitCode !== 0 || (!data.output && data.error);
@@ -2591,39 +2638,93 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                 📤 شارك مع المعلم
               </button>
             )}
+            <div className="relative">
+              <button
+                onClick={() => setShowCdnPicker(p => !p)}
+                title="إضافة مكتبات CDN للمشروع"
+                className={`flex items-center gap-1.5 text-[11px] sm:text-xs font-bold px-3 py-2 sm:py-2.5 rounded-xl border transition-all ${showCdnPicker ? "bg-violet-500/20 text-violet-300 border-violet-500/40" : "bg-white/5 text-[#a0a0b8] border-white/10 hover:bg-white/10"}`}
+              >
+                📦 <span className="hidden sm:inline">مكتبات</span>
+              </button>
+              {showCdnPicker && (
+                <div
+                  className="absolute bottom-full left-0 mb-2 z-50 rounded-xl overflow-hidden shadow-2xl shadow-black/60"
+                  style={{ border: "1px solid rgba(139,92,246,0.3)", background: "#0d1020", minWidth: "200px" }}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                    <span className="text-[10px] text-[#6e6a86] font-mono font-bold uppercase tracking-wider">إضافة مكتبة CDN</span>
+                    <button onClick={() => setShowCdnPicker(false)} className="text-[#6e6a86] hover:text-white"><X className="w-3 h-3" /></button>
+                  </div>
+                  <div className="py-1 max-h-[300px] overflow-y-auto">
+                    {CDN_LIBRARIES.map(lib => (
+                      <button
+                        key={lib.name}
+                        onClick={() => injectCdn(lib.tags)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] font-mono text-white/80 hover:bg-violet-500/10 hover:text-violet-300 transition-colors text-right"
+                      >
+                        <span className="text-base shrink-0">{lib.icon}</span>
+                        <span className="flex-1 text-right">{lib.name}</span>
+                        <Plus className="w-3 h-3 text-[#6e6a86] shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
         {!canPreview && (
-          <button
-            onClick={handleRun}
-            disabled={running}
-            className={`run-btn-pulse flex items-center gap-1.5 sm:gap-2 font-bold px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl transition-all text-xs sm:text-sm shadow-lg ${
-              running
-                ? "bg-[#F59E0B]/30 text-[#F59E0B]/60 cursor-not-allowed"
-                : "bg-[#F59E0B] text-black hover:bg-[#fbbf24] shadow-[#F59E0B]/30 active:scale-95"
-            }`}
-          >
-            {running
-              ? <><div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /><span>جاري التنفيذ...</span></>
-              : <><Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" /><span>تشغيل الكود ▶</span></>
-            }
-          </button>
+          <>
+            <button
+              onClick={handleRun}
+              disabled={running}
+              className={`run-btn-pulse flex items-center gap-1.5 sm:gap-2 font-bold px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl transition-all text-xs sm:text-sm shadow-lg ${
+                running
+                  ? "bg-[#F59E0B]/30 text-[#F59E0B]/60 cursor-not-allowed"
+                  : "bg-[#F59E0B] text-black hover:bg-[#fbbf24] shadow-[#F59E0B]/30 active:scale-95"
+              }`}
+            >
+              {running
+                ? <><div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /><span>جاري التنفيذ...</span></>
+                : <><Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" /><span>تشغيل الكود ▶</span></>
+              }
+            </button>
+            <button
+              onClick={() => setStdinOpen(o => !o)}
+              title="مدخلات البرنامج (stdin) — لو برنامجك يستخدم input() أو cin"
+              className={`flex items-center gap-1.5 text-[11px] sm:text-xs font-bold px-2.5 py-2 sm:py-2.5 rounded-xl border transition-all ${stdinOpen ? "bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/40" : "bg-white/5 text-[#a0a0b8] border-white/10 hover:bg-white/10"}`}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">مدخلات</span>
+            </button>
+          </>
         )}
         {canPreview && !isWebLang && (
-          <button
-            onClick={handleRun}
-            disabled={running}
-            className={`run-btn-pulse flex items-center gap-1.5 sm:gap-2 font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all text-xs sm:text-sm shadow-lg ${
-              running
-                ? "bg-[#F59E0B]/30 text-[#F59E0B]/60 cursor-not-allowed"
-                : "bg-[#F59E0B] text-black hover:bg-[#fbbf24] shadow-[#F59E0B]/30 active:scale-95"
-            }`}
-          >
-            {running
-              ? <><div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /><span>جاري التنفيذ...</span></>
-              : <><Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" /><span>تشغيل ▶</span></>
-            }
-          </button>
+          <>
+            <button
+              onClick={handleRun}
+              disabled={running}
+              className={`run-btn-pulse flex items-center gap-1.5 sm:gap-2 font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all text-xs sm:text-sm shadow-lg ${
+                running
+                  ? "bg-[#F59E0B]/30 text-[#F59E0B]/60 cursor-not-allowed"
+                  : "bg-[#F59E0B] text-black hover:bg-[#fbbf24] shadow-[#F59E0B]/30 active:scale-95"
+              }`}
+            >
+              {running
+                ? <><div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /><span>جاري التنفيذ...</span></>
+                : <><Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" /><span>تشغيل ▶</span></>
+              }
+            </button>
+            <button
+              onClick={() => setStdinOpen(o => !o)}
+              title="مدخلات البرنامج (stdin)"
+              className={`flex items-center gap-1.5 text-[11px] text-xs font-bold px-2.5 py-2 sm:py-2.5 rounded-xl border transition-all ${stdinOpen ? "bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/40" : "bg-white/5 text-[#a0a0b8] border-white/10 hover:bg-white/10"}`}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">مدخلات</span>
+            </button>
+          </>
         )}
         <button
           onClick={handleExplainCode}
@@ -2683,6 +2784,36 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       </div>
 
       <AnimatePresence>
+        {stdinOpen && !canPreview && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="bg-[#07090f] border-t border-[#F59E0B]/10 px-3 sm:px-4 pt-2 pb-2.5">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Terminal className="w-3 h-3 text-[#F59E0B]/60 shrink-0" />
+                <span className="text-[10px] text-[#F59E0B]/70 font-mono">STDIN — مدخلات البرنامج</span>
+                <span className="text-[9px] text-[#6e6a86] font-mono">اكتب كل قيمة في سطر منفصل</span>
+                <button onClick={() => setStdinOpen(false)} className="text-[#6e6a86] hover:text-white ml-auto"><X className="w-3 h-3" /></button>
+              </div>
+              <textarea
+                value={stdin}
+                onChange={e => setStdin(e.target.value)}
+                placeholder={"مثال:\nأحمد\n25"}
+                className="w-full bg-[#0c0e1a] border border-white/8 rounded-lg px-2.5 py-2 text-xs font-mono text-white/80 outline-none resize-none placeholder:text-[#6e6a86]/50 focus:border-[#F59E0B]/30 transition-colors leading-relaxed"
+                rows={3}
+                dir="ltr"
+                spellCheck={false}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showOutput && !canPreview && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
@@ -2724,7 +2855,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div className="p-3 sm:p-4 font-mono min-h-[60px] sm:min-h-[80px] max-h-[200px] overflow-y-auto bg-[#060910] console-log-entry">
+              <div className="p-3 sm:p-4 font-mono min-h-[60px] sm:min-h-[80px] max-h-[340px] overflow-y-auto bg-[#060910] console-log-entry">
                 {output === null && running ? (
                   <div className="flex items-center gap-2 text-[#6e6a86] text-xs sm:text-sm">
                     <div className="w-3 h-3 border-2 border-[#F59E0B] border-t-transparent rounded-full animate-spin" />

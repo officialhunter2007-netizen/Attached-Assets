@@ -5050,13 +5050,19 @@ const WANDBOX_COMPILER_MAP: Record<string, string> = {
   bash:       "bash",
   sql:        "sqlite-3.46.1",
   rust:       "rust-1.82.0",
+  kotlin:     "kotlin-1.9.10",
 };
 
 router.post("/ai/run-code", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-  const { code, language } = req.body as { code?: string; language?: string };
+  const { code, language, stdin, codes } = req.body as {
+    code?: string;
+    language?: string;
+    stdin?: string;
+    codes?: Array<{ file: string; code: string }>;
+  };
   if (!code || !language) {
     return res.status(400).json({ error: "code and language are required" });
   }
@@ -5073,12 +5079,16 @@ router.post("/ai/run-code", async (req, res) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WANDBOX_TIMEOUT_MS);
 
+  const wandboxBody: Record<string, unknown> = { compiler, code };
+  if (stdin && stdin.trim()) wandboxBody.stdin = stdin;
+  if (codes && codes.length > 0) wandboxBody.codes = codes;
+
   try {
     const wandboxRes = await fetch(WANDBOX_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
-      body: JSON.stringify({ compiler, code }),
+      body: JSON.stringify(wandboxBody),
     });
 
     clearTimeout(timer);
