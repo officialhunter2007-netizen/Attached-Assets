@@ -1033,7 +1033,7 @@
 /* Decorated IDE-style cards manage their own padding/scroll via .code-body;
    plain (un-enhanced) <pre> — dashboard cards, hljs-failure fallback,
    katex-fallback — keep the default padded, horizontally-scrolling box. */
-.ai-msg pre[data-code-enhanced="1"] {
+.ai-msg pre.code-enhanced {
   padding: 0;
   overflow: hidden;
   border-color: rgba(245,158,11,0.18) !important;
@@ -1128,11 +1128,11 @@
   border-radius: 0;
 }
 /* In a decorated card the <pre> has no padding, so the code provides it. */
-.ai-msg pre[data-code-enhanced="1"] code { padding: 14px 16px; }
+.ai-msg pre.code-enhanced code { padding: 14px 16px; }
 @media (max-width: 640px) {
   .ai-msg pre code { font-size: 11px; line-height: 1.55; }
   .code-gutter { font-size: 11px; line-height: 1.55; padding: 12px 8px; }
-  .ai-msg pre[data-code-enhanced="1"] code { padding: 12px 12px; }
+  .ai-msg pre.code-enhanced code { padding: 12px 12px; }
 }
 
 /* ── Tables ── */

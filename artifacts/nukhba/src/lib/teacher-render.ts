@@ -1,8 +1,6 @@
-// Full highlight.js registry (vs `/lib/common`) so language tags the AI
-// teacher emits — php, kotlin, swift, dart, dockerfile, yaml, etc. —
-// all render with colour.
 import hljs from "highlight.js";
 import katex from "katex";
+import { marked } from "marked";
 
 const MATH_PLACEHOLDER_PREFIX = "XNUKHBAMATHX";
 const MATH_PLACEHOLDER_SUFFIX = "XENDMATHX";
@@ -48,7 +46,7 @@ export function restoreMathPlaceholders(html: string, blocks: Array<{ tex: strin
       return katex.renderToString(block.tex, {
         displayMode: block.display,
         throwOnError: false,
-        strict: "ignore",
+        strict: false,
         output: "html",
       });
     } catch {
@@ -61,9 +59,6 @@ export function restoreMathPlaceholders(html: string, blocks: Array<{ tex: strin
   });
 }
 
-// Map a blockquote's leading emoji → a callout variant class so the CSS can
-// recolor the card (tip/warn/key/goal/note). Markdown gives us a plain
-// <blockquote>; this is the only place we know its text content client-side.
 const CALLOUT_EMOJI: Array<{ re: RegExp; cls: string }> = [
   { re: /^\s*(💡|🔑)/u, cls: "callout-tip" },
   { re: /^\s*(⚠️|⚠|🚨|❗)/u, cls: "callout-warn" },
@@ -87,27 +82,16 @@ function classifyCallouts(root: HTMLElement): void {
   });
 }
 
-// Inline paragraph patterns the AI frequently writes as plain text instead of
-// blockquotes. We promote matching <p> elements into a styled <blockquote> so
-// they receive the same card treatment without relying on the model to use ">".
 const PARA_CALLOUT_RULES: Array<{ re: RegExp; cls: string }> = [
-  // ✅ / ✔️ / ⭐  →  key (gold)
   { re: /^\s*(✅|✔️|⭐)\s*(القاعدة|قاعدة|الخلاصة|خلاصة|المفهوم|مفهوم|النتيجة)/u, cls: "callout-key" },
-  // plain "القاعدة:" label without leading emoji
   { re: /^\s*(القاعدة|قاعدة)\s*:/u, cls: "callout-key" },
-  // 💡 / 🔑  →  tip (emerald)
   { re: /^\s*(💡|🔑)\s*/u, cls: "callout-tip" },
-  // ⚠️ / ❗  →  warn (orange)
   { re: /^\s*(⚠️|⚠|🚨|❗)\s*/u, cls: "callout-warn" },
-  // 🎯 / 🚀  →  goal (blue)
   { re: /^\s*(🎯|🚀)\s*/u, cls: "callout-goal" },
-  // 📌 / 📝 / ℹ️ / 🧠  →  note (violet)
   { re: /^\s*(📌|📝|ℹ️|🧠)\s*/u, cls: "callout-note" },
 ];
 
 function promoteParagraphCallouts(root: HTMLElement): void {
-  // Only promote direct children <p> of the ai-msg root to avoid nesting
-  // blockquotes that already exist or <p> inside lists/tables.
   const paras = root.querySelectorAll<HTMLElement>(":scope > p");
   paras.forEach((p) => {
     if (p.dataset.calloutPromoted === "1") return;
@@ -127,8 +111,8 @@ function promoteParagraphCallouts(root: HTMLElement): void {
   });
 }
 
-// Pretty display names for the code-block language label. Anything not
-// listed falls back to the raw tag (upper-cased), or "كود" when unknown.
+export { promoteParagraphCallouts };
+
 const LANG_LABELS: Record<string, string> = {
   js: "JavaScript", javascript: "JavaScript", jsx: "JSX",
   ts: "TypeScript", typescript: "TypeScript", tsx: "TSX",
@@ -152,14 +136,116 @@ function prettyLangName(lang: string): string {
   return LANG_LABELS[key] ?? lang.toUpperCase();
 }
 
-// Restructure a highlighted <pre><code> into an IDE-style card:
-//   <pre>
-//     <div class="code-head"> ●●●  LANG  [نسخ] </div>
-//     <div class="code-body"> <span class="code-gutter">1 2 3</span> <code/> </div>
-//   </pre>
+const AUTO_DETECT_LANGS = [
+  "python", "javascript", "typescript", "json", "html", "xml", "css", "scss",
+  "sql", "bash", "shell", "java", "c", "cpp", "csharp", "go", "rust", "ruby",
+  "php", "kotlin", "swift", "dart", "yaml", "ini", "markdown",
+];
+
+function buildCodeCardHtml(text: string, lang: string, highlighted: string): string {
+  const codeText = text.replace(/\n$/, "");
+  const lineCount = Math.max(1, codeText.split("\n").length);
+  const gutter = Array.from({ length: lineCount }, (_, i) => String(i + 1)).join("\n");
+  const label = prettyLangName(lang);
+  const codeClass = lang ? `language-${lang} hljs` : "hljs";
+  return (
+    `<pre class="code-enhanced">` +
+    `<div class="code-head">` +
+    `<span class="code-dots" aria-hidden="true"><i></i><i></i><i></i></span>` +
+    `<span class="code-lang">${label}</span>` +
+    `<button type="button" class="copy-code-btn" aria-label="نسخ الكود">نسخ</button>` +
+    `</div>` +
+    `<div class="code-body">` +
+    `<span class="code-gutter" aria-hidden="true">${gutter}</span>` +
+    `<code class="${codeClass}">${highlighted}</code>` +
+    `</div>` +
+    `</pre>`
+  );
+}
+
+marked.use({
+  renderer: {
+    code({ text, lang }: { text: string; lang?: string }): string {
+      try {
+        const language = lang && hljs.getLanguage(lang) ? lang : null;
+        let highlighted: string;
+        let usedLang = "";
+        if (language) {
+          highlighted = hljs.highlight(text, { language, ignoreIllegals: true }).value;
+          usedLang = language;
+        } else {
+          const result = hljs.highlightAuto(text, AUTO_DETECT_LANGS);
+          highlighted = result.value;
+          usedLang = result.language || "";
+        }
+        return buildCodeCardHtml(text, usedLang, highlighted);
+      } catch {
+        return `<pre><code>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>`;
+      }
+    },
+  },
+});
+
+if (typeof document !== "undefined") {
+  document.addEventListener("click", (ev) => {
+    const target = ev.target as HTMLElement;
+    const btn = target.closest?.(".copy-code-btn") as HTMLElement | null;
+    if (!btn) return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    const pre = btn.closest("pre");
+    const code = pre?.querySelector("code");
+    const text = code?.textContent || "";
+    try {
+      navigator.clipboard?.writeText(text);
+      btn.textContent = "تم النسخ ✓";
+      btn.classList.add("copy-code-btn-copied");
+      setTimeout(() => {
+        btn.textContent = "نسخ";
+        btn.classList.remove("copy-code-btn-copied");
+      }, 1400);
+    } catch {
+      btn.textContent = "تعذر النسخ";
+    }
+  }, true);
+}
+
+export function enhanceTeacherDom(root: HTMLElement | null): void {
+  if (!root) return;
+  promoteParagraphCallouts(root);
+  classifyCallouts(root);
+  root.querySelectorAll<HTMLElement>("pre code").forEach((el) => {
+    if (el.classList.contains("hljs")) return;
+    try {
+      const cls = el.className || "";
+      const langMatch = cls.match(/language-([\w+\-#]+)/i);
+      let langName = "";
+      if (langMatch && hljs.getLanguage(langMatch[1])) {
+        const res = hljs.highlight(el.textContent || "", { language: langMatch[1], ignoreIllegals: true });
+        el.innerHTML = res.value;
+        el.classList.add("hljs");
+        langName = langMatch[1];
+      } else {
+        const res = hljs.highlightAuto(el.textContent || "", AUTO_DETECT_LANGS);
+        el.innerHTML = res.value;
+        el.classList.add("hljs");
+        if (res.language) {
+          el.classList.add(`language-${res.language}`);
+          langName = res.language;
+        }
+      }
+      const pre = el.parentElement;
+      if (pre && pre.tagName === "PRE" && !pre.querySelector(".code-head")) {
+        decorateCodeBlock(pre, el, langName);
+      }
+    } catch {
+    }
+  });
+}
+
 function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string): void {
-  if (pre.dataset.codeEnhanced === "1") return;
-  pre.dataset.codeEnhanced = "1";
+  if (pre.querySelector(".code-head")) return;
+  pre.classList.add("code-enhanced");
 
   const head = document.createElement("div");
   head.className = "code-head";
@@ -178,29 +264,11 @@ function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string
   btn.className = "copy-code-btn";
   btn.textContent = "نسخ";
   btn.setAttribute("aria-label", "نسخ الكود");
-  btn.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    ev.preventDefault();
-    const text = code.textContent || "";
-    try {
-      navigator.clipboard?.writeText(text);
-      btn.textContent = "تم النسخ ✓";
-      btn.classList.add("copy-code-btn-copied");
-      setTimeout(() => {
-        btn.textContent = "نسخ";
-        btn.classList.remove("copy-code-btn-copied");
-      }, 1400);
-    } catch {
-      btn.textContent = "تعذر النسخ";
-    }
-  });
 
   head.appendChild(dots);
   head.appendChild(lang);
   head.appendChild(btn);
 
-  // Line-number gutter — built from the plain text so it never depends on
-  // (or breaks) the highlighted HTML inside <code>.
   const codeText = (code.textContent || "").replace(/\n$/, "");
   const lineCount = Math.max(1, codeText.split("\n").length);
   const gutter = document.createElement("span");
@@ -215,53 +283,4 @@ function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string
   body.appendChild(gutter);
   pre.insertBefore(body, code);
   body.appendChild(code);
-}
-
-// Curated subset for language auto-detection. highlight.js's *full* registry
-// (used so explicit tags like php/kotlin/swift render) also contains obscure
-// languages — routeros, arduino, stylus, gml, … — that win on tiny, ambiguous
-// snippets and produce nonsense headers like "ROUTEROS" on a 2-line Python
-// example. Restricting `highlightAuto` to the languages the platform actually
-// teaches makes BOTH the syntax colouring and the header label sane, while
-// explicit `language-xxx` fences still use the full registry below.
-const AUTO_DETECT_SUBSET = [
-  "python", "javascript", "typescript", "json", "html", "xml", "css", "scss",
-  "sql", "bash", "shell", "java", "c", "cpp", "csharp", "go", "rust", "ruby",
-  "php", "kotlin", "swift", "dart", "yaml", "ini", "markdown", "plaintext",
-];
-
-export function enhanceTeacherDom(root: HTMLElement | null): void {
-  if (!root) return;
-  promoteParagraphCallouts(root);
-  classifyCallouts(root);
-  const blocks = root.querySelectorAll<HTMLElement>("pre code");
-  blocks.forEach((el) => {
-    if (el.dataset.hljsApplied === "1") return;
-    try {
-      const cls = el.className || "";
-      const langMatch = cls.match(/language-([\w+\-#]+)/i);
-      let langName = "";
-      if (langMatch && hljs.getLanguage(langMatch[1])) {
-        const res = hljs.highlight(el.textContent || "", { language: langMatch[1], ignoreIllegals: true });
-        el.innerHTML = res.value;
-        el.classList.add("hljs");
-        langName = langMatch[1];
-      } else {
-        const res = hljs.highlightAuto(el.textContent || "", AUTO_DETECT_SUBSET);
-        el.innerHTML = res.value;
-        el.classList.add("hljs");
-        if (res.language) {
-          el.classList.add(`language-${res.language}`);
-          langName = res.language;
-        }
-      }
-      el.dataset.hljsApplied = "1";
-      const pre = el.parentElement;
-      if (pre && pre.tagName === "PRE") {
-        decorateCodeBlock(pre as HTMLElement, el, langName);
-      }
-    } catch {
-      // hljs failures are non-fatal — leave plain code in place.
-    }
-  });
 }

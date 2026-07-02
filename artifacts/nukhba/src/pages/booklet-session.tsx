@@ -198,8 +198,8 @@ function renderHtml(raw: string): string {
   const html = marked.parse(stripped ?? "", { async: false }) as string;
   const withMath = restoreMathPlaceholders(html, blocks);
   return DOMPurify.sanitize(withMath, {
-    ADD_ATTR: ["target"],
-    ADD_TAGS: ["figure", "figcaption"],
+    ADD_ATTR: ["target", "aria-label", "aria-hidden", "type"],
+    ADD_TAGS: ["figure", "figcaption", "button"],
   });
 }
 
