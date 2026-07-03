@@ -1,0 +1,139 @@
+root@vmi3256829:~/nukhba/Attached-Assets# journalctl -u nukhba-api -n 100 --no-pager | grep -i "coding\|error\|500" | tail -30
+root@vmi3256829:~/nukhba/Attached-Assets# pm2 logs nukhba-api --lines 50 | grep -i "coding\|error"
+^C
+root@vmi3256829:~/nukhba/Attached-Assets# SELECT tablename FROM pg_tables
+WHERE tablename IN ('coding_rooms','coding_room_members','coding_room_files','coding_room_invitations')
+ORDER BY tablename;
+SELECT: command not found
+-bash: syntax error near unexpected token `('
+ORDER: command not found
+root@vmi3256829:~/nukhba/Attached-Assets# CREATE TABLE IF NOT EXISTS "coding_rooms" (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT,
+  languages JSONB NOT NULL DEFAULT '[]',
+  invite_type TEXT NOT NULL DEFAULT 'public',
+  host_user_id INTEGER NOT NULL REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'active',
+  closed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_coding_rooms_status ON coding_rooms (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_coding_rooms_host ON coding_rooms (host_user_id);
+
+CREATE TABLE IF NOT EXISTS "coding_room_members" (
+  id SERIAL PRIMARY KEY,
+  room_id INTEGER NOT NULL REFERENCES coding_rooms(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  role TEXT NOT NULL DEFAULT 'member',
+  can_write BOOLEAN NOT NULL DEFAULT false,
+  can_run BOOLEAN NOT NULL DEFAULT false,
+  status TEXT NOT NULL DEFAULT 'waiting',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_coding_room_members ON coding_room_members (room_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_coding_room_members_room ON coding_room_members (room_id);
+CREATE INDEX IF NOT EXISTS idx_coding_room_inv_user ON coding_room_invitations (invited_user_id); invited_us
+-bash: syntax error near unexpected token `('
+id: ‘SERIAL’: no such user
+id: ‘PRIMARY’: no such user
+id: ‘KEY,’: no such user
+Command 'title' not found, did you mean:
+  command 'xtitle' from deb xtitle (1.0.4-1)
+Try: apt install <deb name>
+description: command not found
+languages: command not found
+invite_type: command not found
+-bash: syntax error near unexpected token `('
+Command 'status' not found, did you mean:
+  command 'statup' from snap statup (0.79.91)
+  command 'states' from deb enscript (1.6.5.90-3)
+  command 'qstatus' from deb gridengine-client (8.1.9+dfsg-10build1)
+  command 'statfs' from deb gocryptfs (1.8.0-1ubuntu0.1)
+See 'snap info <snapname>' for additional versions.
+closed_at: command not found
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `)'
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+id: ‘SERIAL’: no such user
+id: ‘PRIMARY’: no such user
+id: ‘KEY,’: no such user
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+Command 'role' not found, did you mean:
+  command 'roll' from snap roll (1.9)
+  command 'rolo' from deb rolo (019-2)
+See 'snap info <snapname>' for additional versions.
+can_write: command not found
+can_run: command not found
+Command 'status' not found, did you mean:
+  command 'statup' from snap statup (0.79.91)
+  command 'states' from deb enscript (1.6.5.90-3)
+  command 'statfs' from deb gocryptfs (1.8.0-1ubuntu0.1)
+  command 'qstatus' from deb gridengine-client (8.1.9+dfsg-10build1)
+See 'snap info <snapname>' for additional versions.
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `)'
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+id: ‘SERIAL’: no such user
+id: ‘PRIMARY’: no such user
+id: ‘KEY,’: no such user
+-bash: syntax error near unexpected token `('
+file_path: command not found
+Command 'content' not found, did you mean:
+  command 'context' from deb context (2021.03.05.20220211-1)
+Try: apt install <deb name>
+language: command not found
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `)'
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+id: ‘SERIAL’: no such user
+id: ‘PRIMARY’: no such user
+id: ‘KEY,’: no such user
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+Command 'status' not found, did you mean:
+  command 'statup' from snap statup (0.79.91)
+  command 'qstatus' from deb gridengine-client (8.1.9+dfsg-10build1)
+  command 'states' from deb enscript (1.6.5.90-3)
+  command 'statfs' from deb gocryptfs (1.8.0-1ubuntu0.1)
+See 'snap info <snapname>' for additional versions.
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `)'
+-bash: syntax error near unexpected token `('
+-bash: syntax error near unexpected token `('
+root@vmi3256829:~/nukhba/Attached-Assets# location /ws/ {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+}
+location: command not found
+proxy_pass: command not found
+proxy_http_version: command not found
+proxy_set_header: command not found
+proxy_set_header: command not found
+proxy_set_header: command not found
+proxy_set_header: command not found
+proxy_read_timeout: command not found
+proxy_send_timeout: command not found
+-bash: syntax error near unexpected token `}'
+root@vmi3256829:~/nukhba/Attached-Assets#
