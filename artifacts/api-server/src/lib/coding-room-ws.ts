@@ -298,6 +298,8 @@ async function handleMessage(client: WsClient, raw: string) {
       if (!kickId) return;
       const kickTarget = [...getRoomClients(client.roomId)].find((c) => c.userId === kickId);
       if (kickTarget) {
+        kickTarget.isOnline = false;
+        getRoomClients(client.roomId).delete(kickTarget);
         sendTo(kickTarget, { type: "kicked", message: "تم طردك من الغرفة من قِبل المشرف" });
         kickTarget.ws.close();
       }
@@ -467,7 +469,10 @@ async function handleMessage(client: WsClient, raw: string) {
 
 async function handleDisconnect(client: WsClient) {
   const clients = getRoomClients(client.roomId);
+  const wasInRoom = clients.has(client);
   clients.delete(client);
+
+  if (!wasInRoom) return;
 
   if (client.isOnline) {
     await updateMemberStatus(client.roomId, client.userId, "left").catch(() => {});
@@ -599,9 +604,7 @@ export function initCodingRoomWss(server: Server) {
             color,
           }, userId);
 
-          ws.on("message", (data: Buffer) => {
-            handleMessage(waitingClient, data.toString()).catch(() => {});
-          });
+          ws.on("message", () => {});
 
           ws.on("close", () => {
             waitingClient.isOnline = false;

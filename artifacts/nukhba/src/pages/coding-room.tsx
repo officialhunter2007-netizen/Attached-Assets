@@ -200,6 +200,12 @@ export default function CodingRoom() {
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const activeFileRef = useRef<string>("");
+  const showChatRef = useRef(false);
+  const myInfoRef = useRef<typeof myInfo>(null);
+  const handleWsMsgRef = useRef<(raw: string) => void>(() => {});
+
+  showChatRef.current = showChat;
+  myInfoRef.current = myInfo;
 
   useEffect(() => {
     activeFileRef.current = activeFile;
@@ -315,7 +321,7 @@ export default function CodingRoom() {
             userId: -1, username: "النظام", color: "#64748B",
             text: `${msg.username} انضم للغرفة 👋`, timestamp: new Date().toISOString(),
           }]);
-          if (!showChat) setUnreadChat((c) => c + 1);
+          if (!showChatRef.current) setUnreadChat((c) => c + 1);
           initWebRTC(msg.userId, true);
         }
         break;
@@ -326,7 +332,7 @@ export default function CodingRoom() {
           userId: -1, username: "النظام", color: "#64748B",
           text: `عضو ${msg.reason === "kicked" ? "طُرد من" : "غادر"} الغرفة`, timestamp: new Date().toISOString(),
         }]);
-        if (!showChat) setUnreadChat((c) => c + 1);
+        if (!showChatRef.current) setUnreadChat((c) => c + 1);
         { const pc = peerRefs.current.get(msg.userId); if (pc) { pc.close(); peerRefs.current.delete(msg.userId); } }
         document.querySelector(`audio[data-peer="${msg.userId}"]`)?.remove();
         break;
@@ -341,7 +347,7 @@ export default function CodingRoom() {
           userId: -1, username: "النظام", color: "#F59E0B",
           text: "👑 أنت الآن مشرف الغرفة", timestamp: new Date().toISOString(),
         }]);
-        if (!showChat) setUnreadChat((c) => c + 1);
+        if (!showChatRef.current) setUnreadChat((c) => c + 1);
         break;
 
       case "permission_changed":
@@ -353,7 +359,7 @@ export default function CodingRoom() {
             text: `تم ${msg.canWrite ? "منحك" : "سحب"} إذن الكتابة ${msg.canRun ? "والتشغيل" : ""}`.trim(),
             timestamp: new Date().toISOString(),
           }]);
-          if (!showChat) setUnreadChat((c) => c + 1);
+          if (!showChatRef.current) setUnreadChat((c) => c + 1);
         }
         break;
 
@@ -412,8 +418,7 @@ export default function CodingRoom() {
         break;
 
       case "file_delete_request": {
-        const currentMyInfo = myInfo;
-        if (currentMyInfo?.role === "host") {
+        if (myInfoRef.current?.role === "host") {
           if (confirm(`${msg.username} يطلب حذف الملف: ${msg.filePath}\nهل توافق؟`)) {
             wsRef.current?.send(JSON.stringify({
               type: "file_delete_approve",
@@ -434,7 +439,7 @@ export default function CodingRoom() {
 
       case "chat_message":
         setChatMsgs((prev) => [...prev, msg]);
-        if (!showChat) setUnreadChat((c) => c + 1);
+        if (!showChatRef.current) setUnreadChat((c) => c + 1);
         break;
 
       case "run_output":
@@ -483,10 +488,12 @@ export default function CodingRoom() {
           userId: -1, username: "خطأ", color: "#EF4444",
           text: msg.message ?? "حدث خطأ", timestamp: new Date().toISOString(),
         }]);
-        if (!showChat) setUnreadChat((c) => c + 1);
+        if (!showChatRef.current) setUnreadChat((c) => c + 1);
         break;
     }
-  }, [user, myInfo, showChat, handleWebRTCSignal, navigate, initWebRTC]);
+  }, [user, handleWebRTCSignal, navigate, initWebRTC]);
+
+  handleWsMsgRef.current = handleWsMessage;
 
   useEffect(() => {
     if (!match || isNaN(roomId)) return;
@@ -501,7 +508,7 @@ export default function CodingRoom() {
       ws.onopen = () => {
         if (!destroyed) setWsStatus("connecting");
       };
-      ws.onmessage = (e) => handleWsMessage(e.data);
+      ws.onmessage = (e) => handleWsMsgRef.current(e.data);
       ws.onerror = () => {
         if (!destroyed) setWsStatus("error");
       };
@@ -527,7 +534,7 @@ export default function CodingRoom() {
       peerRefs.current.clear();
       document.querySelectorAll("audio[data-peer]").forEach((el) => el.remove());
     };
-  }, [match, roomId, handleWsMessage]);
+  }, [match, roomId]);
 
   useEffect(() => {
     if (!match || isNaN(roomId)) return;
