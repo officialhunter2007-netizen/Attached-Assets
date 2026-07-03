@@ -57,6 +57,16 @@ function broadcast(roomId: number, msg: object, excludeUserId?: number) {
   }
 }
 
+function broadcastAll(roomId: number, msg: object) {
+  const clients = getRoomClients(roomId);
+  const data = JSON.stringify(msg);
+  for (const client of clients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(data);
+    }
+  }
+}
+
 function sendTo(client: WsClient, msg: object) {
   if (client.ws.readyState === WebSocket.OPEN) {
     client.ws.send(JSON.stringify(msg));
@@ -78,9 +88,9 @@ function getRoomMemberList(roomId: number) {
 
 async function getRoomFromDb(roomId: number) {
   const rows = await db.execute(
-    sql`SELECT id, host_user_id, status FROM coding_rooms WHERE id = ${roomId} LIMIT 1`
+    sql`SELECT id, host_user_id, invite_type, status FROM coding_rooms WHERE id = ${roomId} LIMIT 1`
   );
-  return rows.rows[0] as { id: number; host_user_id: number; status: string } | undefined;
+  return rows.rows[0] as { id: number; host_user_id: number; invite_type: string; status: string } | undefined;
 }
 
 async function getMemberFromDb(roomId: number, userId: number) {
@@ -128,26 +138,29 @@ async function handleMessage(client: WsClient, raw: string) {
     }
 
     case "code_change": {
-      if (!client.canWrite) {
+      if (!client.canWrite && client.role !== "host") {
         sendTo(client, { type: "error", message: "ليس لديك إذن الكتابة" });
         return;
       }
+      const fullContent = msg.fullContent ?? "";
       broadcast(client.roomId, {
         type: "code_change",
         userId: client.userId,
         file: msg.file,
-        changes: msg.changes,
+        fullContent,
       }, client.userId);
-      await db.execute(
-        sql`UPDATE coding_room_files
-            SET content = ${msg.fullContent ?? ""}, updated_at = NOW()
-            WHERE room_id = ${client.roomId} AND file_path = ${msg.file}`
-      );
+      if (msg.file) {
+        await db.execute(
+          sql`UPDATE coding_room_files
+              SET content = ${fullContent}, updated_at = NOW()
+              WHERE room_id = ${client.roomId} AND file_path = ${msg.file}`
+        );
+      }
       break;
     }
 
     case "line_lock": {
-      if (!client.canWrite) return;
+      if (!client.canWrite && client.role !== "host") return;
       broadcast(client.roomId, {
         type: "line_lock",
         userId: client.userId,
@@ -160,39 +173,46 @@ async function handleMessage(client: WsClient, raw: string) {
     }
 
     case "file_created": {
-      if (!client.canWrite) return;
+      if (!client.canWrite && client.role !== "host") {
+        sendTo(client, { type: "error", message: "ليس لديك إذن إنشاء ملفات" });
+        return;
+      }
+      const filePath = (msg.filePath ?? "").trim();
+      if (!filePath) return;
       await db.execute(
         sql`INSERT INTO coding_room_files (room_id, file_path, content, created_by_user_id)
-            VALUES (${client.roomId}, ${msg.filePath}, ${msg.content ?? ""}, ${client.userId})
+            VALUES (${client.roomId}, ${filePath}, ${msg.content ?? ""}, ${client.userId})
             ON CONFLICT (room_id, file_path) DO NOTHING`
       );
-      broadcast(client.roomId, {
+      broadcastAll(client.roomId, {
         type: "file_created",
         userId: client.userId,
         username: client.username,
-        filePath: msg.filePath,
+        filePath,
         content: msg.content ?? "",
-      }, client.userId);
+      });
       break;
     }
 
     case "file_deleted": {
+      const filePath = msg.filePath;
+      if (!filePath) return;
       if (client.role !== "host") {
         broadcast(client.roomId, {
           type: "file_delete_request",
           userId: client.userId,
           username: client.username,
-          filePath: msg.filePath,
+          filePath,
         }, client.userId);
         return;
       }
       await db.execute(
         sql`DELETE FROM coding_room_files
-            WHERE room_id = ${client.roomId} AND file_path = ${msg.filePath}`
+            WHERE room_id = ${client.roomId} AND file_path = ${filePath}`
       );
-      broadcast(client.roomId, {
+      broadcastAll(client.roomId, {
         type: "file_deleted",
-        filePath: msg.filePath,
+        filePath,
         deletedBy: client.userId,
       });
       break;
@@ -200,62 +220,73 @@ async function handleMessage(client: WsClient, raw: string) {
 
     case "file_delete_approve": {
       if (client.role !== "host") return;
+      const filePath = msg.filePath;
+      if (!filePath) return;
       await db.execute(
         sql`DELETE FROM coding_room_files
-            WHERE room_id = ${client.roomId} AND file_path = ${msg.filePath}`
+            WHERE room_id = ${client.roomId} AND file_path = ${filePath}`
       );
-      broadcast(client.roomId, {
+      broadcastAll(client.roomId, {
         type: "file_deleted",
-        filePath: msg.filePath,
-        deletedBy: msg.requestUserId,
+        filePath,
+        deletedBy: msg.requestUserId ?? client.userId,
       });
       break;
     }
 
-    case "run_code": {
-      if (!client.canRun && client.role !== "host") {
-        broadcast(client.roomId, {
-          type: "run_request",
-          userId: client.userId,
-          username: client.username,
-        }, client.userId);
-        return;
-      }
-      broadcast(client.roomId, {
+    case "run_output": {
+      broadcastAll(client.roomId, {
         type: "run_output",
         triggeredBy: client.userId,
         triggeredByName: client.username,
-        output: msg.output,
-        language: msg.language,
+        output: msg.output ?? "",
+        language: msg.language ?? "",
         timestamp: new Date().toISOString(),
       });
       break;
     }
 
+    case "run_code": {
+      broadcast(client.roomId, {
+        type: "run_request",
+        userId: client.userId,
+        username: client.username,
+      }, client.userId);
+      break;
+    }
+
     case "permission_change": {
       if (client.role !== "host") return;
-      const { targetUserId, canWrite, canRun, micEnabled } = msg;
+      const { targetUserId } = msg;
+      if (!targetUserId) return;
+
+      const existing = await db.execute(
+        sql`SELECT can_write, can_run FROM coding_room_members
+            WHERE room_id = ${client.roomId} AND user_id = ${targetUserId} LIMIT 1`
+      );
+      const cur = existing.rows[0] as { can_write: boolean; can_run: boolean } | undefined;
+      if (!cur) return;
+
+      const newCanWrite = msg.canWrite !== undefined ? msg.canWrite : cur.can_write;
+      const newCanRun = msg.canRun !== undefined ? msg.canRun : cur.can_run;
+
       await db.execute(
         sql`UPDATE coding_room_members
-            SET can_write = ${canWrite ?? false},
-                can_run = ${canRun ?? false},
-                updated_at = NOW()
+            SET can_write = ${newCanWrite}, can_run = ${newCanRun}, updated_at = NOW()
             WHERE room_id = ${client.roomId} AND user_id = ${targetUserId}`
       );
-      const target = [...getRoomClients(client.roomId)].find(
-        (c) => c.userId === targetUserId
-      );
+
+      const target = [...getRoomClients(client.roomId)].find((c) => c.userId === targetUserId);
       if (target) {
-        if (canWrite !== undefined) target.canWrite = canWrite;
-        if (canRun !== undefined) target.canRun = canRun;
-        if (micEnabled !== undefined) target.micEnabled = micEnabled;
+        target.canWrite = newCanWrite;
+        target.canRun = newCanRun;
       }
-      broadcast(client.roomId, {
+
+      broadcastAll(client.roomId, {
         type: "permission_changed",
         targetUserId,
-        canWrite: canWrite ?? false,
-        canRun: canRun ?? false,
-        micEnabled: micEnabled ?? false,
+        canWrite: newCanWrite,
+        canRun: newCanRun,
         members: getRoomMemberList(client.roomId),
       });
       break;
@@ -264,9 +295,8 @@ async function handleMessage(client: WsClient, raw: string) {
     case "kick_member": {
       if (client.role !== "host") return;
       const { targetUserId: kickId } = msg;
-      const kickTarget = [...getRoomClients(client.roomId)].find(
-        (c) => c.userId === kickId
-      );
+      if (!kickId) return;
+      const kickTarget = [...getRoomClients(client.roomId)].find((c) => c.userId === kickId);
       if (kickTarget) {
         sendTo(kickTarget, { type: "kicked", message: "تم طردك من الغرفة من قِبل المشرف" });
         kickTarget.ws.close();
@@ -275,7 +305,7 @@ async function handleMessage(client: WsClient, raw: string) {
         sql`UPDATE coding_room_members SET status = 'kicked', updated_at = NOW()
             WHERE room_id = ${client.roomId} AND user_id = ${kickId}`
       );
-      broadcast(client.roomId, {
+      broadcastAll(client.roomId, {
         type: "member_left",
         userId: kickId,
         reason: "kicked",
@@ -286,26 +316,54 @@ async function handleMessage(client: WsClient, raw: string) {
 
     case "admit_member": {
       if (client.role !== "host") return;
+      const admitId = msg.targetUserId;
+      if (!admitId) return;
       await db.execute(
         sql`UPDATE coding_room_members SET status = 'joined', updated_at = NOW()
-            WHERE room_id = ${client.roomId} AND user_id = ${msg.targetUserId}`
+            WHERE room_id = ${client.roomId} AND user_id = ${admitId}`
       );
-      broadcast(client.roomId, {
-        type: "member_admitted",
-        userId: msg.targetUserId,
+      const admitTarget = [...getRoomClients(client.roomId)].find((c) => c.userId === admitId);
+      if (admitTarget) {
+        admitTarget.canWrite = false;
+        admitTarget.canRun = false;
+        const files = await db.execute(
+          sql`SELECT file_path, content, language FROM coding_room_files
+              WHERE room_id = ${client.roomId} ORDER BY created_at ASC`
+        );
+        sendTo(admitTarget, {
+          type: "room_state",
+          roomId: client.roomId,
+          role: admitTarget.role,
+          color: admitTarget.color,
+          canWrite: false,
+          canRun: false,
+          members: getRoomMemberList(client.roomId),
+          files: files.rows,
+        });
+      }
+      broadcastAll(client.roomId, {
+        type: "member_joined",
+        userId: admitId,
+        username: admitTarget?.username ?? "طالب",
+        color: admitTarget?.color ?? "#94A3B8",
+        role: "member",
+        canWrite: false,
+        canRun: false,
+        micEnabled: false,
+        members: getRoomMemberList(client.roomId),
       });
       break;
     }
 
     case "reject_member": {
       if (client.role !== "host") return;
+      const rejectedId = msg.targetUserId;
+      if (!rejectedId) return;
       await db.execute(
         sql`UPDATE coding_room_members SET status = 'rejected', updated_at = NOW()
-            WHERE room_id = ${client.roomId} AND user_id = ${msg.targetUserId}`
+            WHERE room_id = ${client.roomId} AND user_id = ${rejectedId}`
       );
-      const rejected = [...getRoomClients(client.roomId)].find(
-        (c) => c.userId === msg.targetUserId
-      );
+      const rejected = [...getRoomClients(client.roomId)].find((c) => c.userId === rejectedId);
       if (rejected) {
         sendTo(rejected, { type: "rejected", message: "رفض المشرف طلب دخولك" });
         rejected.ws.close();
@@ -314,31 +372,31 @@ async function handleMessage(client: WsClient, raw: string) {
     }
 
     case "chat_message": {
-      broadcast(client.roomId, {
+      const text = (msg.text ?? "").slice(0, 500).trim();
+      if (!text) return;
+      broadcastAll(client.roomId, {
         type: "chat_message",
         userId: client.userId,
         username: client.username,
         color: client.color,
-        text: msg.text,
+        text,
         timestamp: new Date().toISOString(),
       });
       break;
     }
 
     case "mic_state": {
-      client.micEnabled = msg.enabled;
-      broadcast(client.roomId, {
+      client.micEnabled = !!msg.enabled;
+      broadcastAll(client.roomId, {
         type: "mic_state",
         userId: client.userId,
-        enabled: msg.enabled,
-      }, client.userId);
+        enabled: client.micEnabled,
+      });
       break;
     }
 
     case "webrtc_signal": {
-      const target = [...getRoomClients(client.roomId)].find(
-        (c) => c.userId === msg.targetUserId
-      );
+      const target = [...getRoomClients(client.roomId)].find((c) => c.userId === msg.targetUserId);
       if (target) {
         sendTo(target, {
           type: "webrtc_signal",
@@ -351,17 +409,20 @@ async function handleMessage(client: WsClient, raw: string) {
 
     case "room_closing": {
       if (client.role !== "host") return;
-      broadcast(client.roomId, {
+      broadcastAll(client.roomId, {
         type: "room_closing",
         countdown: 30,
-      }, client.userId);
+      });
       setTimeout(async () => {
-        broadcast(client.roomId, { type: "room_closed" });
+        broadcastAll(client.roomId, { type: "room_closed" });
         await db.execute(
-          sql`UPDATE coding_rooms SET status = 'closed', closed_at = NOW()
+          sql`UPDATE coding_rooms SET status = 'closed', closed_at = NOW(), updated_at = NOW()
               WHERE id = ${client.roomId}`
         );
         rooms.delete(client.roomId);
+        userColorMap.forEach((_, key) => {
+          if (key.startsWith(`${client.roomId}:`)) userColorMap.delete(key);
+        });
       }, 30_000);
       break;
     }
@@ -369,6 +430,7 @@ async function handleMessage(client: WsClient, raw: string) {
     case "transfer_host": {
       if (client.role !== "host") return;
       const newHostId = msg.targetUserId;
+      if (!newHostId) return;
       await db.execute(
         sql`UPDATE coding_rooms SET host_user_id = ${newHostId}, updated_at = NOW()
             WHERE id = ${client.roomId}`
@@ -382,35 +444,18 @@ async function handleMessage(client: WsClient, raw: string) {
             WHERE room_id = ${client.roomId} AND user_id = ${client.userId}`
       );
       client.role = "member";
-      const newHost = [...getRoomClients(client.roomId)].find(
-        (c) => c.userId === newHostId
-      );
-      if (newHost) newHost.role = "host";
-      broadcast(client.roomId, {
+      client.canWrite = false;
+      const newHost = [...getRoomClients(client.roomId)].find((c) => c.userId === newHostId);
+      if (newHost) {
+        newHost.role = "host";
+        newHost.canWrite = true;
+        newHost.canRun = true;
+        sendTo(newHost, { type: "you_are_host", message: "أنت الآن مشرف الغرفة" });
+      }
+      broadcastAll(client.roomId, {
         type: "host_changed",
         newHostUserId: newHostId,
         members: getRoomMemberList(client.roomId),
-      });
-      break;
-    }
-
-    case "update_room_settings": {
-      if (client.role !== "host") return;
-      await db.execute(
-        sql`UPDATE coding_rooms
-            SET title = ${msg.title ?? sql`title`},
-                description = ${msg.description ?? sql`description`},
-                languages = ${JSON.stringify(msg.languages ?? [])},
-                invite_type = ${msg.inviteType ?? sql`invite_type`},
-                updated_at = NOW()
-            WHERE id = ${client.roomId}`
-      );
-      broadcast(client.roomId, {
-        type: "room_settings_updated",
-        title: msg.title,
-        description: msg.description,
-        languages: msg.languages,
-        inviteType: msg.inviteType,
       });
       break;
     }
@@ -424,41 +469,41 @@ async function handleDisconnect(client: WsClient) {
   const clients = getRoomClients(client.roomId);
   clients.delete(client);
 
-  await updateMemberStatus(client.roomId, client.userId, "left");
+  if (client.isOnline) {
+    await updateMemberStatus(client.roomId, client.userId, "left").catch(() => {});
+  }
 
-  const remaining = [...clients];
+  const remaining = [...clients].filter((c) => c.isOnline);
   if (remaining.length === 0) {
+    rooms.delete(client.roomId);
+    userColorMap.forEach((_, key) => {
+      if (key.startsWith(`${client.roomId}:`)) userColorMap.delete(key);
+    });
     return;
   }
 
   if (client.role === "host") {
-    const longestWriter = remaining
-      .filter((c) => c.canWrite)
-      .sort((a, b) => a.userId - b.userId)[0];
+    const longestWriter = remaining.filter((c) => c.canWrite).sort((a, b) => a.userId - b.userId)[0];
     const newHost = longestWriter ?? remaining[0];
-
     newHost.role = "host";
+    newHost.canWrite = true;
+    newHost.canRun = true;
     await db.execute(
       sql`UPDATE coding_rooms SET host_user_id = ${newHost.userId}, updated_at = NOW()
           WHERE id = ${client.roomId}`
-    );
+    ).catch(() => {});
     await db.execute(
-      sql`UPDATE coding_room_members SET role = 'host', updated_at = NOW()
+      sql`UPDATE coding_room_members SET role = 'host', can_write = true, can_run = true, updated_at = NOW()
           WHERE room_id = ${client.roomId} AND user_id = ${newHost.userId}`
-    );
-
-    sendTo(newHost, {
-      type: "you_are_host",
-      message: "أنت الآن مشرف الغرفة",
-    });
-
-    broadcast(client.roomId, {
+    ).catch(() => {});
+    sendTo(newHost, { type: "you_are_host", message: "أنت الآن مشرف الغرفة" });
+    broadcastAll(client.roomId, {
       type: "host_changed",
       newHostUserId: newHost.userId,
       members: getRoomMemberList(client.roomId),
     });
   } else {
-    broadcast(client.roomId, {
+    broadcastAll(client.roomId, {
       type: "member_left",
       userId: client.userId,
       reason: "disconnect",
@@ -501,29 +546,84 @@ export function initCodingRoomWss(server: Server) {
 
         const room = await getRoomFromDb(roomId);
         if (!room || room.status === "closed") {
+          ws.send(JSON.stringify({ type: "rejected", message: "الغرفة غير موجودة أو مغلقة" }));
           ws.close(1008, "الغرفة غير موجودة أو مغلقة");
           return;
         }
 
-        const member = await getMemberFromDb(roomId, userId);
-        if (!member || (member.status !== "joined" && member.status !== "reconnecting")) {
+        let member = await getMemberFromDb(roomId, userId);
+
+        if (!member) {
+          if (room.invite_type === "public") {
+            await db.execute(
+              sql`INSERT INTO coding_room_members (room_id, user_id, role, can_write, can_run, status)
+                  VALUES (${roomId}, ${userId}, 'member', false, false, 'joined')
+                  ON CONFLICT (room_id, user_id) DO UPDATE SET status = 'joined', updated_at = NOW()`
+            );
+            member = await getMemberFromDb(roomId, userId);
+          } else {
+            ws.send(JSON.stringify({ type: "rejected", message: "لم تتلقَّ دعوة لهذه الغرفة" }));
+            ws.close(1008, "غير مدعو");
+            return;
+          }
+        }
+
+        if (!member) {
+          ws.close(1011, "خطأ في الخادم");
+          return;
+        }
+
+        if (member.status === "kicked") {
+          ws.send(JSON.stringify({ type: "rejected", message: "تم طردك من هذه الغرفة" }));
+          ws.close(1008, "مطرود");
+          return;
+        }
+
+        if (member.status === "waiting") {
           ws.send(JSON.stringify({ type: "waiting_approval" }));
-          ws.close(1008, "بانتظار موافقة المشرف");
+
+          const username = await getUserName(userId);
+          const color = assignColor(roomId, userId);
+          const waitingClient: WsClient = {
+            ws, userId, username, roomId,
+            role: "member", color,
+            canWrite: false, canRun: false,
+            micEnabled: false, isOnline: true,
+          };
+          getRoomClients(roomId).add(waitingClient);
+
+          broadcast(roomId, {
+            type: "join_request_pending",
+            userId,
+            username,
+            color,
+          }, userId);
+
+          ws.on("message", (data: Buffer) => {
+            handleMessage(waitingClient, data.toString()).catch(() => {});
+          });
+
+          ws.on("close", () => {
+            waitingClient.isOnline = false;
+            getRoomClients(roomId).delete(waitingClient);
+          });
+
+          ws.on("error", (err) => {
+            logger.error({ err: err?.message }, "ws:room: waiting socket error");
+          });
           return;
         }
 
         const username = await getUserName(userId);
         const color = assignColor(roomId, userId);
 
+        const isHost = member.role === "host" || userId === room.host_user_id;
         const client: WsClient = {
-          ws,
-          userId,
-          username,
-          roomId,
-          role: member.role as RoomRole,
+          ws, userId, username, roomId,
+          role: isHost ? "host" : member.role as RoomRole,
           color,
-          canWrite: member.can_write,
-          canRun: member.can_run,
+          canWrite: isHost ? true : member.can_write,
+          canRun: isHost ? true : member.can_run,
           micEnabled: false,
           isOnline: true,
         };
@@ -588,5 +688,5 @@ export function initCodingRoomWss(server: Server) {
 }
 
 export function getRoomOnlineCount(roomId: number): number {
-  return getRoomClients(roomId).size;
+  return [...getRoomClients(roomId)].filter((c) => c.isOnline).size;
 }
