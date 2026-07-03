@@ -102,10 +102,10 @@ async function updateMemberStatus(roomId: number, userId: number, status: string
 
 async function getUserName(userId: number): Promise<string> {
   const rows = await db.execute(
-    sql`SELECT name FROM users WHERE id = ${userId} LIMIT 1`
+    sql`SELECT display_name FROM users WHERE id = ${userId} LIMIT 1`
   );
-  const row = rows.rows[0] as { name?: string } | undefined;
-  return row?.name ?? "طالب";
+  const row = rows.rows[0] as { display_name?: string } | undefined;
+  return row?.display_name ?? "طالب";
 }
 
 async function handleMessage(client: WsClient, raw: string) {

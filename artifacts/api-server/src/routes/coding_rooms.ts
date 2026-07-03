@@ -18,7 +18,7 @@ router.get("/coding-rooms", requireUser, async (req: any, res: any) => {
       sql`SELECT
             r.id, r.title, r.description, r.languages, r.invite_type,
             r.host_user_id, r.status, r.created_at,
-            u.name AS host_name
+            u.display_name AS host_name
           FROM coding_rooms r
           JOIN users u ON u.id = r.host_user_id
           WHERE r.status = 'active'
@@ -44,9 +44,9 @@ router.get("/coding-rooms/my-history", requireUser, async (req: any, res: any) =
     const history = await db.execute(
       sql`SELECT
             r.id, r.title, r.languages, r.host_user_id, r.closed_at, r.created_at,
-            u.name AS host_name,
+            u.display_name AS host_name,
             (
-              SELECT json_agg(json_build_object('userId', m2.user_id, 'name', u2.name))
+              SELECT json_agg(json_build_object('userId', m2.user_id, 'name', u2.display_name))
               FROM coding_room_members m2
               JOIN users u2 ON u2.id = m2.user_id
               WHERE m2.room_id = r.id AND m2.status = 'joined'
@@ -108,7 +108,7 @@ router.post("/coding-rooms", requireUser, async (req: any, res: any) => {
                 ${invitedId},
                 'room_invite',
                 'دعوة لغرفة برمجة',
-                ${`دعاك ${req.session.name ?? "أحدهم"} للانضمام إلى غرفة: ${title}`},
+                ${`تمت دعوتك للانضمام إلى غرفة: ${title}`},
                 ${JSON.stringify({ roomId, roomTitle: title, hostUserId: userId })}
               )`
         );
@@ -118,7 +118,7 @@ router.post("/coding-rooms", requireUser, async (req: any, res: any) => {
     if (inviteType === "public") {
       const onlineUsers = await db.execute(
         sql`SELECT id FROM users
-            WHERE last_seen_at > NOW() - INTERVAL '5 minutes'
+            WHERE last_session_at > NOW() - INTERVAL '30 minutes'
               AND id != ${userId}
             LIMIT 200`
       );
@@ -150,7 +150,7 @@ router.get("/coding-rooms/:roomId", requireUser, async (req: any, res: any) => {
     if (isNaN(roomId)) return res.status(400).json({ error: "معرف غير صحيح" });
 
     const rooms = await db.execute(
-      sql`SELECT r.*, u.name AS host_name
+      sql`SELECT r.*, u.display_name AS host_name
           FROM coding_rooms r
           JOIN users u ON u.id = r.host_user_id
           WHERE r.id = ${roomId} LIMIT 1`
@@ -212,9 +212,9 @@ router.post("/coding-rooms/:roomId/request-join", requireUser, async (req: any, 
     );
 
     const userRow = await db.execute(
-      sql`SELECT name FROM users WHERE id = ${userId} LIMIT 1`
+      sql`SELECT display_name FROM users WHERE id = ${userId} LIMIT 1`
     );
-    const username = (userRow.rows[0] as any)?.name ?? "طالب";
+    const username = (userRow.rows[0] as any)?.display_name ?? "طالب";
 
     await db.execute(
       sql`INSERT INTO notifications (user_id, type, title, body, data)
