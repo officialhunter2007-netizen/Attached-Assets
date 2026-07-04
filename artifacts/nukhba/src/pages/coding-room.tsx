@@ -177,6 +177,9 @@ export default function CodingRoom() {
   const monacoRef = useRef<any>(null);
   const peerRefs = useRef<Map<number, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
+  const isApplyingRemoteRef = useRef(false);
+  const sendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const myUserIdRef = useRef<number | undefined>(undefined);
 
   const [roomInfo, setRoomInfo] = useState<any>(null);
   const [myInfo, setMyInfo] = useState<{ role: "host" | "member"; color: string; canWrite: boolean; canRun: boolean } | null>(null);
@@ -206,6 +209,7 @@ export default function CodingRoom() {
 
   showChatRef.current = showChat;
   myInfoRef.current = myInfo;
+  myUserIdRef.current = (user as any)?.id;
 
   useEffect(() => {
     activeFileRef.current = activeFile;
@@ -221,14 +225,17 @@ export default function CodingRoom() {
   }, [showChat]);
 
   const initWebRTC = useCallback(async (targetUserId: number, initiator: boolean) => {
-    if (!localStreamRef.current) return null;
     if (peerRefs.current.has(targetUserId)) return peerRefs.current.get(targetUserId) ?? null;
 
     try {
       const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
       peerRefs.current.set(targetUserId, pc);
 
-      localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
+      } else {
+        pc.addTransceiver("audio", { direction: "recvonly" });
+      }
 
       pc.onicecandidate = (e) => {
         if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
@@ -267,10 +274,10 @@ export default function CodingRoom() {
   }, []);
 
   const handleWebRTCSignal = useCallback(async (fromUserId: number, signal: any) => {
-    if (!localStreamRef.current) return;
     try {
       let pc = peerRefs.current.get(fromUserId);
       if (!pc) {
+        if (signal.type !== "offer") return;
         const newPc = await initWebRTC(fromUserId, false);
         if (!newPc) return;
         pc = newPc;
@@ -292,6 +299,26 @@ export default function CodingRoom() {
     } catch {}
   }, [initWebRTC]);
 
+  const teardownPeer = useCallback((targetUserId: number) => {
+    const pc = peerRefs.current.get(targetUserId);
+    if (pc) {
+      try { pc.close(); } catch {}
+      peerRefs.current.delete(targetUserId);
+    }
+    document.querySelector(`audio[data-peer="${targetUserId}"]`)?.remove();
+  }, []);
+
+  const maybeConnectPeer = useCallback((targetUserId: number, targetHasMic: boolean) => {
+    const myId = myUserIdRef.current;
+    if (myId == null || targetUserId === myId) return;
+    const iHaveMic = !!localStreamRef.current;
+    if (!iHaveMic && !targetHasMic) return;
+    if (peerRefs.current.has(targetUserId)) return;
+    if (myId < targetUserId) {
+      initWebRTC(targetUserId, true);
+    }
+  }, [initWebRTC]);
+
   const handleWsMessage = useCallback(async (raw: string) => {
     let msg: any;
     try { msg = JSON.parse(raw); } catch { return; }
@@ -300,14 +327,25 @@ export default function CodingRoom() {
     switch (msg.type) {
       case "room_state": {
         const filesFromWs: FileMeta[] = msg.files ?? [];
+        const membersFromWs: Member[] = msg.members ?? [];
         setMyInfo({ role: msg.role, color: msg.color, canWrite: msg.canWrite, canRun: msg.canRun });
-        setMembers(msg.members ?? []);
+        setMembers(membersFromWs);
         setFiles(filesFromWs);
         if (filesFromWs.length > 0) {
           setActiveFile((prev) => {
             const target = prev && filesFromWs.find((f) => f.file_path === prev) ? prev : filesFromWs[0].file_path;
             return target;
           });
+        }
+        if (msg.role === "host" && Array.isArray(msg.pending)) {
+          setPendingRequests(msg.pending.map((p: any) => ({
+            userId: p.userId, username: p.username, color: p.color ?? "#94A3B8",
+          })));
+        }
+        for (const m of membersFromWs) {
+          if (m.userId !== myUserId && m.isOnline && m.micEnabled) {
+            maybeConnectPeer(m.userId, true);
+          }
         }
         setWsStatus("connected");
         setConnected(true);
@@ -322,7 +360,7 @@ export default function CodingRoom() {
             text: `${msg.username} انضم للغرفة 👋`, timestamp: new Date().toISOString(),
           }]);
           if (!showChatRef.current) setUnreadChat((c) => c + 1);
-          initWebRTC(msg.userId, true);
+          maybeConnectPeer(msg.userId, !!msg.micEnabled);
         }
         break;
 
@@ -374,8 +412,13 @@ export default function CodingRoom() {
             const currentVal = editorRef.current.getValue();
             if (currentVal !== incomingContent) {
               const pos = editorRef.current.getPosition();
-              editorRef.current.setValue(incomingContent);
-              if (pos) editorRef.current.setPosition(pos);
+              isApplyingRemoteRef.current = true;
+              try {
+                editorRef.current.setValue(incomingContent);
+                if (pos) editorRef.current.setPosition(pos);
+              } finally {
+                isApplyingRemoteRef.current = false;
+              }
             }
           }
         }
@@ -437,6 +480,10 @@ export default function CodingRoom() {
         });
         break;
 
+      case "join_request_cancelled":
+        setPendingRequests((prev) => prev.filter((r) => r.userId !== msg.userId));
+        break;
+
       case "chat_message":
         setChatMsgs((prev) => [...prev, msg]);
         if (!showChatRef.current) setUnreadChat((c) => c + 1);
@@ -477,6 +524,10 @@ export default function CodingRoom() {
         setMembers((prev) => prev.map((m) =>
           m.userId === msg.userId ? { ...m, micEnabled: !!msg.enabled } : m
         ));
+        if (msg.userId !== myUserId) {
+          teardownPeer(msg.userId);
+          maybeConnectPeer(msg.userId, !!msg.enabled);
+        }
         break;
 
       case "webrtc_signal":
@@ -491,7 +542,7 @@ export default function CodingRoom() {
         if (!showChatRef.current) setUnreadChat((c) => c + 1);
         break;
     }
-  }, [user, handleWebRTCSignal, navigate, initWebRTC]);
+  }, [user, handleWebRTCSignal, navigate, maybeConnectPeer, teardownPeer]);
 
   handleWsMsgRef.current = handleWsMessage;
 
@@ -510,10 +561,14 @@ export default function CodingRoom() {
       };
       ws.onmessage = (e) => handleWsMsgRef.current(e.data);
       ws.onerror = () => {
-        if (!destroyed) setWsStatus("error");
+        if (!destroyed) {
+          setWsStatus("error");
+          setIsRunning(false);
+        }
       };
       ws.onclose = (ev) => {
         if (destroyed) return;
+        setIsRunning(false);
         if (ev.code === 1008 || ev.code === 1011) {
           setConnected(false);
           setWsStatus("error");
@@ -559,11 +614,20 @@ export default function CodingRoom() {
     if (model) {
       const current = model.getValue();
       if (current !== file.content) {
+        if (sendTimerRef.current) {
+          clearTimeout(sendTimerRef.current);
+          sendTimerRef.current = null;
+        }
         const pos = editorRef.current.getPosition();
-        editorRef.current.pushUndoStop();
-        model.setValue(file.content ?? "");
-        editorRef.current.pushUndoStop();
-        if (pos) editorRef.current.setPosition(pos);
+        isApplyingRemoteRef.current = true;
+        try {
+          editorRef.current.pushUndoStop();
+          model.setValue(file.content ?? "");
+          editorRef.current.pushUndoStop();
+          if (pos) editorRef.current.setPosition(pos);
+        } finally {
+          isApplyingRemoteRef.current = false;
+        }
       }
       monacoRef.current.editor.setModelLanguage(model, getMonacoLang(activeFile));
     }
@@ -597,11 +661,11 @@ export default function CodingRoom() {
     });
     monaco.editor.setTheme("nukhba-cyber");
 
-    let sendTimer: ReturnType<typeof setTimeout> | null = null;
-    editor.onDidChangeModelContent((e) => {
+    editor.onDidChangeModelContent(() => {
+      if (isApplyingRemoteRef.current) return;
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-      if (sendTimer) clearTimeout(sendTimer);
-      sendTimer = setTimeout(() => {
+      if (sendTimerRef.current) clearTimeout(sendTimerRef.current);
+      sendTimerRef.current = setTimeout(() => {
         const currentFile = activeFileRef.current;
         if (!currentFile) return;
         const content = editor.getValue();
@@ -641,15 +705,24 @@ export default function CodingRoom() {
       peerRefs.current.forEach((pc) => pc.close());
       peerRefs.current.clear();
       document.querySelectorAll("audio[data-peer]").forEach((el) => el.remove());
+      for (const m of members) {
+        if (m.userId !== myUserIdRef.current && m.isOnline && m.micEnabled) {
+          maybeConnectPeer(m.userId, true);
+        }
+      }
     } else {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         localStreamRef.current = stream;
         setMicEnabled(true);
         wsRef.current?.send(JSON.stringify({ type: "mic_state", enabled: true }));
-        const currentMembers = members.filter((m) => m.userId !== (user as any)?.id && m.isOnline);
-        for (const m of currentMembers) {
-          await initWebRTC(m.userId, true);
+        peerRefs.current.forEach((pc) => pc.close());
+        peerRefs.current.clear();
+        document.querySelectorAll("audio[data-peer]").forEach((el) => el.remove());
+        for (const m of members) {
+          if (m.userId !== myUserIdRef.current && m.isOnline) {
+            maybeConnectPeer(m.userId, m.micEnabled);
+          }
         }
       } catch {
         alert("تعذر الوصول إلى الميكروفون. تأكد من منح الإذن في المتصفح.");
@@ -732,10 +805,10 @@ export default function CodingRoom() {
 
     const ext = currentFile.split(".").pop()?.toLowerCase() ?? "";
     const langMap: Record<string, string> = {
-      js: "nodejs", py: "cpython", ts: "typescript",
-      java: "java", cpp: "gcc", c: "gcc", rs: "rust",
+      js: "javascript", py: "python", ts: "typescript",
+      java: "java", cpp: "cpp", c: "c", rs: "rust",
     };
-    const lang = langMap[ext] ?? "nodejs";
+    const lang = langMap[ext] ?? "javascript";
 
     setIsRunning(true);
     try {

@@ -19,6 +19,7 @@ export type WsClient = {
   canRun: boolean;
   micEnabled: boolean;
   isOnline: boolean;
+  status: "waiting" | "joined";
 };
 
 const CURSOR_COLORS = [
@@ -74,16 +75,37 @@ function sendTo(client: WsClient, msg: object) {
 }
 
 function getRoomMemberList(roomId: number) {
-  return [...getRoomClients(roomId)].map((c) => ({
-    userId: c.userId,
-    username: c.username,
-    color: c.color,
-    role: c.role,
-    canWrite: c.canWrite,
-    canRun: c.canRun,
-    micEnabled: c.micEnabled,
-    isOnline: c.isOnline,
-  }));
+  return [...getRoomClients(roomId)]
+    .filter((c) => c.status === "joined")
+    .map((c) => ({
+      userId: c.userId,
+      username: c.username,
+      color: c.color,
+      role: c.role,
+      canWrite: c.canWrite,
+      canRun: c.canRun,
+      micEnabled: c.micEnabled,
+      isOnline: c.isOnline,
+    }));
+}
+
+function getWaitingList(roomId: number) {
+  return [...getRoomClients(roomId)]
+    .filter((c) => c.status === "waiting")
+    .map((c) => ({
+      userId: c.userId,
+      username: c.username,
+      color: c.color,
+    }));
+}
+
+function sendToHost(roomId: number, msg: object) {
+  const data = JSON.stringify(msg);
+  for (const c of getRoomClients(roomId)) {
+    if (c.role === "host" && c.status === "joined" && c.ws.readyState === WebSocket.OPEN) {
+      c.ws.send(data);
+    }
+  }
 }
 
 async function getRoomFromDb(roomId: number) {
@@ -235,6 +257,7 @@ async function handleMessage(client: WsClient, raw: string) {
     }
 
     case "run_output": {
+      if (!client.canRun && client.role !== "host") return;
       broadcastAll(client.roomId, {
         type: "run_output",
         triggeredBy: client.userId,
@@ -247,11 +270,11 @@ async function handleMessage(client: WsClient, raw: string) {
     }
 
     case "run_code": {
-      broadcast(client.roomId, {
+      sendToHost(client.roomId, {
         type: "run_request",
         userId: client.userId,
         username: client.username,
-      }, client.userId);
+      });
       break;
     }
 
@@ -326,6 +349,7 @@ async function handleMessage(client: WsClient, raw: string) {
       );
       const admitTarget = [...getRoomClients(client.roomId)].find((c) => c.userId === admitId);
       if (admitTarget) {
+        admitTarget.status = "joined";
         admitTarget.canWrite = false;
         admitTarget.canRun = false;
         const files = await db.execute(
@@ -340,6 +364,7 @@ async function handleMessage(client: WsClient, raw: string) {
           canWrite: false,
           canRun: false,
           members: getRoomMemberList(client.roomId),
+          pending: [],
           files: files.rows,
         });
       }
@@ -442,7 +467,7 @@ async function handleMessage(client: WsClient, raw: string) {
             WHERE room_id = ${client.roomId} AND user_id = ${newHostId}`
       );
       await db.execute(
-        sql`UPDATE coding_room_members SET role = 'member', updated_at = NOW()
+        sql`UPDATE coding_room_members SET role = 'member', can_write = false, updated_at = NOW()
             WHERE room_id = ${client.roomId} AND user_id = ${client.userId}`
       );
       client.role = "member";
@@ -474,12 +499,24 @@ async function handleDisconnect(client: WsClient) {
 
   if (!wasInRoom) return;
 
+  if (client.status === "waiting") {
+    sendToHost(client.roomId, {
+      type: "join_request_cancelled",
+      userId: client.userId,
+    });
+    return;
+  }
+
   if (client.isOnline) {
     await updateMemberStatus(client.roomId, client.userId, "left").catch(() => {});
   }
 
-  const remaining = [...clients].filter((c) => c.isOnline);
+  const remaining = [...clients].filter((c) => c.isOnline && c.status === "joined");
   if (remaining.length === 0) {
+    for (const stray of clients) {
+      sendTo(stray, { type: "room_closed" });
+      if (stray.ws.readyState === WebSocket.OPEN) stray.ws.close();
+    }
     rooms.delete(client.roomId);
     userColorMap.forEach((_, key) => {
       if (key.startsWith(`${client.roomId}:`)) userColorMap.delete(key);
@@ -501,6 +538,12 @@ async function handleDisconnect(client: WsClient) {
       sql`UPDATE coding_room_members SET role = 'host', can_write = true, can_run = true, updated_at = NOW()
           WHERE room_id = ${client.roomId} AND user_id = ${newHost.userId}`
     ).catch(() => {});
+    await db.execute(
+      sql`UPDATE coding_room_members SET role = 'member', can_write = false, updated_at = NOW()
+          WHERE room_id = ${client.roomId} AND user_id = ${client.userId} AND user_id <> ${newHost.userId}`
+    ).catch(() => {});
+    client.role = "member";
+    client.canWrite = false;
     sendTo(newHost, { type: "you_are_host", message: "أنت الآن مشرف الغرفة" });
     broadcastAll(client.roomId, {
       type: "host_changed",
@@ -517,6 +560,56 @@ async function handleDisconnect(client: WsClient) {
   }
 }
 
+function wireClientSocket(client: WsClient) {
+  client.ws.on("message", (data: Buffer) => {
+    if (client.status !== "joined") return;
+    handleMessage(client, data.toString()).catch((err) => {
+      logger.error({ err: err?.message }, "ws:room: message handler error");
+    });
+  });
+
+  client.ws.on("close", () => {
+    client.isOnline = false;
+    handleDisconnect(client).catch((err) => {
+      logger.error({ err: err?.message }, "ws:room: disconnect handler error");
+    });
+  });
+
+  client.ws.on("error", (err) => {
+    logger.error({ err: err?.message }, "ws:room: socket error");
+  });
+}
+
+function isAllowedOrigin(request: IncomingMessage): boolean {
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  let originHost = "";
+  try { originHost = new URL(origin).host.toLowerCase(); } catch { return false; }
+  if (!originHost) return false;
+
+  const reqHost = (request.headers.host ?? "").toLowerCase();
+  if (originHost === reqHost) return true;
+
+  const prodAllowed = new Set<string>(["learnukhba.com", "www.learnukhba.com"]);
+  if (prodAllowed.has(originHost)) return true;
+
+  const devDomain = process.env.REPLIT_DEV_DOMAIN?.toLowerCase();
+  if (devDomain && originHost === devDomain) return true;
+
+  const isProd = process.env.NODE_ENV === "production";
+  if (!isProd && (
+    originHost === "localhost" ||
+    originHost.startsWith("localhost:") ||
+    originHost.startsWith("127.0.0.1") ||
+    originHost.endsWith(".replit.dev") ||
+    originHost.endsWith(".repl.co") ||
+    originHost.endsWith(".replit.app") ||
+    originHost.endsWith(".worf.replit.dev")
+  )) return true;
+
+  return false;
+}
+
 export function initCodingRoomWss(server: Server) {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -530,6 +623,12 @@ export function initCodingRoomWss(server: Server) {
     const roomIdStr = url.pathname.split("/ws/room/")[1];
     const roomId = parseInt(roomIdStr ?? "", 10);
     if (isNaN(roomId)) {
+      socket.destroy();
+      return;
+    }
+
+    if (!isAllowedOrigin(request)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       socket.destroy();
       return;
     }
@@ -594,26 +693,18 @@ export function initCodingRoomWss(server: Server) {
             role: "member", color,
             canWrite: false, canRun: false,
             micEnabled: false, isOnline: true,
+            status: "waiting",
           };
           getRoomClients(roomId).add(waitingClient);
 
-          broadcast(roomId, {
+          sendToHost(roomId, {
             type: "join_request_pending",
             userId,
             username,
             color,
-          }, userId);
-
-          ws.on("message", () => {});
-
-          ws.on("close", () => {
-            waitingClient.isOnline = false;
-            getRoomClients(roomId).delete(waitingClient);
           });
 
-          ws.on("error", (err) => {
-            logger.error({ err: err?.message }, "ws:room: waiting socket error");
-          });
+          wireClientSocket(waitingClient);
           return;
         }
 
@@ -629,6 +720,7 @@ export function initCodingRoomWss(server: Server) {
           canRun: isHost ? true : member.can_run,
           micEnabled: false,
           isOnline: true,
+          status: "joined",
         };
 
         getRoomClients(roomId).add(client);
@@ -647,6 +739,7 @@ export function initCodingRoomWss(server: Server) {
           canWrite: client.canWrite,
           canRun: client.canRun,
           members: getRoomMemberList(roomId),
+          pending: client.role === "host" ? getWaitingList(roomId) : [],
           files: files.rows,
         });
 
@@ -662,22 +755,7 @@ export function initCodingRoomWss(server: Server) {
           members: getRoomMemberList(roomId),
         }, userId);
 
-        ws.on("message", (data: Buffer) => {
-          handleMessage(client, data.toString()).catch((err) => {
-            logger.error({ err: err?.message }, "ws:room: message handler error");
-          });
-        });
-
-        ws.on("close", () => {
-          client.isOnline = false;
-          handleDisconnect(client).catch((err) => {
-            logger.error({ err: err?.message }, "ws:room: disconnect handler error");
-          });
-        });
-
-        ws.on("error", (err) => {
-          logger.error({ err: err?.message }, "ws:room: socket error");
-        });
+        wireClientSocket(client);
 
       } catch (err: any) {
         logger.error({ err: err?.message }, "ws:room: upgrade handler error");
@@ -691,5 +769,5 @@ export function initCodingRoomWss(server: Server) {
 }
 
 export function getRoomOnlineCount(roomId: number): number {
-  return [...getRoomClients(roomId)].filter((c) => c.isOnline).size;
+  return [...getRoomClients(roomId)].filter((c) => c.isOnline && c.status === "joined").length;
 }
