@@ -227,6 +227,7 @@ router.post("/coding-rooms/:roomId/request-join", requireUser, async (req: any, 
       if (existingStatus === "joined") return res.json({ status: "already_joined" });
       if (existingStatus === "waiting") return res.json({ status: "waiting" });
       if (existingStatus === "kicked") return res.status(403).json({ error: "تم طردك من هذه الغرفة" });
+      if (existingStatus === "rejected") return res.status(403).json({ error: "تم رفض طلبك من قِبل المشرف" });
     }
 
     const isPublic = room.invite_type === "public";

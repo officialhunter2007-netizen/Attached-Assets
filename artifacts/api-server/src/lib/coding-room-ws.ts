@@ -30,6 +30,7 @@ const CURSOR_COLORS = [
 
 const rooms = new Map<number, Set<WsClient>>();
 const userColorMap = new Map<string, string>();
+const roomClosingTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
 function getRoomClients(roomId: number): Set<WsClient> {
   if (!rooms.has(roomId)) rooms.set(roomId, new Set());
@@ -52,6 +53,7 @@ function broadcast(roomId: number, msg: object, excludeUserId?: number) {
   const data = JSON.stringify(msg);
   for (const client of clients) {
     if (excludeUserId !== undefined && client.userId === excludeUserId) continue;
+    if (client.status !== "joined") continue;
     if (client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(data);
     }
@@ -62,6 +64,17 @@ function broadcastAll(roomId: number, msg: object) {
   const clients = getRoomClients(roomId);
   const data = JSON.stringify(msg);
   for (const client of clients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(data);
+    }
+  }
+}
+
+function broadcastJoined(roomId: number, msg: object) {
+  const clients = getRoomClients(roomId);
+  const data = JSON.stringify(msg);
+  for (const client of clients) {
+    if (client.status !== "joined") continue;
     if (client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(data);
     }
@@ -206,7 +219,7 @@ async function handleMessage(client: WsClient, raw: string) {
             VALUES (${client.roomId}, ${filePath}, ${msg.content ?? ""}, ${client.userId})
             ON CONFLICT (room_id, file_path) DO NOTHING`
       );
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "file_created",
         userId: client.userId,
         username: client.username,
@@ -232,7 +245,7 @@ async function handleMessage(client: WsClient, raw: string) {
         sql`DELETE FROM coding_room_files
             WHERE room_id = ${client.roomId} AND file_path = ${filePath}`
       );
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "file_deleted",
         filePath,
         deletedBy: client.userId,
@@ -248,7 +261,7 @@ async function handleMessage(client: WsClient, raw: string) {
         sql`DELETE FROM coding_room_files
             WHERE room_id = ${client.roomId} AND file_path = ${filePath}`
       );
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "file_deleted",
         filePath,
         deletedBy: msg.requestUserId ?? client.userId,
@@ -258,7 +271,7 @@ async function handleMessage(client: WsClient, raw: string) {
 
     case "run_output": {
       if (!client.canRun && client.role !== "host") return;
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "run_output",
         triggeredBy: client.userId,
         triggeredByName: client.username,
@@ -305,7 +318,7 @@ async function handleMessage(client: WsClient, raw: string) {
         target.canRun = newCanRun;
       }
 
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "permission_changed",
         targetUserId,
         canWrite: newCanWrite,
@@ -330,7 +343,7 @@ async function handleMessage(client: WsClient, raw: string) {
         sql`UPDATE coding_room_members SET status = 'kicked', updated_at = NOW()
             WHERE room_id = ${client.roomId} AND user_id = ${kickId}`
       );
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "member_left",
         userId: kickId,
         reason: "kicked",
@@ -368,7 +381,7 @@ async function handleMessage(client: WsClient, raw: string) {
           files: files.rows,
         });
       }
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "member_joined",
         userId: admitId,
         username: admitTarget?.username ?? "طالب",
@@ -401,7 +414,7 @@ async function handleMessage(client: WsClient, raw: string) {
     case "chat_message": {
       const text = (msg.text ?? "").slice(0, 500).trim();
       if (!text) return;
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "chat_message",
         userId: client.userId,
         username: client.username,
@@ -414,7 +427,7 @@ async function handleMessage(client: WsClient, raw: string) {
 
     case "mic_state": {
       client.micEnabled = !!msg.enabled;
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "mic_state",
         userId: client.userId,
         enabled: client.micEnabled,
@@ -423,7 +436,7 @@ async function handleMessage(client: WsClient, raw: string) {
     }
 
     case "webrtc_signal": {
-      const target = [...getRoomClients(client.roomId)].find((c) => c.userId === msg.targetUserId);
+      const target = [...getRoomClients(client.roomId)].find((c) => c.userId === msg.targetUserId && c.status === "joined");
       if (target) {
         sendTo(target, {
           type: "webrtc_signal",
@@ -436,11 +449,13 @@ async function handleMessage(client: WsClient, raw: string) {
 
     case "room_closing": {
       if (client.role !== "host") return;
+      if (roomClosingTimers.has(client.roomId)) return;
       broadcastAll(client.roomId, {
         type: "room_closing",
         countdown: 30,
       });
-      setTimeout(async () => {
+      const closingTimer = setTimeout(async () => {
+        roomClosingTimers.delete(client.roomId);
         broadcastAll(client.roomId, { type: "room_closed" });
         await db.execute(
           sql`UPDATE coding_rooms SET status = 'closed', closed_at = NOW(), updated_at = NOW()
@@ -451,6 +466,7 @@ async function handleMessage(client: WsClient, raw: string) {
           if (key.startsWith(`${client.roomId}:`)) userColorMap.delete(key);
         });
       }, 30_000);
+      roomClosingTimers.set(client.roomId, closingTimer);
       break;
     }
 
@@ -480,7 +496,7 @@ async function handleMessage(client: WsClient, raw: string) {
         newHost.canRun = true;
         sendTo(newHost, { type: "you_are_host", message: "أنت الآن مشرف الغرفة" });
       }
-      broadcastAll(client.roomId, {
+      broadcastJoined(client.roomId, {
         type: "host_changed",
         newHostUserId: newHostId,
         members: getRoomMemberList(client.roomId),
@@ -514,6 +530,10 @@ async function handleDisconnect(client: WsClient) {
 
   const remaining = [...clients].filter((c) => c.isOnline && c.status === "joined");
   if (remaining.length === 0) {
+    if (roomClosingTimers.has(client.roomId)) {
+      clearTimeout(roomClosingTimers.get(client.roomId)!);
+      roomClosingTimers.delete(client.roomId);
+    }
     for (const stray of clients) {
       sendTo(stray, { type: "room_closed" });
       if (stray.ws.readyState === WebSocket.OPEN) stray.ws.close();
@@ -540,19 +560,20 @@ async function handleDisconnect(client: WsClient) {
           WHERE room_id = ${client.roomId} AND user_id = ${newHost.userId}`
     ).catch(() => {});
     await db.execute(
-      sql`UPDATE coding_room_members SET role = 'member', can_write = false, updated_at = NOW()
+      sql`UPDATE coding_room_members SET role = 'member', can_write = false, can_run = false, updated_at = NOW()
           WHERE room_id = ${client.roomId} AND user_id = ${client.userId} AND user_id <> ${newHost.userId}`
     ).catch(() => {});
     client.role = "member";
     client.canWrite = false;
+    client.canRun = false;
     sendTo(newHost, { type: "you_are_host", message: "أنت الآن مشرف الغرفة" });
-    broadcastAll(client.roomId, {
+    broadcastJoined(client.roomId, {
       type: "host_changed",
       newHostUserId: newHost.userId,
       members: getRoomMemberList(client.roomId),
     });
   } else {
-    broadcastAll(client.roomId, {
+    broadcastJoined(client.roomId, {
       type: "member_left",
       userId: client.userId,
       reason: "disconnect",

@@ -756,9 +756,9 @@ export default function CodingRoom() {
     wsRef.current?.send(JSON.stringify({ type: "room_closing" }));
   };
 
-  const handleLeave = async () => {
+  const handleLeave = () => {
     wsRef.current?.close(1000, "leave");
-    await fetch(`/api/coding-rooms/${roomId}/leave`, {
+    fetch(`/api/coding-rooms/${roomId}/leave`, {
       method: "POST", credentials: "include",
       headers: { "Content-Type": "application/json" },
     }).catch(() => {});
@@ -818,7 +818,7 @@ export default function CodingRoom() {
       const r = await fetch("/api/ai/run-code", {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language: lang, code: file.content }),
+        body: JSON.stringify({ language: lang, code: editorRef.current?.getValue() ?? file.content }),
       });
       const d = await r.json();
       wsRef.current?.send(JSON.stringify({
