@@ -463,15 +463,16 @@ async function handleMessage(client: WsClient, raw: string) {
             WHERE id = ${client.roomId}`
       );
       await db.execute(
-        sql`UPDATE coding_room_members SET role = 'host', updated_at = NOW()
+        sql`UPDATE coding_room_members SET role = 'host', can_write = true, can_run = true, updated_at = NOW()
             WHERE room_id = ${client.roomId} AND user_id = ${newHostId}`
       );
       await db.execute(
-        sql`UPDATE coding_room_members SET role = 'member', can_write = false, updated_at = NOW()
+        sql`UPDATE coding_room_members SET role = 'member', can_write = false, can_run = false, updated_at = NOW()
             WHERE room_id = ${client.roomId} AND user_id = ${client.userId}`
       );
       client.role = "member";
       client.canWrite = false;
+      client.canRun = false;
       const newHost = [...getRoomClients(client.roomId)].find((c) => c.userId === newHostId);
       if (newHost) {
         newHost.role = "host";

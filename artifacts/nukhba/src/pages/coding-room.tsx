@@ -377,6 +377,9 @@ export default function CodingRoom() {
 
       case "host_changed":
         setMembers(msg.members ?? []);
+        if (msg.newHostUserId !== myUserIdRef.current) {
+          setMyInfo((prev) => prev?.role === "host" ? { ...prev, role: "member", canWrite: false, canRun: false } : prev);
+        }
         break;
 
       case "you_are_host":
