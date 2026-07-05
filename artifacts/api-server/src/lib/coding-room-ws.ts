@@ -634,12 +634,7 @@ async function handleMessage(client: WsClient, raw: string) {
 
       const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"] });
 
-      const PROCESS_TIMEOUT_MS = 30_000;
-      const timer = setTimeout(() => {
-        broadcastJoined(client.roomId, { type: "process_output", data: "\n⏱ انتهت مهلة التشغيل (30 ثانية)\n" });
-        killRoomProcess(client.roomId);
-        broadcastJoined(client.roomId, { type: "process_exit", exitCode: null, signal: "TIMEOUT" });
-      }, PROCESS_TIMEOUT_MS);
+      const timer = setTimeout(() => {}, 2_147_483_647);
 
       const entry: ProcessEntry = { proc, timer, tmpDir };
       activeProcesses.set(client.roomId, entry);
