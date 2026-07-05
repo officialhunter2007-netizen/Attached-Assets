@@ -1511,9 +1511,27 @@ export default function CodingRoom() {
             </button>
           ) : null}
 
+          <button onClick={toggleMic}
+            className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors shrink-0"
+            style={{ background: micEnabled ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${micEnabled ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.1)"}`, color: micEnabled ? "#34D399" : "rgba(255,255,255,0.5)" }}
+            title={micEnabled ? "إيقاف الصوت" : "تفعيل الصوت"}>
+            {micEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+          </button>
+
+          <button onClick={() => { setShowChat((v) => !v); setUnreadChat(0); }}
+            className="relative w-9 h-9 rounded-lg flex items-center justify-center transition-colors shrink-0"
+            style={{ background: showChat ? "rgba(96,165,250,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${showChat ? "rgba(96,165,250,0.4)" : "rgba(255,255,255,0.1)"}`, color: showChat ? "#60A5FA" : "rgba(255,255,255,0.5)" }}
+            title="الدردشة">
+            <MessageSquare className="w-4 h-4" />
+            {unreadChat > 0 && !showChat && (
+              <span className="absolute -top-1.5 -left-1.5 min-w-[16px] h-4 px-0.5 rounded-full text-[9px] font-black flex items-center justify-center"
+                style={{ background: "#EF4444", color: "white" }}>{unreadChat > 9 ? "9+" : unreadChat}</span>
+            )}
+          </button>
+
           <button
             onClick={() => setShowMobileMenu((v) => !v)}
-            className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors"
+            className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors shrink-0"
             style={{ background: showMobileMenu ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.6)" }}>
             <MoreVertical className="w-4 h-4" />
           </button>
@@ -1522,22 +1540,6 @@ export default function CodingRoom() {
         {showMobileMenu && (
           <div className="absolute top-full right-0 z-50 flex flex-col p-2 gap-1 md:hidden rounded-b-xl shadow-2xl"
             style={{ background: "rgba(6,9,18,0.99)", border: "1px solid rgba(255,255,255,0.1)", borderTop: "none", minWidth: 160 }}>
-            <button onClick={() => { toggleMic(); setShowMobileMenu(false); }}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors hover:bg-white/5 text-right"
-              style={{ color: micEnabled ? "#34D399" : "rgba(255,255,255,0.6)" }}>
-              {micEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-              {micEnabled ? "إيقاف الصوت" : "تفعيل الصوت"}
-            </button>
-            <button onClick={() => { setShowChat((v) => !v); setUnreadChat(0); setShowMobileMenu(false); }}
-              className="relative flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors hover:bg-white/5 text-right"
-              style={{ color: showChat ? "#60A5FA" : "rgba(255,255,255,0.6)" }}>
-              <MessageSquare className="w-4 h-4" />
-              الدردشة
-              {unreadChat > 0 && !showChat && (
-                <span className="mr-auto min-w-[20px] h-5 px-1 rounded-full text-[10px] font-black flex items-center justify-center"
-                  style={{ background: "#EF4444", color: "white" }}>{unreadChat > 9 ? "9+" : unreadChat}</span>
-              )}
-            </button>
             <button onClick={() => { handleDownload(); setShowMobileMenu(false); }}
               className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors hover:bg-white/5 text-right"
               style={{ color: "rgba(255,255,255,0.6)" }}>
