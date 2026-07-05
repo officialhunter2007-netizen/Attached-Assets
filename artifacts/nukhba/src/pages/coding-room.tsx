@@ -1117,9 +1117,13 @@ export default function CodingRoom() {
             )}
           </div>
 
-          <div className="flex-1 relative min-h-0" style={{ background: "#1e1e1e" }}>
+          <div
+            dir="ltr"
+            className="flex-1 overflow-hidden relative"
+            style={{ background: "#1e1e1e", minHeight: 0 }}
+          >
             {wsStatus === "connecting" && (
-              <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/60 backdrop-blur-sm">
+              <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/60 backdrop-blur-sm" dir="rtl">
                 <div className="text-center">
                   <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin mx-auto mb-3" />
                   <p className="text-white/50 text-sm">جاري الاتصال…</p>
@@ -1127,7 +1131,7 @@ export default function CodingRoom() {
               </div>
             )}
             {wsStatus === "connected" && files.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+              <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none" dir="rtl">
                 <div className="text-center">
                   <FileCode2 className="w-12 h-12 mx-auto mb-3 text-white/15" />
                   <p className="text-white/30 text-sm font-bold mb-1">
@@ -1137,38 +1141,33 @@ export default function CodingRoom() {
                 </div>
               </div>
             )}
-            <div className="absolute inset-0">
-              <Editor
-                height="100%"
-                theme="vs-dark"
-                defaultLanguage="javascript"
-                defaultValue=""
-                onMount={handleEditorMount}
-                options={{
-                  fontSize: 14,
-                  fontFamily: "'Fira Code', 'Cascadia Code', monospace",
-                  fontLigatures: true,
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  padding: { top: 16, bottom: 16 },
-                  lineNumbers: "on",
-                  roundedSelection: true,
-                  cursorBlinking: "smooth",
-                  smoothScrolling: true,
-                  wordWrap: "on",
-                  readOnly: !canWrite,
-                  renderLineHighlight: "all",
-                  renderWhitespace: "selection",
-                  bracketPairColorization: { enabled: true },
-                  guides: { bracketPairs: true, indentation: true },
-                  rulers: [],
-                  folding: true,
-                  glyphMargin: false,
-                  overviewRulerLanes: 0,
-                }}
-              />
-            </div>
+            <Editor
+              height="100%"
+              theme="vs-dark"
+              defaultLanguage="javascript"
+              defaultValue=""
+              onMount={handleEditorMount}
+              options={{
+                fontSize: 14,
+                fontFamily: "'Fira Code', 'Cascadia Code', monospace",
+                fontLigatures: true,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                padding: { top: 16, bottom: 16 },
+                lineNumbers: "on",
+                roundedSelection: true,
+                cursorBlinking: "smooth",
+                smoothScrolling: true,
+                wordWrap: "on",
+                readOnly: !canWrite,
+                renderLineHighlight: "all",
+                bracketPairColorization: { enabled: true },
+                guides: { bracketPairs: true, indentation: true },
+                folding: true,
+                glyphMargin: false,
+              }}
+            />
           </div>
 
           <div className="shrink-0 flex flex-col border-t overflow-hidden"
