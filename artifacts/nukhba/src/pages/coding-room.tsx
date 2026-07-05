@@ -1117,7 +1117,7 @@ export default function CodingRoom() {
             )}
           </div>
 
-          <div className="flex-1 relative overflow-hidden">
+          <div className="flex-1 relative min-h-0" style={{ background: "#1e1e1e" }}>
             {wsStatus === "connecting" && (
               <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/60 backdrop-blur-sm">
                 <div className="text-center">
@@ -1137,27 +1137,38 @@ export default function CodingRoom() {
                 </div>
               </div>
             )}
-            <Editor
-              height="100%"
-              defaultLanguage="javascript"
-              defaultValue=""
-              onMount={handleEditorMount}
-              options={{
-                fontSize: 14,
-                fontFamily: "'Fira Code', 'Cascadia Code', monospace",
-                fontLigatures: true,
-                minimap: { enabled: false },
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                padding: { top: 16, bottom: 16 },
-                lineNumbers: "on",
-                roundedSelection: true,
-                cursorBlinking: "smooth",
-                smoothScrolling: true,
-                wordWrap: "on",
-                readOnly: !canWrite,
-              }}
-            />
+            <div className="absolute inset-0">
+              <Editor
+                height="100%"
+                theme="vs-dark"
+                defaultLanguage="javascript"
+                defaultValue=""
+                onMount={handleEditorMount}
+                options={{
+                  fontSize: 14,
+                  fontFamily: "'Fira Code', 'Cascadia Code', monospace",
+                  fontLigatures: true,
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  padding: { top: 16, bottom: 16 },
+                  lineNumbers: "on",
+                  roundedSelection: true,
+                  cursorBlinking: "smooth",
+                  smoothScrolling: true,
+                  wordWrap: "on",
+                  readOnly: !canWrite,
+                  renderLineHighlight: "all",
+                  renderWhitespace: "selection",
+                  bracketPairColorization: { enabled: true },
+                  guides: { bracketPairs: true, indentation: true },
+                  rulers: [],
+                  folding: true,
+                  glyphMargin: false,
+                  overviewRulerLanes: 0,
+                }}
+              />
+            </div>
           </div>
 
           <div className="shrink-0 flex flex-col border-t overflow-hidden"
