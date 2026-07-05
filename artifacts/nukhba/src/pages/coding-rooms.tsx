@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Users, Code2, Globe, Lock, Clock, ChevronLeft, RefreshCw } from "lucide-react";
+import { Plus, Code2, Globe, Lock, Clock, ChevronLeft, RefreshCw, LogIn, XCircle } from "lucide-react";
 import { useAuth } from "@/lib/use-auth";
 
 type Room = {
@@ -63,14 +63,47 @@ function LangPill({ lang }: { lang: string }) {
   );
 }
 
-function RoomCard({ room, onJoin }: { room: Room; onJoin: (id: number) => void }) {
+function RoomCard({
+  room, onJoin, onClose, userId,
+}: {
+  room: Room;
+  onJoin: (id: number) => void;
+  onClose: (id: number) => void;
+  userId: number | null;
+}) {
   const [, navigate] = useLocation();
+  const [closing, setClosing] = useState(false);
+  const isOwner = !!userId && room.host_user_id === userId;
+
   const timeAgo = (dateStr: string) => {
     const diff = (Date.now() - new Date(dateStr).getTime()) / 60000;
     if (diff < 1) return "الآن";
     if (diff < 60) return `${Math.floor(diff)} دقيقة`;
     if (diff < 1440) return `${Math.floor(diff / 60)} ساعة`;
     return `${Math.floor(diff / 1440)} يوم`;
+  };
+
+  const handleClose = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("هل أنت متأكد من إنهاء الغرفة؟ سيتم فصل جميع المشاركين.")) return;
+    setClosing(true);
+    try {
+      const r = await fetch(`/api/coding-rooms/${room.id}/close`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      const d = await r.json();
+      if (r.ok) {
+        onClose(room.id);
+      } else {
+        alert(d.error ?? "فشل إغلاق الغرفة");
+      }
+    } catch {
+      alert("خطأ في الشبكة");
+    } finally {
+      setClosing(false);
+    }
   };
 
   return (
@@ -120,25 +153,57 @@ function RoomCard({ room, onJoin }: { room: Room; onJoin: (id: number) => void }
         )}
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[11px] text-white/35">
-          <Clock className="w-3 h-3" />
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-[11px] text-white/35 min-w-0">
+          <Clock className="w-3 h-3 shrink-0" />
           <span>{timeAgo(room.created_at)}</span>
           <span className="mx-1 opacity-40">•</span>
-          <span className="text-white/35">{room.host_name}</span>
+          <span className="text-white/35 truncate">{room.host_name}</span>
         </div>
-        <motion.button
-          whileTap={{ scale: 0.94 }}
-          onClick={() => onJoin(room.id)}
-          className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all"
-          style={{
-            background: "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.1))",
-            border: "1px solid rgba(16,185,129,0.4)",
-            color: "#10B981",
-          }}
-        >
-          انضم
-        </motion.button>
+        {isOwner ? (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={() => navigate(`/coding-room/${room.id}`)}
+              className="flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all"
+              style={{
+                background: "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.1))",
+                border: "1px solid rgba(16,185,129,0.4)",
+                color: "#10B981",
+              }}
+            >
+              <LogIn className="w-3 h-3" />
+              دخول
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={handleClose}
+              disabled={closing}
+              className="flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-50"
+              style={{
+                background: "rgba(239,68,68,0.1)",
+                border: "1px solid rgba(239,68,68,0.3)",
+                color: "#F87171",
+              }}
+            >
+              <XCircle className="w-3 h-3" />
+              {closing ? "..." : "إنهاء"}
+            </motion.button>
+          </div>
+        ) : (
+          <motion.button
+            whileTap={{ scale: 0.94 }}
+            onClick={() => onJoin(room.id)}
+            className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all shrink-0"
+            style={{
+              background: "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.1))",
+              border: "1px solid rgba(16,185,129,0.4)",
+              color: "#10B981",
+            }}
+          >
+            انضم
+          </motion.button>
+        )}
       </div>
     </motion.div>
   );
@@ -376,6 +441,7 @@ function CreateRoomModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
 export default function CodingRooms() {
   const { user } = useAuth();
+  const userId = (user as any)?.id ?? null;
   const [, navigate] = useLocation();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [history, setHistory] = useState<HistoryRoom[]>([]);
@@ -437,6 +503,10 @@ export default function CodingRooms() {
     } catch {
       alert("خطأ في الشبكة");
     }
+  };
+
+  const handleCloseRoom = (roomId: number) => {
+    setRooms((prev) => prev.filter((r) => r.id !== roomId));
   };
 
   return (
@@ -561,7 +631,7 @@ export default function CodingRooms() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {rooms.map((room) => (
-                    <RoomCard key={room.id} room={room} onJoin={handleJoin} />
+                    <RoomCard key={room.id} room={room} onJoin={handleJoin} onClose={handleCloseRoom} userId={userId} />
                   ))}
                 </div>
               )}
