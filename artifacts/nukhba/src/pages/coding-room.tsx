@@ -9,6 +9,7 @@ import {
   ChevronLeft, Download, AlertTriangle, Clock, Check,
   Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2,
   Folder, FolderOpen, Trash2, FolderTree, Square, MoreVertical, FolderPlus,
+  RefreshCw, Monitor, Smartphone, Maximize2, ExternalLink,
 } from "lucide-react";
 
 type Member = {
@@ -126,30 +127,60 @@ function buildHtmlPreview(entryPath: string, allFiles: FileMeta[]): string {
   const entry = allFiles.find((f) => f.file_path === entryPath);
   if (!entry) return "";
   const base = dirOf(entryPath);
-  const lookup = (ref: string): FileMeta | undefined => {
+  const fileMap = new Map<string, FileMeta>(allFiles.map((f) => [f.file_path, f]));
+  const lookup = (ref: string, fromBase = base): FileMeta | undefined => {
     if (/^(https?:)?\/\//i.test(ref) || ref.startsWith("data:") || ref.startsWith("#")) return undefined;
-    const resolved = normalizePath(base, ref);
-    return allFiles.find((f) => f.file_path === resolved) ??
-      allFiles.find((f) => f.file_path === ref.replace(/^\.?\//, ""));
+    const resolved = normalizePath(fromBase, ref);
+    return fileMap.get(resolved) ?? fileMap.get(ref.replace(/^\.?\//, ""));
+  };
+  const toSvgDataUrl = (content: string): string | null => {
+    const t = content.trim();
+    if (!t.startsWith("<svg") && !t.startsWith("<?xml")) return null;
+    try { return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(content))); } catch { return null; }
+  };
+  const resolvedCss = new Set<string>();
+  const resolveCss = (cssContent: string, cssBase: string): string => {
+    let out = cssContent.replace(/@import\s+(?:url\s*\(\s*)?["']([^"']+)["']\s*\)?[^;]*;/gi, (_, p) => {
+      const f = lookup(p, cssBase);
+      if (!f || resolvedCss.has(f.file_path)) return "";
+      resolvedCss.add(f.file_path);
+      return resolveCss(f.content ?? "", dirOf(f.file_path));
+    });
+    out = out.replace(/url\(\s*["']?([^"')#?]+)["']?\s*\)/gi, (m, u) => {
+      if (/^(https?:)?\/\//i.test(u) || u.startsWith("data:")) return m;
+      const f = lookup(u, cssBase);
+      if (!f?.content) return m;
+      const d = toSvgDataUrl(f.content);
+      return d ? `url("${d}")` : m;
+    });
+    return out;
   };
   let html = entry.content ?? "";
-  html = html.replace(
-    /<link\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi,
-    (m, href) => {
-      if (!/stylesheet/i.test(m) && !/\.css(\?|$)/i.test(href)) return m;
-      const css = lookup(href);
-      return css ? `<style>\n${css.content ?? ""}\n</style>` : m;
-    }
-  );
-  html = html.replace(
-    /<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)><\/script>/gi,
-    (m, pre, src, post) => {
-      const js = lookup(src);
-      if (!js) return m;
-      const attrs = `${pre} ${post}`.replace(/\bsrc\s*=\s*["'][^"']*["']/gi, "").trim();
-      return `<script ${attrs}>\n${js.content ?? ""}\n</script>`;
-    }
-  );
+  html = html.replace(/<link\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi, (m, href) => {
+    if (!/stylesheet/i.test(m) && !/\.css(\?|$)/i.test(href)) return m;
+    const f = lookup(href);
+    if (!f) return m;
+    resolvedCss.add(f.file_path);
+    return `<style>\n${resolveCss(f.content ?? "", dirOf(f.file_path))}\n</style>`;
+  });
+  html = html.replace(/<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)><\/script>/gi, (m, pre, src, post) => {
+    const f = lookup(src);
+    if (!f) return m;
+    const attrs = `${pre} ${post}`.replace(/\bsrc\s*=\s*["'][^"']*["']/gi, "").replace(/\btype\s*=\s*["']module["']/gi, "").trim();
+    return `<script ${attrs}>\n${f.content ?? ""}\n</script>`;
+  });
+  html = html.replace(/<img\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)\/?>/gi, (m, pre, src, post) => {
+    if (/^(https?:)?\/\//i.test(src) || src.startsWith("data:")) return m;
+    const f = lookup(src);
+    if (!f?.content) return m;
+    const d = toSvgDataUrl(f.content);
+    if (!d) return m;
+    const attrs = `${pre} ${post}`.replace(/\bsrc\s*=\s*["'][^"']*["']/gi, "").trim();
+    return `<img ${attrs} src="${d}">`;
+  });
+  html = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (m, css) => {
+    return m.replace(css, resolveCss(css, base));
+  });
   return html;
 }
 
@@ -455,6 +486,11 @@ export default function CodingRoom() {
   const [newFile, setNewFile] = useState("");
   const [activeRightTab, setActiveRightTab] = useState<"output" | "preview">("output");
   const [previewHtml, setPreviewHtml] = useState("");
+  const [previewEntry, setPreviewEntry] = useState<string>("");
+  const [livePreview, setLivePreview] = useState(false);
+  const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState("");
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
   const [joinToast, setJoinToast] = useState<PendingRequest | null>(null);
   const joinToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -480,6 +516,7 @@ export default function CodingRoom() {
   const [desktopTerminalHeight, setDesktopTerminalHeight] = useState(300);
   const sidebarDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const terminalDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const previewBlobRef = useRef<string>("");
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const activeFileRef = useRef<string>("");
@@ -499,6 +536,32 @@ export default function CodingRoom() {
       setTimeout(() => hiddenInputRef.current?.focus(), 80);
     }
   }, [processRunning]);
+
+  useEffect(() => {
+    if (previewBlobRef.current) URL.revokeObjectURL(previewBlobRef.current);
+    if (!previewHtml) { previewBlobRef.current = ""; setPreviewBlobUrl(""); return; }
+    const blob = new Blob([previewHtml], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    previewBlobRef.current = url;
+    setPreviewBlobUrl(url);
+  }, [previewHtml]);
+
+  useEffect(() => {
+    return () => { if (previewBlobRef.current) URL.revokeObjectURL(previewBlobRef.current); };
+  }, []);
+
+  useEffect(() => {
+    if (!livePreview || !previewEntry || activeRightTab !== "preview" || !dockOpen) return;
+    const timer = setTimeout(() => {
+      const liveFiles = files.map((f) =>
+        f.file_path === activeFileRef.current
+          ? { ...f, content: editorRef.current?.getValue() ?? f.content }
+          : f
+      );
+      setPreviewHtml(buildHtmlPreview(previewEntry, liveFiles));
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [files, livePreview, previewEntry, activeRightTab, dockOpen]);
 
   showChatRef.current = showChat;
   myInfoRef.current = myInfo;
@@ -1193,6 +1256,7 @@ export default function CodingRoom() {
     );
 
     if (currentFile.endsWith(".html")) {
+      setPreviewEntry(currentFile);
       setPreviewHtml(buildHtmlPreview(currentFile, liveFiles));
       setActiveRightTab("preview");
       setDockOpen(true);
@@ -2042,15 +2106,92 @@ export default function CodingRoom() {
                   </div>
                 </div>
               ) : (
-                <div className="flex-1 overflow-hidden p-2">
-                  {previewHtml ? (
-                    <iframe srcDoc={previewHtml} className="w-full h-full rounded-lg"
-                      style={{ border: "1px solid rgba(16,185,129,0.15)", background: "white" }}
-                      sandbox="allow-scripts allow-same-origin" />
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-white/25 font-sans gap-2">
-                      <Eye className="w-8 h-8 text-white/10" />
-                      <span className="text-xs">شغّل ملف HTML لرؤية المعاينة</span>
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  {previewBlobUrl && (
+                    <div className="flex items-center gap-1 px-2 py-1.5 shrink-0 border-b" style={{ borderColor: "rgba(255,255,255,0.04)", background: "rgba(0,0,0,0.25)" }}>
+                      <button
+                        onClick={() => {
+                          const liveFiles = files.map((f) => f.file_path === activeFileRef.current ? { ...f, content: editorRef.current?.getValue() ?? f.content } : f);
+                          setPreviewHtml(buildHtmlPreview(previewEntry, liveFiles));
+                        }}
+                        title="تحديث المعاينة"
+                        className="w-6 h-6 flex items-center justify-center rounded-md text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setLivePreview((v) => !v)}
+                        title="معاينة مباشرة"
+                        className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md transition-colors"
+                        style={{ background: livePreview ? "rgba(16,185,129,0.15)" : "transparent", color: livePreview ? "#10B981" : "rgba(255,255,255,0.35)", border: `1px solid ${livePreview ? "rgba(16,185,129,0.35)" : "transparent"}` }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: livePreview ? "#10B981" : "rgba(255,255,255,0.25)" }} />
+                        مباشر
+                      </button>
+                      <div className="flex-1" />
+                      <div className="flex items-center gap-0.5">
+                        <button onClick={() => setPreviewDevice("desktop")} title="عرض مكتبي" className="w-6 h-6 flex items-center justify-center rounded-md transition-colors" style={{ color: previewDevice === "desktop" ? "#60A5FA" : "rgba(255,255,255,0.3)", background: previewDevice === "desktop" ? "rgba(59,130,246,0.12)" : "transparent" }}>
+                          <Monitor className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => setPreviewDevice("mobile")} title="عرض موبايل (375px)" className="w-6 h-6 flex items-center justify-center rounded-md transition-colors" style={{ color: previewDevice === "mobile" ? "#A78BFA" : "rgba(255,255,255,0.3)", background: previewDevice === "mobile" ? "rgba(139,92,246,0.12)" : "transparent" }}>
+                          <Smartphone className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <button onClick={() => window.open(previewBlobUrl, "_blank")} title="فتح في تبويب جديد" className="w-6 h-6 flex items-center justify-center rounded-md text-white/30 hover:text-white/70 hover:bg-white/5 transition-colors">
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => setPreviewFullscreen(true)} title="ملء الشاشة" className="w-6 h-6 flex items-center justify-center rounded-md text-white/30 hover:text-white/70 hover:bg-white/5 transition-colors">
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex-1 overflow-hidden p-1.5">
+                    {previewBlobUrl ? (
+                      <div className="w-full h-full flex" style={{ justifyContent: previewDevice === "mobile" ? "center" : "stretch" }}>
+                        <iframe
+                          key={previewBlobUrl}
+                          src={previewBlobUrl}
+                          className="h-full rounded-lg"
+                          style={{ width: previewDevice === "mobile" ? "375px" : "100%", border: "1px solid rgba(16,185,129,0.15)", background: "white", minWidth: 0 }}
+                          sandbox="allow-scripts allow-forms allow-popups"
+                        />
+                      </div>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-white/25 font-sans gap-2">
+                        <Eye className="w-8 h-8 text-white/10" />
+                        <span className="text-xs">شغّل ملف HTML لرؤية المعاينة</span>
+                      </div>
+                    )}
+                  </div>
+                  {previewFullscreen && previewBlobUrl && (
+                    <div className="fixed inset-0 z-[100] flex flex-col" style={{ background: "rgba(4,6,14,0.98)" }}>
+                      <div className="flex items-center gap-3 px-4 py-2.5 shrink-0" style={{ background: "rgba(6,9,18,0.99)", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                        <Eye className="w-4 h-4 text-emerald-400" />
+                        <span className="text-sm font-bold text-white/80 flex-1">معاينة المشروع</span>
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => setPreviewDevice("desktop")} className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors" style={{ color: previewDevice === "desktop" ? "#60A5FA" : "rgba(255,255,255,0.35)", background: previewDevice === "desktop" ? "rgba(59,130,246,0.12)" : "transparent" }}>
+                            <Monitor className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setPreviewDevice("mobile")} className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors" style={{ color: previewDevice === "mobile" ? "#A78BFA" : "rgba(255,255,255,0.35)", background: previewDevice === "mobile" ? "rgba(139,92,246,0.12)" : "transparent" }}>
+                            <Smartphone className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => window.open(previewBlobUrl, "_blank")} className="w-7 h-7 flex items-center justify-center rounded-lg text-white/35 hover:text-white/70 hover:bg-white/5 transition-colors">
+                            <ExternalLink className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setPreviewFullscreen(false)} className="w-7 h-7 flex items-center justify-center rounded-lg text-white/35 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex-1 flex overflow-hidden p-2" style={{ justifyContent: previewDevice === "mobile" ? "center" : "stretch", alignItems: previewDevice === "mobile" ? "flex-start" : "stretch" }}>
+                        <iframe
+                          key={previewBlobUrl + "-fs"}
+                          src={previewBlobUrl}
+                          className="rounded-xl"
+                          style={{ width: previewDevice === "mobile" ? "375px" : "100%", height: "100%", background: "white", border: "none" }}
+                          sandbox="allow-scripts allow-forms allow-popups"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
