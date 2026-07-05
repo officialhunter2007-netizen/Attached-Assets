@@ -1597,45 +1597,28 @@ export default function CodingRoom() {
             {dockOpen && (
               activeRightTab === "output" ? (
                 <div className="flex-1 flex flex-col overflow-hidden">
-                  <div className="flex-1 overflow-y-auto p-3 font-mono text-xs">
+                  <div
+                    className="flex-1 overflow-y-auto p-3 font-mono text-xs"
+                    style={processRunning ? { cursor: "text" } : undefined}
+                    onClick={processRunning ? () => hiddenInputRef.current?.focus() : undefined}
+                  >
                     {processRunning ? (
                       <>
-                        <pre className="text-[12px] whitespace-pre-wrap break-all leading-relaxed" style={{ color: "rgba(255,255,255,0.88)" }}>{liveOutput || " "}</pre>
+                        <div
+                          style={{
+                            fontFamily: "monospace",
+                            fontSize: 12,
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-all",
+                            lineHeight: "1.65",
+                            color: "rgba(255,255,255,0.88)",
+                          }}
+                        >
+                          {liveOutput}
+                          <span>{inputLine}</span>
+                          <span className="terminal-cursor" />
+                        </div>
                         <div ref={liveEndRef} />
-                      </>
-                    ) : runOutputs.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-white/25 font-sans gap-2">
-                        <Terminal className="w-8 h-8 text-white/10" />
-                        <span className="text-xs">شغّل الكود لرؤية الناتج هنا</span>
-                      </div>
-                    ) : (
-                      <div className="space-y-px">
-                        {runOutputs.slice(-15).map((o, i) => (
-                          <div key={i}>
-                            <div className="text-[10px] pt-2 pb-0.5 font-sans flex items-center gap-1.5" style={{ color: "rgba(52,211,153,0.55)" }}>
-                              <span className="font-bold">{o.triggeredByName}</span>
-                              <span className="text-white/15">•</span>
-                              <span>{new Date(o.timestamp).toLocaleTimeString("ar")}</span>
-                              {o.language && <span className="px-1 py-px rounded text-[9px]" style={{ background: "rgba(59,130,246,0.1)", color: "#60A5FA" }}>{o.language}</span>}
-                            </div>
-                            <pre className="text-[12px] whitespace-pre-wrap break-all leading-relaxed pb-2 border-b" style={{ color: "rgba(255,255,255,0.82)", borderColor: "rgba(255,255,255,0.04)" }}>{o.output}</pre>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="shrink-0 flex items-center gap-0 border-t" style={{ borderColor: "rgba(16,185,129,0.18)", background: "rgba(0,0,0,0.35)" }}>
-                    <span className="text-emerald-400 font-mono text-sm px-3 select-none shrink-0">❯</span>
-                    {processRunning ? (
-                      <div
-                        className="flex-1 flex items-center py-3 cursor-text overflow-hidden"
-                        onClick={() => hiddenInputRef.current?.focus()}
-                      >
-                        <span
-                          className="font-mono text-[13px] whitespace-pre select-none"
-                          style={{ color: "rgba(255,255,255,0.88)" }}
-                        >{inputLine}</span>
-                        <span className="terminal-cursor" />
                         <input
                           ref={hiddenInputRef}
                           value={inputLine}
@@ -1658,36 +1641,56 @@ export default function CodingRoom() {
                           autoCorrect="off"
                           spellCheck={false}
                           style={{
-                            position: "absolute",
+                            position: "fixed",
                             opacity: 0,
                             width: 1,
                             height: 1,
                             padding: 0,
                             border: 0,
-                            margin: 0,
                             pointerEvents: "none",
                           }}
                         />
+                      </>
+                    ) : runOutputs.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-white/25 font-sans gap-2">
+                        <Terminal className="w-8 h-8 text-white/10" />
+                        <span className="text-xs">شغّل الكود لرؤية الناتج هنا</span>
                       </div>
                     ) : (
-                      <>
-                        <textarea
-                          value={stdinText}
-                          onChange={(e) => setStdinText(e.target.value)}
-                          dir="ltr"
-                          rows={2}
-                          spellCheck={false}
-                          placeholder={"stdin — سطر لكل input()"}
-                          className="flex-1 resize-none bg-transparent font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left leading-relaxed py-2.5 pr-3"
-                          style={{ minHeight: 52 }}
-                        />
-                        {stdinText && (
-                          <button onClick={() => setStdinText("")}
-                            className="px-2.5 text-white/25 hover:text-white/60 transition-colors text-xs shrink-0 font-mono self-start pt-2.5">✕</button>
-                        )}
-                      </>
+                      <div className="space-y-px">
+                        {runOutputs.slice(-15).map((o, i) => (
+                          <div key={i}>
+                            <div className="text-[10px] pt-2 pb-0.5 font-sans flex items-center gap-1.5" style={{ color: "rgba(52,211,153,0.55)" }}>
+                              <span className="font-bold">{o.triggeredByName}</span>
+                              <span className="text-white/15">•</span>
+                              <span>{new Date(o.timestamp).toLocaleTimeString("ar")}</span>
+                              {o.language && <span className="px-1 py-px rounded text-[9px]" style={{ background: "rgba(59,130,246,0.1)", color: "#60A5FA" }}>{o.language}</span>}
+                            </div>
+                            <pre className="text-[12px] whitespace-pre-wrap break-all leading-relaxed pb-2 border-b" style={{ color: "rgba(255,255,255,0.82)", borderColor: "rgba(255,255,255,0.04)" }}>{o.output}</pre>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
+                  {!processRunning && (
+                    <div className="shrink-0 flex items-center gap-0 border-t" style={{ borderColor: "rgba(16,185,129,0.18)", background: "rgba(0,0,0,0.35)" }}>
+                      <span className="text-emerald-400 font-mono text-sm px-3 select-none shrink-0">❯</span>
+                      <textarea
+                        value={stdinText}
+                        onChange={(e) => setStdinText(e.target.value)}
+                        dir="ltr"
+                        rows={2}
+                        spellCheck={false}
+                        placeholder={"stdin — سطر لكل input()"}
+                        className="flex-1 resize-none bg-transparent font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left leading-relaxed py-2.5 pr-3"
+                        style={{ minHeight: 52 }}
+                      />
+                      {stdinText && (
+                        <button onClick={() => setStdinText("")}
+                          className="px-2.5 text-white/25 hover:text-white/60 transition-colors text-xs shrink-0 font-mono self-start pt-2.5">✕</button>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex-1 overflow-hidden p-2">
