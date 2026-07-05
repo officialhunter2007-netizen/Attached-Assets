@@ -1605,6 +1605,7 @@ export default function CodingRoom() {
                     {processRunning ? (
                       <>
                         <div
+                          dir="ltr"
                           style={{
                             fontFamily: "monospace",
                             fontSize: 12,
