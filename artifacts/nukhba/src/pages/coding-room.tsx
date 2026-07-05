@@ -1437,6 +1437,12 @@ export default function CodingRoom() {
                 )}
               </button>
             )
+          ) : wsStatus === "connected" ? (
+            <button onClick={handleRunCode} title="طلب إذن التشغيل من المشرف"
+              className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold transition-all"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)" }}>
+              <Play className="w-3.5 h-3.5" /> طلب تشغيل
+            </button>
           ) : null}
 
           <button
