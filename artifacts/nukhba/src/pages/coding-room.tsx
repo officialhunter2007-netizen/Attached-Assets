@@ -1672,25 +1672,6 @@ export default function CodingRoom() {
                       </div>
                     )}
                   </div>
-                  {!processRunning && (
-                    <div className="shrink-0 flex items-center gap-0 border-t" style={{ borderColor: "rgba(16,185,129,0.18)", background: "rgba(0,0,0,0.35)" }}>
-                      <span className="text-emerald-400 font-mono text-sm px-3 select-none shrink-0">❯</span>
-                      <textarea
-                        value={stdinText}
-                        onChange={(e) => setStdinText(e.target.value)}
-                        dir="ltr"
-                        rows={2}
-                        spellCheck={false}
-                        placeholder={"stdin — سطر لكل input()"}
-                        className="flex-1 resize-none bg-transparent font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left leading-relaxed py-2.5 pr-3"
-                        style={{ minHeight: 52 }}
-                      />
-                      {stdinText && (
-                        <button onClick={() => setStdinText("")}
-                          className="px-2.5 text-white/25 hover:text-white/60 transition-colors text-xs shrink-0 font-mono self-start pt-2.5">✕</button>
-                      )}
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="flex-1 overflow-hidden p-2">
