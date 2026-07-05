@@ -721,18 +721,6 @@ export default function CodingRoom() {
         break;
 
       case "cursor_move":
-        if (msg.userId !== myUserId && monacoRef.current && editorRef.current && msg.file === activeFileRef.current) {
-          try {
-            const color = msg.color ?? "#ffffff";
-            const decorations = editorRef.current.createDecorationsCollection([{
-              range: new monacoRef.current.Range(msg.line, msg.column, msg.line, msg.column + 1),
-              options: {
-                before: { content: "▏", color },
-              },
-            }]);
-            setTimeout(() => decorations.clear(), 2000);
-          } catch {}
-        }
         break;
 
       case "file_created":
@@ -1068,15 +1056,6 @@ export default function CodingRoom() {
       }, 300);
     });
 
-    editor.onDidChangeCursorPosition((e) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-      wsRef.current.send(JSON.stringify({
-        type: "cursor_move",
-        file: activeFileRef.current,
-        line: e.position.lineNumber,
-        column: e.position.column,
-      }));
-    });
   };
 
   const sendChat = () => {
