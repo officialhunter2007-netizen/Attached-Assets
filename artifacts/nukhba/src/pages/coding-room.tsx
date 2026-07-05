@@ -8,7 +8,7 @@ import {
   Mic, MicOff, MessageSquare, Users, Play, X, Crown,
   ChevronLeft, Download, AlertTriangle, Clock, Check,
   Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2,
-  Folder, FolderOpen, Trash2, FolderTree, Square,
+  Folder, FolderOpen, Trash2, FolderTree, Square, MoreVertical,
 } from "lucide-react";
 
 type Member = {
@@ -433,6 +433,9 @@ export default function CodingRoom() {
   const [unreadChat, setUnreadChat] = useState(0);
   const [dockOpen, setDockOpen] = useState(true);
   const [addingFile, setAddingFile] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"code" | "files" | "terminal" | "members">("code");
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const activeFileRef = useRef<string>("");
@@ -469,6 +472,12 @@ export default function CodingRoom() {
     if (!showChat) return;
     setUnreadChat(0);
   }, [showChat]);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   const initWebRTC = useCallback(async (targetUserId: number, initiator: boolean) => {
     if (peerRefs.current.has(targetUserId)) return peerRefs.current.get(targetUserId) ?? null;
@@ -1303,35 +1312,36 @@ export default function CodingRoom() {
         )}
       </AnimatePresence>
 
-      <header className="flex items-center gap-3 px-4 h-14 shrink-0 border-b"
+      <header className="flex items-center gap-2 px-3 md:px-4 md:gap-3 h-14 shrink-0 border-b relative"
         style={{ background: "rgba(6,9,18,0.98)", borderColor: "rgba(255,255,255,0.07)" }}>
         <button onClick={handleLeave}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white/50 hover:text-white/90 transition-colors shrink-0"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-lg text-xs font-bold text-white/50 hover:text-white/90 transition-colors shrink-0"
           style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-          <ChevronLeft className="w-4 h-4" /> خروج
+          <ChevronLeft className="w-4 h-4" />
+          <span className="hidden sm:inline">خروج</span>
         </button>
 
-        <div className="h-6 w-px bg-white/10 shrink-0" />
+        <div className="h-6 w-px bg-white/10 shrink-0 hidden md:block" />
 
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+        <div className="flex items-center gap-2 md:gap-2.5 min-w-0 flex-1 md:flex-none">
+          <div className="w-8 h-8 md:w-9 md:h-9 rounded-xl flex items-center justify-center shrink-0 hidden sm:flex"
             style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)" }}>
             <Terminal className="w-4 h-4 text-emerald-400" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1 md:flex-none">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-black text-white truncate max-w-[200px]">
+              <span className="text-sm font-black text-white truncate max-w-[140px] md:max-w-[200px]">
                 {roomInfo?.title ?? `غرفة #${roomId}`}
               </span>
               {myInfo?.role === "host" && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-0.5 shrink-0"
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-0.5 shrink-0 hidden sm:flex"
                   style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B", border: "1px solid rgba(245,158,11,0.3)" }}>
                   <Crown className="w-2.5 h-2.5" /> مشرف
                 </span>
               )}
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="w-1.5 h-1.5 rounded-full"
+              <span className="w-1.5 h-1.5 rounded-full shrink-0"
                 style={{
                   background: wsStatus === "connected" ? "#10B981" : wsStatus === "error" ? "#EF4444" : "#F59E0B",
                   boxShadow: `0 0 6px ${wsStatus === "connected" ? "#10B981" : wsStatus === "error" ? "#EF4444" : "#F59E0B"}`,
@@ -1343,9 +1353,9 @@ export default function CodingRoom() {
           </div>
         </div>
 
-        <div className="flex-1" />
+        <div className="flex-1 hidden md:block" />
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="hidden md:flex items-center gap-2 shrink-0">
           <button onClick={toggleMic}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all"
             style={{ background: micEnabled ? "rgba(16,185,129,0.18)" : "rgba(255,255,255,0.04)", border: `1px solid ${micEnabled ? "rgba(16,185,129,0.5)" : "rgba(255,255,255,0.1)"}`, color: micEnabled ? "#34D399" : "rgba(255,255,255,0.5)" }}>
@@ -1407,11 +1417,76 @@ export default function CodingRoom() {
             </button>
           )}
         </div>
+
+        <div className="flex md:hidden items-center gap-1.5 shrink-0">
+          {canRun ? (
+            processRunning ? (
+              <button onClick={() => wsRef.current?.send(JSON.stringify({ type: "kill_process" }))}
+                className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-black transition-all animate-pulse"
+                style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", color: "#F87171" }}>
+                <Square className="w-3.5 h-3.5" fill="currentColor" /> إيقاف
+              </button>
+            ) : (
+              <button onClick={handleRunCode} disabled={isRunning}
+                className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-black transition-all"
+                style={{ background: isRunning ? "rgba(16,185,129,0.15)" : "linear-gradient(135deg,#10B981,#059669)", border: "1px solid rgba(16,185,129,0.5)", color: isRunning ? "#34D399" : "#04120c", boxShadow: isRunning ? "none" : "0 0 16px rgba(16,185,129,0.3)" }}>
+                {isRunning ? (
+                  <><div className="w-3 h-3 border-2 rounded-full animate-spin" style={{ borderColor: "rgba(52,211,153,0.3)", borderTopColor: "#34D399" }} /> جاري…</>
+                ) : (
+                  <><Play className="w-3.5 h-3.5" fill="currentColor" /> تشغيل</>
+                )}
+              </button>
+            )
+          ) : null}
+
+          <button
+            onClick={() => setShowMobileMenu((v) => !v)}
+            className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors"
+            style={{ background: showMobileMenu ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.6)" }}>
+            <MoreVertical className="w-4 h-4" />
+          </button>
+        </div>
+
+        {showMobileMenu && (
+          <div className="absolute top-full right-0 z-50 flex flex-col p-2 gap-1 md:hidden rounded-b-xl shadow-2xl"
+            style={{ background: "rgba(6,9,18,0.99)", border: "1px solid rgba(255,255,255,0.1)", borderTop: "none", minWidth: 160 }}>
+            <button onClick={() => { toggleMic(); setShowMobileMenu(false); }}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors hover:bg-white/5 text-right"
+              style={{ color: micEnabled ? "#34D399" : "rgba(255,255,255,0.6)" }}>
+              {micEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+              {micEnabled ? "إيقاف الصوت" : "تفعيل الصوت"}
+            </button>
+            <button onClick={() => { setShowChat((v) => !v); setUnreadChat(0); setShowMobileMenu(false); }}
+              className="relative flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors hover:bg-white/5 text-right"
+              style={{ color: showChat ? "#60A5FA" : "rgba(255,255,255,0.6)" }}>
+              <MessageSquare className="w-4 h-4" />
+              الدردشة
+              {unreadChat > 0 && !showChat && (
+                <span className="mr-auto min-w-[20px] h-5 px-1 rounded-full text-[10px] font-black flex items-center justify-center"
+                  style={{ background: "#EF4444", color: "white" }}>{unreadChat > 9 ? "9+" : unreadChat}</span>
+              )}
+            </button>
+            <button onClick={() => { handleDownload(); setShowMobileMenu(false); }}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors hover:bg-white/5 text-right"
+              style={{ color: "rgba(255,255,255,0.6)" }}>
+              <Download className="w-4 h-4" />
+              تحميل الكود
+            </button>
+            {myInfo?.role === "host" && (
+              <button onClick={() => { handleCloseRoom(); setShowMobileMenu(false); }}
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors hover:bg-red-500/10 text-right"
+                style={{ color: "#F87171" }}>
+                <X className="w-4 h-4" />
+                إغلاق الغرفة
+              </button>
+            )}
+          </div>
+        )}
       </header>
 
       <div className="flex flex-1 overflow-hidden">
 
-        <aside className="w-64 shrink-0 flex flex-col border-l overflow-hidden"
+        <aside className="hidden md:flex w-64 shrink-0 flex-col border-l overflow-hidden"
           style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.06)" }}>
 
           <div className="flex flex-col flex-1 min-h-0">
@@ -1486,13 +1561,88 @@ export default function CodingRoom() {
           </div>
         </aside>
 
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
 
           {myInfo?.role === "host" && (
             <PendingBanner requests={pendingRequests} onAdmit={handleAdmit} onReject={handleReject} />
           )}
 
-          <div className="flex items-stretch shrink-0 border-b overflow-x-auto" dir="ltr"
+          {isMobile && mobileTab === "files" && (
+            <div className="absolute inset-0 z-20 flex flex-col" style={{ background: "rgba(4,6,14,0.99)" }}>
+              <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between"
+                style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+                <div className="flex items-center gap-2">
+                  <FolderTree className="w-4 h-4 text-emerald-400" />
+                  <span className="text-sm font-bold text-white/70">الملفات</span>
+                  <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full"
+                    style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{files.length}</span>
+                </div>
+                {canWrite && !addingFile && (
+                  <button onClick={() => setAddingFile(true)} title="ملف جديد"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              {addingFile && (
+                <div className="flex items-center gap-1 px-2.5 py-2 border-b shrink-0" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+                  <input autoFocus value={newFile} onChange={(e) => setNewFile(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addNewFile(); } else if (e.key === "Escape") { setNewFile(""); setAddingFile(false); } }}
+                    onBlur={() => { if (!newFile.trim()) setAddingFile(false); }}
+                    placeholder="src/app.py" dir="ltr"
+                    className="flex-1 min-w-0 text-xs px-2.5 py-1.5 rounded-lg outline-none text-white placeholder:text-white/25 text-left"
+                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(16,185,129,0.3)" }} />
+                  <button onClick={addNewFile}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-emerald-400 hover:bg-emerald-500/15 transition-colors shrink-0">
+                    <Check className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              <div className="flex-1 overflow-y-auto py-1.5">
+                {files.length === 0 ? (
+                  <div className="text-xs text-white/25 text-center py-8 px-3">
+                    {canWrite ? "لا توجد ملفات — اضغط + لإنشاء ملف" : "بانتظار إنشاء الملفات…"}
+                  </div>
+                ) : (
+                  buildTree(files).map((node) => (
+                    <FileTreeNode key={node.path} node={node} depth={0} activeFile={activeFile}
+                      expandedFolders={expandedFolders}
+                      onToggle={(p) => setExpandedFolders((prev) => ({ ...prev, [p]: !(prev[p] ?? true) }))}
+                      onOpen={(path) => { openFile(path); setMobileTab("code"); }}
+                      onRename={(p) => { setRenamingFile(p); setRenameValue(p); }}
+                      onDelete={requestDeleteFile}
+                      canWrite={canWrite} />
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {isMobile && mobileTab === "members" && (
+            <div className="absolute inset-0 z-20 flex flex-col" style={{ background: "rgba(4,6,14,0.99)" }}>
+              <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between"
+                style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-emerald-400" />
+                  <span className="text-sm font-bold text-white/70">الأعضاء</span>
+                </div>
+                <span className="text-xs font-black px-2 py-0.5 rounded-full"
+                  style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{members.length}</span>
+              </div>
+              <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+                {members.map((m) => (
+                  <MemberItem key={m.userId} member={m} isMe={m.userId === myUserId}
+                    isHost={myInfo?.role === "host"} onPermChange={handlePermChange}
+                    onKick={handleKick} onTransfer={handleTransfer} />
+                ))}
+                {members.length === 0 && (
+                  <div className="text-xs text-white/25 text-center py-8">لا أحد متصل بعد</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className={`${isMobile && mobileTab !== "code" ? "hidden" : "flex"} items-stretch shrink-0 border-b overflow-x-auto`} dir="ltr"
             style={{ background: "rgba(4,6,14,0.9)", borderColor: "rgba(255,255,255,0.06)" }}>
             {openTabs.length === 0 && (
               <div className="px-4 py-2.5 text-[12px] text-white/25" dir="rtl">افتح ملفًا من الشجرة</div>
@@ -1520,7 +1670,7 @@ export default function CodingRoom() {
 
           <div
             dir="ltr"
-            className="flex-1 overflow-hidden relative"
+            className={`overflow-hidden relative${isMobile && mobileTab === "terminal" ? " hidden" : " flex-1"}`}
             style={{ background: "#1e1e1e", minHeight: 0 }}
           >
             {wsStatus === "connecting" && (
@@ -1571,8 +1721,8 @@ export default function CodingRoom() {
             />
           </div>
 
-          <div className="shrink-0 flex flex-col border-t overflow-hidden"
-            style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: dockOpen ? 300 : "auto" }}>
+          <div className={`flex flex-col border-t overflow-hidden${isMobile && mobileTab === "terminal" ? " flex-1" : " shrink-0"}`}
+            style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: isMobile && mobileTab === "terminal" ? undefined : (dockOpen ? 300 : "auto") }}>
             <div className="flex items-center shrink-0 border-b" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
               {([{ key: "output", label: "التيرمنال", icon: Terminal }, { key: "preview", label: "معاينة HTML", icon: Eye }] as const).map((t) => {
                 const active = activeRightTab === t.key;
@@ -1692,6 +1842,37 @@ export default function CodingRoom() {
           </div>
         </div>
       </div>
+
+      {isMobile && (
+        <div className="shrink-0 flex border-t" dir="rtl"
+          style={{ background: "rgba(4,6,14,0.99)", borderColor: "rgba(255,255,255,0.08)", height: 56 }}>
+          {([
+            { tab: "code" as const, Icon: FileCode2, label: "كود" },
+            { tab: "files" as const, Icon: FolderTree, label: "ملفات", badge: files.length },
+            { tab: "terminal" as const, Icon: Terminal, label: "تيرمنال" },
+            { tab: "members" as const, Icon: Users, label: "أعضاء", badge: members.length },
+          ]).map(({ tab, Icon, label, badge }) => {
+            const active = mobileTab === tab;
+            return (
+              <button key={tab} onClick={() => setMobileTab(tab)}
+                className="flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors relative"
+                style={{
+                  color: active ? "#10B981" : "rgba(255,255,255,0.38)",
+                  borderTop: active ? "2px solid #10B981" : "2px solid transparent",
+                }}>
+                <div className="relative">
+                  <Icon className="w-5 h-5" />
+                  {badge !== undefined && badge > 0 && (
+                    <span className="absolute -top-1.5 -right-2 min-w-[14px] h-3.5 px-0.5 rounded-full text-[9px] font-black flex items-center justify-center"
+                      style={{ background: "#10B981", color: "white" }}>{badge > 9 ? "9+" : badge}</span>
+                  )}
+                </div>
+                <span className="text-[10px] font-bold">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {renamingFile !== null && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
