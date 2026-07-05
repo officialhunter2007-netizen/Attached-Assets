@@ -389,6 +389,21 @@ function dedupeMembers(list: Member[]): Member[] {
   return list.filter((m) => { if (seen.has(m.userId)) return false; seen.add(m.userId); return true; });
 }
 
+type RemoteOp = {
+  rangeOffset: number;
+  rangeLength: number;
+  text: string;
+  range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number };
+};
+
+function applyOpsToText(text: string, ops: RemoteOp[]): string {
+  let result = text;
+  for (const op of ops) {
+    result = result.slice(0, op.rangeOffset) + op.text + result.slice(op.rangeOffset + op.rangeLength);
+  }
+  return result;
+}
+
 export default function CodingRoom() {
   const [match, params] = useRoute<{ roomId: string }>("/coding-room/:roomId");
   const [, navigate] = useLocation();
@@ -401,7 +416,6 @@ export default function CodingRoom() {
   const peerRefs = useRef<Map<number, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const isApplyingRemoteRef = useRef(false);
-  const pendingRemoteRef = useRef<{ file: string; content: string } | null>(null);
   const sendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const myUserIdRef = useRef<number | undefined>(undefined);
 
@@ -673,30 +687,35 @@ export default function CodingRoom() {
       case "code_change":
         if (msg.userId !== myUserId) {
           const incomingFile: string = msg.file ?? "";
-          const incomingContent: string = msg.fullContent ?? "";
-          setFiles((prev) => prev.map((f) =>
-            f.file_path === incomingFile ? { ...f, content: incomingContent } : f
-          ));
-          if (incomingFile === activeFileRef.current && editorRef.current) {
-            const currentVal = editorRef.current.getValue();
-            if (currentVal !== incomingContent) {
-              if (sendTimerRef.current !== null) {
-                pendingRemoteRef.current = { file: incomingFile, content: incomingContent };
-              } else {
-                const model = editorRef.current.getModel();
-                if (model && monacoRef.current) {
-                  isApplyingRemoteRef.current = true;
-                  try {
-                    const fullRange = model.getFullModelRange();
-                    const pos = editorRef.current.getPosition();
-                    model.applyEdits([{ range: fullRange, text: incomingContent }]);
-                    if (pos) editorRef.current.setPosition(pos);
-                  } finally {
-                    isApplyingRemoteRef.current = false;
-                  }
-                }
+          const ops: RemoteOp[] = msg.ops ?? [];
+          if (ops.length === 0) break;
+          if (incomingFile === activeFileRef.current && editorRef.current && monacoRef.current) {
+            const model = editorRef.current.getModel();
+            if (model) {
+              isApplyingRemoteRef.current = true;
+              try {
+                model.applyEdits(ops.map((op) => ({
+                  range: new monacoRef.current.Range(
+                    op.range.startLineNumber,
+                    op.range.startColumn,
+                    op.range.endLineNumber,
+                    op.range.endColumn,
+                  ),
+                  text: op.text,
+                  forceMoveMarkers: true,
+                })));
+                const newContent = model.getValue();
+                setFiles((prev) => prev.map((f) =>
+                  f.file_path === incomingFile ? { ...f, content: newContent } : f
+                ));
+              } finally {
+                isApplyingRemoteRef.current = false;
               }
             }
+          } else {
+            setFiles((prev) => prev.map((f) =>
+              f.file_path === incomingFile ? { ...f, content: applyOpsToText(f.content, ops) } : f
+            ));
           }
         }
         break;
@@ -1019,42 +1038,33 @@ export default function CodingRoom() {
     });
     monaco.editor.setTheme("nukhba-cyber");
 
-    editor.onDidChangeModelContent(() => {
+    editor.onDidChangeModelContent((event) => {
       if (isApplyingRemoteRef.current) return;
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+      const currentFile = activeFileRef.current;
+      if (!currentFile) return;
+      const ops = event.changes.map((c) => ({
+        rangeOffset: c.rangeOffset,
+        rangeLength: c.rangeLength,
+        text: c.text,
+        range: {
+          startLineNumber: c.range.startLineNumber,
+          startColumn: c.range.startColumn,
+          endLineNumber: c.range.endLineNumber,
+          endColumn: c.range.endColumn,
+        },
+      }));
+      const content = editor.getValue();
+      wsRef.current.send(JSON.stringify({
+        type: "code_change",
+        file: currentFile,
+        ops,
+        fullContent: content,
+      }));
       if (sendTimerRef.current) clearTimeout(sendTimerRef.current);
       sendTimerRef.current = setTimeout(() => {
         sendTimerRef.current = null;
-        const currentFile = activeFileRef.current;
-        if (!currentFile) return;
-        const content = editor.getValue();
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({
-            type: "code_change",
-            file: currentFile,
-            fullContent: content,
-          }));
-        }
         setFiles((prev) => prev.map((f) => f.file_path === currentFile ? { ...f, content } : f));
-
-        const pending = pendingRemoteRef.current;
-        if (pending && pending.file === currentFile && pending.content !== content) {
-          pendingRemoteRef.current = null;
-          const model = editorRef.current?.getModel();
-          if (model) {
-            isApplyingRemoteRef.current = true;
-            try {
-              const fullRange = model.getFullModelRange();
-              const pos = editorRef.current.getPosition();
-              model.applyEdits([{ range: fullRange, text: pending.content }]);
-              if (pos) editorRef.current.setPosition(pos);
-            } finally {
-              isApplyingRemoteRef.current = false;
-            }
-          }
-        } else {
-          pendingRemoteRef.current = null;
-        }
       }, 300);
     });
 

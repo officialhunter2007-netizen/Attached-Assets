@@ -36,6 +36,22 @@ const rooms = new Map<number, Set<WsClient>>();
 const userColorMap = new Map<string, string>();
 const roomClosingTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const pendingHostMigrations = new Map<number, { timer: ReturnType<typeof setTimeout>; oldHostId: number }>();
+const roomFileSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleFileSave(roomId: number, filePath: string, content: string) {
+  const key = `${roomId}:${filePath}`;
+  const existing = roomFileSaveTimers.get(key);
+  if (existing) clearTimeout(existing);
+  roomFileSaveTimers.set(key, setTimeout(async () => {
+    roomFileSaveTimers.delete(key);
+    try {
+      await db.execute(
+        sql`UPDATE coding_room_files SET content = ${content}, updated_at = NOW()
+            WHERE room_id = ${roomId} AND file_path = ${filePath}`
+      );
+    } catch {}
+  }, 1500));
+}
 
 const HOST_MIGRATION_GRACE_SECONDS = 30;
 
@@ -222,19 +238,16 @@ async function handleMessage(client: WsClient, raw: string) {
         sendTo(client, { type: "error", message: "ليس لديك إذن الكتابة" });
         return;
       }
-      const fullContent = msg.fullContent ?? "";
+      const ops = msg.ops ?? [];
+      const fullContent: string = msg.fullContent ?? "";
       broadcast(client.roomId, {
         type: "code_change",
         userId: client.userId,
         file: msg.file,
-        fullContent,
+        ops,
       }, client.userId);
-      if (msg.file) {
-        await db.execute(
-          sql`UPDATE coding_room_files
-              SET content = ${fullContent}, updated_at = NOW()
-              WHERE room_id = ${client.roomId} AND file_path = ${msg.file}`
-        );
+      if (msg.file && fullContent !== "") {
+        scheduleFileSave(client.roomId, msg.file, fullContent);
       }
       break;
     }
