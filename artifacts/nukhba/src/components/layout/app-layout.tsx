@@ -626,6 +626,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
                         </Link>
                       ))}
                       {user && (
+                        <Link href="/coding-rooms">
+                          <div className={`px-4 py-3 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 ${location.startsWith("/coding-room") ? "bg-gold/10 text-gold border border-gold/20" : "text-foreground/80 hover:bg-white/5"}`}>
+                            <Code2 className="w-4 h-4" />
+                            غرف البرمجة
+                          </div>
+                        </Link>
+                      )}
+                      {user && (
                         <Link href="/support">
                           <div className={`px-4 py-3 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 ${location.startsWith("/support") ? "bg-gold/10 text-gold border border-gold/20" : "text-foreground/80 hover:bg-white/5"}`}>
                             <MessageCircle className="w-4 h-4" />
