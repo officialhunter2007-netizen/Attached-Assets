@@ -311,7 +311,7 @@ function MemberItem({
         </div>
       </div>
       {isHost && !isMe && (
-        <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex gap-0.5 shrink-0">
           <button
             onClick={() => onPermChange(member.userId, "canWrite", !member.canWrite)}
             className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
@@ -819,6 +819,7 @@ export default function CodingRoom() {
         setProcessRunning(true);
         setActiveRightTab("output");
         setDockOpen(true);
+        setMobileTab("terminal");
         break;
 
       case "process_output": {
@@ -845,6 +846,7 @@ export default function CodingRoom() {
         setActiveRightTab("output");
         setDockOpen(true);
         setIsRunning(false);
+        setMobileTab("terminal");
         break;
 
       case "run_request":
