@@ -1651,16 +1651,10 @@ export default function CodingRoom() {
                   style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{files.length}</span>
               </div>
               {canWrite && !addingFile && (
-                <div className="flex items-center gap-0.5">
-                  <button onClick={() => { setNewFile(""); setAddingFile(true); }} title="ملف جديد"
-                    className="w-6 h-6 rounded-md flex items-center justify-center text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors">
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                  <button onClick={() => { setNewFile("folder/"); setAddingFile(true); }} title="مجلد جديد"
-                    className="w-6 h-6 rounded-md flex items-center justify-center text-white/40 hover:text-blue-400 hover:bg-blue-500/10 transition-colors">
-                    <FolderPlus className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <button onClick={() => { setNewFile("folder/"); setAddingFile(true); }} title="ملف / مجلد جديد"
+                  className="w-6 h-6 rounded-md flex items-center justify-center text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+                  <FolderPlus className="w-3.5 h-3.5" />
+                </button>
               )}
             </div>
             {addingFile && (
@@ -1794,16 +1788,10 @@ export default function CodingRoom() {
                     style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{files.length}</span>
                 </div>
                 {canWrite && !addingFile && (
-                  <div className="flex items-center gap-0.5">
-                    <button onClick={() => { setNewFile(""); setAddingFile(true); }} title="ملف جديد"
-                      className="w-7 h-7 rounded-md flex items-center justify-center text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors">
-                      <Plus className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => { setNewFile("folder/"); setAddingFile(true); }} title="مجلد جديد"
-                      className="w-7 h-7 rounded-md flex items-center justify-center text-white/40 hover:text-blue-400 hover:bg-blue-500/10 transition-colors">
-                      <FolderPlus className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <button onClick={() => { setNewFile("folder/"); setAddingFile(true); }} title="ملف / مجلد جديد"
+                    className="w-7 h-7 rounded-md flex items-center justify-center text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+                    <FolderPlus className="w-4 h-4" />
+                  </button>
                 )}
               </div>
               {addingFile && (
