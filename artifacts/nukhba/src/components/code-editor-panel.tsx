@@ -549,6 +549,8 @@ function resolveFilePath(from: string, href: string): string {
 }
 
 function svgToDataUrl(svgContent: string): string {
+  const t = svgContent.trim();
+  if (!t.startsWith("<svg") && !t.startsWith("<?xml")) return "";
   try {
     return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgContent)));
   } catch {
@@ -556,57 +558,64 @@ function svgToDataUrl(svgContent: string): string {
   }
 }
 
-function resolveCssImports(css: string, fromFile: string, fileMap: Map<string, IDEFile>, depth = 0): string {
-  if (depth > 8) return css;
+function resolveCssImports(css: string, fromFile: string, fileMap: Map<string, IDEFile>, visited = new Set<string>()): string {
   return css.replace(/@import\s+(?:url\(\s*)?["']([^"']+)["']\s*\)?[^;]*;/gi, (_, href) => {
     if (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//")) return _;
     const resolved = resolveFilePath(fromFile, href).toLowerCase();
     const found = fileMap.get(resolved);
-    if (!found) return "";
-    return resolveCssImports(found.content, found.name, fileMap, depth + 1);
+    if (!found || visited.has(resolved)) return "";
+    visited.add(resolved);
+    return resolveCssImports(found.content, found.name, fileMap, visited);
   });
 }
 
 function inlineCssUrls(css: string, fromFile: string, fileMap: Map<string, IDEFile>): string {
-  return css.replace(/url\(\s*["']?([^"')]+\.svg)["']?\s*\)/gi, (match, href) => {
-    if (href.startsWith("data:") || href.startsWith("http://") || href.startsWith("https://")) return match;
+  return css.replace(/url\(\s*["']?([^"')#?]+)["']?\s*\)/gi, (match, href) => {
+    if (/^(https?:)?\/\//i.test(href) || href.startsWith("data:")) return match;
     const resolved = resolveFilePath(fromFile, href).toLowerCase();
     const found = fileMap.get(resolved);
-    if (!found) return match;
-    return `url("${svgToDataUrl(found.content)}")`;
+    if (!found?.content) return match;
+    const d = svgToDataUrl(found.content);
+    return d ? `url("${d}")` : match;
   });
 }
 
 function inlineLinkedResources(doc: string, htmlFileName: string, files: IDEFile[]): string {
   const fileMap = new Map(files.map(f => [f.name.toLowerCase(), f]));
+  const visited = new Set<string>();
   doc = doc.replace(/<link\s[^>]*href\s*=\s*["']([^"']+)["'][^>]*>/gi, (match, href) => {
     if (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//")) return match;
-    if (!/\.css$/i.test(href)) return match;
+    if (!/stylesheet/i.test(match) && !/\.css(\?|$)/i.test(href)) return match;
     const resolved = resolveFilePath(htmlFileName, href).toLowerCase();
     const found = fileMap.get(resolved);
     if (!found) return match;
-    let css = resolveCssImports(found.content, found.name, fileMap);
+    visited.add(resolved);
+    let css = resolveCssImports(found.content, found.name, fileMap, visited);
     css = inlineCssUrls(css, found.name, fileMap);
-    return `<style>${css}\n</style>`;
+    return `<style>\n${css}\n</style>`;
   });
-  doc = doc.replace(/<script\s([^>]*)src\s*=\s*["']([^"']+)["'][^>]*>\s*<\/script>/gi, (match, attrs, src) => {
+  doc = doc.replace(/<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["'][^>]*><\/script>/gi, (match, attrs, src) => {
     if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("//")) return match;
     const resolved = resolveFilePath(htmlFileName, src).toLowerCase();
     const found = fileMap.get(resolved);
     if (!found) return match;
-    const isModule = /\btype\s*=\s*["']module["']/i.test(attrs);
-    const tag = isModule ? `<script type="module">` : `<script>`;
-    return `${tag}${found.content}\n</script>`;
+    const cleanAttrs = attrs.replace(/\bsrc\s*=\s*["'][^"']*["']/gi, "").replace(/\btype\s*=\s*["']module["']/gi, "").trim();
+    return `<script ${cleanAttrs}>\n${found.content}\n</script>`;
   });
-  doc = doc.replace(/<img\s([^>]*)src\s*=\s*["']([^"']+\.svg)["']([^>]*)>/gi, (match, pre, src, post) => {
-    if (src.startsWith("data:") || src.startsWith("http://") || src.startsWith("https://")) return match;
+  doc = doc.replace(/<img\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)\/?>/gi, (match, pre, src, post) => {
+    if (/^(https?:)?\/\//i.test(src) || src.startsWith("data:")) return match;
     const resolved = resolveFilePath(htmlFileName, src).toLowerCase();
     const found = fileMap.get(resolved);
-    if (!found) return match;
-    return `<img ${pre}src="${svgToDataUrl(found.content)}"${post}>`;
+    if (!found?.content) return match;
+    const d = svgToDataUrl(found.content);
+    if (!d) return match;
+    const cleanAttrs = `${pre} ${post}`.replace(/\bsrc\s*=\s*["'][^"']*["']/gi, "").trim();
+    return `<img ${cleanAttrs} src="${d}">`;
   });
-  doc = doc.replace(/(<script\b(?![^>]*\bsrc\b)[^>]*)\btype\s*=\s*["']module["']([^>]*>)/gi, (_, pre, post) => {
-    return `${pre}${post}`;
+  doc = doc.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (match, css) => {
+    let processed = resolveCssImports(css, htmlFileName, fileMap, visited);
+    processed = inlineCssUrls(processed, htmlFileName, fileMap);
+    return match.replace(css, processed);
   });
   return doc;
 }
