@@ -1,6 +1,10 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { IncomingMessage } from "http";
 import { Server } from "http";
+import { spawn } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import { verifySession } from "./session";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
@@ -31,6 +35,27 @@ const CURSOR_COLORS = [
 const rooms = new Map<number, Set<WsClient>>();
 const userColorMap = new Map<string, string>();
 const roomClosingTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+type ProcessEntry = {
+  proc: ReturnType<typeof spawn>;
+  timer: ReturnType<typeof setTimeout>;
+  tmpDir: string;
+};
+
+const activeProcesses = new Map<number, ProcessEntry>();
+
+const INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
+
+function killRoomProcess(roomId: number) {
+  const entry = activeProcesses.get(roomId);
+  if (!entry) return;
+  clearTimeout(entry.timer);
+  activeProcesses.delete(roomId);
+  try { entry.proc.kill("SIGKILL"); } catch {}
+  setImmediate(() => {
+    try { fs.rmSync(entry.tmpDir, { recursive: true, force: true }); } catch {}
+  });
+}
 
 function getRoomClients(roomId: number): Set<WsClient> {
   if (!rooms.has(roomId)) rooms.set(roomId, new Set());
@@ -554,6 +579,112 @@ async function handleMessage(client: WsClient, raw: string) {
       break;
     }
 
+    case "run_interactive": {
+      if (!client.canRun && client.role !== "host") return;
+      const entryFile = (msg.entryFile ?? "").trim();
+      const language = (msg.language ?? "").trim();
+      if (!entryFile || !isValidFilePath(entryFile)) return;
+      if (!INTERACTIVE_LANGS.has(language)) return;
+
+      killRoomProcess(client.roomId);
+
+      const filesRes = await db.execute(
+        sql`SELECT file_path, content FROM coding_room_files WHERE room_id = ${client.roomId} ORDER BY created_at ASC`
+      );
+      const dbFiles = filesRes.rows as { file_path: string; content: string }[];
+      if (!dbFiles.length) {
+        sendTo(client, { type: "process_output", data: "❌ لا توجد ملفات في الغرفة\n" });
+        sendTo(client, { type: "process_exit", exitCode: 1, signal: null });
+        return;
+      }
+
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nukhba-run-"));
+      for (const f of dbFiles) {
+        const dest = path.join(tmpDir, f.file_path);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, f.content ?? "");
+      }
+
+      broadcastJoined(client.roomId, {
+        type: "process_start",
+        runnerId: client.userId,
+        runnerName: client.username,
+        language,
+      });
+
+      let cmd: string;
+      let args: string[];
+      const entryAbs = path.join(tmpDir, entryFile);
+
+      switch (language) {
+        case "python":
+          cmd = "python3"; args = ["-u", entryAbs]; break;
+        case "javascript":
+          cmd = "node"; args = [entryAbs]; break;
+        case "bash":
+          cmd = "bash"; args = [entryAbs]; break;
+        case "c":
+          cmd = "bash"; args = ["-c", `gcc *.c -o _prog -lm -std=c11 2>&1 && ./_prog`]; break;
+        case "cpp":
+          cmd = "bash"; args = ["-c", `g++ $(ls *.cpp *.cc *.cxx 2>/dev/null | tr '\\n' ' ') -o _prog -lm -std=c++17 2>&1 && ./_prog`]; break;
+        default:
+          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+          return;
+      }
+
+      const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"] });
+
+      const PROCESS_TIMEOUT_MS = 30_000;
+      const timer = setTimeout(() => {
+        broadcastJoined(client.roomId, { type: "process_output", data: "\n⏱ انتهت مهلة التشغيل (30 ثانية)\n" });
+        killRoomProcess(client.roomId);
+        broadcastJoined(client.roomId, { type: "process_exit", exitCode: null, signal: "TIMEOUT" });
+      }, PROCESS_TIMEOUT_MS);
+
+      const entry: ProcessEntry = { proc, timer, tmpDir };
+      activeProcesses.set(client.roomId, entry);
+
+      const onData = (chunk: Buffer) => {
+        broadcastJoined(client.roomId, { type: "process_output", data: chunk.toString() });
+      };
+      proc.stdout.on("data", onData);
+      proc.stderr.on("data", onData);
+
+      proc.on("close", (code, signal) => {
+        if (activeProcesses.get(client.roomId) !== entry) return;
+        clearTimeout(timer);
+        activeProcesses.delete(client.roomId);
+        setImmediate(() => {
+          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+        });
+        broadcastJoined(client.roomId, { type: "process_exit", exitCode: code, signal: signal ?? null });
+      });
+
+      proc.on("error", (err) => {
+        broadcastJoined(client.roomId, { type: "process_output", data: `\n❌ فشل التشغيل: ${err.message}\n` });
+        killRoomProcess(client.roomId);
+        broadcastJoined(client.roomId, { type: "process_exit", exitCode: 1, signal: null });
+      });
+
+      break;
+    }
+
+    case "stdin_input": {
+      if (!client.canRun && client.role !== "host") return;
+      const procEntry = activeProcesses.get(client.roomId);
+      if (!procEntry) return;
+      const stdinData = String(msg.data ?? "").slice(0, 4096);
+      try { procEntry.proc.stdin!.write(stdinData); } catch {}
+      break;
+    }
+
+    case "kill_process": {
+      if (!client.canRun && client.role !== "host") return;
+      killRoomProcess(client.roomId);
+      broadcastJoined(client.roomId, { type: "process_exit", exitCode: null, signal: "SIGKILL" });
+      break;
+    }
+
     default:
       break;
   }
@@ -588,6 +719,7 @@ async function handleDisconnect(client: WsClient) {
       sendTo(stray, { type: "room_closed" });
       if (stray.ws.readyState === WebSocket.OPEN) stray.ws.close();
     }
+    killRoomProcess(client.roomId);
     rooms.delete(client.roomId);
     userColorMap.forEach((_, key) => {
       if (key.startsWith(`${client.roomId}:`)) userColorMap.delete(key);

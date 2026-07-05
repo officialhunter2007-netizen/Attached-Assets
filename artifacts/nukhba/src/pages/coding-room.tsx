@@ -8,7 +8,7 @@ import {
   Mic, MicOff, MessageSquare, Users, Play, X, Crown,
   ChevronLeft, Download, AlertTriangle, Clock, Check,
   Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2,
-  Folder, FolderOpen, Trash2, FolderTree,
+  Folder, FolderOpen, Trash2, FolderTree, Square,
 } from "lucide-react";
 
 type Member = {
@@ -58,6 +58,8 @@ function getMonacoLang(filePath: string) {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   return EXT_TO_LANG[ext] ?? "plaintext";
 }
+
+const SERVER_INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
 
 const RUN_LANG_MAP: Record<string, string> = {
   py: "python",
@@ -421,6 +423,12 @@ export default function CodingRoom() {
   const [previewHtml, setPreviewHtml] = useState("");
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [processRunning, setProcessRunning] = useState(false);
+  const [liveOutput, setLiveOutput] = useState("");
+  const [inputLine, setInputLine] = useState("");
+  const liveOutputRef = useRef("");
+  const liveEndRef = useRef<HTMLDivElement>(null);
+  const processRunnerRef = useRef<{ id: number; name: string; language: string } | null>(null);
   const [unreadChat, setUnreadChat] = useState(0);
   const [dockOpen, setDockOpen] = useState(true);
   const [addingFile, setAddingFile] = useState(false);
@@ -431,6 +439,12 @@ export default function CodingRoom() {
   const showChatRef = useRef(false);
   const myInfoRef = useRef<typeof myInfo>(null);
   const handleWsMsgRef = useRef<(raw: string) => void>(() => {});
+
+  useEffect(() => {
+    if (processRunning) {
+      liveEndRef.current?.scrollIntoView({ behavior: "instant" });
+    }
+  }, [liveOutput, processRunning]);
 
   showChatRef.current = showChat;
   myInfoRef.current = myInfo;
@@ -727,6 +741,35 @@ export default function CodingRoom() {
       case "chat_message":
         setChatMsgs((prev) => [...prev, msg]);
         if (!showChatRef.current) setUnreadChat((c) => c + 1);
+        break;
+
+      case "process_start":
+        processRunnerRef.current = { id: msg.runnerId ?? -1, name: msg.runnerName ?? "؟", language: msg.language ?? "" };
+        liveOutputRef.current = "";
+        setLiveOutput("");
+        setInputLine("");
+        setProcessRunning(true);
+        setActiveRightTab("output");
+        setDockOpen(true);
+        break;
+
+      case "process_output": {
+        const chunk = String(msg.data ?? "");
+        const next = (liveOutputRef.current + chunk).slice(-100_000);
+        liveOutputRef.current = next;
+        setLiveOutput(next);
+        break;
+      }
+
+      case "process_exit":
+        setProcessRunning(false);
+        setRunOutputs((prev) => [...prev, {
+          triggeredBy: processRunnerRef.current?.id ?? -1,
+          triggeredByName: processRunnerRef.current?.name ?? "؟",
+          output: liveOutputRef.current || "(لا ناتج)",
+          language: processRunnerRef.current?.language ?? "",
+          timestamp: new Date().toISOString(),
+        }]);
         break;
 
       case "run_output":
@@ -1074,6 +1117,11 @@ export default function CodingRoom() {
       return;
     }
 
+    if (SERVER_INTERACTIVE_LANGS.has(lang) && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "run_interactive", entryFile: currentFile, language: lang }));
+      return;
+    }
+
     const codes: Array<{ file: string; code: string }> = [];
     let total = byteLen(entryContent);
     let skipped = 0;
@@ -1319,15 +1367,23 @@ export default function CodingRoom() {
           <div className="h-6 w-px bg-white/10" />
 
           {canRun ? (
-            <button onClick={handleRunCode} disabled={isRunning}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-black transition-all"
-              style={{ background: isRunning ? "rgba(16,185,129,0.15)" : "linear-gradient(135deg,#10B981,#059669)", border: "1px solid rgba(16,185,129,0.5)", color: isRunning ? "#34D399" : "#04120c", boxShadow: isRunning ? "none" : "0 0 20px rgba(16,185,129,0.3)" }}>
-              {isRunning ? (
-                <><div className="w-3.5 h-3.5 border-2 rounded-full animate-spin" style={{ borderColor: "rgba(52,211,153,0.3)", borderTopColor: "#34D399" }} /> جاري…</>
-              ) : (
-                <><Play className="w-3.5 h-3.5" fill="currentColor" /> تشغيل</>
-              )}
-            </button>
+            processRunning ? (
+              <button onClick={() => wsRef.current?.send(JSON.stringify({ type: "kill_process" }))}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-black transition-all animate-pulse"
+                style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", color: "#F87171" }}>
+                <Square className="w-3.5 h-3.5" fill="currentColor" /> إيقاف
+              </button>
+            ) : (
+              <button onClick={handleRunCode} disabled={isRunning}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-black transition-all"
+                style={{ background: isRunning ? "rgba(16,185,129,0.15)" : "linear-gradient(135deg,#10B981,#059669)", border: "1px solid rgba(16,185,129,0.5)", color: isRunning ? "#34D399" : "#04120c", boxShadow: isRunning ? "none" : "0 0 20px rgba(16,185,129,0.3)" }}>
+                {isRunning ? (
+                  <><div className="w-3.5 h-3.5 border-2 rounded-full animate-spin" style={{ borderColor: "rgba(52,211,153,0.3)", borderTopColor: "#34D399" }} /> جاري…</>
+                ) : (
+                  <><Play className="w-3.5 h-3.5" fill="currentColor" /> تشغيل</>
+                )}
+              </button>
+            )
           ) : wsStatus === "connected" ? (
             <button onClick={handleRunCode} title="طلب إذن التشغيل من المشرف"
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all"
@@ -1535,7 +1591,12 @@ export default function CodingRoom() {
               activeRightTab === "output" ? (
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <div className="flex-1 overflow-y-auto p-3 font-mono text-xs">
-                    {runOutputs.length === 0 ? (
+                    {processRunning ? (
+                      <>
+                        <pre className="text-[12px] whitespace-pre-wrap break-all leading-relaxed" style={{ color: "rgba(255,255,255,0.88)" }}>{liveOutput || " "}</pre>
+                        <div ref={liveEndRef} />
+                      </>
+                    ) : runOutputs.length === 0 ? (
                       <div className="h-full flex flex-col items-center justify-center text-white/25 font-sans gap-2">
                         <Terminal className="w-8 h-8 text-white/10" />
                         <span className="text-xs">شغّل الكود لرؤية الناتج هنا</span>
@@ -1556,26 +1617,48 @@ export default function CodingRoom() {
                       </div>
                     )}
                   </div>
-                  <div className="shrink-0 flex items-start gap-0 border-t" style={{ borderColor: "rgba(16,185,129,0.18)", background: "rgba(0,0,0,0.35)" }}>
-                    <span className="text-emerald-400 font-mono text-sm px-3 pt-2.5 select-none leading-none shrink-0">❯</span>
-                    <textarea
-                      value={stdinText}
-                      onChange={(e) => setStdinText(e.target.value)}
-                      dir="ltr"
-                      rows={2}
-                      spellCheck={false}
-                      placeholder={"stdin — سطر لكل input()"}
-                      className="flex-1 resize-none bg-transparent font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left leading-relaxed py-2.5 pr-3"
-                      style={{ minHeight: 56 }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                          e.preventDefault();
-                        }
-                      }}
-                    />
-                    {stdinText && (
-                      <button onClick={() => setStdinText("")}
-                        className="px-2.5 pt-2.5 text-white/25 hover:text-white/60 transition-colors text-xs shrink-0 leading-none font-mono">✕</button>
+                  <div className="shrink-0 flex items-center gap-0 border-t" style={{ borderColor: "rgba(16,185,129,0.18)", background: "rgba(0,0,0,0.35)" }}>
+                    <span className="text-emerald-400 font-mono text-sm px-3 select-none shrink-0">❯</span>
+                    {processRunning ? (
+                      <input
+                        value={inputLine}
+                        onChange={(e) => setInputLine(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const data = inputLine + "\n";
+                            const next = (liveOutputRef.current + data).slice(-100_000);
+                            liveOutputRef.current = next;
+                            setLiveOutput(next);
+                            wsRef.current?.send(JSON.stringify({ type: "stdin_input", data }));
+                            setInputLine("");
+                          } else if (e.key === "c" && e.ctrlKey) {
+                            e.preventDefault();
+                            wsRef.current?.send(JSON.stringify({ type: "kill_process" }));
+                          }
+                        }}
+                        dir="ltr"
+                        autoFocus
+                        placeholder="اكتب هنا وأضغط Enter…"
+                        className="flex-1 bg-transparent font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left py-3 leading-relaxed"
+                      />
+                    ) : (
+                      <>
+                        <textarea
+                          value={stdinText}
+                          onChange={(e) => setStdinText(e.target.value)}
+                          dir="ltr"
+                          rows={2}
+                          spellCheck={false}
+                          placeholder={"stdin — سطر لكل input()"}
+                          className="flex-1 resize-none bg-transparent font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left leading-relaxed py-2.5 pr-3"
+                          style={{ minHeight: 52 }}
+                        />
+                        {stdinText && (
+                          <button onClick={() => setStdinText("")}
+                            className="px-2.5 text-white/25 hover:text-white/60 transition-colors text-xs shrink-0 font-mono self-start pt-2.5">✕</button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
