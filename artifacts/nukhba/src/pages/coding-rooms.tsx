@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Code2, Globe, Lock, Clock, ChevronLeft, RefreshCw, LogIn, XCircle } from "lucide-react";
+import { Plus, Code2, Globe, Lock, Clock, ChevronLeft, RefreshCw, LogIn, XCircle, Search, UserCircle2 } from "lucide-react";
 import { useAuth } from "@/lib/use-auth";
 
 type Room = {
@@ -158,7 +158,8 @@ function RoomCard({
           <Clock className="w-3 h-3 shrink-0" />
           <span>{timeAgo(room.created_at)}</span>
           <span className="mx-1 opacity-40">•</span>
-          <span className="text-white/35 truncate">{room.host_name}</span>
+          <UserCircle2 className="w-3 h-3 shrink-0 text-emerald-500/60" />
+          <span className="text-emerald-400/70 font-semibold truncate">{room.host_name}</span>
         </div>
         {isOwner ? (
           <div className="flex items-center gap-1.5 shrink-0">
@@ -173,7 +174,7 @@ function RoomCard({
               }}
             >
               <LogIn className="w-3 h-3" />
-              دخول
+              ادخل كمشرف
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.94 }}
@@ -448,6 +449,7 @@ export default function CodingRooms() {
   const [tab, setTab] = useState<"active" | "history">("active");
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [search, setSearch] = useState("");
 
   const fetchRooms = useCallback(async () => {
     try {
@@ -578,26 +580,40 @@ export default function CodingRooms() {
             ))}
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-1 mb-6 p-1 rounded-xl w-fit" style={{ background: "rgba(255,255,255,0.03)" }}>
-            {[
-              { key: "active", label: "الغرف النشطة", icon: <Code2 className="w-3.5 h-3.5" /> },
-              { key: "history", label: "سجلّ جلساتي", icon: <Clock className="w-3.5 h-3.5" /> },
-            ].map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key as any)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
-                style={{
-                  background: tab === t.key ? "rgba(16,185,129,0.15)" : "transparent",
-                  border: tab === t.key ? "1px solid rgba(16,185,129,0.3)" : "1px solid transparent",
-                  color: tab === t.key ? "#10B981" : "rgba(255,255,255,0.4)",
-                }}
-              >
-                {t.icon}
-                {t.label}
-              </button>
-            ))}
+          {/* Tabs + Search */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
+            <div className="flex gap-1 p-1 rounded-xl w-fit shrink-0" style={{ background: "rgba(255,255,255,0.03)" }}>
+              {[
+                { key: "active", label: "الغرف النشطة", icon: <Code2 className="w-3.5 h-3.5" /> },
+                { key: "history", label: "سجلّ جلساتي", icon: <Clock className="w-3.5 h-3.5" /> },
+              ].map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key as any)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+                  style={{
+                    background: tab === t.key ? "rgba(16,185,129,0.15)" : "transparent",
+                    border: tab === t.key ? "1px solid rgba(16,185,129,0.3)" : "1px solid transparent",
+                    color: tab === t.key ? "#10B981" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  {t.icon}
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {tab === "active" && (
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/25 pointer-events-none" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="ابحث باسم الغرفة…"
+                  className="w-full rounded-xl pr-9 pl-4 py-2 text-sm text-white placeholder:text-white/20 outline-none"
+                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Content */}
@@ -628,13 +644,22 @@ export default function CodingRooms() {
                     ابدأ أول غرفة
                   </motion.button>
                 </motion.div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {rooms.map((room) => (
-                    <RoomCard key={room.id} room={room} onJoin={handleJoin} onClose={handleCloseRoom} userId={userId} />
-                  ))}
-                </div>
-              )}
+              ) : (() => {
+                const q = search.trim().toLowerCase();
+                const filtered = q ? rooms.filter((r) => r.title.toLowerCase().includes(q) || r.host_name.toLowerCase().includes(q)) : rooms;
+                return filtered.length === 0 ? (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16">
+                    <Search className="w-10 h-10 mx-auto mb-3 text-white/10" />
+                    <p className="text-white/35 text-sm">لا توجد نتائج لـ «{search}»</p>
+                  </motion.div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filtered.map((room) => (
+                      <RoomCard key={room.id} room={room} onJoin={handleJoin} onClose={handleCloseRoom} userId={userId} />
+                    ))}
+                  </div>
+                );
+              })()}
             </AnimatePresence>
           ) : (
             <div className="space-y-3">
