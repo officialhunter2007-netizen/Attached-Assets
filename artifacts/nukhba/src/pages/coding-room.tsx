@@ -8,7 +8,7 @@ import {
   Mic, MicOff, MessageSquare, Users, Play, X, Crown,
   ChevronLeft, Download, AlertTriangle, Clock, Check,
   Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2,
-  Folder, FolderOpen, Trash2, FolderTree, Keyboard,
+  Folder, FolderOpen, Trash2, FolderTree,
 } from "lucide-react";
 
 type Member = {
@@ -417,7 +417,7 @@ export default function CodingRoom() {
   const [showChat, setShowChat] = useState(false);
   const [closingCountdown, setClosingCountdown] = useState<number | null>(null);
   const [newFile, setNewFile] = useState("");
-  const [activeRightTab, setActiveRightTab] = useState<"output" | "input" | "preview">("output");
+  const [activeRightTab, setActiveRightTab] = useState<"output" | "preview">("output");
   const [previewHtml, setPreviewHtml] = useState("");
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -1509,9 +1509,9 @@ export default function CodingRoom() {
           </div>
 
           <div className="shrink-0 flex flex-col border-t overflow-hidden"
-            style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: dockOpen ? 240 : "auto" }}>
+            style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: dockOpen ? 300 : "auto" }}>
             <div className="flex items-center shrink-0 border-b" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
-              {([{ key: "output", label: "ناتج التشغيل", icon: Terminal }, { key: "input", label: "المدخلات (stdin)", icon: Keyboard }, { key: "preview", label: "معاينة HTML", icon: Eye }] as const).map((t) => {
+              {([{ key: "output", label: "التيرمنال", icon: Terminal }, { key: "preview", label: "معاينة HTML", icon: Eye }] as const).map((t) => {
                 const active = activeRightTab === t.key;
                 const Icon = t.icon;
                 return (
@@ -1533,42 +1533,51 @@ export default function CodingRoom() {
             </div>
             {dockOpen && (
               activeRightTab === "output" ? (
-                <div className="flex-1 overflow-y-auto p-3 font-mono text-xs">
-                  {runOutputs.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-white/25 font-sans gap-2">
-                      <Terminal className="w-8 h-8 text-white/10" />
-                      <span className="text-xs">شغّل الكود لرؤية الناتج هنا</span>
-                    </div>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {runOutputs.slice(-15).map((o, i) => (
-                        <div key={i} className="rounded-lg p-3" style={{ background: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.12)" }}>
-                          <div className="text-[10px] text-emerald-400/70 mb-1.5 font-sans flex items-center gap-1.5">
-                            <span className="font-bold">{o.triggeredByName}</span>
-                            <span className="text-white/20">•</span>
-                            <span>{new Date(o.timestamp).toLocaleTimeString("ar")}</span>
-                            {o.language && <span className="px-1.5 py-0.5 rounded text-[9px]" style={{ background: "rgba(59,130,246,0.12)", color: "#60A5FA" }}>{o.language}</span>}
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <div className="flex-1 overflow-y-auto p-3 font-mono text-xs">
+                    {runOutputs.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-white/25 font-sans gap-2">
+                        <Terminal className="w-8 h-8 text-white/10" />
+                        <span className="text-xs">شغّل الكود لرؤية الناتج هنا</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-px">
+                        {runOutputs.slice(-15).map((o, i) => (
+                          <div key={i}>
+                            <div className="text-[10px] pt-2 pb-0.5 font-sans flex items-center gap-1.5" style={{ color: "rgba(52,211,153,0.55)" }}>
+                              <span className="font-bold">{o.triggeredByName}</span>
+                              <span className="text-white/15">•</span>
+                              <span>{new Date(o.timestamp).toLocaleTimeString("ar")}</span>
+                              {o.language && <span className="px-1 py-px rounded text-[9px]" style={{ background: "rgba(59,130,246,0.1)", color: "#60A5FA" }}>{o.language}</span>}
+                            </div>
+                            <pre className="text-[12px] whitespace-pre-wrap break-all leading-relaxed pb-2 border-b" style={{ color: "rgba(255,255,255,0.82)", borderColor: "rgba(255,255,255,0.04)" }}>{o.output}</pre>
                           </div>
-                          <pre className="text-white/75 text-[11px] whitespace-pre-wrap break-all leading-relaxed">{o.output}</pre>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : activeRightTab === "input" ? (
-                <div className="flex-1 flex flex-col p-3 gap-2 overflow-hidden">
-                  <p className="text-[11px] text-white/40 shrink-0 leading-relaxed">
-                    اكتب هنا المدخلات التي سيقرأها البرنامج (مثل <span dir="ltr" className="font-mono text-emerald-400/80">input()</span> في بايثون أو <span dir="ltr" className="font-mono text-emerald-400/80">Scanner</span> في جافا). كل سطر = إدخال منفصل.
-                  </p>
-                  <textarea
-                    value={stdinText}
-                    onChange={(e) => setStdinText(e.target.value)}
-                    dir="ltr"
-                    spellCheck={false}
-                    placeholder={"مثال:\nأحمد\n25"}
-                    className="flex-1 w-full resize-none rounded-lg p-3 font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left leading-relaxed"
-                    style={{ background: "rgba(0,0,0,0.35)", border: "1px solid rgba(16,185,129,0.18)" }}
-                  />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="shrink-0 flex items-start gap-0 border-t" style={{ borderColor: "rgba(16,185,129,0.18)", background: "rgba(0,0,0,0.35)" }}>
+                    <span className="text-emerald-400 font-mono text-sm px-3 pt-2.5 select-none leading-none shrink-0">❯</span>
+                    <textarea
+                      value={stdinText}
+                      onChange={(e) => setStdinText(e.target.value)}
+                      dir="ltr"
+                      rows={2}
+                      spellCheck={false}
+                      placeholder={"stdin — سطر لكل input()"}
+                      className="flex-1 resize-none bg-transparent font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left leading-relaxed py-2.5 pr-3"
+                      style={{ minHeight: 56 }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                          e.preventDefault();
+                        }
+                      }}
+                    />
+                    {stdinText && (
+                      <button onClick={() => setStdinText("")}
+                        className="px-2.5 pt-2.5 text-white/25 hover:text-white/60 transition-colors text-xs shrink-0 leading-none font-mono">✕</button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="flex-1 overflow-hidden p-2">
