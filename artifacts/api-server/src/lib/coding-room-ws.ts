@@ -48,6 +48,17 @@ function assignColor(roomId: number, userId: number): string {
   return color;
 }
 
+function isValidFilePath(p: string): boolean {
+  if (!p || p.length > 300) return false;
+  if (p.startsWith("/") || p.endsWith("/")) return false;
+  if (p.includes("\\")) return false;
+  const parts = p.split("/");
+  for (const seg of parts) {
+    if (!seg || seg === "." || seg === "..") return false;
+  }
+  return true;
+}
+
 function broadcast(roomId: number, msg: object, excludeUserId?: number) {
   const clients = getRoomClients(roomId);
   const data = JSON.stringify(msg);
@@ -214,6 +225,10 @@ async function handleMessage(client: WsClient, raw: string) {
       }
       const filePath = (msg.filePath ?? "").trim();
       if (!filePath) return;
+      if (!isValidFilePath(filePath)) {
+        sendTo(client, { type: "error", message: "مسار ملف غير صالح" });
+        return;
+      }
       await db.execute(
         sql`INSERT INTO coding_room_files (room_id, file_path, content, created_by_user_id)
             VALUES (${client.roomId}, ${filePath}, ${msg.content ?? ""}, ${client.userId})
@@ -225,6 +240,41 @@ async function handleMessage(client: WsClient, raw: string) {
         username: client.username,
         filePath,
         content: msg.content ?? "",
+      });
+      break;
+    }
+
+    case "file_renamed": {
+      if (!client.canWrite && client.role !== "host") {
+        sendTo(client, { type: "error", message: "ليس لديك إذن تعديل الملفات" });
+        return;
+      }
+      const oldPath = (msg.oldPath ?? "").trim();
+      const newPath = (msg.newPath ?? "").trim();
+      if (!oldPath || !newPath || oldPath === newPath) return;
+      if (!isValidFilePath(newPath)) {
+        sendTo(client, { type: "error", message: "مسار ملف غير صالح" });
+        return;
+      }
+      const existing = await db.execute(
+        sql`SELECT 1 FROM coding_room_files
+            WHERE room_id = ${client.roomId} AND file_path = ${newPath} LIMIT 1`
+      );
+      if (existing.rows.length > 0) {
+        sendTo(client, { type: "error", message: "يوجد ملف بهذا الاسم بالفعل" });
+        return;
+      }
+      const updated = await db.execute(
+        sql`UPDATE coding_room_files SET file_path = ${newPath}, updated_at = NOW()
+            WHERE room_id = ${client.roomId} AND file_path = ${oldPath}`
+      );
+      if (!updated.rowCount) return;
+      broadcastJoined(client.roomId, {
+        type: "file_renamed",
+        userId: client.userId,
+        username: client.username,
+        oldPath,
+        newPath,
       });
       break;
     }

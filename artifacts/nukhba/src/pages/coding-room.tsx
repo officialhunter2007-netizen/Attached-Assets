@@ -8,6 +8,7 @@ import {
   Mic, MicOff, MessageSquare, Users, Play, X, Crown,
   ChevronLeft, Download, AlertTriangle, Clock, Check,
   Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2,
+  Folder, FolderOpen, Trash2, FolderTree, Keyboard,
 } from "lucide-react";
 
 type Member = {
@@ -56,6 +57,196 @@ const EXT_TO_LANG: Record<string, string> = {
 function getMonacoLang(filePath: string) {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   return EXT_TO_LANG[ext] ?? "plaintext";
+}
+
+const RUN_LANG_MAP: Record<string, string> = {
+  py: "python",
+  js: "javascript", mjs: "javascript", cjs: "javascript",
+  ts: "typescript",
+  java: "java",
+  c: "c",
+  cpp: "cpp", cc: "cpp", cxx: "cpp", "c++": "cpp", h: "cpp", hpp: "cpp",
+  rs: "rust",
+  kt: "kotlin", kts: "kotlin",
+  sh: "bash", bash: "bash",
+  sql: "sql",
+};
+
+function runLangFor(filePath: string): string | null {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  return RUN_LANG_MAP[ext] ?? null;
+}
+
+function sanitizeEntryCode(lang: string, code: string): string {
+  if (lang !== "java") return code;
+  return code.replace(
+    /\bpublic\s+(?=(?:abstract\s+|final\s+|sealed\s+|strictfp\s+)*(?:class|interface|enum|record)\b)/g,
+    "",
+  );
+}
+
+const MAX_FILE_BYTES = 100_000;
+const MAX_TOTAL_BYTES = 256_000;
+
+function byteLen(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
+function dirOf(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i === -1 ? "" : path.slice(0, i);
+}
+
+function isValidPath(path: string): boolean {
+  if (!path || path.length > 300) return false;
+  if (path.startsWith("/") || path.endsWith("/")) return false;
+  if (path.includes("\\")) return false;
+  for (const seg of path.split("/")) {
+    if (!seg || seg === "." || seg === "..") return false;
+  }
+  return true;
+}
+
+function normalizePath(base: string, ref: string): string {
+  let p = ref.trim().replace(/^\.\//, "");
+  if (p.startsWith("/")) p = p.slice(1);
+  else if (base) p = `${base}/${p}`;
+  const parts: string[] = [];
+  for (const seg of p.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+function buildHtmlPreview(entryPath: string, allFiles: FileMeta[]): string {
+  const entry = allFiles.find((f) => f.file_path === entryPath);
+  if (!entry) return "";
+  const base = dirOf(entryPath);
+  const lookup = (ref: string): FileMeta | undefined => {
+    if (/^(https?:)?\/\//i.test(ref) || ref.startsWith("data:") || ref.startsWith("#")) return undefined;
+    const resolved = normalizePath(base, ref);
+    return allFiles.find((f) => f.file_path === resolved) ??
+      allFiles.find((f) => f.file_path === ref.replace(/^\.?\//, ""));
+  };
+  let html = entry.content ?? "";
+  html = html.replace(
+    /<link\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi,
+    (m, href) => {
+      if (!/stylesheet/i.test(m) && !/\.css(\?|$)/i.test(href)) return m;
+      const css = lookup(href);
+      return css ? `<style>\n${css.content ?? ""}\n</style>` : m;
+    }
+  );
+  html = html.replace(
+    /<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)><\/script>/gi,
+    (m, pre, src, post) => {
+      const js = lookup(src);
+      if (!js) return m;
+      const attrs = `${pre} ${post}`.replace(/\bsrc\s*=\s*["'][^"']*["']/gi, "").trim();
+      return `<script ${attrs}>\n${js.content ?? ""}\n</script>`;
+    }
+  );
+  return html;
+}
+
+type TreeNode = {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children: TreeNode[];
+};
+
+function buildTree(files: FileMeta[]): TreeNode[] {
+  const root: TreeNode = { name: "", path: "", isDir: true, children: [] };
+  for (const f of files) {
+    const parts = f.file_path.split("/").filter(Boolean);
+    let cur = root;
+    let acc = "";
+    for (let i = 0; i < parts.length; i++) {
+      const seg = parts[i];
+      acc = acc ? `${acc}/${seg}` : seg;
+      const isLeaf = i === parts.length - 1;
+      let node = cur.children.find((c) => c.name === seg && c.isDir === !isLeaf);
+      if (!node) {
+        node = { name: seg, path: isLeaf ? f.file_path : acc, isDir: !isLeaf, children: [] };
+        cur.children.push(node);
+      }
+      cur = node;
+    }
+  }
+  const sortRec = (n: TreeNode) => {
+    n.children.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
+    n.children.forEach(sortRec);
+  };
+  sortRec(root);
+  return root.children;
+}
+
+function FileTreeNode({
+  node, depth, activeFile, expandedFolders, onToggle, onOpen, onRename, onDelete, canWrite,
+}: {
+  node: TreeNode;
+  depth: number;
+  activeFile: string;
+  expandedFolders: Record<string, boolean>;
+  onToggle: (path: string) => void;
+  onOpen: (path: string) => void;
+  onRename: (path: string) => void;
+  onDelete: (path: string) => void;
+  canWrite: boolean;
+}) {
+  const pad = 8 + depth * 12;
+  if (node.isDir) {
+    const open = expandedFolders[node.path] ?? true;
+    return (
+      <div>
+        <button
+          onClick={() => onToggle(node.path)}
+          className="w-full flex items-center gap-1.5 py-1.5 text-[12px] font-medium text-white/60 hover:text-white/90 hover:bg-white/[0.03] transition-colors text-right"
+          style={{ paddingRight: pad, paddingLeft: 8 }}
+        >
+          <ChevronLeft className="w-3 h-3 shrink-0 transition-transform" style={{ transform: open ? "rotate(-90deg)" : "none" }} />
+          {open ? <FolderOpen className="w-3.5 h-3.5 shrink-0 text-amber-400/70" /> : <Folder className="w-3.5 h-3.5 shrink-0 text-amber-400/70" />}
+          <span className="truncate">{node.name}</span>
+        </button>
+        {open && node.children.map((c) => (
+          <FileTreeNode key={c.path} node={c} depth={depth + 1} activeFile={activeFile}
+            expandedFolders={expandedFolders} onToggle={onToggle} onOpen={onOpen}
+            onRename={onRename} onDelete={onDelete} canWrite={canWrite} />
+        ))}
+      </div>
+    );
+  }
+  const active = activeFile === node.path;
+  return (
+    <div
+      className="group flex items-center transition-colors"
+      style={{ background: active ? "rgba(16,185,129,0.08)" : "transparent" }}
+    >
+      <button
+        onClick={() => onOpen(node.path)}
+        className="flex-1 min-w-0 flex items-center gap-1.5 py-1.5 text-[12px] font-medium transition-colors text-right"
+        style={{ paddingRight: pad + 16, paddingLeft: 4, color: active ? "#34D399" : "rgba(255,255,255,0.5)" }}
+      >
+        <FileCode2 className="w-3.5 h-3.5 shrink-0" style={{ opacity: active ? 1 : 0.5 }} />
+        <span className="truncate">{node.name}</span>
+      </button>
+      {canWrite && (
+        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity shrink-0 pl-1.5">
+          <button onClick={() => onRename(node.path)} title="إعادة تسمية"
+            className="w-6 h-6 rounded flex items-center justify-center text-white/40 hover:text-emerald-400 hover:bg-white/5">
+            <Pencil className="w-3 h-3" />
+          </button>
+          <button onClick={() => onDelete(node.path)} title="حذف"
+            className="w-6 h-6 rounded flex items-center justify-center text-white/40 hover:text-red-400 hover:bg-white/5">
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function MemberItem({
@@ -211,6 +402,12 @@ export default function CodingRoom() {
   const [members, setMembers] = useState<Member[]>([]);
   const [files, setFiles] = useState<FileMeta[]>([]);
   const [activeFile, setActiveFile] = useState<string>("");
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const [stdinText, setStdinText] = useState("");
+  const [showStdin, setShowStdin] = useState(false);
+  const [renamingFile, setRenamingFile] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([]);
   const [runOutputs, setRunOutputs] = useState<RunOutput[]>([]);
   const [chatText, setChatText] = useState("");
@@ -220,7 +417,7 @@ export default function CodingRoom() {
   const [showChat, setShowChat] = useState(false);
   const [closingCountdown, setClosingCountdown] = useState<number | null>(null);
   const [newFile, setNewFile] = useState("");
-  const [activeRightTab, setActiveRightTab] = useState<"output" | "preview">("output");
+  const [activeRightTab, setActiveRightTab] = useState<"output" | "input" | "preview">("output");
   const [previewHtml, setPreviewHtml] = useState("");
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -230,6 +427,7 @@ export default function CodingRoom() {
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const activeFileRef = useRef<string>("");
+  const modelFileRef = useRef<string>("");
   const showChatRef = useRef(false);
   const myInfoRef = useRef<typeof myInfo>(null);
   const handleWsMsgRef = useRef<(raw: string) => void>(() => {});
@@ -361,6 +559,7 @@ export default function CodingRoom() {
         if (filesFromWs.length > 0) {
           setActiveFile((prev) => {
             const target = prev && filesFromWs.find((f) => f.file_path === prev) ? prev : filesFromWs[0].file_path;
+            setOpenTabs((tabs) => (tabs.includes(target) ? tabs : [...tabs, target]));
             return target;
           });
         }
@@ -475,20 +674,31 @@ export default function CodingRoom() {
           return [...prev, { file_path: msg.filePath, content: msg.content ?? "", language: "" }];
         });
         if (msg.userId === myUserId) {
+          setOpenTabs((tabs) => (tabs.includes(msg.filePath) ? tabs : [...tabs, msg.filePath]));
           setActiveFile(msg.filePath);
         }
         break;
 
       case "file_deleted":
-        setFiles((prev) => {
-          const remaining = prev.filter((f) => f.file_path !== msg.filePath);
+        setFiles((prev) => prev.filter((f) => f.file_path !== msg.filePath));
+        setOpenTabs((prev) => {
+          const next = prev.filter((p) => p !== msg.filePath);
           if (activeFileRef.current === msg.filePath) {
-            const next = remaining[0]?.file_path ?? "";
-            setActiveFile(next);
+            setActiveFile(next[next.length - 1] ?? "");
           }
-          return remaining;
+          return next;
         });
         break;
+
+      case "file_renamed": {
+        const oldP: string = msg.oldPath;
+        const newP: string = msg.newPath;
+        setFiles((prev) => prev.map((f) => f.file_path === oldP ? { ...f, file_path: newP } : f));
+        setOpenTabs((prev) => prev.map((p) => (p === oldP ? newP : p)));
+        if (modelFileRef.current === oldP) modelFileRef.current = newP;
+        if (activeFileRef.current === oldP) setActiveFile(newP);
+        break;
+      }
 
       case "file_delete_request": {
         if (myInfoRef.current?.role === "host") {
@@ -643,24 +853,35 @@ export default function CodingRoom() {
     if (!file) return;
     const model = editorRef.current.getModel();
     if (model) {
-      const current = model.getValue();
-      if (current !== file.content) {
+      const prevFile = modelFileRef.current;
+      if (prevFile && prevFile !== activeFile && files.some((f) => f.file_path === prevFile)) {
+        const prevContent = model.getValue();
         if (sendTimerRef.current) {
           clearTimeout(sendTimerRef.current);
           sendTimerRef.current = null;
         }
-        const pos = editorRef.current.getPosition();
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "code_change", file: prevFile, fullContent: prevContent }));
+        }
+        setFiles((prev) => prev.map((f) => f.file_path === prevFile ? { ...f, content: prevContent } : f));
+      }
+      const target = file.content ?? "";
+      if (model.getValue() !== target) {
+        if (sendTimerRef.current) {
+          clearTimeout(sendTimerRef.current);
+          sendTimerRef.current = null;
+        }
         isApplyingRemoteRef.current = true;
         try {
           editorRef.current.pushUndoStop();
-          model.setValue(file.content ?? "");
+          model.setValue(target);
           editorRef.current.pushUndoStop();
-          if (pos) editorRef.current.setPosition(pos);
         } finally {
           isApplyingRemoteRef.current = false;
         }
       }
       monacoRef.current.editor.setModelLanguage(model, getMonacoLang(activeFile));
+      modelFileRef.current = activeFile;
     }
     const isEditable = !!(myInfo?.canWrite || myInfo?.role === "host");
     editorRef.current.updateOptions({ readOnly: !isEditable });
@@ -827,49 +1048,92 @@ export default function CodingRoom() {
     const file = files.find((f) => f.file_path === currentFile);
     if (!file) { alert("اختر ملفاً أولاً"); return; }
 
+    const entryContent = editorRef.current?.getValue() ?? file.content;
+    const liveFiles = files.map((f) =>
+      f.file_path === currentFile ? { ...f, content: entryContent } : f
+    );
+
     if (currentFile.endsWith(".html")) {
-      setPreviewHtml(file.content);
+      setPreviewHtml(buildHtmlPreview(currentFile, liveFiles));
       setActiveRightTab("preview");
       setDockOpen(true);
-      wsRef.current?.send(JSON.stringify({ type: "run_output", output: "✅ HTML preview shown", language: "html" }));
+      wsRef.current?.send(JSON.stringify({ type: "run_output", output: "✅ تم عرض معاينة HTML", language: "html" }));
       return;
     }
 
-    const ext = currentFile.split(".").pop()?.toLowerCase() ?? "";
-    const langMap: Record<string, string> = {
-      js: "javascript", py: "python", ts: "typescript",
-      java: "java", cpp: "cpp", c: "c", rs: "rust",
+    const lang = runLangFor(currentFile);
+    if (!lang) {
+      const ext = currentFile.split(".").pop()?.toLowerCase() ?? "";
+      wsRef.current?.send(JSON.stringify({
+        type: "run_output",
+        output: `⚠️ صيغة الملف «.${ext}» غير قابلة للتشغيل. اللغات المدعومة: Python, JavaScript, TypeScript, Java, C, C++, Rust, Kotlin, Bash, SQL`,
+        language: ext,
+      }));
+      setActiveRightTab("output");
+      setDockOpen(true);
+      return;
+    }
+
+    const codes: Array<{ file: string; code: string }> = [];
+    let total = byteLen(entryContent);
+    let skipped = 0;
+    for (const f of liveFiles) {
+      if (f.file_path === currentFile) continue;
+      const size = byteLen(f.content ?? "");
+      if (size > MAX_FILE_BYTES) { skipped++; continue; }
+      if (total + size > MAX_TOTAL_BYTES) { skipped++; continue; }
+      total += size;
+      codes.push({ file: f.file_path, code: f.content ?? "" });
+    }
+
+    const emitOutput = (out: string) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "run_output", output: out, language: lang }));
+      } else {
+        setRunOutputs((prev) => [...prev, {
+          triggeredBy: myUserIdRef.current ?? -1,
+          triggeredByName: (user as any)?.displayName ?? "أنا",
+          output: out,
+          language: lang,
+          timestamp: new Date().toISOString(),
+        }]);
+        setActiveRightTab("output");
+        setDockOpen(true);
+        setIsRunning(false);
+      }
     };
-    const lang = langMap[ext] ?? "javascript";
 
     setIsRunning(true);
     try {
       const r = await fetch("/api/ai/run-code", {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language: lang, code: editorRef.current?.getValue() ?? file.content }),
+        body: JSON.stringify({
+          language: lang,
+          code: sanitizeEntryCode(lang, entryContent),
+          codes,
+          stdin: stdinText,
+        }),
       });
       const d = await r.json();
-      wsRef.current?.send(JSON.stringify({
-        type: "run_output",
-        output: d.output ?? d.error ?? "⚠️ لا يوجد ناتج",
-        language: lang,
-      }));
+      let out = d.output ?? d.error ?? "⚠️ لا يوجد ناتج";
+      if (d.error && d.output) out = `${d.output}\n${d.error}`;
+      if (skipped > 0) out = `⚠️ تم تجاهل ${skipped} ملف لتجاوز حد الحجم\n${out}`;
+      emitOutput(out);
     } catch {
-      wsRef.current?.send(JSON.stringify({
-        type: "run_output",
-        output: "❌ خطأ في الاتصال بخادم التشغيل",
-        language: lang,
-      }));
-      setIsRunning(false);
+      emitOutput("❌ خطأ في الاتصال بخادم التشغيل");
     }
   };
 
   const addNewFile = () => {
     const filePath = newFile.trim();
     if (!filePath) return;
+    if (!isValidPath(filePath)) {
+      alert("مسار غير صالح — لا يبدأ بـ / ولا يحتوي ..");
+      return;
+    }
     if (files.find((f) => f.file_path === filePath)) {
-      setActiveFile(filePath);
+      openFile(filePath);
       setNewFile("");
       setAddingFile(false);
       return;
@@ -877,6 +1141,39 @@ export default function CodingRoom() {
     wsRef.current?.send(JSON.stringify({ type: "file_created", filePath, content: "" }));
     setNewFile("");
     setAddingFile(false);
+  };
+
+  const openFile = useCallback((path: string) => {
+    setOpenTabs((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    setActiveFile(path);
+  }, []);
+
+  const closeTab = useCallback((path: string) => {
+    setOpenTabs((prev) => {
+      const next = prev.filter((p) => p !== path);
+      if (activeFileRef.current === path) {
+        const idx = prev.indexOf(path);
+        const fallback = next[idx] ?? next[idx - 1] ?? next[next.length - 1] ?? "";
+        setActiveFile(fallback);
+      }
+      return next;
+    });
+  }, []);
+
+  const submitRename = () => {
+    const oldPath = renamingFile;
+    const target = renameValue.trim();
+    setRenamingFile(null);
+    setRenameValue("");
+    if (!oldPath || !target || target === oldPath) return;
+    if (!isValidPath(target)) { alert("مسار غير صالح"); return; }
+    if (files.some((f) => f.file_path === target)) { alert("يوجد ملف بهذا الاسم"); return; }
+    wsRef.current?.send(JSON.stringify({ type: "file_renamed", oldPath, newPath: target }));
+  };
+
+  const requestDeleteFile = (path: string) => {
+    if (!confirm(`حذف الملف «${path}»؟`)) return;
+    wsRef.current?.send(JSON.stringify({ type: "file_deleted", filePath: path }));
   };
 
   const handleAdmit = (targetUserId: number) => {
@@ -1053,24 +1350,76 @@ export default function CodingRoom() {
 
         <aside className="w-64 shrink-0 flex flex-col border-l overflow-hidden"
           style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.06)" }}>
-          <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between"
-            style={{ borderColor: "rgba(255,255,255,0.05)" }}>
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-emerald-400" />
-              <span className="text-sm font-bold text-white/70">الأعضاء</span>
+
+          <div className="flex flex-col flex-1 min-h-0">
+            <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between"
+              style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+              <div className="flex items-center gap-2">
+                <FolderTree className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-bold text-white/70">الملفات</span>
+                <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full"
+                  style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{files.length}</span>
+              </div>
+              {canWrite && !addingFile && (
+                <button onClick={() => setAddingFile(true)} title="ملف جديد (اكتب مثل src/app.py)"
+                  className="w-6 h-6 rounded-lg flex items-center justify-center text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+                  <Plus className="w-4 h-4" />
+                </button>
+              )}
             </div>
-            <span className="text-xs font-black px-2 py-0.5 rounded-full"
-              style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{members.length}</span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
-            {members.map((m) => (
-              <MemberItem key={m.userId} member={m} isMe={m.userId === myUserId}
-                isHost={myInfo?.role === "host"} onPermChange={handlePermChange}
-                onKick={handleKick} onTransfer={handleTransfer} />
-            ))}
-            {members.length === 0 && (
-              <div className="text-xs text-white/25 text-center py-8">لا أحد متصل بعد</div>
+            {addingFile && (
+              <div className="flex items-center gap-1 px-2.5 py-2 border-b shrink-0" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+                <input autoFocus value={newFile} onChange={(e) => setNewFile(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addNewFile(); } else if (e.key === "Escape") { setNewFile(""); setAddingFile(false); } }}
+                  onBlur={() => { if (!newFile.trim()) setAddingFile(false); }}
+                  placeholder="src/app.py"
+                  dir="ltr"
+                  className="flex-1 min-w-0 text-xs px-2.5 py-1.5 rounded-lg outline-none text-white placeholder:text-white/25 text-left"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(16,185,129,0.3)" }} />
+                <button onClick={addNewFile}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-emerald-400 hover:bg-emerald-500/15 transition-colors shrink-0">
+                  <Check className="w-4 h-4" />
+                </button>
+              </div>
             )}
+            <div className="flex-1 overflow-y-auto py-1.5">
+              {files.length === 0 ? (
+                <div className="text-xs text-white/25 text-center py-8 px-3">
+                  {canWrite ? "لا توجد ملفات — اضغط + لإنشاء ملف" : "بانتظار إنشاء الملفات…"}
+                </div>
+              ) : (
+                buildTree(files).map((node) => (
+                  <FileTreeNode key={node.path} node={node} depth={0} activeFile={activeFile}
+                    expandedFolders={expandedFolders}
+                    onToggle={(p) => setExpandedFolders((prev) => ({ ...prev, [p]: !(prev[p] ?? true) }))}
+                    onOpen={openFile}
+                    onRename={(p) => { setRenamingFile(p); setRenameValue(p); }}
+                    onDelete={requestDeleteFile}
+                    canWrite={canWrite} />
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="shrink-0 border-t flex flex-col" style={{ borderColor: "rgba(255,255,255,0.06)", maxHeight: "42%" }}>
+            <div className="px-4 py-2.5 shrink-0 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-bold text-white/70">الأعضاء</span>
+              </div>
+              <span className="text-xs font-black px-2 py-0.5 rounded-full"
+                style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{members.length}</span>
+            </div>
+            <div className="flex-1 overflow-y-auto px-2.5 pb-2.5 space-y-1.5">
+              {members.map((m) => (
+                <MemberItem key={m.userId} member={m} isMe={m.userId === myUserId}
+                  isHost={myInfo?.role === "host"} onPermChange={handlePermChange}
+                  onKick={handleKick} onTransfer={handleTransfer} />
+              ))}
+              {members.length === 0 && (
+                <div className="text-xs text-white/25 text-center py-4">لا أحد متصل بعد</div>
+              )}
+            </div>
           </div>
         </aside>
 
@@ -1080,41 +1429,30 @@ export default function CodingRoom() {
             <PendingBanner requests={pendingRequests} onAdmit={handleAdmit} onReject={handleReject} />
           )}
 
-          <div className="flex items-stretch shrink-0 border-b overflow-x-auto"
+          <div className="flex items-stretch shrink-0 border-b overflow-x-auto" dir="ltr"
             style={{ background: "rgba(4,6,14,0.9)", borderColor: "rgba(255,255,255,0.06)" }}>
-            {files.map((f) => {
-              const active = activeFile === f.file_path;
+            {openTabs.length === 0 && (
+              <div className="px-4 py-2.5 text-[12px] text-white/25" dir="rtl">افتح ملفًا من الشجرة</div>
+            )}
+            {openTabs.map((path) => {
+              const active = activeFile === path;
+              const name = path.split("/").pop() || path;
               return (
-                <button key={f.file_path} onClick={() => setActiveFile(f.file_path)}
-                  className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium whitespace-nowrap transition-colors relative border-l shrink-0"
-                  style={{ background: active ? "rgba(16,185,129,0.08)" : "transparent", color: active ? "#34D399" : "rgba(255,255,255,0.45)", borderColor: "rgba(255,255,255,0.05)" }}>
+                <div key={path}
+                  className="group flex items-center gap-1.5 pr-3 pl-1.5 py-2.5 text-[13px] font-medium whitespace-nowrap transition-colors relative border-r shrink-0 cursor-pointer"
+                  style={{ background: active ? "rgba(16,185,129,0.08)" : "transparent", color: active ? "#34D399" : "rgba(255,255,255,0.45)", borderColor: "rgba(255,255,255,0.05)" }}
+                  onClick={() => setActiveFile(path)}
+                  title={path}>
                   <FileCode2 className="w-3.5 h-3.5 shrink-0" style={{ opacity: active ? 1 : 0.5 }} />
-                  {f.file_path}
+                  <span>{name}</span>
+                  <button onClick={(e) => { e.stopPropagation(); closeTab(path); }}
+                    className="w-5 h-5 rounded flex items-center justify-center text-white/30 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+                    <X className="w-3 h-3" />
+                  </button>
                   {active && <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ background: "#10B981" }} />}
-                </button>
+                </div>
               );
             })}
-            {canWrite && (
-              addingFile ? (
-                <div className="flex items-center gap-1 px-2 shrink-0">
-                  <input autoFocus value={newFile} onChange={(e) => setNewFile(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addNewFile(); } else if (e.key === "Escape") { setNewFile(""); setAddingFile(false); } }}
-                    onBlur={() => { if (!newFile.trim()) setAddingFile(false); }}
-                    placeholder="app.py"
-                    className="w-32 text-xs px-2.5 py-1.5 rounded-lg outline-none text-white placeholder:text-white/25"
-                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(16,185,129,0.3)" }} />
-                  <button onClick={addNewFile}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-emerald-400 hover:bg-emerald-500/15 transition-colors">
-                    <Check className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <button onClick={() => setAddingFile(true)} title="ملف جديد"
-                  className="px-3 flex items-center justify-center text-white/40 hover:text-emerald-400 transition-colors shrink-0">
-                  <Plus className="w-4 h-4" />
-                </button>
-              )
-            )}
           </div>
 
           <div
@@ -1173,7 +1511,7 @@ export default function CodingRoom() {
           <div className="shrink-0 flex flex-col border-t overflow-hidden"
             style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: dockOpen ? 240 : "auto" }}>
             <div className="flex items-center shrink-0 border-b" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
-              {([{ key: "output", label: "ناتج التشغيل", icon: Terminal }, { key: "preview", label: "معاينة HTML", icon: Eye }] as const).map((t) => {
+              {([{ key: "output", label: "ناتج التشغيل", icon: Terminal }, { key: "input", label: "المدخلات (stdin)", icon: Keyboard }, { key: "preview", label: "معاينة HTML", icon: Eye }] as const).map((t) => {
                 const active = activeRightTab === t.key;
                 const Icon = t.icon;
                 return (
@@ -1217,6 +1555,21 @@ export default function CodingRoom() {
                     </div>
                   )}
                 </div>
+              ) : activeRightTab === "input" ? (
+                <div className="flex-1 flex flex-col p-3 gap-2 overflow-hidden">
+                  <p className="text-[11px] text-white/40 shrink-0 leading-relaxed">
+                    اكتب هنا المدخلات التي سيقرأها البرنامج (مثل <span dir="ltr" className="font-mono text-emerald-400/80">input()</span> في بايثون أو <span dir="ltr" className="font-mono text-emerald-400/80">Scanner</span> في جافا). كل سطر = إدخال منفصل.
+                  </p>
+                  <textarea
+                    value={stdinText}
+                    onChange={(e) => setStdinText(e.target.value)}
+                    dir="ltr"
+                    spellCheck={false}
+                    placeholder={"مثال:\nأحمد\n25"}
+                    className="flex-1 w-full resize-none rounded-lg p-3 font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left leading-relaxed"
+                    style={{ background: "rgba(0,0,0,0.35)", border: "1px solid rgba(16,185,129,0.18)" }}
+                  />
+                </div>
               ) : (
                 <div className="flex-1 overflow-hidden p-2">
                   {previewHtml ? (
@@ -1235,6 +1588,39 @@ export default function CodingRoom() {
           </div>
         </div>
       </div>
+
+      {renamingFile !== null && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => { setRenamingFile(null); setRenameValue(""); }}>
+          <div onClick={(e) => e.stopPropagation()}
+            className="w-[90%] max-w-sm rounded-2xl p-5 flex flex-col gap-4"
+            style={{ background: "rgba(10,13,22,0.98)", border: "1px solid rgba(16,185,129,0.25)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div className="flex items-center gap-2">
+              <Pencil className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm font-bold text-white/85">إعادة تسمية / نقل الملف</span>
+            </div>
+            <p className="text-[11px] text-white/40 leading-relaxed -mt-1">
+              يمكنك تغيير الاسم أو نقل الملف لمجلد آخر بكتابة المسار الكامل (مثل <span dir="ltr" className="font-mono text-emerald-400/80">src/utils/helper.py</span>).
+            </p>
+            <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitRename(); } else if (e.key === "Escape") { setRenamingFile(null); setRenameValue(""); } }}
+              dir="ltr"
+              className="w-full text-sm px-3 py-2.5 rounded-lg outline-none text-white placeholder:text-white/25 text-left font-mono"
+              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(16,185,129,0.3)" }} />
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => { setRenamingFile(null); setRenameValue(""); }}
+                className="px-4 py-2 rounded-lg text-xs font-bold text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors">
+                إلغاء
+              </button>
+              <button onClick={submitRename}
+                className="px-4 py-2 rounded-lg text-xs font-bold transition-colors"
+                style={{ background: "linear-gradient(135deg,#10B981,#059669)", color: "#04120c" }}>
+                حفظ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <AnimatePresence>
         {showChat && (
