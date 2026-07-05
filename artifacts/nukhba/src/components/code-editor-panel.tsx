@@ -1209,6 +1209,14 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const previewBlobRef = useRef("");
   const [livePreview, setLivePreview] = useState(false);
   const [inlinePreviewDevice, setInlinePreviewDevice] = useState<"desktop" | "mobile">("desktop");
+  const [processRunning, setProcessRunning] = useState(false);
+  const [liveOutput, setLiveOutput] = useState("");
+  const [inputLine, setInputLine] = useState("");
+  const [interactiveMode, setInteractiveMode] = useState(false);
+  const liveOutputRef = useRef("");
+  const liveEndRef = useRef<HTMLDivElement>(null);
+  const hiddenInputRef = useRef<HTMLInputElement>(null);
+  const soloWsRef = useRef<WebSocket | null>(null);
   const [showCdnPicker, setShowCdnPicker] = useState(false);
   const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [quickOpenQuery, setQuickOpenQuery] = useState("");
@@ -1516,6 +1524,20 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   }, [files, livePreview, showPreview]);
 
   useEffect(() => {
+    if (processRunning) liveEndRef.current?.scrollIntoView({ behavior: "instant" });
+  }, [liveOutput, processRunning]);
+
+  useEffect(() => {
+    if (processRunning) setTimeout(() => hiddenInputRef.current?.focus(), 80);
+  }, [processRunning]);
+
+  useEffect(() => {
+    return () => {
+      soloWsRef.current?.close();
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (previewBlobRef.current) URL.revokeObjectURL(previewBlobRef.current);
     };
@@ -1692,12 +1714,78 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     setShowCdnPicker(false);
   };
 
+  const SOLO_INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
+
   const handleRunCode = async () => {
     const file = activeFileRef.current;
     if (runningRef.current || !file) return;
+
+    if (SOLO_INTERACTIVE_LANGS.has(file.language)) {
+      soloWsRef.current?.close();
+      setRunning(true);
+      setShowOutput(true);
+      setOutput(null);
+      setInteractiveMode(true);
+      liveOutputRef.current = "";
+      setLiveOutput("");
+      setInputLine("");
+      setProcessRunning(false);
+
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/solo-run`);
+      soloWsRef.current = ws;
+
+      ws.onopen = () => {
+        const allFiles = files.map(f => ({ path: f.name, content: f.content }));
+        ws.send(JSON.stringify({
+          type: "run",
+          entryFile: file.name,
+          language: file.language,
+          files: allFiles,
+        }));
+        setProcessRunning(true);
+      };
+
+      ws.onmessage = (e) => {
+        let msg: any;
+        try { msg = JSON.parse(e.data); } catch { return; }
+        if (msg.type === "output") {
+          const next = (liveOutputRef.current + msg.data).slice(-200_000);
+          liveOutputRef.current = next;
+          setLiveOutput(next);
+        } else if (msg.type === "exit") {
+          setProcessRunning(false);
+          setRunning(false);
+          const code = msg.exitCode;
+          setOutputType(code === 0 ? "success" : "error");
+          const exitMsg = code !== null ? `\n[انتهى • كود: ${code}]` : "\n[أُوقف]";
+          const next = (liveOutputRef.current + exitMsg).slice(-200_000);
+          liveOutputRef.current = next;
+          setLiveOutput(next);
+        }
+      };
+
+      ws.onerror = () => {
+        setProcessRunning(false);
+        setRunning(false);
+        const next = liveOutputRef.current + "\n❌ انقطع الاتصال بالخادم";
+        liveOutputRef.current = next;
+        setLiveOutput(next);
+        setOutputType("error");
+      };
+
+      ws.onclose = () => {
+        setProcessRunning(false);
+        setRunning(false);
+      };
+
+      return;
+    }
+
     setRunning(true);
     setShowOutput(true);
     setOutput(null);
+    setInteractiveMode(false);
     try {
       const siblings = files
         .filter(f => f.language === file.language && f.id !== file.id && !f.name.endsWith("/.gitkeep"))
@@ -2993,8 +3081,59 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div className="p-3 sm:p-4 font-mono min-h-[60px] sm:min-h-[80px] max-h-[340px] overflow-y-auto bg-[#060910] console-log-entry">
-                {output === null && running ? (
+              <div
+                className="p-3 sm:p-4 font-mono min-h-[60px] sm:min-h-[80px] max-h-[340px] overflow-y-auto bg-[#060910] console-log-entry"
+                style={processRunning ? { cursor: "text" } : undefined}
+                onClick={processRunning ? () => hiddenInputRef.current?.focus() : undefined}
+              >
+                {interactiveMode ? (
+                  liveOutput || processRunning ? (
+                    <>
+                      <div
+                        dir="ltr"
+                        style={{ fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: "1.65", color: "rgba(255,255,255,0.88)" }}
+                      >
+                        <span style={{ color: "rgba(110,106,134,0.8)" }}>$ {activeFile?.name}{"\n"}</span>
+                        {liveOutput}
+                        {processRunning && (
+                          <>
+                            <span>{inputLine}</span>
+                            <span className="terminal-cursor" />
+                          </>
+                        )}
+                      </div>
+                      <div ref={liveEndRef} />
+                      <input
+                        ref={hiddenInputRef}
+                        value={inputLine}
+                        onChange={(e) => setInputLine(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const data = inputLine + "\n";
+                            const next = (liveOutputRef.current + data).slice(-200_000);
+                            liveOutputRef.current = next;
+                            setLiveOutput(next);
+                            soloWsRef.current?.send(JSON.stringify({ type: "stdin", data }));
+                            setInputLine("");
+                          } else if (e.key === "c" && e.ctrlKey) {
+                            e.preventDefault();
+                            soloWsRef.current?.send(JSON.stringify({ type: "kill" }));
+                          }
+                        }}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        style={{ position: "fixed", opacity: 0, width: 1, height: 1, padding: 0, border: 0, pointerEvents: "none" }}
+                      />
+                    </>
+                  ) : running ? (
+                    <div className="flex items-center gap-2 text-[#6e6a86] text-xs sm:text-sm">
+                      <div className="w-3 h-3 border-2 border-[#F59E0B] border-t-transparent rounded-full animate-spin" />
+                      <span>$ {activeFile?.name}...</span>
+                    </div>
+                  ) : null
+                ) : output === null && running ? (
                   <div className="flex items-center gap-2 text-[#6e6a86] text-xs sm:text-sm">
                     <div className="w-3 h-3 border-2 border-[#F59E0B] border-t-transparent rounded-full animate-spin" />
                     <span>$ running {activeLangInfo.label}...</span>

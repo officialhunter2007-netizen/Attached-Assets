@@ -6,6 +6,7 @@ import { runStartupMigrations } from "./lib/auto-migrate";
 import { startScheduledJobs } from "./lib/scheduled-jobs";
 import { reapOrphanedProcessingBooklets } from "./lib/v4-booklet";
 import { initCodingRoomWss } from "./lib/coding-room-ws";
+import { initSoloRunWss } from "./lib/solo-run-ws";
 
 // Promise.try polyfill — native in Node 22+, absent in Node 20.
 // unpdf@1.6.0 calls Promise.try() internally when parsing PDFs.
@@ -80,6 +81,7 @@ async function start() {
 
   const server = http.createServer(app);
   initCodingRoomWss(server);
+  initSoloRunWss(server);
 
   server.listen(port, (err?: Error) => {
     if (err) {
