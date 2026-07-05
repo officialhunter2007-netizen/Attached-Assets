@@ -462,6 +462,10 @@ export default function CodingRoom() {
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   const [mobileTerminalHeight, setMobileTerminalHeight] = useState(180);
   const mobileDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [desktopTerminalHeight, setDesktopTerminalHeight] = useState(300);
+  const sidebarDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const terminalDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const activeFileRef = useRef<string>("");
@@ -1554,8 +1558,8 @@ export default function CodingRoom() {
 
       <div className="flex flex-1 overflow-hidden">
 
-        <aside className="hidden md:flex w-64 shrink-0 flex-col border-l overflow-hidden"
-          style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.06)" }}>
+        <aside className="hidden md:flex shrink-0 flex-col border-l overflow-hidden"
+          style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.06)", width: sidebarWidth }}>
 
           <div className="flex flex-col flex-1 min-h-0">
             <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between"
@@ -1628,6 +1632,26 @@ export default function CodingRoom() {
             </div>
           </div>
         </aside>
+
+        <div
+          className="hidden md:flex shrink-0 items-center justify-center cursor-col-resize select-none group"
+          style={{ width: 8, zIndex: 20 }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            sidebarDragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+            const onMove = (ev: MouseEvent) => {
+              if (!sidebarDragRef.current) return;
+              const next = Math.max(180, Math.min(500, sidebarDragRef.current.startWidth + (sidebarDragRef.current.startX - ev.clientX)));
+              setSidebarWidth(next);
+            };
+            const onUp = () => { sidebarDragRef.current = null; document.removeEventListener("mousemove", onMove); };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp, { once: true });
+          }}
+        >
+          <div className="transition-all duration-150 rounded-full group-hover:opacity-100 opacity-0"
+            style={{ width: 3, height: 48, background: "rgba(16,185,129,0.6)", boxShadow: "0 0 8px rgba(16,185,129,0.4)" }} />
+        </div>
 
         <div className="flex-1 flex flex-col overflow-hidden relative">
 
@@ -1863,8 +1887,31 @@ export default function CodingRoom() {
             </div>
           )}
 
-          <div className={`flex flex-col overflow-hidden${!isMobile ? " border-t shrink-0" : " shrink-0"}`}
-            style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: isMobile ? mobileTerminalHeight : (dockOpen ? 300 : "auto") }}>
+          {!isMobile && (
+            <div
+              className="shrink-0 group cursor-row-resize select-none flex items-center justify-center border-t"
+              style={{ height: 8, borderColor: "rgba(255,255,255,0.07)", background: "rgba(4,6,14,0.98)", zIndex: 10 }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                terminalDragRef.current = { startY: e.clientY, startHeight: desktopTerminalHeight };
+                const onMove = (ev: MouseEvent) => {
+                  if (!terminalDragRef.current) return;
+                  const next = Math.max(80, Math.min(window.innerHeight * 0.75, terminalDragRef.current.startHeight + (terminalDragRef.current.startY - ev.clientY)));
+                  setDesktopTerminalHeight(next);
+                  if (!dockOpen) setDockOpen(true);
+                };
+                const onUp = () => { terminalDragRef.current = null; document.removeEventListener("mousemove", onMove); };
+                document.addEventListener("mousemove", onMove);
+                document.addEventListener("mouseup", onUp, { once: true });
+              }}
+            >
+              <div className="transition-all duration-150 rounded-full group-hover:opacity-100 opacity-0"
+                style={{ width: 48, height: 3, background: "rgba(16,185,129,0.6)", boxShadow: "0 0 8px rgba(16,185,129,0.4)" }} />
+            </div>
+          )}
+
+          <div className={`flex flex-col overflow-hidden${!isMobile ? " shrink-0" : " shrink-0"}`}
+            style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: isMobile ? mobileTerminalHeight : (dockOpen ? desktopTerminalHeight : "auto") }}>
             <div className="flex items-center shrink-0 border-b" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
               {([{ key: "output", label: "التيرمنال", icon: Terminal }, { key: "preview", label: "معاينة HTML", icon: Eye }] as const).map((t) => {
                 const active = activeRightTab === t.key;
