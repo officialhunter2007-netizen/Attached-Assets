@@ -429,6 +429,7 @@ export default function CodingRoom() {
   const liveOutputRef = useRef("");
   const liveEndRef = useRef<HTMLDivElement>(null);
   const processRunnerRef = useRef<{ id: number; name: string; language: string } | null>(null);
+  const hiddenInputRef = useRef<HTMLInputElement>(null);
   const [unreadChat, setUnreadChat] = useState(0);
   const [dockOpen, setDockOpen] = useState(true);
   const [addingFile, setAddingFile] = useState(false);
@@ -445,6 +446,12 @@ export default function CodingRoom() {
       liveEndRef.current?.scrollIntoView({ behavior: "instant" });
     }
   }, [liveOutput, processRunning]);
+
+  useEffect(() => {
+    if (processRunning) {
+      setTimeout(() => hiddenInputRef.current?.focus(), 80);
+    }
+  }, [processRunning]);
 
   showChatRef.current = showChat;
   myInfoRef.current = myInfo;
@@ -1620,28 +1627,48 @@ export default function CodingRoom() {
                   <div className="shrink-0 flex items-center gap-0 border-t" style={{ borderColor: "rgba(16,185,129,0.18)", background: "rgba(0,0,0,0.35)" }}>
                     <span className="text-emerald-400 font-mono text-sm px-3 select-none shrink-0">❯</span>
                     {processRunning ? (
-                      <input
-                        value={inputLine}
-                        onChange={(e) => setInputLine(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            const data = inputLine + "\n";
-                            const next = (liveOutputRef.current + data).slice(-100_000);
-                            liveOutputRef.current = next;
-                            setLiveOutput(next);
-                            wsRef.current?.send(JSON.stringify({ type: "stdin_input", data }));
-                            setInputLine("");
-                          } else if (e.key === "c" && e.ctrlKey) {
-                            e.preventDefault();
-                            wsRef.current?.send(JSON.stringify({ type: "kill_process" }));
-                          }
-                        }}
-                        dir="ltr"
-                        autoFocus
-                        placeholder="اكتب هنا وأضغط Enter…"
-                        className="flex-1 bg-transparent font-mono text-[12px] text-white/85 outline-none placeholder:text-white/20 text-left py-3 leading-relaxed"
-                      />
+                      <div
+                        className="flex-1 flex items-center py-3 cursor-text overflow-hidden"
+                        onClick={() => hiddenInputRef.current?.focus()}
+                      >
+                        <span
+                          className="font-mono text-[13px] whitespace-pre select-none"
+                          style={{ color: "rgba(255,255,255,0.88)" }}
+                        >{inputLine}</span>
+                        <span className="terminal-cursor" />
+                        <input
+                          ref={hiddenInputRef}
+                          value={inputLine}
+                          onChange={(e) => setInputLine(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const data = inputLine + "\n";
+                              const next = (liveOutputRef.current + data).slice(-100_000);
+                              liveOutputRef.current = next;
+                              setLiveOutput(next);
+                              wsRef.current?.send(JSON.stringify({ type: "stdin_input", data }));
+                              setInputLine("");
+                            } else if (e.key === "c" && e.ctrlKey) {
+                              e.preventDefault();
+                              wsRef.current?.send(JSON.stringify({ type: "kill_process" }));
+                            }
+                          }}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          style={{
+                            position: "absolute",
+                            opacity: 0,
+                            width: 1,
+                            height: 1,
+                            padding: 0,
+                            border: 0,
+                            margin: 0,
+                            pointerEvents: "none",
+                          }}
+                        />
+                      </div>
                     ) : (
                       <>
                         <textarea
