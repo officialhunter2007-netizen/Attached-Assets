@@ -1727,7 +1727,7 @@ export default function CodingRoom() {
             />
           </div>
 
-          <div className={`flex flex-col border-t overflow-hidden${isMobile && mobileTab === "terminal" ? " flex-1" : " shrink-0"}`}
+          <div className={`flex flex-col border-t overflow-hidden${isMobile && mobileTab !== "terminal" ? " hidden" : isMobile ? " flex-1" : " shrink-0"}`}
             style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: isMobile && mobileTab === "terminal" ? undefined : (dockOpen ? 300 : "auto") }}>
             <div className="flex items-center shrink-0 border-b" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
               {([{ key: "output", label: "التيرمنال", icon: Terminal }, { key: "preview", label: "معاينة HTML", icon: Eye }] as const).map((t) => {
