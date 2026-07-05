@@ -384,6 +384,11 @@ function PendingBanner({
   );
 }
 
+function dedupeMembers(list: Member[]): Member[] {
+  const seen = new Set<number>();
+  return list.filter((m) => { if (seen.has(m.userId)) return false; seen.add(m.userId); return true; });
+}
+
 export default function CodingRoom() {
   const [match, params] = useRoute<{ roomId: string }>("/coding-room/:roomId");
   const [, navigate] = useLocation();
@@ -396,6 +401,7 @@ export default function CodingRoom() {
   const peerRefs = useRef<Map<number, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const isApplyingRemoteRef = useRef(false);
+  const pendingRemoteRef = useRef<{ file: string; content: string } | null>(null);
   const sendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const myUserIdRef = useRef<number | undefined>(undefined);
 
@@ -588,7 +594,7 @@ export default function CodingRoom() {
         const filesFromWs: FileMeta[] = msg.files ?? [];
         const membersFromWs: Member[] = msg.members ?? [];
         setMyInfo({ role: msg.role, color: msg.color, canWrite: msg.canWrite, canRun: msg.canRun });
-        setMembers(membersFromWs);
+        setMembers(dedupeMembers(membersFromWs));
         setFiles(filesFromWs);
         if (filesFromWs.length > 0) {
           setActiveFile((prev) => {
@@ -613,7 +619,7 @@ export default function CodingRoom() {
       }
 
       case "member_joined":
-        setMembers(msg.members ?? []);
+        setMembers(dedupeMembers(msg.members ?? []));
         if (msg.userId !== myUserId) {
           setChatMsgs((prev) => [...prev, {
             userId: -1, username: "النظام", color: "#64748B",
@@ -625,7 +631,7 @@ export default function CodingRoom() {
         break;
 
       case "member_left":
-        setMembers(msg.members ?? []);
+        setMembers(dedupeMembers(msg.members ?? []));
         setChatMsgs((prev) => [...prev, {
           userId: -1, username: "النظام", color: "#64748B",
           text: `عضو ${msg.reason === "kicked" ? "طُرد من" : "غادر"} الغرفة`, timestamp: new Date().toISOString(),
@@ -636,7 +642,7 @@ export default function CodingRoom() {
         break;
 
       case "host_changed":
-        setMembers(msg.members ?? []);
+        setMembers(dedupeMembers(msg.members ?? []));
         if (msg.newHostUserId !== myUserIdRef.current) {
           setMyInfo((prev) => prev?.role === "host" ? { ...prev, role: "member", canWrite: false, canRun: false } : prev);
         }
@@ -652,7 +658,7 @@ export default function CodingRoom() {
         break;
 
       case "permission_changed":
-        setMembers(msg.members ?? []);
+        setMembers(dedupeMembers(msg.members ?? []));
         if (msg.targetUserId === myUserId) {
           setMyInfo((prev) => prev ? { ...prev, canWrite: msg.canWrite, canRun: msg.canRun } : prev);
           setChatMsgs((prev) => [...prev, {
@@ -674,13 +680,21 @@ export default function CodingRoom() {
           if (incomingFile === activeFileRef.current && editorRef.current) {
             const currentVal = editorRef.current.getValue();
             if (currentVal !== incomingContent) {
-              const pos = editorRef.current.getPosition();
-              isApplyingRemoteRef.current = true;
-              try {
-                editorRef.current.setValue(incomingContent);
-                if (pos) editorRef.current.setPosition(pos);
-              } finally {
-                isApplyingRemoteRef.current = false;
+              if (sendTimerRef.current !== null) {
+                pendingRemoteRef.current = { file: incomingFile, content: incomingContent };
+              } else {
+                const model = editorRef.current.getModel();
+                if (model && monacoRef.current) {
+                  isApplyingRemoteRef.current = true;
+                  try {
+                    const fullRange = model.getFullModelRange();
+                    const pos = editorRef.current.getPosition();
+                    model.applyEdits([{ range: fullRange, text: incomingContent }]);
+                    if (pos) editorRef.current.setPosition(pos);
+                  } finally {
+                    isApplyingRemoteRef.current = false;
+                  }
+                }
               }
             }
           }
@@ -1010,16 +1024,38 @@ export default function CodingRoom() {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
       if (sendTimerRef.current) clearTimeout(sendTimerRef.current);
       sendTimerRef.current = setTimeout(() => {
+        sendTimerRef.current = null;
         const currentFile = activeFileRef.current;
         if (!currentFile) return;
         const content = editor.getValue();
-        wsRef.current?.send(JSON.stringify({
-          type: "code_change",
-          file: currentFile,
-          fullContent: content,
-        }));
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: "code_change",
+            file: currentFile,
+            fullContent: content,
+          }));
+        }
         setFiles((prev) => prev.map((f) => f.file_path === currentFile ? { ...f, content } : f));
-      }, 200);
+
+        const pending = pendingRemoteRef.current;
+        if (pending && pending.file === currentFile && pending.content !== content) {
+          pendingRemoteRef.current = null;
+          const model = editorRef.current?.getModel();
+          if (model) {
+            isApplyingRemoteRef.current = true;
+            try {
+              const fullRange = model.getFullModelRange();
+              const pos = editorRef.current.getPosition();
+              model.applyEdits([{ range: fullRange, text: pending.content }]);
+              if (pos) editorRef.current.setPosition(pos);
+            } finally {
+              isApplyingRemoteRef.current = false;
+            }
+          }
+        } else {
+          pendingRemoteRef.current = null;
+        }
+      }, 300);
     });
 
     editor.onDidChangeCursorPosition((e) => {

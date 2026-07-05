@@ -127,8 +127,14 @@ function sendTo(client: WsClient, msg: object) {
 }
 
 function getRoomMemberList(roomId: number) {
+  const seen = new Set<number>();
   return [...getRoomClients(roomId)]
-    .filter((c) => c.status === "joined")
+    .filter((c) => {
+      if (c.status !== "joined") return false;
+      if (seen.has(c.userId)) return false;
+      seen.add(c.userId);
+      return true;
+    })
     .map((c) => ({
       userId: c.userId,
       username: c.username,
@@ -976,7 +982,13 @@ export function initCodingRoomWss(server: Server) {
           status: "joined",
         };
 
-        getRoomClients(roomId).add(client);
+        const roomSet = getRoomClients(roomId);
+        for (const stale of roomSet) {
+          if (stale.userId === userId && !stale.isOnline) {
+            roomSet.delete(stale);
+          }
+        }
+        roomSet.add(client);
         await updateMemberStatus(roomId, userId, "joined");
 
         const files = await db.execute(
