@@ -311,37 +311,51 @@ function MemberItem({
         </div>
       </div>
       {isHost && !isMe && (
-        <div className="flex gap-0.5 shrink-0">
-          <button
-            onClick={() => onPermChange(member.userId, "canWrite", !member.canWrite)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
-            style={{ background: member.canWrite ? "rgba(16,185,129,0.12)" : "transparent" }}
-            title={member.canWrite ? "سحب الكتابة" : "منح الكتابة"}
-          >
-            <Pencil className="w-3.5 h-3.5" style={{ color: member.canWrite ? "#10B981" : "rgba(255,255,255,0.35)" }} />
-          </button>
-          <button
-            onClick={() => onPermChange(member.userId, "canRun", !member.canRun)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
-            style={{ background: member.canRun ? "rgba(59,130,246,0.12)" : "transparent" }}
-            title={member.canRun ? "سحب التشغيل" : "منح التشغيل"}
-          >
-            <Play className="w-3.5 h-3.5" style={{ color: member.canRun ? "#3B82F6" : "rgba(255,255,255,0.35)" }} />
-          </button>
-          <button
-            onClick={() => onTransfer(member.userId)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-amber-500/20"
-            title="نقل الإشراف"
-          >
-            <Crown className="w-3.5 h-3.5 text-amber-400" />
-          </button>
-          <button
-            onClick={() => onKick(member.userId)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-red-500/20"
-            title="طرد"
-          >
-            <X className="w-3.5 h-3.5 text-red-400" />
-          </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            <button
+              onClick={() => onPermChange(member.userId, "canWrite", !member.canWrite)}
+              className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
+              style={{
+                background: member.canWrite ? "rgba(16,185,129,0.18)" : "transparent",
+                border: member.canWrite ? "1px solid rgba(16,185,129,0.35)" : "1px solid transparent",
+                color: member.canWrite ? "#10B981" : "rgba(255,255,255,0.3)",
+              }}
+              title={member.canWrite ? "سحب الكتابة" : "منح الكتابة"}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onPermChange(member.userId, "canRun", !member.canRun)}
+              className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
+              style={{
+                background: member.canRun ? "rgba(59,130,246,0.18)" : "transparent",
+                border: member.canRun ? "1px solid rgba(59,130,246,0.35)" : "1px solid transparent",
+                color: member.canRun ? "#60A5FA" : "rgba(255,255,255,0.3)",
+              }}
+              title={member.canRun ? "سحب التشغيل" : "منح التشغيل"}
+            >
+              <Play className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            <button
+              onClick={() => onTransfer(member.userId)}
+              className="w-7 h-7 rounded-md flex items-center justify-center transition-all hover:bg-amber-500/15"
+              style={{ border: "1px solid transparent", color: "rgba(245,158,11,0.7)" }}
+              title="نقل الإشراف"
+            >
+              <Crown className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onKick(member.userId)}
+              className="w-7 h-7 rounded-md flex items-center justify-center transition-all hover:bg-red-500/15"
+              style={{ border: "1px solid transparent", color: "rgba(239,68,68,0.7)" }}
+              title="طرد"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
     </div>
