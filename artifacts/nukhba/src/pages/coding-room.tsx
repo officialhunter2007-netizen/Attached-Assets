@@ -457,9 +457,11 @@ export default function CodingRoom() {
   const [unreadChat, setUnreadChat] = useState(0);
   const [dockOpen, setDockOpen] = useState(true);
   const [addingFile, setAddingFile] = useState(false);
-  const [mobileTab, setMobileTab] = useState<"code" | "files" | "terminal" | "members">("code");
+  const [mobileTab, setMobileTab] = useState<"code" | "files" | "members">("code");
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  const [mobileTerminalHeight, setMobileTerminalHeight] = useState(180);
+  const mobileDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const activeFileRef = useRef<string>("");
@@ -819,7 +821,7 @@ export default function CodingRoom() {
         setProcessRunning(true);
         setActiveRightTab("output");
         setDockOpen(true);
-        setMobileTab("terminal");
+        setMobileTab("code");
         break;
 
       case "process_output": {
@@ -846,7 +848,7 @@ export default function CodingRoom() {
         setActiveRightTab("output");
         setDockOpen(true);
         setIsRunning(false);
-        setMobileTab("terminal");
+        setMobileTab("code");
         break;
 
       case "run_request":
@@ -1774,8 +1776,8 @@ export default function CodingRoom() {
 
           <div
             dir="ltr"
-            className={`overflow-hidden relative${isMobile && mobileTab === "terminal" ? " hidden" : " flex-1"}`}
-            style={{ background: "#1e1e1e", minHeight: 0 }}
+            className="overflow-hidden relative flex-1"
+            style={{ background: "#1e1e1e", minHeight: isMobile ? 80 : 0 }}
           >
             {wsStatus === "connecting" && (
               <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/60 backdrop-blur-sm" dir="rtl">
@@ -1825,8 +1827,44 @@ export default function CodingRoom() {
             />
           </div>
 
-          <div className={`flex flex-col border-t overflow-hidden${isMobile && mobileTab !== "terminal" ? " hidden" : isMobile ? " flex-1" : " shrink-0"}`}
-            style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: isMobile && mobileTab === "terminal" ? undefined : (dockOpen ? 300 : "auto") }}>
+          {isMobile && (
+            <div
+              className="shrink-0 flex items-center justify-center select-none touch-none"
+              style={{ height: 20, cursor: "row-resize", background: "rgba(4,6,14,0.98)", borderTop: "1px solid rgba(255,255,255,0.08)", borderBottom: "1px solid rgba(255,255,255,0.08)", zIndex: 10 }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                mobileDragRef.current = { startY: e.clientY, startHeight: mobileTerminalHeight };
+                const onMove = (ev: MouseEvent) => {
+                  if (!mobileDragRef.current) return;
+                  const delta = mobileDragRef.current.startY - ev.clientY;
+                  const next = Math.max(60, Math.min(window.innerHeight * 0.72, mobileDragRef.current.startHeight + delta));
+                  setMobileTerminalHeight(next);
+                };
+                const onUp = () => { mobileDragRef.current = null; document.removeEventListener("mousemove", onMove); };
+                document.addEventListener("mousemove", onMove);
+                document.addEventListener("mouseup", onUp, { once: true });
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                mobileDragRef.current = { startY: e.touches[0].clientY, startHeight: mobileTerminalHeight };
+                const onMove = (ev: TouchEvent) => {
+                  ev.preventDefault();
+                  if (!mobileDragRef.current) return;
+                  const delta = mobileDragRef.current.startY - ev.touches[0].clientY;
+                  const next = Math.max(60, Math.min(window.innerHeight * 0.72, mobileDragRef.current.startHeight + delta));
+                  setMobileTerminalHeight(next);
+                };
+                const onEnd = () => { mobileDragRef.current = null; document.removeEventListener("touchmove", onMove); };
+                document.addEventListener("touchmove", onMove, { passive: false });
+                document.addEventListener("touchend", onEnd, { once: true });
+              }}
+            >
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.2)" }} />
+            </div>
+          )}
+
+          <div className={`flex flex-col overflow-hidden${!isMobile ? " border-t shrink-0" : " shrink-0"}`}
+            style={{ background: "rgba(4,6,14,0.97)", borderColor: "rgba(255,255,255,0.07)", height: isMobile ? mobileTerminalHeight : (dockOpen ? 300 : "auto") }}>
             <div className="flex items-center shrink-0 border-b" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
               {([{ key: "output", label: "التيرمنال", icon: Terminal }, { key: "preview", label: "معاينة HTML", icon: Eye }] as const).map((t) => {
                 const active = activeRightTab === t.key;
@@ -1953,7 +1991,6 @@ export default function CodingRoom() {
           {([
             { tab: "code" as const, Icon: FileCode2, label: "كود" },
             { tab: "files" as const, Icon: FolderTree, label: "ملفات", badge: files.length },
-            { tab: "terminal" as const, Icon: Terminal, label: "تيرمنال" },
             { tab: "members" as const, Icon: Users, label: "أعضاء", badge: members.length },
           ]).map(({ tab, Icon, label, badge }) => {
             const active = mobileTab === tab;
