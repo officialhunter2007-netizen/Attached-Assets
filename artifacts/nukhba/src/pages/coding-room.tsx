@@ -422,6 +422,10 @@ export default function CodingRoom() {
   const [activeRightTab, setActiveRightTab] = useState<"output" | "preview">("output");
   const [previewHtml, setPreviewHtml] = useState("");
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
+  const [joinToast, setJoinToast] = useState<PendingRequest | null>(null);
+  const joinToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hostGraceCountdown, setHostGraceCountdown] = useState<number | null>(null);
+  const hostGraceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [processRunning, setProcessRunning] = useState(false);
   const [liveOutput, setLiveOutput] = useState("");
@@ -743,15 +747,42 @@ export default function CodingRoom() {
         break;
       }
 
-      case "join_request_pending":
+      case "join_request_pending": {
+        const req: PendingRequest = { userId: msg.userId, username: msg.username, color: msg.color ?? "#94A3B8" };
         setPendingRequests((prev) => {
           if (prev.find((r) => r.userId === msg.userId)) return prev;
-          return [...prev, { userId: msg.userId, username: msg.username, color: msg.color ?? "#94A3B8" }];
+          return [...prev, req];
         });
+        setJoinToast(req);
+        if (joinToastTimerRef.current) clearTimeout(joinToastTimerRef.current);
+        joinToastTimerRef.current = setTimeout(() => setJoinToast(null), 12000);
         break;
+      }
 
       case "join_request_cancelled":
         setPendingRequests((prev) => prev.filter((r) => r.userId !== msg.userId));
+        setJoinToast((prev) => prev?.userId === msg.userId ? null : prev);
+        break;
+
+      case "host_disconnected": {
+        const secs: number = msg.graceSeconds ?? 30;
+        setHostGraceCountdown(secs);
+        if (hostGraceIntervalRef.current) clearInterval(hostGraceIntervalRef.current);
+        hostGraceIntervalRef.current = setInterval(() => {
+          setHostGraceCountdown((c) => {
+            if (c === null || c <= 1) {
+              if (hostGraceIntervalRef.current) clearInterval(hostGraceIntervalRef.current);
+              return null;
+            }
+            return c - 1;
+          });
+        }, 1000);
+        break;
+      }
+
+      case "host_reconnected":
+        setHostGraceCountdown(null);
+        if (hostGraceIntervalRef.current) clearInterval(hostGraceIntervalRef.current);
         break;
 
       case "chat_message":
@@ -888,6 +919,8 @@ export default function CodingRoom() {
       peerRefs.current.forEach((pc) => pc.close());
       peerRefs.current.clear();
       document.querySelectorAll("audio[data-peer]").forEach((el) => el.remove());
+      if (joinToastTimerRef.current) clearTimeout(joinToastTimerRef.current);
+      if (hostGraceIntervalRef.current) clearInterval(hostGraceIntervalRef.current);
     };
   }, [match, roomId]);
 
@@ -1571,6 +1604,44 @@ export default function CodingRoom() {
 
           {myInfo?.role === "host" && (
             <PendingBanner requests={pendingRequests} onAdmit={handleAdmit} onReject={handleReject} />
+          )}
+
+          {myInfo?.role === "host" && joinToast && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 w-[320px] max-w-[90vw]"
+              style={{ filter: "drop-shadow(0 4px 24px rgba(245,158,11,0.25))" }}>
+              <div className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+                style={{ background: "rgba(22,18,6,0.97)", border: "1.5px solid rgba(245,158,11,0.5)" }}>
+                <div className="w-3 h-3 rounded-full shrink-0 animate-pulse" style={{ background: joinToast.color }} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-amber-300/70 mb-0.5">طلب دخول</div>
+                  <div className="text-sm font-bold text-amber-200 truncate">{joinToast.username}</div>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <button onClick={() => { handleAdmit(joinToast.userId); setJoinToast(null); }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors"
+                    style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)", color: "#34D399" }}>
+                    <Check className="w-3 h-3" /> قبول
+                  </button>
+                  <button onClick={() => { handleReject(joinToast.userId); setJoinToast(null); }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors"
+                    style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.35)", color: "#F87171" }}>
+                    <X className="w-3 h-3" /> رفض
+                  </button>
+                </div>
+                <button onClick={() => setJoinToast(null)}
+                  className="w-5 h-5 shrink-0 flex items-center justify-center text-white/30 hover:text-white/60 transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {hostGraceCountdown !== null && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-xs font-bold text-amber-300 flex items-center gap-2"
+              style={{ background: "rgba(22,18,6,0.95)", border: "1px solid rgba(245,158,11,0.35)" }}>
+              <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              انقطع اتصال المشرف — ينتظر عودته ({hostGraceCountdown}ث)
+            </div>
           )}
 
           {isMobile && mobileTab === "files" && (

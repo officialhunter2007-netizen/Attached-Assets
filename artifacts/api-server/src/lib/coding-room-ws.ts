@@ -35,6 +35,9 @@ const CURSOR_COLORS = [
 const rooms = new Map<number, Set<WsClient>>();
 const userColorMap = new Map<string, string>();
 const roomClosingTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const pendingHostMigrations = new Map<number, { timer: ReturnType<typeof setTimeout>; oldHostId: number }>();
+
+const HOST_MIGRATION_GRACE_SECONDS = 30;
 
 type ProcessEntry = {
   proc: ReturnType<typeof spawn>;
@@ -685,6 +688,59 @@ async function handleMessage(client: WsClient, raw: string) {
   }
 }
 
+function closeRoomNow(roomId: number, clients: Set<WsClient>) {
+  const existing = pendingHostMigrations.get(roomId);
+  if (existing) {
+    clearTimeout(existing.timer);
+    pendingHostMigrations.delete(roomId);
+  }
+  if (roomClosingTimers.has(roomId)) {
+    clearTimeout(roomClosingTimers.get(roomId)!);
+    roomClosingTimers.delete(roomId);
+  }
+  for (const stray of clients) {
+    sendTo(stray, { type: "room_closed" });
+    if (stray.ws.readyState === WebSocket.OPEN) stray.ws.close();
+  }
+  killRoomProcess(roomId);
+  rooms.delete(roomId);
+  userColorMap.forEach((_, key) => {
+    if (key.startsWith(`${roomId}:`)) userColorMap.delete(key);
+  });
+}
+
+async function promoteNewHost(roomId: number, oldHostId: number) {
+  const roomClients = getRoomClients(roomId);
+  const stillRemaining = [...roomClients].filter((c) => c.isOnline && c.status === "joined");
+  if (stillRemaining.length === 0) {
+    closeRoomNow(roomId, roomClients);
+    return;
+  }
+  const longestWriter = stillRemaining.filter((c) => c.canWrite).sort((a, b) => a.userId - b.userId)[0];
+  const newHost = longestWriter ?? stillRemaining[0];
+  newHost.role = "host";
+  newHost.canWrite = true;
+  newHost.canRun = true;
+  await db.execute(
+    sql`UPDATE coding_rooms SET host_user_id = ${newHost.userId}, updated_at = NOW()
+        WHERE id = ${roomId}`
+  ).catch(() => {});
+  await db.execute(
+    sql`UPDATE coding_room_members SET role = 'host', can_write = true, can_run = true, updated_at = NOW()
+        WHERE room_id = ${roomId} AND user_id = ${newHost.userId}`
+  ).catch(() => {});
+  await db.execute(
+    sql`UPDATE coding_room_members SET role = 'member', can_write = false, can_run = false, updated_at = NOW()
+        WHERE room_id = ${roomId} AND user_id = ${oldHostId} AND user_id <> ${newHost.userId}`
+  ).catch(() => {});
+  sendTo(newHost, { type: "you_are_host", message: "أنت الآن مشرف الغرفة" });
+  broadcastJoined(roomId, {
+    type: "host_changed",
+    newHostUserId: newHost.userId,
+    members: getRoomMemberList(roomId),
+  });
+}
+
 async function handleDisconnect(client: WsClient) {
   const clients = getRoomClients(client.roomId);
   const wasInRoom = clients.has(client);
@@ -706,49 +762,31 @@ async function handleDisconnect(client: WsClient) {
 
   const remaining = [...clients].filter((c) => c.isOnline && c.status === "joined");
   if (remaining.length === 0) {
-    if (roomClosingTimers.has(client.roomId)) {
-      clearTimeout(roomClosingTimers.get(client.roomId)!);
-      roomClosingTimers.delete(client.roomId);
-    }
-    for (const stray of clients) {
-      sendTo(stray, { type: "room_closed" });
-      if (stray.ws.readyState === WebSocket.OPEN) stray.ws.close();
-    }
-    killRoomProcess(client.roomId);
-    rooms.delete(client.roomId);
-    userColorMap.forEach((_, key) => {
-      if (key.startsWith(`${client.roomId}:`)) userColorMap.delete(key);
-    });
+    closeRoomNow(client.roomId, clients);
     return;
   }
 
   if (client.role === "host") {
-    const longestWriter = remaining.filter((c) => c.canWrite).sort((a, b) => a.userId - b.userId)[0];
-    const newHost = longestWriter ?? remaining[0];
-    newHost.role = "host";
-    newHost.canWrite = true;
-    newHost.canRun = true;
-    await db.execute(
-      sql`UPDATE coding_rooms SET host_user_id = ${newHost.userId}, updated_at = NOW()
-          WHERE id = ${client.roomId}`
-    ).catch(() => {});
-    await db.execute(
-      sql`UPDATE coding_room_members SET role = 'host', can_write = true, can_run = true, updated_at = NOW()
-          WHERE room_id = ${client.roomId} AND user_id = ${newHost.userId}`
-    ).catch(() => {});
-    await db.execute(
-      sql`UPDATE coding_room_members SET role = 'member', can_write = false, can_run = false, updated_at = NOW()
-          WHERE room_id = ${client.roomId} AND user_id = ${client.userId} AND user_id <> ${newHost.userId}`
-    ).catch(() => {});
-    client.role = "member";
-    client.canWrite = false;
-    client.canRun = false;
-    sendTo(newHost, { type: "you_are_host", message: "أنت الآن مشرف الغرفة" });
+    const existingMigration = pendingHostMigrations.get(client.roomId);
+    if (existingMigration) clearTimeout(existingMigration.timer);
+
     broadcastJoined(client.roomId, {
-      type: "host_changed",
-      newHostUserId: newHost.userId,
-      members: getRoomMemberList(client.roomId),
+      type: "host_disconnected",
+      oldHostId: client.userId,
+      graceSeconds: HOST_MIGRATION_GRACE_SECONDS,
     });
+
+    const roomId = client.roomId;
+    const oldHostId = client.userId;
+
+    const timer = setTimeout(() => {
+      pendingHostMigrations.delete(roomId);
+      promoteNewHost(roomId, oldHostId).catch((err) => {
+        logger.error({ err: err?.message }, "ws:room: promoteNewHost error");
+      });
+    }, HOST_MIGRATION_GRACE_SECONDS * 1000);
+
+    pendingHostMigrations.set(client.roomId, { timer, oldHostId: client.userId });
   } else {
     broadcastJoined(client.roomId, {
       type: "member_left",
@@ -874,6 +912,22 @@ export function initCodingRoomWss(server: Server) {
         if (!member) {
           ws.close(1011, "خطأ في الخادم");
           return;
+        }
+
+        const pendingMigration = pendingHostMigrations.get(roomId);
+        if (pendingMigration && pendingMigration.oldHostId === userId) {
+          clearTimeout(pendingMigration.timer);
+          pendingHostMigrations.delete(roomId);
+          await db.execute(
+            sql`UPDATE coding_room_members SET role = 'host', can_write = true, can_run = true, updated_at = NOW()
+                WHERE room_id = ${roomId} AND user_id = ${userId}`
+          ).catch(() => {});
+          await db.execute(
+            sql`UPDATE coding_rooms SET host_user_id = ${userId}, updated_at = NOW()
+                WHERE id = ${roomId}`
+          ).catch(() => {});
+          member = await getMemberFromDb(roomId, userId);
+          broadcastJoined(roomId, { type: "host_reconnected", hostId: userId });
         }
 
         if (member.status === "kicked") {
