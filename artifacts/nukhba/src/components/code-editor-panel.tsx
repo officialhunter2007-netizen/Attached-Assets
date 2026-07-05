@@ -9,7 +9,7 @@ import {
   ArrowRight, Lock, Share2, Layers, Home, FolderOpen, Folder, FolderPlus,
   ChevronRight, ChevronLeft, PanelLeftClose, PanelLeft, Keyboard, Code2,
   Copy, Trash2, MessageSquare, Expand, Minimize, ZoomIn, ZoomOut, Search,
-  BookOpen, Lightbulb, Sparkles,
+  BookOpen, Lightbulb, Sparkles, ExternalLink,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -1207,6 +1207,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const [stdinOpen, setStdinOpen] = useState(false);
   const [previewBlobUrl, setPreviewBlobUrl] = useState("");
   const previewBlobRef = useRef("");
+  const [livePreview, setLivePreview] = useState(false);
+  const [inlinePreviewDevice, setInlinePreviewDevice] = useState<"desktop" | "mobile">("desktop");
   const [showCdnPicker, setShowCdnPicker] = useState(false);
   const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [quickOpenQuery, setQuickOpenQuery] = useState("");
@@ -1504,6 +1506,14 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     previewBlobRef.current = url;
     setPreviewBlobUrl(url);
   }, [previewHtml]);
+
+  useEffect(() => {
+    if (!livePreview || !showPreview) return;
+    const timer = setTimeout(() => {
+      setPreviewKey(k => k + 1);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [files, livePreview, showPreview]);
 
   useEffect(() => {
     return () => {
@@ -2400,9 +2410,27 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
 
         {showPreview && !previewFullscreen && (
           <div className="w-full sm:w-1/2 flex flex-col border-t sm:border-t-0 border-white/5">
-            <div className="bg-[#0d1017] px-3 py-1.5 flex items-center gap-2 border-b border-white/5">
-              <Eye className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="text-[11px] text-emerald-400 font-mono font-bold">LIVE PREVIEW</span>
+            <div className="bg-[#0d1017] px-2 py-1 flex items-center gap-1 border-b border-white/5">
+              <button
+                onClick={handlePreview}
+                title="تحديث المعاينة"
+                className="w-6 h-6 flex items-center justify-center rounded-md text-[#6e6a86] hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setLivePreview(v => !v)}
+                title="معاينة مباشرة — تُحدَّث تلقائياً عند التعديل"
+                className="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md transition-colors"
+                style={{
+                  background: livePreview ? "rgba(16,185,129,0.15)" : "transparent",
+                  color: livePreview ? "#10B981" : "rgba(255,255,255,0.35)",
+                  border: `1px solid ${livePreview ? "rgba(16,185,129,0.35)" : "transparent"}`,
+                }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: livePreview ? "#10B981" : "rgba(255,255,255,0.25)" }} />
+                مباشر
+              </button>
               {htmlPages.length > 1 && (
                 <span className="text-[9px] text-[#F59E0B]/80 font-mono bg-[#F59E0B]/10 px-1.5 py-0.5 rounded">{currentPage === "/" ? "index.html" : currentPage.replace(/^\//, "")}</span>
               )}
@@ -2418,18 +2446,52 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                   <Terminal className="w-3 h-3" /> {logCount}
                 </button>
               )}
-              <button onClick={() => setPreviewFullscreen(true)} className="text-[#6e6a86] hover:text-white transition-colors" title="تكبير"><Maximize2 className="w-3 h-3" /></button>
-              <button onClick={handlePreview} className="text-[#6e6a86] hover:text-emerald-400 transition-colors" title="تحديث المعاينة"><RotateCcw className="w-3 h-3" /></button>
-              <button onClick={() => setShowPreview(false)} className="text-[#6e6a86] hover:text-white transition-colors"><X className="w-3.5 h-3.5" /></button>
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => setInlinePreviewDevice("desktop")}
+                  title="عرض مكتبي"
+                  className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
+                  style={{ color: inlinePreviewDevice === "desktop" ? "#60A5FA" : "rgba(255,255,255,0.3)", background: inlinePreviewDevice === "desktop" ? "rgba(59,130,246,0.12)" : "transparent" }}
+                >
+                  <Monitor className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setInlinePreviewDevice("mobile")}
+                  title="عرض جوال (375px)"
+                  className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
+                  style={{ color: inlinePreviewDevice === "mobile" ? "#A78BFA" : "rgba(255,255,255,0.3)", background: inlinePreviewDevice === "mobile" ? "rgba(139,92,246,0.12)" : "transparent" }}
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {previewBlobUrl && (
+                <button onClick={() => window.open(previewBlobUrl, "_blank")} title="فتح في تبويب جديد" className="w-6 h-6 flex items-center justify-center rounded-md text-[#6e6a86] hover:text-white/70 hover:bg-white/5 transition-colors">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button onClick={() => setPreviewFullscreen(true)} className="w-6 h-6 flex items-center justify-center rounded-md text-[#6e6a86] hover:text-white transition-colors" title="ملء الشاشة"><Maximize2 className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setShowPreview(false)} className="w-6 h-6 flex items-center justify-center rounded-md text-[#6e6a86] hover:text-white transition-colors"><X className="w-3.5 h-3.5" /></button>
             </div>
-            <div className="flex-1 bg-white" style={{ minHeight: isMobile ? "200px" : "clamp(200px, 30vh, 300px)" }}>
+            <div
+              className="flex-1 flex overflow-hidden"
+              style={{
+                minHeight: isMobile ? "200px" : "clamp(200px, 30vh, 300px)",
+                justifyContent: inlinePreviewDevice === "mobile" ? "center" : "stretch",
+                background: inlinePreviewDevice === "mobile" ? "#e8e8e8" : "white",
+              }}
+            >
               <iframe
                 ref={iframeRef}
                 key={previewKey}
                 src={previewBlobUrl || undefined}
                 sandbox="allow-scripts allow-forms allow-popups"
-                className="w-full h-full border-0"
-                style={{ minHeight: isMobile ? "200px" : "clamp(200px, 30vh, 300px)" }}
+                className="h-full border-0"
+                style={{
+                  width: inlinePreviewDevice === "mobile" ? "375px" : "100%",
+                  minHeight: isMobile ? "200px" : "clamp(200px, 30vh, 300px)",
+                  background: "white",
+                  boxShadow: inlinePreviewDevice === "mobile" ? "0 0 20px rgba(0,0,0,0.25)" : "none",
+                }}
                 title="معاينة الصفحة"
               />
             </div>
