@@ -548,6 +548,35 @@ function resolveFilePath(from: string, href: string): string {
   return fromParts.filter(Boolean).join("/");
 }
 
+function svgToDataUrl(svgContent: string): string {
+  try {
+    return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgContent)));
+  } catch {
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgContent);
+  }
+}
+
+function resolveCssImports(css: string, fromFile: string, fileMap: Map<string, IDEFile>, depth = 0): string {
+  if (depth > 8) return css;
+  return css.replace(/@import\s+(?:url\(\s*)?["']([^"']+)["']\s*\)?[^;]*;/gi, (_, href) => {
+    if (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//")) return _;
+    const resolved = resolveFilePath(fromFile, href).toLowerCase();
+    const found = fileMap.get(resolved);
+    if (!found) return "";
+    return resolveCssImports(found.content, found.name, fileMap, depth + 1);
+  });
+}
+
+function inlineCssUrls(css: string, fromFile: string, fileMap: Map<string, IDEFile>): string {
+  return css.replace(/url\(\s*["']?([^"')]+\.svg)["']?\s*\)/gi, (match, href) => {
+    if (href.startsWith("data:") || href.startsWith("http://") || href.startsWith("https://")) return match;
+    const resolved = resolveFilePath(fromFile, href).toLowerCase();
+    const found = fileMap.get(resolved);
+    if (!found) return match;
+    return `url("${svgToDataUrl(found.content)}")`;
+  });
+}
+
 function inlineLinkedResources(doc: string, htmlFileName: string, files: IDEFile[]): string {
   const fileMap = new Map(files.map(f => [f.name.toLowerCase(), f]));
   doc = doc.replace(/<link\s[^>]*href\s*=\s*["']([^"']+)["'][^>]*>/gi, (match, href) => {
@@ -555,15 +584,29 @@ function inlineLinkedResources(doc: string, htmlFileName: string, files: IDEFile
     if (!/\.css$/i.test(href)) return match;
     const resolved = resolveFilePath(htmlFileName, href).toLowerCase();
     const found = fileMap.get(resolved);
-    if (found) return `<style>/* ${href} */\n${found.content}\n</style>`;
-    return match;
+    if (!found) return match;
+    let css = resolveCssImports(found.content, found.name, fileMap);
+    css = inlineCssUrls(css, found.name, fileMap);
+    return `<style>${css}\n</style>`;
   });
-  doc = doc.replace(/<script\s[^>]*src\s*=\s*["']([^"']+)["'][^>]*>\s*<\/script>/gi, (match, src) => {
+  doc = doc.replace(/<script\s([^>]*)src\s*=\s*["']([^"']+)["'][^>]*>\s*<\/script>/gi, (match, attrs, src) => {
     if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("//")) return match;
     const resolved = resolveFilePath(htmlFileName, src).toLowerCase();
     const found = fileMap.get(resolved);
-    if (found) return `<script>/* ${src} */\n${found.content}\n</script>`;
-    return match;
+    if (!found) return match;
+    const isModule = /\btype\s*=\s*["']module["']/i.test(attrs);
+    const tag = isModule ? `<script type="module">` : `<script>`;
+    return `${tag}${found.content}\n</script>`;
+  });
+  doc = doc.replace(/<img\s([^>]*)src\s*=\s*["']([^"']+\.svg)["']([^>]*)>/gi, (match, pre, src, post) => {
+    if (src.startsWith("data:") || src.startsWith("http://") || src.startsWith("https://")) return match;
+    const resolved = resolveFilePath(htmlFileName, src).toLowerCase();
+    const found = fileMap.get(resolved);
+    if (!found) return match;
+    return `<img ${pre}src="${svgToDataUrl(found.content)}"${post}>`;
+  });
+  doc = doc.replace(/(<script\b(?![^>]*\bsrc\b)[^>]*)\btype\s*=\s*["']module["']([^>]*>)/gi, (_, pre, post) => {
+    return `${pre}${post}`;
   });
   return doc;
 }
@@ -1153,6 +1196,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const [showTimestamps, setShowTimestamps] = useState(false);
   const [stdin, setStdin] = useState("");
   const [stdinOpen, setStdinOpen] = useState(false);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState("");
+  const previewBlobRef = useRef("");
   const [showCdnPicker, setShowCdnPicker] = useState(false);
   const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [quickOpenQuery, setQuickOpenQuery] = useState("");
@@ -1438,11 +1483,30 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   }, [files, previewNonce, showPreview, previewFullscreen, currentPage]);
 
   useEffect(() => {
+    const prev = previewBlobRef.current;
+    if (prev) URL.revokeObjectURL(prev);
+    if (!previewHtml) {
+      previewBlobRef.current = "";
+      setPreviewBlobUrl("");
+      return;
+    }
+    const blob = new Blob([previewHtml], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    previewBlobRef.current = url;
+    setPreviewBlobUrl(url);
+  }, [previewHtml]);
+
+  useEffect(() => {
+    return () => {
+      if (previewBlobRef.current) URL.revokeObjectURL(previewBlobRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!LS_KEY) return;
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(files));
     } catch {}
-    // Debounced autosave: mark saved 1.5s after the last change, not on every keystroke
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(() => markSaved(), 1500);
     return () => {
@@ -1633,11 +1697,14 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       const data = await res.json();
       const hasError = data.exitCode !== 0 || (!data.output && data.error);
       setOutputType(hasError ? "error" : "success");
-      setOutput(
-        data.output
-          ? data.output + (data.error ? `\n${data.error}` : "")
-          : data.error || "لا يوجد إخراج"
-      );
+      const combined = (data.output || "") + (data.error ? `\n${data.error}` : "");
+      setOutput(data.output ? combined : (data.error || "لا يوجد إخراج"));
+      if (hasError && !stdin.trim()) {
+        const errText = (data.output || "") + (data.error || "");
+        if (/EOF when reading|EOFError|StdinRead|input\(\)/i.test(errText)) {
+          setStdinOpen(true);
+        }
+      }
     } catch {
       setOutputType("error");
       setOutput("خطأ في الاتصال بالخادم");
@@ -2350,8 +2417,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
               <iframe
                 ref={iframeRef}
                 key={previewKey}
-                srcDoc={previewHtml}
-                sandbox="allow-scripts"
+                src={previewBlobUrl || undefined}
+                sandbox="allow-scripts allow-forms allow-popups"
                 className="w-full h-full border-0"
                 style={{ minHeight: isMobile ? "200px" : "clamp(200px, 30vh, 300px)" }}
                 title="معاينة الصفحة"
@@ -2538,8 +2605,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                 <iframe
                   ref={iframeFullRef}
                   key={previewKey}
-                  srcDoc={previewHtml}
-                  sandbox="allow-scripts"
+                  src={previewBlobUrl || undefined}
+                  sandbox="allow-scripts allow-forms allow-popups"
                   className="w-full h-full border-0"
                   title="معاينة الصفحة"
                 />
@@ -2862,13 +2929,24 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                     <span>$ running {activeLangInfo.label}...</span>
                   </div>
                 ) : output !== null ? (
-                  <pre className={`whitespace-pre-wrap text-[11px] sm:text-xs leading-relaxed ${outputType === "success" ? "text-[#a6e3a1]" : "text-[#f38ba8]"}`}>
-                    {showTimestamps && (
-                      <span className="text-[#6e6a86] text-[10px]">[{new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}] </span>
+                  <>
+                    {outputType === "error" && /EOF when reading|EOFError/i.test(output) && (
+                      <div className="mb-2 flex items-start gap-2 bg-[#F59E0B]/10 border border-[#F59E0B]/25 rounded-lg px-3 py-2">
+                        <span className="text-[#F59E0B] text-base shrink-0">⌨</span>
+                        <div>
+                          <div className="text-[11px] font-bold text-[#F59E0B]">برنامجك يحتاج مدخلات!</div>
+                          <div className="text-[10px] text-[#F59E0B]/80 mt-0.5">استخدم حقل <span className="font-mono bg-black/30 px-1 rounded">مدخلات</span> أسفل الكود واكتب القيم ثم أعد التشغيل.</div>
+                        </div>
+                      </div>
                     )}
-                    <span className="text-[#6e6a86]">$ {activeFile?.name}{"\n"}</span>
-                    {output}
-                  </pre>
+                    <pre className={`whitespace-pre-wrap text-[11px] sm:text-xs leading-relaxed ${outputType === "success" ? "text-[#a6e3a1]" : "text-[#f38ba8]"}`}>
+                      {showTimestamps && (
+                        <span className="text-[#6e6a86] text-[10px]">[{new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}] </span>
+                      )}
+                      <span className="text-[#6e6a86]">$ {activeFile?.name}{"\n"}</span>
+                      {output}
+                    </pre>
+                  </>
                 ) : null}
               </div>
             </div>
