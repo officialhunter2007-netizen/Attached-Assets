@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-type Payload = { code?: string; steps?: string[] };
+type Payload = { code?: string; steps?: string[]; pendingId?: string };
 
 let mermaidInitialized = false;
 let mermaidModulePromise: Promise<any> | null = null;
@@ -27,6 +27,25 @@ async function loadMermaid() {
 let idCounter = 0;
 
 export function MermaidDiagram({ payload }: { payload: Payload }) {
+  // `pendingId` means the [[DIAGRAM: ...]] request is still being authored
+  // server-side (Claude Haiku). The chat stream normally splices in the
+  // resolved `code`/`steps` before this ever mounts (VIZ roots only render
+  // once streaming finishes), so this branch is a defensive fallback for
+  // edge cases like an aborted stream — show a spinner instead of "empty".
+  if (typeof payload?.pendingId === "string" && !payload?.code) {
+    return (
+      <div className="my-3 rounded-2xl border border-amber-400/25 bg-slate-950/70 overflow-hidden shadow-lg" dir="rtl">
+        <div className="px-3 py-2 bg-amber-500/10 border-b border-white/10 flex items-center gap-2">
+          <span className="text-sm">📊</span>
+          <div className="text-xs font-bold text-amber-200">رسم توضيحي</div>
+        </div>
+        <div className="p-4 flex items-center justify-center py-8">
+          <div className="w-5 h-5 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
   const code = typeof payload?.code === "string" ? payload.code.trim() : "";
   const rawSteps = Array.isArray(payload?.steps) ? payload!.steps! : [];
   const steps = rawSteps.filter((s) => typeof s === "string" && s.trim().length > 0);

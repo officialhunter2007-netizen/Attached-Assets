@@ -67,6 +67,12 @@ import {
 import { getTeacherProviderOverride } from "../lib/ai-teacher-provider";
 import { resolveWebPhoto } from "../lib/teacher-image-store";
 import { emitFriendlyAiFailure } from "./ai";
+import {
+  authorMermaidDiagram,
+  normalizeDiagramKind,
+  DIAGRAM_AI_USD,
+  type DiagramRequest,
+} from "../lib/v4-diagram-author";
 
 const router: IRouter = Router();
 
@@ -666,7 +672,18 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     const VISUAL_MARKERS = [
       { marker: "[[IMAGE:", kind: "image" as const },
       { marker: "[[PHOTO:", kind: "photo" as const },
+      { marker: "[[DIAGRAM:", kind: "diagram" as const },
     ];
+    const MAX_MARKER_LEN = Math.max(...VISUAL_MARKERS.map((m) => m.marker.length));
+    const MAX_DIAGRAMS_PER_REPLY = 2;
+    let __diagramCount = 0;
+    // id -> the EXACT raw `[[DIAGRAM: ...]]` tag text as it appeared in
+    // `fullText`, so the persisted transcript can be patched post-hoc once
+    // the diagram resolves (fullText accumulates the model's RAW output,
+    // before the pending-VIZ-tag substitution done for the live stream).
+    const __diagramRawTags: Map<string, string> = new Map();
+    // id -> replacement text for the entry above ("" = drop the tag).
+    const __diagramResolved: Map<string, string> = new Map();
 
     // Per-PHOTO pipeline: resolve a REAL same-origin photo → imageReady. ALWAYS
     // FREE — resolveWebPhoto never bills fal and never throws. On a genuine miss
@@ -692,12 +709,63 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         } catch {}
       })();
 
-    // Register one visual (image OR photo): enforce the per-kind per-reply cap
-    // (2 photos), emit the placeholder, kick off the matching pipeline.
-    // Returns the wire marker to splice into the text (or "" if dropped).
-    // IMAGE (generated infographic) is a RETIRED mechanism — always dropped,
-    // regardless of turn, so old-session history mimicry can never trigger it.
-    const emitVisual = (kind: "image" | "photo", innerText: string): string => {
+    // Per-DIAGRAM pipeline: Claude Haiku authors the actual Mermaid `{code,
+    // steps}` from the model's plain-language request. Never throws — a
+    // failure resolves to `diagramMissing` and the raw tag is dropped from
+    // the persisted transcript, mirroring the PHOTO pipeline's contract.
+    const fireDiagramTask = (capturedId: string, req: DiagramRequest): Promise<void> =>
+      (async (): Promise<void> => {
+        let result: Awaited<ReturnType<typeof authorMermaidDiagram>> = null;
+        try {
+          result = await authorMermaidDiagram(req);
+        } catch {
+          result = null;
+        }
+        let resolvedText = "";
+        let payload: Record<string, unknown> | null = null;
+        if (result) {
+          payload = { code: result.code };
+          if (result.steps) payload.steps = result.steps;
+          resolvedText = `[[VIZ: template=mermaid_diagram, payload=${JSON.stringify(payload)}]]`;
+          try {
+            const charge = await chargeV4Ai({
+              requestId: `${chargeRequestId}:diagram:${capturedId}`,
+              userId: uid,
+              subjectId: slug,
+              costUsd: DIAGRAM_AI_USD,
+              source: "v4_ai_diagram",
+              model: "anthropic/claude-haiku-4.5",
+              note: `رسم Mermaid — ${req.topic}`,
+            });
+            if (!charge.charged) {
+              logger.warn?.(`[v4/teach/diagram] charge skipped id=${capturedId} error=${!!charge.error}`);
+            }
+          } catch (e) {
+            logger.warn?.(`[v4/teach/diagram] charge threw id=${capturedId}: ${String((e as any)?.message ?? e)}`);
+          }
+        }
+        __diagramResolved.set(capturedId, resolvedText);
+        if (res.writableEnded) return;
+        try {
+          if (payload) {
+            res.write(`data: ${JSON.stringify({ diagramReady: { id: capturedId, payload } })}\n\n`);
+          } else {
+            res.write(`data: ${JSON.stringify({ diagramMissing: { id: capturedId } })}\n\n`);
+          }
+        } catch {}
+      })();
+
+    // Register one visual (image, photo, or diagram request): enforce the
+    // per-kind per-reply cap, emit the placeholder, kick off the matching
+    // pipeline. Returns the wire marker to splice into the text (or "" if
+    // dropped). IMAGE (generated infographic) is a RETIRED mechanism —
+    // always dropped, regardless of turn, so old-session history mimicry can
+    // never trigger it.
+    const emitVisual = (
+      kind: "image" | "photo" | "diagram",
+      innerText: string,
+      rawTag?: string,
+    ): string => {
       if (innerText.length === 0) {
         logger.warn?.(`[v4/teach/visual] dropped empty ${kind.toUpperCase()} tag`);
         return "";
@@ -707,26 +775,49 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         return "";
       }
       if (isFirstTurn) {
-        // Opening-message contract forbids PHOTO here too — deterministic
-        // backstop in case the model ignores the prompt rule (see isFirstTurn
-        // comment above).
-        logger.warn?.(`[v4/teach/visual] dropped PHOTO tag — opening message`);
+        // Opening-message contract forbids PHOTO/DIAGRAM here too —
+        // deterministic backstop in case the model ignores the prompt rule
+        // (see isFirstTurn comment above).
+        logger.warn?.(`[v4/teach/visual] dropped ${kind.toUpperCase()} tag — opening message`);
         return "";
       }
-      if (__photoCount >= MAX_PHOTOS_PER_REPLY) {
-        logger.warn?.(`[v4/teach/visual] dropped PHOTO tag — per-reply cap reached`);
-        return "";
-      }
-      __photoCount++;
-      const imageId = randomBytes(6).toString("hex");
-      try {
-        if (!res.writableEnded) {
-          res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId, kind } })}\n\n`);
+      if (kind === "photo") {
+        if (__photoCount >= MAX_PHOTOS_PER_REPLY) {
+          logger.warn?.(`[v4/teach/visual] dropped PHOTO tag — per-reply cap reached`);
+          return "";
         }
-      } catch {}
-      const task = firePhotoTask(imageId, innerText);
+        __photoCount++;
+        const imageId = randomBytes(6).toString("hex");
+        try {
+          if (!res.writableEnded) {
+            res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId, kind } })}\n\n`);
+          }
+        } catch {}
+        const task = firePhotoTask(imageId, innerText);
+        __imageTasks.push(task);
+        return `[[IMAGE:${imageId}]]`;
+      }
+      // kind === "diagram"
+      if (__diagramCount >= MAX_DIAGRAMS_PER_REPLY) {
+        logger.warn?.(`[v4/teach/visual] dropped DIAGRAM tag — per-reply cap reached`);
+        return "";
+      }
+      const parts = innerText.split("|||").map((p) => p.trim());
+      const diagramKind = normalizeDiagramKind(parts[0] ?? "");
+      const topic = parts[1] ?? "";
+      const details = parts[2] ?? "";
+      const stepsRaw = parts[3] ?? "";
+      if (!diagramKind || !topic || !details) {
+        logger.warn?.(`[v4/teach/visual] dropped malformed DIAGRAM tag: "${innerText.slice(0, 80)}"`);
+        return "";
+      }
+      __diagramCount++;
+      const diagramId = randomBytes(6).toString("hex");
+      const wantSteps = /steps\s*=\s*yes/i.test(stepsRaw);
+      if (rawTag) __diagramRawTags.set(diagramId, rawTag);
+      const task = fireDiagramTask(diagramId, { kind: diagramKind, topic, details, wantSteps });
       __imageTasks.push(task);
-      return `[[IMAGE:${imageId}]]`;
+      return `[[VIZ: template=mermaid_diagram, payload={"pendingId":"${diagramId}"}]]`;
     };
 
     const processImageTags = (incoming: string): string => {
@@ -745,11 +836,11 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         }
         if (tagStart === -1 || !matched) {
           // No complete marker yet. Hold back ONLY the longest trailing
-          // substring that could be the BEGINNING of EITHER marker, so a tag
+          // substring that could be the BEGINNING of ANY marker, so a tag
           // split at any chunk boundary survives (covers a lone "[", "[[",
-          // "[[I", "[[P", … up to "[[IMAGE" / "[[PHOTO").
+          // "[[I", "[[P", "[[D", … up to "[[IMAGE" / "[[PHOTO" / "[[DIAGRAM").
           let hold = 0;
-          const maxK = Math.min(7, __imageStreamBuffer.length); // markers are 8 chars
+          const maxK = Math.min(MAX_MARKER_LEN - 1, __imageStreamBuffer.length);
           for (let k = maxK; k > 0; k--) {
             const suffix = __imageStreamBuffer.slice(__imageStreamBuffer.length - k);
             if (VISUAL_MARKERS.some((m) => m.marker.startsWith(suffix))) { hold = k; break; }
@@ -774,10 +865,15 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
           break;
         }
         const innerText = __imageStreamBuffer.slice(tagStart + markerLen, tagEnd).trim();
+        const rawTag = matched.kind === "diagram"
+          ? __imageStreamBuffer.slice(tagStart, tagEnd + 2)
+          : undefined;
         safeOutput += __imageStreamBuffer.slice(0, tagStart);
         // Emit the id-only marker; the FE turns `[[IMAGE:id]]` into a spinner
         // figure, then swaps the real <img> in on the matching imageReady.
-        safeOutput += emitVisual(matched.kind, innerText);
+        // DIAGRAM tags splice a pending-VIZ tag instead (resolved in-place
+        // once Haiku authors the diagram — see diagramReady handling below).
+        safeOutput += emitVisual(matched.kind, innerText, rawTag);
         __imageStreamBuffer = __imageStreamBuffer.slice(tagEnd + 2);
       }
       return safeOutput;
@@ -852,13 +948,13 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
 
     // Flush any text held back in the image buffer. Drop a dangling visual
     // marker fragment so raw protocol text never leaks: either an unterminated
-    // `[[IMAGE:…` / `[[PHOTO:…` tag OR a bare trailing marker prefix (`[`, `[[`,
-    // `[[IM`, `[[PHOT`, …) held back mid-tag; everything else is forwarded so no
-    // prose is lost.
+    // `[[IMAGE:…` / `[[PHOTO:…` / `[[DIAGRAM:…` tag OR a bare trailing marker
+    // prefix (`[`, `[[`, `[[IM`, `[[PHOT`, `[[DIAG`, …) held back mid-tag;
+    // everything else is forwarded so no prose is lost.
     if (__imageStreamBuffer) {
       const leftover = __imageStreamBuffer
-        .replace(/\[\[(?:IMAGE|PHOTO):[^\]]*$/i, "")
-        .replace(/\[(?:\[(?:I(?:M(?:A(?:G(?:E)?)?)?)?|P(?:H(?:O(?:T(?:O)?)?)?)?)?)?$/i, "");
+        .replace(/\[\[(?:IMAGE|PHOTO|DIAGRAM):[^\]]*$/i, "")
+        .replace(/\[(?:\[(?:I(?:M(?:A(?:G(?:E)?)?)?)?|P(?:H(?:O(?:T(?:O)?)?)?)?|D(?:I(?:A(?:G(?:R(?:A(?:M)?)?)?)?)?)?)?)?$/i, "");
       __imageStreamBuffer = "";
       const tailDisplay = stripProtocolTags(leftover);
       if (tailDisplay && !res.writableEnded) {
@@ -900,6 +996,19 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     // resolves fast (cache/pollinations/SVG instant; fal ≈ a few seconds).
     if (__imageTasks.length > 0) {
       await Promise.allSettled(__imageTasks);
+    }
+
+    // Patch the persisted transcript: swap each raw `[[DIAGRAM: ...]]`
+    // request tag for its resolved `[[VIZ: template=mermaid_diagram, ...]]`
+    // tag (or drop it on a failed diagram) — mirrors the SCENE-tag scrub
+    // above. The live stream already showed the pending-VIZ placeholder and
+    // patched it via the diagramReady/diagramMissing SSE events; this keeps
+    // `fullText` (what gets saved and re-rendered on reload) in sync.
+    if (__diagramRawTags.size > 0) {
+      for (const [id, rawTag] of __diagramRawTags) {
+        const resolved = __diagramResolved.get(id) ?? "";
+        fullText = fullText.split(rawTag).join(resolved);
+      }
     }
 
     // ── 6. Charge wallet (post-stream so we know we got a real reply) ─

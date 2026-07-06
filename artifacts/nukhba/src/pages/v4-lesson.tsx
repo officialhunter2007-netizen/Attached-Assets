@@ -1209,6 +1209,40 @@ export default function V4Lesson() {
               });
               continue;
             }
+            if (evt?.diagramReady?.id && evt.diagramReady.payload) {
+              // Splice the resolved VIZ tag in place of the pending one —
+              // no separate placeholder registry needed: the pending VIZ tag
+              // spliced into the stream by the backend acts as its own
+              // marker, and confirmed VIZ roots only mount once streaming
+              // ends, so this normally resolves well before render.
+              const id = String(evt.diagramReady.id);
+              const pendingTag = `[[VIZ: template=mermaid_diagram, payload={"pendingId":"${id}"}]]`;
+              const resolvedTag = `[[VIZ: template=mermaid_diagram, payload=${JSON.stringify(evt.diagramReady.payload)}]]`;
+              acc = acc.split(pendingTag).join(resolvedTag);
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === "assistant") {
+                  next[next.length - 1] = { ...last, content: last.content.split(pendingTag).join(resolvedTag) };
+                }
+                return next;
+              });
+              continue;
+            }
+            if (evt?.diagramMissing?.id) {
+              const id = String(evt.diagramMissing.id);
+              const pendingTag = `[[VIZ: template=mermaid_diagram, payload={"pendingId":"${id}"}]]`;
+              acc = acc.split(pendingTag).join("");
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === "assistant") {
+                  next[next.length - 1] = { ...last, content: last.content.split(pendingTag).join("") };
+                }
+                return next;
+              });
+              continue;
+            }
             if (typeof evt?.content === "string") {
               acc += evt.content;
               setMessages((prev) => {

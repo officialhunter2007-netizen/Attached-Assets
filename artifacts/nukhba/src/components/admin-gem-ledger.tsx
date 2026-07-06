@@ -61,6 +61,7 @@ const SOURCE_LABEL: Record<string, string> = {
   v4_ai_teach: "درس ذكي v4",
   v4_ai_lesson: "توليد درس v4",
   v4_ai_image: "صورة تعليمية v4",
+  v4_ai_diagram: "رسم بياني v4",
 };
 
 export function AdminGemLedger() {
