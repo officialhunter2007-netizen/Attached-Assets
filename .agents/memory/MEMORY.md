@@ -54,3 +54,4 @@
 - [Coding Room host election](coding-room-host-election.md) — any host handover (explicit transfer OR disconnect election) must promote-new AND demote-old atomically, or a reconnecting old host becomes a second host.
 - [Multi-WS-handler upgrade hijack](multi-ws-handler-upgrade-hijack.md) — a non-matching-path upgrade handler must `return`, never `socket.destroy()`, or it kills every other WS route sharing that HTTP server (bare hang-up, no HTTP status).
 - [VIZ tag greedy-strip truncation](v4-viz-tag-truncation.md) — sanitizeProtocolNoise's VIZ line used greedy `[\s\S]*$` instead of the dangling-tail pattern its siblings use, silently deleting everything after a complete mid-message VIZ tag.
+- [Stray markdown noise guard](markdown-noise-guard.md) — model-emitted `##`/`---`/lone `>` mid-sentence and runaway un-closed headings are a rendering-pipeline problem, not a prompting problem; fix deterministically, fence-aware, before marked.parse.

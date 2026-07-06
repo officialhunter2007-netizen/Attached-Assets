@@ -18,7 +18,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, ClipboardList, Minus, Play } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@/lib/teacher-render";
+import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders, sanitizeStrayMarkdown } from "@/lib/teacher-render";
 import { getVizComponent } from "@/components/viz/registry";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { CodeInputArea, detectCodeTask } from "@/components/code-input-area";
@@ -418,6 +418,7 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   const withScene = expandSceneTags(withAnim);
   const withImages = renderImageMarkers(withScene);
   const withViz = expandVizTags(withImages);
+  const withNoise = sanitizeStrayMarkdown(withViz);
 
   // Normalise markdown code fences into well-formed ```lang\n…\n``` blocks FIRST.
   // This repairs mid-line fences (which marked would otherwise collapse into a
@@ -430,7 +431,7 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   // Safe here: VIZ bodies are already encoded into element attributes, and
   // ANIM/SCENE tags have been stripped entirely above — so only genuine
   // markdown fences remain, and it is a no-op when none exist.
-  const withFences = normalizeFences(withViz);
+  const withFences = normalizeFences(withNoise);
 
   const withNoComments = stripFenceComments(withFences);
 

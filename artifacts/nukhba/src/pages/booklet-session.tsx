@@ -23,6 +23,7 @@ import {
   enhanceTeacherDom,
   extractMathBlocks,
   restoreMathPlaceholders,
+  sanitizeStrayMarkdown,
 } from "@/lib/teacher-render";
 import { extractAskOptions } from "@/lib/ask-options";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
@@ -192,7 +193,8 @@ function stripFenceCommentsBooklet(src: string): string {
 function renderHtml(raw: string): string {
   if (!raw) return "";
   const clean = sanitizeProtocol(raw);
-  const withFences = normalizeFences(clean);
+  const withNoise = sanitizeStrayMarkdown(clean);
+  const withFences = normalizeFences(withNoise);
   const withNoComments = stripFenceCommentsBooklet(withFences);
   const { text: stripped, blocks } = extractMathBlocks(withNoComments);
   const html = marked.parse(stripped ?? "", { async: false }) as string;

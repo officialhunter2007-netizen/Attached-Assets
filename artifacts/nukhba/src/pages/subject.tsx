@@ -5,7 +5,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { getVizComponent } from "@/components/viz/registry";
 import { writeUserJson, readUserJson, removeUserKey } from "@/lib/user-storage";
-import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@/lib/teacher-render";
+import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders, sanitizeStrayMarkdown } from "@/lib/teacher-render";
 import { loadDraft, makeDebouncedDraftSaver, clearDraft } from "@/lib/draft-storage";
 import { isSpeechRecognitionSupported, isSpeechSynthesisSupported, startRecognition, speakText, stopSpeaking, isSpeaking } from "@/lib/web-speech";
 import {
@@ -1946,7 +1946,8 @@ function renderAssistantHtml(raw: string, loadingLabel?: string): string {
   // markdown parsing so DOMPurify sees them as plain <div data-viz-mount>
   // and the AIMessage effect can attach a React root.
   const withViz = expandVizTags(withImages);
-  const withNoComments = sbjStripFenceComments(withViz);
+  const withNoise = sanitizeStrayMarkdown(withViz);
+  const withNoComments = sbjStripFenceComments(withNoise);
   const { text: withMathStripped, blocks } = extractMathBlocks(withNoComments);
   const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(withMathStripped))) as string;
   const sanitized = DOMPurify.sanitize(html, {
@@ -1986,7 +1987,8 @@ function renderStreamingHtml(raw: string): string {
   // imageReady SSE event resolves. Renders BEFORE marked so the raw HTML
   // block survives markdown parsing intact.
   const withImages = renderImageMarkers(normalized);
-  const withNoComments = sbjStripFenceComments(withImages);
+  const withNoise = sanitizeStrayMarkdown(withImages);
+  const withNoComments = sbjStripFenceComments(withNoise);
   const { text: withMathStripped, blocks } = extractMathBlocks(withNoComments);
   const cleaned = unwrapHtmlCodeFences(withMathStripped);
   const html = marked.parse(stripInlineStyles(cleaned)) as string;

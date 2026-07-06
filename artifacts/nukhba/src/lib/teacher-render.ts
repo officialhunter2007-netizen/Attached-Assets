@@ -109,6 +109,54 @@ function promoteParagraphCallouts(root: HTMLElement): void {
 
 export { promoteParagraphCallouts };
 
+const RUNAWAY_HEADING_MAX_CHARS = 100;
+
+function scrubInlineMarkdownNoise(line: string): string {
+  const parts = line.split(/(`[^`\n]*`)/);
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part;
+      return part
+        .replace(/#{2,}/g, "")
+        .replace(/-{3,}/g, "")
+        .replace(/(^|[^=\-<])>(?!=)/g, "$1")
+        .replace(/[ \t]{2,}/g, " ");
+    })
+    .join("")
+    .trim();
+}
+
+function cleanStrayMarkdownLine(line: string): string {
+  if (/^[ \t]{0,3}([-*_])[ \t]*(?:\1[ \t]*){2,}$/.test(line)) return line;
+
+  const heading = line.match(/^([ \t]{0,3})(#{1,6})([ \t]+)(.*)$/);
+  if (heading) {
+    const [, indent, hashes, gap, body] = heading;
+    if (body.length <= RUNAWAY_HEADING_MAX_CHARS) {
+      return `${indent}${hashes}${gap}${scrubInlineMarkdownNoise(body)}`;
+    }
+    return scrubInlineMarkdownNoise(body);
+  }
+
+  const quote = line.match(/^([ \t]{0,3}>[ \t]?)(.*)$/);
+  if (quote) {
+    return `${quote[1]}${scrubInlineMarkdownNoise(quote[2])}`;
+  }
+
+  return scrubInlineMarkdownNoise(line);
+}
+
+function scrubProseSegment(segment: string): string {
+  return segment.split("\n").map(cleanStrayMarkdownLine).join("\n");
+}
+
+export function sanitizeStrayMarkdown(raw: string): string {
+  if (!raw) return raw;
+  if (raw.indexOf("```") === -1) return scrubProseSegment(raw);
+  const parts = raw.split("```");
+  return parts.map((part, i) => (i % 2 === 0 ? scrubProseSegment(part) : part)).join("```");
+}
+
 const LANG_LABELS: Record<string, string> = {
   js: "JavaScript", javascript: "JavaScript", jsx: "JSX",
   ts: "TypeScript", typescript: "TypeScript", tsx: "TSX",
