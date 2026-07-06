@@ -939,6 +939,19 @@ const VIZ_TEMPLATES: Record<string, VizTemplate> = {
     schema: `{"title":"<عنوان>","root":{"label":"<الجذر>","note":"<اختياري>","children":[{"label":"<عقدة>","children":[...]}]}}`,
     example: `{"title":"شجرة بحث","root":{"label":"8","children":[{"label":"3","children":[{"label":"1"},{"label":"6"}]},{"label":"10","children":[{"label":"14"}]}]}}`,
   },
+  mermaid_diagram: {
+    name: "mermaid_diagram",
+    arName: "رسم Mermaid.js — تسلسل رسائل بين أطراف، تدفّق عمليات، خريطة ذهنية، خط زمني، أو دائرة نسبية",
+    // `code` is the final, complete, VALID mermaid source (multi-line, \n
+    // escaped inside the single-line JSON payload). `steps` is OPTIONAL: an
+    // ordered array where EACH entry is a full, independently-valid mermaid
+    // source representing the diagram after that step (cumulative — step[0]
+    // has only the first message/edge, step[1] has the first two, ... the
+    // LAST entry must equal `code` exactly). When present, the FE shows
+    // prev/next controls so the student reveals the flow one step at a time.
+    schema: `{"code":"<كود Mermaid كامل وصحيح (النسخة النهائية، أسطر بـ\\n)>","steps":["<اختياري: نسخة تراكمية صحيحة لكل خطوة، آخر عنصر = code>"]}`,
+    example: `{"code":"sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان\\n  B->>S: طلب الصفحة\\n  S-->>B: يرسل الصفحة\\n  B-->>U: يعرض الصفحة","steps":["sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان","sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان\\n  B->>S: طلب الصفحة","sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان\\n  B->>S: طلب الصفحة\\n  S-->>B: يرسل الصفحة","sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان\\n  B->>S: طلب الصفحة\\n  S-->>B: يرسل الصفحة\\n  B-->>U: يعرض الصفحة"]}`,
+  },
 };
 
 // Slug-keyword → allowed template names. Falls back to a sensible default
@@ -988,6 +1001,10 @@ function pickTemplatesForSpecialty(slug: string, name?: string): string[] {
   // flowchart is universal (any process/decision/algorithm) — give it to
   // every specialty so no one is left with a single template.
   out.add("flowchart");
+  // mermaid_diagram is also universal — covers sequence-of-messages
+  // (protocols, request/response flows), mindmaps, timelines, and pie
+  // charts that flowchart/bar_chart can't express.
+  out.add("mermaid_diagram");
 
   // Always-on defaults so a generic specialty still has *something* visual.
   if (out.size === 0) {
@@ -1034,6 +1051,20 @@ export function buildVizCatalogLayer(
     lines.push(`- \`${t.name}\` — ${t.arName}`);
     lines.push(`  • payload: ${t.schema}`);
     lines.push(`  • مثال: ${t.example}`);
+  }
+  if (finalAllowed.includes("mermaid_diagram")) {
+    lines.push(
+      "",
+      "**ملاحظات خاصة بـ `mermaid_diagram`** — اكتب كود Mermoid صحيحاً 100% (بناء جملي صارم)، واختر الشكل المناسب:",
+      "  1) `sequenceDiagram` — لتسلسل رسائل بين أطراف (بروتوكولات شبكات، Request/Response، مصادقة، أي حوار خطوة بخطوة). استخدم `actor`/`participant` ثم `->>`/`-->>`.",
+      "  2) `graph LR` أو `graph TD` — لتدفّق عمليات بين مكوّنات (Frontend/Backend/DB، معمارية أنظمة). يمكنك تلوين العقد بـ `style <id> fill:#hex,stroke:#hex` أو `classDef`.",
+      "  3) `mindmap` — لخريطة ذهنية تفرّع مفهوم رئيسي إلى فروع فرعية.",
+      "  4) `timeline` — لعرض خطوات متسلسلة عبر الزمن (كل خطوة عنوانها ووصفها).",
+      "  5) `pie title <عنوان>` — لنسب مئوية/توزيع (`\"تسمية\" : رقم` في كل سطر).",
+      "- استخدم إيموجي داخل تسميات العقد لتوضيحها بصرياً (🧑‍💻 🌐 🏢 🔓 …)، والنصوص بالعربية الفصحى المبسّطة.",
+      "- **حقل `steps` اختياري لكنه مهم**: إذا كان الرسم يمثّل تسلسلاً منطقياً (خصوصاً `sequenceDiagram` أو `graph` بخطوات مرقّمة)، زوّد `steps` بمصفوفة تراكمية — كل عنصر كود Mermaid **كامل وصحيح بذاته** يحتوي خطوة إضافية عن سابقه، وآخر عنصر يطابق `code` تماماً. هذا يمنح الطالب أزرار «التالي/السابق» ليتابع الشرح خطوة بخطوة بدل رؤية كل شيء دفعة واحدة. للرسوم الثابتة (مثل `pie` أو `mindmap` البسيطة) لا داعي لـ `steps`.",
+      "- لا تكتب أي تعليق `%%` داخل الكود إلا توجيه `%%{init: ...}%%` إن رغبت بتخصيص الألوان.",
+    );
   }
   return lines.join("\n");
 }

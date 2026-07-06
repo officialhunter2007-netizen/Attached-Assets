@@ -8,6 +8,7 @@ import { Flowchart } from "./flowchart";
 import { BarChart } from "./bar-chart";
 import { ErDiagram } from "./er-diagram";
 import { TreeDiagram } from "./tree-diagram";
+import { MermaidDiagram } from "./mermaid-diagram";
 
 export type VizComponent = ComponentType<{ payload: any }>;
 
@@ -26,6 +27,7 @@ export const VIZ_REGISTRY: Record<string, VizComponent> = {
   bar_chart: BarChart,
   er_diagram: ErDiagram,
   tree_diagram: TreeDiagram,
+  mermaid_diagram: MermaidDiagram,
 };
 
 export function getVizComponent(name: string): VizComponent | null {
