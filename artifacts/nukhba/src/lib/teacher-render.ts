@@ -146,8 +146,87 @@ function cleanStrayMarkdownLine(line: string): string {
   return scrubInlineMarkdownNoise(line);
 }
 
+function splitTableCells(line: string): string[] {
+  const cells: string[] = [];
+  let cur = "";
+  let inCode = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "`") {
+      inCode = !inCode;
+      cur += ch;
+      continue;
+    }
+    if (ch === "\\" && line[i + 1] === "|") {
+      cur += "|";
+      i++;
+      continue;
+    }
+    if (ch === "|" && !inCode) {
+      cells.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  cells.push(cur);
+  let trimmed = cells.map((c) => c.trim());
+  if (trimmed.length > 1 && trimmed[0] === "") trimmed = trimmed.slice(1);
+  if (trimmed.length > 1 && trimmed[trimmed.length - 1] === "") trimmed = trimmed.slice(0, -1);
+  return trimmed;
+}
+
+const TABLE_DELIMITER_RE = /^[ \t]{0,3}\|?[ \t]*:?-{1,}:?[ \t]*(\|[ \t]*:?-{1,}:?[ \t]*)*\|?[ \t]*$/;
+
+function isTableDelimiterRow(line: string): boolean {
+  return line.includes("-") && line.includes("|") && TABLE_DELIMITER_RE.test(line);
+}
+
+function isTableRowCandidate(line: string): boolean {
+  if (!line.includes("|")) return false;
+  if (/^[ \t]{0,3}>/.test(line)) return false;
+  return splitTableCells(line).length >= 2;
+}
+
+function buildDelimiterRow(cellCount: number): string {
+  return `|${Array.from({ length: cellCount }, () => " --- ").join("|")}|`;
+}
+
+function processProseLines(lines: string[]): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isTableRowCandidate(line)) {
+      const next = lines[i + 1];
+      if (next !== undefined && isTableDelimiterRow(next)) {
+        out.push(line, next);
+        i += 2;
+        while (i < lines.length && isTableRowCandidate(lines[i])) {
+          out.push(lines[i]);
+          i++;
+        }
+        continue;
+      }
+      if (next !== undefined && isTableRowCandidate(next)) {
+        const cellCount = splitTableCells(line).length;
+        out.push(line, buildDelimiterRow(cellCount));
+        i++;
+        while (i < lines.length && isTableRowCandidate(lines[i])) {
+          out.push(lines[i]);
+          i++;
+        }
+        continue;
+      }
+    }
+    out.push(cleanStrayMarkdownLine(line));
+    i++;
+  }
+  return out;
+}
+
 function scrubProseSegment(segment: string): string {
-  return segment.split("\n").map(cleanStrayMarkdownLine).join("\n");
+  return processProseLines(segment.split("\n")).join("\n");
 }
 
 export function sanitizeStrayMarkdown(raw: string): string {
