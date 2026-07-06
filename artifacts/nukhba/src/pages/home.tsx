@@ -367,22 +367,6 @@ export default function Home() {
                   </Button>
                 </motion.div>
               </Link>
-              <Link href="#pricing" className="w-full sm:w-auto">
-                <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    className="w-full sm:w-auto h-14 px-10 rounded-2xl font-bold text-lg transition-all"
-                    style={{
-                      borderColor: "rgba(245,158,11,0.4)",
-                      color: "#F59E0B",
-                      background: "rgba(245,158,11,0.06)",
-                    }}
-                  >
-                    {tr.home.viewPlans}
-                  </Button>
-                </motion.div>
-              </Link>
             </motion.div>
 
             {/* Stats row */}
