@@ -34,7 +34,7 @@ import { HandsOnPanel } from "@/components/hands-on-panel";
 // the chat never surfaces raw strings like "http_500" or "Failed to fetch".
 const FRIENDLY_RETRY_MSG = "تعذّر الوصول للمعلم الآن. تحقّق من اتصالك وحاول مرة أخرى بعد لحظات.";
 
-type ChatMsg = { role: "user" | "assistant"; content: string; image?: string };
+type ChatMsg = { role: "user" | "assistant"; content: string; image?: string; isAutoKick?: boolean };
 type V4ImageState = { status: "loading" | "ready" | "missing"; url?: string; kind?: "image" | "photo" };
 
 // Cap an attached image at ~4MB (pre-base64) so the SSE turn stays sane.
@@ -64,7 +64,7 @@ type TerminalEffects = {
   codeTask?: { requirement: string; lang: string | null } | null;
 };
 
-type MapLessonRef = { code: string; name: string };
+type MapLessonRef = { code: string; name: string; unitName?: string; stageName?: string };
 
 /* ── Local-session persistence keys (per user · slug · lesson) ─────────── */
 // All keys are user-scoped via `userKey` to prevent cross-account leaks
@@ -962,11 +962,13 @@ export default function V4Lesson() {
         const d = await mapRes.json();
         if (cancelled) return;
 
-        let found: { name: string; status: string } | null = null;
+        let found: { name: string; status: string; unitName?: string; stageName?: string } | null = null;
         for (const st of d?.map?.stages ?? []) {
           for (const un of st?.units ?? []) {
             for (const ls of un?.lessons ?? []) {
-              if (ls?.code === code) found = { name: ls.name, status: ls.status };
+              if (ls?.code === code) {
+                found = { name: ls.name, status: ls.status, unitName: un?.name, stageName: st?.name };
+              }
             }
           }
         }
@@ -997,7 +999,7 @@ export default function V4Lesson() {
         // React batches these into a single render so the auto-kick effect
         // sees lessonMeta AND messages simultaneously, preventing it from
         // firing on a stored session.
-        setLessonMeta({ code, name: found.name });
+        setLessonMeta({ code, name: found.name, unitName: found.unitName, stageName: found.stageName });
         setWalletExists(newWalletExists);
         setWalletBalance(newWalletBalance);
         setSessions(list);
@@ -1053,9 +1055,11 @@ export default function V4Lesson() {
     el.scrollTop = el.scrollHeight;
   }, [messages, streaming]);
 
-  // First-turn auto-kick (only when no resumed session has prior messages).
+  // First-turn kick — no longer automatic. The student sees an intro card
+  // (rendered below when messages.length === 0) and taps "ابدأ الدرس" to
+  // fire the hidden trigger message immediately (no artificial delay).
   const autoKickedRef = useRef(false);
-  useEffect(() => {
+  function startLesson() {
     if (!lessonMeta || !userId || autoKickedRef.current || streaming || messages.length > 0) return;
     autoKickedRef.current = true;
     if (!activeSessionId) {
@@ -1063,9 +1067,8 @@ export default function V4Lesson() {
       setActiveSessionId(newId);
       saveActiveId(userId, slug, code, newId);
     }
-    void sendMessage("ابدأ معي شرح الدرس بأسلوبك التفاعلي.");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lessonMeta, userId]);
+    void sendMessage("ابدأ معي شرح الدرس بأسلوبك التفاعلي.", undefined, { hidden: true });
+  }
 
   // Auto-redirect to map after the lesson is completed (mastered + no next).
   const redirectTimerRef = useRef<number | null>(null);
@@ -1137,7 +1140,7 @@ export default function V4Lesson() {
     }
   }
 
-  async function sendMessage(rawText: string, imageDataUrl?: string) {
+  async function sendMessage(rawText: string, imageDataUrl?: string, opts?: { hidden?: boolean }) {
     const text = rawText.trim();
     if ((!text && !imageDataUrl) || streaming || !lessonMeta || !userId) return;
     setError(null);
@@ -1157,9 +1160,9 @@ export default function V4Lesson() {
       : text;
     const userMsg: ChatMsg = imageDataUrl
       ? { role: "user", content: displayContent, image: imageDataUrl }
-      : { role: "user", content: text };
+      : { role: "user", content: text, ...(opts?.hidden ? { isAutoKick: true } : {}) };
     setMessages((prev) => [...prev, userMsg, { role: "assistant", content: "" }]);
-    setInput("");
+    if (!opts?.hidden) setInput("");
     setAttachedImage(null);
     setStreaming(true);
 
@@ -1277,6 +1280,20 @@ export default function V4Lesson() {
                 ).toLowerCase();
                 setPendingCodeTask({ requirement: t.codeTask.requirement, lang });
                 setCodeTaskCardCollapsed(false);
+              }
+              // Some terminal paths (insufficient gems, no wallet, a turn
+              // already in flight, ...) send `done` WITHOUT ever streaming
+              // a `content` chunk first. Left alone, the empty assistant
+              // placeholder pushed above would sit there forever looking
+              // like a stuck loading spinner. Drop it — the dedicated
+              // banners below (paywall / mastery-gate / error) already
+              // explain what happened.
+              if (!acc) {
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (last?.role === "assistant" && !last.content) return prev.slice(0, -1);
+                  return prev;
+                });
               }
               continue;
             }
@@ -1594,12 +1611,42 @@ export default function V4Lesson() {
       <div ref={scrollerRef} className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
           {messages.length === 0 && (
-            <div className="text-center text-white/50 text-sm py-12">
-              <Sparkles className="w-8 h-8 mx-auto mb-3 text-amber-400/70" />
-              جاري تجهيز جلستك...
+            <div
+              className="mx-auto max-w-md rounded-3xl border border-amber-400/25 bg-gradient-to-br from-[#241c10] via-[#1a1610] to-[#0f1a16] p-6 text-center shadow-2xl shadow-black/40"
+              style={{ boxShadow: "0 8px 40px rgba(245,158,11,0.08), inset 0 1px 0 rgba(255,255,255,0.05)" }}
+            >
+              <div
+                className="mx-auto mb-4 w-14 h-14 rounded-2xl grid place-items-center"
+                style={{
+                  background: "linear-gradient(135deg, rgba(245,158,11,0.22), rgba(16,185,129,0.15))",
+                  border: "1px solid rgba(245,158,11,0.35)",
+                }}
+              >
+                <Sparkles className="w-7 h-7 text-amber-300" />
+              </div>
+              {(lessonMeta?.stageName || lessonMeta?.unitName) && (
+                <div className="text-[11px] font-black tracking-widest text-emerald-300/80 uppercase mb-1">
+                  {[lessonMeta?.stageName, lessonMeta?.unitName].filter(Boolean).join(" · ")}
+                </div>
+              )}
+              <div className="text-lg font-black text-white mb-2 leading-snug">
+                {lessonMeta?.name}
+              </div>
+              <div className="text-sm text-white/60 leading-relaxed mb-6">
+                معلمك الذكي سيشرح لك هذا الدرس خطوة بخطوة، بأسلوب تفاعلي مبسّط، مع أمثلة وتطبيقات عملية، وسيتأكد من إتقانك قبل الانتقال للدرس التالي.
+              </div>
+              <button
+                onClick={startLesson}
+                disabled={streaming}
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-l from-amber-500 to-amber-400 text-black font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-transform active:scale-[0.98] disabled:opacity-60"
+              >
+                <Play className="w-4 h-4 fill-black" />
+                ابدأ الدرس
+              </button>
             </div>
           )}
           {messages.map((m, i) => {
+            if (m.isAutoKick) return null;
             const isLast = i === messages.length - 1;
             return (
               <MessageBubble
@@ -2024,9 +2071,9 @@ const MessageBubble = ({
       <div className="max-w-[92%] rounded-3xl rounded-br-none bg-[#1f2937] border border-gray-700/50 px-5 py-4 shadow-md">
         {html ? (
           <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} lessonName={lessonName} slug={slug} />
-        ) : (
+        ) : isStreaming ? (
           <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-        )}
+        ) : null}
         {hasOptions && (
           <div className="mt-6">
             <OptionsQuestion
