@@ -66,6 +66,27 @@ type TerminalEffects = {
 
 type MapLessonRef = { code: string; name: string; unitName?: string; stageName?: string };
 
+const KICKOFF_TEXT = "ابدأ معي شرح الدرس بأسلوبك التفاعلي.";
+
+// Sessions saved to localStorage BEFORE this fix shipped can carry two stale
+// artifacts from the old auto-kick bug: (1) the kickoff trigger saved as a
+// normal VISIBLE user message (no isAutoKick flag existed yet), and (2) a
+// trailing empty assistant message that got permanently stuck mid-stream
+// (the old spinner bug). Both must be cleaned up on read so a resumed old
+// session self-heals instead of re-showing the exact bug that was fixed.
+function sanitizeRestoredMessages(msgs: ChatMsg[]): ChatMsg[] {
+  let out = msgs.map((m) =>
+    m.role === "user" && !m.isAutoKick && m.content.trim() === KICKOFF_TEXT
+      ? { ...m, isAutoKick: true }
+      : m,
+  );
+  const last = out[out.length - 1];
+  if (last && last.role === "assistant" && !last.content.trim()) {
+    out = out.slice(0, -1);
+  }
+  return out;
+}
+
 /* ── Local-session persistence keys (per user · slug · lesson) ─────────── */
 // All keys are user-scoped via `userKey` to prevent cross-account leaks
 // when multiple users share the same browser. A missing/changed user
@@ -1004,7 +1025,7 @@ export default function V4Lesson() {
         setWalletBalance(newWalletBalance);
         setSessions(list);
         if (active && active.messages.length > 0) {
-          setMessages(active.messages);
+          setMessages(sanitizeRestoredMessages(active.messages));
           setActiveSessionId(active.id);
         }
         // ─────────────────────────────────────────────────────────────────
