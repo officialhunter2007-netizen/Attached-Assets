@@ -68,6 +68,19 @@ regenerated. No migration needed.
   any prompt/quality change you MUST clear that dir (or bump the hash basis) or
   the user keeps seeing the old poor scene. (Schema *shape* changes self-invalidate
   via safeParse; prompt-only quality changes do not.)
+- **A SINGLE gold example converges every topic onto its motif.** After v3 shipped,
+  real usage showed every scene looked like "two boxes + a traveling dot" — because
+  that was the ONE example, so the model copied its *structure*, not just its
+  *quality level*, regardless of whether the topic was a cycle/hierarchy/comparison.
+  Fix: classify the topic into an archetype first (cheap Flash-Lite call, fails
+  safe to a default), then inject only the ONE matching gold example (linear_flow /
+  cycle / hierarchy / comparison / timeline / accumulation) into the system prompt.
+  Also added a small reusable inline-SVG icon kit (`currentColor` strokes) so the
+  model isn't purely emoji-dependent (emoji reads as inconsistent/childish across
+  platforms) — the kit is offered as optional, not mandatory, so it doesn't itself
+  become a new forced motif. Both `SCENE_PROMPT_VERSION` and the FE
+  `SCENE_CACHE_VERSION` must be bumped together whenever the gold examples/prompt
+  change, or old cached scenes keep serving.
 
 ## FE flash/disappear bug (manual-nav stepper)
 The lesson renders teacher HTML via `dangerouslySetInnerHTML`, which destroys the

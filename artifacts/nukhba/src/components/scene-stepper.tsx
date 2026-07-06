@@ -52,7 +52,7 @@ export type Scene = {
 // SCENE_CACHE_VERSION MUST stay in sync with SCENE_PROMPT_VERSION on the server
 // (v4-scene-store.ts). Bumping it on a prompt/quality change invalidates every
 // browser-cached scene so an open tab regenerates instead of showing the old one.
-const SCENE_CACHE_VERSION = "2";
+const SCENE_CACHE_VERSION = "3";
 const _sceneCache = new Map<string, Scene>();
 
 function makeCacheKey(topic: string, lessonName?: string): string {

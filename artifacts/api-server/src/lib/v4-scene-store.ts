@@ -161,7 +161,15 @@ async function ensureDir(): Promise<void> {
  * every topic with the new prompt. Keep this in sync with SCENE_CACHE_VERSION in
  * the FE `scene-stepper.tsx`.
  */
-const SCENE_PROMPT_VERSION = "2";
+const SCENE_PROMPT_VERSION = "3";
+
+/**
+ * Cheap classifier model used ONLY to pick a visual archetype before the real
+ * (expensive) Sonnet generation call. Flash Lite is fast/near-free; a wrong
+ * guess just means a slightly less-ideal (but still valid) gold example, so
+ * this never needs to be perfect.
+ */
+const SCENE_CLASSIFIER_MODEL = "gemini-2.5-flash-lite";
 
 /**
  * Stable cache key from the normalized scene description PLUS the lesson
@@ -246,41 +254,268 @@ async function maybeEvict(): Promise<void> {
 
 // ── Prompt ──────────────────────────────────────────────────────────────────
 //
-// A complete, runnable GOLD-STANDARD example. Few-shot anchoring is the single
-// biggest quality lever: without a concrete target the model improvises sparse,
-// motionless layouts (a couple of static labelled boxes on an empty grid). This
-// example demonstrates everything we want — a full stage, ≥3 meaningful labelled
-// elements, an OBVIOUS continuous looping motion (a packet traveling the wire),
-// brand colours, glow on the active actor, and visual storytelling that reads
-// even with the sound off.
-const GOLD_EXAMPLE_HTML = [
-  '<div class="sc">',
-  '  <h3 class="sc-ttl">رحلة الرسالة عبر الإنترنت</h3>',
-  '  <div class="sc-row">',
-  '    <div class="sc-box dev"><span class="sc-ico">💻</span><span class="sc-lbl">جهازك</span></div>',
-  '    <div class="sc-wire"><span class="sc-dot"></span><span class="sc-pkt">📨</span></div>',
-  '    <div class="sc-box srv"><span class="sc-ico">🗄️</span><span class="sc-lbl">الخادم</span></div>',
-  '  </div>',
-  '  <div class="sc-cap">البيانات تسافر ذهاباً وإياباً عبر الشبكة</div>',
-  '</div>',
-  '<style>',
-  '  .sc{display:flex;flex-direction:column;align-items:center;gap:20px;padding:24px 14px;}',
-  '  .sc-ttl{margin:0;color:#F59E0B;font-weight:800;font-size:19px;}',
-  '  .sc-row{display:flex;align-items:center;gap:10px;width:min(470px,94%);}',
-  '  .sc-box{display:flex;flex-direction:column;align-items:center;gap:8px;flex:0 0 auto;}',
-  '  .sc-ico{width:68px;height:68px;border-radius:18px;display:grid;place-items:center;font-size:32px;background:#141a24;border:2px solid #2a3242;transition:box-shadow .4s;}',
-  '  .dev .sc-ico{border-color:#10B981;box-shadow:0 0 20px rgba(16,185,129,.5);}',
-  '  .srv .sc-ico{border-color:#F59E0B;box-shadow:0 0 20px rgba(245,158,11,.5);}',
-  '  .sc-lbl{font-size:14px;font-weight:700;color:#e9edf5;}',
-  '  .sc-wire{position:relative;flex:1 1 auto;height:4px;border-radius:4px;background:linear-gradient(90deg,#10B981,#F59E0B);opacity:.5;}',
-  '  .sc-dot{position:absolute;top:50%;right:0;width:14px;height:14px;margin-top:-7px;border-radius:50%;background:#fff;box-shadow:0 0 12px #fff;animation:sc-go 3.4s ease-in-out infinite;}',
-  '  .sc-pkt{position:absolute;top:-26px;right:0;font-size:24px;animation:sc-go 3.4s ease-in-out infinite;}',
-  '  .sc-cap{font-size:13px;color:#9aa4b2;}',
-  '  @keyframes sc-go{0%{right:0;opacity:0;}10%{opacity:1;}48%{right:calc(100% - 14px);opacity:1;}60%{right:calc(100% - 14px);opacity:1;}98%{right:0;opacity:0;}100%{right:0;opacity:0;}}',
-  '</style>',
+// Visual archetypes. The single biggest reason generated scenes converged on
+// one repetitive "box—wire—box" look (real user feedback) is that only ONE
+// gold example existed, and it WAS that motif — every topic got anchored to
+// it regardless of fit (a cycle, a tree, a comparison, a ledger all got
+// flattened into "two boxes and a traveling dot"). Fix: classify the topic
+// into one of these archetypes first (cheap Flash-Lite call), then hand the
+// Sonnet generation call ONLY the matching gold example, so the model
+// anchors on a structurally-appropriate template instead of the one it
+// always saw before.
+type SceneArchetype =
+  | "linear_flow"
+  | "cycle"
+  | "hierarchy"
+  | "comparison"
+  | "timeline"
+  | "accumulation";
+
+const ARCHETYPE_DESCRIPTIONS: Record<SceneArchetype, string> = {
+  linear_flow:
+    "تدفّق خطّي بين طرفين — بيانات/رسالة/طلب ينتقل من نقطة إلى أخرى عبر مسار واضح (شبكات، هجمات إلكترونية، طلب/استجابة، معالجة تسلسلية).",
+  cycle:
+    "دورة متكرّرة تعود لنقطة البداية — خطوات مرتّبة في حلقة (دورة حياة، عملية متكرّرة، تغذية راجعة، حلقة تكرار برمجية).",
+  hierarchy:
+    "هيكلية أو شجرة — عنصر رئيسي يتفرّع إلى عناصر فرعية بمستويات (تصنيف، تركيب نظام، شجرة قرار، هيكل تنظيمي، بنية بيانات شجرية).",
+  comparison:
+    "مقارنة بين شيئين أو حالتين جنباً إلى جنب — قبل/بعد، خيار أ/خيار ب، صحيح/خطأ، طريقة قديمة/طريقة جديدة.",
+  timeline:
+    "خطّ زمني أو تسلسل حالات متتابعة — عدّة محطّات مرقّمة بترتيب زمني واضح من البداية للنهاية (وليس طرفين فقط).",
+  accumulation:
+    "تراكم أو تجميع — كمية أو رصيد يزيد أو ينقص تدريجياً أمام عين الطالب (أرصدة محاسبية، عدّادات، شريط تعبئة، مخزون).",
+};
+
+const ARCHETYPE_KEYS = Object.keys(ARCHETYPE_DESCRIPTIONS) as SceneArchetype[];
+const DEFAULT_ARCHETYPE: SceneArchetype = "linear_flow";
+
+// A small reusable inline-SVG icon set the model MAY copy/adapt instead of
+// leaning on emoji alone (emoji renders inconsistently across platforms and
+// reads as "childish" — repeated real-user feedback). All paths use
+// `currentColor` / `stroke` so they inherit whatever brand colour is applied
+// via CSS `color`. Fully self-contained (no external font/icon CDN).
+const ICON_KIT_SNIPPET = [
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6"/></svg> <!-- شخص/مستخدم -->',
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg> <!-- قفل -->',
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="6" rx="1"/><rect x="4" y="14" width="16" height="6" rx="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="17" r="1"/></svg> <!-- خادم/سيرفر -->',
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg> <!-- بريد/رسالة -->',
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9 9h3.2a1.8 1.8 0 0 1 0 3.6H9m0 0h3.5a1.8 1.8 0 0 1 0 3.6H9m3-9v9"/></svg> <!-- عملة/مال -->',
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg> <!-- صح -->',
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg> <!-- خطأ -->',
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg> <!-- مستند/ملف -->',
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg> <!-- درع/حماية -->',
+  '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.2 18h7.6M12 14V6m0 0l-3 3m3-3l3 3"/></svg> <!-- شجرة/تفرّع مبسّط -->',
 ].join("\n");
 
-function buildSystemPrompt(): string {
+// A complete, runnable GOLD-STANDARD example PER ARCHETYPE. Few-shot anchoring
+// is the single biggest quality lever: without a concrete target the model
+// improvises sparse, motionless layouts. Each example demonstrates a full
+// stage, ≥3 meaningful labelled elements, an OBVIOUS continuous looping
+// motion appropriate to ITS structure, brand colours, and glow on the active
+// actor. Only ONE of these is inlined into any given generation call.
+const GOLD_EXAMPLES: Record<SceneArchetype, string> = {
+  linear_flow: [
+    '<div class="sc">',
+    '  <h3 class="sc-ttl">رحلة الرسالة عبر الإنترنت</h3>',
+    '  <div class="sc-row">',
+    '    <div class="sc-box dev"><span class="sc-ico">💻</span><span class="sc-lbl">جهازك</span></div>',
+    '    <div class="sc-wire"><span class="sc-dot"></span><span class="sc-pkt">📨</span></div>',
+    '    <div class="sc-box srv"><span class="sc-ico">🗄️</span><span class="sc-lbl">الخادم</span></div>',
+    '  </div>',
+    '  <div class="sc-cap">البيانات تسافر ذهاباً وإياباً عبر الشبكة</div>',
+    '</div>',
+    '<style>',
+    '  .sc{display:flex;flex-direction:column;align-items:center;gap:20px;padding:24px 14px;}',
+    '  .sc-ttl{margin:0;color:#F59E0B;font-weight:800;font-size:19px;}',
+    '  .sc-row{display:flex;align-items:center;gap:10px;width:min(470px,94%);}',
+    '  .sc-box{display:flex;flex-direction:column;align-items:center;gap:8px;flex:0 0 auto;}',
+    '  .sc-ico{width:68px;height:68px;border-radius:18px;display:grid;place-items:center;font-size:32px;background:#141a24;border:2px solid #2a3242;transition:box-shadow .4s;}',
+    '  .dev .sc-ico{border-color:#10B981;box-shadow:0 0 20px rgba(16,185,129,.5);}',
+    '  .srv .sc-ico{border-color:#F59E0B;box-shadow:0 0 20px rgba(245,158,11,.5);}',
+    '  .sc-lbl{font-size:14px;font-weight:700;color:#e9edf5;}',
+    '  .sc-wire{position:relative;flex:1 1 auto;height:4px;border-radius:4px;background:linear-gradient(90deg,#10B981,#F59E0B);opacity:.5;}',
+    '  .sc-dot{position:absolute;top:50%;right:0;width:14px;height:14px;margin-top:-7px;border-radius:50%;background:#fff;box-shadow:0 0 12px #fff;animation:sc-go 3.4s ease-in-out infinite;}',
+    '  .sc-pkt{position:absolute;top:-26px;right:0;font-size:24px;animation:sc-go 3.4s ease-in-out infinite;}',
+    '  .sc-cap{font-size:13px;color:#9aa4b2;}',
+    '  @keyframes sc-go{0%{right:0;opacity:0;}10%{opacity:1;}48%{right:calc(100% - 14px);opacity:1;}60%{right:calc(100% - 14px);opacity:1;}98%{right:0;opacity:0;}100%{right:0;opacity:0;}}',
+    '</style>',
+  ].join("\n"),
+  cycle: [
+    '<div class="cy">',
+    '  <h3 class="cy-ttl">دورة معالجة الطلب</h3>',
+    '  <div class="cy-stage">',
+    '    <div class="cy-node n1"><span class="cy-ico">📥</span><span class="cy-lbl">استقبال</span></div>',
+    '    <div class="cy-node n2"><span class="cy-ico">⚙️</span><span class="cy-lbl">معالجة</span></div>',
+    '    <div class="cy-node n3"><span class="cy-ico">✅</span><span class="cy-lbl">تحقّق</span></div>',
+    '    <div class="cy-node n4"><span class="cy-ico">📤</span><span class="cy-lbl">إرسال</span></div>',
+    '    <div class="cy-orbit"></div>',
+    '  </div>',
+    '  <div class="cy-cap">العملية تتكرّر تلقائياً من جديد كل دورة</div>',
+    '</div>',
+    '<style>',
+    '  .cy{display:flex;flex-direction:column;align-items:center;gap:18px;padding:22px 14px;}',
+    '  .cy-ttl{margin:0;color:#F59E0B;font-weight:800;font-size:19px;}',
+    '  .cy-stage{position:relative;width:220px;height:220px;}',
+    '  .cy-node{position:absolute;display:flex;flex-direction:column;align-items:center;gap:6px;width:76px;}',
+    '  .cy-ico{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;font-size:24px;background:#141a24;border:2px solid #2a3242;}',
+    '  .cy-lbl{font-size:12px;font-weight:700;color:#e9edf5;}',
+    '  .n1{top:0;left:50%;transform:translateX(-50%);}',
+    '  .n2{top:50%;right:0;transform:translateY(-50%);}',
+    '  .n3{bottom:0;left:50%;transform:translateX(-50%);}',
+    '  .n4{top:50%;left:0;transform:translateY(-50%);}',
+    '  .n1 .cy-ico{border-color:#10B981;} .n3 .cy-ico{border-color:#F59E0B;}',
+    '  .cy-orbit{position:absolute;top:50%;left:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:#fff;box-shadow:0 0 16px #fff;animation:cy-go 4.8s linear infinite;transform-origin:8px 90px;}',
+    '  @keyframes cy-go{from{transform:rotate(0deg) translateY(-90px) rotate(0deg);}to{transform:rotate(360deg) translateY(-90px) rotate(-360deg);}}',
+    '  .cy-cap{font-size:13px;color:#9aa4b2;}',
+    '</style>',
+  ].join("\n"),
+  hierarchy: [
+    '<div class="hi">',
+    '  <h3 class="hi-ttl">هيكل الصلاحيات</h3>',
+    '  <div class="hi-tree">',
+    '    <div class="hi-row"><div class="hi-node root"><span class="hi-ico">👑</span><span class="hi-lbl">المدير</span></div></div>',
+    '    <div class="hi-lines"><span></span><span></span></div>',
+    '    <div class="hi-row two">',
+    '      <div class="hi-node c1"><span class="hi-ico">👤</span><span class="hi-lbl">مشرف</span></div>',
+    '      <div class="hi-node c2"><span class="hi-ico">👤</span><span class="hi-lbl">موظّف</span></div>',
+    '    </div>',
+    '  </div>',
+    '  <div class="hi-cap">الصلاحية تنزل من الأعلى إلى الأسفل عبر المستويات</div>',
+    '</div>',
+    '<style>',
+    '  .hi{display:flex;flex-direction:column;align-items:center;gap:14px;padding:22px 14px;}',
+    '  .hi-ttl{margin:0;color:#F59E0B;font-weight:800;font-size:19px;}',
+    '  .hi-row{display:flex;justify-content:center;gap:34px;}',
+    '  .hi-node{display:flex;flex-direction:column;align-items:center;gap:6px;}',
+    '  .hi-ico{width:56px;height:56px;border-radius:14px;display:grid;place-items:center;font-size:26px;background:#141a24;border:2px solid #2a3242;transition:box-shadow .5s;}',
+    '  .hi-lbl{font-size:13px;font-weight:700;color:#e9edf5;}',
+    '  .root .hi-ico{border-color:#F59E0B;animation:hi-pulse 3s ease-in-out infinite;}',
+    '  .c1 .hi-ico{border-color:#10B981;animation:hi-pulse 3s ease-in-out infinite .5s;}',
+    '  .c2 .hi-ico{border-color:#10B981;animation:hi-pulse 3s ease-in-out infinite 1s;}',
+    '  .hi-lines{width:2px;height:26px;background:#2a3242;margin:0 auto;position:relative;}',
+    '  @keyframes hi-pulse{0%,100%{box-shadow:0 0 0 rgba(245,158,11,0);}50%{box-shadow:0 0 20px rgba(245,158,11,.6);}}',
+    '  .hi-cap{font-size:13px;color:#9aa4b2;}',
+    '</style>',
+  ].join("\n"),
+  comparison: [
+    '<div class="cp">',
+    '  <h3 class="cp-ttl">كلمة مرور ضعيفة مقابل قوية</h3>',
+    '  <div class="cp-row">',
+    '    <div class="cp-col bad"><span class="cp-ico">❌</span><span class="cp-lbl">123456</span><span class="cp-sub">تُخترق فوراً</span></div>',
+    '    <div class="cp-vs">VS</div>',
+    '    <div class="cp-col good"><span class="cp-ico">✅</span><span class="cp-lbl">Yem$en24!k</span><span class="cp-sub">آمنة</span></div>',
+    '  </div>',
+    '  <div class="cp-cap">قارن بين الجانبين وشوف الفرق في النتيجة</div>',
+    '</div>',
+    '<style>',
+    '  .cp{display:flex;flex-direction:column;align-items:center;gap:18px;padding:22px 14px;}',
+    '  .cp-ttl{margin:0;color:#F59E0B;font-weight:800;font-size:19px;}',
+    '  .cp-row{display:flex;align-items:center;gap:16px;width:min(480px,96%);}',
+    '  .cp-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 10px;border-radius:16px;background:#141a24;border:2px solid #2a3242;transition:box-shadow .6s,border-color .6s;}',
+    '  .cp-ico{font-size:26px;}',
+    '  .cp-lbl{font-size:15px;font-weight:800;color:#e9edf5;}',
+    '  .cp-sub{font-size:11px;color:#9aa4b2;}',
+    '  .cp-vs{font-weight:900;color:#9aa4b2;}',
+    '  .bad{animation:cp-glow-bad 3.2s ease-in-out infinite;}',
+    '  .good{animation:cp-glow-good 3.2s ease-in-out infinite 1.6s;}',
+    '  @keyframes cp-glow-bad{0%,40%,100%{border-color:#2a3242;box-shadow:none;}15%{border-color:#ef4444;box-shadow:0 0 22px rgba(239,68,68,.5);}}',
+    '  @keyframes cp-glow-good{0%,40%,100%{border-color:#2a3242;box-shadow:none;}15%{border-color:#10B981;box-shadow:0 0 22px rgba(16,185,129,.5);}}',
+    '  .cp-cap{font-size:13px;color:#9aa4b2;}',
+    '</style>',
+  ].join("\n"),
+  timeline: [
+    '<div class="tl">',
+    '  <h3 class="tl-ttl">مراحل معالجة الطلب</h3>',
+    '  <div class="tl-track">',
+    '    <div class="tl-line"></div>',
+    '    <div class="tl-flag">🚩</div>',
+    '    <div class="tl-pt p1"><span class="tl-dot"></span><span class="tl-lbl">استلام</span></div>',
+    '    <div class="tl-pt p2"><span class="tl-dot"></span><span class="tl-lbl">فحص</span></div>',
+    '    <div class="tl-pt p3"><span class="tl-dot"></span><span class="tl-lbl">توثيق</span></div>',
+    '    <div class="tl-pt p4"><span class="tl-dot"></span><span class="tl-lbl">إنجاز</span></div>',
+    '  </div>',
+    '  <div class="tl-cap">العلم يمرّ على كل مرحلة بالترتيب حتى النهاية</div>',
+    '</div>',
+    '<style>',
+    '  .tl{display:flex;flex-direction:column;align-items:center;gap:22px;padding:26px 14px;}',
+    '  .tl-ttl{margin:0;color:#F59E0B;font-weight:800;font-size:19px;}',
+    '  .tl-track{position:relative;width:min(480px,94%);height:56px;}',
+    '  .tl-line{position:absolute;top:6px;left:0;right:0;height:4px;border-radius:4px;background:#2a3242;}',
+    '  .tl-flag{position:absolute;top:-14px;right:0;font-size:20px;animation:tl-go 5s steps(4) infinite;}',
+    '  .tl-pt{position:absolute;top:0;display:flex;flex-direction:column;align-items:center;gap:6px;}',
+    '  .tl-dot{width:12px;height:12px;border-radius:50%;background:#141a24;border:2px solid #2a3242;}',
+    '  .tl-lbl{font-size:11px;color:#9aa4b2;white-space:nowrap;}',
+    '  .p1{right:0;} .p2{right:33%;} .p3{right:66%;} .p4{right:100%;}',
+    '  @keyframes tl-go{0%{right:0;}25%{right:33%;}50%{right:66%;}75%{right:100%;}100%{right:100%;}}',
+    '  .tl-cap{font-size:13px;color:#9aa4b2;}',
+    '</style>',
+  ].join("\n"),
+  accumulation: [
+    '<div class="ac">',
+    '  <h3 class="ac-ttl">تراكم الرصيد بعد كل عملية بيع</h3>',
+    '  <div class="ac-stage">',
+    '    <div class="ac-bars">',
+    '      <div class="ac-bar b1"></div>',
+    '      <div class="ac-bar b2"></div>',
+    '      <div class="ac-bar b3"></div>',
+    '    </div>',
+    '    <div class="ac-count">0 <span>ريال</span></div>',
+    '  </div>',
+    '  <div class="ac-cap">الرصيد يزيد تدريجياً مع كل عملية جديدة</div>',
+    '</div>',
+    '<style>',
+    '  .ac{display:flex;flex-direction:column;align-items:center;gap:18px;padding:22px 14px;}',
+    '  .ac-ttl{margin:0;color:#F59E0B;font-weight:800;font-size:19px;}',
+    '  .ac-stage{display:flex;align-items:flex-end;gap:22px;}',
+    '  .ac-bars{display:flex;align-items:flex-end;gap:10px;height:110px;}',
+    '  .ac-bar{width:26px;border-radius:6px 6px 0 0;background:linear-gradient(180deg,#10B981,#F59E0B);}',
+    '  .b1{animation:ac-grow1 4s ease-in-out infinite;}',
+    '  .b2{animation:ac-grow2 4s ease-in-out infinite .3s;}',
+    '  .b3{animation:ac-grow3 4s ease-in-out infinite .6s;}',
+    '  @keyframes ac-grow1{0%,100%{height:20%;}60%{height:55%;}}',
+    '  @keyframes ac-grow2{0%,100%{height:15%;}60%{height:80%;}}',
+    '  @keyframes ac-grow3{0%,100%{height:10%;}60%{height:100%;}}',
+    '  .ac-count{font-size:22px;font-weight:900;color:#e9edf5;}',
+    '  .ac-count span{font-size:12px;color:#9aa4b2;font-weight:600;}',
+    '  .ac-cap{font-size:13px;color:#9aa4b2;}',
+    '</style>',
+    '<script>',
+    '(function(){var el=document.currentScript.previousElementSibling;var n=0;setInterval(function(){n=(n+250)%2250;el.textContent=n+" ";var s=document.createElement("span");s.textContent="ريال";el.appendChild(s);},600);})();',
+    '</script>',
+  ].join("\n"),
+};
+
+/**
+ * Classifies a scene topic into one of the visual archetypes using a cheap
+ * Flash-Lite call. Fails SAFE to the default archetype on ANY error/timeout —
+ * a wrong-but-valid archetype is a minor quality loss, never a hard failure.
+ */
+async function classifyArchetype(topic: string, lessonName?: string): Promise<SceneArchetype> {
+  try {
+    const ctx = lessonName ? `سياق الدرس: «${lessonName}».\n` : "";
+    const prompt = `${ctx}صنّف الفكرة التالية إلى نوع بصري واحد فقط من هذه القائمة:\n${ARCHETYPE_KEYS.map(
+      (k) => `- ${k}: ${ARCHETYPE_DESCRIPTIONS[k]}`,
+    ).join("\n")}\n\nالفكرة: «${topic.trim()}»\n\nأعِد كلمة واحدة فقط من المفاتيح أعلاه (مثلاً: cycle) بدون أي نص إضافي.`;
+    const result = await generateGemini({
+      userParts: [{ type: "text", text: prompt }],
+      model: SCENE_CLASSIFIER_MODEL,
+      temperature: 0.1,
+      maxOutputTokens: 20,
+      jsonMode: false,
+      timeoutMs: 12_000,
+      logTag: "v4-scene-classify",
+    });
+    const guess = result.text.trim().toLowerCase().replace(/[^a-z_]/g, "");
+    if (ARCHETYPE_KEYS.includes(guess as SceneArchetype)) return guess as SceneArchetype;
+    return DEFAULT_ARCHETYPE;
+  } catch {
+    return DEFAULT_ARCHETYPE;
+  }
+}
+
+function buildSystemPrompt(archetype: SceneArchetype): string {
+  const goldExample = GOLD_EXAMPLES[archetype] ?? GOLD_EXAMPLES[DEFAULT_ARCHETYPE];
+  const archetypeLabel = ARCHETYPE_DESCRIPTIONS[archetype] ?? ARCHETYPE_DESCRIPTIONS[DEFAULT_ARCHETYPE];
   return [
     "أنت مخرج موشن جرافيك تعليمي محترف للمنصّة اليمنية «نُخبة». مهمّتك أن تصنع **رسماً متحرّكاً واضحاً يشرح الفكرة بصرياً من أول نظرة**، مصحوباً بقصّة قصيرة بلهجة يمنية بسيطة. الطالب يجب أن يفهم الفكرة من الحركة وحدها حتى لو لم يقرأ.",
     "",
@@ -298,16 +533,24 @@ function buildSystemPrompt(): string {
     "- **تشبيه ملموس من الحياة**: فضّل تمثيل الفكرة بشيء واقعي (رسالة تسافر، ماء يجري، مفتاح يفتح قفلاً، صندوق يُملأ…) على الرموز المجرّدة.",
     "- **املأ المسرح**: المسرح أفقي عريض؛ وزّع العناصر لتملأ العرض (مثلاً صفّ أفقي ممتدّ)، مع مسافات مريحة لا فراغ ميّت.",
     "",
-    "=== هذا مثال ذهبي كامل — اقتدِ بمستواه (ولا تنسخه حرفياً) ===",
-    "لاحظ فيه: مسرح ممتلئ، ٣ عناصر معنونة بأيقونات، حركة واضحة مستمرّة (نقطة بيانات تسافر على السلك ذهاباً وإياباً)، ألوان الثيم، وتوهّج على العنصر الفاعل:",
+    `=== النوع البصري المطلوب لهذه الفكرة تحديداً: ${archetype} ===`,
+    `الفكرة صُنِّفت بأنها من نوع: «${archetypeLabel}». صمّم بنية الرسم والحركة بما يخدم هذا النوع تحديداً (لا تفرض عليه نمط "صندوقين وخط بينهما" إن لم يكن مناسباً).`,
+    "",
+    "=== هذا مثال ذهبي كامل من نفس النوع البصري — اقتدِ بمستواه وببنيته (ولا تنسخه حرفياً) ===",
+    "لاحظ فيه: مسرح ممتلئ، عناصر معنونة بأيقونات، حركة واضحة مستمرّة تناسب هذا النوع البصري تحديداً، ألوان الثيم، وتوهّج على العنصر الفاعل:",
     "```html",
-    GOLD_EXAMPLE_HTML,
+    goldExample,
     "```",
-    "اصنع رسماً بنفس هذا المستوى من الوضوح والحركة والامتلاء، لكن مصمّماً خصّيصاً للفكرة المطلوبة منك.",
+    "اصنع رسماً بنفس هذا المستوى من الوضوح والحركة والامتلاء والبنية، لكن مصمّماً خصّيصاً للفكرة المطلوبة منك.",
+    "",
+    "=== أيقونات SVG جاهزة (اختياري لكنها تحسّن الشكل الاحترافي — يمكنك نسخ/تعديل أياً منها بدل الاعتماد الكامل على الإيموجي) ===",
+    "```html",
+    ICON_KIT_SNIPPET,
+    "```",
     "",
     "=== القيود التقنية للرسم (html) ===",
     "- اكتب **محتوى الجسم فقط**: عناصر HTML و`<style>` و`<script>`. بلا `<!DOCTYPE>`/`<html>`/`<head>`/`<body>` — النظام يغلّفها.",
-    "- **مكتفٍ ذاتياً تماماً**: لا روابط خارجية، لا صور إنترنت، لا CDN، لا خطوط خارجية، ولا أيّ طلب شبكة (البيئة معزولة). HTML/CSS/SVG/Canvas/JS خالصة فقط. (الإيموجي مسموح كأيقونات.)",
+    "- **مكتفٍ ذاتياً تماماً**: لا روابط خارجية، لا صور إنترنت، لا CDN، لا خطوط خارجية، ولا أيّ طلب شبكة (البيئة معزولة). HTML/CSS/SVG/Canvas/JS خالصة فقط. (الإيموجي أو أيقونات SVG المرفقة أعلاه مسموحة.)",
     "- **الثيم (إلزامي)**: خلفية شفّافة، نص فاتح `#e9edf5`، ذهبي `#F59E0B` وزمرّدي `#10B981` للإبراز، رمادي `#9aa4b2` للثانوي. بطاقات بحواف دائرية، ظلال خفيفة، وتوهّج لطيف على العنصر الفاعل.",
     "- **كل النصوص داخل الرسم بالعربية**، اتجاه RTL، خط `Tajawal, Cairo, sans-serif`، بحجم مقروء. تسمية عربية مختصرة على كل عنصر مهمّ.",
     "- **المقاس**: العرض 100% تلقائياً؛ الارتفاع المنطقي بين ~260 و ~430 بكسل. بلا `position:fixed`، بلا نوافذ منبثقة، بلا تمرير (scroll).",
@@ -331,9 +574,10 @@ function buildSystemPrompt(): string {
   ].join("\n");
 }
 
-function buildUserPrompt(topic: string, lessonName?: string): string {
+function buildUserPrompt(topic: string, lessonName: string | undefined, archetype: SceneArchetype): string {
   const ctx = lessonName ? `سياق الدرس: «${lessonName}».\n` : "";
-  return `${ctx}صمّم رسماً متحرّكاً تعليمياً بمستوى المثال الذهبي: **مسرح ممتلئ، عناصر معبّرة معنونة بالعربية، وحركة واضحة مستمرّة تشرح الفكرة بصرياً من أول نظرة** — احذر المشهد الفارغ الساكن. أرفِق شريط خطوات بنصوص يمنية قصيرة متطابقة مع الحركة. التزم تماماً ببنية JSON المطلوبة. الفكرة المطلوب شرحها:\n\n«${topic.trim()}»`;
+  const archetypeLabel = ARCHETYPE_DESCRIPTIONS[archetype] ?? ARCHETYPE_DESCRIPTIONS[DEFAULT_ARCHETYPE];
+  return `${ctx}صمّم رسماً متحرّكاً تعليمياً بمستوى المثال الذهبي **من نفس النوع البصري (${archetypeLabel})**: مسرح ممتلئ، عناصر معبّرة معنونة بالعربية، وحركة واضحة مستمرّة تشرح الفكرة بصرياً من أول نظرة، ببنية تناسب هذا النوع تحديداً — احذر المشهد الفارغ الساكن وتجنّب فرض بنية غير مناسبة. أرفِق شريط خطوات بنصوص يمنية قصيرة متطابقة مع الحركة. التزم تماماً ببنية JSON المطلوبة. الفكرة المطلوب شرحها:\n\n«${topic.trim()}»`;
 }
 
 // ── Normalization ───────────────────────────────────────────────────────────
@@ -463,11 +707,12 @@ export async function generateScene(
 
   const job = (async (): Promise<Scene> => {
    try {
+    const archetype = await classifyArchetype(clean, options.lessonName);
     let result;
     try {
       result = await generateGemini({
-        systemPrompt: buildSystemPrompt(),
-        userParts: [{ type: "text", text: buildUserPrompt(clean, options.lessonName) }],
+        systemPrompt: buildSystemPrompt(archetype),
+        userParts: [{ type: "text", text: buildUserPrompt(clean, options.lessonName, archetype) }],
         model: SCENE_MODEL,
         temperature: 0.5,
         maxOutputTokens: 9000,
