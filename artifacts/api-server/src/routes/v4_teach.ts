@@ -186,6 +186,14 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
         .map((m: any) => ({ role: m.role, content: String(m.content) }))
     : [];
+  // First turn = empty client history. The opening-message prompt contract
+  // (Section 11 in v4-teaching-core.ts) tells the model NOT to emit or
+  // promise a SCENE/IMAGE/PHOTO tag in this turn, but that is advisory only:
+  // the model has been observed ignoring it and emitting a real
+  // [[SCENE:...]] tag anyway. isFirstTurn below also gates a DETERMINISTIC
+  // server-side strip of SCENE/IMAGE/PHOTO tags from the outgoing stream so
+  // the opening message can never render a visual regardless of model output.
+  const isFirstTurn = history.length === 0;
 
   if (!slug || !lessonCode || !message) {
     res.status(400).json({ error: "slug, lessonCode, message required" });
@@ -519,7 +527,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       specialtyMeta: ((resolved.specialty as any).meta ?? null) as Record<string, any> | null,
       // First turn = empty client history. Activates the opening-message
       // contract (warm motivating frame + objectives + concept roadmap).
-      isFirstTurn: history.length === 0,
+      isFirstTurn,
       // Cross-lesson conversational continuity — the tail of the last
       // teacher response from the PREVIOUS completed lesson (captured on
       // LESSON_MASTERED). Injected as Layer 3a so the teacher can bridge.
@@ -655,7 +663,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     // (~700 tok) while giving the opening (~1600) and explicit "explain more"
     // requests (~1100) the room they need. Cuts gem cost on the common path.
     const turnTier = classifyV4Turn({
-      isFirstTurn: history.length === 0,
+      isFirstTurn,
       userMessage: message,
     });
 
@@ -739,6 +747,13 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         logger.warn?.(`[v4/teach/visual] dropped empty ${kind.toUpperCase()} tag`);
         return "";
       }
+      if (isFirstTurn) {
+        // Opening-message contract forbids IMAGE/PHOTO here too — deterministic
+        // backstop in case the model ignores the prompt rule (see isFirstTurn
+        // comment above).
+        logger.warn?.(`[v4/teach/visual] dropped ${kind.toUpperCase()} tag — opening message`);
+        return "";
+      }
       if (kind === "photo") {
         if (__photoCount >= MAX_PHOTOS_PER_REPLY) {
           logger.warn?.(`[v4/teach/visual] dropped PHOTO tag — per-reply cap reached`);
@@ -819,6 +834,52 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       return safeOutput;
     };
 
+    // Deterministic backstop for `[[SCENE: ...]]`, mirroring the IMAGE/PHOTO
+    // guard above. SCENE tags are otherwise passed straight through untouched
+    // (the FE's own scene-stepper detects them and calls POST /api/v4/scene)
+    // — nothing else in this file intercepts them, so the opening-message
+    // "no SCENE" prompt rule had no server-side enforcement at all. The model
+    // has been observed emitting a real SCENE tag in the opening turn despite
+    // the prompt instruction; on isFirstTurn we now buffer across chunk
+    // boundaries and drop the whole tag rather than forwarding it.
+    const SCENE_MARKER = "[[SCENE:";
+    let __sceneStreamBuffer = "";
+    const stripSceneTagIfOpening = (incoming: string): string => {
+      if (!isFirstTurn) return incoming;
+      __sceneStreamBuffer += incoming;
+      let safeOutput = "";
+      while (true) {
+        const tagStart = __sceneStreamBuffer.indexOf(SCENE_MARKER);
+        if (tagStart === -1) {
+          let hold = 0;
+          const maxK = Math.min(SCENE_MARKER.length - 1, __sceneStreamBuffer.length);
+          for (let k = maxK; k > 0; k--) {
+            const suffix = __sceneStreamBuffer.slice(__sceneStreamBuffer.length - k);
+            if (SCENE_MARKER.startsWith(suffix)) { hold = k; break; }
+          }
+          if (hold > 0) {
+            const cut = __sceneStreamBuffer.length - hold;
+            safeOutput += __sceneStreamBuffer.slice(0, cut);
+            __sceneStreamBuffer = __sceneStreamBuffer.slice(cut);
+          } else {
+            safeOutput += __sceneStreamBuffer;
+            __sceneStreamBuffer = "";
+          }
+          break;
+        }
+        const tagEnd = __sceneStreamBuffer.indexOf("]]", tagStart + SCENE_MARKER.length);
+        if (tagEnd === -1) {
+          safeOutput += __sceneStreamBuffer.slice(0, tagStart);
+          __sceneStreamBuffer = __sceneStreamBuffer.slice(tagStart);
+          break;
+        }
+        logger.warn?.(`[v4/teach/visual] dropped SCENE tag — opening message`);
+        safeOutput += __sceneStreamBuffer.slice(0, tagStart);
+        __sceneStreamBuffer = __sceneStreamBuffer.slice(tagEnd + 2);
+      }
+      return safeOutput;
+    };
+
     const result = await streamGeminiTeaching({
       systemPrompt,
       messages: geminiMessages,
@@ -832,9 +893,10 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         if (!text) return;
         fullText += text;
         // Extract IMAGE tags first (turns `[[IMAGE: prompt]]` → `[[IMAGE:id]]`
-        // and holds back partial tags), THEN strip protocol tags from the prose
-        // the student sees. stripProtocolTags leaves `[[IMAGE:id]]` untouched.
-        const display = stripProtocolTags(processImageTags(text));
+        // and holds back partial tags), drop any SCENE tag if this is the
+        // opening message, THEN strip protocol tags from the prose the
+        // student sees. stripProtocolTags leaves `[[IMAGE:id]]` untouched.
+        const display = stripProtocolTags(stripSceneTagIfOpening(processImageTags(text)));
         if (display && !res.writableEnded) {
           try {
             res.write(`data: ${JSON.stringify({ content: display })}\n\n`);
@@ -859,6 +921,32 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
           res.write(`data: ${JSON.stringify({ content: tailDisplay })}\n\n`);
         } catch {}
       }
+    }
+
+    // Same leftover-flush treatment for a SCENE tag dangling at end-of-stream
+    // on the opening turn — drop an unterminated `[[SCENE:…` fragment (or a
+    // bare marker prefix) rather than ever letting raw protocol text leak.
+    if (__sceneStreamBuffer) {
+      const sceneLeftover = __sceneStreamBuffer
+        .replace(/\[\[SCENE:[^\]]*$/i, "")
+        .replace(/\[(?:\[(?:S(?:C(?:E(?:N(?:E)?)?)?)?)?)?$/i, "");
+      __sceneStreamBuffer = "";
+      const sceneTailDisplay = stripProtocolTags(sceneLeftover);
+      if (sceneTailDisplay && !res.writableEnded) {
+        try {
+          res.write(`data: ${JSON.stringify({ content: sceneTailDisplay })}\n\n`);
+        } catch {}
+      }
+    }
+
+    // `fullText` (the raw, un-stripped model output) is what gets persisted
+    // to ai_teacher_messages and re-rendered verbatim on a page reload —
+    // v4-protocol-tags.ts has no SCENE handling, so stripProtocolTags(fullText)
+    // below would otherwise leave a full raw `[[SCENE: …]]` tag in the saved
+    // transcript even though the live stream never showed it. Scrub it here,
+    // once, on the complete text so persistence matches what the student saw.
+    if (isFirstTurn) {
+      fullText = fullText.replace(/\[\[SCENE:[\s\S]*?\]\]/gi, "");
     }
 
     // Let every per-image pipeline finish: each one self-bills its fal spend
