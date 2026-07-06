@@ -675,7 +675,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       { marker: "[[DIAGRAM:", kind: "diagram" as const },
     ];
     const MAX_MARKER_LEN = Math.max(...VISUAL_MARKERS.map((m) => m.marker.length));
-    const MAX_DIAGRAMS_PER_REPLY = 2;
+    const MAX_DIAGRAMS_PER_REPLY = 3;
     let __diagramCount = 0;
     // id -> the EXACT raw `[[DIAGRAM: ...]]` tag text as it appeared in
     // `fullText`, so the persisted transcript can be patched post-hoc once
