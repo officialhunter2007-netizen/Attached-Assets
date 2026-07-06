@@ -183,19 +183,19 @@ export function WelcomeGiftModal() {
 
   const remaining = status?.remainingGems ?? 0;
 
-  const doAllocate = useCallback(async () => {
+  const doAllocate = useCallback(async (): Promise<boolean> => {
     if (!selectedSlug) {
       setError(ar ? "اختر تخصصاً أولاً" : "Choose a specialty first.");
-      return;
+      return false;
     }
     const gems = Math.floor(Number(amount));
     if (!Number.isFinite(gems) || gems <= 0) {
       setError(ar ? "أدخل عدداً صحيحاً أكبر من صفر" : "Enter a whole number greater than zero.");
-      return;
+      return false;
     }
     if (gems > remaining) {
       setError(ar ? `المتبقي ${remaining} جوهرة فقط` : `Only ${remaining} gems remaining.`);
-      return;
+      return false;
     }
     setBusy(true);
     setError(null);
@@ -210,7 +210,7 @@ export function WelcomeGiftModal() {
       if (!r.ok) {
         setError(mapErr((j as any)?.error, ar));
         await refresh();
-        return;
+        return false;
       }
       setStatus(j as GiftStatus);
       setAmount("");
@@ -220,12 +220,24 @@ export function WelcomeGiftModal() {
       } catch {
         /* ignore */
       }
+      return true;
     } catch {
       setError(ar ? "تعذّر الاتصال — أعد المحاولة" : "Connection failed — try again.");
+      return false;
     } finally {
       setBusy(false);
     }
   }, [selectedSlug, amount, remaining, ar, refresh]);
+
+  const hasPendingEntry = Boolean(selectedSlug) && Number.isFinite(Number(amount)) && Number(amount) > 0;
+
+  const requestFinalize = useCallback(async () => {
+    if (hasPendingEntry) {
+      const ok = await doAllocate();
+      if (!ok) return;
+    }
+    setConfirmFinalize(true);
+  }, [hasPendingEntry, doAllocate]);
 
   const doFinalize = useCallback(async () => {
     // Need a valid specialty slug to carry the finalize flag (gems:0 just locks).
@@ -450,12 +462,24 @@ export function WelcomeGiftModal() {
                   <Button
                     onClick={doAllocate}
                     disabled={busy}
-                    className="bg-gold text-zinc-900 hover:opacity-90 font-bold"
+                    className="bg-gold text-zinc-900 hover:opacity-90 font-bold gap-1 px-3"
                     data-testid="welcome-gift-add"
                   >
-                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    {busy ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4" />
+                        <span className="text-xs">{ar ? "إضافة" : "Add"}</span>
+                      </>
+                    )}
                   </Button>
                 </div>
+                <p className="text-[11px] text-zinc-500 text-center">
+                  {ar
+                    ? "اضغط \"إضافة\" لتثبيت العدد على هذا التخصص، أو اترك العدد كما هو واضغط \"تثبيت الهدية نهائياً\" مباشرة."
+                    : 'Press "Add" to lock this amount to the specialty, or leave it and press "Finalize gift" directly.'}
+                </p>
               </div>
             )}
 
@@ -469,12 +493,12 @@ export function WelcomeGiftModal() {
             <div className="space-y-2 pt-1">
               {!confirmFinalize ? (
                 <Button
-                  onClick={() => setConfirmFinalize(true)}
-                  disabled={busy || status.allocatedGems === 0}
+                  onClick={requestFinalize}
+                  disabled={busy || (status.allocatedGems === 0 && !hasPendingEntry)}
                   className="w-full h-12 text-base font-bold bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:opacity-90 transition disabled:opacity-40"
                   data-testid="welcome-gift-finalize"
                 >
-                  <Check className="w-5 h-5 ml-2" />
+                  {busy ? <Loader2 className="w-5 h-5 ml-2 animate-spin" /> : <Check className="w-5 h-5 ml-2" />}
                   {ar ? "تثبيت الهدية نهائياً" : "Finalize gift"}
                 </Button>
               ) : (
