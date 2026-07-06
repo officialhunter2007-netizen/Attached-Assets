@@ -3670,10 +3670,10 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // The addendum locks the literal tag format and reinforces single-concept
   // Socratic teaching. Per the May-2026 strict-Gemini lock the router never
   // returns any other provider, so we append unconditionally.
-  // Image generation is always available: Pollinations.ai (free, no key) is
-  // the baseline; fal.ai is used when FAL_KEY is set (faster, server-side).
-  // isImageGenerationConfigured() now returns true unconditionally.
-  const __imageEnabled = isImageGenerationConfigured();
+  // IMAGE (generated infographic) has been retired platform-wide. Force the
+  // addendum flag off unconditionally so the prompt tells the model IMAGE is
+  // not available, regardless of what isImageGenerationConfigured() reports.
+  const __imageEnabled = false;
   systemPrompt = systemPrompt + buildGeminiTeachingAddendum({
     isDiagnostic: !!isDiagnosticPhase,
     imageEnabled: __imageEnabled,
@@ -3735,12 +3735,10 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // back from the wire until either the tag completes or it becomes clear
   // the prefix isn't an IMAGE tag at all. Worst case we hold back ~9 chars
   // ("[[IMAGE:") for one chunk before flushing.
-  // First-lesson showcase is hard-clamped to exactly 1 image: the prompt
-  // addendum already says "ممنوع أكثر من مرة واحدة في هذا الرد"; this is the
-  // server-side enforcement so a hallucinating model can't blow through the
-  // budget. Normal turns allow up to 3 to support the Compare/Contrast
-  // pattern (two side-by-side diagrams) plus an additional Hook image.
-  const MAX_IMAGES_PER_REPLY = isShowcaseOpener ? 1 : 3;
+  // IMAGE (generated infographic) has been retired platform-wide — hard cap
+  // at 0 so emitVisual below drops every tag unconditionally as a
+  // deterministic backstop, even if the prompt addendum is ever ignored.
+  const MAX_IMAGES_PER_REPLY = 0;
   let __imageStreamBuffer = "";
   let __imageCount = 0;
   // Maps the short id we ship to the client → original FLUX prompt (used

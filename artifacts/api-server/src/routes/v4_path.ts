@@ -59,7 +59,6 @@ import {
 } from "../lib/v4-path-engine";
 import { capturePersonalDictionaryFromDiagnostic } from "../lib/v4-memory";
 import { subscribeProgressEvents } from "../lib/v4-progress-events";
-import { generateScene, SceneGenerationError } from "../lib/v4-scene-store";
 import { runV4PaidWork } from "../lib/v4-gem-wallet";
 import { studentGemWalletsTable } from "@workspace/db";
 import {
@@ -1462,67 +1461,6 @@ router.get("/v4/path/:slug/events", requireUser, (req, res) => {
     try { unsubscribe(); } catch {}
     try { if (!res.writableEnded) res.end(); } catch {}
   });
-});
-
-// ── POST /v4/scene ─────────────────────────────────────────────────────────
-// Lazy, FE-triggered generation of a structured "actor story" scene. The
-// teaching model emits a lightweight `[[SCENE: <description>]]` marker; the FE
-// posts the description here and we return a validated step-by-step JSON
-// (authored once by Claude Sonnet, then served from the disk cache). Costs are
-// bounded by content-hash caching + in-flight de-dup inside v4-scene-store.
-// Auth + same-origin CSRF because each cache miss triggers a paid model call.
-router.post("/v4/scene", requireUser, requireSameOriginCsrf, async (req, res) => {
-  const topic = typeof req.body?.topic === "string" ? req.body.topic : "";
-  const lessonName = typeof req.body?.lessonName === "string" ? req.body.lessonName : undefined;
-  const slug = typeof req.body?.slug === "string" ? req.body.slug.trim() : "";
-  if (!topic || topic.trim().length < 3) {
-    res.status(400).json({ error: "bad_request", message: "topic مطلوب" });
-    return;
-  }
-  if (!slug) {
-    res.status(400).json({ error: "bad_request", message: "slug مطلوب" });
-    return;
-  }
-  const uid = getUserId(req);
-  try {
-    // Validate the specialty so a bogus slug never spins up a junk wallet.
-    const resolved = await resolveActiveSpecialty(slug);
-    if (!resolved) { res.status(404).json({ error: "specialty_unavailable" }); return; }
-
-    const scene = await generateScene(topic, { lessonName, userId: uid ?? undefined, subjectId: slug });
-    res.json({ scene });
-  } catch (e) {
-    const reason = e instanceof SceneGenerationError ? e.reason : "internal";
-    logger.warn?.(`[v4/scene] failed reason=${reason}: ${String((e as any)?.message ?? e)}`);
-    // Insufficient balance → 402 so the FE shows the paywall (degrades to text).
-    if (reason === "insufficient") {
-      res.status(402).json({
-        error: "insufficient_gems",
-        reason,
-        message: "رصيد الجواهر لا يكفي لتوليد المشهد التفاعلي.",
-      });
-      return;
-    }
-    // Per-user burst limit — tell the client to slow down (FE degrades to text).
-    if (reason === "rate_limited") {
-      const retryAfterSec = e instanceof SceneGenerationError ? e.retryAfterSec : undefined;
-      if (retryAfterSec) res.setHeader("Retry-After", String(retryAfterSec));
-      res.status(429).json({
-        error: "scene_rate_limited",
-        reason,
-        retryAfterSec,
-        message: "أبطئ قليلاً — جرّب توليد المشهد بعد لحظات.",
-      });
-      return;
-    }
-    // Map to a status the FE can treat as "degrade to text" without alarming.
-    const status = reason === "unconfigured" || reason === "credits" ? 503 : 502;
-    res.status(status).json({
-      error: "scene_unavailable",
-      reason,
-      message: "تعذّر توليد المشهد التفاعلي حالياً.",
-    });
-  }
 });
 
 // ── POST /v4/path/:slug/testout/start ──────────────────────────────────────

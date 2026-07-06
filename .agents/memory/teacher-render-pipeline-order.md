@@ -5,7 +5,7 @@ description: The fixed ordering of the v4 AI-teacher markdown render pipeline an
 
 The v4 teacher message renderer (`renderHtml` in v4-lesson.tsx) transforms raw model text through a FIXED sequence. The order is load-bearing:
 
-1. expand ANIM / SCENE / IMAGE / VIZ markers — encodes their JS/HTML (which legitimately contain backticks) into element attributes, out of reach of later backtick-aware steps.
+1. strip ANIM / SCENE tags (retired mechanisms — see `visual-mechanisms-scene-anim-retired.md`), then expand VIZ markers — VIZ encodes its JS/HTML (which legitimately contains backticks) into element attributes, out of reach of later backtick-aware steps.
 2. normalizeFences — repair malformed ``` code fences.
 3. latinizeCodeIdentifiers — force Arabic identifiers inside code → English (comments/strings stay Arabic).
 4. extractMathBlocks → mergeSplitCodeTokens → marked → restoreMath → DOMPurify.
@@ -14,6 +14,6 @@ The v4 teacher message renderer (`renderHtml` in v4-lesson.tsx) transforms raw m
 
 **Why fence-normalize must run BEFORE latinize:** the latinizer detects a fence by reading everything from ``` up to the first newline as the "language line". A malformed single-line fence (` ```python سعر = 5``` `) has no internal newline, so the latinizer swallows the whole body as a lang tag and the Arabic identifier leaks through un-latinized. Normalizing first guarantees the clean ```lang\nbody\n``` the latinizer's line-based parser needs.
 
-**Why normalize must stay AFTER VIZ/ANIM/SCENE expansion:** those bodies contain real backticks; expansion encodes them into attributes so neither the fence normalizer nor the latinizer mis-splits on them.
+**Why normalize must stay AFTER VIZ expansion:** VIZ bodies contain real backticks; expansion encodes them into attributes so neither the fence normalizer nor the latinizer mis-splits on them. (ANIM/SCENE are now stripped, not expanded, since their permanent retirement.)
 
-**How to apply:** never reorder these steps. Any new backtick/fence-aware transform belongs between VIZ-expansion and marked, and must assume latinize requires already-normalized fences. normalizeFences is a no-op when the text has no ``` so it is cheap to keep first.
+**How to apply:** never reorder these steps. Any new backtick/fence-aware transform belongs between VIZ-expansion and marked, and must assume latinize requires already-normalized fences. normalizeFences is a no-op when the text has no ``` so it is cheap to keep first. IMAGE generation is also retired (see `visual-mechanisms-scene-anim-retired.md`); only `[[PHOTO]]` real-photo markers remain, handled separately from this markdown pipeline.

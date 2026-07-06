@@ -20,7 +20,6 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@/lib/teacher-render";
 import { getVizComponent } from "@/components/viz/registry";
-import { SceneMount } from "@/components/scene-stepper";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { CodeInputArea, detectCodeTask } from "@/components/code-input-area";
 import { useAuth } from "@/lib/use-auth";
@@ -204,54 +203,23 @@ function expandVizTags(raw: string): string {
   return out;
 }
 
-/* ── ANIM tag → sandboxed-iframe mount placeholder ───────────────────────
- * The teacher emits a self-contained HTML/CSS/JS animation between
- * `[[ANIM]] … [[/ANIM]]`. We extract the raw markup BEFORE marked/DOMPurify
- * run on the message, stash it URL-encoded on a mount <div>, and later hydrate
- * it inside a sandboxed <iframe srcdoc> (see mountAnimFrames). The iframe runs
- * with `sandbox="allow-scripts"` and NO `allow-same-origin`, so the untrusted
- * teacher markup gets an opaque origin — it cannot read cookies, localStorage,
- * the parent DOM, or issue credentialed requests. This is why the raw markup
- * may safely bypass DOMPurify: isolation, not sanitization, is the boundary. */
+/* ── ANIM tag → stripped (mechanism retired) ─────────────────────────────
+ * ANIM has been permanently removed. Old sessions' persisted history can
+ * still contain a raw `[[ANIM]] … [[/ANIM]]` block, so we strip it entirely
+ * (rather than mounting a sandboxed iframe) to avoid leaking raw protocol
+ * markup into the rendered chat on reload. */
 function expandAnimTags(raw: string): string {
   if (!raw || !raw.includes("[[ANIM]]")) return raw;
-  let out = "";
-  let i = 0;
-  while (i < raw.length) {
-    const start = raw.indexOf("[[ANIM]]", i);
-    if (start < 0) { out += raw.slice(i); break; }
-    out += raw.slice(i, start);
-    const bodyStart = start + "[[ANIM]]".length;
-    const end = raw.indexOf("[[/ANIM]]", bodyStart);
-    if (end < 0) { i = raw.length; break; } // unterminated — drop the partial
-    const body = raw.slice(bodyStart, end).trim();
-    out += `\n\n<div data-anim-mount data-anim-html="${encodeURIComponent(body)}"></div>\n\n`;
-    i = end + "[[/ANIM]]".length;
-  }
-  return out;
+  return raw.replace(/\[\[ANIM\]\][\s\S]*?\[\[\/ANIM\]\]/g, "");
 }
 
-/* ── SCENE tag → lazy interactive-scene mount placeholder ────────────────
- * The teacher emits `[[SCENE: <Arabic description>]]`. We stash the
- * description URL-encoded on a mount <div>; later the SceneMount component
- * (hydrated in TeacherBubble) POSTs it to /api/v4/scene, which returns a
- * Claude-Sonnet-authored structured scene rendered by the SceneStepper. */
+/* ── SCENE tag → stripped (mechanism retired) ────────────────────────────
+ * SCENE has been permanently removed (the `/v4/scene` route + SceneStepper
+ * are gone). Old sessions' persisted history can still contain a raw
+ * `[[SCENE: ...]]` tag, so we strip it entirely on render. */
 function expandSceneTags(raw: string): string {
   if (!raw || !raw.includes("[[SCENE:")) return raw;
-  let out = "";
-  let i = 0;
-  while (i < raw.length) {
-    const start = raw.indexOf("[[SCENE:", i);
-    if (start < 0) { out += raw.slice(i); break; }
-    out += raw.slice(i, start);
-    const bodyStart = start + "[[SCENE:".length;
-    const end = raw.indexOf("]]", bodyStart);
-    if (end < 0) { i = raw.length; break; } // unterminated — drop the partial
-    const topic = raw.slice(bodyStart, end).trim();
-    out += `\n\n<div data-scene-mount data-scene-topic="${encodeURIComponent(topic)}"></div>\n\n`;
-    i = end + 2;
-  }
-  return out;
+  return raw.replace(/\[\[SCENE:[\s\S]*?\]\]/g, "");
 }
 
 /* ── Strip incomplete protocol tags / VIZ tails mid-stream ────────────── */
@@ -464,8 +432,9 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   // Running it before the latinizer is essential: a malformed single-line fence
   // carrying Arabic identifiers (```python سعر = 5```) would otherwise be misread
   // by the latinizer as one long language line and skip latinization entirely.
-  // Safe here: ANIM/SCENE/VIZ bodies are already encoded into element attributes,
-  // so only genuine markdown fences remain — and it is a no-op when none exist.
+  // Safe here: VIZ bodies are already encoded into element attributes, and
+  // ANIM/SCENE tags have been stripped entirely above — so only genuine
+  // markdown fences remain, and it is a no-op when none exist.
   const withFences = normalizeFences(withViz);
 
   const withNoComments = stripFenceComments(withFences);
@@ -482,46 +451,9 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   const html = marked.parse(merged ?? "", { async: false }) as string;
   const withMath = restoreMathPlaceholders(html, blocks);
   return DOMPurify.sanitize(withMath, {
-    ADD_ATTR: ["target", "data-image-id", "loading", "data-viz-mount", "data-viz-template", "data-viz-payload", "data-anim-mount", "data-anim-html", "data-scene-mount", "data-scene-topic"],
+    ADD_ATTR: ["target", "data-image-id", "loading", "data-viz-mount", "data-viz-template", "data-viz-payload"],
     ADD_TAGS: ["figure", "figcaption"],
   });
-}
-
-/* ── Sandboxed animation frame document ──────────────────────────────────
- * Wraps the teacher's body-only markup in a full RTL dark document that
- * matches the Nukhba theme (gold/emerald on near-black) and auto-reports its
- * height to the parent via postMessage so the iframe never clips or leaves a
- * dead gap. The teacher is instructed to emit ONLY body content (HTML +
- * <style> + <script>), so this wrapper guarantees a consistent shell. */
-function buildAnimDoc(bodyHtml: string): string {
-  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
-<style>
-  :root{--gold:#F59E0B;--emerald:#10B981;--bg:#0d1117;--card:#141a24;--ink:#e9edf5;}
-  *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;background:transparent;color:var(--ink);
-    font-family:'Tajawal','Cairo',system-ui,-apple-system,sans-serif;}
-  body{padding:10px;overflow:hidden;}
-  a{color:var(--gold);}
-  ::-webkit-scrollbar{width:0;height:0;}
-</style></head><body>
-${bodyHtml}
-<script>
-  (function(){
-    function report(){
-      var h = Math.max(
-        document.documentElement.scrollHeight||0,
-        document.body ? document.body.scrollHeight : 0
-      );
-      try{ parent.postMessage({__nukhbaAnim:true, height:h}, "*"); }catch(e){}
-    }
-    window.addEventListener("load", report);
-    if (window.ResizeObserver){ try{ new ResizeObserver(report).observe(document.body); }catch(e){} }
-    [120,400,900,1800].forEach(function(t){ setTimeout(report, t); });
-  })();
-</script>
-</body></html>`;
 }
 
 function TeacherBubble({ html, isStreaming, imageMap, lessonName, slug }: { html: string; isStreaming: boolean; imageMap: Map<string, V4ImageState>; lessonName?: string; slug?: string }) {
@@ -720,89 +652,6 @@ function TeacherBubble({ html, isStreaming, imageMap, lessonName, slug }: { html
     }
     rootsRef.current.clear();
   }, []);
-
-  // ── SCENE React-root mounting (interactive actor-story stepper) ───────
-  // Same lifecycle as VIZ: mount only on finalized HTML, reuse roots across
-  // re-renders, and unmount roots whose host node has gone away.
-  const sceneRootsRef = useRef<Map<Element, Root>>(new Map());
-  useEffect(() => {
-    if (!ref.current || isStreaming) return;
-    const container = ref.current;
-    const mounts = Array.from(container.querySelectorAll<HTMLElement>("[data-scene-mount]"));
-    const alive = new Set<Element>();
-    for (const el of mounts) {
-      alive.add(el);
-      let topic = "";
-      try { topic = decodeURIComponent(el.getAttribute("data-scene-topic") || ""); } catch { topic = ""; }
-      if (!topic.trim()) continue;
-      let r = sceneRootsRef.current.get(el);
-      if (!r) {
-        r = createRoot(el);
-        sceneRootsRef.current.set(el, r);
-      }
-      r.render(createElement(SceneMount, { topic, lessonName, slug }));
-    }
-    for (const [node, r] of sceneRootsRef.current.entries()) {
-      if (!alive.has(node)) {
-        queueMicrotask(() => { try { r.unmount(); } catch {} });
-        sceneRootsRef.current.delete(node);
-      }
-    }
-  }, [html, isStreaming]);
-  useEffect(() => () => {
-    for (const r of sceneRootsRef.current.values()) {
-      queueMicrotask(() => { try { r.unmount(); } catch {} });
-    }
-    sceneRootsRef.current.clear();
-  }, []);
-
-  // ── Sandboxed-animation mounting ──────────────────────────────────────
-  // For each `[[ANIM]]` mount we inject an isolated <iframe srcdoc>. The
-  // iframe → height map lets one window-level message listener resize the
-  // right frame as its content settles (animations grow after first paint).
-  const animFramesRef = useRef<Map<HTMLIFrameElement, HTMLElement>>(new Map());
-  useEffect(() => {
-    function onMsg(e: MessageEvent) {
-      // Sandboxed srcdoc frames have an opaque origin → e.origin === "null".
-      // Reject anything else so a real cross-origin page can't spoof a resize.
-      if (e.origin !== "null") return;
-      const d = e.data;
-      if (!d || d.__nukhbaAnim !== true || !Number.isFinite(d.height)) return;
-      for (const frame of animFramesRef.current.keys()) {
-        if (frame.contentWindow === e.source) {
-          const h = Math.min(Math.max(d.height, 80), 1400);
-          frame.style.height = `${h + 4}px`;
-          break;
-        }
-      }
-    }
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, []);
-
-  useEffect(() => {
-    if (!ref.current || isStreaming) return;
-    const container = ref.current;
-    const mounts = Array.from(container.querySelectorAll<HTMLElement>("[data-anim-mount]"));
-    for (const el of mounts) {
-      if (el.dataset.animApplied === "1") continue;
-      el.dataset.animApplied = "1";
-      let body = "";
-      try { body = decodeURIComponent(el.getAttribute("data-anim-html") || ""); } catch { body = ""; }
-      if (!body.trim()) continue;
-      const frame = document.createElement("iframe");
-      frame.className = "nukhba-anim-frame";
-      // allow-scripts WITHOUT allow-same-origin → opaque origin: untrusted
-      // teacher markup cannot touch parent cookies/DOM/storage.
-      frame.setAttribute("sandbox", "allow-scripts");
-      frame.setAttribute("loading", "lazy");
-      frame.setAttribute("title", "رسم متحرك توضيحي");
-      frame.srcdoc = buildAnimDoc(body);
-      el.appendChild(frame);
-      animFramesRef.current.set(frame, el);
-    }
-  }, [html, isStreaming]);
-  useEffect(() => () => { animFramesRef.current.clear(); }, []);
 
   return (
     <div

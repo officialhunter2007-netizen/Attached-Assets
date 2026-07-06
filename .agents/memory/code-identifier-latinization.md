@@ -22,11 +22,14 @@ TTS keeping the original Arabic is acceptable; the rendered DOM and the copy
 button (which read latinized `textContent`) are what matter.
 
 **How to apply — the traps that broke earlier attempts:**
-- **Run the latinizer AFTER ANIM/SCENE/VIZ tag expansion**, not before. Those
-  bodies are raw JS/HTML containing backtick template literals with Arabic UI
-  labels; if the latinizer sees them first it treats the backticks as code spans
-  and mangles the Arabic. After expansion they're encoded into element
-  attributes and out of reach — only genuine markdown fences remain.
+- **Run the latinizer AFTER VIZ tag expansion**, not before. VIZ bodies are raw
+  JS/HTML containing backtick template literals with Arabic UI labels; if the
+  latinizer sees them first it treats the backticks as code spans and mangles
+  the Arabic. After expansion they're encoded into element attributes and out
+  of reach — only genuine markdown fences remain. (ANIM/SCENE used to need the
+  same treatment before they were permanently retired — see
+  `visual-mechanisms-scene-anim-retired.md`; they are now stripped outright,
+  earlier in the pipeline, so they no longer factor into this ordering.)
 - **Collision guard is mandatory.** Different Arabic words can map to the same
   English (معدل & متوسط → "average"). Without a per-message name map that suffixes
   duplicates (`average_2`), two distinct variables silently merge and the copied

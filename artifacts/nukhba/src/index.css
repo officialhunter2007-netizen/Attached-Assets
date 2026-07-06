@@ -673,27 +673,6 @@
   color: #fca5a5 !important;
   padding: 10px;
 }
-/* Sandboxed animation frames ([[ANIM]] → <iframe srcdoc>). The bubble
-   wraps the teacher's self-contained HTML/CSS/JS explainer; height is
-   driven by postMessage from inside the frame (see buildAnimDoc). */
-.ai-msg [data-anim-mount] {
-  margin: 14px 0;
-}
-.nukhba-anim-frame {
-  display: block;
-  width: 100%;
-  height: 320px;
-  border: 1px solid rgba(245, 158, 11, 0.22);
-  border-radius: 14px;
-  background:
-    radial-gradient(120% 120% at 100% 0%, rgba(16, 185, 129, 0.06), transparent 60%),
-    radial-gradient(120% 120% at 0% 100%, rgba(245, 158, 11, 0.07), transparent 60%),
-    #0d1117;
-  box-shadow: 0 8px 26px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
-  overflow: hidden;
-  transition: height 0.25s ease;
-  color-scheme: dark;
-}
 /* Full-screen lightbox modal for tapped teacher illustrations.
    Fixed-positioned so it escapes the message bubble's overflow:hidden.
    z-index sits above the chat header (which uses z-50 in the layout). */

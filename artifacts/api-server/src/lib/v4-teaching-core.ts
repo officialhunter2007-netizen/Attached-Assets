@@ -670,19 +670,6 @@ export async function buildTeacherSystemPrompt(opts: {
     ? buildOpeningContractLayer(lesson, opts.specialtyMeta ?? null)
     : "";
 
-  // Claude-Sonnet-authored animated SVG scenes — the PRIMARY (and only)
-  // illustrative-animation tool. The teacher emits a lightweight
-  // `[[SCENE: <desc>]]` marker; the FE turns it into a professional, self-
-  // contained animated SVG + an interactive Arabic step track. Covers any
-  // process, mechanism, structure, comparison, flow, or algorithm.
-  const LSCENE = buildSceneLayer();
-
-  // FLUX.1 [schnell] illustrative still images — the static-visual counterpart
-  // to SCENE. The teacher emits `[[IMAGE: <english prompt>]]`; v4_teach.ts
-  // parses it mid-stream and swaps in a same-origin generated image so lessons
-  // are never a wall of text.
-  const LIMG = buildImageLayer();
-
   // Real photographs from the web (Wikipedia / Commons) — the teacher emits
   // `[[PHOTO: <english query>]]` for concrete real-world things; v4_teach.ts
   // resolves a real same-origin photo and renders it through the SAME
@@ -787,89 +774,12 @@ export async function buildTeacherSystemPrompt(opts: {
         currentLessonCode: lesson.lesson.code,
       });
 
-  const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LSCENE, LIMG, LWEBPHOTO];
+  const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LWEBPHOTO];
   if (L3A) layers.splice(3, 0, L3A);
   if (LCODE) layers.push(LCODE);
   if (LOPEN) layers.push(LOPEN);
   if (LDIAG) layers.push(LDIAG);
   return { systemPrompt: layers.join("\n\n"), askedFacet };
-}
-
-// ─── Scene layer (structured actor stories) ───────────────────────────────
-// The teacher emits a lightweight `[[SCENE: <Arabic description>]]` marker
-// describing a step-by-step process between participants. The FE lazily turns
-// it into a validated step JSON via Claude Sonnet and renders a polished
-// interactive stepper we own. This REPLACES free-ANIM for the dominant
-// "story between actors" pattern, which used to look weak and confusing.
-export function buildSceneLayer(): string {
-  return [
-    "## 12. الرسم التوضيحي المتحرّك (SCENE) — أداتك البصرية الأولى",
-    "هذه أداتك **الوحيدة** للرسوم المتحرّكة التوضيحية. حين يساعد رسمٌ متحرّك على فهم مفهوم أو عملية أو آلية أو بنية أو مقارنة أو تدفّق أو خوارزمية، استخدم هذا الوسم:",
-    "```",
-    "[[SCENE: وصفٌ عربي دقيق وغنيّ لما تريد رسمه — العناصر، وكيف تترتّب، وما الذي يتحرّك أو يتغيّر بالترتيب من البداية حتى النتيجة، والفكرة أو الخطر المُراد إبرازه]]",
-    "```",
-    "",
-    "**كيف يعمل**: تكتب الوصف فقط بين القوسين. يتولّى مخرج رسوم متحرّكة محترف (Claude Sonnet) تحويله إلى **رسم متحرّك احترافي سلس كأنّه مقطع فيديو قصير** (HTML/CSS/JS، حركة ناعمة متكرّرة، ألوان النظام الذهبي والزمرّدي، تسميات عربية) مع شريط خطوات تفاعلي فيه «سابق/تالي» وتشغيل تلقائي وشرح راقٍ لكل خطوة — فلا تكتب أنت JSON ولا SVG ولا HTML ولا خطوات مرقّمة، فقط صِف ما تريد رؤيته بوضوح ودقّة.",
-    "",
-    "**متى تستخدمه (أكثِر منه)**:",
-    "- عمليات بين أطراف: هجمات الأمن السيبراني (تصيّد، هندسة اجتماعية، رجل في المنتصف)، مصافحات وبروتوكولات، معاملات محاسبية، رحلة طلب/بيانات.",
-    "- آليات ومفاهيم: كيف يعمل شيء داخلياً، دورة حياة، تدفّق طاقة/بيانات، بنية (مكدّس، طابور، شجرة، شبكة، طبقات)، خوارزمية وهي تعمل، مقارنة قبل/بعد، خط زمني.",
-    "- كلّما كانت الصورة المتحرّكة أوضح من الكلام أو الصورة الثابتة، فاستخدمه.",
-    "",
-    "**قواعد الإدراج**:",
-    "- اجعل الوصف **غنيّاً ومحدّداً**: سمِّ العناصر، ورتّبها، واذكر ما الذي يتحرّك/يتغيّر في كل خطوة، والنتيجة، والفكرة المستفادة. كلّما دقّ وصفك، احترف الرسم.",
-    "- ضع الوسم في سطر مستقل بين فقرتي شرح، ثم اتبعه بسؤال سقراطي قصير («تابع الرسم… شو تتوقّع يصير بعدها؟»).",
-    "- **بادر تلقائياً**: متى ما أحسستَ أن مفهوماً يصعب فهمه من النصّ وحده ويتّضح كـ«صورة متحرّكة بسيناريو مفهوم»، أصدر الوسم **من نفسك دون انتظار طلب الطالب**. لا تترك المفاهيم البصرية نصّاً جافّاً.",
-    "- وسم واحد لكل رسالة على الأكثر. لا تستخدمه في رسالة الافتتاح الإلزامية.",
-    "",
-    "**مثال**:",
-    "[[SCENE: محتال ينتحل صفة موظّف الدعم الفني ويتّصل بموظّفة في شركة. يبدأ ببناء الثقة بذكر اسمها وقسمها، ثم يخلق إحساساً بالطوارئ بأن حسابها سيُغلق، ثم يطلب رمز التحقّق الذي وصلها للتو. الموظّفة تحت الضغط تعطيه الرمز، فيدخل المحتال إلى الحساب. الدرس: لا أحد من الدعم الفني يطلب رمز التحقّق أبداً]]",
-  ].join("\n");
-}
-
-// ─── Illustrative image layer (FLUX.1 schnell infographics) ────────────────
-// The teacher emits `[[IMAGE: <english FLUX prompt>]]` inline. The v4 teach
-// route detects the tag mid-stream, fires FLUX.1 [schnell] generation
-// (fal.ai → Pollinations → local SVG poster — never fails), and swaps a real
-// same-origin <img> into the bubble. FLUX garbles non-Latin scripts, so the
-// prompt MUST be English + "NO TEXT NO LABELS NO WORDS"; the Arabic meaning
-// goes in an HTML <figcaption> directly under the marker.
-export function buildImageLayer(): string {
-  return [
-    "## 13. الصورة التوضيحية الثابتة (IMAGE) — لكي لا يملّ الطالب من النصّ",
-    "تستطيع توليد **صورة/بطاقة معلوماتية بصرية احترافية** عبر نموذج FLUX، باستخدام هذا الوسم:",
-    "```",
-    "[[IMAGE: english FLUX prompt — purely visual, NO TEXT NO LABELS NO WORDS]]",
-    "```",
-    "",
-    "**كيف يعمل**: تكتب وصفاً إنجليزياً غنيّاً بين القوسين فيتولّى النظام توليد الصورة وعرضها داخل فقاعة رسالتك تلقائياً. النصّ العربي لا يُكتَب داخل الصورة أبداً (النموذج يُشوّه الحروف العربية)، بل في `<figcaption>` تحت الوسم مباشرة.",
-    "",
-    "**متى تستخدمه (بادر تلقائياً وبشكل دوريّ في كل درس)**:",
-    "- للمفاهيم **الثابتة البصرية بطبيعتها**: بنية/تشريح (خلية، دائرة كهربائية، مكوّنات نظام)، مقطع عرضي، علاقة مكانية، مقارنة جنباً إلى جنب، استعارة بصرية تختصر شرحاً طويلاً.",
-    "- اجعل الطالب يرى صورة من حين لآخر بدل جدار النصّ — **هدفك ألّا يملّ من القراءة فقط**.",
-    "- **التنسيق مع SCENE**: استخدم SCENE للعمليات والحركة والقصص بين أطراف، واستخدم IMAGE للصور الثابتة. **لا تجمع بين SCENE وIMAGE في الردّ الواحد** — وسمٌ بصريّ واحد كحدّ أقصى لكل ردّ. وزّعهما على مدى الدرس حتى يتنوّع الإيقاع البصري.",
-    "",
-    "**قواعد البرومبت (مهمّة جداً لجودة الصورة)**:",
-    "- ابدأ كل وسم بنواة الجودة هذه حرفياً ثم أكمل بوصف المشهد المحدّد:",
-    "  `professional editorial infographic illustration, isometric flat icons, color-coded sections (soft blue, mint green, warm orange, lavender), subtle gradient background, clear visual hierarchy with thin connector arrows, generous whitespace, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3`",
-    "- صِف العناصر المرئية بدقّة (ما الذي يظهر، كيف يترتّب، الألوان، الأسهم) واربط الأجزاء بدوائر مرقّمة ملوّنة 1 2 3 يشرحها المفتاح العربي تحتها.",
-    "- **ممنوع منعاً باتاً داخل الوسم**: أي كلمة عربية، أي طلب لكتابة نصّ/labels/captions داخل الصورة. الصورة بصرية بحتة فقط.",
-    "- بعد الوسم مباشرةً اكتب المفتاح العربي بهذه الصيغة:",
-    "```html",
-    '<figcaption class="image-caption">',
-    '  <strong class="caption-title">المفتاح: <اسم البطاقة بالعربية></strong>',
-    '  <ol class="caption-legend">',
-    '    <li><span class="num n1">1</span> <شرح الجزء الأول></li>',
-    '    <li><span class="num n2">2</span> <شرح الجزء الثاني></li>',
-    '    <li><span class="num n3">3</span> <شرح الجزء الثالث></li>',
-    "  </ol>",
-    "</figcaption>",
-    "```",
-    "- ضع الوسم في سطر مستقل بين فقرتي شرح. لا تستخدمه في رسالة الافتتاح الإلزامية. وسم IMAGE واحد كحدّ أقصى في الردّ.",
-    "",
-    "**مثال** (دائرة كهربائية بسيطة):",
-    "[[IMAGE: professional editorial infographic illustration, clean schematic of a simple electrical circuit with a battery, a switch, and a lightbulb connected by wires, isometric flat icons, color-coded components (warm orange battery, mint green switch, soft blue bulb), subtle gradient background, thin connector lines, modern educational poster style, vector art, ultra detailed, 4k quality, NO TEXT, NO LABELS, NO WORDS, only numbered colored circles 1 2 3 marking each component]]",
-  ].join("\n");
 }
 
 // ─── Real-photo layer (PHOTO) — actual photographs from the web ────────────
@@ -896,14 +806,9 @@ export function buildWebPhotoLayer(): string {
     "- حين تكون «صورة الشيء كما هو في الواقع» أوضحَ من أيّ رسم — وهذا هو الغالب مع القطع والأجهزة والكائنات والأماكن.",
     "- **المخطّطات والرسوم الجاهزة الحقيقية**: إن وُجد مخطّطٌ أو رسمٌ توضيحيّ **جاهز ومعروف على الإنترنت** (مخطّط تشريحيّ مُعنون، خريطة حقيقية، رسم بياني/علميّ منشور، مخطّط دائرة معروف) فاجلبه عبر PHOTO أيضاً — الرسم الجاهز الحقيقي أدقّ وأوضح من أيّ رسمٍ مُولَّد.",
     "",
-    "**PHOTO أم IMAGE أم SCENE؟**:",
-    "- **PHOTO**: شيء حقيقيّ ملموس تريد إظهار شكله الفعلي، **أو مخطّط/رسمٌ جاهزٌ حقيقيّ موجودٌ فعلاً على الإنترنت**. هذا خيارك الأوّل كلّما كان للشيء صورة أو رسمٌ جاهزٌ حقيقي.",
-    "- **IMAGE**: مفهوم أو بنية تجريدية **لا وجود لصورة أو رسمٍ جاهزٍ لها على الإنترنت**، فتولّد له بطاقة معلوماتية تخطيطية. (إن وُجد رسمٌ جاهزٌ حقيقي فاستخدم PHOTO بدلاً منه.)",
-    "- **SCENE**: عملية أو حركة أو قصّة بين أطرافٍ تتغيّر خطوة بخطوة.",
-    "",
     "**قواعد إلزامية**:",
     "- العبارة داخل الوسم **بالإنجليزية فقط** وبسيطة (اسم الشيء + كلمة أو كلمتين للسياق). تجنّب الجُمل الطويلة والصفات الكثيرة.",
-    "- **الحدّ الأقصى لكل ردّ**: حتى **صورتان حقيقيتان (PHOTO)** إن ذُكر أكثر من شيءٍ ماديّ، لكن **بطاقة مُولَّدة واحدة فقط (IMAGE)** أو مشهد واحد (SCENE) كحدٍّ أقصى. لا تُكثر؛ وزّع البقية على مدى الدرس حتى يتنوّع الإيقاع البصري.",
+    "- **الحدّ الأقصى لكل ردّ**: حتى **صورتان حقيقيتان (PHOTO)** إن ذُكر أكثر من شيءٍ ماديّ. لا تُكثر؛ وزّع البقية على مدى الدرس حتى يتنوّع الإيقاع البصري.",
     "- ضع الوسم في سطرٍ مستقلّ بين فقرتَي شرح، ولا تستخدمه في رسالة الافتتاح الإلزامية.",
     "- بعد الوسم مباشرةً اكتب تعليقاً عربياً موجزاً يشرح ما في الصورة:",
     "```html",
@@ -914,64 +819,6 @@ export function buildWebPhotoLayer(): string {
     "",
     "**مثال** (أوّل ذكرٍ للذاكرة العشوائية RAM):",
     "[[PHOTO: DDR4 RAM memory module]]",
-  ].join("\n");
-}
-
-// ─── Live animation layer (HTML/CSS/JS explainers) ────────────────────────
-// The teacher can emit a fully self-contained animation between
-// `[[ANIM]] … [[/ANIM]]`. The FE drops the raw markup into a sandboxed
-// <iframe srcdoc> (allow-scripts, NO allow-same-origin) so it runs like a
-// tiny self-playing video inside the bubble. This is the most powerful
-// visual for *dynamic processes* the fixed VIZ templates can't express
-// (e.g. NTLM/TLS handshakes, sorting algorithms, request/response journeys).
-export function buildAnimationLayer(): string {
-  return [
-    "## 13. الرسوم المتحرّكة الحيّة (ANIM) — أداة احتياطية للحركة المستمرّة",
-    "تستطيع توليد **رسم متحرّك كامل** (يعمل كفيديو قصير داخل فقاعة رسالتك) بلغة HTML/CSS/JavaScript، باستخدام الوسم:",
-    "```",
-    "[[ANIM]]",
-    "… محتوى HTML + <style> + <script> هنا …",
-    "[[/ANIM]]",
-    "```",
-    "",
-    "**متى تستخدمه (نادراً — فقط لما لا يصلح له المشهد التفاعلي SCENE)**:",
-    "- للحركة **المستمرّة أو الخوارزمية** التي ليست «تبادلاً بين أطراف»: تنفيذ حلقة، حركة مؤشّرات الذاكرة، خوارزمية فرز/بحث وهي تعمل، رسم بياني يتغيّر، محاكاة فيزيائية بسيطة.",
-    "- **مهم**: إذا كان المفهوم «عملية بين طرفين أو أكثر يتبادلون شيئاً خطوة بخطوة» (هجوم، مصافحة، رحلة طلب، تفاوض) فاستخدم وسم SCENE وليس ANIM — فهو أوضح وأجمل وأدقّ.",
-    "",
-    "**قواعد إلزامية للمحتوى**:",
-    "- اكتب **محتوى الجسم فقط** (وسوم HTML و`<style>` و`<script>`) — لا تكتب `<!DOCTYPE>` ولا `<html>` ولا `<body>`؛ النظام يغلّفها تلقائياً.",
-    "- يجب أن يكون **مكتفياً ذاتياً تماماً**: لا روابط خارجية، لا صور من الإنترنت، لا مكتبات CDN، لا خطوط خارجية، ولا أيّ طلب شبكة (البيئة معزولة ولن يعمل أيّ اتصال خارجي). استخدم CSS وSVG وCanvas وJavaScript خالصة فقط.",
-    "- **تشغيل تلقائي ومتكرّر**: ابدأ الحركة فور التحميل (CSS animations أو `requestAnimationFrame` أو `setInterval`) واجعلها تتكرّر (loop) لا تتوقّف بعد مرة واحدة.",
-    "- الثيم: خلفية داكنة شفّافة، نص فاتح، وألوان النظام: ذهبي `#F59E0B` وزمرّدي `#10B981`. كل النصوص والعناوين **بالعربية** واتجاه RTL.",
-    "- مقاس معقول: العرض 100% تلقائياً؛ اجعل الارتفاع المنطقي بين ~220 و ~420 بكسل. لا تستخدم `position:fixed` ولا نوافذ منبثقة.",
-    "- اجعلها **توضيحية لا زخرفية**: ضع تسميات عربية على كل خطوة (مثلاً «١. العميل يطلب التحدّي»، «٢. الخادم يرسل nonce»…) بحيث يفهم الطالب العملية من الحركة نفسها.",
-    "- أبقِها خفيفة (عشرات الأسطر، لا مئات) وبدون أخطاء برمجية — الكود يُنفَّذ كما هو.",
-    "",
-    "**قواعد الإدراج**:",
-    "- ضع وسم ANIM في سطر مستقل بين فقرتي شرح، ثم اتبعه بسؤال سقراطي قصير («تابع الحركة… شو تتوقّع يصير في الخطوة الجاية؟»).",
-    "- لا تستخدم ANIM في رسالة الافتتاح الإلزامية.",
-    "- لا تشرح الكود للطالب ولا تعرضه نصياً — هو يرى النتيجة المتحرّكة فقط.",
-    "",
-    "**مثال مصغّر** (مصافحة مبسّطة بين عميل وخادم):",
-    "[[ANIM]]",
-    '<div style="font-family:Tajawal,sans-serif;color:#e9edf5;text-align:center">',
-    '  <div style="display:flex;justify-content:space-between;padding:0 30px;font-weight:700">',
-    '    <span style="color:#10B981">العميل</span><span style="color:#F59E0B">الخادم</span>',
-    "  </div>",
-    '  <div style="position:relative;height:46px;margin:14px 0">',
-    '    <div class="pkt" style="position:absolute;top:8px;background:#F59E0B;color:#0d1117;padding:4px 10px;border-radius:8px;font-size:12px">طلب اتصال →</div>',
-    "  </div>",
-    '  <div id="cap" style="font-size:13px;color:#9aa4b2">الخطوة ١: العميل يبدأ الاتصال</div>',
-    "</div>",
-    "<style>",
-    "@keyframes go{0%{right:8%;left:auto}50%{right:auto;left:8%}100%{right:8%;left:auto}}",
-    ".pkt{animation:go 3s ease-in-out infinite}",
-    "</style>",
-    "<script>",
-    'var steps=["الخطوة ١: العميل يبدأ الاتصال","الخطوة ٢: الخادم يرسل تحدّياً","الخطوة ٣: العميل يثبت هويته"];var i=0;',
-    'setInterval(function(){i=(i+1)%steps.length;document.getElementById("cap").textContent=steps[i];},1500);',
-    "</script>",
-    "[[/ANIM]]",
   ].join("\n");
 }
 
@@ -1015,7 +862,7 @@ export function buildOpeningContractLayer(
     "- يُسمح لهذه الرسالة وحدها أن تكون أطول من المعتاد (حتى ~12 جملة) كي تتّسع للإطار التحفيزي والخريطة — لكن تبقى موجزة ودافئة، لا فقرة مكتظّة.",
     "- نبرة ترحيبية تحفّز الطالب وتشعره أنه في رحلة واضحة، مع إحساس بالتقدّم القادم.",
     "- سؤال واحد فقط في النهاية (كبقية الرسائل). لا تكشف الإجابات بعد.",
-    "- لا تستخدم وسم VIZ ولا SCENE ولا IMAGE ولا PHOTO ولا ANIM في رسالة الافتتاح — كلها معطّلة هنا مهما كان.",
+    "- لا تستخدم وسم VIZ ولا PHOTO في رسالة الافتتاح — كلاهما معطّل هنا مهما كان.",
     "- **مهمّ جداً**: بما أن كل الوسوم البصرية معطّلة في هذه الرسالة، **لا تكتب أبداً عبارات تَعِد بعرض رسمٍ متحرّك أو صورة أو مخطّط الآن** (مثل «خليني أعطيك انميشن واضح» أو «شوف هذا الرسم») — فهذا وعدٌ لن يتحقّق لأن الوسم لن يظهر، فيبدو للطالب أن الميزة معطوبة. إن طلب الطالب في رسالته الأولى عنصراً بصرياً صراحةً، أجب عن سؤاله بالكلام فقط واذكر بإيجاز أن رسماً توضيحياً حقيقياً قادم بمجرد بدء الشرح الفعلي (بعد هذه الرسالة التمهيدية)، دون الادعاء بعرضه الآن.",
   ];
   return lines.filter(Boolean).join("\n");

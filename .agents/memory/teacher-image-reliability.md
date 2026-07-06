@@ -19,6 +19,8 @@ The teacher `[[IMAGE:]]` pipeline tries three providers in order: **fal.ai (FLUX
 
 **v4 [[PHOTO]] path is now DECOUPLED from this fallback chain.** The real-photo feature (active v4 `/api/v4/teach` flow) NO LONGER falls back to fal.ai/Pollinations/SVG on a miss — `resolveWebPhoto` returns `provider:"none"` and the FE strips the marker. So `FAL_KEY` now only affects the explicit generated-infographic `[[IMAGE:]]` path, NOT real photos. See `web-photo-ssrf-and-photo-tag.md`.
 
+**UPDATE (2026-07-06): the generated-infographic `[[IMAGE:]]` path itself is now retired.** It is dead-capped rather than deleted in the legacy `/subject` route (`ai.ts`): `__imageEnabled` forced `false`, `MAX_IMAGES_PER_REPLY` forced `0` — the functions/imports still exist there but never fire. In the v4 path it was removed outright (`emitVisual` drops `kind==="image"` unconditionally; no generation call is ever made). Everything above this line describes the OLD live behavior for historical/security reference only — see `visual-mechanisms-scene-anim-retired.md` for the full retirement scope. The manifest self-heal section below still applies to any already-served images and to PHOTO.
+
 ## Manifest-backed self-heal (broken-image safety net)
 
 A `[[IMAGE]]`/`[[PHOTO]]` URL baked into a saved session used to become a **permanent** broken image if its file was evicted/wiped (deploy disk reset, LRU eviction). Now there is a DB manifest (`teacher_image_manifest`, hash PK) recording how to RE-CREATE each file, and `serveTeacherImage` self-heals on a miss.

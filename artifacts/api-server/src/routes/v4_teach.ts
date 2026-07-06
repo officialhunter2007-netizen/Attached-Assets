@@ -65,12 +65,6 @@ import {
   type GeminiContentPart,
 } from "../lib/gemini-stream";
 import { getTeacherProviderOverride } from "../lib/ai-teacher-provider";
-import {
-  generateTeacherImage,
-  resolveTeacherImage,
-  FLUX_SCHNELL_USD_PER_IMAGE,
-  type ImageGenerationResult,
-} from "../lib/image-generation";
 import { resolveWebPhoto } from "../lib/teacher-image-store";
 import { emitFriendlyAiFailure } from "./ai";
 
@@ -556,19 +550,14 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
   let balanceAfter: number | null = null;
   let chargeRequestId = requestId;
 
-  // ── Inline FLUX image generation state (mirrors legacy ai.ts) ─────────────
-  // The teacher emits `[[IMAGE: english prompt]]` tags inline. We detect each
-  // complete tag as it streams, replace it on the wire with a short
-  // `[[IMAGE:id]]` marker (which survives stripProtocolTags untouched), fire
-  // FLUX generation in the background, and emit `imagePlaceholder` / `imageReady`
-  // SSE events so the FE can swap a real same-origin <img> into the bubble.
-  // Real photos (PHOTO) are FREE and the primary visual aid for concrete things,
-  // so we allow up to TWO per reply; generated infographics (IMAGE) cost money
-  // and stay capped at ONE. (SCENE is handled on its own route.)
+  // ── Inline visual-tag state ────────────────────────────────────────────
+  // The teacher may still emit `[[IMAGE: ...]]` (retired FLUX infographic
+  // mechanism — always dropped below, never generated) or `[[PHOTO: english
+  // query]]` (real photo — FREE, up to TWO per reply). Both markers are
+  // detected via the same sliding-window buffer so a tag split across chunk
+  // boundaries is never partially leaked.
   const MAX_PHOTOS_PER_REPLY = 2;
-  const MAX_IMAGES_PER_REPLY = 1;
   let __imageStreamBuffer = "";
-  let __imageCount = 0; // generated-infographic (IMAGE) count
   let __photoCount = 0; // real-photo (PHOTO) count
   // Each entry is the FULL per-image pipeline (generate → bill fal spend →
   // emit imageReady). We await these before the teaching charge so (a) any
@@ -668,52 +657,16 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     });
 
     // Sliding-window VISUAL-tag detector. Handles BOTH markers:
-    //   `[[IMAGE: english prompt]]` → a STYLIZED generated infographic (FLUX →
-    //       Pollinations → local SVG), billed only when fal.ai produced it.
+    //   `[[IMAGE: english prompt]]` → RETIRED generated-infographic mechanism.
+    //       Still detected (so old-session history mimicry can't leak a raw
+    //       tag) but always dropped by emitVisual below — never generated.
     //   `[[PHOTO: english query]]`  → a REAL photograph fetched from Wikipedia /
     //       Wikimedia Commons (always FREE).
-    // Both are replaced on the wire with the SAME short `[[IMAGE:id]]` marker +
-    // imagePlaceholder/imageReady SSE events, so the FE renders them identically
-    // with ZERO change. The per-reply cap (MAX_IMAGES_PER_REPLY) is SHARED across
-    // both markers. Tags split across chunks are held back until complete.
+    // Tags split across chunks are held back until complete.
     const VISUAL_MARKERS = [
       { marker: "[[IMAGE:", kind: "image" as const },
       { marker: "[[PHOTO:", kind: "photo" as const },
     ];
-
-    // Per-IMAGE pipeline: generate → bill fal spend (idempotent) → imageReady.
-    // Billing happens the moment fal spend is confirmed, so a disconnect before
-    // the post-stream teach charge can't grant free paid images.
-    const fireImageTask = (capturedId: string, promptText: string): Promise<void> =>
-      (async (): Promise<void> => {
-        let gen: ImageGenerationResult | null = null;
-        try {
-          gen = await generateTeacherImage({ userId: uid, subjectId: slug, prompt: promptText });
-        } catch {
-          gen = null;
-        }
-        if (gen && gen.ok && gen.provider === "fal") {
-          try {
-            await chargeV4Ai({
-              requestId: `v4img_${capturedId}`,
-              userId: uid,
-              subjectId: slug,
-              costUsd: FLUX_SCHNELL_USD_PER_IMAGE,
-              source: "v4_ai_image",
-              model: "flux-schnell",
-              note: `صورة توضيحية درس ${lessonCode}`,
-              drainIfInsufficient: true,
-            });
-          } catch {}
-        }
-        if (res.writableEnded) return;
-        try {
-          const url = gen && gen.ok ? gen.url : (await resolveTeacherImage("")).url;
-          if (!res.writableEnded) {
-            res.write(`data: ${JSON.stringify({ imageReady: { id: capturedId, url } })}\n\n`);
-          }
-        } catch {}
-      })();
 
     // Per-PHOTO pipeline: resolve a REAL same-origin photo → imageReady. ALWAYS
     // FREE — resolveWebPhoto never bills fal and never throws. On a genuine miss
@@ -740,42 +693,38 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       })();
 
     // Register one visual (image OR photo): enforce the per-kind per-reply cap
-    // (2 photos / 1 generated image), emit the placeholder, kick off the matching
-    // pipeline. Returns the wire marker to splice into the text (or "" if dropped).
+    // (2 photos), emit the placeholder, kick off the matching pipeline.
+    // Returns the wire marker to splice into the text (or "" if dropped).
+    // IMAGE (generated infographic) is a RETIRED mechanism — always dropped,
+    // regardless of turn, so old-session history mimicry can never trigger it.
     const emitVisual = (kind: "image" | "photo", innerText: string): string => {
       if (innerText.length === 0) {
         logger.warn?.(`[v4/teach/visual] dropped empty ${kind.toUpperCase()} tag`);
         return "";
       }
-      if (isFirstTurn) {
-        // Opening-message contract forbids IMAGE/PHOTO here too — deterministic
-        // backstop in case the model ignores the prompt rule (see isFirstTurn
-        // comment above).
-        logger.warn?.(`[v4/teach/visual] dropped ${kind.toUpperCase()} tag — opening message`);
+      if (kind === "image") {
+        logger.warn?.(`[v4/teach/visual] dropped IMAGE tag — mechanism retired`);
         return "";
       }
-      if (kind === "photo") {
-        if (__photoCount >= MAX_PHOTOS_PER_REPLY) {
-          logger.warn?.(`[v4/teach/visual] dropped PHOTO tag — per-reply cap reached`);
-          return "";
-        }
-        __photoCount++;
-      } else {
-        if (__imageCount >= MAX_IMAGES_PER_REPLY) {
-          logger.warn?.(`[v4/teach/visual] dropped IMAGE tag — per-reply cap reached`);
-          return "";
-        }
-        __imageCount++;
+      if (isFirstTurn) {
+        // Opening-message contract forbids PHOTO here too — deterministic
+        // backstop in case the model ignores the prompt rule (see isFirstTurn
+        // comment above).
+        logger.warn?.(`[v4/teach/visual] dropped PHOTO tag — opening message`);
+        return "";
       }
+      if (__photoCount >= MAX_PHOTOS_PER_REPLY) {
+        logger.warn?.(`[v4/teach/visual] dropped PHOTO tag — per-reply cap reached`);
+        return "";
+      }
+      __photoCount++;
       const imageId = randomBytes(6).toString("hex");
       try {
         if (!res.writableEnded) {
-          // `kind` lets the FE show an accurate spinner: a real ready-made photo
-          // fetched from the web ("photo") vs a generated infographic ("image").
           res.write(`data: ${JSON.stringify({ imagePlaceholder: { id: imageId, kind } })}\n\n`);
         }
       } catch {}
-      const task = kind === "photo" ? firePhotoTask(imageId, innerText) : fireImageTask(imageId, innerText);
+      const task = firePhotoTask(imageId, innerText);
       __imageTasks.push(task);
       return `[[IMAGE:${imageId}]]`;
     };
@@ -834,18 +783,14 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       return safeOutput;
     };
 
-    // Deterministic backstop for `[[SCENE: ...]]`, mirroring the IMAGE/PHOTO
-    // guard above. SCENE tags are otherwise passed straight through untouched
-    // (the FE's own scene-stepper detects them and calls POST /api/v4/scene)
-    // — nothing else in this file intercepts them, so the opening-message
-    // "no SCENE" prompt rule had no server-side enforcement at all. The model
-    // has been observed emitting a real SCENE tag in the opening turn despite
-    // the prompt instruction; on isFirstTurn we now buffer across chunk
-    // boundaries and drop the whole tag rather than forwarding it.
+    // Deterministic backstop for `[[SCENE: ...]]`. SCENE has been retired
+    // (the `/v4/scene` route + FE scene-stepper are gone), but old sessions'
+    // history can still induce the model to mimic the tag. Unconditionally
+    // (every turn, not just the opening) buffer across chunk boundaries and
+    // drop the whole tag rather than ever forwarding raw protocol text.
     const SCENE_MARKER = "[[SCENE:";
     let __sceneStreamBuffer = "";
-    const stripSceneTagIfOpening = (incoming: string): string => {
-      if (!isFirstTurn) return incoming;
+    const stripSceneTag = (incoming: string): string => {
       __sceneStreamBuffer += incoming;
       let safeOutput = "";
       while (true) {
@@ -873,7 +818,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
           __sceneStreamBuffer = __sceneStreamBuffer.slice(tagStart);
           break;
         }
-        logger.warn?.(`[v4/teach/visual] dropped SCENE tag — opening message`);
+        logger.warn?.(`[v4/teach/visual] dropped SCENE tag — mechanism retired`);
         safeOutput += __sceneStreamBuffer.slice(0, tagStart);
         __sceneStreamBuffer = __sceneStreamBuffer.slice(tagEnd + 2);
       }
@@ -892,11 +837,11 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       onChunk: (text) => {
         if (!text) return;
         fullText += text;
-        // Extract IMAGE tags first (turns `[[IMAGE: prompt]]` → `[[IMAGE:id]]`
-        // and holds back partial tags), drop any SCENE tag if this is the
-        // opening message, THEN strip protocol tags from the prose the
-        // student sees. stripProtocolTags leaves `[[IMAGE:id]]` untouched.
-        const display = stripProtocolTags(stripSceneTagIfOpening(processImageTags(text)));
+        // Extract IMAGE/PHOTO tags first (turns `[[PHOTO: query]]` →
+        // `[[IMAGE:id]]` and holds back partial tags; IMAGE tags are always
+        // dropped), strip any SCENE tag, THEN strip protocol tags from the
+        // prose the student sees. stripProtocolTags leaves `[[IMAGE:id]]` untouched.
+        const display = stripProtocolTags(stripSceneTag(processImageTags(text)));
         if (display && !res.writableEnded) {
           try {
             res.write(`data: ${JSON.stringify({ content: display })}\n\n`);
@@ -924,8 +869,8 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     }
 
     // Same leftover-flush treatment for a SCENE tag dangling at end-of-stream
-    // on the opening turn — drop an unterminated `[[SCENE:…` fragment (or a
-    // bare marker prefix) rather than ever letting raw protocol text leak.
+    // — drop an unterminated `[[SCENE:…` fragment (or a bare marker prefix)
+    // rather than ever letting raw protocol text leak.
     if (__sceneStreamBuffer) {
       const sceneLeftover = __sceneStreamBuffer
         .replace(/\[\[SCENE:[^\]]*$/i, "")
@@ -944,10 +889,9 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     // v4-protocol-tags.ts has no SCENE handling, so stripProtocolTags(fullText)
     // below would otherwise leave a full raw `[[SCENE: …]]` tag in the saved
     // transcript even though the live stream never showed it. Scrub it here,
-    // once, on the complete text so persistence matches what the student saw.
-    if (isFirstTurn) {
-      fullText = fullText.replace(/\[\[SCENE:[\s\S]*?\]\]/gi, "");
-    }
+    // unconditionally (SCENE is retired), once, on the complete text so
+    // persistence matches what the student saw.
+    fullText = fullText.replace(/\[\[SCENE:[\s\S]*?\]\]/gi, "");
 
     // Let every per-image pipeline finish: each one self-bills its fal spend
     // (idempotently) and emits imageReady. Awaiting here means the teaching
