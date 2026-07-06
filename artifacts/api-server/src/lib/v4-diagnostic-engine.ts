@@ -27,15 +27,15 @@
  * No DB writes, no schema changes — it reads signals that v4-protocol-tags.ts
  * and v4-memory.ts already persist.
  *
- * 4-FACET DEPTH: a concept isn't "done" at a single mastery score. Practical
- * mastery has four facets — W1 «ماذا» (behavior = the mastery `score`), W2
- * «لماذا» (rationale), W3 «الحدود» (boundary/break), W4 «طبّقه» (application =
- * the hands-on `appliedAt`). The two middle facets (W2/W3) are tracked per
- * concept in `facetsByConcept`. Depth is WEIGHTED: an IMPORTANT concept
- * (weight>1) must clear all four facets; an ordinary concept (weight=1) only
- * needs W1+W4 — so we go deep where it matters and stay light elsewhere
- * ("دون مبالغة"). The decision ladder inserts RATIONALE (W2) and BOUNDARY (W3)
- * moves between DRILL (W1) and APPLY (W4) for important concepts only.
+ * 3-FACET DEPTH: a concept isn't "done" at a single mastery score. Practical
+ * mastery has three facets — W1 «ماذا» (behavior = the mastery `score`), W2
+ * «لماذا» (rationale), W3 «الحدود» (boundary/break). The two middle facets
+ * (W2/W3) are tracked per concept in `facetsByConcept`. Depth is WEIGHTED: an
+ * IMPORTANT concept (weight>1) must clear all three facets; an ordinary
+ * concept (weight=1) only needs W1 — so we go deep where it matters and stay
+ * light elsewhere ("دون مبالغة"). The decision ladder inserts RATIONALE (W2)
+ * and BOUNDARY (W3) moves between DRILL (W1) and REINFORCE for important
+ * concepts only.
  */
 
 import type { V4ConceptFacets, V4FacetKey } from "@workspace/db";
@@ -88,10 +88,6 @@ export type DiagnosticDirectiveInput = {
   /** Only concepts the student has an actual stored score for are present —
    *  absence = "never tested" (treated very differently from a real 0). */
   masteryByConcept: Map<number, number>;
-  /** Concepts the student has already done a graded hands-on ("التطبيق
-   *  العملي") attempt for. Drives the disjoint APPLY decision so each concept
-   *  gets exactly one hands-on offer, then the engine moves on. */
-  appliedByConcept?: Set<number>;
   /** Per-concept coverage of the two middle facets (W2/W3). Drives the
    *  RATIONALE/BOUNDARY moves for important (weight>1) concepts. */
   facetsByConcept?: Map<number, V4ConceptFacets>;
@@ -159,7 +155,6 @@ export type DiagnosticMove =
   | "drill"
   | "rationale"
   | "boundary"
-  | "apply"
   | "reinforce"
   | "advance";
 
@@ -190,29 +185,22 @@ export type DiagnosticDecision = {
  *   1. earliest untested|weak                         → PROBE / DRILL  (W1)
  *   2. else earliest IMPORTANT(weight>1) grasped concept missing W2 → RATIONALE (W2)
  *   3. else earliest IMPORTANT grasped concept W2-covered missing W3 → BOUNDARY  (W3)
- *   4. else earliest grasped (≥50) but NOT yet applied → APPLY        (W4)
- *   5. else earliest shaky that IS applied            → REINFORCE     (nudge >75)
- *   6. else (every required facet cleared everywhere) → ADVANCE
+ *   4. else earliest shaky concept                    → REINFORCE     (nudge >75)
+ *   5. else (every required facet cleared everywhere) → ADVANCE
  *
  * Weighted depth: steps 2–3 fire ONLY for weight>1 concepts, so ordinary
- * concepts skip straight from W1 to W4 (no overkill). For weight>1 concepts
- * APPLY (step 4) can't fire until W2+W3 are covered, because steps 2–3 sit
- * above it — guaranteeing no facet is skipped.
+ * concepts skip straight from W1 to REINFORCE/ADVANCE (no overkill).
  *
- * Pure + side-effect-free so it can be reused verbatim by (a) the prompt
- * builder to author the directive and (b) v4_teach.ts to recompute the
- * hands-on offer over POST-effects mastery for the `done` SSE event. When
- * `facetsByConcept` is omitted (or weights are all 1) it degrades EXACTLY to
- * the pre-facet probe→apply→reinforce→advance ladder.
+ * Pure + side-effect-free so it can be reused verbatim by the prompt builder
+ * to author the directive. When `facetsByConcept` is omitted (or weights are
+ * all 1) it degrades EXACTLY to the pre-facet probe→reinforce→advance ladder.
  */
 export function decideDiagnosticMove(input: {
   concepts: DiagnosticConcept[];
   masteryByConcept: Map<number, number>;
-  appliedByConcept?: Set<number>;
   /** Per-concept coverage of the two middle facets (W2/W3). Absent = legacy. */
   facetsByConcept?: Map<number, V4ConceptFacets>;
 }): DiagnosticDecision {
-  const applied = input.appliedByConcept ?? new Set<number>();
   const facetsByConcept = input.facetsByConcept ?? new Map<number, V4ConceptFacets>();
   const withState = [...input.concepts]
     .sort((a, b) => a.conceptIndex - b.conceptIndex)
@@ -250,17 +238,11 @@ export function decideDiagnosticMove(input: {
   );
   if (w3gap) return { move: "boundary", target: mk(w3gap), facet: "w3" };
 
-  // 4. else earliest grasped (shaky|mastered) but not yet hands-on applied → APPLY.
-  const toApply = withState.find(
-    (c) => grasped(c.state) && !applied.has(c.concept.conceptIndex),
-  );
-  if (toApply) return { move: "apply", target: mk(toApply), facet: null };
-
-  // 5. else earliest shaky (already applied) → REINFORCE over the 75 line.
+  // 4. else earliest shaky concept → REINFORCE over the 75 line.
   const toReinforce = withState.find((c) => c.state === "shaky");
   if (toReinforce) return { move: "reinforce", target: mk(toReinforce), facet: null };
 
-  // 6. else every required facet is cleared everywhere → advance.
+  // 5. else every required facet is cleared everywhere → advance.
   return { move: "advance", target: null, facet: null };
 }
 
@@ -285,12 +267,10 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
     .join(" · ");
   const masteredCount = withState.filter((c) => c.state === "mastered").length;
 
-  // Disjoint per-turn decision (the single source of truth — also used by
-  // v4_teach.ts post-effects to fire the hands-on offer).
+  // Disjoint per-turn decision (the single source of truth).
   const decision = decideDiagnosticMove({
     concepts: input.concepts,
     masteryByConcept: input.masteryByConcept,
-    appliedByConcept: input.appliedByConcept,
     facetsByConcept: input.facetsByConcept,
   });
   const target = decision.target;
@@ -302,9 +282,9 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
   ];
 
   if (decision.move === "advance" || !target) {
-    // Everything ≥ 75 AND already applied — drive toward final check + mastery.
+    // Everything ≥ 75 — drive toward final check + mastery.
     lines.push(
-      "- **الحالة: كل المفاهيم متقنة ومُطبَّقة عملياً.** لا تُعد شرح ما أُتقن. انتقل إلى **سؤال التحقق النهائي** (القسم ٢) كتحدٍّ تطبيقي واحد متشعّب.",
+      "- **الحالة: كل المفاهيم متقنة.** لا تُعد شرح ما أُتقن. انتقل إلى **سؤال التحقق النهائي** (القسم ٢) كتحدٍّ تطبيقي واحد متشعّب.",
       "- إذا أجاب صحيحاً، أصدر [MASTERY] لأي مفهوم لم يصل ١٠٠ ثم [LESSON_MASTERED]. إذا تعثّر، اهبط فوراً للمفهوم الذي ظهر فيه التعثّر ودرّبه.",
     );
   } else {
@@ -361,29 +341,23 @@ export function buildDiagnosticDirective(input: DiagnosticDirectiveInput): strin
           "  • اطرح سؤال «ماذا لو/توقّع» يكشف حدّ المفهوم (ما الذي يكسره والخطأ الناتج)، ثم اكشف الحدّ بإيجاز.",
         );
       }
-    } else if (decision.move === "apply") {
-      lines.push(
-        `- **الحركة المطلوبة: تطبيق عملي (APPLY).** الطالب استوعب هذا المفهوم نظرياً، والآن وقت أن يطبّقه بيده. مهّد بجملة واحدة دافئة تُحمّسه للانتقال إلى تطبيق عملي حقيقي على «${target.name}» (مثل: «ممتاز، خلّنا نطبّق اللي فهمته على أرض الواقع الحين»). **لا تطرح أنت سؤالاً ولا تمريناً منفصلاً** — بطاقة «التطبيق العملي» ستظهر للطالب تلقائياً وفيها المهمة كاملة.`,
-        `- **لا تُصدر [MASTERY] ولا [NEEDS_REVIEW] للمفهوم ${target.conceptIndex} هذا الدور** — تقييم التطبيق العملي يُحتسب آلياً ويحدّث الإتقان بنفسه. اكتفِ بالتمهيد الدافئ القصير ثم سلّم للبطاقة.`,
-      );
     } else {
       lines.push(
-        "- **الحركة المطلوبة: ترسيخ (REINFORCE).** الطالب قريب من الإتقان وقد طبّق المفهوم عملياً. اطرح **تطبيقاً ألطف بدرجة** (سيناريو أو «ماذا لو») يرفعه فوق ٧٥ بدل إعادة الأساسيات.",
+        "- **الحركة المطلوبة: ترسيخ (REINFORCE).** الطالب قريب من الإتقان. اطرح **تطبيقاً ألطف بدرجة** (سيناريو أو «ماذا لو») يرفعه فوق ٧٥ بدل إعادة الأساسيات.",
       );
     }
 
-    // Signal capture. Two move classes write mastery server-side, so the model
-    // must NOT emit a tag for them (it would double-count, and the weak model
-    // can't be trusted to grade): (1) APPLY — the hands-on card grades; (2) the
-    // facet moves RATIONALE/BOUNDARY — the isolated grader scores the facet
-    // from the student's next reply.
+    // Signal capture. One move class writes mastery server-side, so the model
+    // must NOT emit a tag for it (it would double-count, and the weak model
+    // can't be trusted to grade): the facet moves RATIONALE/BOUNDARY — the
+    // isolated grader scores the facet from the student's next reply.
     const facetMove = decision.move === "rationale" || decision.move === "boundary";
     if (facetMove) {
       lines.push(
         `- **لا تُصدر [MASTERY] ولا [NEEDS_REVIEW] للمفهوم ${target.conceptIndex} هذا الدور** — هذا الوجه يُقيَّم آلياً من ردّ الطالب. اكتفِ بطرح سؤال التوقّع ثم الكشف القصير.`,
         "- **اجعل الذكاء مرئياً (بلطف):** اربط السؤال بنقطة الضعف بإشارة دافئة طبيعية مرّة واحدة — دون لهجة آلية ولا كشف أنّ هناك «نظام» يحسب لك.",
       );
-    } else if (decision.move !== "apply") {
+    } else {
       lines.push(
         `- **التقاط الإشارة (إلزامي):** بعد ردّ الطالب على سؤالك، أصدر في نهاية رسالتك حكماً للمفهوم ${target.conceptIndex}: إمّا \`[MASTERY: concept=${target.conceptIndex} value=<0..100>]\` (قدّر فهمه بصدق) أو \`[NEEDS_REVIEW: concept=${target.conceptIndex}]\` إن أخطأ أو تردّد. لا تترك الدور بلا حكم على الهدف.`,
         "- **اجعل الذكاء مرئياً (بلطف):** اربط السؤال بنقطة الضعف بإشارة دافئة طبيعية مرّة واحدة (مثل «خلّنا نثبّت هذي النقطة بالذات…») — دون لهجة آلية ولا كشف أنّ هناك «نظام» يحسب لك.",

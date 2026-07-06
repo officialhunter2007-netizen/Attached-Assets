@@ -602,10 +602,6 @@ export async function buildTeacherSystemPrompt(opts: {
     ));
   const masteryByConcept = new Map<number, number>();
   for (const r of masteryRows) masteryByConcept.set(r.conceptIndex, r.score);
-  // Concepts already hands-on applied — drives the diagnostic engine's APPLY
-  // decision so each concept gets exactly one "التطبيق العملي" offer.
-  const appliedByConcept = new Set<number>();
-  for (const r of masteryRows) if (r.appliedAt) appliedByConcept.add(r.conceptIndex);
   // Per-concept middle-facet (W2/W3) coverage — drives the diagnostic engine's
   // RATIONALE/BOUNDARY moves for important (weight>1) concepts.
   const facetsByConcept = new Map<number, V4ConceptFacets>();
@@ -717,7 +713,6 @@ export async function buildTeacherSystemPrompt(opts: {
     const diagDecision = decideDiagnosticMove({
       concepts: diagConcepts,
       masteryByConcept,
-      appliedByConcept,
       facetsByConcept,
     });
     if (
@@ -761,7 +756,6 @@ export async function buildTeacherSystemPrompt(opts: {
     : buildDiagnosticDirective({
         concepts: diagConcepts,
         masteryByConcept,
-        appliedByConcept,
         facetsByConcept,
         facetContent,
         mistakes: lesson.mistakes.map((m) => ({

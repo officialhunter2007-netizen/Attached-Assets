@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, createElement } from
 import { motion, AnimatePresence } from "framer-motion";
 import { useRoute, useLocation } from "wouter";
 import { createRoot, type Root } from "react-dom/client";
-import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, Wrench, ClipboardList, Minus, Play } from "lucide-react";
+import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, ClipboardList, Minus, Play } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders } from "@/lib/teacher-render";
@@ -27,7 +27,6 @@ import { readUserJson, writeUserJson, userKey } from "@/lib/user-storage";
 import { extractAskOptions, normalizeArabicText } from "@/lib/ask-options";
 import { latinizeCodeIdentifiers } from "@/lib/code-latinize";
 import { OptionsQuestion } from "@/components/dynamic-env/options-question";
-import { HandsOnPanel } from "@/components/hands-on-panel";
 
 // Generic, student-friendly Arabic fallback for technical/network failures so
 // the chat never surfaces raw strings like "http_500" or "Failed to fetch".
@@ -53,10 +52,6 @@ type TerminalEffects = {
   insufficientGems?: boolean;
   noWallet?: boolean;
   balanceAfter?: number | null;
-  // PROACTIVE hands-on offer — server recomputes the disjoint APPLY decision
-  // each turn over real applied_at; carries the earliest grasped-but-unapplied
-  // concept (or null). The FE pins ONE "تطبيق عملي" card from it.
-  handsOnOffer?: { conceptIndex: number; conceptName: string } | null;
   // Teacher-driven coding task (the [[CODE_TASK]] marker). The requirement is
   // delivered here (NOT as a raw marker — the server strips it from prose) so
   // the FE can light up the editor button + show a designed popup on open.
@@ -681,12 +676,6 @@ export default function V4Lesson() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [lessonMeta, setLessonMeta] = useState<MapLessonRef | null>(null);
   const [terminal, setTerminal] = useState<TerminalEffects | null>(null);
-  // Pinned "تطبيق عملي" card (the outstanding offer) + the open grading panel.
-  // completedHandsOnRef tracks concepts already applied this session so a
-  // re-offer (or a stale done event) never re-pins a finished task.
-  const [handsOnOffer, setHandsOnOffer] = useState<{ conceptIndex: number; conceptName: string } | null>(null);
-  const [handsOnPanel, setHandsOnPanel] = useState<{ conceptIndex: number; conceptName: string } | null>(null);
-  const completedHandsOnRef = useRef<Set<number>>(new Set());
   const [insufficientGems, setInsufficientGems] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [walletExists, setWalletExists] = useState<boolean | null>(null);
@@ -739,10 +728,7 @@ export default function V4Lesson() {
       setSessions([]);
       setActiveSessionId(null);
       setTerminal(null);
-      setHandsOnOffer(null);
-      setHandsOnPanel(null);
       setPendingCodeTask(null);
-      completedHandsOnRef.current = new Set();
       setError(null);
       setInsufficientGems(false);
       setWalletBalance(null);
@@ -806,10 +792,7 @@ export default function V4Lesson() {
     setSessions([]);
     setActiveSessionId(null);
     setTerminal(null);
-    setHandsOnOffer(null);
-    setHandsOnPanel(null);
     setPendingCodeTask(null);
-    completedHandsOnRef.current = new Set();
     setError(null);
     setInsufficientGems(false);
     setStreaming(false);
@@ -1132,14 +1115,6 @@ export default function V4Lesson() {
                 setWalletBalance(t.balanceAfter);
                 setWalletExists(true);
               }
-              // Persist the pinned hands-on card until completed: only SET on a
-              // non-null offer for a not-yet-applied concept. A null offer (this
-              // turn prioritized a probe/drill) must NOT clear an outstanding
-              // pin. Lesson-mastered means everything's applied → drop it.
-              if (t.handsOnOffer && !completedHandsOnRef.current.has(t.handsOnOffer.conceptIndex)) {
-                setHandsOnOffer(t.handsOnOffer);
-              }
-              if (t.lessonMastered) setHandsOnOffer(null);
               // Teacher pushed a coding task → light up the editor button and
               // arm the in-IDE requirement card (expanded for a fresh task).
               if (t.codeTask?.requirement) {
@@ -1576,43 +1551,6 @@ export default function V4Lesson() {
             </div>
           )}
 
-          {handsOnOffer && (
-            <button
-              onClick={() => setHandsOnPanel(handsOnOffer)}
-              className="hands-on-pin w-full text-right flex items-center gap-3 transition-all duration-300"
-              style={{
-                padding: "14px 16px",
-                borderRadius: "18px",
-                border: "1.5px solid rgba(245,158,11,0.45)",
-                background: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(245,158,11,0.04) 100%)",
-                boxShadow: "0 4px 32px rgba(245,158,11,0.12), inset 0 1px 0 rgba(255,255,255,0.06)",
-              }}
-            >
-              {/* Animated icon */}
-              <div
-                className="shrink-0 w-11 h-11 rounded-xl grid place-items-center"
-                style={{
-                  background: "linear-gradient(135deg, rgba(245,158,11,0.25), rgba(245,158,11,0.12))",
-                  border: "1px solid rgba(245,158,11,0.35)",
-                  boxShadow: "0 0 16px rgba(245,158,11,0.2)",
-                }}
-              >
-                <Wrench className="w-5 h-5 text-amber-300 hands-on-pin-wrench" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[10px] text-amber-400 font-black tracking-widest uppercase mb-0.5">⚙ تطبيق عملي</div>
-                <div className="text-sm text-white font-black truncate leading-snug">«{handsOnOffer.conceptName}»</div>
-                <div className="text-[11px] text-white/50 mt-0.5 leading-tight">أنتج ناتجاً حقيقياً • يُصحَّح فوراً • يرفع إتقانك</div>
-              </div>
-              <div
-                className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-                style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)" }}
-              >
-                <ArrowLeft className="w-4 h-4 text-amber-300" />
-              </div>
-            </button>
-          )}
-
           {terminal?.masteryGateBlocked && (
             <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
               المعلم حاول إنهاء الدرس، لكن بعض المفاهيم لم تُتقن بعد
@@ -1863,22 +1801,6 @@ export default function V4Lesson() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* PROACTIVE hands-on grading panel ("التطبيق العملي") */}
-      {handsOnPanel && (
-        <HandsOnPanel
-          slug={slug}
-          lessonCode={code}
-          conceptIndex={handsOnPanel.conceptIndex}
-          conceptName={handsOnPanel.conceptName}
-          onBalance={(b) => { setWalletBalance(b); setWalletExists(true); }}
-          onApplied={(ci) => {
-            completedHandsOnRef.current.add(ci);
-            setHandsOnOffer((cur) => (cur && cur.conceptIndex === ci ? null : cur));
-          }}
-          onClose={() => setHandsOnPanel(null)}
-        />
       )}
     </div>
   );

@@ -1,22 +1,21 @@
 /**
- * v4-concept-facets-engine.ts — the two MIDDLE facets of the 4-facet teaching
+ * v4-concept-facets-engine.ts — the two MIDDLE facets of the 3-facet teaching
  * model (the conceptual-completeness layer).
  *
- * The 4 facets of "practical mastery" of a concept are:
+ * The 3 facets of "practical mastery" of a concept are:
  *   • W1 «ماذا»   — behavior / what it does       → existing mastery `score`.
  *   • W2 «لماذا»  — rationale / why it's this way  → THIS engine.
  *   • W3 «الحدود» — boundary / what varies freely vs what BREAKS it, plus the
  *                   exact error and WHY                → THIS engine.
- *   • W4 «طبّقه»  — application / produce it by hand → v4-handson-engine.
  *
  * PROBLEM this solves: the weak teacher explains W1 (e.g. print("hello") prints
  * text) but skips W2 (why the parens, why the quotes) and W3 (print(hi") →
  * SyntaxError and WHY). Left to the weak model those facets are covered
- * inconsistently. So — exactly like the hands-on engine — we move the content
- * OUT of the weak model: generate ONE rich, server-authored nugget per concept
- * holding the rationale + the boundary/break + (server-side only) a rubric and
- * solution outline the isolated grader scores the student's predictions
- * against. The teacher only DELIVERS the nugget + runs predict-then-reveal.
+ * inconsistently. So we move the content OUT of the weak model: generate ONE
+ * rich, server-authored nugget per concept holding the rationale + the
+ * boundary/break + (server-side only) a rubric and solution outline the
+ * isolated grader scores the student's predictions against. The teacher only
+ * DELIVERS the nugget + runs predict-then-reveal.
  *
  * Two pure jobs (persistence of per-facet COVERAGE STATE lives on the mastery
  * row + routes/v4_teach.ts; this engine owns the cache + grading primitive):
@@ -25,8 +24,8 @@
  *      Race-safe via ON CONFLICT DO NOTHING. Generated LAZILY (caller only
  *      invokes it when the engine picks a W2/W3 move for an important concept).
  *   2. gradeFacetAnswer — grade the student's predict-then-reveal answer for a
- *      single facet with the SAME isolated Haiku grader labs/exams/hands-on
- *      use, so a facet score is as objective as a lab score.
+ *      single facet with the SAME isolated Haiku grader labs/exams use, so a
+ *      facet score is as objective as a lab score.
  */
 import { and, eq } from "drizzle-orm";
 import {
@@ -269,7 +268,7 @@ function parseFacetsJson(raw: string | undefined | null): V4FacetNuggets | null 
 
 /**
  * Grade the student's predict-then-reveal answer for ONE facet with the
- * isolated Haiku grader (same one labs/exams/hands-on use). Returns a single
+ * isolated Haiku grader (same one labs/exams use). Returns a single
  * 0..100 EvalResult; the caller writes it monotonically into the facet's
  * coverage state. The facet's predict prompt is the question, and its
  * server-side rubric + solution outline drive the score.

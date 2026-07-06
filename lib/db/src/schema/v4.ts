@@ -506,17 +506,16 @@ export const v4LessonContentCacheTable = pgTable("v4_lesson_content_cache", {
   index("idx_v4_lcc_lesson").on(t.lessonId),
 ]);
 
-// Per-facet coverage state for the 4-facet teaching model. The single
-// `score` column below is facet W1 («ماذا» / behavior) and `appliedAt` is
-// facet W4 («طبّقه» / application); only the two MIDDLE facets live in the
-// `facets` jsonb:
+// Per-facet coverage state for the 3-facet teaching model. The single
+// `score` column below is facet W1 («ماذا» / behavior); the two MIDDLE
+// facets live in the `facets` jsonb:
 //   • w2 = «لماذا» (rationale)      • w3 = «الحدود» (boundary / break + why)
 // Each facet tracks: covered?, its last isolated-grader score (null = marked
 // covered by the 2-attempt cap, NOT by a passing score), and attempt count.
 // `pending` marks a facet question asked THIS turn whose answer the NEXT
 // student message will be graded against. Writes MUST be monotonic merges
 // (never blindly overwrite an already-covered facet). Empty `{}` on legacy
-// rows = pure pre-facet behavior (only W1/score + W4/appliedAt in play).
+// rows = pure pre-facet behavior (only W1/score in play).
 export type V4FacetKey = "w2" | "w3";
 export type V4FacetState = {
   covered: boolean;
@@ -541,12 +540,6 @@ export const v4ConceptMasteryTable = pgTable("v4_concept_mastery", {
   conceptIndex: integer("concept_index").notNull(),
   // 0..100; 100 = fully mastered. This is facet W1 («ماذا» / behavior).
   score: integer("score").notNull().default(0),
-  // Timestamp of the FIRST graded hands-on ("التطبيق العملي") attempt for this
-  // concept. NULL = never applied. Set once by the hands-on grade route and
-  // read by the diagnostic engine's disjoint per-turn decision so APPLY fires
-  // exactly once per concept, then the engine moves on (REINFORCE/ADVANCE).
-  // This is facet W4 («طبّقه» / application).
-  appliedAt: timestamp("applied_at", { withTimezone: true }),
   // Per-facet coverage for the two middle facets (w2/w3) + `pending`. See the
   // V4ConceptFacets comment above. Defaults to {} (legacy behavior).
   facets: jsonb("facets").$type<V4ConceptFacets>().notNull().default({}),
@@ -561,37 +554,14 @@ export type InsertV4LessonContentCache = typeof v4LessonContentCacheTable.$infer
 export type V4ConceptMastery = typeof v4ConceptMasteryTable.$inferSelect;
 export type InsertV4ConceptMastery = typeof v4ConceptMasteryTable.$inferInsert;
 
-// ── Hands-on "produce/do" task cache (التطبيق العملي) ───────────────────────
-// One cached task per (versionId, lessonId, conceptIndex). Generated once by
-// the hands-on engine (Gemini), then reused across every student + retry so
-// the task is deterministic and generation is paid for once. `task` holds the
-// full produce-task spec (scenario, deliverable, steps, rubric,
-// solutionOutline). The rubric/solutionOutline never leave the server — only
-// the student-facing fields are sent to the client (mirrors the lab/exam
-// "answers stay server-side" rule).
-export const v4ConceptHandsOnTable = pgTable("v4_concept_hands_on", {
-  id: serial("id").primaryKey(),
-  versionId: integer("version_id").notNull(),
-  lessonId: integer("lesson_id").notNull(),
-  conceptIndex: integer("concept_index").notNull(),
-  task: jsonb("task").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [
-  uniqueIndex("uq_v4_handson_version_lesson_concept").on(t.versionId, t.lessonId, t.conceptIndex),
-  index("idx_v4_handson_lesson").on(t.lessonId),
-]);
-
-export type V4ConceptHandsOn = typeof v4ConceptHandsOnTable.$inferSelect;
-export type InsertV4ConceptHandsOn = typeof v4ConceptHandsOnTable.$inferInsert;
-
-// ── Facet nugget cache (4-facet teaching model: W2 «لماذا» + W3 «الحدود») ────
+// ── Facet nugget cache (3-facet teaching model: W2 «لماذا» + W3 «الحدود») ────
 // One cached row per (versionId, lessonId, conceptIndex). Lazily generated
 // once by the facet engine (Gemini) the first time the diagnostic engine
 // decides a W2/W3 move for an IMPORTANT concept (weight>1), then reused across
 // every student + turn. `nuggets` holds both middle-facet payloads:
 //   w2 = { rationale, predictPrompt, rubric, solutionOutline }
 //   w3 = { variesFreely, breaks, errorAndWhy, predictPrompt, rubric, solutionOutline }
-// The rubric/solutionOutline NEVER leave the server (mirrors the hands-on +
+// The rubric/solutionOutline NEVER leave the server (mirrors the lab/exam +
 // lab "answers stay server-side" rule); only predict prompts / reveal text are
 // surfaced to the student via the teacher.
 export const v4ConceptFacetsTable = pgTable("v4_concept_facets", {

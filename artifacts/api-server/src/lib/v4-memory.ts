@@ -300,9 +300,9 @@ export async function bumpWeakness(opts: {
 
 /**
  * Clear a per-(user, lesson, concept) weakness once the student has mastered
- * it (score ≥ 75) via targeted practice or a hands-on application. Deletes the
- * tracker row so it no longer surfaces as a chronic weakness in cross-lesson
- * callbacks. No-op (and never throws) when there is no row.
+ * it (score ≥ 75) via targeted practice. Deletes the tracker row so it no
+ * longer surfaces as a chronic weakness in cross-lesson callbacks. No-op (and
+ * never throws) when there is no row.
  */
 export async function clearWeakness(opts: {
   userId: number;

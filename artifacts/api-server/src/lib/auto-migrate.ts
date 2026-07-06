@@ -1023,32 +1023,11 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
-    // Hands-on "produce/do" task cache — one row per (version, lesson,
-    // concept). Generated once by the hands-on engine, reused across all
-    // students + retries. `task` holds the full spec (scenario, deliverable,
-    // steps, rubric, solution_outline); rubric/solution stay server-side.
-    table: "v4_concept_hands_on",
-    createSql: `
-      CREATE TABLE IF NOT EXISTS "v4_concept_hands_on" (
-        "id" serial PRIMARY KEY,
-        "version_id" integer NOT NULL,
-        "lesson_id" integer NOT NULL,
-        "concept_index" integer NOT NULL,
-        "task" jsonb NOT NULL,
-        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
-      )
-    `,
-    indexes: [
-      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_handson_version_lesson_concept" ON "v4_concept_hands_on" ("version_id", "lesson_id", "concept_index")`,
-      `CREATE INDEX IF NOT EXISTS "idx_v4_handson_lesson" ON "v4_concept_hands_on" ("lesson_id")`,
-    ],
-  },
-  {
-    // Facet nugget cache (4-facet teaching model: W2 «لماذا» + W3 «الحدود»).
+    // Facet nugget cache (3-facet teaching model: W2 «لماذا» + W3 «الحدود»).
     // One row per (version, lesson, concept). Lazily generated once by the
     // facet engine, reused across all students + turns. `nuggets` holds both
     // middle-facet payloads (rationale/boundary + rubric/solution); the
-    // rubric/solution stay server-side, mirroring the hands-on cache.
+    // rubric/solution stay server-side, mirroring the lab/exam grading model.
     table: "v4_concept_facets",
     createSql: `
       CREATE TABLE IF NOT EXISTS "v4_concept_facets" (
@@ -1715,15 +1694,11 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     ],
   },
   {
-    // Hands-on application timestamp — set once after the first graded
-    // hands-on attempt so the diagnostic engine fires APPLY exactly once per
-    // concept. NULL on legacy rows = never applied.
-    // `facets` — per-facet coverage state for the 4-facet teaching model (w2
+    // `facets` — per-facet coverage state for the 3-facet teaching model (w2
     // «لماذا» / w3 «الحدود» / pending). Defaults to '{}' so legacy rows behave
-    // exactly as before (W1=score, W4=applied_at; middle facets absent).
+    // exactly as before (only W1=score in play; middle facets absent).
     table: "v4_concept_mastery",
     columns: [
-      { name: "applied_at", ddl: "timestamp with time zone" },
       { name: "facets", ddl: "jsonb NOT NULL DEFAULT '{}'::jsonb" },
     ],
   },
@@ -1898,6 +1873,20 @@ export async function runStartupMigrations(): Promise<void> {
       logger.error(
         { err: err?.message },
         "auto-migrate: failed to create uq_users_referral_code index",
+      );
+    }
+    // Hands-on "التطبيق العملي" system — permanently removed. Drop the cache
+    // table and the mastery column it depended on. Best-effort, run last, one-
+    // time cleanup on already-migrated DBs (fresh DBs never had these).
+    try {
+      await db.execute(sql.raw(`DROP TABLE IF EXISTS "v4_concept_hands_on"`));
+      await db.execute(sql.raw(
+        `ALTER TABLE "v4_concept_mastery" DROP COLUMN IF EXISTS "applied_at"`,
+      ));
+    } catch (err: any) {
+      logger.error(
+        { err: err?.message },
+        "auto-migrate: failed to drop retired hands-on schema",
       );
     }
     const ms = Date.now() - start;

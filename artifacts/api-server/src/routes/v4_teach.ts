@@ -447,7 +447,6 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         .select({
           conceptIndex: v4ConceptMasteryTable.conceptIndex,
           score: v4ConceptMasteryTable.score,
-          appliedAt: v4ConceptMasteryTable.appliedAt,
           facets: v4ConceptMasteryTable.facets,
         })
         .from(v4ConceptMasteryTable)
@@ -456,11 +455,9 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
           eq(v4ConceptMasteryTable.lessonId, lesson.id),
         ));
       const _gateMastery = new Map<number, number>();
-      const _gateApplied = new Set<number>();
       const _gateFacets = new Map<number, V4ConceptFacets>();
       for (const r of masteryRows) {
         _gateMastery.set(r.conceptIndex, r.score);
-        if (r.appliedAt) _gateApplied.add(r.conceptIndex);
         _gateFacets.set(r.conceptIndex, r.facets);
       }
       const _gateDecision = decideDiagnosticMove({
@@ -471,7 +468,6 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
           weight: Math.max(1, ((c as any).weight ?? 1) as number),
         })),
         masteryByConcept: _gateMastery,
-        appliedByConcept: _gateApplied,
         facetsByConcept: _gateFacets,
       });
       if (_gateDecision.move === "advance") {
@@ -1094,69 +1090,26 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       }
     }
 
-    // ── 7b. Hands-on ("التطبيق العملي") offer — server-driven trigger ──
-    // Recompute the disjoint diagnostic decision over POST-effects mastery so
-    // the offer reflects the score/applied changes this turn just produced.
-    // Delivered via the `done` event (NOT a model-emitted marker — the weak
-    // teaching model can't be trusted to emit one reliably). When the decision
-    // is APPLY, the FE pins a hands-on card for that concept.
-    let handsOnOffer: { conceptIndex: number; conceptName: string } | null = null;
-    try {
-      const [conceptRows, masteryRows] = await Promise.all([
-        db.select().from(v4LessonConceptsTable).where(eq(v4LessonConceptsTable.lessonId, lesson.id)),
-        db
-          .select({
-            conceptIndex: v4ConceptMasteryTable.conceptIndex,
-            score: v4ConceptMasteryTable.score,
-            appliedAt: v4ConceptMasteryTable.appliedAt,
-            facets: v4ConceptMasteryTable.facets,
-          })
-          .from(v4ConceptMasteryTable)
-          .where(and(
-            eq(v4ConceptMasteryTable.userId, uid),
-            eq(v4ConceptMasteryTable.lessonId, lesson.id),
-          )),
-      ]);
-      const masteryByConcept = new Map<number, number>();
-      const appliedByConcept = new Set<number>();
-      const facetsByConcept = new Map<number, V4ConceptFacets>();
-      for (const r of masteryRows) {
-        masteryByConcept.set(r.conceptIndex, r.score);
-        if (r.appliedAt) appliedByConcept.add(r.conceptIndex);
-        facetsByConcept.set(r.conceptIndex, r.facets);
-      }
-      const decision = decideDiagnosticMove({
-        concepts: conceptRows.map((c) => ({
-          conceptIndex: c.conceptIndex,
-          name: c.name,
-          masteryCriterion: c.masteryCriterion,
-          weight: Math.max(1, ((c as any).weight ?? 1) as number),
-        })),
-        masteryByConcept,
-        appliedByConcept,
-        facetsByConcept,
-      });
-      if (decision.move === "apply" && decision.target) {
-        handsOnOffer = { conceptIndex: decision.target.conceptIndex, conceptName: decision.target.name };
-      }
-      // Mark the facet ACTUALLY ASKED this turn (the PROMPT-TIME decision) as
-      // pending so next turn grades the student's answer (gradePendingFacet). We
-      // must NOT use the post-effects `decision` here: on the probe→rationale
-      // transition turn THIS turn's [MASTERY] tag flips the recomputed decision
-      // to a facet move that was never asked, which would phantom-grade an
-      // unrelated reply next turn and burn the 2-attempt cap. This block runs
-      // only after a successful stream, so pending is gated on the question
-      // actually being delivered.
-      if (promptTimeFacet) {
+    // ── 7b. Facet pending marker — commits the PROMPT-TIME facet decision ──
+    // Mark the facet ACTUALLY ASKED this turn (the PROMPT-TIME decision) as
+    // pending so next turn grades the student's answer (gradePendingFacet). We
+    // must NOT recompute the decision over POST-effects mastery here: on the
+    // probe→rationale transition turn THIS turn's [MASTERY] tag flips the
+    // recomputed decision to a facet move that was never asked, which would
+    // phantom-grade an unrelated reply next turn and burn the 2-attempt cap.
+    // This block runs only after a successful stream, so pending is gated on
+    // the question actually being delivered.
+    if (promptTimeFacet) {
+      try {
         await markFacetPending({
           userId: uid,
           lessonId: lesson.id,
           conceptIndex: promptTimeFacet.conceptIndex,
           facet: promptTimeFacet.facet,
         });
+      } catch (e) {
+        logger.warn?.(`[v4/teach] markFacetPending failed user=${uid} lesson=${lesson.id}: ${String((e as any)?.message ?? e)}`);
       }
-    } catch (e) {
-      logger.warn?.(`[v4/teach] hands-on offer compute failed user=${uid} lesson=${lesson.id}: ${String((e as any)?.message ?? e)}`);
     }
 
     // ── 7c. Code-task push — teacher-driven (the [[CODE_TASK]] marker) ─
@@ -1184,7 +1137,6 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
             difficultyAdjustments: effects.difficultyAdjustments,
             labEnvRequests: effects.labEnvRequests,
             masteryGateBlocked: effects.masteryGateBlocked ?? null,
-            handsOnOffer,
             codeTask,
             charged,
             insufficientGems,
