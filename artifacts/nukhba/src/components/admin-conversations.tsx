@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useMemo } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
@@ -7,6 +9,7 @@ import {
   Filter, X, AlertTriangle,
 } from "lucide-react";
 import { university, skills } from "@/lib/curriculum";
+import "@/lib/teacher-render";
 
 const allSubjects = [
   ...university.map(s => ({ id: s.id, name: s.name, emoji: s.emoji ?? "📚" })),
@@ -261,26 +264,49 @@ export function AdminConversations() {
     setTextSearch("");
   };
 
-  const highlight = (text: string, q: string) => {
+  // The AI teacher content stored in the DB is markdown (headers, bold,
+  // lists, code fences, blockquotes) plus internal protocol tags like
+  // [[VIZ: ...]] / [[IMAGE:id]] / [[ASK_OPTIONS: ...]] / [[CODE_TASK: ...]]
+  // that the live student chat expands into interactive widgets. This
+  // review-only viewer previously dumped that raw string with
+  // `whitespace-pre-wrap`, so admins saw literal `##`, `**`, ``` fences and
+  // raw `[[...]]` tags instead of formatted text. We can't mount the live
+  // widgets here (no SSE/image state), so tags are swapped for a readable
+  // Arabic placeholder and the rest is run through the same marked+DOMPurify
+  // pipeline the student UI uses (teacher-render.ts side-effect import
+  // registers the shared code/callout renderer overrides).
+  const describeProtocolTags = (text: string): string =>
+    text
+      .replace(/\[\[VIZ:[\s\S]*?\]\]/g, "\n\n> 📊 *(رسم بياني تفاعلي — غير معروض هنا)*\n\n")
+      .replace(/\[\[IMAGE:[a-f0-9]*\]\]/gi, "\n\n> 🖼️ *(صورة توضيحية — غير معروضة هنا)*\n\n")
+      .replace(/\[\[PHOTO:[\s\S]*?\]\]/g, "\n\n> 🖼️ *(صورة — غير معروضة هنا)*\n\n")
+      .replace(/\[\[DIAGRAM:[\s\S]*?\]\]/g, "\n\n> 📊 *(رسم بياني — غير معروض هنا)*\n\n")
+      .replace(/\[\[ANIM\]\][\s\S]*?\[\[\/ANIM\]\]/g, "\n\n> 🎬 *(رسم متحرك — غير معروض هنا)*\n\n")
+      .replace(/\[\[SCENE:[\s\S]*?\]\]/g, "\n\n> 🎬 *(مشهد تفاعلي — غير معروض هنا)*\n\n")
+      .replace(/\[\[\s*CODE_TASK\s*:[\s\S]*?\]\]/g, "\n\n> 💻 *(مهمة برمجية — غير معروضة هنا)*\n\n")
+      .replace(/\[\[\s*ASK_OPTIONS\s*:([\s\S]*?)\]\]/g, (_m, body) => {
+        const parts = String(body).split("|||").map(s => s.trim()).filter(Boolean);
+        const question = parts[0] ?? "";
+        const opts = parts.slice(1);
+        return `\n\n${question}\n${opts.map(o => `- ${o}`).join("\n")}\n\n`;
+      })
+      .replace(/\[\[CREATE_LAB_ENV:[\s\S]*?\]\]/g, "\n\n> 🧪 *(بيئة معملية — غير معروضة هنا)*\n\n")
+      .replace(/\[(LESSON_MASTERED|SESSION_COMPLETE|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE|DIFFICULTY_UP|DIFFICULTY_DOWN|LAB_INTAKE_DONE)\]/g, "")
+      .replace(/\[(?:MASTERY|NEEDS_REVIEW|CREATE_LAB_ENV|LAB_MASTERED|EXAM_MASTERED)[^\]]*\]/g, "");
+
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const markSearchTerm = (text: string, q: string): string => {
     if (!q) return text;
-    const lower = text.toLowerCase();
-    const needle = q.toLowerCase();
-    const out: React.ReactNode[] = [];
-    let i = 0;
-    let idx = lower.indexOf(needle, i);
-    let key = 0;
-    while (idx !== -1) {
-      if (idx > i) out.push(text.slice(i, idx));
-      out.push(
-        <mark key={key++} className="bg-amber-400/40 text-amber-50 rounded px-0.5">
-          {text.slice(idx, idx + needle.length)}
-        </mark>
-      );
-      i = idx + needle.length;
-      idx = lower.indexOf(needle, i);
-    }
-    if (i < text.length) out.push(text.slice(i));
-    return out;
+    const re = new RegExp(escapeRegExp(q), "gi");
+    return text.replace(re, (m) => `<mark class="bg-amber-400/40 text-amber-50 rounded px-0.5">${m}</mark>`);
+  };
+
+  const renderMessageHtml = (content: string, q: string): string => {
+    const withPlaceholders = describeProtocolTags(content);
+    const withHighlight = markSearchTerm(withPlaceholders, q);
+    const html = marked.parse(withHighlight, { async: false }) as string;
+    return DOMPurify.sanitize(html, { ADD_TAGS: ["mark"] });
   };
 
   return (
@@ -579,13 +605,14 @@ export function AdminConversations() {
                             </span>
                           ) : null}
                         </div>
-                        <div className={`rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words ${
-                          isUser
-                            ? "bg-sky-500/10 border border-sky-500/15 text-sky-50"
-                            : "bg-emerald-500/10 border border-emerald-500/15 text-emerald-50"
-                        }`}>
-                          {highlight(m.content, textSearch.trim())}
-                        </div>
+                        <div
+                          className={`ai-msg rounded-xl px-4 py-3 text-sm break-words ${
+                            isUser
+                              ? "bg-sky-500/10 border border-sky-500/15 text-sky-50"
+                              : "bg-emerald-500/10 border border-emerald-500/15 text-emerald-50"
+                          }`}
+                          dangerouslySetInnerHTML={{ __html: renderMessageHtml(m.content, textSearch.trim()) }}
+                        />
                       </div>
                     </div>
                   );

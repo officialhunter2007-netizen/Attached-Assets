@@ -159,6 +159,15 @@ function buildCodeCardHtml(text: string, lang: string, highlighted: string): str
   );
 }
 
+// Tracks recursive blockquote nesting depth while marked's `blockquote`
+// renderer parses its inner tokens (`this.parser.parse(token.tokens)`). Those
+// inner tokens are parsed with the SAME renderer overrides, so a paragraph
+// living inside a blockquote (e.g. an ⚠️-led callout body) would otherwise
+// match PARA_CALLOUT_RULES again and get wrapped in a second, nested
+// `<blockquote>` — producing `<blockquote><blockquote>...`. `paragraph()`
+// skips its own promotion whenever this is > 0.
+let blockquoteDepth = 0;
+
 marked.use({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }): string {
@@ -181,6 +190,7 @@ marked.use({
     },
 
     paragraph(token: { text: string; tokens: object[] }): string | false {
+      if (blockquoteDepth > 0) return false;
       const raw = token.text ?? "";
       for (const { re, cls } of PARA_CALLOUT_RULES) {
         if (re.test(raw)) {
@@ -198,7 +208,13 @@ marked.use({
         if (re.test(raw)) { cls = c; break; }
       }
       if (!cls) return false;
-      const body = (this as unknown as { parser: { parse(t: object[]): string } }).parser.parse(token.tokens);
+      blockquoteDepth++;
+      let body: string;
+      try {
+        body = (this as unknown as { parser: { parse(t: object[]): string } }).parser.parse(token.tokens);
+      } finally {
+        blockquoteDepth--;
+      }
       return `<blockquote class="${cls}">${body}</blockquote>\n`;
     },
   },
