@@ -238,7 +238,7 @@ function sanitizeProtocolNoise(raw: string): string {
     // survives. `\s*CODE_TASK\s*` mirrors the server's whitespace tolerance.
     .replace(/\[\[\s*CODE_TASK\s*:[\s\S]*?\]\](?!\])/g, "")
     .replace(/\[\[\s*CODE_TASK\s*:(?:(?!\]\])[\s\S])*$/g, "")
-    .replace(/\[\[VIZ:[\s\S]*$/g, "")
+    .replace(/\[\[VIZ:(?:(?!\]\])[\s\S])*$/g, "")
     .replace(/\[\[IMAGE:[a-f0-9]*$/i, "")
     .replace(/\[(MASTERY|NEEDS_REVIEW|CREATE_LAB_ENV|LAB_MASTERED|EXAM_MASTERED|LESSON_MASTERED|SESSION_COMPLETE|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE|DIFFICULTY_UP|DIFFICULTY_DOWN)?$/i, "")
     .replace(/\[(LESSON_MASTERED|SESSION_COMPLETE|UNIT_COMPLETE|STAGE_COMPLETE|LEVEL_COMPLETE|DIFFICULTY_UP|DIFFICULTY_DOWN)\]/g, "")
