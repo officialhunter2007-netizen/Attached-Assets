@@ -872,7 +872,6 @@ export function initCodingRoomWss(server: Server) {
   server.on("upgrade", (request: IncomingMessage, socket: any, head: Buffer) => {
     const url = new URL(request.url ?? "", `http://${request.headers.host}`);
     if (!url.pathname.startsWith("/ws/room/")) {
-      socket.destroy();
       return;
     }
 

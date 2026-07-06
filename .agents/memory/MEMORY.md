@@ -52,3 +52,4 @@
 - [v4 subscription grace = 0](v4-subscription-grace.md) — no free days after a paid sub expires; grace logic degenerates via one constant; welcome-gift trial length uses SUB_DURATION (30d) NOT grace; inclusive `<=` boundary kept on purpose, don't flip to strict.
 - [Coding room preview iframe sandbox](coding-room-preview-iframe-sandbox.md) — peer-authored HTML preview uses allow-scripts+allow-same-origin = cross-student session theft; drop allow-same-origin (safe for srcDoc previews).
 - [Coding Room host election](coding-room-host-election.md) — any host handover (explicit transfer OR disconnect election) must promote-new AND demote-old atomically, or a reconnecting old host becomes a second host.
+- [Multi-WS-handler upgrade hijack](multi-ws-handler-upgrade-hijack.md) — a non-matching-path upgrade handler must `return`, never `socket.destroy()`, or it kills every other WS route sharing that HTTP server (bare hang-up, no HTTP status).

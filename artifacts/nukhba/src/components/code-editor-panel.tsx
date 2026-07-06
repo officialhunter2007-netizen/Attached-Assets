@@ -46,6 +46,8 @@ const EXT_TO_LANG: Record<string, string> = {
   sql: "sql", sh: "bash", bash: "bash",
 };
 
+const SOLO_INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
+
 const DEFAULT_CODE: Record<string, string> = {
   html: `<!DOCTYPE html>\n<html lang="ar" dir="rtl">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>صفحتي الأولى</title>\n  <style>\n    body {\n      font-family: 'Segoe UI', Tahoma, sans-serif;\n      background: #1a1a2e;\n      color: #e2e8f0;\n      display: flex;\n      justify-content: center;\n      align-items: center;\n      min-height: 100vh;\n      margin: 0;\n    }\n    .card {\n      background: #16213e;\n      border-radius: 16px;\n      padding: 2rem;\n      text-align: center;\n      box-shadow: 0 10px 30px rgba(0,0,0,0.3);\n    }\n    h1 { color: #F59E0B; }\n  </style>\n</head>\n<body>\n  <div class="card">\n    <h1>مرحباً من نُخبة! 🎓</h1>\n    <p>ابدأ ببناء صفحتك الأولى</p>\n  </div>\n</body>\n</html>`,
   css: `/* أنماط CSS في نُخبة 🎓 */\nbody {\n  font-family: 'Segoe UI', Tahoma, sans-serif;\n  background: linear-gradient(135deg, #1a1a2e, #16213e);\n  color: #e2e8f0;\n  display: flex;\n  justify-content: center;\n  align-items: center;\n  min-height: 100vh;\n  margin: 0;\n}\n\n.container {\n  background: rgba(255,255,255,0.05);\n  border: 1px solid rgba(255,255,255,0.1);\n  border-radius: 16px;\n  padding: 2rem;\n  text-align: center;\n}\n\nh1 {\n  color: #F59E0B;\n  font-size: 2rem;\n}`,
@@ -1714,8 +1716,6 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     setShowCdnPicker(false);
   };
 
-  const SOLO_INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
-
   const handleRunCode = async () => {
     const file = activeFileRef.current;
     if (runningRef.current || !file) return;
@@ -2916,14 +2916,16 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                 : <><Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" /><span>تشغيل الكود ▶</span></>
               }
             </button>
-            <button
-              onClick={() => setStdinOpen(o => !o)}
-              title="مدخلات البرنامج (stdin) — لو برنامجك يستخدم input() أو cin"
-              className={`flex items-center gap-1.5 text-[11px] sm:text-xs font-bold px-2.5 py-2 sm:py-2.5 rounded-xl border transition-all ${stdinOpen ? "bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/40" : "bg-white/5 text-[#a0a0b8] border-white/10 hover:bg-white/10"}`}
-            >
-              <Terminal className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">مدخلات</span>
-            </button>
+            {!SOLO_INTERACTIVE_LANGS.has(activeFile?.language || "") && (
+              <button
+                onClick={() => setStdinOpen(o => !o)}
+                title="مدخلات البرنامج (stdin) — لو برنامجك يستخدم input() أو cin"
+                className={`flex items-center gap-1.5 text-[11px] sm:text-xs font-bold px-2.5 py-2 sm:py-2.5 rounded-xl border transition-all ${stdinOpen ? "bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/40" : "bg-white/5 text-[#a0a0b8] border-white/10 hover:bg-white/10"}`}
+              >
+                <Terminal className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">مدخلات</span>
+              </button>
+            )}
           </>
         )}
         {canPreview && !isWebLang && (
@@ -2942,14 +2944,16 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                 : <><Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" /><span>تشغيل ▶</span></>
               }
             </button>
-            <button
-              onClick={() => setStdinOpen(o => !o)}
-              title="مدخلات البرنامج (stdin)"
-              className={`flex items-center gap-1.5 text-[11px] text-xs font-bold px-2.5 py-2 sm:py-2.5 rounded-xl border transition-all ${stdinOpen ? "bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/40" : "bg-white/5 text-[#a0a0b8] border-white/10 hover:bg-white/10"}`}
-            >
-              <Terminal className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">مدخلات</span>
-            </button>
+            {!SOLO_INTERACTIVE_LANGS.has(activeFile?.language || "") && (
+              <button
+                onClick={() => setStdinOpen(o => !o)}
+                title="مدخلات البرنامج (stdin)"
+                className={`flex items-center gap-1.5 text-[11px] text-xs font-bold px-2.5 py-2 sm:py-2.5 rounded-xl border transition-all ${stdinOpen ? "bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/40" : "bg-white/5 text-[#a0a0b8] border-white/10 hover:bg-white/10"}`}
+              >
+                <Terminal className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">مدخلات</span>
+              </button>
+            )}
           </>
         )}
         <button
@@ -3010,7 +3014,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       </div>
 
       <AnimatePresence>
-        {stdinOpen && !canPreview && (
+        {stdinOpen && !canPreview && !SOLO_INTERACTIVE_LANGS.has(activeFile?.language || "") && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
