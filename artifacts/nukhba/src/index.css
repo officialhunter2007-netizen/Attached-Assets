@@ -1114,6 +1114,64 @@
   .ai-msg pre.code-enhanced code { padding: 12px 12px; }
 }
 
+/* ── Program OUTPUT blocks (deliberately NOT an IDE look) ──
+   Rendered by buildOutputCardHtml() / decorateOutputBlock() for ```output```
+   fences. Must look unmistakably different from .code-enhanced (no traffic-
+   light dots, no gutter, no syntax colors, emerald "screen" accent instead of
+   gold "editor" accent) so students never confuse output with source code. */
+.ai-msg pre.output-enhanced {
+  padding: 0;
+  overflow: hidden;
+  background: #071a15 !important;
+  border-color: rgba(16,185,129,0.4) !important;
+  box-shadow: 0 12px 34px rgba(0,0,0,0.5), inset 0 1px 0 rgba(16,185,129,0.06);
+}
+.output-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: linear-gradient(180deg, rgba(16,185,129,0.16), rgba(16,185,129,0.05));
+  border-bottom: 1px solid rgba(16,185,129,0.28);
+  direction: rtl;
+}
+.output-icon {
+  color: #34d399;
+  font-size: 11px;
+  line-height: 1;
+  text-shadow: 0 0 8px rgba(52,211,153,0.6);
+}
+.output-lang {
+  font-family: 'Tajawal', 'Cairo', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6ee7b7;
+  margin-inline-end: auto;
+}
+.ai-msg pre.output-enhanced code.output-text {
+  background: transparent !important;
+  display: block;
+  color: #a7f3d0;
+  font-family: 'Fira Code', 'Consolas', ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 14px 16px;
+  text-align: start;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  max-height: 280px;
+  overflow-y: auto;
+  border: none;
+  border-radius: 0;
+  font-weight: 400;
+  box-shadow: none;
+}
+@media (max-width: 640px) {
+  .ai-msg pre.output-enhanced code.output-text { font-size: 12px; padding: 12px 12px; }
+}
+
 /* ── Tables ── */
 .ai-msg table {
   width: 100%;

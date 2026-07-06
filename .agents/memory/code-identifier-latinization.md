@@ -47,3 +47,24 @@ button (which read latinized `textContent`) are what matter.
 the scanner; untagged blocks treat `//` as a comment so Arabic operands after
 Python floor-division stay Arabic; non-chat surfaces (dynamic-env renderer,
 exam/lab/hands-on panels) are not wired.
+
+**Second incident (2026-07-06) — the allow-list had to flip direction.** The
+original design (above) treated fenced code blocks as "latinize by default,
+unless the lang tag is explicitly one we skip." That is backwards for a
+teaching app: when a fence shows literal PROGRAM OUTPUT (e.g. an untagged ```
+block, or one loosely tagged "output"/"text"), the old default-permissive
+`commentStyle()` treated it as code and transliterated real Arabic program
+output ("مرحبا" → "mrhba") — a correctness bug, not just a cosmetic one,
+since it silently rewrote what the program actually prints. **Fix:** flipped
+to a `isKnownCodeLang()` allow-list — a fence is only latinized if its lang
+tag is an explicitly recognized real language; anything untagged/unknown/
+"output"/"text" is left 100% verbatim. Paired with a prompt convention (both
+`v4-teaching-core.ts` and legacy `routes/ai.ts` — see `dual-teaching-prompts.md`)
+telling the model to always wrap literal output in a dedicated ` ```output `
+fence, and a matching FE render path (`teacher-render.ts`: `OUTPUT_LANGS`,
+`buildOutputCardHtml`/`decorateOutputBlock`) that renders it in a visually
+distinct emerald "screen" card (no gutter, no traffic-light dots) instead of
+the gold IDE-style code card, so students can't confuse output with source.
+**Why this order matters:** the deterministic allow-list is the real
+guarantee (works even if the model forgets the `output` fence convention);
+the prompt/rendering split is UX polish on top, not the safety net itself.

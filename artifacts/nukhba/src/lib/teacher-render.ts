@@ -138,6 +138,32 @@ const AUTO_DETECT_LANGS = [
   "php", "kotlin", "swift", "dart", "yaml", "ini", "markdown",
 ];
 
+// A fenced block tagged with one of these is literal program OUTPUT, never
+// source code. The teacher prompt is instructed to always use ```output```
+// for this; the aliases below are defensive in case the model drifts.
+// Rendered with a deliberately different, non-editor look (see
+// buildOutputCardHtml) so students can never mistake output for code, and
+// code-latinize.ts guarantees this content is never transliterated.
+const OUTPUT_LANGS = new Set(["output", "stdout", "console", "terminal", "result", "screen"]);
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function buildOutputCardHtml(text: string): string {
+  const outText = text.replace(/\n$/, "");
+  return (
+    `<pre class="output-enhanced">` +
+    `<div class="output-head">` +
+    `<span class="output-icon" aria-hidden="true">▶</span>` +
+    `<span class="output-lang">الناتج على الشاشة</span>` +
+    `<button type="button" class="copy-code-btn" aria-label="نسخ الناتج">نسخ</button>` +
+    `</div>` +
+    `<code class="output-text">${escapeHtml(outText)}</code>` +
+    `</pre>`
+  );
+}
+
 function buildCodeCardHtml(text: string, lang: string, highlighted: string): string {
   const codeText = text.replace(/\n$/, "");
   const lineCount = Math.max(1, codeText.split("\n").length);
@@ -171,6 +197,9 @@ let blockquoteDepth = 0;
 marked.use({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }): string {
+      if (lang && OUTPUT_LANGS.has(lang.toLowerCase().trim())) {
+        return buildOutputCardHtml(text);
+      }
       try {
         const language = lang && hljs.getLanguage(lang) ? lang : null;
         let highlighted: string;
@@ -249,10 +278,17 @@ export function enhanceTeacherDom(root: HTMLElement | null): void {
   promoteParagraphCallouts(root);
   classifyCallouts(root);
   root.querySelectorAll<HTMLElement>("pre code").forEach((el) => {
-    if (el.classList.contains("hljs")) return;
+    if (el.classList.contains("hljs") || el.classList.contains("output-text")) return;
+    const pre = el.parentElement;
+    if (pre && pre.classList.contains("output-enhanced")) return;
     try {
       const cls = el.className || "";
       const langMatch = cls.match(/language-([\w+\-#]+)/i);
+      const rawLang = langMatch ? langMatch[1].toLowerCase() : "";
+      if (OUTPUT_LANGS.has(rawLang) && pre && pre.tagName === "PRE" && !pre.querySelector(".output-head")) {
+        decorateOutputBlock(pre, el);
+        return;
+      }
       let langName = "";
       if (langMatch && hljs.getLanguage(langMatch[1])) {
         const res = hljs.highlight(el.textContent || "", { language: langMatch[1], ignoreIllegals: true });
@@ -268,13 +304,42 @@ export function enhanceTeacherDom(root: HTMLElement | null): void {
           langName = res.language;
         }
       }
-      const pre = el.parentElement;
       if (pre && pre.tagName === "PRE" && !pre.querySelector(".code-head")) {
         decorateCodeBlock(pre, el, langName);
       }
     } catch {
     }
   });
+}
+
+function decorateOutputBlock(pre: HTMLElement, code: HTMLElement): void {
+  if (pre.querySelector(".output-head")) return;
+  pre.classList.add("output-enhanced");
+  code.classList.add("output-text");
+
+  const head = document.createElement("div");
+  head.className = "output-head";
+
+  const icon = document.createElement("span");
+  icon.className = "output-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = "▶";
+
+  const label = document.createElement("span");
+  label.className = "output-lang";
+  label.textContent = "الناتج على الشاشة";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "copy-code-btn";
+  btn.textContent = "نسخ";
+  btn.setAttribute("aria-label", "نسخ الناتج");
+
+  head.appendChild(icon);
+  head.appendChild(label);
+  head.appendChild(btn);
+
+  pre.insertBefore(head, code);
 }
 
 function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string): void {

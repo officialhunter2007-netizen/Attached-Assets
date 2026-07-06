@@ -179,13 +179,41 @@ const SLASH_LANGS = new Set([
   "cc", "h", "hpp", "cs", "csharp", "go", "rust", "rs", "swift", "kotlin", "kt",
   "scala", "php", "dart", "json", "json5",
 ]);
+// Other real source-code languages that carry no Arabic-identifier risk in
+// practice (markup/config/query languages) but should still be recognized as
+// "this is code" for the allow-list below.
+const OTHER_CODE_LANGS = new Set([
+  "html", "xml", "css", "scss", "less", "sql", "markdown", "md",
+]);
+
+/**
+ * Only fenced blocks explicitly tagged with a REAL programming/markup
+ * language are treated as "code" and latinized. Anything else — untagged,
+ * "text"/"plaintext", or a dedicated non-code tag like "output"/"stdout"/
+ * "console" — is left completely verbatim.
+ *
+ * This is intentional and load-bearing: the teacher prompt always tags real
+ * code fences with an explicit language (```python, ```javascript, …) and
+ * uses a dedicated ```output fence for literal program output. A block with
+ * no recognized language tag is therefore NEVER source code, so touching it
+ * risks mangling real Arabic text (e.g. transliterating "مرحبا" → "mrhba"
+ * when a teacher demonstrates print output). Never widen this to a
+ * "permissive by default" allow-list again — see .agents/memory for the
+ * incident this guards against.
+ */
+function isKnownCodeLang(lang: string): boolean {
+  const l = (lang || "").toLowerCase().trim();
+  if (!l) return false;
+  return HASH_LANGS.has(l) || SLASH_LANGS.has(l) || OTHER_CODE_LANGS.has(l);
+}
 
 function commentStyle(lang: string): CommentStyle {
   const l = (lang || "").toLowerCase().trim();
   if (HASH_LANGS.has(l)) return { hash: true, slash: false, block: false };
-  if (SLASH_LANGS.has(l)) return { hash: false, slash: true, block: true };
-  // Unknown / untagged: be permissive so we don't miss a comment boundary.
-  return { hash: true, slash: true, block: true };
+  // SLASH_LANGS and OTHER_CODE_LANGS (html/css/etc.) all use // and /* */ style,
+  // or have no comments at all — permissive here is safe since isKnownCodeLang()
+  // already gated entry to this function to real code languages only.
+  return { hash: false, slash: true, block: true };
 }
 
 // Replace interpolation segments inside a captured string body.
@@ -329,12 +357,19 @@ export function latinizeCodeIdentifiers(md: string): string {
       const lang = langTag.trim();
       const bodyStart = j < n ? j + 1 : n;
       const close = md.indexOf("```", bodyStart);
+      // Only a fence tagged with a REAL programming language is source code.
+      // Untagged fences, "text"/"output"/"stdout"/etc. are literal content
+      // (e.g. program output) and must never be transliterated — see
+      // isKnownCodeLang() doc-comment for why this must stay strict.
+      const codeLang = isKnownCodeLang(lang) ? lang : null;
       if (close === -1) {
         // Unterminated fence (streaming): latinize the remainder.
-        out += "```" + langTag + (j < n ? "\n" : "") + latinizeCodeBody(md.slice(bodyStart), lang, st);
+        const rest = md.slice(bodyStart);
+        out += "```" + langTag + (j < n ? "\n" : "") + (codeLang ? latinizeCodeBody(rest, codeLang, st) : rest);
         i = n;
       } else {
-        out += "```" + langTag + "\n" + latinizeCodeBody(md.slice(bodyStart, close), lang, st) + "```";
+        const body = md.slice(bodyStart, close);
+        out += "```" + langTag + "\n" + (codeLang ? latinizeCodeBody(body, codeLang, st) : body) + "```";
         i = close + 3;
       }
       continue;
