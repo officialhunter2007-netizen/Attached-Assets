@@ -9,6 +9,7 @@ import {
   getNextLesson,
   computeStars,
   keyFingerMap,
+  allLessons,
   type FingerColor,
   type Lesson,
 } from "@/lib/typing-curriculum";
@@ -116,12 +117,11 @@ for (const k of KEYBOARD_KEYS) {
 }
 
 function VirtualKeyboard({ nextChar }: { nextChar: string }) {
-  const nc = nextChar.toLowerCase();
-  const isShift = nextChar !== nextChar.toLowerCase() && nextChar !== nextChar.toUpperCase()
-    ? false
-    : nextChar !== nextChar.toLowerCase();
-  const activeKey = KEY_MAP.get(nc) ?? KEY_MAP.get(nextChar);
-  const shiftKey = isShift || (activeKey && activeKey.shiftLabel);
+  const activeKey = KEY_MAP.get(nextChar.toLowerCase());
+  const needsShift = activeKey != null && (
+    (nextChar.length === 1 && nextChar >= "A" && nextChar <= "Z") ||
+    (activeKey.shiftLabel != null && activeKey.shiftLabel === nextChar)
+  );
 
   return (
     <div className="w-full overflow-x-auto">
@@ -132,7 +132,7 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
       >
         {KEYBOARD_KEYS.map((k) => {
           const isActive = activeKey === k;
-          const isShiftActive = (k.key === "LShift" || k.key === "RShift") && isShift;
+          const isShiftActive = (k.key === "LShift" || k.key === "RShift") && needsShift;
           const finger = k.finger;
           const colors = FINGER_COLORS[finger];
           const highlighted = isActive || isShiftActive;
@@ -213,6 +213,28 @@ export default function TypingLesson() {
   const [, navigate] = useLocation();
   const id = parseInt(params?.id ?? "1", 10);
   const lesson = getLessonById(id);
+
+  const [lockChecked, setLockChecked] = useState(false);
+
+  useEffect(() => {
+    if (id === 1) { setLockChecked(true); return; }
+    (async () => {
+      try {
+        const r = await fetch("/api/typing/progress", { credentials: "include" });
+        if (r.ok) {
+          const data: Array<{ lessonId: number; stars: number }> = await r.json();
+          const completedIds = new Set(data.filter((d) => d.stars >= 1).map((d) => d.lessonId));
+          const ordered = allLessons;
+          let unlockedUpTo = ordered[0]?.id ?? 1;
+          for (const l of ordered) {
+            if (completedIds.has(l.id)) { unlockedUpTo = l.id + 1; } else { break; }
+          }
+          if (id > unlockedUpTo) { navigate("/typing"); return; }
+        }
+      } catch {}
+      setLockChecked(true);
+    })();
+  }, [id]);
 
   const [typed, setTyped] = useState<string[]>([]);
   const [errors, setErrors] = useState<Set<number>>(new Set());
@@ -324,6 +346,16 @@ export default function TypingLesson() {
       <AppLayout>
         <div className="flex items-center justify-center h-screen" style={{ direction: "ltr" }}>
           <div className="text-white/50">Lesson not found</div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!lockChecked) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-screen" style={{ direction: "ltr" }}>
+          <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
         </div>
       </AppLayout>
     );

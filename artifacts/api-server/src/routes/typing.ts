@@ -42,6 +42,18 @@ router.post("/typing/progress", requireUser, requireCsrf, async (req: any, res: 
       return;
     }
 
+    if (lessonId > 1) {
+      const prevRows = await db.execute(sql`
+        SELECT 1 FROM typing_progress
+        WHERE user_id = ${userId} AND lesson_id = ${lessonId - 1} AND stars >= 1
+        LIMIT 1
+      `);
+      if ((prevRows.rows?.length ?? 0) === 0) {
+        res.status(403).json({ error: "Previous lesson not completed" });
+        return;
+      }
+    }
+
     await db.execute(sql`
       INSERT INTO typing_progress (user_id, lesson_id, stars, best_wpm, best_accuracy)
       VALUES (${userId}, ${lessonId}, ${stars}, ${wpm ?? 0}, ${accuracy ?? 0})
