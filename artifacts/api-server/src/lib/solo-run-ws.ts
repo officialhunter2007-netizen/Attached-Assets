@@ -9,6 +9,21 @@ import { verifySession } from "./session";
 
 const INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
 const VALID_PKG_NAME = /^[a-zA-Z0-9]([a-zA-Z0-9\-_.]*[a-zA-Z0-9])?(\[[\w,]+\])?$/;
+const PYTHON_BUILTINS = new Set([
+  "random","os","sys","math","time","datetime","json","re","collections","itertools",
+  "functools","pathlib","io","string","abc","copy","pickle","hashlib","hmac","secrets",
+  "uuid","struct","array","queue","heapq","bisect","enum","dataclasses","typing",
+  "traceback","logging","warnings","unittest","csv","configparser","argparse",
+  "subprocess","threading","multiprocessing","socket","ssl","email","html","xml",
+  "urllib","http","ftplib","smtplib","zipfile","tarfile","gzip","bz2","lzma",
+  "sqlite3","decimal","fractions","statistics","cmath","operator","weakref",
+  "contextlib","atexit","gc","inspect","dis","ast","tokenize","keyword","builtins",
+  "platform","shutil","tempfile","glob","fnmatch","textwrap","pprint","reprlib",
+  "base64","binascii","codecs","unicodedata","locale","gettext","argparse","signal",
+  "errno","ctypes","mmap","select","selectors","asyncio","concurrent","types",
+  "numbers","cProfile","profile","timeit","pdb","faulthandler","site","sysconfig",
+  "importlib","pkgutil","modulefinder","compileall","py_compile","venv","zipimport",
+]);
 
 function getPkgDir(userId: number): string {
   return path.join(os.tmpdir(), `nukhba-pkgs-${userId}`);
@@ -179,6 +194,12 @@ export function initSoloRunWss(server: Server) {
             if (!VALID_PKG_NAME.test(p) || p.length > 80) {
               send({ type: "output", data: `❌ اسم المكتبة غير صحيح: ${p}\n` });
               send({ type: "install_done", success: false });
+              return;
+            }
+            const base = p.split(/[\[=<>!]/)[0].toLowerCase();
+            if (PYTHON_BUILTINS.has(base)) {
+              send({ type: "output", data: `ℹ️ "${p}" مكتبة مدمجة في Python — لا تحتاج تنزيل، استخدمها مباشرةً: import ${base}\n` });
+              send({ type: "install_done", success: true, packages: [] });
               return;
             }
           }
