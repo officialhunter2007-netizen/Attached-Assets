@@ -1117,18 +1117,16 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
       }
       return 0;
     }
-    function lessonStatus(code: string): "completed" | "active" | "available" | "locked" {
-      // Check unlocked set first so a lesson that IS currentCode but
-      // also numerically before it (impossible in normal flow, but guards
-      // the edge case where currentCode was not advanced after completion)
-      // still returns "completed" rather than "active".
+    const isPlacementMasteredLevel =
+      studentPath.startMode === "placement" &&
+      viewedLevelIndex < (studentPath.startingLevelIndex ?? 1);
+    function lessonStatus(code: string): "completed" | "active" | "available" | "locked" | "placement_mastered" {
+      if (isPlacementMasteredLevel) return "placement_mastered";
       if (unlockedSet.has(code)) {
         if (currentCode && compareCodes(code, currentCode) < 0) return "completed";
         if (code === currentCode) return "active";
         return "available";
       }
-      // A lesson that IS currentCode but not yet in unlockedSet is still
-      // "active" (e.g. first lesson before any unlock event fires).
       if (code === currentCode) return "active";
       return "locked";
     }
@@ -1157,9 +1155,10 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
     let completedNodes = 0;
 
     function examStatus(scope: "unit" | "stage" | "level", refId: number, available: boolean):
-      "completed" | "available" | "locked" {
+      "completed" | "available" | "locked" | "placement_mastered" {
       const att = examPassMap.get(`${scope}:${refId}`);
       if (att?.passed) return "completed";
+      if (isPlacementMasteredLevel) return "placement_mastered";
       return available ? "available" : "locked";
     }
 
@@ -1177,7 +1176,7 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
         const unitLessons = lessonsInUnit.map((l: any) => {
           const status = lessonStatus(l.code);
           totalNodes++;
-          if (status === "completed") completedNodes++;
+          if (status === "completed" || status === "placement_mastered") completedNodes++;
           if (status !== "locked") unitAnyLessonUnlocked = true;
           return { code: l.code, name: l.name, kind: "lesson", status, stars: ((lessonStarsMap[l.code] ?? 0) as 0 | 1 | 2 | 3) };
         });
@@ -1186,19 +1185,20 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
         const unitLabs = labsInUnit.map((lab: any) => {
           totalNodes++;
           const comp = labCompletions.get(lab.id);
-          let status: "completed" | "available" | "locked" = "locked";
+          let status: "completed" | "available" | "locked" | "placement_mastered" = "locked";
           if (comp?.passed) status = "completed";
-          else if (unitAnyLessonUnlocked) status = "available"; // labs non-blocking
-          if (status === "completed") completedNodes++;
+          else if (isPlacementMasteredLevel) status = "placement_mastered";
+          else if (unitAnyLessonUnlocked) status = "available";
+          if (status === "completed" || status === "placement_mastered") completedNodes++;
           return { code: lab.code, title: lab.title, kind: "lab", status, score: comp?.score ?? null };
         });
 
         const hasUnitTest = unitExamSet.has(unit.id);
-        let unitTestStatus: "completed" | "available" | "locked" = "locked";
+        let unitTestStatus: "completed" | "available" | "locked" | "placement_mastered" = "locked";
         if (hasUnitTest) {
           totalNodes++;
           unitTestStatus = examStatus("unit", unit.id, progression.unitExamAvailable(unit.id));
-          if (unitTestStatus === "completed") completedNodes++;
+          if (unitTestStatus === "completed" || unitTestStatus === "placement_mastered") completedNodes++;
         }
         return {
           unitIndex: unit.unitIndex,
@@ -1214,11 +1214,11 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
       });
 
       const hasStageTest = progressionGraph.stageExamable.has(stage.id);
-      let stageTestStatus: "completed" | "available" | "locked" = "locked";
+      let stageTestStatus: "completed" | "available" | "locked" | "placement_mastered" = "locked";
       if (hasStageTest) {
         totalNodes++;
         stageTestStatus = examStatus("stage", stage.id, progression.stageExamAvailable(stage.id));
-        if (stageTestStatus === "completed") completedNodes++;
+        if (stageTestStatus === "completed" || stageTestStatus === "placement_mastered") completedNodes++;
       }
       return {
         stageIndex: stage.stageIndex,
@@ -1239,11 +1239,11 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
     // exist). Unit exams are part of the chain now, but lesson/lab completion
     // is irrelevant — exams are the only gates.
     const hasLevelTest = progressionGraph.levelExamable.has(currentLevel.id);
-    let levelTestStatus: "completed" | "available" | "locked" = "locked";
+    let levelTestStatus: "completed" | "available" | "locked" | "placement_mastered" = "locked";
     if (hasLevelTest) {
       totalNodes++;
       levelTestStatus = examStatus("level", currentLevel.id, progression.levelExamAvailable(currentLevel.id));
-      if (levelTestStatus === "completed") completedNodes++;
+      if (levelTestStatus === "completed" || levelTestStatus === "placement_mastered") completedNodes++;
     }
     const progressPct = totalNodes > 0 ? Math.round((completedNodes / totalNodes) * 100) : 0;
 

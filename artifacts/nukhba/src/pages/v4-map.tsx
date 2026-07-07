@@ -16,13 +16,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2, Lock, Star, FlaskConical, Trophy, Crown, BookOpen,
   CheckCircle, Play, ChevronRight, ChevronDown, Sparkles, Map, ArrowRight,
-  XCircle, RotateCcw, Zap,
+  XCircle, RotateCcw, Zap, GraduationCap,
 } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { PathSwitcher } from "@/components/path-switcher";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-type NodeStatus = "completed" | "active" | "available" | "locked";
+type NodeStatus = "completed" | "active" | "available" | "locked" | "placement_mastered";
 type NodeKind = "lesson" | "lab" | "unit_test" | "stage_test" | "level_test";
 
 interface LessonNode { code: string; name: string; kind: "lesson"; status: NodeStatus; stars: 0 | 1 | 2 | 3 }
@@ -351,6 +351,17 @@ function LessonNode({ node, onClick }: { node: FlatNode; onClick: () => void }) 
     );
   }
 
+  if (node.status === "placement_mastered") {
+    return (
+      <button ref={shakeRef} onClick={handleClick} className={base} title={node.label}>
+        <div className="w-16 h-16 rounded-full bg-white/10 border-2 border-white/25 shadow-md flex items-center justify-center transition-transform hover:scale-105 active:scale-95">
+          <GraduationCap className="w-7 h-7 text-white/50" />
+        </div>
+        <span className="text-[10px] text-white/35 text-center max-w-[72px] mt-1 leading-tight line-clamp-2">{node.label}</span>
+      </button>
+    );
+  }
+
   // locked
   return (
     <div className="group relative flex flex-col items-center cursor-not-allowed" onClick={handleClick}>
@@ -405,13 +416,14 @@ function OctShape({ size, children, className }: { size: number; children: React
 
 function TestNodeComp({ node, onClick }: { node: FlatNode; onClick: () => void }) {
   const isLocked = node.status === "locked";
+  const isMastered = node.status === "placement_mastered";
 
   if (node.kind === "unit_test") {
     return (
       <button onClick={onClick} className="flex flex-col items-center gap-1 cursor-pointer group" title={node.label}>
         <div className={`transition-transform group-hover:scale-105 ${isLocked ? "opacity-50" : ""}`}>
-          <HexShape size={56} className={isLocked ? "fill-slate-700" : "fill-slate-400 drop-shadow-lg"}>
-            <Trophy className={`w-5 h-5 ${isLocked ? "text-slate-500" : "text-slate-900"}`} />
+          <HexShape size={56} className={isLocked ? "fill-slate-700" : isMastered ? "fill-white/15" : "fill-slate-400 drop-shadow-lg"}>
+            <Trophy className={`w-5 h-5 ${isLocked ? "text-slate-500" : isMastered ? "text-white/40" : "text-slate-900"}`} />
           </HexShape>
         </div>
         <span className="text-[10px] text-center text-slate-400 max-w-[72px] leading-tight line-clamp-1">{node.label}</span>
@@ -423,8 +435,8 @@ function TestNodeComp({ node, onClick }: { node: FlatNode; onClick: () => void }
     return (
       <button onClick={onClick} className="flex flex-col items-center gap-1 cursor-pointer group" title={node.label}>
         <div className={`transition-transform group-hover:scale-105 ${isLocked ? "opacity-50" : ""}`}>
-          <HexShape size={68} className={isLocked ? "fill-slate-700" : "fill-amber-400 drop-shadow-[0_0_12px_rgba(251,191,36,0.5)]"}>
-            <Trophy className={`w-7 h-7 ${isLocked ? "text-slate-500" : "text-amber-900"}`} />
+          <HexShape size={68} className={isLocked ? "fill-slate-700" : isMastered ? "fill-white/15" : "fill-amber-400 drop-shadow-[0_0_12px_rgba(251,191,36,0.5)]"}>
+            <Trophy className={`w-7 h-7 ${isLocked ? "text-slate-500" : isMastered ? "text-white/40" : "text-amber-900"}`} />
           </HexShape>
         </div>
         <span className="text-[10px] text-center text-amber-300/70 max-w-[80px] leading-tight">{node.label}</span>
@@ -436,8 +448,8 @@ function TestNodeComp({ node, onClick }: { node: FlatNode; onClick: () => void }
   return (
     <button onClick={onClick} className="flex flex-col items-center gap-1 cursor-pointer group" title={node.label}>
       <div className={`transition-transform group-hover:scale-110 ${isLocked ? "opacity-50" : ""}`}>
-        <OctShape size={76} className={isLocked ? "fill-slate-700" : "fill-amber-300 drop-shadow-[0_0_20px_rgba(251,191,36,0.7)]"}>
-          <Crown className={`w-8 h-8 ${isLocked ? "text-slate-500" : "text-amber-900"}`} />
+        <OctShape size={76} className={isLocked ? "fill-slate-700" : isMastered ? "fill-white/15" : "fill-amber-300 drop-shadow-[0_0_20px_rgba(251,191,36,0.7)]"}>
+          <Crown className={`w-8 h-8 ${isLocked ? "text-slate-500" : isMastered ? "text-white/40" : "text-amber-900"}`} />
         </OctShape>
       </div>
       <span className="text-[10px] text-center text-amber-200/80 max-w-[80px] leading-tight font-semibold">{node.label}</span>
@@ -448,20 +460,22 @@ function TestNodeComp({ node, onClick }: { node: FlatNode; onClick: () => void }
 function LabNodeComp({ node, onClick }: { node: FlatNode; onClick: () => void }) {
   const isLocked = node.status === "locked";
   const isDone = node.status === "completed";
+  const isMastered = node.status === "placement_mastered";
   return (
     <button onClick={onClick} className="flex flex-col items-center gap-1 group" title={node.label}>
       <div className={`w-16 h-16 rounded-2xl border-2 flex items-center justify-center transition-transform group-hover:scale-105 relative ${
-        isLocked  ? "bg-slate-800 border-slate-700 opacity-60" :
-        isDone    ? "bg-gradient-to-br from-emerald-400 to-emerald-600 border-emerald-300 shadow-lg shadow-emerald-400/40" :
-                    "bg-gradient-to-br from-orange-400 to-orange-600 border-orange-300 shadow-lg shadow-orange-400/40"
+        isLocked   ? "bg-slate-800 border-slate-700 opacity-60" :
+        isDone     ? "bg-gradient-to-br from-emerald-400 to-emerald-600 border-emerald-300 shadow-lg shadow-emerald-400/40" :
+        isMastered ? "bg-white/10 border-white/25" :
+                     "bg-gradient-to-br from-orange-400 to-orange-600 border-orange-300 shadow-lg shadow-orange-400/40"
       }`}>
         {isDone
           ? <CheckCircle className="w-7 h-7 text-white" strokeWidth={2.5} />
-          : <FlaskConical className={`w-7 h-7 ${isLocked ? "text-slate-500" : "text-white"}`} />
+          : <FlaskConical className={`w-7 h-7 ${isLocked ? "text-slate-500" : isMastered ? "text-white/50" : "text-white"}`} />
         }
       </div>
       <span className={`text-[10px] text-center max-w-[72px] leading-tight line-clamp-2 ${
-        isLocked ? "text-slate-600" : isDone ? "text-emerald-300" : "text-orange-300"
+        isLocked ? "text-slate-600" : isDone ? "text-emerald-300" : isMastered ? "text-white/35" : "text-orange-300"
       }`}>{node.label}</span>
     </button>
   );
