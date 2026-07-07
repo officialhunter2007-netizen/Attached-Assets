@@ -44,7 +44,10 @@ const EXT_TO_LANG: Record<string, string> = {
   cpp: "cpp", cc: "cpp", cxx: "cpp", c: "c",
   kt: "kotlin", dart: "dart", rs: "rust",
   sql: "sql", sh: "bash", bash: "bash",
+  csv: "plaintext", json: "json", txt: "plaintext", md: "markdown", xml: "xml", yaml: "yaml", yml: "yaml",
 };
+
+const DATA_LANGS = new Set(["plaintext", "json", "markdown", "xml", "yaml"]);
 
 const SOLO_INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
 
@@ -1800,7 +1803,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
     setInteractiveMode(false);
     try {
       const siblings = files
-        .filter(f => f.language === file.language && f.id !== file.id && !f.name.endsWith("/.gitkeep"))
+        .filter(f => f.id !== file.id && !f.name.endsWith("/.gitkeep") && (f.language === file.language || DATA_LANGS.has(f.language)))
         .map(f => ({ file: f.name, code: f.content }));
       const res = await fetch("/api/ai/run-code", {
         method: "POST",
