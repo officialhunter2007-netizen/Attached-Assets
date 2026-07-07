@@ -1164,7 +1164,7 @@ export default function CodingRoom() {
     setDockOpen(true);
     liveOutputRef.current = "";
     setLiveOutput("");
-    wsRef.current.send(JSON.stringify({ type: "install_packages", packages: pkgs }));
+    wsRef.current.send(JSON.stringify({ type: "install_packages", packages: pkgs, language: activeFile?.language ?? "python" }));
   };
 
   const sendChat = () => {
@@ -1577,13 +1577,13 @@ export default function CodingRoom() {
             </button>
           ) : null}
 
-          {canRun && activeFile?.language === "python" && (
+          {canRun && (activeFile?.language === "python" || activeFile?.language === "javascript") && (
             <button
               onClick={() => setShowInstallInput(v => !v)}
               disabled={installing}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all"
               style={{ background: showInstallInput ? "rgba(16,185,129,0.2)" : "rgba(16,185,129,0.1)", border: `1px solid ${showInstallInput ? "rgba(16,185,129,0.5)" : "rgba(16,185,129,0.3)"}`, color: "#34D399" }}
-              title="تنزيل مكتبة Python"
+              title={activeFile?.language === "javascript" ? "تنزيل حزمة npm" : "تنزيل مكتبة Python"}
             >
               {installing ? (
                 <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
@@ -1677,7 +1677,7 @@ export default function CodingRoom() {
         )}
       </header>
 
-      {showInstallInput && canRun && activeFile?.language === "python" && (
+      {showInstallInput && canRun && (activeFile?.language === "python" || activeFile?.language === "javascript") && (
         <div className="flex items-center gap-2 px-3 py-2 shrink-0" style={{ background: "rgba(4,6,14,0.97)", borderBottom: "1px solid rgba(16,185,129,0.2)" }}>
           <Package className="w-3.5 h-3.5 shrink-0" style={{ color: "#10B981" }} />
           <input
@@ -1686,7 +1686,7 @@ export default function CodingRoom() {
             value={installInput}
             onChange={e => setInstallInput(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") handleInstallPackages(); if (e.key === "Escape") setShowInstallInput(false); }}
-            placeholder="pandas numpy matplotlib..."
+            placeholder={activeFile?.language === "javascript" ? "lodash axios moment..." : "pandas numpy matplotlib..."}
             disabled={installing}
             className="flex-1 bg-transparent text-white/80 text-xs font-mono outline-none placeholder-white/20 min-w-0"
           />

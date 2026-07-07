@@ -15,6 +15,16 @@ const SHARED_PYLIB_DIR = process.env.NUKHBA_PYLIB_DIR
       ?? (() => { try { const r = require("child_process").execSync("python3 -c \"import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')\"").toString().trim(); return r; } catch { return "3.11"; } })();
     return `/home/runner/workspace/.pythonlibs/lib/python${v}/site-packages`;
   })();
+const SHARED_JS_PREFIX = process.env.NUKHBA_JSLIB_DIR ?? "/home/runner/workspace/.nodelibs";
+const SHARED_JS_MODULES = `${SHARED_JS_PREFIX}/node_modules`;
+const VALID_NPM_PKG_NAME = /^(@[a-zA-Z0-9\-_.]+\/)?[a-zA-Z0-9][a-zA-Z0-9\-_.]*(@[\w.\-]+)?$/;
+const NODE_BUILTINS = new Set([
+  "fs","path","os","http","https","crypto","stream","events","buffer","url","util",
+  "net","tls","dns","cluster","child_process","worker_threads","assert","readline",
+  "repl","vm","zlib","querystring","string_decoder","domain","process","console",
+  "timers","module","perf_hooks","v8","inspector","async_hooks","trace_events",
+  "dgram","http2","punycode","constants","sys",
+]);
 const PYTHON_BUILTINS = new Set([
   "random","os","sys","math","time","datetime","json","re","collections","itertools",
   "functools","pathlib","io","string","abc","copy","pickle","hashlib","hmac","secrets",
@@ -143,7 +153,10 @@ export function initSoloRunWss(server: Server) {
               return;
           }
 
-          const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"] });
+          const spawnEnv: NodeJS.ProcessEnv = language === "javascript"
+            ? { ...process.env, NODE_PATH: SHARED_JS_MODULES }
+            : process.env;
+          const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"], env: spawnEnv });
 
           activeProcesses.set(processKey, { proc, tmpDir });
 
@@ -183,6 +196,7 @@ export function initSoloRunWss(server: Server) {
         }
 
         if (msg.type === "install") {
+          const installLang = String(msg.language ?? "python");
           const rawPkgs = String(msg.packages ?? "").trim();
           const pkgList = rawPkgs.split(/[\s,]+/).filter(Boolean).slice(0, 8);
           if (!pkgList.length) {
@@ -190,45 +204,88 @@ export function initSoloRunWss(server: Server) {
             send({ type: "install_done", success: false });
             return;
           }
-          for (const p of pkgList) {
-            if (!VALID_PKG_NAME.test(p) || p.length > 80) {
-              send({ type: "output", data: `❌ اسم المكتبة غير صحيح: ${p}\n` });
+
+          if (installLang === "python") {
+            for (const p of pkgList) {
+              if (!VALID_PKG_NAME.test(p) || p.length > 80) {
+                send({ type: "output", data: `❌ اسم المكتبة غير صحيح: ${p}\n` });
+                send({ type: "install_done", success: false });
+                return;
+              }
+              const base = p.split(/[\[=<>!]/)[0].toLowerCase();
+              if (PYTHON_BUILTINS.has(base)) {
+                send({ type: "output", data: `ℹ️ "${p}" مكتبة مدمجة في Python — لا تحتاج تنزيل، استخدمها مباشرةً: import ${base}\n` });
+                send({ type: "install_done", success: true, packages: [] });
+                return;
+              }
+            }
+            try { fs.mkdirSync(SHARED_PYLIB_DIR, { recursive: true }); } catch {}
+            send({ type: "output", data: `📦 جاري تنزيل: ${pkgList.join(", ")}...\n` });
+            const pipEnv: NodeJS.ProcessEnv = { ...process.env, PIP_CONFIG_FILE: "/dev/null" };
+            const pip = spawn("python3", [
+              "-m", "pip", "install", ...pkgList,
+              "--target", SHARED_PYLIB_DIR,
+              "--upgrade", "--no-user", "--no-input", "--disable-pip-version-check",
+            ], { stdio: ["ignore", "pipe", "pipe"], env: pipEnv });
+            pip.stdout.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
+            pip.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
+            pip.on("close", (code) => {
+              if (code === 0) {
+                send({ type: "output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
+                send({ type: "install_done", success: true, packages: pkgList });
+              } else {
+                send({ type: "output", data: `❌ فشل التنزيل (كود: ${code})\n` });
+                send({ type: "install_done", success: false });
+              }
+            });
+            pip.on("error", (err) => {
+              send({ type: "output", data: `❌ خطأ في تنزيل المكتبة: ${err.message}\n` });
               send({ type: "install_done", success: false });
-              return;
-            }
-            const base = p.split(/[\[=<>!]/)[0].toLowerCase();
-            if (PYTHON_BUILTINS.has(base)) {
-              send({ type: "output", data: `ℹ️ "${p}" مكتبة مدمجة في Python — لا تحتاج تنزيل، استخدمها مباشرةً: import ${base}\n` });
-              send({ type: "install_done", success: true, packages: [] });
-              return;
-            }
+            });
+            return;
           }
-          try { fs.mkdirSync(SHARED_PYLIB_DIR, { recursive: true }); } catch {}
-          send({ type: "output", data: `📦 جاري تنزيل: ${pkgList.join(", ")}...\n` });
-          const pipEnv: NodeJS.ProcessEnv = { ...process.env, PIP_CONFIG_FILE: "/dev/null" };
-          const pip = spawn("python3", [
-            "-m", "pip", "install", ...pkgList,
-            "--target", SHARED_PYLIB_DIR,
-            "--upgrade",
-            "--no-user",
-            "--no-input",
-            "--disable-pip-version-check",
-          ], { stdio: ["ignore", "pipe", "pipe"], env: pipEnv });
-          pip.stdout.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
-          pip.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
-          pip.on("close", (code) => {
-            if (code === 0) {
-              send({ type: "output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
-              send({ type: "install_done", success: true, packages: pkgList });
-            } else {
-              send({ type: "output", data: `❌ فشل التنزيل (كود: ${code})\n` });
-              send({ type: "install_done", success: false });
+
+          if (installLang === "javascript") {
+            for (const p of pkgList) {
+              if (!VALID_NPM_PKG_NAME.test(p) || p.length > 100) {
+                send({ type: "output", data: `❌ اسم الحزمة غير صحيح: ${p}\n` });
+                send({ type: "install_done", success: false });
+                return;
+              }
+              const base = p.split(/[@]/)[0].replace(/^@[^/]+\//, "").toLowerCase();
+              if (NODE_BUILTINS.has(base)) {
+                send({ type: "output", data: `ℹ️ "${p}" وحدة مدمجة في Node.js — لا تحتاج تنزيل، استخدمها مباشرةً: require('${base}')\n` });
+                send({ type: "install_done", success: true, packages: [] });
+                return;
+              }
             }
-          });
-          pip.on("error", (err) => {
-            send({ type: "output", data: `❌ خطأ في تنزيل المكتبة: ${err.message}\n` });
-            send({ type: "install_done", success: false });
-          });
+            try { fs.mkdirSync(SHARED_JS_PREFIX, { recursive: true }); } catch {}
+            send({ type: "output", data: `📦 جاري تنزيل: ${pkgList.join(", ")}...\n` });
+            const npm = spawn("npm", [
+              "install", ...pkgList,
+              "--prefix", SHARED_JS_PREFIX,
+              "--no-save", "--no-audit", "--no-fund", "--prefer-offline",
+            ], { stdio: ["ignore", "pipe", "pipe"] });
+            npm.stdout.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
+            npm.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
+            npm.on("close", (code) => {
+              if (code === 0) {
+                send({ type: "output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
+                send({ type: "install_done", success: true, packages: pkgList });
+              } else {
+                send({ type: "output", data: `❌ فشل التنزيل (كود: ${code})\n` });
+                send({ type: "install_done", success: false });
+              }
+            });
+            npm.on("error", (err) => {
+              send({ type: "output", data: `❌ خطأ في تنزيل الحزمة: ${err.message}\n` });
+              send({ type: "install_done", success: false });
+            });
+            return;
+          }
+
+          send({ type: "output", data: `ℹ️ تنزيل المكتبات غير مدعوم لهذه اللغة\n` });
+          send({ type: "install_done", success: false });
           return;
         }
       });

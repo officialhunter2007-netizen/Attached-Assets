@@ -71,6 +71,16 @@ const SHARED_PYLIB_DIR = process.env.NUKHBA_PYLIB_DIR
       ?? (() => { try { const r = require("child_process").execSync("python3 -c \"import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')\"").toString().trim(); return r; } catch { return "3.11"; } })();
     return `/home/runner/workspace/.pythonlibs/lib/python${v}/site-packages`;
   })();
+const SHARED_JS_PREFIX = process.env.NUKHBA_JSLIB_DIR ?? "/home/runner/workspace/.nodelibs";
+const SHARED_JS_MODULES = `${SHARED_JS_PREFIX}/node_modules`;
+const VALID_NPM_PKG_NAME = /^(@[a-zA-Z0-9\-_.]+\/)?[a-zA-Z0-9][a-zA-Z0-9\-_.]*(@[\w.\-]+)?$/;
+const NODE_BUILTINS = new Set([
+  "fs","path","os","http","https","crypto","stream","events","buffer","url","util",
+  "net","tls","dns","cluster","child_process","worker_threads","assert","readline",
+  "repl","vm","zlib","querystring","string_decoder","domain","process","console",
+  "timers","module","perf_hooks","v8","inspector","async_hooks","trace_events",
+  "dgram","http2","punycode","constants","sys",
+]);
 const PYTHON_BUILTINS = new Set([
   "random","os","sys","math","time","datetime","json","re","collections","itertools",
   "functools","pathlib","io","string","abc","copy","pickle","hashlib","hmac","secrets",
@@ -680,7 +690,10 @@ async function handleMessage(client: WsClient, raw: string) {
           return;
       }
 
-      const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"] });
+      const spawnEnv: NodeJS.ProcessEnv = language === "javascript"
+        ? { ...process.env, NODE_PATH: SHARED_JS_MODULES }
+        : process.env;
+      const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"], env: spawnEnv });
 
       const timer = setTimeout(() => {}, 2_147_483_647);
 
@@ -730,6 +743,7 @@ async function handleMessage(client: WsClient, raw: string) {
 
     case "install_packages": {
       if (!client.canRun && client.role !== "host") return;
+      const installLang = String(msg.language ?? "python");
       const rawPkgs = String(msg.packages ?? "").trim();
       const pkgList = rawPkgs.split(/[\s,]+/).filter(Boolean).slice(0, 8);
       if (!pkgList.length) {
@@ -737,46 +751,90 @@ async function handleMessage(client: WsClient, raw: string) {
         broadcastJoined(client.roomId, { type: "install_done", success: false });
         return;
       }
-      for (const p of pkgList) {
-        if (!VALID_PKG_NAME.test(p) || p.length > 80) {
-          sendTo(client, { type: "process_output", data: `❌ اسم المكتبة غير صحيح: ${p}\n` });
+
+      if (installLang === "python") {
+        for (const p of pkgList) {
+          if (!VALID_PKG_NAME.test(p) || p.length > 80) {
+            sendTo(client, { type: "process_output", data: `❌ اسم المكتبة غير صحيح: ${p}\n` });
+            broadcastJoined(client.roomId, { type: "install_done", success: false });
+            return;
+          }
+          const base = p.split(/[\[=<>!]/)[0].toLowerCase();
+          if (PYTHON_BUILTINS.has(base)) {
+            broadcastJoined(client.roomId, { type: "process_output", data: `ℹ️ "${p}" مكتبة مدمجة في Python — لا تحتاج تنزيل، استخدمها مباشرةً: import ${base}\n` });
+            broadcastJoined(client.roomId, { type: "install_done", success: true, packages: [] });
+            return;
+          }
+        }
+        try { fs.mkdirSync(SHARED_PYLIB_DIR, { recursive: true }); } catch {}
+        broadcastJoined(client.roomId, { type: "process_output", data: `📦 جاري تنزيل: ${pkgList.join(", ")}...\n` });
+        const pipEnv: NodeJS.ProcessEnv = { ...process.env, PIP_CONFIG_FILE: "/dev/null" };
+        const pip = spawn("python3", [
+          "-m", "pip", "install", ...pkgList,
+          "--target", SHARED_PYLIB_DIR,
+          "--upgrade", "--no-user", "--no-input", "--disable-pip-version-check",
+        ], { stdio: ["ignore", "pipe", "pipe"], env: pipEnv });
+        const onPipData = (chunk: Buffer) => broadcastJoined(client.roomId, { type: "process_output", data: chunk.toString() });
+        pip.stdout.on("data", onPipData);
+        pip.stderr.on("data", onPipData);
+        pip.on("close", (code) => {
+          if (code === 0) {
+            broadcastJoined(client.roomId, { type: "process_output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
+            broadcastJoined(client.roomId, { type: "install_done", success: true, packages: pkgList });
+          } else {
+            broadcastJoined(client.roomId, { type: "process_output", data: `❌ فشل التنزيل (كود: ${code})\n` });
+            broadcastJoined(client.roomId, { type: "install_done", success: false });
+          }
+        });
+        pip.on("error", (err) => {
+          broadcastJoined(client.roomId, { type: "process_output", data: `❌ خطأ في تنزيل المكتبة: ${err.message}\n` });
           broadcastJoined(client.roomId, { type: "install_done", success: false });
-          return;
-        }
-        const base = p.split(/[\[=<>!]/)[0].toLowerCase();
-        if (PYTHON_BUILTINS.has(base)) {
-          broadcastJoined(client.roomId, { type: "process_output", data: `ℹ️ "${p}" مكتبة مدمجة في Python — لا تحتاج تنزيل، استخدمها مباشرةً: import ${base}\n` });
-          broadcastJoined(client.roomId, { type: "install_done", success: true, packages: [] });
-          return;
-        }
+        });
+        return;
       }
-      try { fs.mkdirSync(SHARED_PYLIB_DIR, { recursive: true }); } catch {}
-      broadcastJoined(client.roomId, { type: "process_output", data: `📦 جاري تنزيل: ${pkgList.join(", ")}...\n` });
-      const pipEnv: NodeJS.ProcessEnv = { ...process.env, PIP_CONFIG_FILE: "/dev/null" };
-      const pip = spawn("python3", [
-        "-m", "pip", "install", ...pkgList,
-        "--target", SHARED_PYLIB_DIR,
-        "--upgrade",
-        "--no-user",
-        "--no-input",
-        "--disable-pip-version-check",
-      ], { stdio: ["ignore", "pipe", "pipe"], env: pipEnv });
-      const onPipData = (chunk: Buffer) => broadcastJoined(client.roomId, { type: "process_output", data: chunk.toString() });
-      pip.stdout.on("data", onPipData);
-      pip.stderr.on("data", onPipData);
-      pip.on("close", (code) => {
-        if (code === 0) {
-          broadcastJoined(client.roomId, { type: "process_output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
-          broadcastJoined(client.roomId, { type: "install_done", success: true, packages: pkgList });
-        } else {
-          broadcastJoined(client.roomId, { type: "process_output", data: `❌ فشل التنزيل (كود: ${code})\n` });
-          broadcastJoined(client.roomId, { type: "install_done", success: false });
+
+      if (installLang === "javascript") {
+        for (const p of pkgList) {
+          if (!VALID_NPM_PKG_NAME.test(p) || p.length > 100) {
+            sendTo(client, { type: "process_output", data: `❌ اسم الحزمة غير صحيح: ${p}\n` });
+            broadcastJoined(client.roomId, { type: "install_done", success: false });
+            return;
+          }
+          const base = p.split(/[@]/)[0].replace(/^@[^/]+\//, "").toLowerCase();
+          if (NODE_BUILTINS.has(base)) {
+            broadcastJoined(client.roomId, { type: "process_output", data: `ℹ️ "${p}" وحدة مدمجة في Node.js — لا تحتاج تنزيل، استخدمها مباشرةً: require('${base}')\n` });
+            broadcastJoined(client.roomId, { type: "install_done", success: true, packages: [] });
+            return;
+          }
         }
-      });
-      pip.on("error", (err) => {
-        broadcastJoined(client.roomId, { type: "process_output", data: `❌ خطأ في تنزيل المكتبة: ${err.message}\n` });
-        broadcastJoined(client.roomId, { type: "install_done", success: false });
-      });
+        try { fs.mkdirSync(SHARED_JS_PREFIX, { recursive: true }); } catch {}
+        broadcastJoined(client.roomId, { type: "process_output", data: `📦 جاري تنزيل: ${pkgList.join(", ")}...\n` });
+        const npm = spawn("npm", [
+          "install", ...pkgList,
+          "--prefix", SHARED_JS_PREFIX,
+          "--no-save", "--no-audit", "--no-fund", "--prefer-offline",
+        ], { stdio: ["ignore", "pipe", "pipe"] });
+        const onNpmData = (chunk: Buffer) => broadcastJoined(client.roomId, { type: "process_output", data: chunk.toString() });
+        npm.stdout.on("data", onNpmData);
+        npm.stderr.on("data", onNpmData);
+        npm.on("close", (code) => {
+          if (code === 0) {
+            broadcastJoined(client.roomId, { type: "process_output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
+            broadcastJoined(client.roomId, { type: "install_done", success: true, packages: pkgList });
+          } else {
+            broadcastJoined(client.roomId, { type: "process_output", data: `❌ فشل التنزيل (كود: ${code})\n` });
+            broadcastJoined(client.roomId, { type: "install_done", success: false });
+          }
+        });
+        npm.on("error", (err) => {
+          broadcastJoined(client.roomId, { type: "process_output", data: `❌ خطأ في تنزيل الحزمة: ${err.message}\n` });
+          broadcastJoined(client.roomId, { type: "install_done", success: false });
+        });
+        return;
+      }
+
+      broadcastJoined(client.roomId, { type: "process_output", data: `ℹ️ تنزيل المكتبات غير مدعوم لهذه اللغة\n` });
+      broadcastJoined(client.roomId, { type: "install_done", success: false });
       break;
     }
 
