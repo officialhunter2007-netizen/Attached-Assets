@@ -20,6 +20,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders, sanitizeStrayMarkdown } from "@/lib/teacher-render";
 import { getVizComponent } from "@/components/viz/registry";
+import { validateVizPayload } from "@/components/viz/schemas";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
 import { CodeInputArea, detectCodeTask } from "@/components/code-input-area";
 import { useAuth } from "@/lib/use-auth";
@@ -628,6 +629,13 @@ function TeacherBubble({ html, isStreaming, imageMap, lessonName, slug }: { html
       }
       let payload: any = {};
       try { payload = JSON.parse(decodeURIComponent(payloadAttr)); } catch { payload = {}; }
+      const validated = validateVizPayload(tmpl, payload);
+      if (!validated.ok) {
+        console.warn(`[viz_validation_failed] template=${tmpl} error=${validated.error}`);
+        while (el.firstChild) el.removeChild(el.firstChild);
+        continue;
+      }
+      payload = validated.data;
       let r = rootsRef.current.get(el);
       if (!r) {
         r = createRoot(el);
@@ -1208,6 +1216,37 @@ export default function V4Lesson() {
             if (evt?.diagramMissing?.id) {
               const id = String(evt.diagramMissing.id);
               const pendingTag = `[[VIZ: template=mermaid_diagram, payload={"pendingId":"${id}"}]]`;
+              acc = acc.split(pendingTag).join("");
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === "assistant") {
+                  next[next.length - 1] = { ...last, content: last.content.split(pendingTag).join("") };
+                }
+                return next;
+              });
+              continue;
+            }
+            if (evt?.comparisonReady?.id && evt.comparisonReady.payload) {
+              // Same splice-in-place contract as diagramReady, for the
+              // `comparison` VIZ template (Haiku-authored [[COMPARE: ...]]).
+              const id = String(evt.comparisonReady.id);
+              const pendingTag = `[[VIZ: template=comparison, payload={"pendingId":"${id}"}]]`;
+              const resolvedTag = `[[VIZ: template=comparison, payload=${JSON.stringify(evt.comparisonReady.payload)}]]`;
+              acc = acc.split(pendingTag).join(resolvedTag);
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === "assistant") {
+                  next[next.length - 1] = { ...last, content: last.content.split(pendingTag).join(resolvedTag) };
+                }
+                return next;
+              });
+              continue;
+            }
+            if (evt?.comparisonMissing?.id) {
+              const id = String(evt.comparisonMissing.id);
+              const pendingTag = `[[VIZ: template=comparison, payload={"pendingId":"${id}"}]]`;
               acc = acc.split(pendingTag).join("");
               setMessages((prev) => {
                 const next = [...prev];

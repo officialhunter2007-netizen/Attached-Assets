@@ -9,6 +9,7 @@ import { BarChart } from "./bar-chart";
 import { ErDiagram } from "./er-diagram";
 import { TreeDiagram } from "./tree-diagram";
 import { MermaidDiagram } from "./mermaid-diagram";
+import { Comparison } from "./comparison";
 
 export type VizComponent = ComponentType<{ payload: any }>;
 
@@ -28,6 +29,7 @@ export const VIZ_REGISTRY: Record<string, VizComponent> = {
   er_diagram: ErDiagram,
   tree_diagram: TreeDiagram,
   mermaid_diagram: MermaidDiagram,
+  comparison: Comparison,
 };
 
 export function getVizComponent(name: string): VizComponent | null {

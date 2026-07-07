@@ -946,6 +946,16 @@ const VIZ_TEMPLATES: Record<string, VizTemplate> = {
     schema: `{"code":"<كود Mermaid كامل وصحيح (النسخة النهائية، أسطر بـ\\n)>","steps":["<اختياري: نسخة تراكمية صحيحة لكل خطوة، آخر عنصر = code>"]}`,
     example: `{"code":"sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان\\n  B->>S: طلب الصفحة\\n  S-->>B: يرسل الصفحة\\n  B-->>U: يعرض الصفحة","steps":["sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان","sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان\\n  B->>S: طلب الصفحة","sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان\\n  B->>S: طلب الصفحة\\n  S-->>B: يرسل الصفحة","sequenceDiagram\\n  actor U as 🧑 المستخدم\\n  participant B as 🌐 المتصفح\\n  participant S as 🏢 الخادم\\n  U->>B: يكتب العنوان\\n  B->>S: طلب الصفحة\\n  S-->>B: يرسل الصفحة\\n  B-->>U: يعرض الصفحة"]}`,
   },
+  comparison: {
+    name: "comparison",
+    arName: "جدول مقارنة بين عنصرين أو ثلاثة عبر محاور متعددة",
+    // Same "request it, don't author it" contract as mermaid_diagram: the
+    // teaching model never writes the {title, axes, items} JSON itself —
+    // it asks via [[COMPARE: ...]] and a Haiku side-channel authors the
+    // real comparison table (see the dedicated guidance block below).
+    schema: `{"title":"<عنوان>","axes":["<محور 1>","<محور 2>", "..."],"items":[{"name":"<اسم العنصر>","values":["<قيمة تقابل axes[0]>", "..."]}]}`,
+    example: `{"title":"HTTP مقابل HTTPS","axes":["التشفير","المنفذ الافتراضي"],"items":[{"name":"HTTP","values":["لا يوجد","80"]},{"name":"HTTPS","values":["TLS/SSL","443"]}]}`,
+  },
 };
 
 // Slug-keyword → allowed template names. Falls back to a sensible default
@@ -999,6 +1009,9 @@ function pickTemplatesForSpecialty(slug: string, name?: string): string[] {
   // (protocols, request/response flows), mindmaps, timelines, and pie
   // charts that flowchart/bar_chart can't express.
   out.add("mermaid_diagram");
+  // comparison is universal too — "X vs Y" comes up in every specialty
+  // (two protocols, two eras, two account types, two algorithms, ...).
+  out.add("comparison");
 
   // Always-on defaults so a generic specialty still has *something* visual.
   if (out.size === 0) {
@@ -1043,10 +1056,11 @@ export function buildVizCatalogLayer(
   for (const tname of finalAllowed) {
     const t = VIZ_TEMPLATES[tname];
     if (!t) continue;
-    // mermaid_diagram is requested via the [[DIAGRAM: ...]] tag below, NOT
-    // authored inline as a VIZ payload — skip it in this generic dump so the
-    // model doesn't try to hand-write Mermaid syntax itself.
-    if (tname === "mermaid_diagram") continue;
+    // mermaid_diagram/comparison are requested via the [[DIAGRAM: ...]] /
+    // [[COMPARE: ...]] tags below, NOT authored inline as a VIZ payload —
+    // skip them in this generic dump so the model doesn't try to
+    // hand-write the Mermaid source or the comparison JSON itself.
+    if (tname === "mermaid_diagram" || tname === "comparison") continue;
     lines.push(`- \`${t.name}\` — ${t.arName}`);
     lines.push(`  • payload: ${t.schema}`);
     lines.push(`  • مثال: ${t.example}`);
@@ -1075,6 +1089,20 @@ export function buildVizCatalogLayer(
       "  • أي نسبة مئوية أو توزيع موارد/وقت/استخدام (`pie`).",
       "  هذه أمثلة لا حصر لها — كلما وجدت فكرة تُمثَّل بصرياً بخطوات أو علاقات أو نسب، استخدم الرسم فوراً بدل الاكتفاء بالنص.",
       "- ممنوع استخدامه في رسالة الافتتاح الإلزامية، وبحد أقصى 3 رسومات في نفس الرد (بين كل قوالب VIZ وMermaid معاً) — هذا الحد للحفاظ على الوضوح ومنع الازدحام، لا تتجاوزه.",
+    );
+  }
+  if (finalAllowed.includes("comparison")) {
+    lines.push(
+      "",
+      "**جدول مقارنة تفاعلي — اطلبه، لا تكتب JSON بنفسك**:",
+      "كلما شرحت الفرق بين عنصرين أو ثلاثة (بروتوكولين، خوارزميتين، نوعي حسابات، عصرين تاريخيين، طريقتين لحل مسألة...) لا تكتفِ بجدول نصي أو فقرة — اطلب جدول مقارنة تفاعلي بالوسم التالي في سطر مستقل، وسيُبنى الجدول الصحيح مكانه خلال لحظات:",
+      "  `[[COMPARE: العنصر الأول ||| العنصر الثاني ||| العنصر الثالث(اختياري، اتركه فارغاً إن كانا اثنين فقط) ||| سياق المقارنة/ما يجب أن يوضحه الجدول للطالب]]`",
+      "- بحد أقصى 3 عناصر و2 كحد أدنى.",
+      "- اجعل `سياق المقارنة` واضحاً ومحدداً (أي محاور تهم الطالب هنا تحديداً) ليختار الرسّام المحاور الأنسب.",
+      "- لا تضع `]]` داخل أي جزء من الوسم.",
+      "- بعد وضع الوسم تابع كلامك بشكل طبيعي — الجدول سيظهر مكانه تلقائياً، لا تكرره نصاً.",
+      "- **استخدمه بكثرة كأداتك الافتراضية لأي مقارنة**، لا تنتظر طلباً صريحاً من الطالب.",
+      "- يدخل ضمن نفس حد 3 رسومات لكل رد المذكور أعلاه (مجموع VIZ + Mermaid + COMPARE).",
     );
   }
   return lines.join("\n");

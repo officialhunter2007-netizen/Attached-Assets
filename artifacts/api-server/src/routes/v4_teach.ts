@@ -73,6 +73,11 @@ import {
   DIAGRAM_AI_USD,
   type DiagramRequest,
 } from "../lib/v4-diagram-author";
+import {
+  authorComparison,
+  COMPARISON_AI_USD,
+  type ComparisonRequest,
+} from "../lib/v4-comparison-author";
 
 const router: IRouter = Router();
 
@@ -163,6 +168,22 @@ function emitV4FriendlyFailure(res: Response, routeTag: string, err: unknown): v
  * pre-stream debit reservation.
  */
 const inflightTeachTurns = new Set<string>();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v4/viz/report — lightweight "report a problem" affordance from
+// the VizWrapper. Auth-gated so we know who reported, but NOT CSRF-gated:
+// it only writes a server log line (no state mutation, no financial/user
+// data touched), so the cross-origin-POST risk that CSRF exists for doesn't
+// apply here.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/v4/viz/report", requireUser, (req, res): void => {
+  const uid: number = (req as any).userId;
+  const body: any = req.body ?? {};
+  const template = String(body.template ?? "").slice(0, 60);
+  const reason = String(body.reason ?? "").slice(0, 300);
+  logger.warn?.(`[v4/viz/report] userId=${uid} template=${template} reason="${reason}"`);
+  res.json({ ok: true });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v4/teach
@@ -669,6 +690,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       { marker: "[[IMAGE:", kind: "image" as const },
       { marker: "[[PHOTO:", kind: "photo" as const },
       { marker: "[[DIAGRAM:", kind: "diagram" as const },
+      { marker: "[[COMPARE:", kind: "compare" as const },
     ];
     const MAX_MARKER_LEN = Math.max(...VISUAL_MARKERS.map((m) => m.marker.length));
     const MAX_DIAGRAMS_PER_REPLY = 3;
@@ -680,6 +702,13 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     const __diagramRawTags: Map<string, string> = new Map();
     // id -> replacement text for the entry above ("" = drop the tag).
     const __diagramResolved: Map<string, string> = new Map();
+
+    // Same pending/ready/missing + transcript-patch contract as DIAGRAM,
+    // for the `[[COMPARE: ...]]` → `comparison` VIZ template side-channel.
+    const MAX_COMPARISONS_PER_REPLY = 3;
+    let __compareCount = 0;
+    const __compareRawTags: Map<string, string> = new Map();
+    const __compareResolved: Map<string, string> = new Map();
 
     // Per-PHOTO pipeline: resolve a REAL same-origin photo → imageReady. ALWAYS
     // FREE — resolveWebPhoto never bills fal and never throws. On a genuine miss
@@ -723,6 +752,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
           payload = { code: result.code };
           if (result.steps) payload.steps = result.steps;
           resolvedText = `[[VIZ: template=mermaid_diagram, payload=${JSON.stringify(payload)}]]`;
+          logger.info?.(`[v4/teach/visual] mermaid_diagram authored kind=${req.kind} steps=${!!result.steps} userId=${uid}`);
           try {
             const charge = await chargeV4Ai({
               requestId: `${chargeRequestId}:diagram:${capturedId}`,
@@ -751,6 +781,52 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         } catch {}
       })();
 
+    // Per-COMPARE pipeline: Claude Haiku authors the actual {title, axes,
+    // items} comparison table from the model's plain-language request.
+    // Never throws — a failure resolves to `comparisonMissing` and the raw
+    // tag is dropped from the persisted transcript, mirroring DIAGRAM.
+    const fireComparisonTask = (capturedId: string, req: ComparisonRequest): Promise<void> =>
+      (async (): Promise<void> => {
+        let result: Awaited<ReturnType<typeof authorComparison>> = null;
+        try {
+          result = await authorComparison(req);
+        } catch {
+          result = null;
+        }
+        let resolvedText = "";
+        let payload: Record<string, unknown> | null = null;
+        if (result) {
+          payload = result;
+          resolvedText = `[[VIZ: template=comparison, payload=${JSON.stringify(payload)}]]`;
+          logger.info?.(`[v4/teach/visual] comparison authored entities=${req.entities.length} userId=${uid}`);
+          try {
+            const charge = await chargeV4Ai({
+              requestId: `${chargeRequestId}:compare:${capturedId}`,
+              userId: uid,
+              subjectId: slug,
+              costUsd: COMPARISON_AI_USD,
+              source: "v4_ai_comparison",
+              model: "anthropic/claude-haiku-4.5",
+              note: `جدول مقارنة — ${req.entities.join(" / ")}`,
+            });
+            if (!charge.charged) {
+              logger.warn?.(`[v4/teach/compare] charge skipped id=${capturedId} error=${!!charge.error}`);
+            }
+          } catch (e) {
+            logger.warn?.(`[v4/teach/compare] charge threw id=${capturedId}: ${String((e as any)?.message ?? e)}`);
+          }
+        }
+        __compareResolved.set(capturedId, resolvedText);
+        if (res.writableEnded) return;
+        try {
+          if (payload) {
+            res.write(`data: ${JSON.stringify({ comparisonReady: { id: capturedId, payload } })}\n\n`);
+          } else {
+            res.write(`data: ${JSON.stringify({ comparisonMissing: { id: capturedId } })}\n\n`);
+          }
+        } catch {}
+      })();
+
     // Register one visual (image, photo, or diagram request): enforce the
     // per-kind per-reply cap, emit the placeholder, kick off the matching
     // pipeline. Returns the wire marker to splice into the text (or "" if
@@ -758,7 +834,7 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     // always dropped, regardless of turn, so old-session history mimicry can
     // never trigger it.
     const emitVisual = (
-      kind: "image" | "photo" | "diagram",
+      kind: "image" | "photo" | "diagram" | "compare",
       innerText: string,
       rawTag?: string,
     ): string => {
@@ -794,26 +870,46 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         return `[[IMAGE:${imageId}]]`;
       }
       // kind === "diagram"
-      if (__diagramCount >= MAX_DIAGRAMS_PER_REPLY) {
-        logger.warn?.(`[v4/teach/visual] dropped DIAGRAM tag — per-reply cap reached`);
+      if (kind === "diagram") {
+        if (__diagramCount >= MAX_DIAGRAMS_PER_REPLY) {
+          logger.warn?.(`[v4/teach/visual] dropped DIAGRAM tag — per-reply cap reached`);
+          return "";
+        }
+        const parts = innerText.split("|||").map((p) => p.trim());
+        const diagramKind = normalizeDiagramKind(parts[0] ?? "");
+        const topic = parts[1] ?? "";
+        const details = parts[2] ?? "";
+        const stepsRaw = parts[3] ?? "";
+        if (!diagramKind || !topic || !details) {
+          logger.warn?.(`[v4/teach/visual] dropped malformed DIAGRAM tag: "${innerText.slice(0, 80)}"`);
+          return "";
+        }
+        __diagramCount++;
+        const diagramId = randomBytes(6).toString("hex");
+        const wantSteps = /steps\s*=\s*yes/i.test(stepsRaw);
+        if (rawTag) __diagramRawTags.set(diagramId, rawTag);
+        const task = fireDiagramTask(diagramId, { kind: diagramKind, topic, details, wantSteps });
+        __imageTasks.push(task);
+        return `[[VIZ: template=mermaid_diagram, payload={"pendingId":"${diagramId}"}]]`;
+      }
+      // kind === "compare"
+      if (__compareCount >= MAX_COMPARISONS_PER_REPLY) {
+        logger.warn?.(`[v4/teach/visual] dropped COMPARE tag — per-reply cap reached`);
         return "";
       }
-      const parts = innerText.split("|||").map((p) => p.trim());
-      const diagramKind = normalizeDiagramKind(parts[0] ?? "");
-      const topic = parts[1] ?? "";
-      const details = parts[2] ?? "";
-      const stepsRaw = parts[3] ?? "";
-      if (!diagramKind || !topic || !details) {
-        logger.warn?.(`[v4/teach/visual] dropped malformed DIAGRAM tag: "${innerText.slice(0, 80)}"`);
+      const cParts = innerText.split("|||").map((p) => p.trim());
+      const entities = cParts.slice(0, cParts.length - 1).filter(Boolean);
+      const context = cParts[cParts.length - 1] ?? "";
+      if (entities.length < 2 || entities.length > 3 || !context) {
+        logger.warn?.(`[v4/teach/visual] dropped malformed COMPARE tag: "${innerText.slice(0, 80)}"`);
         return "";
       }
-      __diagramCount++;
-      const diagramId = randomBytes(6).toString("hex");
-      const wantSteps = /steps\s*=\s*yes/i.test(stepsRaw);
-      if (rawTag) __diagramRawTags.set(diagramId, rawTag);
-      const task = fireDiagramTask(diagramId, { kind: diagramKind, topic, details, wantSteps });
-      __imageTasks.push(task);
-      return `[[VIZ: template=mermaid_diagram, payload={"pendingId":"${diagramId}"}]]`;
+      __compareCount++;
+      const compareId = randomBytes(6).toString("hex");
+      if (rawTag) __compareRawTags.set(compareId, rawTag);
+      const cTask = fireComparisonTask(compareId, { entities, context });
+      __imageTasks.push(cTask);
+      return `[[VIZ: template=comparison, payload={"pendingId":"${compareId}"}]]`;
     };
 
     const processImageTags = (incoming: string): string => {
@@ -861,14 +957,15 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
           break;
         }
         const innerText = __imageStreamBuffer.slice(tagStart + markerLen, tagEnd).trim();
-        const rawTag = matched.kind === "diagram"
+        const rawTag = matched.kind === "diagram" || matched.kind === "compare"
           ? __imageStreamBuffer.slice(tagStart, tagEnd + 2)
           : undefined;
         safeOutput += __imageStreamBuffer.slice(0, tagStart);
         // Emit the id-only marker; the FE turns `[[IMAGE:id]]` into a spinner
         // figure, then swaps the real <img> in on the matching imageReady.
-        // DIAGRAM tags splice a pending-VIZ tag instead (resolved in-place
-        // once Haiku authors the diagram — see diagramReady handling below).
+        // DIAGRAM/COMPARE tags splice a pending-VIZ tag instead (resolved
+        // in-place once Haiku authors it — see diagramReady/comparisonReady
+        // handling below).
         safeOutput += emitVisual(matched.kind, innerText, rawTag);
         __imageStreamBuffer = __imageStreamBuffer.slice(tagEnd + 2);
       }
@@ -944,13 +1041,13 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
 
     // Flush any text held back in the image buffer. Drop a dangling visual
     // marker fragment so raw protocol text never leaks: either an unterminated
-    // `[[IMAGE:…` / `[[PHOTO:…` / `[[DIAGRAM:…` tag OR a bare trailing marker
-    // prefix (`[`, `[[`, `[[IM`, `[[PHOT`, `[[DIAG`, …) held back mid-tag;
-    // everything else is forwarded so no prose is lost.
+    // `[[IMAGE:…` / `[[PHOTO:…` / `[[DIAGRAM:…` / `[[COMPARE:…` tag OR a bare
+    // trailing marker prefix (`[`, `[[`, `[[IM`, `[[PHOT`, `[[DIAG`, `[[COMP`,
+    // …) held back mid-tag; everything else is forwarded so no prose is lost.
     if (__imageStreamBuffer) {
       const leftover = __imageStreamBuffer
-        .replace(/\[\[(?:IMAGE|PHOTO|DIAGRAM):[^\]]*$/i, "")
-        .replace(/\[(?:\[(?:I(?:M(?:A(?:G(?:E)?)?)?)?|P(?:H(?:O(?:T(?:O)?)?)?)?|D(?:I(?:A(?:G(?:R(?:A(?:M)?)?)?)?)?)?)?)?$/i, "");
+        .replace(/\[\[(?:IMAGE|PHOTO|DIAGRAM|COMPARE):[^\]]*$/i, "")
+        .replace(/\[(?:\[(?:I(?:M(?:A(?:G(?:E)?)?)?)?|P(?:H(?:O(?:T(?:O)?)?)?)?|D(?:I(?:A(?:G(?:R(?:A(?:M)?)?)?)?)?)?|C(?:O(?:M(?:P(?:A(?:R(?:E)?)?)?)?)?)?)?)?$/i, "");
       __imageStreamBuffer = "";
       const tailDisplay = stripProtocolTags(leftover);
       if (tailDisplay && !res.writableEnded) {
@@ -1003,6 +1100,18 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     if (__diagramRawTags.size > 0) {
       for (const [id, rawTag] of __diagramRawTags) {
         const resolved = __diagramResolved.get(id) ?? "";
+        fullText = fullText.split(rawTag).join(resolved);
+      }
+    }
+
+    // Same transcript-patch treatment for COMPARE: swap each raw
+    // `[[COMPARE: ...]]` request tag for its resolved
+    // `[[VIZ: template=comparison, ...]]` tag (or drop it on a failed
+    // comparison) so persisted `fullText` matches what the live stream
+    // showed via comparisonReady/comparisonMissing.
+    if (__compareRawTags.size > 0) {
+      for (const [id, rawTag] of __compareRawTags) {
+        const resolved = __compareResolved.get(id) ?? "";
         fullText = fullText.split(rawTag).join(resolved);
       }
     }

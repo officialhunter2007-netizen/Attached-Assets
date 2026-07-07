@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { VizWrapper } from "./viz-wrapper";
 
 type Payload = { code?: string; steps?: string[]; pendingId?: string };
 
@@ -19,7 +20,7 @@ async function loadMermaid() {
         // part of the teacher UI instead of a generic embedded widget.
         mermaid.initialize({
           startOnLoad: false,
-          securityLevel: "loose",
+          securityLevel: "strict",
           theme: "base",
           fontFamily: "Tajawal, Cairo, sans-serif",
           themeVariables: {
@@ -96,15 +97,11 @@ export function MermaidDiagram({ payload }: { payload: Payload }) {
   // edge cases like an aborted stream — show a spinner instead of "empty".
   if (typeof payload?.pendingId === "string" && !payload?.code) {
     return (
-      <div className="my-3 rounded-2xl border border-amber-400/25 bg-slate-950/70 overflow-hidden shadow-lg" dir="rtl">
-        <div className="px-3 py-2 bg-amber-500/10 border-b border-white/10 flex items-center gap-2">
-          <span className="text-sm">📊</span>
-          <div className="text-xs font-bold text-amber-200">رسم توضيحي</div>
-        </div>
-        <div className="p-4 flex items-center justify-center py-8">
+      <VizWrapper icon="📊" title="رسم توضيحي" accentBg="bg-amber-500/10" templateName="mermaid_diagram">
+        <div className="flex items-center justify-center py-8">
           <div className="w-5 h-5 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" />
         </div>
-      </div>
+      </VizWrapper>
     );
   }
 
@@ -153,48 +150,27 @@ export function MermaidDiagram({ payload }: { payload: Payload }) {
   }
 
   return (
-    <div className="my-3 rounded-2xl border border-amber-400/25 bg-slate-950/70 overflow-hidden shadow-lg" dir="rtl">
-      <div className="px-3 py-2 bg-amber-500/10 border-b border-white/10 flex items-center gap-2">
-        <span className="text-sm">📊</span>
-        <div className="text-xs font-bold text-amber-200">رسم توضيحي</div>
-      </div>
-      <div className="p-4">
-        {error ? (
-          <div className="text-[11px] text-rose-300/80 text-center py-4">⚠ {error}</div>
-        ) : loading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="w-5 h-5 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" />
-          </div>
-        ) : (
-          <div
-            className="mermaid-viz-svg flex justify-center overflow-x-auto [&_svg]:max-w-none"
-            dangerouslySetInnerHTML={{ __html: svg }}
-          />
-        )}
-        {hasSteps && !error && (
-          <div className="flex items-center justify-center gap-3 mt-4 pt-3 border-t border-white/10">
-            <button
-              type="button"
-              onClick={() => setStepIndex((i) => Math.max(0, i - 1))}
-              disabled={stepIndex === 0}
-              className="px-3 py-1 rounded-full text-[11px] font-semibold border border-amber-400/30 text-amber-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-amber-500/10 transition"
-            >
-              السابق
-            </button>
-            <span className="text-[11px] text-white/60 font-semibold min-w-[70px] text-center">
-              الخطوة {stepIndex + 1} / {steps.length}
-            </span>
-            <button
-              type="button"
-              onClick={() => setStepIndex((i) => Math.min(steps.length - 1, i + 1))}
-              disabled={stepIndex === steps.length - 1}
-              className="px-3 py-1 rounded-full text-[11px] font-semibold border border-emerald-400/30 text-emerald-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-emerald-500/10 transition"
-            >
-              التالي
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+    <VizWrapper
+      icon="📊"
+      title="رسم توضيحي"
+      accentBg="bg-amber-500/10"
+      templateName="mermaid_diagram"
+      stepIndex={hasSteps ? stepIndex : undefined}
+      stepCount={hasSteps ? steps.length : undefined}
+      onStepChange={hasSteps ? setStepIndex : undefined}
+    >
+      {error ? (
+        <div className="text-[11px] text-rose-300/80 text-center py-4">⚠ {error}</div>
+      ) : loading ? (
+        <div className="flex items-center justify-center py-8">
+          <div className="w-5 h-5 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" />
+        </div>
+      ) : (
+        <div
+          className="mermaid-viz-svg flex justify-center overflow-x-auto [&_svg]:max-w-none"
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      )}
+    </VizWrapper>
   );
 }

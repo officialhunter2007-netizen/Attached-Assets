@@ -57,6 +57,7 @@ export type GemLedgerSource =
   | "v4_exam_attempt"
   | "v4_ai_practice"     // v4: adaptive practice-question AI turns
   | "v4_ai_diagram"      // v4: Claude Haiku authors a Mermaid diagram on [[DIAGRAM: ...]] request
+  | "v4_ai_comparison"   // v4: Claude Haiku authors a comparison table on [[COMPARE: ...]] request
   | "v4_booklet_prep"    // v4: one-time booklet extraction + tree-gen + embed
   | "v4_booklet_teach"   // v4: per-turn booklet RAG teaching
   | "v4_ai_scene"        // v4: lazy [[SCENE]] interactive-story generation (Sonnet)
