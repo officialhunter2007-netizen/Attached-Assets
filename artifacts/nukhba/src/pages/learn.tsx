@@ -9,6 +9,7 @@ import { useGetLessonViews } from "@workspace/api-client-react";
 import { CheckCircle2, Star, GraduationCap, Terminal, Sparkles, ArrowLeft, Keyboard } from "lucide-react";
 import { useLang } from "@/lib/lang-context";
 import { ReferralGemsModal } from "@/components/referral-gems-modal";
+import { totalLessons as typingTotalLessons, sections as typingSections } from "@/lib/typing-curriculum";
 
 /* Map Tailwind color class prefix to actual hex for glow */
 const colorGlowMap: Record<string, { glow: string; gradFrom: string; gradTo: string; border: string }> = {
@@ -255,7 +256,7 @@ export default function Learn() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B", border: "1px solid rgba(245,158,11,0.2)" }}>NEW</span>
                     </div>
                     <p className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
-                      Learn touch typing — 14 sections, 380 lessons, sounds & virtual keyboard
+                      Learn touch typing — {typingSections.length} sections, {typingTotalLessons} lessons, sounds & virtual keyboard
                     </p>
                   </div>
                   <ArrowLeft className="w-4 h-4 flex-shrink-0 rotate-180 group-hover:translate-x-1 transition-transform" style={{ color: "#F59E0B" }} />
