@@ -64,6 +64,11 @@ type ProcessEntry = {
 const activeProcesses = new Map<number, ProcessEntry>();
 
 const INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
+const VALID_PKG_NAME = /^[a-zA-Z0-9]([a-zA-Z0-9\-_.]*[a-zA-Z0-9])?(\[[\w,]+\])?$/;
+
+function getRoomPkgDir(roomId: number): string {
+  return path.join(os.tmpdir(), `nukhba-room-pkgs-${roomId}`);
+}
 
 function killRoomProcess(roomId: number) {
   const entry = activeProcesses.get(roomId);
@@ -654,7 +659,13 @@ async function handleMessage(client: WsClient, raw: string) {
           return;
       }
 
-      const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"] });
+      const spawnEnv: NodeJS.ProcessEnv = { ...process.env };
+      if (language === "python") {
+        const pkgDir = getRoomPkgDir(client.roomId);
+        const existing = spawnEnv.PYTHONPATH ?? "";
+        spawnEnv.PYTHONPATH = existing ? `${pkgDir}:${existing}` : pkgDir;
+      }
+      const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"], env: spawnEnv });
 
       const timer = setTimeout(() => {}, 2_147_483_647);
 
@@ -699,6 +710,51 @@ async function handleMessage(client: WsClient, raw: string) {
       if (!client.canRun && client.role !== "host") return;
       killRoomProcess(client.roomId);
       broadcastJoined(client.roomId, { type: "process_exit", exitCode: null, signal: "SIGKILL" });
+      break;
+    }
+
+    case "install_packages": {
+      if (!client.canRun && client.role !== "host") return;
+      const rawPkgs = String(msg.packages ?? "").trim();
+      const pkgList = rawPkgs.split(/[\s,]+/).filter(Boolean).slice(0, 8);
+      if (!pkgList.length) {
+        sendTo(client, { type: "process_output", data: "❌ لم تُحدَّد مكتبة\n" });
+        broadcastJoined(client.roomId, { type: "install_done", success: false });
+        return;
+      }
+      for (const p of pkgList) {
+        if (!VALID_PKG_NAME.test(p) || p.length > 80) {
+          sendTo(client, { type: "process_output", data: `❌ اسم المكتبة غير صحيح: ${p}\n` });
+          broadcastJoined(client.roomId, { type: "install_done", success: false });
+          return;
+        }
+      }
+      const pkgDir = getRoomPkgDir(client.roomId);
+      try { fs.mkdirSync(pkgDir, { recursive: true }); } catch {}
+      broadcastJoined(client.roomId, { type: "process_output", data: `📦 جاري تثبيت: ${pkgList.join(", ")}...\n` });
+      const pip = spawn("pip3", [
+        "install", ...pkgList,
+        "--target", pkgDir,
+        "--quiet",
+        "--no-input",
+        "--disable-pip-version-check",
+      ], { stdio: ["ignore", "pipe", "pipe"] });
+      const onPipData = (chunk: Buffer) => broadcastJoined(client.roomId, { type: "process_output", data: chunk.toString() });
+      pip.stdout.on("data", onPipData);
+      pip.stderr.on("data", onPipData);
+      pip.on("close", (code) => {
+        if (code === 0) {
+          broadcastJoined(client.roomId, { type: "process_output", data: `✅ تم تثبيت: ${pkgList.join(", ")} بنجاح!\n` });
+          broadcastJoined(client.roomId, { type: "install_done", success: true, packages: pkgList });
+        } else {
+          broadcastJoined(client.roomId, { type: "process_output", data: `❌ فشل التثبيت (كود: ${code})\n` });
+          broadcastJoined(client.roomId, { type: "install_done", success: false });
+        }
+      });
+      pip.on("error", (err) => {
+        broadcastJoined(client.roomId, { type: "process_output", data: `❌ تعذّر تشغيل pip3: ${err.message}\n` });
+        broadcastJoined(client.roomId, { type: "install_done", success: false });
+      });
       break;
     }
 

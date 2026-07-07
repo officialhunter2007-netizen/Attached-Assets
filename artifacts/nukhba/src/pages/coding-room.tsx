@@ -9,7 +9,7 @@ import {
   ChevronLeft, Download, AlertTriangle, Clock, Check,
   Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2,
   Folder, FolderOpen, Trash2, FolderTree, Square, MoreVertical, FolderPlus,
-  RefreshCw, Monitor, Smartphone, Maximize2, ExternalLink,
+  RefreshCw, Monitor, Smartphone, Maximize2, ExternalLink, Package,
 } from "lucide-react";
 
 type Member = {
@@ -498,6 +498,10 @@ export default function CodingRoom() {
   const hostGraceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [processRunning, setProcessRunning] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [showInstallInput, setShowInstallInput] = useState(false);
+  const [installInput, setInstallInput] = useState("");
+  const [installedPkgs, setInstalledPkgs] = useState<string[]>([]);
   const [liveOutput, setLiveOutput] = useState("");
   const [inputLine, setInputLine] = useState("");
   const liveOutputRef = useRef("");
@@ -924,6 +928,13 @@ export default function CodingRoom() {
         }]);
         break;
 
+      case "install_done":
+        setInstalling(false);
+        if (msg.success && Array.isArray(msg.packages)) {
+          setInstalledPkgs((prev) => Array.from(new Set([...prev, ...msg.packages])));
+        }
+        break;
+
       case "run_output":
         setRunOutputs((prev) => [...prev, msg]);
         setActiveRightTab("output");
@@ -1141,6 +1152,19 @@ export default function CodingRoom() {
       }, 300);
     });
 
+  };
+
+  const handleInstallPackages = () => {
+    const pkgs = installInput.trim();
+    if (!pkgs || installing || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    setInstalling(true);
+    setShowInstallInput(false);
+    setInstallInput("");
+    setActiveRightTab("output");
+    setDockOpen(true);
+    liveOutputRef.current = "";
+    setLiveOutput("");
+    wsRef.current.send(JSON.stringify({ type: "install_packages", packages: pkgs }));
   };
 
   const sendChat = () => {
@@ -1553,6 +1577,23 @@ export default function CodingRoom() {
             </button>
           ) : null}
 
+          {canRun && activeFile?.language === "python" && (
+            <button
+              onClick={() => setShowInstallInput(v => !v)}
+              disabled={installing}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all`}
+              style={{ background: showInstallInput ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${showInstallInput ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.1)"}`, color: showInstallInput ? "#34D399" : "rgba(255,255,255,0.5)" }}
+              title="تثبيت مكتبة Python"
+            >
+              {installing ? (
+                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+              ) : (
+                <Package className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden md:inline">مكتبة</span>
+            </button>
+          )}
+
           {myInfo?.role === "host" && (
             <button onClick={handleCloseRoom}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all"
@@ -1635,6 +1676,38 @@ export default function CodingRoom() {
           </div>
         )}
       </header>
+
+      {showInstallInput && canRun && activeFile?.language === "python" && (
+        <div className="flex items-center gap-2 px-3 py-2 shrink-0" style={{ background: "rgba(4,6,14,0.97)", borderBottom: "1px solid rgba(16,185,129,0.2)" }}>
+          <Package className="w-3.5 h-3.5 shrink-0" style={{ color: "#10B981" }} />
+          <input
+            autoFocus
+            dir="ltr"
+            value={installInput}
+            onChange={e => setInstallInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleInstallPackages(); if (e.key === "Escape") setShowInstallInput(false); }}
+            placeholder="pandas numpy matplotlib..."
+            disabled={installing}
+            className="flex-1 bg-transparent text-white/80 text-xs font-mono outline-none placeholder-white/20 min-w-0"
+          />
+          {installedPkgs.length > 0 && (
+            <span className="text-[10px] font-mono shrink-0 hidden sm:block" style={{ color: "rgba(16,185,129,0.5)" }}>
+              {installedPkgs.slice(-3).join(", ")}
+            </span>
+          )}
+          <button
+            onClick={handleInstallPackages}
+            disabled={installing || !installInput.trim()}
+            className="shrink-0 text-xs font-bold px-3 py-1 rounded-lg transition-all disabled:opacity-40"
+            style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.35)", color: "#34D399" }}
+          >
+            {installing ? "جاري…" : "تثبيت"}
+          </button>
+          <button onClick={() => setShowInstallInput(false)} className="shrink-0" style={{ color: "rgba(255,255,255,0.3)" }}>
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
 

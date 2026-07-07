@@ -8,6 +8,11 @@ import * as os from "os";
 import { verifySession } from "./session";
 
 const INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
+const VALID_PKG_NAME = /^[a-zA-Z0-9]([a-zA-Z0-9\-_.]*[a-zA-Z0-9])?(\[[\w,]+\])?$/;
+
+function getPkgDir(userId: number): string {
+  return path.join(os.tmpdir(), `nukhba-pkgs-${userId}`);
+}
 
 type ProcessEntry = {
   proc: ReturnType<typeof spawn>;
@@ -117,7 +122,13 @@ export function initSoloRunWss(server: Server) {
               return;
           }
 
-          const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"] });
+          const spawnEnv: NodeJS.ProcessEnv = { ...process.env };
+          if (language === "python") {
+            const pkgDir = getPkgDir(userId);
+            const existing = spawnEnv.PYTHONPATH ?? "";
+            spawnEnv.PYTHONPATH = existing ? `${pkgDir}:${existing}` : pkgDir;
+          }
+          const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"], env: spawnEnv });
 
           activeProcesses.set(processKey, { proc, tmpDir });
 
@@ -153,6 +164,49 @@ export function initSoloRunWss(server: Server) {
         if (msg.type === "kill") {
           killProcess(processKey);
           send({ type: "exit", exitCode: null, signal: "SIGKILL" });
+          return;
+        }
+
+        if (msg.type === "install") {
+          const rawPkgs = String(msg.packages ?? "").trim();
+          const pkgList = rawPkgs.split(/[\s,]+/).filter(Boolean).slice(0, 8);
+          if (!pkgList.length) {
+            send({ type: "output", data: "❌ لم تُحدَّد مكتبة\n" });
+            send({ type: "install_done", success: false });
+            return;
+          }
+          for (const p of pkgList) {
+            if (!VALID_PKG_NAME.test(p) || p.length > 80) {
+              send({ type: "output", data: `❌ اسم المكتبة غير صحيح: ${p}\n` });
+              send({ type: "install_done", success: false });
+              return;
+            }
+          }
+          const pkgDir = getPkgDir(userId);
+          try { fs.mkdirSync(pkgDir, { recursive: true }); } catch {}
+          send({ type: "output", data: `📦 جاري تثبيت: ${pkgList.join(", ")}...\n` });
+          const pip = spawn("pip3", [
+            "install", ...pkgList,
+            "--target", pkgDir,
+            "--quiet",
+            "--no-input",
+            "--disable-pip-version-check",
+          ], { stdio: ["ignore", "pipe", "pipe"] });
+          pip.stdout.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
+          pip.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
+          pip.on("close", (code) => {
+            if (code === 0) {
+              send({ type: "output", data: `✅ تم تثبيت: ${pkgList.join(", ")} بنجاح!\n` });
+              send({ type: "install_done", success: true, packages: pkgList });
+            } else {
+              send({ type: "output", data: `❌ فشل التثبيت (كود: ${code})\n` });
+              send({ type: "install_done", success: false });
+            }
+          });
+          pip.on("error", (err) => {
+            send({ type: "output", data: `❌ تعذّر تشغيل pip3: ${err.message}\n` });
+            send({ type: "install_done", success: false });
+          });
           return;
         }
       });
