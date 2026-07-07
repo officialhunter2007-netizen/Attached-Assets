@@ -9,6 +9,7 @@ import { verifySession } from "./session";
 
 const INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
 const VALID_PKG_NAME = /^[a-zA-Z0-9]([a-zA-Z0-9\-_.]*[a-zA-Z0-9])?(\[[\w,]+\])?$/;
+const SHARED_PYLIB_DIR = "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages";
 const PYTHON_BUILTINS = new Set([
   "random","os","sys","math","time","datetime","json","re","collections","itertools",
   "functools","pathlib","io","string","abc","copy","pickle","hashlib","hmac","secrets",
@@ -137,13 +138,7 @@ export function initSoloRunWss(server: Server) {
               return;
           }
 
-          const spawnEnv: NodeJS.ProcessEnv = { ...process.env };
-          if (language === "python") {
-            const pkgDir = getPkgDir(userId);
-            const existing = spawnEnv.PYTHONPATH ?? "";
-            spawnEnv.PYTHONPATH = existing ? `${pkgDir}:${existing}` : pkgDir;
-          }
-          const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"], env: spawnEnv });
+          const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"] });
 
           activeProcesses.set(processKey, { proc, tmpDir });
 
@@ -203,13 +198,13 @@ export function initSoloRunWss(server: Server) {
               return;
             }
           }
-          const pkgDir = getPkgDir(userId);
-          try { fs.mkdirSync(pkgDir, { recursive: true }); } catch {}
-          send({ type: "output", data: `📦 جاري تثبيت: ${pkgList.join(", ")}...\n` });
+          try { fs.mkdirSync(SHARED_PYLIB_DIR, { recursive: true }); } catch {}
+          send({ type: "output", data: `📦 جاري تنزيل: ${pkgList.join(", ")}...\n` });
           const pipEnv: NodeJS.ProcessEnv = { ...process.env, PIP_CONFIG_FILE: "/dev/null" };
           const pip = spawn("python3", [
             "-m", "pip", "install", ...pkgList,
-            "--target", pkgDir,
+            "--target", SHARED_PYLIB_DIR,
+            "--upgrade",
             "--no-user",
             "--no-input",
             "--disable-pip-version-check",

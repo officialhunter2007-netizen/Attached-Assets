@@ -49,7 +49,7 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
-packages = ["nano"]
+packages = ["cairo", "ffmpeg-full", "freetype", "ghostscript", "glibcLocales", "gobject-introspection", "gtk3", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "nano", "openjpeg", "pkg-config", "qhull", "tcl", "tk", "xsimd", "zlib"]
 
 [userenv]
 
