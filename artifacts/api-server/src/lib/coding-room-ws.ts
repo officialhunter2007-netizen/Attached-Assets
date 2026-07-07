@@ -732,8 +732,8 @@ async function handleMessage(client: WsClient, raw: string) {
       const pkgDir = getRoomPkgDir(client.roomId);
       try { fs.mkdirSync(pkgDir, { recursive: true }); } catch {}
       broadcastJoined(client.roomId, { type: "process_output", data: `📦 جاري تثبيت: ${pkgList.join(", ")}...\n` });
-      const pip = spawn("pip3", [
-        "install", ...pkgList,
+      const pip = spawn("python3", [
+        "-m", "pip", "install", ...pkgList,
         "--target", pkgDir,
         "--quiet",
         "--no-input",
@@ -744,15 +744,15 @@ async function handleMessage(client: WsClient, raw: string) {
       pip.stderr.on("data", onPipData);
       pip.on("close", (code) => {
         if (code === 0) {
-          broadcastJoined(client.roomId, { type: "process_output", data: `✅ تم تثبيت: ${pkgList.join(", ")} بنجاح!\n` });
+          broadcastJoined(client.roomId, { type: "process_output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
           broadcastJoined(client.roomId, { type: "install_done", success: true, packages: pkgList });
         } else {
-          broadcastJoined(client.roomId, { type: "process_output", data: `❌ فشل التثبيت (كود: ${code})\n` });
+          broadcastJoined(client.roomId, { type: "process_output", data: `❌ فشل التنزيل (كود: ${code})\n` });
           broadcastJoined(client.roomId, { type: "install_done", success: false });
         }
       });
       pip.on("error", (err) => {
-        broadcastJoined(client.roomId, { type: "process_output", data: `❌ تعذّر تشغيل pip3: ${err.message}\n` });
+        broadcastJoined(client.roomId, { type: "process_output", data: `❌ خطأ في تنزيل المكتبة: ${err.message}\n` });
         broadcastJoined(client.roomId, { type: "install_done", success: false });
       });
       break;

@@ -185,8 +185,8 @@ export function initSoloRunWss(server: Server) {
           const pkgDir = getPkgDir(userId);
           try { fs.mkdirSync(pkgDir, { recursive: true }); } catch {}
           send({ type: "output", data: `📦 جاري تثبيت: ${pkgList.join(", ")}...\n` });
-          const pip = spawn("pip3", [
-            "install", ...pkgList,
+          const pip = spawn("python3", [
+            "-m", "pip", "install", ...pkgList,
             "--target", pkgDir,
             "--quiet",
             "--no-input",
@@ -196,15 +196,15 @@ export function initSoloRunWss(server: Server) {
           pip.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
           pip.on("close", (code) => {
             if (code === 0) {
-              send({ type: "output", data: `✅ تم تثبيت: ${pkgList.join(", ")} بنجاح!\n` });
+              send({ type: "output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
               send({ type: "install_done", success: true, packages: pkgList });
             } else {
-              send({ type: "output", data: `❌ فشل التثبيت (كود: ${code})\n` });
+              send({ type: "output", data: `❌ فشل التنزيل (كود: ${code})\n` });
               send({ type: "install_done", success: false });
             }
           });
           pip.on("error", (err) => {
-            send({ type: "output", data: `❌ تعذّر تشغيل pip3: ${err.message}\n` });
+            send({ type: "output", data: `❌ خطأ في تنزيل المكتبة: ${err.message}\n` });
             send({ type: "install_done", success: false });
           });
           return;

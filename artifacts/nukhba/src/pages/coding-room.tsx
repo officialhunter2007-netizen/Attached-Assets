@@ -1581,16 +1581,16 @@ export default function CodingRoom() {
             <button
               onClick={() => setShowInstallInput(v => !v)}
               disabled={installing}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all`}
-              style={{ background: showInstallInput ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${showInstallInput ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.1)"}`, color: showInstallInput ? "#34D399" : "rgba(255,255,255,0.5)" }}
-              title="تثبيت مكتبة Python"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all"
+              style={{ background: showInstallInput ? "rgba(16,185,129,0.2)" : "rgba(16,185,129,0.1)", border: `1px solid ${showInstallInput ? "rgba(16,185,129,0.5)" : "rgba(16,185,129,0.3)"}`, color: "#34D399" }}
+              title="تنزيل مكتبة Python"
             >
               {installing ? (
                 <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
               ) : (
                 <Package className="w-3.5 h-3.5" />
               )}
-              <span className="hidden md:inline">مكتبة</span>
+              <span>{installing ? "جاري..." : "تنزيل مكتبة"}</span>
             </button>
           )}
 

@@ -3117,16 +3117,16 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                 {activeFile?.language === "python" && (
                   <button
                     onClick={() => setShowInstallInput(v => !v)}
-                    className={`flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors shrink-0 ${showInstallInput ? "text-[#10B981] bg-[#10B981]/10" : "text-[#6e6a86] hover:text-[#10B981]"}`}
-                    title="تثبيت مكتبة Python"
+                    className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-md transition-all shrink-0 ${showInstallInput ? "bg-[#10B981]/20 text-[#10B981] ring-1 ring-[#10B981]/40" : "bg-[#10B981]/10 text-[#10B981] hover:bg-[#10B981]/20"}`}
+                    title="تنزيل مكتبة Python"
                     disabled={installing}
                   >
                     {installing ? (
-                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                      <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
                     ) : (
-                      <Package className="w-3 h-3" />
+                      <Package className="w-3.5 h-3.5" />
                     )}
-                    <span className="hidden sm:inline">مكتبة</span>
+                    <span>{installing ? "جاري التنزيل..." : "تنزيل مكتبة"}</span>
                   </button>
                 )}
                 <button
