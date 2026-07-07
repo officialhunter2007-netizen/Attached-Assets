@@ -8,11 +8,9 @@ import * as os from "os";
 import { verifySession } from "./session";
 
 const INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
-const TIMEOUT_MS = 60_000;
 
 type ProcessEntry = {
   proc: ReturnType<typeof spawn>;
-  timer: ReturnType<typeof setTimeout>;
   tmpDir: string;
 };
 
@@ -21,7 +19,6 @@ const activeProcesses = new Map<string, ProcessEntry>();
 function killProcess(key: string) {
   const entry = activeProcesses.get(key);
   if (!entry) return;
-  clearTimeout(entry.timer);
   activeProcesses.delete(key);
   try { entry.proc.kill("SIGKILL"); } catch {}
   setImmediate(() => {
@@ -122,20 +119,13 @@ export function initSoloRunWss(server: Server) {
 
           const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"] });
 
-          const timer = setTimeout(() => {
-            send({ type: "output", data: "\n⏱ انتهت المهلة (60 ثانية)\n" });
-            killProcess(processKey);
-            send({ type: "exit", exitCode: null });
-          }, TIMEOUT_MS);
-
-          activeProcesses.set(processKey, { proc, timer, tmpDir });
+          activeProcesses.set(processKey, { proc, tmpDir });
 
           proc.stdout.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
           proc.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
 
           proc.on("close", (code, signal) => {
             if (activeProcesses.get(processKey)?.proc !== proc) return;
-            clearTimeout(timer);
             activeProcesses.delete(processKey);
             setImmediate(() => {
               try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
