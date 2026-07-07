@@ -18,7 +18,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, ClipboardList, Minus, Play } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders, sanitizeStrayMarkdown } from "@/lib/teacher-render";
+import { enhanceTeacherDom, ensureMarkdownBlockGaps, extractMathBlocks, restoreMathPlaceholders, sanitizeStrayMarkdown } from "@/lib/teacher-render";
 import { getVizComponent } from "@/components/viz/registry";
 import { validateVizPayload } from "@/components/viz/schemas";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
@@ -445,7 +445,7 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   // (`pr` `int` → `print`) before marked turns them into two separate badges.
   const merged = mergeSplitCodeTokens(stripped);
 
-  const html = marked.parse(merged ?? "", { async: false }) as string;
+  const html = marked.parse(ensureMarkdownBlockGaps(merged ?? ""), { async: false }) as string;
   const withMath = restoreMathPlaceholders(html, blocks);
   return DOMPurify.sanitize(withMath, {
     ADD_ATTR: ["target", "data-image-id", "loading", "data-viz-mount", "data-viz-template", "data-viz-payload"],

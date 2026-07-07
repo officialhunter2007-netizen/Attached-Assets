@@ -5,7 +5,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { getVizComponent } from "@/components/viz/registry";
 import { writeUserJson, readUserJson, removeUserKey } from "@/lib/user-storage";
-import { enhanceTeacherDom, extractMathBlocks, restoreMathPlaceholders, sanitizeStrayMarkdown } from "@/lib/teacher-render";
+import { enhanceTeacherDom, ensureMarkdownBlockGaps, extractMathBlocks, restoreMathPlaceholders, sanitizeStrayMarkdown } from "@/lib/teacher-render";
 import { loadDraft, makeDebouncedDraftSaver, clearDraft } from "@/lib/draft-storage";
 import { isSpeechRecognitionSupported, isSpeechSynthesisSupported, startRecognition, speakText, stopSpeaking, isSpeaking } from "@/lib/web-speech";
 import {
@@ -1949,7 +1949,7 @@ function renderAssistantHtml(raw: string, loadingLabel?: string): string {
   const withNoise = sanitizeStrayMarkdown(withViz);
   const withNoComments = sbjStripFenceComments(withNoise);
   const { text: withMathStripped, blocks } = extractMathBlocks(withNoComments);
-  const html = marked.parse(stripInlineStyles(unwrapHtmlCodeFences(withMathStripped))) as string;
+  const html = marked.parse(ensureMarkdownBlockGaps(stripInlineStyles(unwrapHtmlCodeFences(withMathStripped)))) as string;
   const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target', 'data-image-id', 'loading', 'data-viz-mount', 'data-viz-template', 'data-viz-payload'],
     ADD_TAGS: ['button', 'figure', 'figcaption'],
@@ -1991,7 +1991,7 @@ function renderStreamingHtml(raw: string): string {
   const withNoComments = sbjStripFenceComments(withNoise);
   const { text: withMathStripped, blocks } = extractMathBlocks(withNoComments);
   const cleaned = unwrapHtmlCodeFences(withMathStripped);
-  const html = marked.parse(stripInlineStyles(cleaned)) as string;
+  const html = marked.parse(ensureMarkdownBlockGaps(stripInlineStyles(cleaned))) as string;
   const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-build-env', 'target', 'data-image-id', 'loading'],
     ADD_TAGS: ['button', 'figure', 'figcaption'],

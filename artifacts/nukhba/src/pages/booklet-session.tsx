@@ -21,6 +21,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
   enhanceTeacherDom,
+  ensureMarkdownBlockGaps,
   extractMathBlocks,
   restoreMathPlaceholders,
   sanitizeStrayMarkdown,
@@ -197,7 +198,7 @@ function renderHtml(raw: string): string {
   const withFences = normalizeFences(withNoise);
   const withNoComments = stripFenceCommentsBooklet(withFences);
   const { text: stripped, blocks } = extractMathBlocks(withNoComments);
-  const html = marked.parse(stripped ?? "", { async: false }) as string;
+  const html = marked.parse(ensureMarkdownBlockGaps(stripped ?? ""), { async: false }) as string;
   const withMath = restoreMathPlaceholders(html, blocks);
   return DOMPurify.sanitize(withMath, {
     ADD_ATTR: ["target", "aria-label", "aria-hidden", "type"],

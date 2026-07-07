@@ -109,8 +109,6 @@ function promoteParagraphCallouts(root: HTMLElement): void {
 
 export { promoteParagraphCallouts };
 
-const RUNAWAY_HEADING_MAX_CHARS = 100;
-
 function scrubInlineMarkdownNoise(line: string): string {
   const parts = line.split(/(`[^`\n]*`)/);
   return parts
@@ -132,10 +130,7 @@ function cleanStrayMarkdownLine(line: string): string {
   const heading = line.match(/^([ \t]{0,3})(#{1,6})([ \t]+)(.*)$/);
   if (heading) {
     const [, indent, hashes, gap, body] = heading;
-    if (body.length <= RUNAWAY_HEADING_MAX_CHARS) {
-      return `${indent}${hashes}${gap}${scrubInlineMarkdownNoise(body)}`;
-    }
-    return scrubInlineMarkdownNoise(body);
+    return `${indent}${hashes}${gap}${scrubInlineMarkdownNoise(body)}`;
   }
 
   const quote = line.match(/^([ \t]{0,3}>[ \t]?)(.*)$/);
@@ -253,6 +248,19 @@ function processProseLines(lines: string[]): string[] {
   let i = 0;
   while (i < expanded.length) {
     const line = expanded[i];
+
+    const isAtxHeading = /^[ \t]{0,3}#{1,6}[ \t]/.test(line);
+    if (isAtxHeading) {
+      if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("");
+      out.push(cleanStrayMarkdownLine(line));
+      const nextLine = expanded[i + 1];
+      if (nextLine !== undefined && nextLine.trim() !== "" && !/^[ \t]{0,3}#{1,6}[ \t]/.test(nextLine)) {
+        out.push("");
+      }
+      i++;
+      continue;
+    }
+
     if (isTableRowCandidate(line)) {
       const next = expanded[i + 1];
       if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("");
@@ -277,7 +285,15 @@ function processProseLines(lines: string[]): string[] {
         out.push("");
         continue;
       }
+      const cellCount = splitTableCells(line).length;
+      if (cellCount >= 2) {
+        out.push(line, buildDelimiterRow(cellCount));
+        out.push("");
+        i++;
+        continue;
+      }
     }
+
     out.push(cleanStrayMarkdownLine(line));
     i++;
   }
@@ -293,6 +309,38 @@ export function sanitizeStrayMarkdown(raw: string): string {
   if (raw.indexOf("```") === -1) return scrubProseSegment(raw);
   const parts = raw.split("```");
   return parts.map((part, i) => (i % 2 === 0 ? scrubProseSegment(part) : part)).join("```");
+}
+
+export function ensureMarkdownBlockGaps(md: string): string {
+  if (!md) return md;
+  const segments = md.split("```");
+  const processed = segments.map((seg, si) => {
+    if (si % 2 === 1) return seg;
+    const lines = seg.split("\n");
+    const out: string[] = [];
+    for (let j = 0; j < lines.length; j++) {
+      const line = lines[j];
+      const trimmed = line.trim();
+      const prevTrimmed = out.length > 0 ? out[out.length - 1].trim() : "";
+      const isHeading = /^#{1,6} /.test(trimmed);
+      const isTableRow = /^\|/.test(trimmed);
+      const prevIsTableRow = /^\|/.test(prevTrimmed);
+      if (isHeading && prevTrimmed !== "" && out.length > 0) {
+        out.push("");
+      } else if (isTableRow && !prevIsTableRow && prevTrimmed !== "" && out.length > 0) {
+        out.push("");
+      }
+      out.push(line);
+      if (isHeading) {
+        const nextTrimmed = j + 1 < lines.length ? lines[j + 1].trim() : "";
+        if (nextTrimmed !== "" && !/^#{1,6} /.test(nextTrimmed) && !/^\|/.test(nextTrimmed)) {
+          out.push("");
+        }
+      }
+    }
+    return out.join("\n");
+  });
+  return processed.join("```");
 }
 
 const LANG_LABELS: Record<string, string> = {
