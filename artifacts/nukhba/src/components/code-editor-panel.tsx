@@ -1762,6 +1762,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
           const next = (liveOutputRef.current + exitMsg).slice(-200_000);
           liveOutputRef.current = next;
           setLiveOutput(next);
+          setOutput(next);
         }
       };
 
@@ -1772,6 +1773,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         liveOutputRef.current = next;
         setLiveOutput(next);
         setOutputType("error");
+        setOutput(next);
       };
 
       ws.onclose = () => {
