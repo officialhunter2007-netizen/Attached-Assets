@@ -185,13 +185,14 @@ export function initSoloRunWss(server: Server) {
           const pkgDir = getPkgDir(userId);
           try { fs.mkdirSync(pkgDir, { recursive: true }); } catch {}
           send({ type: "output", data: `📦 جاري تثبيت: ${pkgList.join(", ")}...\n` });
+          const pipEnv: NodeJS.ProcessEnv = { ...process.env, PIP_CONFIG_FILE: "/dev/null" };
           const pip = spawn("python3", [
             "-m", "pip", "install", ...pkgList,
             "--target", pkgDir,
-            "--isolated",
+            "--no-user",
             "--no-input",
             "--disable-pip-version-check",
-          ], { stdio: ["ignore", "pipe", "pipe"] });
+          ], { stdio: ["ignore", "pipe", "pipe"], env: pipEnv });
           pip.stdout.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
           pip.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
           pip.on("close", (code) => {

@@ -732,13 +732,14 @@ async function handleMessage(client: WsClient, raw: string) {
       const pkgDir = getRoomPkgDir(client.roomId);
       try { fs.mkdirSync(pkgDir, { recursive: true }); } catch {}
       broadcastJoined(client.roomId, { type: "process_output", data: `📦 جاري تثبيت: ${pkgList.join(", ")}...\n` });
+      const pipEnv: NodeJS.ProcessEnv = { ...process.env, PIP_CONFIG_FILE: "/dev/null" };
       const pip = spawn("python3", [
         "-m", "pip", "install", ...pkgList,
         "--target", pkgDir,
-        "--isolated",
+        "--no-user",
         "--no-input",
         "--disable-pip-version-check",
-      ], { stdio: ["ignore", "pipe", "pipe"] });
+      ], { stdio: ["ignore", "pipe", "pipe"], env: pipEnv });
       const onPipData = (chunk: Buffer) => broadcastJoined(client.roomId, { type: "process_output", data: chunk.toString() });
       pip.stdout.on("data", onPipData);
       pip.stderr.on("data", onPipData);
