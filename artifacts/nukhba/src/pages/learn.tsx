@@ -166,18 +166,26 @@ export default function Learn() {
       <div className="relative min-h-screen">
         {/* Background */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
-          <div className="absolute inset-0 bg-grid-fine opacity-20" />
+          <div className="absolute inset-0 bg-grid-fine opacity-25" />
           <div
-            className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-72"
-            style={{ background: "radial-gradient(ellipse, rgba(16,185,129,0.07) 0%, transparent 70%)", filter: "blur(40px)" }}
+            className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-3xl h-96"
+            style={{ background: "radial-gradient(ellipse, rgba(16,185,129,0.12) 0%, transparent 70%)", filter: "blur(50px)" }}
           />
           <div
-            className="absolute top-32 right-0 w-80 h-80"
-            style={{ background: "radial-gradient(ellipse, rgba(245,158,11,0.06) 0%, transparent 70%)", filter: "blur(50px)" }}
+            className="absolute top-32 right-0 w-96 h-96"
+            style={{ background: "radial-gradient(ellipse, rgba(245,158,11,0.10) 0%, transparent 70%)", filter: "blur(50px)" }}
           />
           <div
-            className="absolute bottom-0 left-0 w-72 h-72"
-            style={{ background: "radial-gradient(ellipse, rgba(139,92,246,0.05) 0%, transparent 70%)", filter: "blur(50px)" }}
+            className="absolute bottom-0 left-0 w-80 h-80"
+            style={{ background: "radial-gradient(ellipse, rgba(139,92,246,0.08) 0%, transparent 70%)", filter: "blur(50px)" }}
+          />
+          <div
+            className="absolute top-1/2 right-1/4 w-64 h-64"
+            style={{ background: "radial-gradient(ellipse, rgba(6,182,212,0.06) 0%, transparent 70%)", filter: "blur(60px)" }}
+          />
+          <div
+            className="absolute top-0 left-0 w-full h-px"
+            style={{ background: "linear-gradient(90deg, transparent, rgba(16,185,129,0.3), rgba(245,158,11,0.2), transparent)" }}
           />
         </div>
 

@@ -1299,9 +1299,28 @@ export default function V4Map() {
 
   return (
     <div
-      className="min-h-[100dvh] bg-background text-white pb-20"
+      className="relative min-h-[100dvh] bg-background text-white pb-20"
       style={{ direction: "rtl", fontFamily: "Tajawal, Cairo, sans-serif" }}
     >
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute inset-0 bg-grid-fine opacity-20" />
+        <div
+          className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[450px]"
+          style={{ background: "radial-gradient(ellipse, rgba(245,158,11,0.11) 0%, transparent 70%)", filter: "blur(70px)" }}
+        />
+        <div
+          className="absolute bottom-0 right-0 w-[500px] h-[450px]"
+          style={{ background: "radial-gradient(ellipse, rgba(16,185,129,0.07) 0%, transparent 70%)", filter: "blur(60px)" }}
+        />
+        <div
+          className="absolute top-1/2 left-0 w-[400px] h-[400px]"
+          style={{ background: "radial-gradient(ellipse, rgba(139,92,246,0.05) 0%, transparent 70%)", filter: "blur(70px)" }}
+        />
+        <div
+          className="absolute top-0 left-0 w-full h-px"
+          style={{ background: "linear-gradient(90deg, transparent, rgba(245,158,11,0.25), transparent)" }}
+        />
+      </div>
       {/* ── Placement result banner ── */}
       {isPlacement && (
         <div className="mx-4 mt-4 mb-2 p-4 rounded-2xl border border-emerald/30 bg-emerald/5">

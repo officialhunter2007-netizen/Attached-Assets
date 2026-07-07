@@ -258,14 +258,22 @@ export default function Dashboard() {
   return (
     <AppLayout>
       <div className="relative min-h-screen">
-        <div className="absolute inset-0 bg-grid-fine opacity-25 pointer-events-none" />
+        <div className="absolute inset-0 bg-grid-fine opacity-30 pointer-events-none" />
         <div
-          className="absolute top-0 right-0 w-[500px] h-[400px] pointer-events-none"
-          style={{ background: "radial-gradient(ellipse, rgba(245,158,11,0.06) 0%, transparent 70%)", filter: "blur(60px)" }}
+          className="absolute top-0 right-0 w-[650px] h-[550px] pointer-events-none"
+          style={{ background: "radial-gradient(ellipse, rgba(245,158,11,0.15) 0%, transparent 70%)", filter: "blur(60px)" }}
         />
         <div
-          className="absolute bottom-0 left-0 w-[400px] h-[400px] pointer-events-none"
-          style={{ background: "radial-gradient(ellipse, rgba(16,185,129,0.04) 0%, transparent 70%)", filter: "blur(60px)" }}
+          className="absolute bottom-0 left-0 w-[550px] h-[500px] pointer-events-none"
+          style={{ background: "radial-gradient(ellipse, rgba(16,185,129,0.10) 0%, transparent 70%)", filter: "blur(60px)" }}
+        />
+        <div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] pointer-events-none"
+          style={{ background: "radial-gradient(ellipse, rgba(139,92,246,0.06) 0%, transparent 70%)", filter: "blur(80px)" }}
+        />
+        <div
+          className="absolute top-0 left-0 w-full h-px pointer-events-none"
+          style={{ background: "linear-gradient(90deg, transparent, rgba(245,158,11,0.3), transparent)" }}
         />
 
         <div className="relative container mx-auto px-4 py-10 max-w-6xl">
@@ -293,17 +301,27 @@ export default function Dashboard() {
           <ExpiringSoonBanner expiringSubs={expiringSoonSubs} />
 
           {/* ── Hero + stats ── */}
-          <div className="grid lg:grid-cols-3 gap-4 md:gap-6 mb-10">
+          <motion.div
+            initial={{ opacity: 0, y: 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            className="grid lg:grid-cols-3 gap-4 md:gap-6 mb-10"
+          >
             <HeroLevelCard points={points} />
             <StatTiles
               streakDays={user?.streakDays || 0}
               lessonsCompleted={totalLessons}
               challengesAnswered={challengesAnswered}
             />
-          </div>
+          </motion.div>
 
           {/* ── Recent lessons + subscription summary ── */}
-          <div className="grid lg:grid-cols-3 gap-6 mb-10">
+          <motion.div
+            initial={{ opacity: 0, y: 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            className="grid lg:grid-cols-3 gap-6 mb-10"
+          >
             <div className="lg:col-span-2">
               <SectionHeading accent="gold" icon={<BookOpen className="w-5 h-5" />}>
                 {tr.dashboard.recentLessons}
@@ -334,10 +352,15 @@ export default function Dashboard() {
                 <SubscriptionSummaryCard usableSubs={usableSubs} locked={isBlocked} />
               </SectionState>
             </div>
-          </div>
+          </motion.div>
 
           {/* ── Books progress ── */}
-          <div className="mb-10">
+          <motion.div
+            initial={{ opacity: 0, y: 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            className="mb-10"
+          >
             <SectionHeading accent="amber" icon={<Library className="w-6 h-6" />}>
               {tr.dashboard.bookProgress}
             </SectionHeading>
@@ -351,10 +374,15 @@ export default function Dashboard() {
             >
               <MaterialProgressGrid materials={materials} locked={isBlocked} />
             </SectionState>
-          </div>
+          </motion.div>
 
           {/* ── Lab reports ── */}
-          <div className="mb-10">
+          <motion.div
+            initial={{ opacity: 0, y: 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            className="mb-10"
+          >
             <SectionHeading accent="emerald" icon={<FlaskConical className="w-6 h-6" />}>
               {tr.dashboard.labReports}
             </SectionHeading>
@@ -364,10 +392,14 @@ export default function Dashboard() {
               error={labReports.error}
               onRetry={labReports.refetch}
             />
-          </div>
+          </motion.div>
 
           {/* ── Summaries ── */}
-          <div>
+          <motion.div
+            initial={{ opacity: 0, y: 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          >
             <SectionHeading accent="gold">{tr.dashboard.mySummaries}</SectionHeading>
             <SummariesSection
               summaries={summaries.data}
@@ -375,7 +407,7 @@ export default function Dashboard() {
               error={summaries.error}
               onRetry={summaries.refetch}
             />
-          </div>
+          </motion.div>
         </div>
       </div>
     </AppLayout>
