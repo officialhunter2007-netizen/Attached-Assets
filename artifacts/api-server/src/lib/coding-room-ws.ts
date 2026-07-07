@@ -735,7 +735,7 @@ async function handleMessage(client: WsClient, raw: string) {
       const pip = spawn("python3", [
         "-m", "pip", "install", ...pkgList,
         "--target", pkgDir,
-        "--quiet",
+        "--isolated",
         "--no-input",
         "--disable-pip-version-check",
       ], { stdio: ["ignore", "pipe", "pipe"] });
