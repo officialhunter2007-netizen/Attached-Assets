@@ -6,7 +6,7 @@ import { getSubjectName, getCategoryName } from "@/lib/curriculum-en";
 import { AppLayout } from "@/components/layout/app-layout";
 import { motion } from "framer-motion";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { CheckCircle2, Star, GraduationCap, Terminal, Sparkles, ArrowLeft } from "lucide-react";
+import { CheckCircle2, Star, GraduationCap, Terminal, Sparkles, ArrowLeft, Keyboard } from "lucide-react";
 import { useLang } from "@/lib/lang-context";
 import { ReferralGemsModal } from "@/components/referral-gems-modal";
 
@@ -225,6 +225,44 @@ export default function Learn() {
 
           {/* Referral gems banner — inline, signed-in only */}
           <ReferralGemsModal inline />
+
+          {/* Typing Trainer Banner */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="mb-6 md:mb-8"
+          >
+            <Link href="/typing">
+              <div
+                className="relative rounded-2xl overflow-hidden cursor-pointer group"
+                style={{
+                  background: "linear-gradient(135deg, rgba(245,158,11,0.08), rgba(16,185,129,0.08))",
+                  border: "1px solid rgba(245,158,11,0.2)",
+                }}
+              >
+                <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 80% 50%, rgba(245,158,11,0.08), transparent 60%)" }} />
+                <div className="relative flex items-center gap-4 px-5 py-4">
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.2), rgba(16,185,129,0.15))", border: "1px solid rgba(245,158,11,0.2)" }}
+                  >
+                    <Keyboard className="w-6 h-6" style={{ color: "#F59E0B" }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-bold text-sm text-white">Typing Trainer</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B", border: "1px solid rgba(245,158,11,0.2)" }}>NEW</span>
+                    </div>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      Learn touch typing — 14 sections, 380 lessons, sounds & virtual keyboard
+                    </p>
+                  </div>
+                  <ArrowLeft className="w-4 h-4 flex-shrink-0 rotate-180 group-hover:translate-x-1 transition-transform" style={{ color: "#F59E0B" }} />
+                </div>
+              </div>
+            </Link>
+          </motion.div>
 
           {/* Tabs */}
           <Tabs defaultValue="university" className="w-full">

@@ -108,6 +108,25 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    table: "typing_progress",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "typing_progress" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "lesson_id" integer NOT NULL,
+        "stars" integer NOT NULL DEFAULT 1,
+        "best_wpm" integer NOT NULL DEFAULT 0,
+        "best_accuracy" integer NOT NULL DEFAULT 0,
+        "completed_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_typing_progress_user_lesson" ON "typing_progress" ("user_id", "lesson_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_typing_progress_user" ON "typing_progress" ("user_id")`,
+    ],
+  },
+  {
     table: "notifications",
     createSql: `
       CREATE TABLE IF NOT EXISTS "notifications" (

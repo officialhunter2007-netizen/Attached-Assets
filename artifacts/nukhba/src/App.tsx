@@ -36,6 +36,8 @@ import BookletLab from "@/pages/booklet-lab";
 import BookletExam from "@/pages/booklet-exam";
 import CodingRooms from "@/pages/coding-rooms";
 import CodingRoom from "@/pages/coding-room";
+import Typing from "@/pages/typing";
+import TypingLesson from "@/pages/typing-lesson";
 
 const queryClient = new QueryClient();
 
@@ -231,6 +233,8 @@ function Router() {
       <Route path="/support" component={() => <ProtectedRoute component={Support} />} />
       <Route path="/coding-rooms" component={() => <ProtectedRoute component={CodingRooms} />} />
       <Route path="/coding-room/:roomId" component={() => <ProtectedRoute component={CodingRoom} />} />
+      <Route path="/typing" component={() => <ProtectedRoute component={Typing} />} />
+      <Route path="/typing/lesson/:id" component={() => <ProtectedRoute component={TypingLesson} />} />
       <Route component={NotFound} />
     </Switch>
   );

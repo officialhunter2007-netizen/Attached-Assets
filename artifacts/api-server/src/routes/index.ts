@@ -24,6 +24,7 @@ import v4WelcomeGiftRouter from "./v4_welcome_gift";
 import v4ReferralRouter from "./v4_referral";
 import codingRoomsRouter from "./coding_rooms";
 import notificationsRouter from "./notifications";
+import typingRouter from "./typing";
 
 const router: IRouter = Router();
 
@@ -52,5 +53,6 @@ router.use(v4WelcomeGiftRouter);
 router.use(v4ReferralRouter);
 router.use(codingRoomsRouter);
 router.use(notificationsRouter);
+router.use(typingRouter);
 
 export default router;
