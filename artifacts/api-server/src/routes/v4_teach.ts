@@ -32,12 +32,10 @@ import {
   v4ConceptMasteryTable,
   v4StudentPathsTable,
   aiTeacherMessagesTable,
-  type V4ConceptFacets,
   type V4FacetKey,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { resolveActiveSpecialty, getStudentPath, syncStudentPathToActiveVersion } from "../lib/v4-path-engine";
-import { decideDiagnosticMove } from "../lib/v4-diagnostic-engine";
 import { gradePendingFacet, markFacetPending } from "../lib/v4-concept-facets-engine";
 import {
   getOrGenerateLessonContent,
@@ -454,59 +452,6 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       }
     }
 
-    // ت١ — already-mastered lesson gate: if the diagnostic engine would
-    // "advance" (all required W1/W2/W3/W4 facets cleared for every concept)
-    // and this is not the first turn, emit a free gem-less nudge pointing to
-    // the unit exam rather than calling Gemini and burning gems.
-    // Uses decideDiagnosticMove (same engine as the prompt builder) so the
-    // gate fires only when ALL facets required for important (weight>1) concepts
-    // are also covered — not just when W1 scores ≥ 75. Checking W1 scores alone
-    // was a bug: it could fire while the engine still wanted RATIONALE/BOUNDARY
-    // moves, sending the student to the exam prematurely.
-    if (concepts.length > 0 && history.length > 0) {
-      const masteryRows = await db
-        .select({
-          conceptIndex: v4ConceptMasteryTable.conceptIndex,
-          score: v4ConceptMasteryTable.score,
-          facets: v4ConceptMasteryTable.facets,
-        })
-        .from(v4ConceptMasteryTable)
-        .where(and(
-          eq(v4ConceptMasteryTable.userId, uid),
-          eq(v4ConceptMasteryTable.lessonId, lesson.id),
-        ));
-      const _gateMastery = new Map<number, number>();
-      const _gateFacets = new Map<number, V4ConceptFacets>();
-      for (const r of masteryRows) {
-        _gateMastery.set(r.conceptIndex, r.score);
-        _gateFacets.set(r.conceptIndex, r.facets);
-      }
-      const _gateDecision = decideDiagnosticMove({
-        concepts: concepts.map((c) => ({
-          conceptIndex: c.conceptIndex,
-          name: c.name,
-          masteryCriterion: c.masteryCriterion,
-          weight: Math.max(1, ((c as any).weight ?? 1) as number),
-        })),
-        masteryByConcept: _gateMastery,
-        facetsByConcept: _gateFacets,
-      });
-      if (_gateDecision.move === "advance") {
-        inflightTeachTurns.delete(turnLockKey);
-        if (!res.headersSent) {
-          res.setHeader("Content-Type", "text/event-stream");
-          res.setHeader("Cache-Control", "no-cache, no-transform");
-          res.setHeader("Connection", "keep-alive");
-          res.flushHeaders?.();
-        }
-        if (!res.writableEnded) {
-          res.write(`data: ${JSON.stringify({ content: "✅ أتقنت كل مفاهيم هذا الدرس — انتقل إلى اختبار الوحدة لفتح الوحدة التالية." })}\n\n`);
-          res.write(`data: ${JSON.stringify({ done: true, charged: false, balanceAfter: null, lessonMastered: false })}\n\n`);
-          res.end();
-        }
-        return;
-      }
-    }
 
     // Compress before building the prompt so Layer 9 is populated when needed.
     const compressed = compressHistory([...history, { role: "user", content: message }]);
