@@ -185,37 +185,96 @@ function isTableDelimiterRow(line: string): boolean {
 function isTableRowCandidate(line: string): boolean {
   if (!line.includes("|")) return false;
   if (/^[ \t]{0,3}>/.test(line)) return false;
-  return splitTableCells(line).length >= 2;
+  const cells = splitTableCells(line);
+  if (cells.length < 2) return false;
+  if (!/^\s*\|/.test(line) && cells[0].trim().length > 40) return false;
+  return true;
 }
 
 function buildDelimiterRow(cellCount: number): string {
   return `|${Array.from({ length: cellCount }, () => " --- ").join("|")}|`;
 }
 
+function expandInlineHeading(line: string): string[] {
+  if (/^[ \t]{0,3}#{1,6}[ \t]/.test(line)) return [line];
+  if (!line.includes("#")) return [line];
+  let inCode = false;
+  let hashStart = -1;
+  for (let j = 0; j < line.length; j++) {
+    if (line[j] === "`") { inCode = !inCode; continue; }
+    if (inCode) continue;
+    if (line[j] === "#") {
+      let count = 0;
+      while (j + count < line.length && line[j + count] === "#") count++;
+      if (count >= 1 && count <= 6 && j + count < line.length && /[ \t]/.test(line[j + count]) && j > 0) {
+        hashStart = j;
+        break;
+      }
+    }
+  }
+  if (hashStart <= 0) return [line];
+  const prose = line.slice(0, hashStart).replace(/\s*[-—–]+\s*$/, "").trim();
+  const heading = line.slice(hashStart).trim();
+  if (!prose || !heading) return [line];
+  return [prose, "", heading];
+}
+
+function expandInlineTableSuffix(line: string): string[] {
+  if (!line.includes("|")) return [line];
+  const m = line.match(/^([\s\S]+?\S)\s+(\|[^\n]+\|)\s*$/);
+  if (!m) return [line];
+  const prose = m[1].trim();
+  const tableRow = m[2].trim();
+  if (!tableRow || !prose) return [line];
+  if (/^\s*\|/.test(prose)) return [line];
+  if (splitTableCells(tableRow).length < 2) return [line];
+  if (isTableRowCandidate(prose)) return [line];
+  return [prose, "", tableRow];
+}
+
+function expandLine(line: string): string[] {
+  const headingParts = expandInlineHeading(line);
+  if (headingParts.length > 1) {
+    const last = headingParts[headingParts.length - 1];
+    const tableParts = expandInlineTableSuffix(last);
+    if (tableParts.length > 1) return [...headingParts.slice(0, -1), ...tableParts];
+    return headingParts;
+  }
+  return expandInlineTableSuffix(line);
+}
+
 function processProseLines(lines: string[]): string[] {
+  const expanded: string[] = [];
+  for (const line of lines) {
+    for (const sub of expandLine(line)) expanded.push(sub);
+  }
+
   const out: string[] = [];
   let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
+  while (i < expanded.length) {
+    const line = expanded[i];
     if (isTableRowCandidate(line)) {
-      const next = lines[i + 1];
+      const next = expanded[i + 1];
+      if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("");
       if (next !== undefined && isTableDelimiterRow(next)) {
         out.push(line, next);
         i += 2;
-        while (i < lines.length && isTableRowCandidate(lines[i])) {
-          out.push(lines[i]);
+        while (i < expanded.length && isTableRowCandidate(expanded[i])) {
+          out.push(expanded[i]);
           i++;
         }
+        out.push("");
         continue;
       }
       if (next !== undefined && isTableRowCandidate(next)) {
         const cellCount = splitTableCells(line).length;
         out.push(line, buildDelimiterRow(cellCount));
         i++;
-        while (i < lines.length && isTableRowCandidate(lines[i])) {
-          out.push(lines[i]);
+        while (i < expanded.length && isTableRowCandidate(expanded[i])) {
+          out.push(expanded[i]);
           i++;
         }
+        out.push("");
         continue;
       }
     }
