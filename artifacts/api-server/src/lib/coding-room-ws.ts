@@ -65,7 +65,12 @@ const activeProcesses = new Map<number, ProcessEntry>();
 
 const INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
 const VALID_PKG_NAME = /^[a-zA-Z0-9]([a-zA-Z0-9\-_.]*[a-zA-Z0-9])?(\[[\w,]+\])?$/;
-const SHARED_PYLIB_DIR = "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages";
+const SHARED_PYLIB_DIR = process.env.NUKHBA_PYLIB_DIR
+  ?? (() => {
+    const v = process.execPath.match(/python(\d+\.\d+)/)?.[1]
+      ?? (() => { try { const r = require("child_process").execSync("python3 -c \"import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')\"").toString().trim(); return r; } catch { return "3.11"; } })();
+    return `/home/runner/workspace/.pythonlibs/lib/python${v}/site-packages`;
+  })();
 const PYTHON_BUILTINS = new Set([
   "random","os","sys","math","time","datetime","json","re","collections","itertools",
   "functools","pathlib","io","string","abc","copy","pickle","hashlib","hmac","secrets",
