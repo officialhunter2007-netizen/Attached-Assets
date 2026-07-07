@@ -34,6 +34,12 @@ const LANGUAGES = [
   { id: "bash",       label: "Bash",       ext: "sh",    icon: "🐚", monacoLang: "shell" },
   { id: "sql",        label: "SQL",        ext: "sql",   icon: "🗄️", monacoLang: "sql" },
   { id: "rust",       label: "Rust",       ext: "rs",    icon: "🦀", monacoLang: "rust" },
+  { id: "plaintext",  label: "نص",         ext: "txt",   icon: "📝", monacoLang: "plaintext" },
+  { id: "json",       label: "JSON",       ext: "json",  icon: "📋", monacoLang: "json" },
+  { id: "markdown",   label: "Markdown",   ext: "md",    icon: "📖", monacoLang: "markdown" },
+  { id: "xml",        label: "XML",        ext: "xml",   icon: "🏷️", monacoLang: "xml" },
+  { id: "yaml",       label: "YAML",       ext: "yaml",  icon: "⚙️", monacoLang: "yaml" },
+  { id: "ini",        label: "Config",     ext: "ini",   icon: "🔧", monacoLang: "ini" },
 ];
 
 const WEB_LANGS = new Set(["html", "css", "javascript"]);
@@ -44,10 +50,14 @@ const EXT_TO_LANG: Record<string, string> = {
   cpp: "cpp", cc: "cpp", cxx: "cpp", c: "c",
   kt: "kotlin", dart: "dart", rs: "rust",
   sql: "sql", sh: "bash", bash: "bash",
-  csv: "plaintext", json: "json", txt: "plaintext", md: "markdown", xml: "xml", yaml: "yaml", yml: "yaml",
+  csv: "plaintext", tsv: "plaintext", dat: "plaintext", log: "plaintext",
+  txt: "plaintext", md: "markdown", xml: "xml",
+  json: "json", jsonl: "json",
+  yaml: "yaml", yml: "yaml",
+  toml: "ini", ini: "ini", cfg: "ini", conf: "ini", env: "ini",
 };
 
-const DATA_LANGS = new Set(["plaintext", "json", "markdown", "xml", "yaml"]);
+const DATA_LANGS = new Set(["plaintext", "json", "markdown", "xml", "yaml", "ini", "sql"]);
 
 const SOLO_INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
 
