@@ -309,12 +309,15 @@ export default function TypingLesson() {
       const newTyped = [...typed, e.key];
       setTyped(newTyped);
 
+      const liveErrorCount = errors.size + (correct ? 0 : 1);
+      const liveAccuracy = Math.round(((newTyped.length - liveErrorCount) / newTyped.length) * 100);
+      setAccuracy(liveAccuracy);
+
       if (newTyped.length >= text.length) {
         if (wpmTimer.current) clearInterval(wpmTimer.current);
         const elapsed = (Date.now() - startTime) / 1000 / 60;
         const finalWpm = elapsed > 0 ? Math.round((newTyped.length / 5) / elapsed) : 0;
-        const errorCount = errors.size + (correct ? 0 : 1);
-        const finalAccuracy = Math.round(((newTyped.length - errorCount) / newTyped.length) * 100);
+        const finalAccuracy = liveAccuracy;
         const finalStars = computeStars(finalWpm, finalAccuracy);
         setWpm(finalWpm);
         setAccuracy(finalAccuracy);
