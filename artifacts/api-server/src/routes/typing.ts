@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 
 const router = Router();
 
-const MAX_LESSON_ID = 400;
+const MAX_LESSON_ID = 700;
 
 function requireUser(req: Request, res: Response, next: NextFunction): void {
   const uid = ((req as any).session as any)?.userId ?? null;
