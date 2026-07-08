@@ -422,6 +422,7 @@ export default function TypingLesson() {
   const [saved, setSaved] = useState(false);
   const wpmTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [showIntro, setShowIntro] = useState(true);
   const [showTip, setShowTip] = useState(true);
   const [guidanceMsg, setGuidanceMsg] = useState<{ text: string; icon: string; kind: "warn" | "ok" } | null>(null);
   const guidanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -440,6 +441,7 @@ export default function TypingLesson() {
     setWpm(0);
     setAccuracy(100);
     setSaved(false);
+    setShowIntro(true);
     setShowTip(true);
     setGuidanceMsg(null);
     lastGuidanceAt.current = 0;
@@ -480,6 +482,7 @@ export default function TypingLesson() {
     const handler = (e: KeyboardEvent) => {
       if (phase === "complete") return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (showIntro) { setShowIntro(false); return; }
       resumeAudio();
 
       if (e.key === "Backspace") {
@@ -823,6 +826,121 @@ export default function TypingLesson() {
                   </Link>
                 )}
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showIntro && lesson && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(4,6,14,0.90)", backdropFilter: "blur(12px)" }}
+            onClick={() => setShowIntro(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.88, opacity: 0, y: 28 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.93, opacity: 0, y: 10 }}
+              transition={{ type: "spring", stiffness: 270, damping: 22 }}
+              onClick={(e) => e.stopPropagation()}
+              dir="rtl"
+              className="rounded-3xl p-7 max-w-md w-full"
+              style={{
+                background: "linear-gradient(150deg, rgba(14,18,32,0.99), rgba(9,12,24,0.99))",
+                border: "1px solid rgba(245,158,11,0.20)",
+                boxShadow: "0 0 80px rgba(245,158,11,0.08), 0 28px 80px rgba(0,0,0,0.65)",
+              }}
+            >
+              <div className="text-center mb-5">
+                <div className="text-3xl mb-2">⌨️</div>
+                <h2 className="text-lg font-black text-white leading-snug">{lesson.title}</h2>
+                <p className="text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  قبل أن تبدأ — تأكد من هذه النقاط الثلاث
+                </p>
+              </div>
+
+              <div className="space-y-2.5 mb-6">
+                <div
+                  className="flex items-start gap-3.5 rounded-2xl px-4 py-3.5"
+                  style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.16)" }}
+                >
+                  <span className="text-xl mt-0.5 flex-shrink-0">👁️</span>
+                  <div>
+                    <div className="text-sm font-bold mb-0.5" style={{ color: "#F59E0B" }}>
+                      عيناك على الشاشة
+                    </div>
+                    <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.52)" }}>
+                      انظر دائماً إلى النص فقط — لا تنظر إلى لوحة المفاتيح أبداً. هذا هو سر الكتابة السريعة.
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className="flex items-start gap-3.5 rounded-2xl px-4 py-3.5"
+                  style={{ background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.16)" }}
+                >
+                  <span className="text-xl mt-0.5 flex-shrink-0">🖐️</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold mb-1.5" style={{ color: "#10B981" }}>
+                      أصابعك على الصف الرئيسي
+                    </div>
+                    <div className="flex gap-1 mb-2 flex-wrap">
+                      {(["A","S","D","F","G","H","J","K","L",";"] as const).map((k) => {
+                        const isAnchor = k === "F" || k === "J";
+                        const isHome   = ["A","S","D","F","J","K","L",";"].includes(k);
+                        return (
+                          <span
+                            key={k}
+                            className="inline-flex items-center justify-center rounded-lg text-xs font-bold"
+                            style={{
+                              width: 28, height: 28,
+                              background: isAnchor ? "rgba(245,158,11,0.22)" : isHome ? "rgba(16,185,129,0.14)" : "rgba(255,255,255,0.04)",
+                              border: isAnchor ? "1.5px solid rgba(245,158,11,0.55)" : isHome ? "1px solid rgba(16,185,129,0.32)" : "1px solid rgba(255,255,255,0.06)",
+                              color: isAnchor ? "#F59E0B" : isHome ? "#10B981" : "rgba(255,255,255,0.22)",
+                            }}
+                          >
+                            {k}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      مفتاحا <span style={{ color: "#F59E0B" }}>F</span> و <span style={{ color: "#F59E0B" }}>J</span> بهما نتوء صغير — ابحث عنهما بإصبعيك دون النظر
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className="flex items-start gap-3.5 rounded-2xl px-4 py-3.5"
+                  style={{ background: "rgba(99,102,241,0.07)", border: "1px solid rgba(99,102,241,0.16)" }}
+                >
+                  <span className="text-xl mt-0.5 flex-shrink-0">💺</span>
+                  <div>
+                    <div className="text-sm font-bold mb-0.5" style={{ color: "#818CF8" }}>
+                      الوضعية الصحيحة
+                    </div>
+                    <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.52)" }}>
+                      ظهر مستقيم، رأس مرفوع، مرفقان بزاوية 90° على الطاولة — تقلل التعب وتزيد السرعة.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowIntro(false)}
+                className="w-full py-3.5 rounded-2xl font-black text-base transition-opacity hover:opacity-90"
+                style={{ background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#000" }}
+              >
+                ابدأ الكتابة ←
+              </button>
+              <p className="text-center text-xs mt-2.5" style={{ color: "rgba(255,255,255,0.18)" }}>
+                أو اضغط أي مفتاح للبدء
+              </p>
             </motion.div>
           </motion.div>
         )}
