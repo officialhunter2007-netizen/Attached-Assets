@@ -692,6 +692,8 @@ async function handleMessage(client: WsClient, raw: string) {
 
       const spawnEnv: NodeJS.ProcessEnv = language === "javascript"
         ? { ...process.env, NODE_PATH: SHARED_JS_MODULES }
+        : language === "python"
+        ? { ...process.env, PYTHONPATH: [SHARED_PYLIB_DIR, process.env.PYTHONPATH].filter(Boolean).join(":") }
         : process.env;
       const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"], env: spawnEnv });
 
