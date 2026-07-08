@@ -32,17 +32,13 @@ async function getUserWithAccess(userId: number, subjectId: string | null) {
   if (!user) return null;
 
   const access = await getAccessForUser({ userId, subjectId });
-  const hasReferralAccess = (user.referralSessionsLeft ?? 0) > 0;
-  // Lesson views/progress only need a subscription or first-lesson
-  // grace — daily AI cap should not block them.
-  const canAccess = access.hasActiveSub || access.isFirstLesson || hasReferralAccess;
+  const canAccess = access.hasActiveSub || access.isFirstLesson;
 
   return {
     user,
     canAccess,
     isFirstLesson: access.isFirstLesson,
     hasSubscriptionAccess: access.hasActiveSub,
-    hasReferralAccess,
   };
 }
 

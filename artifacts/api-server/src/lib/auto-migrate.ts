@@ -436,63 +436,6 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
-    // Referral pairing rows. Historically created by a legacy drizzle migration
-    // and NOT present in fresh DBs (no backend ever inserted into it), so we
-    // ensure it idempotently here. One row per referred user (unique).
-    // `reward_paid_at` is the idempotency anchor for the 300-gem mutual payout.
-    table: "referrals",
-    createSql: `
-      CREATE TABLE IF NOT EXISTS "referrals" (
-        "id" serial PRIMARY KEY,
-        "referrer_user_id" integer NOT NULL,
-        "referred_user_id" integer NOT NULL,
-        "referral_code" text NOT NULL,
-        "access_days_granted" integer DEFAULT 0,
-        "reward_paid_at" timestamp with time zone,
-        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
-      )
-    `,
-    indexes: [
-      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_referrals_referred_user" ON "referrals" ("referred_user_id")`,
-      `CREATE INDEX IF NOT EXISTS "idx_referrals_referrer_user" ON "referrals" ("referrer_user_id")`,
-    ],
-  },
-  {
-    // Referral reward pool — running lifetime total of gems EARNED from
-    // referrals, allocated across subjects on the student's choice (mirrors the
-    // welcome-gift pool, but accrues over time so there is no finalize lock).
-    table: "referral_reward_pools",
-    createSql: `
-      CREATE TABLE IF NOT EXISTS "referral_reward_pools" (
-        "id" serial PRIMARY KEY,
-        "user_id" integer NOT NULL UNIQUE,
-        "earned_gems" integer NOT NULL DEFAULT 0,
-        "allocated_gems" integer NOT NULL DEFAULT 0,
-        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
-        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
-      )
-    `,
-    indexes: [],
-  },
-  {
-    // Referral reward per-subject allocation rows (upsert by user + subject).
-    table: "referral_reward_allocations",
-    createSql: `
-      CREATE TABLE IF NOT EXISTS "referral_reward_allocations" (
-        "id" serial PRIMARY KEY,
-        "user_id" integer NOT NULL,
-        "subject_id" text NOT NULL,
-        "gems_allocated" integer NOT NULL DEFAULT 0,
-        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
-        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
-      )
-    `,
-    indexes: [
-      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_referral_reward_alloc_user_subject" ON "referral_reward_allocations" ("user_id", "subject_id")`,
-      `CREATE INDEX IF NOT EXISTS "idx_referral_reward_alloc_user" ON "referral_reward_allocations" ("user_id")`,
-    ],
-  },
-  {
     // Admin-editable payment settings (Kuraimi account numbers, names, etc.).
     // Key/value so new keys can be added from the admin UI without a
     // schema migration.
@@ -1421,25 +1364,14 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     ],
   },
   {
-    // reward_paid_at backfill for existing DBs whose `referrals` table predates
-    // the referral-reward feature. Fresh DBs already get it via REQUIRED_TABLES.
-    table: "referrals",
-    columns: [
-      { name: "reward_paid_at", ddl: "timestamp with time zone" },
-    ],
-  },
-  {
     table: "users",
     columns: [
       { name: "messages_used", ddl: "integer NOT NULL DEFAULT 0" },
       { name: "messages_limit", ddl: "integer NOT NULL DEFAULT 0" },
       { name: "subscription_expires_at", ddl: "timestamp with time zone" },
-      { name: "referral_access_until", ddl: "timestamp with time zone" },
       { name: "first_lesson_complete", ddl: "boolean NOT NULL DEFAULT false" },
-      { name: "referral_code", ddl: "text" },
       { name: "last_session_date", ddl: "text" },
       { name: "last_session_at", ddl: "timestamp with time zone" },
-      { name: "referral_sessions_left", ddl: "integer NOT NULL DEFAULT 0" },
       { name: "tryhackme_username", ddl: "text" },
       { name: "sub_page_first_visited_at", ddl: "timestamp with time zone" },
       { name: "sub_page_left_at", ddl: "timestamp with time zone" },
@@ -1877,21 +1809,6 @@ export async function runStartupMigrations(): Promise<void> {
       logger.error(
         { err: err?.message },
         "auto-migrate: failed to create uq_gem_ledger_user_request index",
-      );
-    }
-    // users.referral_code unique index — `referral_code` is added via
-    // REQUIRED_COLUMNS, so this MUST run AFTER ensureRequiredColumns. Plain
-    // unique (Postgres treats NULL as distinct, so the many users without a
-    // lazily-generated code yet coexist freely); this makes the lazy
-    // code-generation collision retry race-safe.
-    try {
-      await db.execute(sql.raw(
-        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_users_referral_code" ON "users" ("referral_code")`,
-      ));
-    } catch (err: any) {
-      logger.error(
-        { err: err?.message },
-        "auto-migrate: failed to create uq_users_referral_code index",
       );
     }
     // Hands-on "التطبيق العملي" system — permanently removed. Drop the cache

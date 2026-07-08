@@ -40,10 +40,7 @@ router.post("/progress", async (req, res): Promise<void> => {
 
   const subjectId = parsed.data.subjectOrSpecialization || null;
   const access = await getAccessForUser({ userId, subjectId });
-  const [progressUser] = await db.select({ referralSessionsLeft: usersTable.referralSessionsLeft })
-    .from(usersTable).where(eq(usersTable.id, userId));
-  const hasReferral = (progressUser?.referralSessionsLeft ?? 0) > 0;
-  if (!access.hasActiveSub && !access.isFirstLesson && !hasReferral) {
+  if (!access.hasActiveSub && !access.isFirstLesson) {
     res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }
@@ -104,13 +101,8 @@ router.post("/learning-paths", async (req, res): Promise<void> => {
     return;
   }
 
-  // Strictly subject-scoped: access to subject A must not authorise a
-  // learning path for subject B. Referral grants global access.
   const access = await getAccessForUser({ userId, subjectId: parsed.data.subjectId });
-  const [pathUser] = await db.select({ referralSessionsLeft: usersTable.referralSessionsLeft })
-    .from(usersTable).where(eq(usersTable.id, userId));
-  const hasReferral = (pathUser?.referralSessionsLeft ?? 0) > 0;
-  if (!access.hasActiveSub && !access.isFirstLesson && !hasReferral) {
+  if (!access.hasActiveSub && !access.isFirstLesson) {
     res.status(403).json({ error: "ACCESS_DENIED" });
     return;
   }

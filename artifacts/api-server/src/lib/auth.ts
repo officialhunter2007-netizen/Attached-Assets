@@ -52,10 +52,6 @@ export function isLegacyPasswordHash(stored: string): boolean {
   return !!stored && !stored.startsWith("scrypt$");
 }
 
-export function generateReferralCode(): string {
-  return randomBytes(4).toString("hex").toUpperCase();
-}
-
 export function generateActivationCode(): string {
   return randomBytes(8).toString("hex").toUpperCase();
 }

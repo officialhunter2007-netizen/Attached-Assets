@@ -29,7 +29,6 @@ import {
 import { generateActivationCode, hashPassword } from "../lib/auth";
 import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../lib/gems";
 import { writeGemLedger } from "../lib/gem-ledger";
-import { maybePayReferralReward } from "../lib/v4-referral";
 import { purchaseV4GemsTx } from "../lib/v4-gem-wallet";
 import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
 import {
@@ -317,13 +316,6 @@ async function grantSubjectSubscription(
       v4Note: "actual_grant_in_purchase_gems_row",
     },
   });
-
-  // Referral payout — fire-and-forget AFTER commit. Pays the mutual 300-gem
-  // reward to any pair this student is part of where BOTH sides now hold an
-  // active Silver/Gold sub. Never throws (covers the admin-grant path).
-  void maybePayReferralReward(opts.userId).catch((e) =>
-    logger.error({ err: e?.message, userId: opts.userId }, "referral: payout hook failed (admin grant)"),
-  );
 
   return row;
 }
@@ -1109,10 +1101,6 @@ router.post("/subscriptions/activate", async (req, res): Promise<void> => {
       return granted;
     });
     sub = out;
-    // Referral payout — fire-and-forget AFTER commit (card-activation path).
-    void maybePayReferralReward(userId).catch((e) =>
-      logger.error({ err: e?.message, userId }, "referral: payout hook failed (activate card)"),
-    );
   } catch (err: any) {
     if (err?.message === "CARD_ALREADY_USED") {
       res.status(400).json({ success: false, message: "تم استخدام هذا الكود مسبقاً" });
@@ -1385,11 +1373,6 @@ router.post("/admin/subscription-requests/:id/approve", requireSameOriginCsrf, a
         v4Note: "actual_grant_in_purchase_gems_row",
       },
     });
-
-    // Referral payout — fire-and-forget AFTER commit (admin-approve path).
-    void maybePayReferralReward(request.userId).catch((e) =>
-      logger.error({ err: e?.message, userId: request.userId }, "referral: payout hook failed (approve request)"),
-    );
 
     // v4 wallet was funded INSIDE the approval transaction above (atomic with
     // the legacy grant). If it had failed, the whole approval would have rolled

@@ -8,7 +8,6 @@ import { motion } from "framer-motion";
 import { useGetLessonViews } from "@workspace/api-client-react";
 import { CheckCircle2, Star, GraduationCap, Terminal, Sparkles, ArrowLeft, Keyboard } from "lucide-react";
 import { useLang } from "@/lib/lang-context";
-import { ReferralGemsModal } from "@/components/referral-gems-modal";
 import { totalLessons as typingTotalLessons, sections as typingSections } from "@/lib/typing-curriculum";
 
 /* Map Tailwind color class prefix to actual hex for glow */
@@ -223,9 +222,6 @@ export default function Learn() {
               {tr.learn.desc}
             </p>
           </motion.div>
-
-          {/* Referral gems banner — inline, signed-in only */}
-          <ReferralGemsModal inline />
 
           {/* Typing Trainer Banner */}
           <motion.div

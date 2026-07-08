@@ -336,8 +336,6 @@ export async function userHasAnyAccess(userId: number): Promise<boolean> {
   if (!user) return false;
 
   if (!user.firstLessonComplete) return true;
-  if ((user.referralSessionsLeft ?? 0) > 0) return true;
-
   const now = new Date();
 
   const subs = await db

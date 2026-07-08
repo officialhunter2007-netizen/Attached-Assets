@@ -410,7 +410,6 @@ async function getSubjectAccess(userId: number, subjectId: string, user: any) {
     canAccessViaSubjectSub,
     canAccessViaLegacyGlobal: hasLegacyGemsSub || hasLegacyMessagesSub,
     canAccessViaSubscription,
-    canAccessViaReferral: false,
     hasActiveSub,
     quotaExhausted,
     subjectSub,

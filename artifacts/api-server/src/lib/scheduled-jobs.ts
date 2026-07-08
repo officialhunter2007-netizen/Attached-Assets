@@ -34,7 +34,6 @@ import { getYemenDateString } from "./yemen-time";
 import { logger } from "./logger";
 import { startTeacherImageMaintenance } from "./teacher-image-store";
 import { sweepV4ExpiredWallets } from "./v4-gem-wallet";
-import { sweepReferralRewards } from "./v4-referral";
 import { runWeeklyMemorySweep } from "./v4-memory";
 import { reapOrphanedProcessingBooklets } from "./v4-booklet";
 import { prewarmLessonContentForVersion } from "./v4-teaching-core";
@@ -120,21 +119,6 @@ async function runRolloverSweep(): Promise<void> {
       logger.error({ err: err?.message }, "scheduled-jobs: v4 expiry sweep crashed");
     }
 
-    // Referral reward sweep — safety net for the per-grant payout hooks. Walks
-    // every unpaid referral pair and pays the ones where BOTH sides now hold an
-    // active Silver/Gold sub (e.g. a grant whose post-commit hook never fired
-    // because the process crashed). Idempotent via referrals.reward_paid_at.
-    try {
-      const ref = await sweepReferralRewards();
-      if (ref.paid > 0 || ref.errors > 0) {
-        logger.info(
-          { paid: ref.paid, errors: ref.errors },
-          "scheduled-jobs: referral reward sweep complete",
-        );
-      }
-    } catch (err: any) {
-      logger.error({ err: err?.message }, "scheduled-jobs: referral reward sweep crashed");
-    }
 
     // task #6: weekly memory summary sweep. Runs every hour but bounded
     // to MAX_PER_TICK users so Haiku load is spread across the day even
