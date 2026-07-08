@@ -463,7 +463,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   const navItems = [
     { href: "/learn", label: tr.nav.learn },
-    { href: "/dashboard", label: tr.nav.dashboard },
     { href: "/subscription", label: tr.nav.subscription },
     ...(user?.role === "admin" ? [{ href: "/admin", label: tr.nav.admin }] : []),
   ];

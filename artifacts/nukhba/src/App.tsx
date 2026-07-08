@@ -15,7 +15,6 @@ import Welcome from "@/pages/welcome";
 import Learn from "@/pages/learn";
 import Subject from "@/pages/subject";
 import Lesson from "@/pages/lesson";
-import Dashboard from "@/pages/dashboard";
 import Subscription from "@/pages/subscription";
 import Usage from "@/pages/usage";
 import { WelcomeOfferModal } from "@/components/welcome-offer-modal";
@@ -226,7 +225,6 @@ function Router() {
       <Route path="/specialty/:slug/lesson/:code" component={() => <ProtectedRoute component={V4Lesson} />} />
       <Route path="/subject/:subjectId" component={() => <ProtectedRoute component={SubjectGate} />} />
       <Route path="/lesson/:subjectId/:unitId/:lessonId" component={() => <ProtectedRoute component={Lesson} />} />
-      <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
       <Route path="/subscription" component={() => <ProtectedRoute component={Subscription} />} />
       <Route path="/usage" component={() => <ProtectedRoute component={Usage} />} />
       <Route path="/admin" component={() => <ProtectedRoute component={Admin} />} />
