@@ -1020,77 +1020,112 @@ export default function TypingLesson() {
               transition={{ type: "spring", stiffness: 270, damping: 22 }}
               onClick={(e) => e.stopPropagation()}
               dir="rtl"
-              className="rounded-3xl p-7 max-w-md w-full"
+              className="rounded-3xl w-full overflow-y-auto"
               style={{
-                background: "linear-gradient(150deg, rgba(14,18,32,0.99), rgba(9,12,24,0.99))",
-                border: "1px solid rgba(245,158,11,0.20)",
-                boxShadow: "0 0 80px rgba(245,158,11,0.08), 0 28px 80px rgba(0,0,0,0.65)",
+                maxWidth: 680,
+                maxHeight: "92vh",
+                background: "linear-gradient(150deg, rgba(12,16,30,0.99), rgba(8,11,22,0.99))",
+                border: "1px solid rgba(245,158,11,0.22)",
+                boxShadow: "0 0 100px rgba(245,158,11,0.09), 0 32px 80px rgba(0,0,0,0.70)",
               }}
             >
-              <div className="text-center mb-5">
-                <div className="text-3xl mb-2">⌨️</div>
-                <h2 className="text-lg font-black text-white leading-snug">{lesson.title}</h2>
-                <p className="text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.35)" }}>
-                  قبل أن تبدأ — تأكد من هذه النقاط الثلاث
+              <div className="p-6 pb-0">
+                <div className="text-center mb-4">
+                  <div className="text-2xl mb-1.5">⌨️</div>
+                  <h2 className="text-base font-black text-white leading-snug">{lesson.title}</h2>
+                  <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.32)" }}>
+                    اقرأ هذا قبل أن تبدأ — سيوفّر عليك أسابيع من العادات الخاطئة
+                  </p>
+                </div>
+              </div>
+
+              <div className="px-5 pb-5 space-y-3">
+
+                <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+                  <img
+                    src="/home-row-hands.png"
+                    alt="وضع الأصابع على الصف الرئيسي"
+                    className="w-full block"
+                    style={{ maxHeight: 210, objectFit: "cover", objectPosition: "center 40%" }}
+                  />
+                  <div className="px-4 py-2.5" style={{ background: "rgba(16,185,129,0.08)" }}>
+                    <p className="text-xs font-bold text-center" style={{ color: "#10B981" }}>
+                      هكذا تُوضع يداك على الصف الرئيسي — كل إصبع على مفتاحه الثابت
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl px-4 py-3" style={{ background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.15)" }}>
+                  <div className="text-xs font-bold mb-2.5" style={{ color: "#10B981" }}>🖐️ توزيع الأصابع على المفاتيح</div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    {([
+                      ["🔴","الخنصر",     "A","J"],
+                      ["🟢","البنصر",     "S","L"],
+                      ["🔵","الوسطى",     "D","K"],
+                      ["🟡","السبّابة",  "F+G","H+J"],
+                    ] as const).map(([dot, name, left, right]) => (
+                      <div key={name as string} className="col-span-2 flex items-center gap-2 text-xs">
+                        <span className="text-sm">{dot as string}</span>
+                        <span className="font-semibold" style={{ color: "rgba(255,255,255,0.65)", minWidth: 56 }}>{name as string}</span>
+                        <span className="font-mono font-bold px-1.5 py-0.5 rounded text-xs" style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.45)" }}>اليسرى: {left as string}</span>
+                        <span className="font-mono font-bold px-1.5 py-0.5 rounded text-xs" style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.45)" }}>اليمنى: {right as string}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2.5 pt-2.5 text-xs" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.38)" }}>
+                    👍 الإبهامان على مفتاح <strong style={{ color: "rgba(255,255,255,0.55)" }}>المسافة (Space)</strong> — يمكنك استخدام أي منهما
+                  </div>
+                </div>
+
+                <div className="rounded-2xl px-4 py-3" style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.15)" }}>
+                  <div className="text-xs font-bold mb-1.5" style={{ color: "#F59E0B" }}>✨ سرّ مفتاحَي F و J</div>
+                  <p className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.52)" }}>
+                    ستجد على مفتاح <strong style={{ color: "#F59E0B" }}>F</strong> و <strong style={{ color: "#F59E0B" }}>J</strong> نتوءاً صغيراً يمكن تحسّسه بالإصبع. ضع سبّابتيك عليهما دون النظر — هذان هما <strong style={{ color: "rgba(255,255,255,0.7)" }}>نقطتا الارتكاز</strong> اللتان تُعيد يديك إليهما دائماً بعد كل ضغطة.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="rounded-2xl px-3.5 py-3" style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.13)" }}>
+                    <div className="text-sm mb-1">👁️</div>
+                    <div className="text-xs font-bold mb-0.5" style={{ color: "#F59E0B" }}>عيناك على الشاشة</div>
+                    <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      لا تنظر إلى لوحة المفاتيح أبداً — حتى لو أخطأت. هذا هو السر الوحيد لأي كاتب سريع.
+                    </div>
+                  </div>
+                  <div className="rounded-2xl px-3.5 py-3" style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.13)" }}>
+                    <div className="text-sm mb-1">💺</div>
+                    <div className="text-xs font-bold mb-0.5" style={{ color: "#818CF8" }}>الجلسة الصحيحة</div>
+                    <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      ظهر مستقيم، مرفقان بزاوية 90°، الشاشة على مستوى العينين. لا تنحنِ أمام الجهاز.
+                    </div>
+                  </div>
+                  <div className="rounded-2xl px-3.5 py-3" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.13)" }}>
+                    <div className="text-sm mb-1">🐢</div>
+                    <div className="text-xs font-bold mb-0.5" style={{ color: "#F87171" }}>البطء أولاً</div>
+                    <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      ابدأ ببطء شديد مع دقة 100%. السرعة ستأتي وحدها لاحقاً — لا تتعجّل الآن.
+                    </div>
+                  </div>
+                  <div className="rounded-2xl px-3.5 py-3" style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.13)" }}>
+                    <div className="text-sm mb-1">🏠</div>
+                    <div className="text-xs font-bold mb-0.5" style={{ color: "#A78BFA" }}>عُد دائماً للبيت</div>
+                    <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      بعد كل ضغطة على مفتاح بعيد، أعد أصابعك فوراً إلى الصف الرئيسي. F و J هما البيت.
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowIntro(false)}
+                  className="w-full py-3.5 rounded-2xl font-black text-base transition-opacity hover:opacity-90 mt-1"
+                  style={{ background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#000" }}
+                >
+                  فهمت — ابدأ الكتابة ←
+                </button>
+                <p className="text-center text-xs pb-1" style={{ color: "rgba(255,255,255,0.16)" }}>
+                  أو اضغط أي مفتاح للبدء
                 </p>
               </div>
-
-              <div className="space-y-2.5 mb-6">
-                <div
-                  className="flex items-start gap-3.5 rounded-2xl px-4 py-3.5"
-                  style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.16)" }}
-                >
-                  <span className="text-xl mt-0.5 flex-shrink-0">👁️</span>
-                  <div>
-                    <div className="text-sm font-bold mb-0.5" style={{ color: "#F59E0B" }}>
-                      عيناك على الشاشة
-                    </div>
-                    <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.52)" }}>
-                      انظر دائماً إلى النص فقط — لا تنظر إلى لوحة المفاتيح أبداً. هذا هو سر الكتابة السريعة.
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  className="rounded-2xl px-4 py-3"
-                  style={{ background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.16)" }}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-lg">🖐️</span>
-                    <span className="text-sm font-bold" style={{ color: "#10B981" }}>أصابعك على الصف الرئيسي</span>
-                  </div>
-                  <HomeRowDiagram />
-                  <div className="text-xs mt-2 text-center" style={{ color: "rgba(255,255,255,0.38)" }}>
-                    كل إصبع له لون — <span style={{ color: "#F59E0B" }}>F</span> و <span style={{ color: "#F59E0B" }}>J</span> بهما نتوء تحسّه دون النظر
-                  </div>
-                </div>
-
-                <div
-                  className="flex items-start gap-3.5 rounded-2xl px-4 py-3.5"
-                  style={{ background: "rgba(99,102,241,0.07)", border: "1px solid rgba(99,102,241,0.16)" }}
-                >
-                  <span className="text-xl mt-0.5 flex-shrink-0">💺</span>
-                  <div>
-                    <div className="text-sm font-bold mb-0.5" style={{ color: "#818CF8" }}>
-                      الوضعية الصحيحة
-                    </div>
-                    <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.52)" }}>
-                      ظهر مستقيم، رأس مرفوع، مرفقان بزاوية 90° على الطاولة — تقلل التعب وتزيد السرعة.
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowIntro(false)}
-                className="w-full py-3.5 rounded-2xl font-black text-base transition-opacity hover:opacity-90"
-                style={{ background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#000" }}
-              >
-                ابدأ الكتابة ←
-              </button>
-              <p className="text-center text-xs mt-2.5" style={{ color: "rgba(255,255,255,0.18)" }}>
-                أو اضغط أي مفتاح للبدء
-              </p>
             </motion.div>
           </motion.div>
         )}
