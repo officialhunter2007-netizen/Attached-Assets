@@ -190,6 +190,16 @@ const OTHER_CODE_LANGS = new Set([
 ]);
 
 /**
+ * A fence tagged with language + "-خطأ" / "-wrong" / "-bad" suffix signals
+ * an intentional wrong-code example where Arabic identifiers must be PRESERVED
+ * (the pedagogical point would be lost if they were transliterated).
+ *
+ * The latinizer strips the suffix so the renderer sees the clean base language
+ * and applies syntax highlighting normally. Example: ```python-خطأ → ```python
+ */
+const WRONG_SUFFIX_RE = /-(خطأ|wrong|bad)$/i;
+
+/**
  * Only fenced blocks explicitly tagged with a REAL programming/markup
  * language are treated as "code" and latinized. Anything else — untagged,
  * "text"/"plaintext", or a dedicated non-code tag like "output"/"stdout"/
@@ -364,15 +374,17 @@ export function latinizeCodeIdentifiers(md: string): string {
       // Untagged fences, "text"/"output"/"stdout"/etc. are literal content
       // (e.g. program output) and must never be transliterated — see
       // isKnownCodeLang() doc-comment for why this must stay strict.
-      const codeLang = isKnownCodeLang(lang) ? lang : null;
+      const isNoLatinize = WRONG_SUFFIX_RE.test(lang);
+      const baseLang = isNoLatinize ? lang.replace(WRONG_SUFFIX_RE, "").trim() : lang;
+      const outTag = isNoLatinize ? baseLang : langTag;
+      const codeLang = !isNoLatinize && isKnownCodeLang(lang) ? lang : null;
       if (close === -1) {
-        // Unterminated fence (streaming): latinize the remainder.
         const rest = md.slice(bodyStart);
-        out += "```" + langTag + (j < n ? "\n" : "") + (codeLang ? latinizeCodeBody(rest, codeLang, st) : rest);
+        out += "```" + outTag + (j < n ? "\n" : "") + (codeLang ? latinizeCodeBody(rest, codeLang, st) : rest);
         i = n;
       } else {
         const body = md.slice(bodyStart, close);
-        out += "```" + langTag + "\n" + (codeLang ? latinizeCodeBody(body, codeLang, st) : body) + "```";
+        out += "```" + outTag + "\n" + (codeLang ? latinizeCodeBody(body, codeLang, st) : body) + "```";
         i = close + 3;
       }
       continue;
