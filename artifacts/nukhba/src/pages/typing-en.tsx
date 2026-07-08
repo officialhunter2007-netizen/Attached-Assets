@@ -36,7 +36,7 @@ function LessonCard({
   const stars = progress?.stars ?? 0;
 
   return (
-    <Link href={locked ? "#" : `/typing-en/lesson/${lesson.id}`}>
+    <Link href={locked ? "#" : `/typing/lesson/${lesson.id}`}>
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -261,7 +261,7 @@ export default function TypingEn() {
               </div>
 
               {firstIncomplete && (
-                <Link href={`/typing-en/lesson/${firstIncomplete.id}`}>
+                <Link href={`/typing/lesson/${firstIncomplete.id}`}>
                   <motion.button
                     whileTap={{ scale: 0.97 }}
                     className="mt-4 px-6 py-3 rounded-2xl text-sm font-bold text-white"

@@ -556,7 +556,7 @@ function StarDisplay({ count }: { count: 1 | 2 | 3 }) {
 type Phase = "idle" | "active" | "complete";
 
 export default function TypingLesson() {
-  const [, params] = useRoute("/typing-en/lesson/:id");
+  const [, params] = useRoute("/typing/lesson/:id");
   const [, navigate] = useLocation();
   const id = parseInt(params?.id ?? "1", 10);
   const lesson = getLessonById(id);
@@ -576,7 +576,7 @@ export default function TypingLesson() {
           for (const l of ordered) {
             if (completedIds.has(l.id)) { unlockedUpTo = l.id + 1; } else { break; }
           }
-          if (id > unlockedUpTo) { navigate("/typing-en"); return; }
+          if (id > unlockedUpTo) { navigate("/typing"); return; }
         }
       } catch {}
       setLockChecked(true);
@@ -749,7 +749,7 @@ export default function TypingLesson() {
       <div className="min-h-screen pt-2 pb-2 px-4" style={{ direction: "ltr" }}>
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            <Link href="/typing-en">
+            <Link href="/typing">
               <button className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white transition-colors">
                 <ArrowLeft className="w-4 h-4" />
                 العودة إلى الدروس
@@ -979,7 +979,7 @@ export default function TypingLesson() {
                 </button>
                 {nextLesson ? (
                   <button
-                    onClick={() => navigate(`/typing-en/lesson/${nextLesson.id}`)}
+                    onClick={() => navigate(`/typing/lesson/${nextLesson.id}`)}
                     className="py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5 transition-colors"
                     style={{ background: "#F59E0B", color: "#000" }}
                   >
@@ -987,7 +987,7 @@ export default function TypingLesson() {
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 ) : (
-                  <Link href="/typing-en">
+                  <Link href="/typing">
                     <button
                       className="w-full py-2.5 rounded-xl text-sm font-bold transition-colors"
                       style={{ background: "#10B981", color: "#fff" }}

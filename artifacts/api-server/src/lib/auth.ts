@@ -55,3 +55,7 @@ export function isLegacyPasswordHash(stored: string): boolean {
 export function generateActivationCode(): string {
   return randomBytes(8).toString("hex").toUpperCase();
 }
+
+export function generateReferralCode(): string {
+  return randomBytes(5).toString("hex").toUpperCase();
+}

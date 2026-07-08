@@ -18,6 +18,12 @@ function requireCsrf(req: Request, res: Response, next: NextFunction): void {
     res.status(403).json({ error: "CSRF check failed" });
     return;
   }
+  const origin = req.headers["origin"] ?? req.headers["referer"] ?? "";
+  const host = req.headers["host"] ?? "";
+  if (origin && !origin.includes(host.split(":")[0])) {
+    res.status(403).json({ error: "Origin check failed" });
+    return;
+  }
   next();
 }
 

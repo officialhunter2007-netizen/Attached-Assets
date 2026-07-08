@@ -49,6 +49,8 @@ export type Section = {
 
 type RawLesson = [string, string, number?];
 
+const MAX_LESSONS_PER_SECTION = 25;
+
 function buildSection(
   index: number,
   title: string,
@@ -59,7 +61,7 @@ function buildSection(
   emoji: string,
   rawLessons: RawLesson[],
 ): Section {
-  const lessons: Lesson[] = rawLessons.map(([t, text, wpm], li) => ({
+  const lessons: Lesson[] = rawLessons.slice(0, MAX_LESSONS_PER_SECTION).map(([t, text, wpm], li) => ({
     id: 0,
     sectionIndex: index,
     lessonIndex: li,

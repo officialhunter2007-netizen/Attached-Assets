@@ -37,6 +37,7 @@ import { sweepV4ExpiredWallets } from "./v4-gem-wallet";
 import { runWeeklyMemorySweep } from "./v4-memory";
 import { reapOrphanedProcessingBooklets } from "./v4-booklet";
 import { prewarmLessonContentForVersion } from "./v4-teaching-core";
+import { sweepReferralRewards } from "./v4-referral";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const FIVE_MIN_MS = 5 * 60 * 1000;
@@ -135,6 +136,20 @@ async function runRolloverSweep(): Promise<void> {
       }
     } catch (err: any) {
       logger.error({ err: err?.message }, "scheduled-jobs: v4 weekly memory sweep crashed");
+    }
+
+    // Referral reward sweep — safety net for the per-grant payout hooks.
+    // Idempotent via referrals.reward_paid_at.
+    try {
+      const ref = await sweepReferralRewards();
+      if (ref.paid > 0 || ref.errors > 0) {
+        logger.info(
+          { paid: ref.paid, errors: ref.errors },
+          "scheduled-jobs: referral reward sweep complete",
+        );
+      }
+    } catch (err: any) {
+      logger.error({ err: err?.message }, "scheduled-jobs: referral reward sweep crashed");
     }
 
     // Lesson-content pre-warm safety net — fills any gaps left by a server

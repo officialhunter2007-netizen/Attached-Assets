@@ -462,6 +462,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const loginUrl = "/api/auth/google";
 
   const navItems = [
+    { href: "/dashboard", label: tr.nav.dashboard },
     { href: "/learn", label: tr.nav.learn },
     { href: "/subscription", label: tr.nav.subscription },
     ...(user?.role === "admin" ? [{ href: "/admin", label: tr.nav.admin }] : []),

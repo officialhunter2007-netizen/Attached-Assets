@@ -146,6 +146,55 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    table: "referrals",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "referrals" (
+        "id" serial PRIMARY KEY,
+        "referrer_user_id" integer NOT NULL,
+        "referred_user_id" integer NOT NULL,
+        "referral_code" text NOT NULL,
+        "access_days_granted" integer DEFAULT 0,
+        "reward_paid_at" timestamp with time zone,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_referrals_referred_user" ON "referrals" ("referred_user_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_referrals_referrer_user" ON "referrals" ("referrer_user_id")`,
+    ],
+  },
+  {
+    table: "referral_reward_pools",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "referral_reward_pools" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL UNIQUE,
+        "earned_gems" integer NOT NULL DEFAULT 0,
+        "allocated_gems" integer NOT NULL DEFAULT 0,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [],
+  },
+  {
+    table: "referral_reward_allocations",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "referral_reward_allocations" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "subject_id" text NOT NULL,
+        "gems_allocated" integer NOT NULL DEFAULT 0,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_referral_reward_alloc_user_subject" ON "referral_reward_allocations" ("user_id", "subject_id")`,
+      `CREATE INDEX IF NOT EXISTS "idx_referral_reward_alloc_user" ON "referral_reward_allocations" ("user_id")`,
+    ],
+  },
+  {
     // test-out: GLOBAL cached MCQ pool per (versionId, targetUnitCode).
     table: "v4_testout_pools",
     createSql: `
@@ -1395,6 +1444,9 @@ const REQUIRED_COLUMNS: TableSpec[] = [
       { name: "profile_image", ddl: "text" },
       { name: "role", ddl: "text NOT NULL DEFAULT 'user'" },
       { name: "password_hash", ddl: "text" },
+      { name: "referral_access_until", ddl: "timestamp with time zone" },
+      { name: "referral_code", ddl: "text" },
+      { name: "referral_sessions_left", ddl: "integer NOT NULL DEFAULT 0" },
     ],
   },
   {
@@ -1809,6 +1861,18 @@ export async function runStartupMigrations(): Promise<void> {
       logger.error(
         { err: err?.message },
         "auto-migrate: failed to create uq_gem_ledger_user_request index",
+      );
+    }
+    // users.referral_code unique index — referral_code is added via
+    // REQUIRED_COLUMNS first, so the index creation here is safe to run after.
+    try {
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_users_referral_code" ON "users" ("referral_code")`,
+      ));
+    } catch (err: any) {
+      logger.error(
+        { err: err?.message },
+        "auto-migrate: failed to create uq_users_referral_code index",
       );
     }
     // Hands-on "التطبيق العملي" system — permanently removed. Drop the cache

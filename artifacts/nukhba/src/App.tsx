@@ -34,11 +34,10 @@ import BookletLab from "@/pages/booklet-lab";
 import BookletExam from "@/pages/booklet-exam";
 import CodingRooms from "@/pages/coding-rooms";
 import CodingRoom from "@/pages/coding-room";
-import Typing from "@/pages/typing";
+import Dashboard from "@/pages/dashboard";
+import { ReferralGemsModal } from "@/components/referral-gems-modal";
 import TypingEn from "@/pages/typing-en";
-import TypingAr from "@/pages/typing-ar";
 import TypingLesson from "@/pages/typing-lesson";
-import TypingLessonAr from "@/pages/typing-lesson-ar";
 
 const queryClient = new QueryClient();
 
@@ -233,11 +232,9 @@ function Router() {
       <Route path="/support" component={() => <ProtectedRoute component={Support} />} />
       <Route path="/coding-rooms" component={() => <ProtectedRoute component={CodingRooms} />} />
       <Route path="/coding-room/:roomId" component={() => <ProtectedRoute component={CodingRoom} />} />
-      <Route path="/typing" component={() => <ProtectedRoute component={Typing} />} />
-      <Route path="/typing-en" component={() => <ProtectedRoute component={TypingEn} />} />
-      <Route path="/typing-ar" component={() => <ProtectedRoute component={TypingAr} />} />
-      <Route path="/typing-en/lesson/:id" component={() => <ProtectedRoute component={TypingLesson} />} />
-      <Route path="/typing-ar/lesson/:id" component={() => <ProtectedRoute component={TypingLessonAr} />} />
+      <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
+      <Route path="/typing" component={() => <ProtectedRoute component={TypingEn} />} />
+      <Route path="/typing/lesson/:id" component={() => <ProtectedRoute component={TypingLesson} />} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -253,6 +250,7 @@ function App() {
               <Router />
               <WelcomeOfferModal />
               <WelcomeGiftModal />
+              <ReferralGemsModal />
             </WouterRouter>
             <Toaster />
           </TooltipProvider>
