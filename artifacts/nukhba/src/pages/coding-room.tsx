@@ -10,6 +10,7 @@ import {
   Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2,
   Folder, FolderOpen, Trash2, FolderTree, Square, MoreVertical, FolderPlus,
   RefreshCw, Monitor, Smartphone, Maximize2, ExternalLink, Package,
+  HelpCircle, BookOpen, Lightbulb, ChevronRight, Zap, Shield, Info,
 } from "lucide-react";
 
 type Member = {
@@ -78,6 +79,64 @@ const RUN_LANG_MAP: Record<string, string> = {
 function runLangFor(filePath: string): string | null {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   return RUN_LANG_MAP[ext] ?? null;
+}
+
+type ErrorHint = {
+  severity: "error" | "warning" | "info";
+  title: string;
+  explanation: string;
+  suggestion: string;
+  pkgName?: string;
+};
+
+function analyzeOutput(output: string, lang: string): ErrorHint | null {
+  const o = output;
+  if (lang === "python" || o.includes("Traceback (most recent call last)")) {
+    const m1 = o.match(/ModuleNotFoundError: No module named '([^']+)'/);
+    if (m1) {
+      const pkg = m1[1].split(".")[0];
+      return { severity: "error", title: `مكتبة «${pkg}» غير مثبتة`, explanation: `البرنامج يحاول استيراد مكتبة «${pkg}» لكنها غير موجودة في البيئة الحالية.`, suggestion: `اضغط زر «تنزيل مكتبة 📦» في الشريط العلوي واكتب: ${pkg}`, pkgName: pkg };
+    }
+    const m2 = o.match(/ImportError: cannot import name '([^']+)' from '([^']+)'/);
+    if (m2) return { severity: "error", title: `خطأ في الاستيراد`, explanation: `لا يمكن استيراد «${m2[1]}» من مكتبة «${m2[2]}». قد يكون الاسم خاطئاً أو المكتبة قديمة.`, suggestion: `راجع توثيق مكتبة «${m2[2]}» للتأكد من الاسم الصحيح.` };
+    if (o.includes("SyntaxError:")) {
+      const lineMatch = o.match(/line (\d+)/);
+      return { severity: "error", title: `خطأ في الصياغة${lineMatch ? ` — السطر ${lineMatch[1]}` : ""}`, explanation: `يوجد خطأ في كتابة الكود. غالباً قوس مفقود أو نقطتان مفقودتان أو علامة اقتباس غير مكتملة.`, suggestion: `راجع${lineMatch ? ` السطر ${lineMatch[1]} و` : ""} الأسطر المجاورة بحثاً عن أقواس أو علامات غير مكتملة.` };
+    }
+    if (o.includes("IndentationError:")) return { severity: "error", title: `خطأ في المسافات البادئة`, explanation: `Python يعتمد على المسافات البادئة لتحديد بنية الكود. هناك تضارب في المسافات.`, suggestion: `استخدم نفس عدد المسافات في كل مستوى ولا تخلط بين Spaces وTabs.` };
+    const m3 = o.match(/NameError: name '([^']+)' is not defined/);
+    if (m3) return { severity: "error", title: `«${m3[1]}» غير معرَّف`, explanation: `البرنامج يحاول استخدام «${m3[1]}» لكنه لم يُعرَّف بعد أو يوجد خطأ إملائي.`, suggestion: `تحقق من إملاء «${m3[1]}» وتأكد من تعريفه قبل استخدامه.` };
+    const m4 = o.match(/AttributeError: '([^']+)' object has no attribute '([^']+)'/);
+    if (m4) return { severity: "error", title: `خاصية «${m4[2]}» غير موجودة`, explanation: `الكائن من نوع «${m4[1]}» لا يملك خاصية أو دالة باسم «${m4[2]}».`, suggestion: `استخدم dir(obj) لرؤية الخصائص المتاحة، أو راجع توثيق «${m4[1]}».` };
+    if (o.includes("TypeError:")) { const d = o.match(/TypeError: (.+)/)?.[1] ?? ""; return { severity: "error", title: `خطأ في نوع البيانات`, explanation: `تعارض في أنواع البيانات: ${d.slice(0, 100)}.`, suggestion: `استخدم type() للتحقق من نوع المتغيرات قبل تمريرها للدوال.` }; }
+    if (o.includes("IndexError:")) return { severity: "error", title: `الفهرس خارج النطاق`, explanation: `تحاول الوصول لعنصر بفهرس أكبر من حجم القائمة.`, suggestion: `تحقق من حجم القائمة بـ len() قبل الوصول بالفهرس، أو استخدم حلقة for مباشرةً.` };
+    const m5 = o.match(/KeyError: (.+)/);
+    if (m5) return { severity: "error", title: `المفتاح ${m5[1].trim()} غير موجود`, explanation: `حاولت الوصول لمفتاح غير موجود في القاموس.`, suggestion: `استخدم dict.get(key, default) بدلاً من dict[key]، أو تحقق: if key in dict.` };
+    if (o.includes("FileNotFoundError:")) return { severity: "error", title: `الملف غير موجود`, explanation: `البرنامج يحاول فتح ملف لا يوجد في المسار المحدد.`, suggestion: `في الغرفة البرمجية الملفات موجودة في نفس مجلد العمل. تحقق من الاسم والمسار.` };
+    if (o.includes("ZeroDivisionError:")) return { severity: "error", title: `القسمة على صفر`, explanation: `البرنامج يقسم على صفر وهو غير مسموح به رياضياً.`, suggestion: `أضف تحققاً: if divisor != 0: result = a / divisor` };
+    if (o.includes("RecursionError:")) return { severity: "error", title: `تكرار لا نهائي`, explanation: `الدالة تستدعي نفسها بلا توقف — تنقصك حالة الإيقاف (base case).`, suggestion: `أضف شرط توقف للدالة التكرارية يوقف الاستدعاء عند وصول الإدخال لحالة محددة.` };
+    if (o.match(/ConnectionRefusedError|ConnectionError|urllib\.error|requests\.exceptions|socket\.gaierror/)) return { severity: "warning", title: `لا يمكن الاتصال بالشبكة`, explanation: `بيئة الغرفة البرمجية لا تسمح بالاتصال بالإنترنت الخارجي.`, suggestion: `اختبر الكود ببيانات محلية أو ملفات بدلاً من جلب البيانات من الإنترنت.` };
+    if (o.includes("Traceback (most recent call last)")) return { severity: "error", title: `خطأ في تشغيل البرنامج`, explanation: `توقف البرنامج بسبب خطأ. اقرأ آخر سطرين في الناتج لفهم نوع الخطأ تحديداً.`, suggestion: `ابحث عن السطر الأخير الذي يبدأ بـ "Error:" — هو الوصف الأساسي للخطأ.` };
+  }
+  if (lang === "javascript" || lang === "typescript") {
+    const m6 = o.match(/Cannot find module '([^']+)'/);
+    if (m6) { const pkg = m6[1]; const isLocal = pkg.startsWith("."); return { severity: "error", title: isLocal ? `الملف «${pkg}» غير موجود` : `حزمة «${pkg}» غير مثبتة`, explanation: isLocal ? `الملف المستورد «${pkg}» غير موجود في المسار المحدد.` : `البرنامج يحاول استيراد «${pkg}» لكنها غير مثبتة.`, suggestion: isLocal ? `تحقق من المسار الصحيح للملف.` : `اضغط «تنزيل مكتبة 📦» واكتب: ${pkg}`, pkgName: isLocal ? undefined : pkg }; }
+    const m7 = o.match(/ReferenceError: ([^\s]+) is not defined/);
+    if (m7) return { severity: "error", title: `«${m7[1]}» غير معرَّف`, explanation: `المتغير أو الدالة «${m7[1]}» يُستخدم قبل تعريفه.`, suggestion: `أعلن عن المتغير بـ const أو let قبل استخدامه.` };
+    if (o.match(/TypeError: .+ is not a function/)) { const d = o.match(/TypeError: (.+) is not a function/)?.[1] ?? ""; return { severity: "error", title: `«${d.slice(0,40)}» ليست دالة`, explanation: `تحاول استدعاء شيء كدالة لكنه ليس كذلك.`, suggestion: `تحقق من نوع المتغير: console.log(typeof variable) قبل استدعائه.` }; }
+    if (o.match(/TypeError: Cannot read propert/)) return { severity: "error", title: `قراءة خاصية من قيمة فارغة`, explanation: `تحاول الوصول لخاصية متغير قيمته null أو undefined.`, suggestion: `تحقق قبل الوصول: if (obj) { ... } أو استخدم optional chaining: obj?.property` };
+    if (o.includes("SyntaxError:")) return { severity: "error", title: `خطأ في الصياغة`, explanation: `هناك خطأ في بنية الكود. غالباً قوس مفقود أو فاصلة خاطئة.`, suggestion: `راجع الأسطر حول الخطأ المذكور بحثاً عن أقواس غير مكتملة.` };
+  }
+  if (lang === "c" || lang === "cpp") {
+    const m8 = o.match(/error: '([^']+)' was not declared in this scope/);
+    if (m8) return { severity: "error", title: `«${m8[1]}» غير معرَّف في هذا النطاق`, explanation: `المتغير أو الدالة «${m8[1]}» يُستخدم قبل تعريفه أو بدون تضمين المكتبة الصحيحة.`, suggestion: `تأكد من تضمين المكتبة (#include) المناسبة وتعريف المتغير قبل استخدامه.` };
+    if (o.match(/undefined reference to/)) return { severity: "error", title: `مرجع غير محدود (Linker Error)`, explanation: `المترجم لا يجد تعريف دالة مستخدمة. غالباً مكتبة رياضية غير مرتبطة.`, suggestion: `إذا تستخدم دوالاً رياضية (sqrt, pow…) تأكد من وجود #include <math.h> والعلَم -lm.` };
+    if (o.includes("Segmentation fault")) return { severity: "error", title: `خطأ في الذاكرة (Segmentation Fault)`, explanation: `البرنامج حاول الوصول لمنطقة ذاكرة غير مسموح بها — مؤشر NULL أو مصفوفة خارج الحدود.`, suggestion: `١) تحقق من عدم تجاوز حدود المصفوفات ٢) هيّئ المؤشرات قبل الاستخدام ٣) لا تصل لذاكرة بعد تحريرها.` };
+    const m9 = o.match(/fatal error: (.+): No such file or directory/);
+    if (m9) return { severity: "error", title: `ملف الرأس «${m9[1]}» غير موجود`, explanation: `المكتبة التي تحاول تضمينها غير متاحة في البيئة.`, suggestion: `المكتبات المتاحة: stdio.h, stdlib.h, string.h, math.h, time.h, stdbool.h.` };
+  }
+  if (o.match(/\bKilled\b|killed by signal|MemoryError/i)) return { severity: "warning", title: `البرنامج استهلك موارد كثيرة وتم إيقافه`, explanation: `البرنامج استهلك ذاكرة كبيرة أو دخل في حلقة لا نهائية.`, suggestion: `تحقق من عدم وجود حلقات لا نهائية. إذا تعمل ببيانات ضخمة عالجها على دفعات صغيرة.` };
+  return null;
 }
 
 function sanitizeEntryCode(lang: string, code: string): string {
@@ -503,6 +562,8 @@ export default function CodingRoom() {
   const [showInstallInput, setShowInstallInput] = useState(false);
   const [installInput, setInstallInput] = useState("");
   const [installedPkgs, setInstalledPkgs] = useState<string[]>([]);
+  const [errorHint, setErrorHint] = useState<ErrorHint | null>(null);
+  const [showRoomGuide, setShowRoomGuide] = useState(false);
   const [liveOutput, setLiveOutput] = useState("");
   const [inputLine, setInputLine] = useState("");
   const liveOutputRef = useRef("");
@@ -918,16 +979,21 @@ export default function CodingRoom() {
         break;
       }
 
-      case "process_exit":
+      case "process_exit": {
         setProcessRunning(false);
+        const exitOutput = liveOutputRef.current || "(لا ناتج)";
+        const exitLang = processRunnerRef.current?.language ?? "";
         setRunOutputs((prev) => [...prev, {
           triggeredBy: processRunnerRef.current?.id ?? -1,
           triggeredByName: processRunnerRef.current?.name ?? "؟",
-          output: liveOutputRef.current || "(لا ناتج)",
-          language: processRunnerRef.current?.language ?? "",
+          output: exitOutput,
+          language: exitLang,
           timestamp: new Date().toISOString(),
         }]);
+        const hint = analyzeOutput(exitOutput, exitLang);
+        setErrorHint(hint);
         break;
+      }
 
       case "install_done":
         setInstalling(false);
@@ -1595,6 +1661,16 @@ export default function CodingRoom() {
             </button>
           )}
 
+          <button
+            onClick={() => setShowRoomGuide(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all hidden md:flex"
+            style={{ background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.2)", color: "rgba(147,197,253,0.7)" }}
+            title="دليل الغرفة البرمجية"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+            <span>دليل</span>
+          </button>
+
           {myInfo?.role === "host" && (
             <button onClick={handleCloseRoom}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all"
@@ -2163,6 +2239,33 @@ export default function CodingRoom() {
                             <pre className="text-[12px] whitespace-pre-wrap break-all leading-relaxed pb-2 border-b" style={{ color: "rgba(255,255,255,0.82)", borderColor: "rgba(255,255,255,0.04)" }}>{o.output}</pre>
                           </div>
                         ))}
+                        {errorHint && (
+                          <div className="mt-2 rounded-xl overflow-hidden" style={{ border: `1px solid ${errorHint.severity === "error" ? "rgba(239,68,68,0.3)" : errorHint.severity === "warning" ? "rgba(245,158,11,0.3)" : "rgba(96,165,250,0.3)"}`, background: errorHint.severity === "error" ? "rgba(239,68,68,0.06)" : errorHint.severity === "warning" ? "rgba(245,158,11,0.06)" : "rgba(96,165,250,0.06)" }}>
+                            <div className="flex items-center gap-2 px-3 py-2 border-b" style={{ borderColor: errorHint.severity === "error" ? "rgba(239,68,68,0.15)" : errorHint.severity === "warning" ? "rgba(245,158,11,0.15)" : "rgba(96,165,250,0.15)" }}>
+                              <Lightbulb className="w-3.5 h-3.5 shrink-0" style={{ color: errorHint.severity === "error" ? "#F87171" : errorHint.severity === "warning" ? "#FCD34D" : "#93C5FD" }} />
+                              <span className="text-xs font-black flex-1" style={{ color: errorHint.severity === "error" ? "#F87171" : errorHint.severity === "warning" ? "#FCD34D" : "#93C5FD" }}>{errorHint.title}</span>
+                              <button onClick={() => setErrorHint(null)} className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-white/10 transition-colors" style={{ color: "rgba(255,255,255,0.3)" }}>
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <div className="px-3 py-2.5 space-y-2 font-sans">
+                              <p className="text-[11.5px] leading-relaxed" style={{ color: "rgba(255,255,255,0.7)" }}>{errorHint.explanation}</p>
+                              <div className="flex items-start gap-1.5 rounded-lg px-2.5 py-2" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                                <ChevronRight className="w-3 h-3 mt-0.5 shrink-0" style={{ color: "#10B981" }} />
+                                <p className="text-[11.5px] leading-relaxed" style={{ color: "rgba(52,211,153,0.9)" }}>{errorHint.suggestion}</p>
+                              </div>
+                              {errorHint.pkgName && canRun && (
+                                <button
+                                  onClick={() => { setInstallInput(errorHint.pkgName!); setShowInstallInput(true); setErrorHint(null); }}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all w-full justify-center"
+                                  style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", color: "#34D399" }}
+                                >
+                                  <Package className="w-3 h-3" /> تنزيل «{errorHint.pkgName}» الآن
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2383,6 +2486,197 @@ export default function CodingRoom() {
                 </button>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showRoomGuide && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[80] flex items-start justify-end"
+            style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(6px)" }}
+            onClick={() => setShowRoomGuide(false)}
+          >
+            <motion.div
+              initial={{ x: 400, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 400, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 320, damping: 32 }}
+              onClick={(e) => e.stopPropagation()}
+              className="h-full w-full max-w-sm flex flex-col overflow-hidden"
+              style={{ background: "rgba(6,9,18,0.99)", borderRight: "none", borderLeft: "1px solid rgba(255,255,255,0.07)", boxShadow: "-20px 0 60px rgba(0,0,0,0.6)" }}
+            >
+              <div className="flex items-center gap-3 px-5 py-4 border-b shrink-0" style={{ borderColor: "rgba(255,255,255,0.07)", background: "rgba(10,14,26,0.98)" }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.25)" }}>
+                  <BookOpen className="w-4.5 h-4.5 text-blue-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-black text-white">دليل الغرفة البرمجية</div>
+                  <div className="text-[10px] text-white/40 mt-0.5">كل ما تحتاج معرفته للاستفادة الكاملة</div>
+                </div>
+                <button onClick={() => setShowRoomGuide(false)} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 transition-colors shrink-0">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+
+                <div className="px-4 py-4 space-y-4">
+
+                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(16,185,129,0.2)", background: "rgba(16,185,129,0.04)" }}>
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(16,185,129,0.15)", background: "rgba(16,185,129,0.06)" }}>
+                      <Zap className="w-4 h-4 text-emerald-400" />
+                      <span className="text-xs font-black text-emerald-300">اللغات المدعومة للتشغيل</span>
+                    </div>
+                    <div className="p-3 space-y-2">
+                      {[
+                        { lang: "Python 🐍", desc: "تشغيل تفاعلي كامل + إدخال مباشر + تنزيل مكتبات (pip)", color: "#34D399" },
+                        { lang: "JavaScript (Node.js) ⚡", desc: "تشغيل تفاعلي + تنزيل حزم (npm)", color: "#FCD34D" },
+                        { lang: "Bash 🐚", desc: "تشغيل سكريبتات الصدفة تفاعلياً", color: "#A78BFA" },
+                        { lang: "C 🔩 / C++ ⚙️", desc: "يُترجم ويُشغَّل مباشرةً (gcc / g++)", color: "#60A5FA" },
+                      ].map((item) => (
+                        <div key={item.lang} className="flex items-start gap-2.5">
+                          <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: item.color }} />
+                          <div>
+                            <div className="text-[12px] font-bold" style={{ color: item.color }}>{item.lang}</div>
+                            <div className="text-[11px] leading-relaxed mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>{item.desc}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(245,158,11,0.2)", background: "rgba(245,158,11,0.04)" }}>
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(245,158,11,0.15)", background: "rgba(245,158,11,0.06)" }}>
+                      <Info className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-black text-amber-300">لغات كتابة فقط (لا تُشغَّل داخل الغرفة)</span>
+                    </div>
+                    <div className="p-3">
+                      <div className="flex flex-wrap gap-2">
+                        {["Java ☕", "TypeScript 💙", "Rust 🦀", "Kotlin 🤖", "Dart 🎯", "SQL 🗄️"].map((l) => (
+                          <span key={l} className="px-2 py-1 rounded-lg text-[11px] font-bold" style={{ background: "rgba(245,158,11,0.1)", color: "#FCD34D", border: "1px solid rgba(245,158,11,0.2)" }}>{l}</span>
+                        ))}
+                      </div>
+                      <p className="text-[11px] mt-2.5 leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>يمكنك كتابة الكود والتعديل التعاوني عليه، لكن للتشغيل انسخ الكود وجرّبه في بيئة خارجية.</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(96,165,250,0.2)", background: "rgba(96,165,250,0.04)" }}>
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(96,165,250,0.15)", background: "rgba(96,165,250,0.06)" }}>
+                      <Shield className="w-4 h-4 text-blue-400" />
+                      <span className="text-xs font-black text-blue-300">الأدوار والصلاحيات</span>
+                    </div>
+                    <div className="p-3 space-y-3">
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Crown className="w-3.5 h-3.5" style={{ color: "#F59E0B" }} />
+                          <span className="text-[12px] font-black" style={{ color: "#F59E0B" }}>المشرف (Host)</span>
+                        </div>
+                        <ul className="space-y-1">
+                          {["يملك كل الصلاحيات تلقائياً", "يُشغِّل الكود ويوقفه لجميع الأعضاء", "يمنح الأعضاء إذن الكتابة والتشغيل", "يُنزِّل المكتبات (pip/npm)", "يدير الملفات (إنشاء/نقل/حذف)", "يُغلق الغرفة أو ينقل الإشراف"].map((p) => (
+                            <li key={p} className="flex items-center gap-1.5 text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
+                              <Check className="w-3 h-3 shrink-0" style={{ color: "#10B981" }} /> {p}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="border-t pt-3" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Users className="w-3.5 h-3.5 text-blue-400" />
+                          <span className="text-[12px] font-black text-blue-300">العضو (Member)</span>
+                        </div>
+                        <ul className="space-y-1">
+                          {["يشاهد الكود والتعديلات مباشرةً", "يكتب في المحرر بإذن المشرف فقط", "يُشغِّل الكود بإذن المشرف فقط", "يتواصل عبر الدردشة والصوت", "يطلب تشغيل الكود من المشرف"].map((p) => (
+                            <li key={p} className="flex items-center gap-1.5 text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
+                              <Check className="w-3 h-3 shrink-0" style={{ color: "#60A5FA" }} /> {p}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.04)" }}>
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(139,92,246,0.15)", background: "rgba(139,92,246,0.06)" }}>
+                      <BookOpen className="w-4 h-4" style={{ color: "#A78BFA" }} />
+                      <span className="text-xs font-black" style={{ color: "#C4B5FD" }}>الميزات الكاملة</span>
+                    </div>
+                    <div className="p-3 space-y-1.5">
+                      {[
+                        { icon: "✏️", text: "تعديل تعاوني مباشر — يرى الجميع تغييراتك فور الكتابة" },
+                        { icon: "▶️", text: "تيرمنال حي — اكتب بيانات الإدخال أثناء تشغيل البرنامج" },
+                        { icon: "📦", text: "تنزيل مكتبات pip (Python) وnpm (JavaScript) داخل الغرفة" },
+                        { icon: "🗂️", text: "إدارة ملفات متعددة ومجلدات — أنشئ مشروعاً كاملاً" },
+                        { icon: "🌐", text: "معاينة HTML/CSS/JS مباشرة داخل الغرفة — موبايل وسطح مكتب" },
+                        { icon: "💬", text: "دردشة نصية مع جميع أعضاء الغرفة" },
+                        { icon: "🎙️", text: "مكالمة صوتية WebRTC بين الأعضاء" },
+                        { icon: "📥", text: "تحميل الكود كملفات على جهازك" },
+                        { icon: "🔄", text: "نقل الإشراف لعضو آخر عند الحاجة" },
+                      ].map((f) => (
+                        <div key={f.text} className="flex items-start gap-2.5 py-1">
+                          <span className="text-sm shrink-0 mt-0.5">{f.icon}</span>
+                          <span className="text-[11.5px] leading-relaxed" style={{ color: "rgba(255,255,255,0.6)" }}>{f.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(239,68,68,0.2)", background: "rgba(239,68,68,0.04)" }}>
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(239,68,68,0.15)", background: "rgba(239,68,68,0.06)" }}>
+                      <AlertTriangle className="w-4 h-4 text-red-400" />
+                      <span className="text-xs font-black text-red-300">القيود المهمة</span>
+                    </div>
+                    <div className="p-3 space-y-1.5">
+                      {[
+                        { icon: "🚫", text: "لا اتصال بالإنترنت — لا يمكن fetch البيانات من مواقع خارجية" },
+                        { icon: "⏱️", text: "المكتبات المثبتة مؤقتة — تُحذف عند إعادة تشغيل الخادم" },
+                        { icon: "💾", text: "لا قواعد بيانات خارجية أو خوادم ويب داخل الغرفة" },
+                        { icon: "🧵", text: "برنامج واحد يعمل في كل وقت لكل الغرفة" },
+                        { icon: "📁", text: "الملفات تُحفظ في الغرفة ولا تُنقل تلقائياً لحسابك" },
+                        { icon: "🔇", text: "الصوت يتطلب إذن المتصفح بالوصول للميكروفون" },
+                      ].map((l) => (
+                        <div key={l.text} className="flex items-start gap-2.5 py-0.5">
+                          <span className="text-sm shrink-0 mt-0.5">{l.icon}</span>
+                          <span className="text-[11.5px] leading-relaxed" style={{ color: "rgba(255,255,255,0.55)" }}>{l.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(52,211,153,0.2)", background: "rgba(52,211,153,0.04)" }}>
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(52,211,153,0.15)", background: "rgba(52,211,153,0.06)" }}>
+                      <Lightbulb className="w-4 h-4 text-emerald-400" />
+                      <span className="text-xs font-black text-emerald-300">نصائح للاستخدام الأمثل</span>
+                    </div>
+                    <div className="p-3 space-y-2">
+                      {[
+                        "عند ظهور خطأ، سيظهر مباشرةً تحت الناتج تحليل يشرح السبب والحل",
+                        "نزّل المكتبة أولاً ثم شغّل — المكتبات المثبتة تبقى طوال جلسة الغرفة",
+                        "للمشاريع المتعددة استخدم مجلدات: src/main.py أو utils/helper.py",
+                        "Ctrl+C في التيرمنال الحي يوقف البرنامج فوراً",
+                        "المشرف يستطيع منح إذن الكتابة والتشغيل لكل عضو بشكل منفصل",
+                        "عند انتهاء الجلسة حمّل الكود بزر التحميل قبل الخروج",
+                      ].map((tip, i) => (
+                        <div key={i} className="flex items-start gap-2.5">
+                          <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[9px] font-black" style={{ background: "rgba(16,185,129,0.15)", color: "#34D399", border: "1px solid rgba(16,185,129,0.25)" }}>{i + 1}</div>
+                          <span className="text-[11.5px] leading-relaxed" style={{ color: "rgba(255,255,255,0.6)" }}>{tip}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              <div className="px-4 py-3 border-t shrink-0" style={{ borderColor: "rgba(255,255,255,0.07)", background: "rgba(6,9,18,0.99)" }}>
+                <button onClick={() => setShowRoomGuide(false)} className="w-full py-2.5 rounded-xl text-sm font-bold transition-colors" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)" }}>
+                  فهمت، شكراً!
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
