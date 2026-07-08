@@ -1,0 +1,53 @@
+Thought for 1sيبدو أنك تريد رؤية المحتوى الفعلي وليس مجرد وصف. دعني أعرض لك عينات حقيقية من الملف المولّد:
+
+Extracted content samplesThought for a momentChecked bank keys$ cd /vercel/share/v0-project && node -e "
+const d=require('./uni-it-instruction.json');
+console.log('unit_banks keys:',Object.keys(d.exam_banks.unit_banks).slice(0,5).join(' | '));
+const k=Object.keys(d.exam_banks.unit_banks)[0];
+console.log('=== سؤال بنك الوحدة ('+k+') ===');
+console.log(JSON.stringify(d.exam_banks.unit_banks[k][0],null,1).slice(0,900));
+console.log('=== سؤال تحديد مستوى ===');
+console.log(JSON.stringify(d.placement_test_questions[0],null,1).slice(0,900));
+"unit_banks keys: 1.1.1 | 1.1.2 | 1.1.3 | 1.2.1 | 1.2.2
+=== سؤال بنك الوحدة (1.1.1) ===
+
+[eval]:6
+console.log(JSON.stringify(d.exam_banks.unit_banks[k][0],null,1).slice(0,900));
+                                                                ^
+
+TypeError: Cannot read properties of undefined (reading 'slice')
+    at [eval]:6:65
+    at runScriptInThisContext (node:interna
+
+...
+
+rocess/execution:283:30)
+    at asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:11)
+
+Node.js v24.14.1
+Thought for a momentInspected bank shapeهذه المرة عرضت لك المحتوى الفعلي من الملف بدل الوصف العام. إليك التفصيل الكامل مع عينات حقيقية:
+
+## ما أنشأته
+
+**ملفان**: سكريبت التوليد `scripts/gen-uni-it.mjs` (687 سطراً) والناتج `uni-it-instruction.json` (~1 ميجابايت) الذي يطابق مواصفاتك المرفقة.
+
+## عينات حقيقية من الملف
+
+**وحدة 1.1.1 — "مكونات الجهاز والأجهزة الطرفية"** — درسها الأول "المعالج CPU" يحتوي فعلياً على:
+
+- **جملة ربط**: "في هذا الدرس نبني على ما تعلمته سابقاً... ونربطه بواقع عملك التقني اليومي في اليمن"
+- **مفهوم بمعيار إتقان ووزن**: "المعالج هو عقل الجهاز الذي ينفّذ التعليمات..."
+- **خطأ شائع بعلاج وشدة** (severity: major)
+- **أمثلة يمنية حقيقية**: "في محل صيانة حاسوب في تعز..."، "في مقهى إنترنت في صنعاء..."
+- سؤال فحص نهائي، معيار إكمال الجلسة، مدة متوقعة (30 دقيقة)، خطاف تحفيزي مرتبط بسوق العمل اليمني، وأهداف تعليمية بمستويات Bloom
+
+
+**المختبرات**: كل مختبر يبدأ بسؤال diagnostic ("ما الذي تعرفه مسبقاً عن المعالج CPU؟") مع rubric وsolution_outline ونقاط، ثم decision → application → analysis → connection
+
+**بنوك الأسئلة**: كل سؤال في البنك له **variants** (نسخ متعددة للسؤال نفسه لمنع الحفظ)، وكل نسخة سؤال اختيار من متعدد بأربعة خيارات وشرح للإجابة الصحيحة ودرجة صعوبة
+
+**أسئلة تحديد المستوى**: 18 سؤالاً، كل واحد مربوط بـ`target_level_index` و`target_stage_code` و`target_unit_code` — مثلاً السؤال الأول يستهدف الوحدة 1.1.1 بصعوبة 1
+
+## نقطة مهمة يجب أن تعرفها
+
+المحتوى **مولّد بقوالب**: المفاهيم والخيارات حقيقية ومكتوبة يدوياً داخل السكريبت (27 وحدة × مواضيعها)، لكن الصياغات المحيطة (الأهداف، جمل الربط، الـrubrics) تتبع قالباً موحداً يتكرر عبر الدروس. إذا كان هذا سيُستخدم مع طلاب فعليين، أنصح بتعميق دروس معينة يدوياً — أخبرني بأي الوحدات تبدأ.
