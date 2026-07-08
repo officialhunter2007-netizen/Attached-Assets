@@ -296,31 +296,7 @@ export function ReferralGemsModal({ inline = false }: { inline?: boolean }) {
       ? "w-full flex items-center gap-3 rounded-2xl px-5 py-3.5 text-sm font-extrabold text-white mb-6"
       : "fixed left-3 top-[76px] z-[120] flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-extrabold text-white";
 
-    if (!isEligible) {
-      return (
-        <motion.div
-          dir={ar ? "rtl" : "ltr"}
-          initial={{ opacity: 0, y: inline ? 12 : -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ opacity: { duration: 0.4 }, y: { duration: 0.4 } }}
-          className={buttonClass}
-          style={{
-            background: "linear-gradient(135deg, #6b7280 0%, #4b5563 45%, #374151 100%)",
-            border: "1px solid rgba(156,163,175,0.5)",
-            cursor: "default",
-            opacity: 0.65,
-          }}
-          data-testid="referral-gems-banner-inactive"
-        >
-          <Sparkles className="w-4 h-4 shrink-0 opacity-50" />
-          <span className="flex-1 text-start text-white/70">
-            {ar
-              ? "احصل على جواهر اضافية — غير مفعلة (تحتاج باقة فضية أو ذهبية)"
-              : "Get extra gems — inactive (requires Silver or Gold plan)"}
-          </span>
-        </motion.div>
-      );
-    }
+    if (!isEligible) return null;
 
     return (
       <motion.button

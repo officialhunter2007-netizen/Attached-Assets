@@ -66,3 +66,23 @@ NODE_ENV = "development"
 
 [userenv.production]
 APP_DOMAIN = "learnukhba.replit.app"
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 80
+
+[[ports]]
+localPort = 19388
+externalPort = 3001
+
+[[ports]]
+localPort = 23564
+externalPort = 3000
