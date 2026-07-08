@@ -8,11 +8,12 @@ import {
   getLessonById,
   getNextLesson,
   computeStars,
-  keyFingerMap,
+  arKeyFingerMap,
+  arKeyHandMap,
   allLessons,
   type FingerColor,
   type Lesson,
-} from "@/lib/typing-curriculum";
+} from "@/lib/typing-curriculum-ar";
 import {
   playKeyClick,
   playKeyError,
@@ -29,10 +30,10 @@ const FINGER_COLORS: Record<FingerColor, { bg: string; glow: string; text: strin
 };
 
 const EARLY_TIPS = [
-  { icon: "🖐", text: "ضع أصابعك على الصف الرئيسي — A S D F لليد اليسرى، J K L ; لليمنى — هذا موطنك" },
+  { icon: "🖐", text: "ضع أصابعك على الصف الرئيسي — ش س ي ب لليد اليسرى، ا ت ن م لليمنى — هذا موطنك" },
   { icon: "👁", text: "انظر دائماً إلى الشاشة وليس للوحة المفاتيح — هذا سر المحترفين" },
   { icon: "🐢", text: "ابدأ ببطء — الدقة أهم من السرعة الآن، والسرعة ستأتي لوحدها لاحقاً" },
-  { icon: "📍", text: "مفتاح F له نتوء صغير تحسّه بإصبعك — وكذلك J — دعهما يكونا مرساتك دون أن تنظر" },
+  { icon: "📍", text: "مفتاح ب له نتوء صغير تحسّه بإصبعك — وكذلك ت — دعهما يكونا مرساتك دون أن تنظر" },
   { icon: "🌊", text: "أبقِ أصابعك قريبة من المفاتيح — حركات صغيرة = سرعة أكبر" },
 ];
 
@@ -73,7 +74,6 @@ type KeyDef = {
   w: number;
   h: number;
   finger: FingerColor;
-  shiftLabel?: string;
 };
 
 const U = 44;
@@ -81,108 +81,74 @@ const G = 4;
 const H = 40;
 const STEP = U + G;
 
-function makeKey(key: string, label: string, x: number, row: number, w = U, shiftLabel?: string): KeyDef {
-  const finger = keyFingerMap[key.toLowerCase()] ?? keyFingerMap[key] ?? "gray";
-  return { key, label, x, y: row * (H + G), w, h: H, finger, shiftLabel };
+function makeArKey(arChar: string, x: number, row: number, w = U): KeyDef {
+  const finger = arKeyFingerMap[arChar] ?? "gray";
+  return { key: arChar, label: arChar, x, y: row * (H + G), w, h: H, finger };
 }
 
-const KEYBOARD_KEYS: KeyDef[] = [
-  makeKey("`", "`", 0, 0, U, "~"),
-  makeKey("1", "1", STEP, 0, U, "!"),
-  makeKey("2", "2", STEP*2, 0, U, "@"),
-  makeKey("3", "3", STEP*3, 0, U, "#"),
-  makeKey("4", "4", STEP*4, 0, U, "$"),
-  makeKey("5", "5", STEP*5, 0, U, "%"),
-  makeKey("6", "6", STEP*6, 0, U, "^"),
-  makeKey("7", "7", STEP*7, 0, U, "&"),
-  makeKey("8", "8", STEP*8, 0, U, "*"),
-  makeKey("9", "9", STEP*9, 0, U, "("),
-  makeKey("0", "0", STEP*10, 0, U, ")"),
-  makeKey("-", "-", STEP*11, 0, U, "_"),
-  makeKey("=", "=", STEP*12, 0, U, "+"),
-  makeKey("Backspace", "⌫", STEP*13, 0, 92),
+const AR_KEYBOARD_KEYS: KeyDef[] = [
+  { key: "`", label: "`", x: 0, y: 0, w: U, h: H, finger: "red" },
+  { key: "1", label: "١", x: STEP, y: 0, w: U, h: H, finger: "red" },
+  { key: "2", label: "٢", x: STEP*2, y: 0, w: U, h: H, finger: "red" },
+  { key: "3", label: "٣", x: STEP*3, y: 0, w: U, h: H, finger: "red" },
+  { key: "4", label: "٤", x: STEP*4, y: 0, w: U, h: H, finger: "yellow" },
+  { key: "5", label: "٥", x: STEP*5, y: 0, w: U, h: H, finger: "yellow" },
+  { key: "6", label: "٦", x: STEP*6, y: 0, w: U, h: H, finger: "yellow" },
+  { key: "7", label: "٧", x: STEP*7, y: 0, w: U, h: H, finger: "yellow" },
+  { key: "8", label: "٨", x: STEP*8, y: 0, w: U, h: H, finger: "blue" },
+  { key: "9", label: "٩", x: STEP*9, y: 0, w: U, h: H, finger: "green" },
+  { key: "0", label: "٠", x: STEP*10, y: 0, w: U, h: H, finger: "red" },
+  { key: "-", label: "-", x: STEP*11, y: 0, w: U, h: H, finger: "red" },
+  { key: "=", label: "=", x: STEP*12, y: 0, w: U, h: H, finger: "red" },
+  { key: "Backspace", label: "⌫", x: STEP*13, y: 0, w: 92, h: H, finger: "red" },
 
-  makeKey("Tab", "Tab", 0, 1, 68),
-  makeKey("q", "Q", 72, 1),
-  makeKey("w", "W", 72+STEP, 1),
-  makeKey("e", "E", 72+STEP*2, 1),
-  makeKey("r", "R", 72+STEP*3, 1),
-  makeKey("t", "T", 72+STEP*4, 1),
-  makeKey("y", "Y", 72+STEP*5, 1),
-  makeKey("u", "U", 72+STEP*6, 1),
-  makeKey("i", "I", 72+STEP*7, 1),
-  makeKey("o", "O", 72+STEP*8, 1),
-  makeKey("p", "P", 72+STEP*9, 1),
-  makeKey("[", "[", 72+STEP*10, 1, U, "{"),
-  makeKey("]", "]", 72+STEP*11, 1, U, "}"),
-  makeKey("\\", "\\", 72+STEP*12, 1, 68, "|"),
+  { key: "Tab", label: "Tab", x: 0, y: H+G, w: 68, h: H, finger: "red" },
+  makeArKey("ض", 72, 1),
+  makeArKey("ص", 72+STEP, 1),
+  makeArKey("ث", 72+STEP*2, 1),
+  makeArKey("ق", 72+STEP*3, 1),
+  makeArKey("ف", 72+STEP*4, 1),
+  makeArKey("غ", 72+STEP*5, 1),
+  makeArKey("ع", 72+STEP*6, 1),
+  makeArKey("ه", 72+STEP*7, 1),
+  makeArKey("خ", 72+STEP*8, 1),
+  makeArKey("ح", 72+STEP*9, 1),
+  makeArKey("ج", 72+STEP*10, 1),
+  makeArKey("د", 72+STEP*11, 1),
+  makeArKey("ذ", 72+STEP*12, 1, 68),
 
-  makeKey("Caps", "Caps", 0, 2, 82),
-  makeKey("a", "A", 86, 2),
-  makeKey("s", "S", 86+STEP, 2),
-  makeKey("d", "D", 86+STEP*2, 2),
-  makeKey("f", "F", 86+STEP*3, 2),
-  makeKey("g", "G", 86+STEP*4, 2),
-  makeKey("h", "H", 86+STEP*5, 2),
-  makeKey("j", "J", 86+STEP*6, 2),
-  makeKey("k", "K", 86+STEP*7, 2),
-  makeKey("l", "L", 86+STEP*8, 2),
-  makeKey(";", ";", 86+STEP*9, 2, U, ":"),
-  makeKey("'", "'", 86+STEP*10, 2, U, '"'),
-  makeKey("Enter", "↵", 86+STEP*11, 2, 100),
+  { key: "Caps", label: "Caps", x: 0, y: 2*(H+G), w: 82, h: H, finger: "red" },
+  makeArKey("ش", 86, 2),
+  makeArKey("س", 86+STEP, 2),
+  makeArKey("ي", 86+STEP*2, 2),
+  makeArKey("ب", 86+STEP*3, 2),
+  makeArKey("ل", 86+STEP*4, 2),
+  makeArKey("ا", 86+STEP*5, 2),
+  makeArKey("ت", 86+STEP*6, 2),
+  makeArKey("ن", 86+STEP*7, 2),
+  makeArKey("م", 86+STEP*8, 2),
+  makeArKey("ك", 86+STEP*9, 2),
+  { key: "Enter", label: "↵", x: 86+STEP*10, y: 2*(H+G), w: 100, h: H, finger: "red" },
 
-  makeKey("LShift", "⇧", 0, 3, 108),
-  makeKey("z", "Z", 112, 3),
-  makeKey("x", "X", 112+STEP, 3),
-  makeKey("c", "C", 112+STEP*2, 3),
-  makeKey("v", "V", 112+STEP*3, 3),
-  makeKey("b", "B", 112+STEP*4, 3),
-  makeKey("n", "N", 112+STEP*5, 3),
-  makeKey("m", "M", 112+STEP*6, 3),
-  makeKey(",", ",", 112+STEP*7, 3, U, "<"),
-  makeKey(".", ".", 112+STEP*8, 3, U, ">"),
-  makeKey("/", "/", 112+STEP*9, 3, U, "?"),
-  makeKey("RShift", "⇧", 112+STEP*10, 3, 152),
+  { key: "LShift", label: "⇧", x: 0, y: 3*(H+G), w: 108, h: H, finger: "red" },
+  makeArKey("ئ", 112, 3),
+  makeArKey("ء", 112+STEP, 3),
+  makeArKey("ؤ", 112+STEP*2, 3),
+  makeArKey("ر", 112+STEP*3, 3),
+  makeArKey("ى", 112+STEP*5, 3),
+  makeArKey("ة", 112+STEP*6, 3),
+  makeArKey("و", 112+STEP*7, 3),
+  makeArKey("ز", 112+STEP*8, 3),
+  makeArKey("ظ", 112+STEP*9, 3),
+  { key: "RShift", label: "⇧", x: 112+STEP*10, y: 3*(H+G), w: 152, h: H, finger: "red" },
 
-  makeKey(" ", "Space", 176, 4, 352),
+  { key: " ", label: "مسافة", x: 176, y: 4*(H+G), w: 352, h: H, finger: "gray" },
 ];
 
-const KEY_MAP = new Map<string, KeyDef>();
-for (const k of KEYBOARD_KEYS) {
-  KEY_MAP.set(k.key.toLowerCase(), k);
-  if (k.shiftLabel) KEY_MAP.set(k.shiftLabel.toLowerCase(), k);
+const AR_KEY_MAP = new Map<string, KeyDef>();
+for (const k of AR_KEYBOARD_KEYS) {
+  AR_KEY_MAP.set(k.key, k);
 }
-
-const KEY_HAND_MAP: Record<string, "left" | "right" | "both"> = {
-  "`": "left", "~": "left", "1": "left", "!": "left",
-  "2": "left", "@": "left", "3": "left", "#": "left",
-  "4": "left", "$": "left", "5": "left", "%": "left",
-  "q": "left", "Q": "left", "w": "left", "W": "left",
-  "e": "left", "E": "left", "r": "left", "R": "left",
-  "t": "left", "T": "left",
-  "a": "left", "A": "left", "s": "left", "S": "left",
-  "d": "left", "D": "left", "f": "left", "F": "left",
-  "g": "left", "G": "left",
-  "z": "left", "Z": "left", "x": "left", "X": "left",
-  "c": "left", "C": "left", "v": "left", "V": "left",
-  "b": "left", "B": "left",
-  "6": "right", "^": "right", "7": "right", "&": "right",
-  "8": "right", "*": "right", "9": "right", "(": "right",
-  "0": "right", ")": "right", "-": "right", "_": "right",
-  "=": "right", "+": "right",
-  "y": "right", "Y": "right", "u": "right", "U": "right",
-  "i": "right", "I": "right", "o": "right", "O": "right",
-  "p": "right", "P": "right",
-  "[": "right", "{": "right", "]": "right", "}": "right",
-  "\\": "right", "|": "right",
-  "h": "right", "H": "right", "j": "right", "J": "right",
-  "k": "right", "K": "right", "l": "right", "L": "right",
-  ";": "right", ":": "right", "'": "right", '"': "right",
-  "n": "right", "N": "right", "m": "right", "M": "right",
-  ",": "right", "<": "right", ".": "right", ">": "right",
-  "/": "right", "?": "right",
-  " ": "both",
-};
 
 function fingerPill(cx: number, tipY: number, baseY: number, hw: number): string {
   return `M ${cx - hw} ${baseY} L ${cx - hw} ${tipY + hw} A ${hw} ${hw} 0 0 1 ${cx + hw} ${tipY + hw} L ${cx + hw} ${baseY}`;
@@ -197,281 +163,123 @@ const L_FINGER_DEFS: FingerDef[] = [
   { color: "yellow", cx: 149, tipY: 42, baseY: 154, hw: 13   },
 ];
 const R_FINGER_DEFS: FingerDef[] = [
-  { color: "yellow", cx: 71,  tipY: 42, baseY: 154, hw: 13   },
-  { color: "blue",   cx: 105, tipY: 24, baseY: 154, hw: 14.5 },
-  { color: "green",  cx: 138, tipY: 40, baseY: 154, hw: 13   },
-  { color: "red",    cx: 170, tipY: 65, baseY: 154, hw: 11.5 },
+  { color: "yellow", cx: 50,  tipY: 42, baseY: 154, hw: 13   },
+  { color: "blue",   cx: 84,  tipY: 24, baseY: 154, hw: 14.5 },
+  { color: "green",  cx: 117, tipY: 40, baseY: 154, hw: 13   },
+  { color: "red",    cx: 149, tipY: 65, baseY: 154, hw: 11.5 },
 ];
-
-const L_THUMB: FingerDef & { pivotX: number; pivotY: number; angle: number } = {
-  color: "gray", cx: 163, tipY: 168, baseY: 232, hw: 13,
-  pivotX: 163, pivotY: 232, angle: 28,
-};
-const R_THUMB: FingerDef & { pivotX: number; pivotY: number; angle: number } = {
-  color: "gray", cx: 57, tipY: 168, baseY: 232, hw: 13,
-  pivotX: 57, pivotY: 232, angle: -28,
-};
 
 function HandGroup({
   side,
   fingerColor,
   isActive,
-  shiftPinky,
+  shiftPinky = false,
 }: {
   side: "left" | "right";
   fingerColor: FingerColor | null;
   isActive: boolean;
-  shiftPinky: boolean;
+  shiftPinky?: boolean;
 }) {
-  const fingerDefs = side === "left" ? L_FINGER_DEFS : R_FINGER_DEFS;
-  const thumb      = side === "left" ? L_THUMB       : R_THUMB;
-  const palmX      = side === "left" ? 26 : 34;
-
-  const palmFill      = isActive ? "rgba(50,62,100,0.78)" : "rgba(18,24,48,0.28)";
-  const palmStroke    = isActive ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.04)";
-  const inactiveFill  = isActive ? "rgba(52,65,105,0.85)" : "rgba(16,22,44,0.25)";
-  const inactiveStroke= isActive ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.04)";
-
-  const grayFc  = FINGER_COLORS["gray"];
-  const thumbOn = isActive && fingerColor === "gray";
-  const thumbTf = `translate(${thumb.pivotX},${thumb.pivotY}) rotate(${thumb.angle}) translate(-${thumb.pivotX},-${thumb.pivotY})`;
+  const defs = side === "left" ? L_FINGER_DEFS : R_FINGER_DEFS;
+  const thumbCx = side === "left" ? 190 : 12;
+  const thumbTipY = 118;
+  const thumbBaseY = 154;
+  const PALM_W = 220;
+  const PALM_H = 65;
+  const palmX = 0;
+  const palmY = 154 - PALM_H / 2;
 
   return (
-    <>
-      <rect x={palmX} y={148} width={158} height={90} rx={20}
-        fill={palmFill} stroke={palmStroke} strokeWidth={1.5}
+    <g>
+      <rect
+        x={palmX} y={palmY} width={PALM_W} height={PALM_H}
+        rx={14}
+        fill="rgba(30,35,55,0.9)"
+        stroke="rgba(255,255,255,0.06)"
+        strokeWidth={1}
       />
-      {fingerDefs.map((f, i) => {
-        const lit = (isActive && fingerColor === f.color) || (shiftPinky && f.color === "red");
-        const fc  = FINGER_COLORS[f.color];
+      {defs.map((fd) => {
+        const isTargetFinger = fingerColor !== null && fd.color === fingerColor;
+        const isShift = shiftPinky && fd.color === "red";
+        const active = isTargetFinger || isShift;
+        const { bg, glow } = FINGER_COLORS[fd.color];
         return (
           <path
-            key={i}
-            d={fingerPill(f.cx, f.tipY, f.baseY, f.hw)}
-            fill={lit ? fc.bg : inactiveFill}
-            stroke={lit ? "rgba(255,255,255,0.35)" : inactiveStroke}
-            strokeWidth={lit ? 2 : 1.2}
-            strokeLinejoin="round"
-            style={{ filter: lit ? `drop-shadow(0 0 12px ${fc.glow})` : undefined }}
+            key={fd.color}
+            d={fingerPill(fd.cx, fd.tipY, fd.baseY, fd.hw)}
+            fill={active ? bg : "rgba(40,47,72,0.95)"}
+            stroke={active ? glow : "rgba(255,255,255,0.07)"}
+            strokeWidth={active ? 2 : 1}
+            style={{ filter: active ? `drop-shadow(0 0 8px ${glow})` : undefined, transition: "all 0.12s" }}
           />
         );
       })}
-      <g transform={thumbTf}>
-        <path
-          d={fingerPill(thumb.cx, thumb.tipY, thumb.baseY, thumb.hw)}
-          fill={thumbOn ? grayFc.bg : inactiveFill}
-          stroke={thumbOn ? "rgba(255,255,255,0.35)" : inactiveStroke}
-          strokeWidth={thumbOn ? 2 : 1.2}
-          strokeLinejoin="round"
-          style={{ filter: thumbOn ? `drop-shadow(0 0 12px ${grayFc.glow})` : undefined }}
-        />
-      </g>
-      <text x={110} y={245} textAnchor="middle" fontSize={11}
-        fill="rgba(255,255,255,0.30)"
-        fontFamily="system-ui,sans-serif"
-      >
-        {side === "left" ? "اليسرى" : "اليمنى"}
-      </text>
-    </>
-  );
-}
-
-function HomeRowDiagram() {
-  const SKIN_LT = "#DBA882";
-  const SKIN    = "#C8916A";
-  const SKIN_DK = "#9F6A42";
-  const NAIL    = "#E0C4B0";
-  const NAIL_DK = "#BFA090";
-
-  const KEY_W  = 38;
-  const KEY_H  = 36;
-  const KEY_Y  = 136;
-  const KEY_R  = 6;
-  const PALM_Y = 6;
-  const PALM_H = 28;
-  const BASE_Y = PALM_Y + PALM_H;
-
-  const L_CX  = [72,  114, 156, 198];
-  const R_CX  = [346, 388, 430, 472];
-  const L_LBL = ["A","S","D","F"];
-  const R_LBL = ["J","K","L",";"];
-
-  const L_DIM: [number,number][] = [[18,13],[21,15],[23,17],[21,15]];
-  const R_DIM: [number,number][] = [[21,15],[23,17],[21,15],[18,13]];
-  const L_FC: FingerColor[] = ["red","green","blue","yellow"];
-  const R_FC: FingerColor[] = ["yellow","blue","green","red"];
-
-  const KEY_STROKE: Record<FingerColor, string> = {
-    red:    "rgba(239,68,68,0.50)",
-    green:  "rgba(34,197,94,0.50)",
-    blue:   "rgba(59,130,246,0.50)",
-    yellow: "rgba(234,179,8,0.50)",
-    gray:   "rgba(107,114,128,0.50)",
-  };
-
-  const mkFinger = (cx: number, bw: number, tw: number): string => {
-    const tipY = KEY_Y - tw;
-    const midY = BASE_Y + (tipY - BASE_Y) * 0.46;
-    return [
-      `M ${cx-bw} ${BASE_Y}`,
-      `C ${cx-bw} ${midY} ${cx-tw} ${tipY} ${cx-tw} ${tipY}`,
-      `A ${tw} ${tw} 0 0 1 ${cx+tw} ${tipY}`,
-      `C ${cx+tw} ${tipY} ${cx+bw} ${midY} ${cx+bw} ${BASE_Y}`,
-      "Z",
-    ].join(" ");
-  };
-
-  const mkNail = (cx: number, tw: number): string => {
-    const tipY = KEY_Y - tw;
-    const nw = tw * 1.10;
-    const nh = tw * 0.52;
-    const y0 = tipY + 3;
-    const r  = 2.5;
-    return [
-      `M ${cx-nw/2+r} ${y0}`,
-      `Q ${cx-nw/2} ${y0} ${cx-nw/2} ${y0+r}`,
-      `L ${cx-nw/2} ${y0+nh}`,
-      `Q ${cx-nw/2} ${y0+nh+1} ${cx} ${y0+nh+1}`,
-      `Q ${cx+nw/2} ${y0+nh+1} ${cx+nw/2} ${y0+nh}`,
-      `L ${cx+nw/2} ${y0+r}`,
-      `Q ${cx+nw/2} ${y0} ${cx+nw/2-r} ${y0}`,
-      "Z",
-    ].join(" ");
-  };
-
-  const SVG_W = 544;
-  const SVG_H = KEY_Y + KEY_H + 20;
-
-  const renderHand = (
-    cxArr: number[],
-    dims: [number,number][],
-    fcs: FingerColor[],
-    lbls: string[],
-    anchorIdx: number,
-    palmW: number,
-  ) => {
-    const palmX = cxArr[0] - 22;
-    return (
-      <>
-        <rect x={palmX} y={PALM_Y} width={palmW} height={PALM_H} rx={13}
-          fill="url(#hrd-palm)" stroke={SKIN_DK} strokeWidth={1.2} />
-        {cxArr.map((cx, i) => {
-          const [bw, tw] = dims[i];
-          const fc       = FINGER_COLORS[fcs[i]];
-          const tipY     = KEY_Y - tw;
-          const totH     = tipY - BASE_Y;
-          const k1y = BASE_Y + totH * 0.27;
-          const k2y = BASE_Y + totH * 0.54;
-          const k1w = (bw - (bw-tw)*0.27) * 0.78;
-          const k2w = (bw - (bw-tw)*0.54) * 0.86;
-          return (
-            <g key={`f${i}`}>
-              <path d={mkFinger(cx, bw, tw)}
-                fill="url(#hrd-skin)" stroke={fc.bg} strokeWidth={1.6}
-                strokeLinejoin="round" />
-              <line x1={cx-k1w} y1={k1y} x2={cx+k1w} y2={k1y}
-                stroke={SKIN_DK} strokeWidth={0.9} strokeLinecap="round" opacity={0.65} />
-              <line x1={cx-k2w} y1={k2y} x2={cx+k2w} y2={k2y}
-                stroke={SKIN_DK} strokeWidth={0.9} strokeLinecap="round" opacity={0.65} />
-              <path d={mkNail(cx, tw)} fill={NAIL} stroke={NAIL_DK} strokeWidth={0.8} />
-            </g>
-          );
-        })}
-        {cxArr.map((cx, i) => {
-          const isAnc = i === anchorIdx;
-          const fc    = FINGER_COLORS[fcs[i]];
-          return (
-            <g key={`k${i}`}>
-              <rect x={cx-KEY_W/2} y={KEY_Y} width={KEY_W} height={KEY_H} rx={KEY_R}
-                fill={isAnc ? "rgba(245,158,11,0.28)" : "rgba(28,40,70,0.92)"}
-                stroke={isAnc ? "rgba(245,158,11,0.82)" : KEY_STROKE[fcs[i]]}
-                strokeWidth={isAnc ? 2 : 1.2} />
-              {isAnc && (
-                <rect x={cx-5} y={KEY_Y+KEY_H-8} width={10} height={4} rx={2}
-                  fill="#F59E0B" />
-              )}
-              <text x={cx} y={KEY_Y+KEY_H/2+5.5} textAnchor="middle"
-                fontSize={14} fontWeight="bold"
-                fill={isAnc ? "#F59E0B" : fc.bg}
-                fontFamily="monospace">{lbls[i]}</text>
-            </g>
-          );
-        })}
-      </>
-    );
-  };
-
-  const L_PALM_W = L_CX[3] - L_CX[0] + 44;
-  const R_PALM_W = R_CX[3] - R_CX[0] + 44;
-  const L_SURF_X = L_CX[0] - KEY_W/2 - 6;
-  const L_SURF_W = L_CX[3] - L_CX[0] + KEY_W + 12;
-  const R_SURF_X = R_CX[0] - KEY_W/2 - 6;
-  const R_SURF_W = R_CX[3] - R_CX[0] + KEY_W + 12;
-  const MID_X    = (L_CX[3] + R_CX[0]) / 2;
-
-  return (
-    <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full">
-      <defs>
-        <linearGradient id="hrd-skin" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor={SKIN_LT} />
-          <stop offset="55%"  stopColor={SKIN}    />
-          <stop offset="100%" stopColor={SKIN_DK} />
-        </linearGradient>
-        <linearGradient id="hrd-palm" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor={SKIN}    />
-          <stop offset="100%" stopColor={SKIN_DK} />
-        </linearGradient>
-      </defs>
-
-      <rect x={L_SURF_X} y={KEY_Y-5} width={L_SURF_W} height={KEY_H+11} rx={10}
-        fill="rgba(16,24,48,0.92)" />
-      <rect x={R_SURF_X} y={KEY_Y-5} width={R_SURF_W} height={KEY_H+11} rx={10}
-        fill="rgba(16,24,48,0.92)" />
-
-      {renderHand(L_CX, L_DIM, L_FC, L_LBL, 3, L_PALM_W)}
-      {renderHand(R_CX, R_DIM, R_FC, R_LBL, 0, R_PALM_W)}
-
-      <text x={(L_CX[0]+L_CX[3])/2} y={SVG_H-4} textAnchor="middle"
-        fontSize={9.5} fill="rgba(255,255,255,0.28)" fontFamily="system-ui,sans-serif">
-        اليد اليسرى
-      </text>
-      <text x={(R_CX[0]+R_CX[3])/2} y={SVG_H-4} textAnchor="middle"
-        fontSize={9.5} fill="rgba(255,255,255,0.28)" fontFamily="system-ui,sans-serif">
-        اليد اليمنى
-      </text>
-      <text x={MID_X} y={KEY_Y+KEY_H/2+5.5} textAnchor="middle"
-        fontSize={8.5} fill="rgba(255,255,255,0.15)" fontFamily="system-ui,sans-serif">
-        ← فراغ →
-      </text>
-    </svg>
+      <path
+        d={fingerPill(thumbCx, thumbTipY, thumbBaseY + 10, 12.5)}
+        fill={fingerColor === "gray" ? FINGER_COLORS.gray.bg : "rgba(40,47,72,0.95)"}
+        stroke={fingerColor === "gray" ? FINGER_COLORS.gray.glow : "rgba(255,255,255,0.07)"}
+        strokeWidth={fingerColor === "gray" ? 2 : 1}
+        style={{ filter: fingerColor === "gray" ? `drop-shadow(0 0 8px ${FINGER_COLORS.gray.glow})` : undefined, transition: "all 0.12s" }}
+      />
+    </g>
   );
 }
 
 function VirtualKeyboard({ nextChar }: { nextChar: string }) {
-  const activeKey  = KEY_MAP.get(nextChar.toLowerCase());
-  const needsShift = activeKey != null && (
-    (nextChar.length === 1 && nextChar >= "A" && nextChar <= "Z") ||
-    (activeKey.shiftLabel != null && activeKey.shiftLabel === nextChar)
-  );
+  const kd = AR_KEY_MAP.get(nextChar);
+  const fingerColor: FingerColor = (kd?.finger ?? arKeyFingerMap[nextChar] ?? "gray") as FingerColor;
+  const handSide = (arKeyHandMap[nextChar] ?? "both") as "left" | "right" | "both";
+  const isIdle = nextChar === "";
 
-  const handSide: "left" | "right" | "both" | null = nextChar ? (KEY_HAND_MAP[nextChar] ?? null) : null;
-  const fingerColor: FingerColor | null = nextChar
-    ? (keyFingerMap[nextChar] ?? keyFingerMap[nextChar.toLowerCase()] ?? null)
-    : null;
-  const leftActive  = handSide === "left"  || handSide === "both";
-  const rightActive = handSide === "right" || handSide === "both";
-  const isIdle      = !nextChar || !handSide;
+  const leftActive  = !isIdle && (handSide === "left"  || handSide === "both");
+  const rightActive = !isIdle && (handSide === "right" || handSide === "both");
 
-  const SCALE  = 0.636;
-  const HAND_Y = 59;
+  const KB_W = 736;
+  const HAND_Y = 20;
+  const SCALE = 0.88;
 
   return (
-    <div className="w-full overflow-x-auto select-none">
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{ background: "rgba(8,11,22,0.85)", border: "1px solid rgba(255,255,255,0.05)" }}
+    >
       <svg
-        viewBox="0 0 996 220"
-        className="w-full block"
-        style={{ minWidth: 0 }}
+        viewBox={`-8 -8 ${KB_W + 16} 270`}
+        className="w-full"
+        style={{ maxHeight: 260 }}
       >
+        <g>
+          {AR_KEYBOARD_KEYS.map((k) => {
+            const isActive = kd ? k.key === kd.key : false;
+            const { bg, glow } = FINGER_COLORS[k.finger];
+            return (
+              <g key={k.key}>
+                <rect
+                  x={k.x} y={k.y} width={k.w} height={k.h}
+                  rx={6}
+                  fill={isActive ? bg : "rgba(22,28,48,0.95)"}
+                  stroke={isActive ? glow : "rgba(255,255,255,0.07)"}
+                  strokeWidth={isActive ? 2 : 1}
+                  style={{ filter: isActive ? `drop-shadow(0 0 10px ${glow})` : undefined, transition: "all 0.10s" }}
+                />
+                <text
+                  x={k.x + k.w / 2}
+                  y={k.y + k.h / 2 + 1}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize={k.key === " " ? 9 : 13}
+                  fontFamily="Tajawal, Cairo, sans-serif"
+                  fill={isActive ? (FINGER_COLORS[k.finger].text) : "rgba(255,255,255,0.45)"}
+                  fontWeight={isActive ? "bold" : "normal"}
+                  style={{ userSelect: "none", transition: "fill 0.10s" }}
+                >
+                  {k.label}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+
         <g
           transform={`translate(0,${HAND_Y}) scale(${SCALE})`}
           opacity={isIdle ? 0.5 : leftActive ? 1 : 0.2}
@@ -480,48 +288,8 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
             side="left"
             fingerColor={leftActive ? fingerColor : null}
             isActive={true}
-            shiftPinky={needsShift && handSide === "right"}
+            shiftPinky={false}
           />
-        </g>
-
-        <g transform="translate(140, 0)">
-          {KEYBOARD_KEYS.map((k) => {
-            const isActive      = activeKey === k;
-            const isShiftActive = (k.key === "LShift" || k.key === "RShift") && needsShift;
-            const finger        = k.finger;
-            const colors        = FINGER_COLORS[finger];
-            const highlighted   = isActive || isShiftActive;
-
-            return (
-              <g key={k.key} style={{ filter: highlighted ? `drop-shadow(0 0 6px ${colors.glow})` : undefined }}>
-                <rect
-                  x={k.x + 1} y={k.y + 1} width={k.w - 2} height={k.h - 2} rx={5}
-                  fill={highlighted ? colors.bg : "rgba(30,36,56,0.9)"}
-                  stroke={highlighted ? colors.bg : "rgba(255,255,255,0.08)"}
-                  strokeWidth={highlighted ? 1.5 : 1}
-                />
-                <text
-                  x={k.x + k.w / 2} y={k.y + k.h / 2 + 5}
-                  textAnchor="middle"
-                  fontSize={k.w >= 68 ? 9 : 12}
-                  fill={highlighted ? colors.text : "rgba(255,255,255,0.7)"}
-                  fontFamily="monospace"
-                  fontWeight={highlighted ? "700" : "400"}
-                >
-                  {k.label}
-                </text>
-                {k.shiftLabel && k.w < 68 && (
-                  <text
-                    x={k.x + k.w - 5} y={k.y + 12}
-                    textAnchor="end" fontSize={8}
-                    fill="rgba(255,255,255,0.3)" fontFamily="monospace"
-                  >
-                    {k.shiftLabel}
-                  </text>
-                )}
-              </g>
-            );
-          })}
         </g>
 
         <g
@@ -532,7 +300,7 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
             side="right"
             fingerColor={rightActive ? fingerColor : null}
             isActive={true}
-            shiftPinky={needsShift && handSide === "left"}
+            shiftPinky={false}
           />
         </g>
       </svg>
@@ -555,16 +323,16 @@ function StarDisplay({ count }: { count: 1 | 2 | 3 }) {
 
 type Phase = "idle" | "active" | "complete";
 
-export default function TypingLesson() {
-  const [, params] = useRoute("/typing-en/lesson/:id");
+export default function TypingLessonAr() {
+  const [, params] = useRoute("/typing-ar/lesson/:id");
   const [, navigate] = useLocation();
-  const id = parseInt(params?.id ?? "1", 10);
+  const id = parseInt(params?.id ?? "10001", 10);
   const lesson = getLessonById(id);
 
   const [lockChecked, setLockChecked] = useState(false);
 
   useEffect(() => {
-    if (id === 1) { setLockChecked(true); return; }
+    if (id === 10001) { setLockChecked(true); return; }
     (async () => {
       try {
         const r = await fetch("/api/typing/progress", { credentials: "include" });
@@ -572,11 +340,11 @@ export default function TypingLesson() {
           const data: Array<{ lessonId: number; stars: number }> = await r.json();
           const completedIds = new Set(data.filter((d) => d.stars >= 1).map((d) => d.lessonId));
           const ordered = allLessons;
-          let unlockedUpTo = ordered[0]?.id ?? 1;
+          let unlockedUpTo = ordered[0]?.id ?? 10001;
           for (const l of ordered) {
             if (completedIds.has(l.id)) { unlockedUpTo = l.id + 1; } else { break; }
           }
-          if (id > unlockedUpTo) { navigate("/typing-en"); return; }
+          if (id > unlockedUpTo) { navigate("/typing-ar"); return; }
         }
       } catch {}
       setLockChecked(true);
@@ -710,13 +478,13 @@ export default function TypingLesson() {
     return () => window.removeEventListener("keydown", handler);
   }, [phase, typed, errors, text, currentIndex, startTime, id, showIntro]);
 
-  async function saveProgress(lessonId: number, stars: 1 | 2 | 3, wpm: number, accuracy: number) {
+  async function saveProgress(lessonId: number, s: 1 | 2 | 3, w: number, a: number) {
     try {
       await fetch("/api/typing/progress", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
         credentials: "include",
-        body: JSON.stringify({ lessonId, stars, wpm, accuracy }),
+        body: JSON.stringify({ lessonId, stars: s, wpm: w, accuracy: a }),
       });
       setSaved(true);
     } catch {}
@@ -725,7 +493,7 @@ export default function TypingLesson() {
   if (!lesson) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center h-screen" style={{ direction: "ltr" }}>
+        <div className="flex items-center justify-center h-screen" style={{ direction: "rtl" }}>
           <div className="text-white/50">الدرس غير موجود</div>
         </div>
       </AppLayout>
@@ -735,8 +503,8 @@ export default function TypingLesson() {
   if (!lockChecked) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center h-screen" style={{ direction: "ltr" }}>
-          <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+        <div className="flex items-center justify-center h-screen" style={{ direction: "rtl" }}>
+          <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
         </div>
       </AppLayout>
     );
@@ -746,12 +514,12 @@ export default function TypingLesson() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen pt-2 pb-2 px-4" style={{ direction: "ltr" }}>
+      <div className="min-h-screen pt-2 pb-2 px-4" style={{ direction: "rtl" }}>
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            <Link href="/typing-en">
+            <Link href="/typing-ar">
               <button className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white transition-colors">
-                <ArrowLeft className="w-4 h-4" />
+                <ArrowLeft className="w-4 h-4 rotate-180" />
                 العودة إلى الدروس
               </button>
             </Link>
@@ -763,8 +531,8 @@ export default function TypingLesson() {
             <h1 className="text-xl font-bold text-white">{lesson.title}</h1>
             <div className="flex items-center gap-4 mt-2">
               <div className="text-center">
-                <div className="text-2xl font-black" style={{ color: "#F59E0B" }}>{wpm}</div>
-                <div className="text-[10px] text-white/40 uppercase tracking-wider">كلمة/د</div>
+                <div className="text-2xl font-black" style={{ color: "#10B981" }}>{wpm}</div>
+                <div className="text-[10px] text-white/40 uppercase tracking-wider">ك/دقيقة</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-black" style={{ color: wpm > 0 && accuracy < 90 ? "#EF4444" : "#10B981" }}>{accuracy}%</div>
@@ -797,8 +565,8 @@ export default function TypingLesson() {
                 dir="rtl"
                 className="flex items-start gap-3 rounded-2xl px-4 py-3"
                 style={{
-                  background: "rgba(245,158,11,0.06)",
-                  border: "1px solid rgba(245,158,11,0.18)",
+                  background: "rgba(16,185,129,0.06)",
+                  border: "1px solid rgba(16,185,129,0.18)",
                 }}
               >
                 <span className="text-lg mt-0.5 flex-shrink-0">{tip.icon}</span>
@@ -831,12 +599,12 @@ export default function TypingLesson() {
             )}
             <div
               className="font-mono text-lg leading-relaxed tracking-wider select-none"
-              style={{ letterSpacing: "0.05em", minHeight: 60 }}
+              dir="rtl"
+              style={{ letterSpacing: "0.08em", minHeight: 60, fontFamily: "Tajawal, Cairo, monospace" }}
             >
               {text.split("").map((char, idx) => {
                 const isTyped = idx < typed.length;
                 const isCurrent = idx === currentIndex;
-                const isError = errors.has(idx);
                 const typedChar = typed[idx];
                 const wasWrong = isTyped && typedChar !== char;
 
@@ -850,9 +618,9 @@ export default function TypingLesson() {
                     style={{
                       color,
                       position: "relative",
-                      borderBottom: isCurrent && phase !== "complete" ? "2px solid #F59E0B" : undefined,
+                      borderBottom: isCurrent && phase !== "complete" ? "2px solid #10B981" : undefined,
                       paddingBottom: isCurrent ? 1 : undefined,
-                      background: isCurrent ? "rgba(245,158,11,0.08)" : undefined,
+                      background: isCurrent ? "rgba(16,185,129,0.08)" : undefined,
                       borderRadius: isCurrent ? 2 : undefined,
                     }}
                   >
@@ -940,11 +708,11 @@ export default function TypingLesson() {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ type: "spring", stiffness: 300, damping: 22 }}
               className="rounded-3xl p-8 text-center max-w-sm w-full"
+              dir="rtl"
               style={{
                 background: "linear-gradient(145deg, rgba(15,18,28,0.98), rgba(10,13,22,0.99))",
-                border: "1px solid rgba(245,158,11,0.25)",
-                boxShadow: "0 0 60px rgba(245,158,11,0.15), 0 20px 60px rgba(0,0,0,0.5)",
-                direction: "ltr",
+                border: "1px solid rgba(16,185,129,0.25)",
+                boxShadow: "0 0 60px rgba(16,185,129,0.15), 0 20px 60px rgba(0,0,0,0.5)",
               }}
             >
               <div className="text-4xl mb-4">🎉</div>
@@ -953,14 +721,14 @@ export default function TypingLesson() {
               <div className="my-5">
                 <StarDisplay count={stars} />
                 <div className="text-xs text-white/40 mt-2">
-                  {stars === 3 ? "ممتاز! أداء رائع!" : stars === 2 ? "جود عالي!" : "واصل التدريب!"}
+                  {stars === 3 ? "ممتاز! أداء رائع!" : stars === 2 ? "جيد عالي!" : "واصل التدريب!"}
                 </div>
               </div>
 
               <div className="flex gap-6 justify-center my-5">
                 <div>
-                  <div className="text-3xl font-black" style={{ color: "#F59E0B" }}>{wpm}</div>
-                  <div className="text-xs text-white/40">كلمة/د</div>
+                  <div className="text-3xl font-black" style={{ color: "#10B981" }}>{wpm}</div>
+                  <div className="text-xs text-white/40">ك/دقيقة</div>
                 </div>
                 <div className="w-px bg-white/10" />
                 <div>
@@ -979,20 +747,20 @@ export default function TypingLesson() {
                 </button>
                 {nextLesson ? (
                   <button
-                    onClick={() => navigate(`/typing-en/lesson/${nextLesson.id}`)}
+                    onClick={() => navigate(`/typing-ar/lesson/${nextLesson.id}`)}
                     className="py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5 transition-colors"
-                    style={{ background: "#F59E0B", color: "#000" }}
+                    style={{ background: "#10B981", color: "#fff" }}
                   >
                     الدرس التالي
-                    <ChevronRight className="w-4 h-4" />
+                    <ChevronRight className="w-4 h-4 rotate-180" />
                   </button>
                 ) : (
-                  <Link href="/typing-en">
+                  <Link href="/typing-ar">
                     <button
                       className="w-full py-2.5 rounded-xl text-sm font-bold transition-colors"
                       style={{ background: "#10B981", color: "#fff" }}
                     >
-                      انتهيت الكل!
+                      انتهيت الكل! 🎊
                     </button>
                   </Link>
                 )}
@@ -1025,8 +793,8 @@ export default function TypingLesson() {
                 maxWidth: 680,
                 maxHeight: "92vh",
                 background: "linear-gradient(150deg, rgba(12,16,30,0.99), rgba(8,11,22,0.99))",
-                border: "1px solid rgba(245,158,11,0.22)",
-                boxShadow: "0 0 100px rgba(245,158,11,0.09), 0 32px 80px rgba(0,0,0,0.70)",
+                border: "1px solid rgba(16,185,129,0.22)",
+                boxShadow: "0 0 100px rgba(16,185,129,0.09), 0 32px 80px rgba(0,0,0,0.70)",
               }}
             >
               <div className="p-6 pb-0">
@@ -1040,7 +808,6 @@ export default function TypingLesson() {
               </div>
 
               <div className="px-5 pb-5 space-y-3">
-
                 <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
                   <img
                     src="/home-row-hands.png"
@@ -1056,13 +823,13 @@ export default function TypingLesson() {
                 </div>
 
                 <div className="rounded-2xl px-4 py-3" style={{ background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.15)" }}>
-                  <div className="text-xs font-bold mb-2.5" style={{ color: "#10B981" }}>🖐️ توزيع الأصابع على المفاتيح</div>
+                  <div className="text-xs font-bold mb-2.5" style={{ color: "#10B981" }}>🖐️ توزيع الأصابع على المفاتيح العربية</div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                     {([
-                      ["🔴","الخنصر",     "A","J"],
-                      ["🟢","البنصر",     "S","L"],
-                      ["🔵","الوسطى",     "D","K"],
-                      ["🟡","السبّابة",  "F+G","H+J"],
+                      ["🔴","الخنصر",     "ش","ك"],
+                      ["🟢","البنصر",     "س","م"],
+                      ["🔵","الوسطى",     "ي","ن"],
+                      ["🟡","السبّابة",  "ب+ل","ا+ت"],
                     ] as const).map(([dot, name, left, right]) => (
                       <div key={name as string} className="col-span-2 flex items-center gap-2 text-xs">
                         <span className="text-sm">{dot as string}</span>
@@ -1077,17 +844,17 @@ export default function TypingLesson() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl px-4 py-3" style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.15)" }}>
-                  <div className="text-xs font-bold mb-1.5" style={{ color: "#F59E0B" }}>✨ سرّ مفتاحَي F و J</div>
+                <div className="rounded-2xl px-4 py-3" style={{ background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.15)" }}>
+                  <div className="text-xs font-bold mb-1.5" style={{ color: "#10B981" }}>✨ سرّ مفتاحَي ب و ت</div>
                   <p className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.52)" }}>
-                    ستجد على مفتاح <strong style={{ color: "#F59E0B" }}>F</strong> و <strong style={{ color: "#F59E0B" }}>J</strong> نتوءاً صغيراً يمكن تحسّسه بالإصبع. ضع سبّابتيك عليهما دون النظر — هذان هما <strong style={{ color: "rgba(255,255,255,0.7)" }}>نقطتا الارتكاز</strong> اللتان تُعيد يديك إليهما دائماً بعد كل ضغطة.
+                    ستجد على مفتاح <strong style={{ color: "#10B981" }}>ب</strong> و <strong style={{ color: "#10B981" }}>ت</strong> نتوءاً صغيراً يمكن تحسّسه بالإصبع. ضع سبّابتيك عليهما دون النظر — هذان هما <strong style={{ color: "rgba(255,255,255,0.7)" }}>نقطتا الارتكاز</strong> اللتان تُعيد يديك إليهما دائماً بعد كل ضغطة.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5">
-                  <div className="rounded-2xl px-3.5 py-3" style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.13)" }}>
+                  <div className="rounded-2xl px-3.5 py-3" style={{ background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.13)" }}>
                     <div className="text-sm mb-1">👁️</div>
-                    <div className="text-xs font-bold mb-0.5" style={{ color: "#F59E0B" }}>عيناك على الشاشة</div>
+                    <div className="text-xs font-bold mb-0.5" style={{ color: "#10B981" }}>عيناك على الشاشة</div>
                     <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>
                       لا تنظر إلى لوحة المفاتيح أبداً — حتى لو أخطأت. هذا هو السر الوحيد لأي كاتب سريع.
                     </div>
@@ -1110,7 +877,7 @@ export default function TypingLesson() {
                     <div className="text-sm mb-1">🏠</div>
                     <div className="text-xs font-bold mb-0.5" style={{ color: "#A78BFA" }}>عُد دائماً للبيت</div>
                     <div className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>
-                      بعد كل ضغطة على مفتاح بعيد، أعد أصابعك فوراً إلى الصف الرئيسي. F و J هما البيت.
+                      بعد كل ضغطة على مفتاح بعيد، أعد أصابعك فوراً إلى الصف الرئيسي. ب و ت هما البيت.
                     </div>
                   </div>
                 </div>
@@ -1118,7 +885,7 @@ export default function TypingLesson() {
                 <button
                   onClick={() => setShowIntro(false)}
                   className="w-full py-3.5 rounded-2xl font-black text-base transition-opacity hover:opacity-90 mt-1"
-                  style={{ background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#000" }}
+                  style={{ background: "linear-gradient(135deg, #10B981, #059669)", color: "#fff" }}
                 >
                   فهمت — ابدأ الكتابة ←
                 </button>

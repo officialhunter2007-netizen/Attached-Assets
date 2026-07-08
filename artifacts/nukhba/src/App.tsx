@@ -35,7 +35,10 @@ import BookletExam from "@/pages/booklet-exam";
 import CodingRooms from "@/pages/coding-rooms";
 import CodingRoom from "@/pages/coding-room";
 import Typing from "@/pages/typing";
+import TypingEn from "@/pages/typing-en";
+import TypingAr from "@/pages/typing-ar";
 import TypingLesson from "@/pages/typing-lesson";
+import TypingLessonAr from "@/pages/typing-lesson-ar";
 
 const queryClient = new QueryClient();
 
@@ -231,7 +234,10 @@ function Router() {
       <Route path="/coding-rooms" component={() => <ProtectedRoute component={CodingRooms} />} />
       <Route path="/coding-room/:roomId" component={() => <ProtectedRoute component={CodingRoom} />} />
       <Route path="/typing" component={() => <ProtectedRoute component={Typing} />} />
-      <Route path="/typing/lesson/:id" component={() => <ProtectedRoute component={TypingLesson} />} />
+      <Route path="/typing-en" component={() => <ProtectedRoute component={TypingEn} />} />
+      <Route path="/typing-ar" component={() => <ProtectedRoute component={TypingAr} />} />
+      <Route path="/typing-en/lesson/:id" component={() => <ProtectedRoute component={TypingLesson} />} />
+      <Route path="/typing-ar/lesson/:id" component={() => <ProtectedRoute component={TypingLessonAr} />} />
       <Route component={NotFound} />
     </Switch>
   );

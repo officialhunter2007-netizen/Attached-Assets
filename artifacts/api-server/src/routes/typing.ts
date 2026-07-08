@@ -4,7 +4,8 @@ import { sql } from "drizzle-orm";
 
 const router = Router();
 
-const MAX_LESSON_ID = 700;
+const MAX_LESSON_ID = 20000;
+const AR_FIRST_ID = 10001;
 
 function requireUser(req: Request, res: Response, next: NextFunction): void {
   const uid = ((req as any).session as any)?.userId ?? null;
@@ -65,7 +66,9 @@ router.post("/typing/progress", requireUser, requireCsrf, async (req: any, res: 
       return;
     }
 
-    if (parsedId > 1) {
+    const isFirstLesson = parsedId === 1 || parsedId === AR_FIRST_ID;
+
+    if (!isFirstLesson) {
       const prevRows = await db.execute(sql`
         SELECT 1 FROM typing_progress
         WHERE user_id = ${userId} AND lesson_id = ${parsedId - 1} AND stars >= 1
