@@ -153,6 +153,148 @@ for (const k of KEYBOARD_KEYS) {
   if (k.shiftLabel) KEY_MAP.set(k.shiftLabel.toLowerCase(), k);
 }
 
+const KEY_HAND_MAP: Record<string, "left" | "right" | "both"> = {
+  "`": "left", "~": "left", "1": "left", "!": "left",
+  "2": "left", "@": "left", "3": "left", "#": "left",
+  "4": "left", "$": "left", "5": "left", "%": "left",
+  "q": "left", "Q": "left", "w": "left", "W": "left",
+  "e": "left", "E": "left", "r": "left", "R": "left",
+  "t": "left", "T": "left",
+  "a": "left", "A": "left", "s": "left", "S": "left",
+  "d": "left", "D": "left", "f": "left", "F": "left",
+  "g": "left", "G": "left",
+  "z": "left", "Z": "left", "x": "left", "X": "left",
+  "c": "left", "C": "left", "v": "left", "V": "left",
+  "b": "left", "B": "left",
+  "6": "right", "^": "right", "7": "right", "&": "right",
+  "8": "right", "*": "right", "9": "right", "(": "right",
+  "0": "right", ")": "right", "-": "right", "_": "right",
+  "=": "right", "+": "right",
+  "y": "right", "Y": "right", "u": "right", "U": "right",
+  "i": "right", "I": "right", "o": "right", "O": "right",
+  "p": "right", "P": "right",
+  "[": "right", "{": "right", "]": "right", "}": "right",
+  "\\": "right", "|": "right",
+  "h": "right", "H": "right", "j": "right", "J": "right",
+  "k": "right", "K": "right", "l": "right", "L": "right",
+  ";": "right", ":": "right", "'": "right", '"': "right",
+  "n": "right", "N": "right", "m": "right", "M": "right",
+  ",": "right", "<": "right", ".": "right", ">": "right",
+  "/": "right", "?": "right",
+  " ": "both",
+};
+
+type FingerGeom = { color: FingerColor; x: number; y: number; w: number; h: number; rx: number };
+
+const L_FINGERS: FingerGeom[] = [
+  { color: "red",    x: 8,  y: 52, w: 16, h: 88,  rx: 8  },
+  { color: "green",  x: 28, y: 28, w: 18, h: 112, rx: 9  },
+  { color: "blue",   x: 50, y: 16, w: 20, h: 124, rx: 10 },
+  { color: "yellow", x: 74, y: 30, w: 18, h: 110, rx: 9  },
+];
+
+const R_FINGERS: FingerGeom[] = [
+  { color: "yellow", x: 28, y: 30, w: 18, h: 110, rx: 9  },
+  { color: "blue",   x: 50, y: 16, w: 20, h: 124, rx: 10 },
+  { color: "green",  x: 74, y: 28, w: 18, h: 112, rx: 9  },
+  { color: "red",    x: 96, y: 52, w: 16, h: 88,  rx: 8  },
+];
+
+function HandSVG({
+  side,
+  fingerColor,
+  isActive,
+  shiftPinky,
+}: {
+  side: "left" | "right";
+  fingerColor: FingerColor | null;
+  isActive: boolean;
+  shiftPinky: boolean;
+}) {
+  const fingers = side === "left" ? L_FINGERS : R_FINGERS;
+  const palmX = side === "left" ? 4 : 22;
+  const palmFill = isActive ? "rgba(55,65,100,0.52)" : "rgba(22,28,52,0.32)";
+  const palmStroke = isActive ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)";
+  const thumbActive = isActive && fingerColor === "gray";
+  const grayFc = FINGER_COLORS["gray"];
+  const thumbTransform = side === "left"
+    ? "translate(78,130) rotate(-30)"
+    : "translate(42,130) rotate(30)";
+
+  return (
+    <svg viewBox="0 0 120 215" width={105} height={188} aria-hidden="true">
+      <rect x={palmX} y={118} width={94} height={88} rx={14}
+        fill={palmFill} stroke={palmStroke} strokeWidth={1.5}
+      />
+      {fingers.map((f, i) => {
+        const isThisFinger = isActive && fingerColor === f.color;
+        const isShiftPinky = shiftPinky && f.color === "red";
+        const highlighted = isThisFinger || isShiftPinky;
+        const fc = FINGER_COLORS[f.color];
+        return (
+          <rect
+            key={i}
+            x={f.x} y={f.y} width={f.w} height={f.h} rx={f.rx}
+            fill={highlighted ? fc.bg : isActive ? "rgba(42,52,82,0.68)" : "rgba(18,24,46,0.42)"}
+            stroke={highlighted ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.05)"}
+            strokeWidth={highlighted ? 1.5 : 1}
+            style={{ filter: highlighted ? `drop-shadow(0 0 8px ${fc.glow})` : undefined }}
+          />
+        );
+      })}
+      <g transform={thumbTransform}>
+        <rect
+          x={-7} y={0} width={14} height={50} rx={7}
+          fill={thumbActive ? grayFc.bg : isActive ? "rgba(42,52,82,0.68)" : "rgba(18,24,46,0.42)"}
+          stroke={thumbActive ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.05)"}
+          strokeWidth={thumbActive ? 1.5 : 1}
+          style={{ filter: thumbActive ? `drop-shadow(0 0 8px ${grayFc.glow})` : undefined }}
+        />
+      </g>
+      <text
+        x={60} y={212}
+        textAnchor="middle"
+        fontSize={8}
+        fill="rgba(255,255,255,0.18)"
+        fontFamily="system-ui, sans-serif"
+      >
+        {side === "left" ? "اليسرى" : "اليمنى"}
+      </text>
+    </svg>
+  );
+}
+
+function HandsDisplay({ nextChar, needsShift }: { nextChar: string; needsShift: boolean }) {
+  const handSide = nextChar ? (KEY_HAND_MAP[nextChar] ?? null) : null;
+  const fingerColor: FingerColor | null = nextChar
+    ? (keyFingerMap[nextChar] ?? keyFingerMap[nextChar.toLowerCase()] ?? null)
+    : null;
+
+  if (!handSide) return null;
+
+  const leftActive  = handSide === "left"  || handSide === "both";
+  const rightActive = handSide === "right" || handSide === "both";
+  const leftShiftPinky  = needsShift && handSide === "right";
+  const rightShiftPinky = needsShift && handSide === "left";
+
+  return (
+    <div className="flex items-end justify-center gap-6 mt-2 select-none">
+      <HandSVG
+        side="left"
+        fingerColor={leftActive ? fingerColor : null}
+        isActive={leftActive}
+        shiftPinky={leftShiftPinky}
+      />
+      <HandSVG
+        side="right"
+        fingerColor={rightActive ? fingerColor : null}
+        isActive={rightActive}
+        shiftPinky={rightShiftPinky}
+      />
+    </div>
+  );
+}
+
 function VirtualKeyboard({ nextChar }: { nextChar: string }) {
   const activeKey = KEY_MAP.get(nextChar.toLowerCase());
   const needsShift = activeKey != null && (
@@ -226,6 +368,7 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
           );
         })}
       </svg>
+      <HandsDisplay nextChar={nextChar} needsShift={needsShift} />
     </div>
   );
 }
