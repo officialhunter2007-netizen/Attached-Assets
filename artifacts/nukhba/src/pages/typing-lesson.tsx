@@ -348,7 +348,7 @@ export default function TypingLesson() {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-screen" style={{ direction: "ltr" }}>
-          <div className="text-white/50">Lesson not found</div>
+          <div className="text-white/50">الدرس غير موجود</div>
         </div>
       </AppLayout>
     );
@@ -374,11 +374,11 @@ export default function TypingLesson() {
             <Link href="/typing">
               <button className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white transition-colors">
                 <ArrowLeft className="w-4 h-4" />
-                Back to lessons
+                العودة إلى الدروس
               </button>
             </Link>
             <div className="h-4 w-px bg-white/10" />
-            <span className="text-xs text-white/30">Section {lesson.sectionIndex + 1} · Lesson {lesson.lessonIndex + 1}</span>
+            <span className="text-xs text-white/30">القسم {lesson.sectionIndex + 1} · الدرس {lesson.lessonIndex + 1}</span>
           </div>
 
           <div>
@@ -386,11 +386,11 @@ export default function TypingLesson() {
             <div className="flex items-center gap-4 mt-2">
               <div className="text-center">
                 <div className="text-2xl font-black" style={{ color: "#F59E0B" }}>{wpm}</div>
-                <div className="text-[10px] text-white/40 uppercase tracking-wider">WPM</div>
+                <div className="text-[10px] text-white/40 uppercase tracking-wider">كلمة/د</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-black" style={{ color: wpm > 0 && accuracy < 90 ? "#EF4444" : "#10B981" }}>{accuracy}%</div>
-                <div className="text-[10px] text-white/40 uppercase tracking-wider">Accuracy</div>
+                <div className="text-[10px] text-white/40 uppercase tracking-wider">دقة</div>
               </div>
               <div className="flex-1" />
               <button
@@ -413,7 +413,7 @@ export default function TypingLesson() {
           >
             {phase === "idle" && (
               <div className="text-center mb-3 text-xs text-white/30 animate-pulse">
-                Start typing to begin…
+                ابدأ الكتابة لتنطلق...
               </div>
             )}
             <div
@@ -457,7 +457,7 @@ export default function TypingLesson() {
             style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
           >
             <div className="text-xs text-white/30">
-              {typed.length} / {text.length} characters
+              {typed.length} / {text.length} حرف
             </div>
             <div className="flex-1 mx-4">
               <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
@@ -499,24 +499,24 @@ export default function TypingLesson() {
               }}
             >
               <div className="text-4xl mb-4">🎉</div>
-              <h2 className="text-2xl font-black text-white mb-2">Lesson Complete!</h2>
+              <h2 className="text-2xl font-black text-white mb-2">انتهيت الدرس!</h2>
 
               <div className="my-5">
                 <StarDisplay count={stars} />
                 <div className="text-xs text-white/40 mt-2">
-                  {stars === 3 ? "Perfect! Outstanding!" : stars === 2 ? "Great job!" : "Keep practicing!"}
+                  {stars === 3 ? "ممتاز! أداء رائع!" : stars === 2 ? "جود عالي!" : "واصل التدريب!"}
                 </div>
               </div>
 
               <div className="flex gap-6 justify-center my-5">
                 <div>
                   <div className="text-3xl font-black" style={{ color: "#F59E0B" }}>{wpm}</div>
-                  <div className="text-xs text-white/40">WPM</div>
+                  <div className="text-xs text-white/40">كلمة/د</div>
                 </div>
                 <div className="w-px bg-white/10" />
                 <div>
                   <div className="text-3xl font-black" style={{ color: accuracy >= 90 ? "#10B981" : "#EF4444" }}>{accuracy}%</div>
-                  <div className="text-xs text-white/40">Accuracy</div>
+                  <div className="text-xs text-white/40">دقة</div>
                 </div>
               </div>
 
@@ -526,7 +526,7 @@ export default function TypingLesson() {
                   className="py-2.5 rounded-xl text-sm font-bold transition-colors"
                   style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.08)" }}
                 >
-                  Try Again
+                  حاول مجدداً
                 </button>
                 {nextLesson ? (
                   <button
@@ -534,7 +534,7 @@ export default function TypingLesson() {
                     className="py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5 transition-colors"
                     style={{ background: "#F59E0B", color: "#000" }}
                   >
-                    Next
+                    الدرس التالي
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 ) : (
@@ -543,7 +543,7 @@ export default function TypingLesson() {
                       className="w-full py-2.5 rounded-xl text-sm font-bold transition-colors"
                       style={{ background: "#10B981", color: "#fff" }}
                     >
-                      All Done!
+                      انتهيت الكل!
                     </button>
                   </Link>
                 )}

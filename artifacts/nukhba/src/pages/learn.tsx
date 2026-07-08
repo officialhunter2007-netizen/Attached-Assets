@@ -252,11 +252,11 @@ export default function Learn() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <span className="font-bold text-sm text-white">Typing Trainer</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B", border: "1px solid rgba(245,158,11,0.2)" }}>NEW</span>
+                      <span className="font-bold text-sm text-white">تدريب الكتابة</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B", border: "1px solid rgba(245,158,11,0.2)" }}>جديد</span>
                     </div>
                     <p className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
-                      Learn touch typing — {typingSections.length} sections, {typingTotalLessons} lessons, sounds & virtual keyboard
+                      تعلم الكتابة بسرعة مذهلة — {typingSections.length} قسم، {typingTotalLessons} درس، أصوات ولوحة مفاتيحة
                     </p>
                   </div>
                   <ArrowLeft className="w-4 h-4 flex-shrink-0 rotate-180 group-hover:translate-x-1 transition-transform" style={{ color: "#F59E0B" }} />

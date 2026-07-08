@@ -74,7 +74,7 @@ function LessonCard({
             <div className="flex items-center gap-2 mt-0.5">
               <StarRow count={stars} size="xs" />
               <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>
-                {progress?.wpm} WPM · {progress?.accuracy}%
+                {progress?.wpm} كلمة/د · {progress?.accuracy}% دقة
               </span>
             </div>
           )}
@@ -144,7 +144,7 @@ function SectionPanel({
               />
             </div>
             <span className="text-[10px] font-bold" style={{ color: section.color }}>
-              {completedCount}/{totalCount}
+              {completedCount}/{totalCount} منجز
             </span>
           </div>
         </div>
@@ -237,18 +237,21 @@ export default function Typing() {
               }}
             >
               <Keyboard className="w-3.5 h-3.5" />
-              Typing Trainer
+              تدريب الكتابة
             </div>
             <h1 className="text-3xl md:text-4xl font-black text-white mb-2">
-              Learn to Type Fast
+              تعلم الكتابة بسرعة فائقة
             </h1>
-            <p className="text-sm text-white/40 mb-6">
-              {totalLessons} lessons · 14 sections · from Home Row to full keyboard
+            <p className="text-sm text-white/40 mb-1">
+              {totalLessons} درس · 14 قسمًا · من الصف الرئيسي حتى لوحة الكيبورد كاملة
+            </p>
+            <p className="text-xs text-white/25 mb-6">
+              تمارين منهجية تضمن لك الكتابة بسرعة مذهلة دون النظر إلى الكيبورد
             </p>
 
             <div className="max-w-xs mx-auto mb-3">
               <div className="flex justify-between text-xs mb-1.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-                <span>{totalCompleted} completed</span>
+                <span>{totalCompleted} درس منجز</span>
                 <span className="font-bold" style={{ color: "#F59E0B" }}>{overallPct}%</span>
               </div>
               <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
@@ -269,7 +272,7 @@ export default function Typing() {
                   className="mt-4 px-6 py-3 rounded-2xl text-sm font-bold text-black"
                   style={{ background: "linear-gradient(135deg, #F59E0B, #D97706)" }}
                 >
-                  {totalCompleted === 0 ? "Start Typing" : "Continue"} →
+                  {totalCompleted === 0 ? "ابدأ الكتابة" : "متابعة"} →
                 </motion.button>
               </Link>
             )}
