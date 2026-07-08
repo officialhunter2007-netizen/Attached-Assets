@@ -30,3 +30,9 @@ id = "BmbWdA3TNJoE2ct1mI5BE"
 uri = "file://uni-it-gitlab-duo-prompt.txt"
 type = "text"
 title = "برومت GitLab Duo — مضغوط بشكل أقصى"
+
+[[outputs]]
+id = "zmlE9CZz2J1Lgkad4gz1D"
+uri = "file://uni-it-instruction-full-prompt.txt"
+type = "text"
+title = "البرومت الكامل — uni-it-instruction.json"

@@ -1,0 +1,346 @@
+أنشئ ملف `uni-it-instruction.json` بالكامل.
+أخرج JSON خام فقط — بلا markdown، بلا تعليقات، بلا شرح خارج الـJSON.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+الجزء الأول: بيانات التخصص (specialty)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{
+  "schema_version": "v4.1",
+  "specialty": {
+    "slug": "uni-it",
+    "name": "تقنية المعلومات",
+    "icon": "💻",
+    "description": "مسار متكامل من أساسيات الحاسوب حتى السحابة والأمن السيبراني، بأسلوب عملي مرتبط بسوق العمل اليمني",
+    "target_persona": "طالب يمني مبتدئ يريد دخول مجال تقنية المعلومات والحصول على وظيفة في القطاع التقني",
+    "teacher_tone": "صديق خبير يشرح بمثال يمني قبل أي مفهوم تقني، يسأل الطالب قبل أن يشرح، ويربط كل مفهوم بواقع الشبكات والأجهزة في اليمن",
+    "allowed_viz_templates": ["flowchart", "network_diagram", "timeline", "comparison_table"],
+    "allowed_tools": ["nukhba_ide_js", "nukhba_ide_python", "nukhba_ide_bash", "regex_playground"]
+  },
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+الجزء الثاني: هيكل المستويات (levels)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"levels": [ ... 3 مستويات ... ]
+
+قواعد أسماء الحقول الإلزامية:
+- المستوى:  level_index (int)، name، goal (≥10 حرف)، bloom_focus، exam: { pass_threshold_percent, time_limit_minutes }، stages
+- المرحلة:  stage_index (int)، name، goal (≥10 حرف)، bloom_focus، exam: { pass_threshold_percent, time_limit_minutes }، units
+- الوحدة:   unit_index (int)، name، goal (≥10 حرف)، key_concepts ([])، prerequisite_units ([])، enables_units ([])، exam: { pass_threshold_percent, time_limit_minutes }، lessons، labs
+
+تنبيه: الاسم الصحيح هو "labs" (مصفوفة) وليس "lab" (object)، وهو "exam" (object) وليس "unit_exam".
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+الجزء الثالث: هيكل الدرس (lesson) — كل وحدة لها 5 دروس بالضبط
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+كل درس يجب أن يحتوي على جميع الحقول التالية بالترتيب:
+
+{
+  "lesson_index": 1,                  ← أرقام 1 إلى 5 بالترتيب، لا فراغات
+  "name": "اسم الدرس بالعربية",
+  "goal": "ما سيتمكن الطالب من فعله بعد هذا الدرس (≥10 حرف)",
+  "bridge_sentence": "جملة تربط هذا الدرس بالدرس السابق أو بخبرة الطالب اليومية (≥10 كلمات)",
+  "prerequisite_lessons": [],          ← دائماً مصفوفة فارغة
+  "enables_lessons": [],               ← دائماً مصفوفة فارغة
+  "concepts": [
+    {
+      "name": "اسم المفهوم الفريد داخل الدرس",
+      "explanation": "شرح واضح للمفهوم",
+      "mastery_criterion": "كيف نعرف أن الطالب أتقن هذا المفهوم",
+      "weight": 2                      ← عدد صحيح 1-5 (اختياري)
+    }
+  ],                                   ← مفهوم واحد على الأقل، أسماء غير مكررة داخل الدرس نفسه
+  "common_mistakes": [
+    {
+      "mistake": "الخطأ الذي يقع فيه الطالب",
+      "correction": "ما هو الصح",
+      "treatment": "كيف يتعامل المعلم معه إذا وقع فيه (يختلف عن correction)",
+      "severity": "major"              ← minor / major / critical (اختياري)
+    }
+  ],                                   ← خطأ واحد على الأقل
+  "yemeni_examples": [
+    "مثال من الحياة اليمنية يوضح المفهوم",
+    "مثال ثانٍ مختلف"
+  ],                                   ← مثالان على الأقل
+  "final_check_question": "سؤال يختبر فهم الطالب لهذا الدرس",
+  "session_complete_criterion": "ما الذي يثبت أن الطالب أكمل هذه الجلسة بنجاح",
+  "expected_duration_minutes": 30,
+  "motivation_hook": "جملة تحفيزية تربط الدرس بهدف حياتي أو مهني للطالب (≥15 حرف)",
+  "learning_objectives": [
+    { "statement": "وصف هدف تعلمي محدد وقابل للقياس", "bloom_level": "understand" }
+  ]
+}
+
+قيم bloom_level المقبولة: remember / understand / apply / analyze / evaluate / create
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+الجزء الرابع: هيكل المختبر (lab) — كل وحدة لها مختبر واحد داخل "labs": [...]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{
+  "lab_index": 1,
+  "title": "عنوان المختبر",
+  "scenario": "وصف السيناريو العملي الذي سيعمل فيه الطالب (≥20 حرف)",
+  "pedagogical_sequence": "شرح كيف تتدرج الأسئلة الخمسة وما الهدف من كل منها (≥15 حرف)",
+  "questions": [
+    { "kind": "diagnostic",   "prompt": "سؤال تشخيصي يكشف ما يعرفه الطالب مسبقاً",         "rubric": "معيار التصحيح", "solution_outline": "الإجابة النموذجية", "points": 1 },
+    { "kind": "decision",     "prompt": "سؤال يطلب من الطالب اتخاذ قرار أو اختيار نهج",     "rubric": "معيار التصحيح", "solution_outline": "الإجابة النموذجية", "points": 2 },
+    { "kind": "application",  "prompt": "سؤال تطبيقي يطلب تنفيذ أمر أو كتابة كود أو إجراء", "rubric": "معيار التصحيح", "solution_outline": "الإجابة النموذجية", "points": 3 },
+    { "kind": "analysis",     "prompt": "سؤال تحليلي يطلب تفسير نتيجة أو إيجاد مشكلة",      "rubric": "معيار التصحيح", "solution_outline": "الإجابة النموذجية", "points": 2 },
+    { "kind": "connection",   "prompt": "سؤال ربط يصل هذه الوحدة بالوحدات الأخرى أو بالواقع","rubric": "معيار التصحيح", "solution_outline": "الإجابة النموذجية", "points": 2 }
+  ],
+  "completion_criterion": "معيار إكمال المختبر"
+}
+
+قاعدة صارمة: الأسئلة بالضبط 5، بالترتيب: diagnostic → decision → application → analysis → connection.
+لا تبديل، لا حذف، لا إضافة.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+الجزء الخامس: بنوك الاختبارات (exam_banks)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"exam_banks": {
+  "unit_banks":  { "1.1.1": { "variants": [[سؤال×5]]  }, ... كل الـ27 وحدة },
+  "stage_banks": { "1.1":   { "variants": [[سؤال×8]]  }, ... كل الـ9 مراحل },
+  "level_banks": { "1":     { "variants": [[سؤال×15]] }, "2": {...}, "3": {...} }
+}
+
+هيكل كل سؤال MCQ:
+{
+  "kind": "mcq",
+  "prompt": "نص السؤال",
+  "choices": ["الخيار الأول", "الخيار الثاني", "الخيار الثالث", "الخيار الرابع"],
+  "correct_index": 0,             ← رقم صحيح 0 إلى 3
+  "explanation": "لماذا هذه الإجابة صحيحة",
+  "difficulty": 2                 ← 1 (سهل) / 2 (متوسط) / 3 (صعب)
+}
+
+قاعدة: choices يجب أن تحتوي على خيارين على الأقل، وcorrect_index يقع ضمن نطاق المصفوفة.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+الجزء السادس: أسئلة تحديد المستوى (placement_test_questions)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"placement_test_questions": [ ... 18 سؤال ... ]
+
+هيكل كل سؤال:
+{
+  "target_level_index": 1,           ← يجب أن يساوي أول رقم في target_unit_code
+  "target_stage_code": "1.1",        ← يجب أن يساوي أول رقمين من target_unit_code
+  "target_unit_code": "1.1.1",
+  "kind": "mcq",
+  "prompt": "نص السؤال",
+  "choices": ["أ", "ب", "ج", "د"],
+  "correct_index": 0,
+  "difficulty": 2
+}
+
+التوزيع: 6 أسئلة لكل مستوى (مستوى 1: وحدات 1.x.x، مستوى 2: وحدات 2.x.x، مستوى 3: وحدات 3.x.x).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+الجزء السابع: المنهج الكامل (27 وحدة)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+أنشئ 5 دروس + مختبر واحد لكل وحدة من الوحدات التالية.
+استخدم السياق المهني اليمني في جميع الأمثلة.
+
+─── المستوى الأول: أساسيات تقنية المعلومات ───
+bloom_focus: "understand" | exam: pass_threshold_percent: 60, time_limit_minutes: 50
+
+▸ المرحلة 1.1 — مكونات الحاسوب والأجهزة
+  bloom_focus: "remember" | exam: pass_threshold_percent: 65, time_limit_minutes: 35
+  
+  الوحدة 1.1.1 — مكونات الجهاز والأجهزة الطرفية
+    المفاهيم الأساسية: المعالج CPU وكيف يعالج البيانات، الذاكرة RAM والفرق بين المؤقتة والدائمة، القرص الصلب HDD وSSD، لوحة الأم وكيف تربط المكونات، الأجهزة الطرفية (طابعة، ماوس، لوحة مفاتيح)
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 1.1.2 — نظام التشغيل Windows
+    المفاهيم الأساسية: واجهة Windows وسطح المكتب، إدارة الملفات والمجلدات والمسارات، لوحة التحكم وإعدادات النظام، Task Manager ومراقبة الأداء، تثبيت وإزالة البرامج
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 1.1.3 — مدخل إلى نظام Linux
+    المفاهيم الأساسية: ما هو Linux وفلسفة المصدر المفتوح، توزيعات Linux الشائعة (Ubuntu وCentOS)، الـKernel ودوره في النظام، الفرق بين Linux وWindows في بيئة العمل، لماذا يستخدم مهندسو IT نظام Linux
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+▸ المرحلة 1.2 — الشبكات والإنترنت
+  bloom_focus: "understand" | exam: pass_threshold_percent: 65, time_limit_minutes: 35
+
+  الوحدة 1.2.1 — أساسيات الشبكات ونموذج OSI
+    المفاهيم الأساسية: ما هي الشبكة ولماذا نحتاجها، نموذج OSI السبع طبقات، مفهوم التغليف وكيف تنتقل البيانات، البروتوكولات وأهميتها، أنواع وسائط الاتصال (سلكية ولاسلكية)
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 1.2.2 — الإنترنت والبروتوكولات الأساسية
+    المفاهيم الأساسية: كيف يعمل TCP/IP ولماذا هو أساس الإنترنت، HTTP وHTTPS والفرق بينهما، عنوان IP وكيف يعمل DNS، المنافذ والخدمات المرتبطة بها، كيف تصل صفحة الويب إلى متصفحك
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 1.2.3 — الشبكات المنزلية والواي فاي
+    المفاهيم الأساسية: دور الراوتر في الشبكة المنزلية، DHCP وكيف يوزع العناوين تلقائياً، الفرق بين IP الخاص والعام، تأمين شبكة الواي فاي (WPA2/WPA3)، استكشاف أخطاء الشبكة المنزلية
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+▸ المرحلة 1.3 — الأمان الرقمي الأساسي
+  bloom_focus: "apply" | exam: pass_threshold_percent: 65, time_limit_minutes: 35
+
+  الوحدة 1.3.1 — التهديدات الإلكترونية والفيروسات
+    المفاهيم الأساسية: أنواع البرمجيات الخبيثة (فيروسات وRansomware وأحصنة طروادة)، كيف تنتشر البرمجيات الخبيثة، مكافحة الفيروسات وكيف يعمل، علامات الإصابة بالبرمجيات الخبيثة، خطوات التعامل مع الإصابة
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 1.3.2 — حماية الحسابات وكلمات المرور
+    المفاهيم الأساسية: مواصفات كلمة المرور القوية، المصادقة الثنائية 2FA وأنواعها، مدير كلمات المرور وفوائده، هجمات Phishing وكيف تتعرف عليها، مبدأ الحد الأدنى من الصلاحيات
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 1.3.3 — النسخ الاحتياطي والخصوصية
+    المفاهيم الأساسية: قاعدة 3-2-1 للنسخ الاحتياطي، أنواع النسخ الاحتياطي (كامل وتزايدي وتفاضلي)، مفهوم التشفير الأساسي، الخصوصية الرقمية وحماية البيانات الشخصية، حذف البيانات بأمان
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+─── المستوى الثاني: المهارات التقنية المتوسطة ───
+bloom_focus: "apply" | exam: pass_threshold_percent: 60, time_limit_minutes: 50
+
+▸ المرحلة 2.1 — Linux وسطر الأوامر
+  bloom_focus: "apply" | exam: pass_threshold_percent: 65, time_limit_minutes: 35
+
+  الوحدة 2.1.1 — أوامر Linux الأساسية وإدارة الملفات
+    المفاهيم الأساسية: هيكل نظام الملفات في Linux وجذر /، أوامر ls وcd وpwd والتنقل في المسارات، أوامر cp وmv وrm وmkdir لإدارة الملفات، أوامر grep وfind والبحث في الملفات، pipes والـredirection (| و> و>>)
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 2.1.2 — الصلاحيات والعمليات في Linux
+    المفاهيم الأساسية: نظام الصلاحيات rwx والمستخدمون والمجموعات، أوامر chmod وchown لتغيير الصلاحيات، إدارة المستخدمين (useradd وpasswd وgroupadd)، أوامر ps وkill وtop لإدارة العمليات، مفهوم الـDaemon والخدمات (systemctl)
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 2.1.3 — Bash Scripting والأتمتة
+    المفاهيم الأساسية: بنية سكريبت Bash الأساسية والـShebang، المتغيرات والقيم والمدخلات، الشروط if/elif/else ومقارنة القيم، الحلقات for وwhile والتكرار، الدوال والوسيطات، Cron Jobs لجدولة المهام
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+▸ المرحلة 2.2 — البرمجة بـPython للـIT
+  bloom_focus: "apply" | exam: pass_threshold_percent: 65, time_limit_minutes: 35
+
+  الوحدة 2.2.1 — Python الأساسية لمهندسي IT
+    المفاهيم الأساسية: المتغيرات وأنواع البيانات (str وint وbool وlist وdict)، الدوال وتعريفها والمعاملات، معالجة الأخطاء try/except، استيراد المكتبات الجاهزة، كتابة سكريبت Python للمهام اليومية
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 2.2.2 — Python للملفات والشبكات
+    المفاهيم الأساسية: قراءة وكتابة الملفات باستخدام open()، التعامل مع ملفات CSV، قراءة وكتابة JSON، مكتبة requests لإرسال طلبات HTTP، تحليل استجابات APIs
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 2.2.3 — أتمتة مهام IT بـPython
+    المفاهيم الأساسية: مكتبة socket والتحقق من اتصال الشبكة، مكتبة Paramiko للتحكم في الخوادم عبر SSH، أتمتة النسخ الاحتياطي بـPython، مراقبة الخوادم وإرسال تنبيهات، إدارة الملفات على نطاق واسع
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+▸ المرحلة 2.3 — قواعد البيانات وإدارتها
+  bloom_focus: "apply" | exam: pass_threshold_percent: 65, time_limit_minutes: 35
+
+  الوحدة 2.3.1 — SQL الأساسية وتصميم قواعد البيانات
+    المفاهيم الأساسية: الجداول والأعمدة وأنواع البيانات، أوامر SELECT وFROM وWHERE الأساسية، أوامر INSERT وUPDATE وDELETE، الـJOIN وربط الجداول، المفتاح الأساسي Primary Key والمفتاح الخارجي Foreign Key
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 2.3.2 — إدارة MySQL وصيانتها
+    المفاهيم الأساسية: تثبيت MySQL وإعداده الأولي، إدارة المستخدمين والصلاحيات (GRANT وREVOKE)، الـIndexes وكيف تسرّع الاستعلامات، EXPLAIN وتحليل أداء الاستعلامات، مراقبة MySQL وسجلات الأخطاء
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+  الوحدة 2.3.3 — النسخ الاحتياطي لقواعد البيانات
+    المفاهيم الأساسية: mysqldump والنسخ الاحتياطي الكامل، النسخ الجزئي (نسخ جدول واحد أو قاعدة واحدة)، Point-in-time Recovery والـBinary Log، اختبار صحة النسخة الاحتياطية واستعادتها، جدولة النسخ الاحتياطي تلقائياً
+    exam: pass_threshold_percent: 70, time_limit_minutes: 20
+
+─── المستوى الثالث: البنية التحتية والأمن والسحابة ───
+bloom_focus: "analyze" | exam: pass_threshold_percent: 65, time_limit_minutes: 60
+
+▸ المرحلة 3.1 — الشبكات المتقدمة
+  bloom_focus: "apply" | exam: pass_threshold_percent: 70, time_limit_minutes: 40
+
+  الوحدة 3.1.1 — TCP/IP المتقدم والـSubnetting
+    المفاهيم الأساسية: CIDR وترميز /24 و/16 وما يعنيه، حساب Subnetting يدوياً، VLSM وتقسيم الشبكات حسب الحاجة، حساب Broadcast وعدد الأجهزة في الـSubnet، تصميم مخطط IP لمؤسسة صغيرة
+    exam: pass_threshold_percent: 75, time_limit_minutes: 30
+
+  الوحدة 3.1.2 — خدمات الشبكة DNS وDHCP
+    المفاهيم الأساسية: كيف يعمل DNS من الاستعلام حتى الإجابة، سجلات DNS (A وCNAME وMX وPTR وTXT)، تثبيت وإعداد BIND9 كـDNS Server، تثبيت وإعداد DHCP Server، استكشاف أخطاء DNS وDHCP
+    exam: pass_threshold_percent: 75, time_limit_minutes: 30
+
+  الوحدة 3.1.3 — أساسيات Cisco والـRouting
+    المفاهيم الأساسية: Cisco IOS والتنقل بين أوضاع CLI، إعداد VLAN وتقسيم الشبكة، Static Routing وجداول التوجيه، مدخل إلى OSPF كبروتوكول توجيه ديناميكي، قراءة مخططات الشبكة Cisco
+    exam: pass_threshold_percent: 75, time_limit_minutes: 30
+
+▸ المرحلة 3.2 — الأمن السيبراني
+  bloom_focus: "analyze" | exam: pass_threshold_percent: 70, time_limit_minutes: 40
+
+  الوحدة 3.2.1 — الهجمات ومنهجية الاختراق الأخلاقي
+    المفاهيم الأساسية: أنواع الاختراق (اختراق أخلاقي وقرصنة) والإطار القانوني والأخلاقي، مراحل Penetration Testing (تخطيط واستطلاع وتحليل واستغلال وتقرير)، مرحلة الاستطلاع Reconnaissance وأدواتها، OWASP Top 10 لثغرات تطبيقات الويب، كتابة تقرير اختراق احترافي
+    exam: pass_threshold_percent: 75, time_limit_minutes: 30
+
+  الوحدة 3.2.2 — Kali Linux وأدوات الفحص
+    المفاهيم الأساسية: Nmap وفحص المنافذ وإصدارات الخدمات، Wireshark والتقاط حزم الشبكة وتحليلها، Nikto وفحص تطبيقات الويب عن ثغرات شائعة، مدخل إلى Metasploit Framework، الاستخدام الأخلاقي لهذه الأدوات
+    exam: pass_threshold_percent: 75, time_limit_minutes: 30
+
+  الوحدة 3.2.3 — الدفاع والاستجابة للحوادث
+    المفاهيم الأساسية: IPTables وUFW لإعداد جدار الحماية، IDS وIPS والفرق بينهما (Snort كمثال)، تحليل سجلات الأحداث (Syslog وauth.log)، خطة الاستجابة للحوادث IRP مرحلة بمرحلة، التعامل مع اختراق حقيقي: احتواء واستئصال وتعافٍ
+    exam: pass_threshold_percent: 75, time_limit_minutes: 30
+
+▸ المرحلة 3.3 — السحابة والـDevOps
+  bloom_focus: "apply" | exam: pass_threshold_percent: 70, time_limit_minutes: 40
+
+  الوحدة 3.3.1 — أساسيات السحابة وAWS
+    المفاهيم الأساسية: IaaS وPaaS وSaaS والفرق العملي بينها، EC2 وكيف تشغّل خادماً افتراضياً، S3 والتخزين السحابي وسياسات الوصول، VPC وبناء شبكة افتراضية معزولة، IAM وإدارة الصلاحيات في AWS
+    exam: pass_threshold_percent: 75, time_limit_minutes: 30
+
+  الوحدة 3.3.2 — Docker والـContainers
+    المفاهيم الأساسية: الفرق بين Container وVM وفوائد الـContainers، بنية Docker (Image وContainer وRegistry)، كتابة Dockerfile لتغليف تطبيق، docker-compose لتشغيل أكثر من خدمة معاً، Docker Hub ونشر الصور ومشاركتها
+    exam: pass_threshold_percent: 75, time_limit_minutes: 30
+
+  الوحدة 3.3.3 — Git وCI/CD الأساسي
+    المفاهيم الأساسية: Git branching وstrategy (feature branch وmain)، Merge وRebase وحل التعارضات، Pull Request وCode Review كممارسة مهنية، كتابة pipeline بـ.gitlab-ci.yml (build وtest وdeploy)، مراقبة الـpipeline ومعالجة الفشل
+    exam: pass_threshold_percent: 75, time_limit_minutes: 30
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+الجزء الثامن: قواعد صارمة (خرق أي منها يرفض الملف)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q1. lesson_index في كل وحدة يجب أن يكون بالضبط 1 و2 و3 و4 و5 — بالترتيب، بلا فراغات وبلا تكرار.
+
+Q2. prerequisite_lessons وenables_lessons وprerequisite_units وenables_units يجب أن تكون دائماً مصفوفة فارغة [].
+
+Q3. كل مختبر يجب أن يحتوي على بالضبط 5 أسئلة بالترتيب التالي دون استثناء:
+    "diagnostic" → "decision" → "application" → "analysis" → "connection"
+
+Q4. لا يمكن أن يتكرر اسم مفهومين (concepts) داخل الدرس الواحد.
+
+Q5. كل عنصر في common_mistakes يجب أن يحتوي على الثلاثة حقول: "mistake" و"correction" و"treatment"
+    وتنبيه: treatment يجب أن يختلف عن correction (treatment = كيف يتعامل المعلم مع الخطأ).
+
+Q6. goal في المستوى والمرحلة والوحدة يجب أن يكون ≥10 حروف.
+
+Q7. scenario في المختبر يجب أن يكون ≥20 حرفاً.
+
+Q8. bridge_sentence في كل درس يجب أن تكون ≥10 كلمات.
+
+Q9. مفاتيح unit_banks = أكواد الوحدات (مثال: "1.1.1")
+    مفاتيح stage_banks = أكواد المراحل (مثال: "1.1")
+    مفاتيح level_banks = أرقام المستويات كنص (بالضبط: "1" و"2" و"3" فقط)
+
+Q10. في أسئلة placement_test_questions:
+     target_level_index يجب أن يساوي الرقم الأول من target_unit_code
+     target_stage_code يجب أن يساوي أول رقمين من target_unit_code (مثال: إذا target_unit_code="2.3.1" فـtarget_stage_code="2.3" وtarget_level_index=2)
+
+Q11. في كل سؤال MCQ:
+     choices يجب أن تحتوي على خيارين على الأقل
+     correct_index يجب أن يكون ضمن النطاق [0, choices.length - 1]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+الجزء التاسع: ملخص الحجم المتوقع
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- 3 مستويات × 3 مراحل × 3 وحدات = 27 وحدة
+- 27 وحدة × 5 دروس = 135 درساً
+- 27 وحدة × 1 مختبر = 27 مختبراً
+- unit_banks: 27 بنك × 5 أسئلة MCQ = 135 سؤال
+- stage_banks: 9 بنوك × 8 أسئلة MCQ = 72 سؤال
+- level_banks: 3 بنوك × 15 سؤال MCQ = 45 سؤال
+- placement_test_questions: 18 سؤال MCQ
+- الإجمالي: ~405 سؤال MCQ + 135 درساً + 27 مختبراً
+
+نظراً للحجم الضخم، إذا كانت لديك قيود على حجم الإخراج، ابدأ بـ:
+  الدفعة 1: المستوى الأول (3 مراحل × 3 وحدات × 5 دروس + 9 مختبرات)
+  الدفعة 2: المستوى الثاني
+  الدفعة 3: المستوى الثالث
+  الدفعة 4: exam_banks + placement_test_questions
+
+يجب أن يبدأ الملف بـ { "schema_version": "v4.1", ... } وينتهي بـ }
