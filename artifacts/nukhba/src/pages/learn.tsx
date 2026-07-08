@@ -6,7 +6,7 @@ import { getSubjectName, getCategoryName } from "@/lib/curriculum-en";
 import { AppLayout } from "@/components/layout/app-layout";
 import { motion } from "framer-motion";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { CheckCircle2, Star, GraduationCap, Terminal, Sparkles, ArrowLeft, Keyboard } from "lucide-react";
+import { CheckCircle2, Star, GraduationCap, Terminal, Sparkles, ArrowLeft, Keyboard, Code2 } from "lucide-react";
 import { useLang } from "@/lib/lang-context";
 import { totalLessons as typingTotalLessons, sections as typingSections } from "@/lib/typing-curriculum";
 
@@ -223,16 +223,16 @@ export default function Learn() {
             </p>
           </motion.div>
 
-          {/* Typing Trainer Banner */}
+          {/* Quick-access cards: Typing + Coding Rooms */}
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="mb-6 md:mb-8"
+            className="mb-6 md:mb-8 grid grid-cols-1 sm:grid-cols-2 gap-3"
           >
             <Link href="/typing">
               <div
-                className="relative rounded-2xl overflow-hidden cursor-pointer group"
+                className="relative rounded-2xl overflow-hidden cursor-pointer group h-full"
                 style={{
                   background: "linear-gradient(135deg, rgba(245,158,11,0.08), rgba(16,185,129,0.08))",
                   border: "1px solid rgba(245,158,11,0.2)",
@@ -252,10 +252,39 @@ export default function Learn() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B", border: "1px solid rgba(245,158,11,0.2)" }}>جديد</span>
                     </div>
                     <p className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
-                      تعلم الكتابة بسرعة مذهلة — {typingSections.length} قسم، {typingTotalLessons} درس، أصوات ولوحة مفاتيحة
+                      تعلم الكتابة بسرعة مذهلة — {typingSections.length} قسم، {typingTotalLessons} درس
                     </p>
                   </div>
                   <ArrowLeft className="w-4 h-4 flex-shrink-0 rotate-180 group-hover:translate-x-1 transition-transform" style={{ color: "#F59E0B" }} />
+                </div>
+              </div>
+            </Link>
+
+            <Link href="/coding-rooms">
+              <div
+                className="relative rounded-2xl overflow-hidden cursor-pointer group h-full"
+                style={{
+                  background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(6,182,212,0.08))",
+                  border: "1px solid rgba(99,102,241,0.2)",
+                }}
+              >
+                <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 80% 50%, rgba(99,102,241,0.08), transparent 60%)" }} />
+                <div className="relative flex items-center gap-4 px-5 py-4">
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.2), rgba(6,182,212,0.15))", border: "1px solid rgba(99,102,241,0.2)" }}
+                  >
+                    <Code2 className="w-6 h-6" style={{ color: "#6366f1" }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-bold text-sm text-white">غرف البرمجة</span>
+                    </div>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      تعاون مع زملائك في الكود بشكل مباشر
+                    </p>
+                  </div>
+                  <ArrowLeft className="w-4 h-4 flex-shrink-0 rotate-180 group-hover:translate-x-1 transition-transform" style={{ color: "#6366f1" }} />
                 </div>
               </div>
             </Link>
