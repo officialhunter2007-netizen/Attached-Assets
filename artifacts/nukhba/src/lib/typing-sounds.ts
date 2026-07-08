@@ -5,37 +5,97 @@ function getCtx(): AudioContext {
   return ctx;
 }
 
+function makeNoiseBuffer(c: AudioContext, durationSec: number): AudioBuffer {
+  const length = Math.ceil(c.sampleRate * durationSec);
+  const buf = c.createBuffer(1, length, c.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < length; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  return buf;
+}
+
 export function playKeyClick() {
   try {
     const c = getCtx();
-    const osc = c.createOscillator();
-    const gain = c.createGain();
-    osc.connect(gain);
-    gain.connect(c.destination);
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(800, c.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(400, c.currentTime + 0.04);
-    gain.gain.setValueAtTime(0.08, c.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.05);
-    osc.start(c.currentTime);
-    osc.stop(c.currentTime + 0.06);
+    const now = c.currentTime;
+
+    const noise = c.createBufferSource();
+    noise.buffer = makeNoiseBuffer(c, 0.025);
+
+    const hpf = c.createBiquadFilter();
+    hpf.type = "highpass";
+    hpf.frequency.value = 2800;
+    hpf.Q.value = 0.8;
+
+    const bpf = c.createBiquadFilter();
+    bpf.type = "bandpass";
+    bpf.frequency.value = 5500;
+    bpf.Q.value = 1.2;
+
+    const clickGain = c.createGain();
+    clickGain.gain.setValueAtTime(0.38, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
+
+    noise.connect(hpf);
+    hpf.connect(bpf);
+    bpf.connect(clickGain);
+    clickGain.connect(c.destination);
+    noise.start(now);
+    noise.stop(now + 0.025);
+
+    const thump = c.createOscillator();
+    thump.type = "sine";
+    thump.frequency.setValueAtTime(190, now);
+    thump.frequency.exponentialRampToValueAtTime(38, now + 0.045);
+
+    const thumpGain = c.createGain();
+    thumpGain.gain.setValueAtTime(0.22, now);
+    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.048);
+
+    thump.connect(thumpGain);
+    thumpGain.connect(c.destination);
+    thump.start(now);
+    thump.stop(now + 0.05);
   } catch {}
 }
 
 export function playKeyError() {
   try {
     const c = getCtx();
-    const osc = c.createOscillator();
-    const gain = c.createGain();
-    osc.connect(gain);
-    gain.connect(c.destination);
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(200, c.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(100, c.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.1, c.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.12);
-    osc.start(c.currentTime);
-    osc.stop(c.currentTime + 0.14);
+    const now = c.currentTime;
+
+    const noise = c.createBufferSource();
+    noise.buffer = makeNoiseBuffer(c, 0.07);
+
+    const lpf = c.createBiquadFilter();
+    lpf.type = "lowpass";
+    lpf.frequency.value = 900;
+    lpf.Q.value = 2.5;
+
+    const errGain = c.createGain();
+    errGain.gain.setValueAtTime(0.30, now);
+    errGain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+
+    noise.connect(lpf);
+    lpf.connect(errGain);
+    errGain.connect(c.destination);
+    noise.start(now);
+    noise.stop(now + 0.07);
+
+    const thud = c.createOscillator();
+    thud.type = "sine";
+    thud.frequency.setValueAtTime(95, now);
+    thud.frequency.exponentialRampToValueAtTime(30, now + 0.09);
+
+    const thudGain = c.createGain();
+    thudGain.gain.setValueAtTime(0.28, now);
+    thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.10);
+
+    thud.connect(thudGain);
+    thudGain.connect(c.destination);
+    thud.start(now);
+    thud.stop(now + 0.11);
   } catch {}
 }
 
