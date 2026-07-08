@@ -277,107 +277,171 @@ function HandGroup({
 }
 
 function HomeRowDiagram() {
-  const SC  = 0.60;
-  const LX  = 18;
-  const RX  = 240;
-  const TY  = 6;
+  const SKIN_LT = "#DBA882";
+  const SKIN    = "#C8916A";
+  const SKIN_DK = "#9F6A42";
+  const NAIL    = "#E0C4B0";
+  const NAIL_DK = "#BFA090";
 
-  const FINGER_BASE_Y = TY + 154 * SC;
-  const KW = 28;
-  const KH = 26;
-  const KEY_Y = FINGER_BASE_Y - 4;
+  const KEY_W  = 38;
+  const KEY_H  = 36;
+  const KEY_Y  = 136;
+  const KEY_R  = 6;
+  const PALM_Y = 6;
+  const PALM_H = 28;
+  const BASE_Y = PALM_Y + PALM_H;
 
-  const SVG_W = RX + (34 + 158) * SC + 18;
-  const SVG_H = KEY_Y + KH + 24;
+  const L_CX  = [72,  114, 156, 198];
+  const R_CX  = [346, 388, 430, 472];
+  const L_LBL = ["A","S","D","F"];
+  const R_LBL = ["J","K","L",";"];
 
-  type KE = { key: string; color: FingerColor; cx: number; anchor?: boolean };
-  const leftKeys:  KE[] = [
-    { key: "A", color: "red",    cx: 50  },
-    { key: "S", color: "green",  cx: 82  },
-    { key: "D", color: "blue",   cx: 115 },
-    { key: "F", color: "yellow", cx: 149, anchor: true },
-  ];
-  const rightKeys: KE[] = [
-    { key: "J", color: "yellow", cx: 71,  anchor: true },
-    { key: "K", color: "blue",   cx: 105 },
-    { key: "L", color: "green",  cx: 138 },
-    { key: ";", color: "red",    cx: 170 },
-  ];
+  const L_DIM: [number,number][] = [[18,13],[21,15],[23,17],[21,15]];
+  const R_DIM: [number,number][] = [[21,15],[23,17],[21,15],[18,13]];
+  const L_FC: FingerColor[] = ["red","green","blue","yellow"];
+  const R_FC: FingerColor[] = ["yellow","blue","green","red"];
 
-  const keyRowL_X = LX + 26 * SC;
-  const keyRowL_W = 158 * SC;
-  const keyRowR_X = RX + 34 * SC;
-  const keyRowR_W = 158 * SC;
+  const KEY_STROKE: Record<FingerColor, string> = {
+    red:    "rgba(239,68,68,0.50)",
+    green:  "rgba(34,197,94,0.50)",
+    blue:   "rgba(59,130,246,0.50)",
+    yellow: "rgba(234,179,8,0.50)",
+    gray:   "rgba(107,114,128,0.50)",
+  };
 
-  const renderFingers = (side: "left" | "right", tx: number) => {
-    const fdefs = side === "left" ? L_FINGER_DEFS : R_FINGER_DEFS;
+  const mkFinger = (cx: number, bw: number, tw: number): string => {
+    const tipY = KEY_Y - tw;
+    const midY = BASE_Y + (tipY - BASE_Y) * 0.46;
+    return [
+      `M ${cx-bw} ${BASE_Y}`,
+      `C ${cx-bw} ${midY} ${cx-tw} ${tipY} ${cx-tw} ${tipY}`,
+      `A ${tw} ${tw} 0 0 1 ${cx+tw} ${tipY}`,
+      `C ${cx+tw} ${tipY} ${cx+bw} ${midY} ${cx+bw} ${BASE_Y}`,
+      "Z",
+    ].join(" ");
+  };
+
+  const mkNail = (cx: number, tw: number): string => {
+    const tipY = KEY_Y - tw;
+    const nw = tw * 1.10;
+    const nh = tw * 0.52;
+    const y0 = tipY + 3;
+    const r  = 2.5;
+    return [
+      `M ${cx-nw/2+r} ${y0}`,
+      `Q ${cx-nw/2} ${y0} ${cx-nw/2} ${y0+r}`,
+      `L ${cx-nw/2} ${y0+nh}`,
+      `Q ${cx-nw/2} ${y0+nh+1} ${cx} ${y0+nh+1}`,
+      `Q ${cx+nw/2} ${y0+nh+1} ${cx+nw/2} ${y0+nh}`,
+      `L ${cx+nw/2} ${y0+r}`,
+      `Q ${cx+nw/2} ${y0} ${cx+nw/2-r} ${y0}`,
+      "Z",
+    ].join(" ");
+  };
+
+  const SVG_W = 544;
+  const SVG_H = KEY_Y + KEY_H + 20;
+
+  const renderHand = (
+    cxArr: number[],
+    dims: [number,number][],
+    fcs: FingerColor[],
+    lbls: string[],
+    anchorIdx: number,
+    palmW: number,
+  ) => {
+    const palmX = cxArr[0] - 22;
     return (
-      <g transform={`translate(${tx},${TY}) scale(${SC})`}>
-        {fdefs.map((f, i) => {
-          const fc = FINGER_COLORS[f.color];
+      <>
+        <rect x={palmX} y={PALM_Y} width={palmW} height={PALM_H} rx={13}
+          fill="url(#hrd-palm)" stroke={SKIN_DK} strokeWidth={1.2} />
+        {cxArr.map((cx, i) => {
+          const [bw, tw] = dims[i];
+          const fc       = FINGER_COLORS[fcs[i]];
+          const tipY     = KEY_Y - tw;
+          const totH     = tipY - BASE_Y;
+          const k1y = BASE_Y + totH * 0.27;
+          const k2y = BASE_Y + totH * 0.54;
+          const k1w = (bw - (bw-tw)*0.27) * 0.78;
+          const k2w = (bw - (bw-tw)*0.54) * 0.86;
           return (
-            <path key={i}
-              d={fingerPill(f.cx, f.tipY, f.baseY, f.hw)}
-              fill={fc.bg} stroke="rgba(255,255,255,0.32)" strokeWidth={2.2}
-              strokeLinejoin="round"
-              style={{ filter: `drop-shadow(0 0 10px ${fc.glow})` }}
-            />
+            <g key={`f${i}`}>
+              <path d={mkFinger(cx, bw, tw)}
+                fill="url(#hrd-skin)" stroke={fc.bg} strokeWidth={1.6}
+                strokeLinejoin="round" />
+              <line x1={cx-k1w} y1={k1y} x2={cx+k1w} y2={k1y}
+                stroke={SKIN_DK} strokeWidth={0.9} strokeLinecap="round" opacity={0.65} />
+              <line x1={cx-k2w} y1={k2y} x2={cx+k2w} y2={k2y}
+                stroke={SKIN_DK} strokeWidth={0.9} strokeLinecap="round" opacity={0.65} />
+              <path d={mkNail(cx, tw)} fill={NAIL} stroke={NAIL_DK} strokeWidth={0.8} />
+            </g>
           );
         })}
-      </g>
+        {cxArr.map((cx, i) => {
+          const isAnc = i === anchorIdx;
+          const fc    = FINGER_COLORS[fcs[i]];
+          return (
+            <g key={`k${i}`}>
+              <rect x={cx-KEY_W/2} y={KEY_Y} width={KEY_W} height={KEY_H} rx={KEY_R}
+                fill={isAnc ? "rgba(245,158,11,0.28)" : "rgba(28,40,70,0.92)"}
+                stroke={isAnc ? "rgba(245,158,11,0.82)" : KEY_STROKE[fcs[i]]}
+                strokeWidth={isAnc ? 2 : 1.2} />
+              {isAnc && (
+                <rect x={cx-5} y={KEY_Y+KEY_H-8} width={10} height={4} rx={2}
+                  fill="#F59E0B" />
+              )}
+              <text x={cx} y={KEY_Y+KEY_H/2+5.5} textAnchor="middle"
+                fontSize={14} fontWeight="bold"
+                fill={isAnc ? "#F59E0B" : fc.bg}
+                fontFamily="monospace">{lbls[i]}</text>
+            </g>
+          );
+        })}
+      </>
     );
   };
 
-  const renderKeys = (keys: KE[], tx: number) =>
-    keys.map((k) => {
-      const x  = tx + k.cx * SC;
-      const fc = FINGER_COLORS[k.color];
-      return (
-        <g key={`${tx}-${k.key}`}>
-          <rect x={x - KW / 2} y={KEY_Y} width={KW} height={KH} rx={5}
-            fill={k.anchor ? "rgba(245,158,11,0.28)" : fc.bg + "30"}
-            stroke={k.anchor ? "rgba(245,158,11,0.75)" : fc.bg + "99"}
-            strokeWidth={k.anchor ? 2 : 1.2} />
-          {k.anchor && (
-            <rect x={x - 5} y={KEY_Y + KH - 6} width={10} height={3} rx={1.5}
-              fill="rgba(245,158,11,0.85)" />
-          )}
-          <text x={x} y={KEY_Y + KH / 2 + 4.5}
-            textAnchor="middle" fontSize={12} fontWeight="bold"
-            fill={k.anchor ? "#F59E0B" : fc.bg}
-            fontFamily="system-ui,monospace">
-            {k.key}
-          </text>
-        </g>
-      );
-    });
-
-  const midX = (LX + 149 * SC + RX + 71 * SC) / 2;
+  const L_PALM_W = L_CX[3] - L_CX[0] + 44;
+  const R_PALM_W = R_CX[3] - R_CX[0] + 44;
+  const L_SURF_X = L_CX[0] - KEY_W/2 - 6;
+  const L_SURF_W = L_CX[3] - L_CX[0] + KEY_W + 12;
+  const R_SURF_X = R_CX[0] - KEY_W/2 - 6;
+  const R_SURF_W = R_CX[3] - R_CX[0] + KEY_W + 12;
+  const MID_X    = (L_CX[3] + R_CX[0]) / 2;
 
   return (
-    <svg viewBox={`0 0 ${Math.round(SVG_W)} ${Math.round(SVG_H)}`} className="w-full">
-      <rect x={keyRowL_X} y={KEY_Y} width={keyRowL_W} height={KH} rx={8}
-        fill="rgba(30,40,70,0.70)" stroke="rgba(255,255,255,0.08)" strokeWidth={1} />
-      <rect x={keyRowR_X} y={KEY_Y} width={keyRowR_W} height={KH} rx={8}
-        fill="rgba(30,40,70,0.70)" stroke="rgba(255,255,255,0.08)" strokeWidth={1} />
+    <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full">
+      <defs>
+        <linearGradient id="hrd-skin" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor={SKIN_LT} />
+          <stop offset="55%"  stopColor={SKIN}    />
+          <stop offset="100%" stopColor={SKIN_DK} />
+        </linearGradient>
+        <linearGradient id="hrd-palm" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor={SKIN}    />
+          <stop offset="100%" stopColor={SKIN_DK} />
+        </linearGradient>
+      </defs>
 
-      {renderFingers("left",  LX)}
-      {renderFingers("right", RX)}
+      <rect x={L_SURF_X} y={KEY_Y-5} width={L_SURF_W} height={KEY_H+11} rx={10}
+        fill="rgba(16,24,48,0.92)" />
+      <rect x={R_SURF_X} y={KEY_Y-5} width={R_SURF_W} height={KEY_H+11} rx={10}
+        fill="rgba(16,24,48,0.92)" />
 
-      {renderKeys(leftKeys,  LX)}
-      {renderKeys(rightKeys, RX)}
+      {renderHand(L_CX, L_DIM, L_FC, L_LBL, 3, L_PALM_W)}
+      {renderHand(R_CX, R_DIM, R_FC, R_LBL, 0, R_PALM_W)}
 
-      <text x={LX + 92 * SC} y={SVG_H - 5} textAnchor="middle"
-        fontSize={9} fill="rgba(255,255,255,0.26)" fontFamily="system-ui,sans-serif">
+      <text x={(L_CX[0]+L_CX[3])/2} y={SVG_H-4} textAnchor="middle"
+        fontSize={9.5} fill="rgba(255,255,255,0.28)" fontFamily="system-ui,sans-serif">
         اليد اليسرى
       </text>
-      <text x={RX + 105 * SC} y={SVG_H - 5} textAnchor="middle"
-        fontSize={9} fill="rgba(255,255,255,0.26)" fontFamily="system-ui,sans-serif">
+      <text x={(R_CX[0]+R_CX[3])/2} y={SVG_H-4} textAnchor="middle"
+        fontSize={9.5} fill="rgba(255,255,255,0.28)" fontFamily="system-ui,sans-serif">
         اليد اليمنى
       </text>
-      <text x={midX} y={KEY_Y + KH / 2 + 4.5} textAnchor="middle"
-        fontSize={8} fill="rgba(255,255,255,0.16)" fontFamily="system-ui,sans-serif">
-        ←فراغ→
+      <text x={MID_X} y={KEY_Y+KEY_H/2+5.5} textAnchor="middle"
+        fontSize={8.5} fill="rgba(255,255,255,0.15)" fontFamily="system-ui,sans-serif">
+        ← فراغ →
       </text>
     </svg>
   );
