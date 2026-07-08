@@ -184,21 +184,33 @@ const KEY_HAND_MAP: Record<string, "left" | "right" | "both"> = {
   " ": "both",
 };
 
-type FingerGeom = { color: FingerColor; x: number; y: number; w: number; h: number; rx: number };
+function fingerPill(cx: number, tipY: number, baseY: number, hw: number): string {
+  return `M ${cx - hw} ${baseY} L ${cx - hw} ${tipY + hw} A ${hw} ${hw} 0 0 1 ${cx + hw} ${tipY + hw} L ${cx + hw} ${baseY}`;
+}
 
-const L_FINGERS: FingerGeom[] = [
-  { color: "red",    x: 8,  y: 52, w: 16, h: 88,  rx: 8  },
-  { color: "green",  x: 28, y: 28, w: 18, h: 112, rx: 9  },
-  { color: "blue",   x: 50, y: 16, w: 20, h: 124, rx: 10 },
-  { color: "yellow", x: 74, y: 30, w: 18, h: 110, rx: 9  },
+type FingerDef = { color: FingerColor; cx: number; tipY: number; baseY: number; hw: number };
+
+const L_FINGER_DEFS: FingerDef[] = [
+  { color: "red",    cx: 50,  tipY: 65, baseY: 154, hw: 11.5 },
+  { color: "green",  cx: 82,  tipY: 40, baseY: 154, hw: 13   },
+  { color: "blue",   cx: 115, tipY: 24, baseY: 154, hw: 14.5 },
+  { color: "yellow", cx: 149, tipY: 42, baseY: 154, hw: 13   },
+];
+const R_FINGER_DEFS: FingerDef[] = [
+  { color: "yellow", cx: 71,  tipY: 42, baseY: 154, hw: 13   },
+  { color: "blue",   cx: 105, tipY: 24, baseY: 154, hw: 14.5 },
+  { color: "green",  cx: 138, tipY: 40, baseY: 154, hw: 13   },
+  { color: "red",    cx: 170, tipY: 65, baseY: 154, hw: 11.5 },
 ];
 
-const R_FINGERS: FingerGeom[] = [
-  { color: "yellow", x: 28, y: 30, w: 18, h: 110, rx: 9  },
-  { color: "blue",   x: 50, y: 16, w: 20, h: 124, rx: 10 },
-  { color: "green",  x: 74, y: 28, w: 18, h: 112, rx: 9  },
-  { color: "red",    x: 96, y: 52, w: 16, h: 88,  rx: 8  },
-];
+const L_THUMB: FingerDef & { pivotX: number; pivotY: number; angle: number } = {
+  color: "gray", cx: 163, tipY: 168, baseY: 232, hw: 13,
+  pivotX: 163, pivotY: 232, angle: 28,
+};
+const R_THUMB: FingerDef & { pivotX: number; pivotY: number; angle: number } = {
+  color: "gray", cx: 57, tipY: 168, baseY: 232, hw: 13,
+  pivotX: 57, pivotY: 232, angle: -28,
+};
 
 function HandSVG({
   side,
@@ -211,52 +223,58 @@ function HandSVG({
   isActive: boolean;
   shiftPinky: boolean;
 }) {
-  const fingers = side === "left" ? L_FINGERS : R_FINGERS;
-  const palmX = side === "left" ? 4 : 22;
-  const palmFill = isActive ? "rgba(55,65,100,0.52)" : "rgba(22,28,52,0.32)";
-  const palmStroke = isActive ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)";
-  const thumbActive = isActive && fingerColor === "gray";
-  const grayFc = FINGER_COLORS["gray"];
-  const thumbTransform = side === "left"
-    ? "translate(78,130) rotate(-30)"
-    : "translate(42,130) rotate(30)";
+  const fingerDefs = side === "left" ? L_FINGER_DEFS : R_FINGER_DEFS;
+  const thumb = side === "left" ? L_THUMB : R_THUMB;
+  const palmX = side === "left" ? 26 : 34;
+
+  const palmFill   = isActive ? "rgba(42,52,84,0.72)" : "rgba(18,24,48,0.35)";
+  const palmStroke = isActive ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.04)";
+
+  const inactiveFill   = isActive ? "rgba(44,54,86,0.80)" : "rgba(16,22,44,0.32)";
+  const inactiveStroke = isActive ? "rgba(255,255,255,0.11)" : "rgba(255,255,255,0.04)";
+
+  const grayFc   = FINGER_COLORS["gray"];
+  const thumbOn  = isActive && fingerColor === "gray";
+  const thumbTransform = `translate(${thumb.pivotX},${thumb.pivotY}) rotate(${thumb.angle}) translate(-${thumb.pivotX},-${thumb.pivotY})`;
 
   return (
-    <svg viewBox="0 0 120 215" width={105} height={188} aria-hidden="true">
-      <rect x={palmX} y={118} width={94} height={88} rx={14}
+    <svg viewBox="0 0 220 258" width={130} height={153} aria-hidden="true">
+      <rect x={palmX} y={148} width={158} height={90} rx={20}
         fill={palmFill} stroke={palmStroke} strokeWidth={1.5}
       />
-      {fingers.map((f, i) => {
-        const isThisFinger = isActive && fingerColor === f.color;
-        const isShiftPinky = shiftPinky && f.color === "red";
-        const highlighted = isThisFinger || isShiftPinky;
-        const fc = FINGER_COLORS[f.color];
+
+      {fingerDefs.map((f, i) => {
+        const on = isActive && fingerColor === f.color;
+        const sp = shiftPinky && f.color === "red";
+        const lit = on || sp;
+        const fc  = FINGER_COLORS[f.color];
         return (
-          <rect
+          <path
             key={i}
-            x={f.x} y={f.y} width={f.w} height={f.h} rx={f.rx}
-            fill={highlighted ? fc.bg : isActive ? "rgba(42,52,82,0.68)" : "rgba(18,24,46,0.42)"}
-            stroke={highlighted ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.05)"}
-            strokeWidth={highlighted ? 1.5 : 1}
-            style={{ filter: highlighted ? `drop-shadow(0 0 8px ${fc.glow})` : undefined }}
+            d={fingerPill(f.cx, f.tipY, f.baseY, f.hw)}
+            fill={lit ? fc.bg : inactiveFill}
+            stroke={lit ? "rgba(255,255,255,0.32)" : inactiveStroke}
+            strokeWidth={lit ? 1.8 : 1.2}
+            strokeLinejoin="round"
+            style={{ filter: lit ? `drop-shadow(0 0 10px ${fc.glow})` : undefined }}
           />
         );
       })}
+
       <g transform={thumbTransform}>
-        <rect
-          x={-7} y={0} width={14} height={50} rx={7}
-          fill={thumbActive ? grayFc.bg : isActive ? "rgba(42,52,82,0.68)" : "rgba(18,24,46,0.42)"}
-          stroke={thumbActive ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.05)"}
-          strokeWidth={thumbActive ? 1.5 : 1}
-          style={{ filter: thumbActive ? `drop-shadow(0 0 8px ${grayFc.glow})` : undefined }}
+        <path
+          d={fingerPill(thumb.cx, thumb.tipY, thumb.baseY, thumb.hw)}
+          fill={thumbOn ? grayFc.bg : inactiveFill}
+          stroke={thumbOn ? "rgba(255,255,255,0.32)" : inactiveStroke}
+          strokeWidth={thumbOn ? 1.8 : 1.2}
+          strokeLinejoin="round"
+          style={{ filter: thumbOn ? `drop-shadow(0 0 10px ${grayFc.glow})` : undefined }}
         />
       </g>
-      <text
-        x={60} y={212}
-        textAnchor="middle"
-        fontSize={8}
-        fill="rgba(255,255,255,0.18)"
-        fontFamily="system-ui, sans-serif"
+
+      <text x={110} y={253} textAnchor="middle" fontSize={9}
+        fill={isActive ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.08)"}
+        fontFamily="system-ui,sans-serif"
       >
         {side === "left" ? "اليسرى" : "اليمنى"}
       </text>
@@ -274,23 +292,11 @@ function HandsDisplay({ nextChar, needsShift }: { nextChar: string; needsShift: 
 
   const leftActive  = handSide === "left"  || handSide === "both";
   const rightActive = handSide === "right" || handSide === "both";
-  const leftShiftPinky  = needsShift && handSide === "right";
-  const rightShiftPinky = needsShift && handSide === "left";
 
   return (
-    <div className="flex items-end justify-center gap-6 mt-2 select-none">
-      <HandSVG
-        side="left"
-        fingerColor={leftActive ? fingerColor : null}
-        isActive={leftActive}
-        shiftPinky={leftShiftPinky}
-      />
-      <HandSVG
-        side="right"
-        fingerColor={rightActive ? fingerColor : null}
-        isActive={rightActive}
-        shiftPinky={rightShiftPinky}
-      />
+    <div className="flex items-end justify-center gap-4 mt-1 select-none">
+      <HandSVG side="left"  fingerColor={leftActive  ? fingerColor : null} isActive={leftActive}  shiftPinky={needsShift && handSide === "right"} />
+      <HandSVG side="right" fingerColor={rightActive ? fingerColor : null} isActive={rightActive} shiftPinky={needsShift && handSide === "left"}  />
     </div>
   );
 }
