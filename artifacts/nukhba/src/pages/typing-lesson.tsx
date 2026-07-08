@@ -28,6 +28,43 @@ const FINGER_COLORS: Record<FingerColor, { bg: string; glow: string; text: strin
   gray:   { bg: "#6B7280", glow: "rgba(107,114,128,0.5)",  text: "#fff" },
 };
 
+const EARLY_TIPS = [
+  { icon: "🖐", text: "ضع أصابعك على الصف الرئيسي — A S D F لليد اليسرى، J K L ; لليمنى — هذا موطنك" },
+  { icon: "👁", text: "انظر دائماً إلى الشاشة وليس للوحة المفاتيح — هذا سر المحترفين" },
+  { icon: "🐢", text: "ابدأ ببطء — الدقة أهم من السرعة الآن، والسرعة ستأتي لوحدها لاحقاً" },
+  { icon: "📍", text: "مفتاح F له نتوء صغير تحسّه بإصبعك — وكذلك J — دعهما يكونا مرساتك دون أن تنظر" },
+  { icon: "🌊", text: "أبقِ أصابعك قريبة من المفاتيح — حركات صغيرة = سرعة أكبر" },
+];
+
+const MID_TIPS = [
+  { icon: "👍", text: "مفتاح المسافة يُضغط بالإبهام — يمكنك استخدام أي إبهام تريد" },
+  { icon: "📖", text: "اقرأ الكلمة كاملة بعينك قبل أن تبدأ كتابتها — يقلل الأخطاء كثيراً" },
+  { icon: "🎯", text: "دقة 95% وما فوق تعني أنك تتعلم بالطريقة الصحيحة — لا تتعجل" },
+  { icon: "🪑", text: "اجلس بظهر مستقيم وكوعاك بزاوية 90 درجة — راحة الجسم تعني راحة الأصابع" },
+  { icon: "⌫", text: "عند الخطأ، اضغط Backspace بهدوء وتابع — لا تتوقف طويلاً" },
+];
+
+const ADVANCED_TIPS = [
+  { icon: "🎵", text: "أصابعك الآن تعرف مواقعها — ركّز على الإيقاع والتدفق لا على كل مفتاح" },
+  { icon: "👀", text: "حاول متابعة الكلمة التالية بعينك بينما تكتب الحالية" },
+  { icon: "💨", text: "الكتابة السريعة إيقاع موسيقي — اترك أصابعك تتدفق بانسجام دون توقف" },
+  { icon: "🏆", text: "تجاوز 40 كلمة/د هو خط المحترفين — أنت قريب من ذلك" },
+];
+
+const LOW_ACCURACY = [
+  { text: "ابطئ قليلاً — الدقة أهم من السرعة الآن", icon: "🎯" },
+  { text: "ركّز على كل مفتاح — السرعة ستأتي تلقائياً", icon: "🔍" },
+  { text: "اقرأ الكلمة بعينك قبل أن تضغط أي مفتاح", icon: "👁" },
+  { text: "لا بأس — كل خطأ يُقوّي ذاكرة أصابعك", icon: "💪" },
+];
+
+const ENCOURAGEMENT = [
+  { text: "رائع! أصابعك تجد طريقها وحدها", icon: "🔥" },
+  { text: "ممتاز! هذا هو الإيقاع الصحيح", icon: "⚡" },
+  { text: "استمر! تقدمك واضح جداً", icon: "🚀" },
+  { text: "أداء احترافي! واصل بنفس الأسلوب", icon: "✨" },
+];
+
 type KeyDef = {
   key: string;
   label: string;
@@ -246,6 +283,12 @@ export default function TypingLesson() {
   const [saved, setSaved] = useState(false);
   const wpmTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [showTip, setShowTip] = useState(true);
+  const [guidanceMsg, setGuidanceMsg] = useState<{ text: string; icon: string; kind: "warn" | "ok" } | null>(null);
+  const guidanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastGuidanceAt = useRef(0);
+  const guidanceCycle = useRef(0);
+
   const text = lesson?.text ?? "";
   const currentIndex = typed.length;
   const nextChar = phase !== "complete" ? (text[currentIndex] ?? "") : "";
@@ -258,7 +301,12 @@ export default function TypingLesson() {
     setWpm(0);
     setAccuracy(100);
     setSaved(false);
+    setShowTip(true);
+    setGuidanceMsg(null);
+    lastGuidanceAt.current = 0;
+    guidanceCycle.current = 0;
     if (wpmTimer.current) clearInterval(wpmTimer.current);
+    if (guidanceTimer.current) clearTimeout(guidanceTimer.current);
   }, []);
 
   useEffect(() => { reset(); }, [id, reset]);
@@ -271,6 +319,23 @@ export default function TypingLesson() {
     }, 300);
     return () => { if (wpmTimer.current) clearInterval(wpmTimer.current); };
   }, [phase, startTime, typed.length]);
+
+  useEffect(() => {
+    if (phase !== "active" || typed.length < 18) return;
+    const gap = typed.length - lastGuidanceAt.current;
+    const showWarn = accuracy < 80 && gap >= 20;
+    const showOk   = accuracy >= 96 && gap >= 38;
+    if (!showWarn && !showOk) return;
+    lastGuidanceAt.current = typed.length;
+    guidanceCycle.current += 1;
+    const cycle = guidanceCycle.current;
+    const item = showWarn
+      ? LOW_ACCURACY[cycle % LOW_ACCURACY.length]
+      : ENCOURAGEMENT[cycle % ENCOURAGEMENT.length];
+    setGuidanceMsg({ ...item, kind: showWarn ? "warn" : "ok" });
+    if (guidanceTimer.current) clearTimeout(guidanceTimer.current);
+    guidanceTimer.current = setTimeout(() => setGuidanceMsg(null), showWarn ? 5500 : 4000);
+  }, [typed.length, accuracy, phase]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -398,10 +463,44 @@ export default function TypingLesson() {
                 className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/70 transition-colors"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                Restart
+                إعادة
               </button>
             </div>
           </div>
+
+          {(() => {
+            if (!lesson || !showTip) return null;
+            const si = lesson.sectionIndex;
+            if (si > 10) return null;
+            const pool = si <= 3 ? EARLY_TIPS : si <= 7 ? MID_TIPS : ADVANCED_TIPS;
+            const tip = pool[lesson.id % pool.length];
+            return (
+              <motion.div
+                key={`tip-${lesson.id}`}
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.35 }}
+                className="flex items-start gap-3 rounded-2xl px-4 py-3"
+                style={{
+                  background: "rgba(245,158,11,0.06)",
+                  border: "1px solid rgba(245,158,11,0.18)",
+                }}
+              >
+                <span className="text-lg mt-0.5 flex-shrink-0">{tip.icon}</span>
+                <p className="text-xs leading-relaxed flex-1" style={{ color: "rgba(255,255,255,0.65)" }}>
+                  {tip.text}
+                </p>
+                <button
+                  onClick={() => setShowTip(false)}
+                  className="flex-shrink-0 text-white/20 hover:text-white/50 transition-colors text-sm leading-none mt-0.5"
+                  aria-label="إغلاق"
+                >
+                  ✕
+                </button>
+              </motion.div>
+            );
+          })()}
 
           <div
             className="rounded-2xl p-5"
@@ -449,6 +548,41 @@ export default function TypingLesson() {
               })}
             </div>
           </div>
+
+          <AnimatePresence>
+            {guidanceMsg && (
+              <motion.div
+                key={guidanceMsg.text}
+                initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.97 }}
+                transition={{ duration: 0.28 }}
+                className="flex items-center gap-3 rounded-2xl px-4 py-2.5"
+                style={{
+                  background: guidanceMsg.kind === "warn"
+                    ? "rgba(245,158,11,0.07)"
+                    : "rgba(16,185,129,0.07)",
+                  border: guidanceMsg.kind === "warn"
+                    ? "1px solid rgba(245,158,11,0.22)"
+                    : "1px solid rgba(16,185,129,0.22)",
+                }}
+              >
+                <span className="text-base flex-shrink-0">{guidanceMsg.icon}</span>
+                <p
+                  className="text-xs flex-1 font-medium"
+                  style={{ color: guidanceMsg.kind === "warn" ? "rgba(245,158,11,0.9)" : "rgba(16,185,129,0.9)" }}
+                >
+                  {guidanceMsg.text}
+                </p>
+                <button
+                  onClick={() => setGuidanceMsg(null)}
+                  className="flex-shrink-0 text-white/15 hover:text-white/40 transition-colors text-sm leading-none"
+                >
+                  ✕
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <VirtualKeyboard nextChar={nextChar} />
 
