@@ -20,82 +20,74 @@ export function playKeyClick() {
     const c = getCtx();
     const now = c.currentTime;
 
-    const noise = c.createBufferSource();
-    noise.buffer = makeNoiseBuffer(c, 0.025);
+    const clickSrc = c.createBufferSource();
+    clickSrc.buffer = makeNoiseBuffer(c, 0.006);
 
-    const hpf = c.createBiquadFilter();
-    hpf.type = "highpass";
-    hpf.frequency.value = 2800;
-    hpf.Q.value = 0.8;
-
-    const bpf = c.createBiquadFilter();
-    bpf.type = "bandpass";
-    bpf.frequency.value = 5500;
-    bpf.Q.value = 1.2;
+    const clickHpf = c.createBiquadFilter();
+    clickHpf.type = "highpass";
+    clickHpf.frequency.value = 5500;
+    clickHpf.Q.value = 0.5;
 
     const clickGain = c.createGain();
-    clickGain.gain.setValueAtTime(0.38, now);
-    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
+    clickGain.gain.setValueAtTime(0.70, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.006);
 
-    noise.connect(hpf);
-    hpf.connect(bpf);
-    bpf.connect(clickGain);
+    clickSrc.connect(clickHpf);
+    clickHpf.connect(clickGain);
     clickGain.connect(c.destination);
-    noise.start(now);
-    noise.stop(now + 0.025);
+    clickSrc.start(now);
+    clickSrc.stop(now + 0.006);
 
-    const thump = c.createOscillator();
-    thump.type = "sine";
-    thump.frequency.setValueAtTime(190, now);
-    thump.frequency.exponentialRampToValueAtTime(38, now + 0.045);
+    const bodyOsc = c.createOscillator();
+    bodyOsc.type = "sine";
+    bodyOsc.frequency.setValueAtTime(210, now + 0.002);
+    bodyOsc.frequency.exponentialRampToValueAtTime(45, now + 0.030);
 
-    const thumpGain = c.createGain();
-    thumpGain.gain.setValueAtTime(0.22, now);
-    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.048);
+    const bodyGain = c.createGain();
+    bodyGain.gain.setValueAtTime(0.0, now);
+    bodyGain.gain.linearRampToValueAtTime(0.28, now + 0.003);
+    bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.032);
 
-    thump.connect(thumpGain);
-    thumpGain.connect(c.destination);
-    thump.start(now);
-    thump.stop(now + 0.05);
+    bodyOsc.connect(bodyGain);
+    bodyGain.connect(c.destination);
+    bodyOsc.start(now);
+    bodyOsc.stop(now + 0.035);
+
+    const tailSrc = c.createBufferSource();
+    tailSrc.buffer = makeNoiseBuffer(c, 0.014);
+
+    const tailLpf = c.createBiquadFilter();
+    tailLpf.type = "lowpass";
+    tailLpf.frequency.value = 1200;
+    tailLpf.Q.value = 1.0;
+
+    const tailGain = c.createGain();
+    tailGain.gain.setValueAtTime(0.0, now);
+    tailGain.gain.linearRampToValueAtTime(0.18, now + 0.003);
+    tailGain.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
+
+    tailSrc.connect(tailLpf);
+    tailLpf.connect(tailGain);
+    tailGain.connect(c.destination);
+    tailSrc.start(now);
+    tailSrc.stop(now + 0.020);
   } catch {}
 }
 
 export function playKeyError() {
   try {
     const c = getCtx();
-    const now = c.currentTime;
-
-    const noise = c.createBufferSource();
-    noise.buffer = makeNoiseBuffer(c, 0.07);
-
-    const lpf = c.createBiquadFilter();
-    lpf.type = "lowpass";
-    lpf.frequency.value = 900;
-    lpf.Q.value = 2.5;
-
-    const errGain = c.createGain();
-    errGain.gain.setValueAtTime(0.30, now);
-    errGain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
-
-    noise.connect(lpf);
-    lpf.connect(errGain);
-    errGain.connect(c.destination);
-    noise.start(now);
-    noise.stop(now + 0.07);
-
-    const thud = c.createOscillator();
-    thud.type = "sine";
-    thud.frequency.setValueAtTime(95, now);
-    thud.frequency.exponentialRampToValueAtTime(30, now + 0.09);
-
-    const thudGain = c.createGain();
-    thudGain.gain.setValueAtTime(0.28, now);
-    thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.10);
-
-    thud.connect(thudGain);
-    thudGain.connect(c.destination);
-    thud.start(now);
-    thud.stop(now + 0.11);
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    osc.connect(gain);
+    gain.connect(c.destination);
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(200, c.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(100, c.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.1, c.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.12);
+    osc.start(c.currentTime);
+    osc.stop(c.currentTime + 0.14);
   } catch {}
 }
 
