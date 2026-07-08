@@ -276,6 +276,113 @@ function HandGroup({
   );
 }
 
+function HomeRowDiagram() {
+  const SC = 0.55;
+  const LX = 15, RX = 250, TY = 8;
+  const KW = 26;
+  const KEY_Y = TY + 238 * SC + 4;
+  const SVG_W = RX + (34 + 158) * SC + 18;
+  const SVG_H = KEY_Y + KW + 28;
+
+  const KEY_BG: Record<FingerColor, string> = {
+    red:    "rgba(239,68,68,0.18)",
+    green:  "rgba(34,197,94,0.18)",
+    blue:   "rgba(59,130,246,0.18)",
+    yellow: "rgba(234,179,8,0.18)",
+    gray:   "rgba(107,114,128,0.18)",
+  };
+
+  type KE = { key: string; color: FingerColor; cx: number; anchor?: boolean };
+  const leftKeys:  KE[] = [
+    { key: "A", color: "red",    cx: 50  },
+    { key: "S", color: "green",  cx: 82  },
+    { key: "D", color: "blue",   cx: 115 },
+    { key: "F", color: "yellow", cx: 149, anchor: true },
+  ];
+  const rightKeys: KE[] = [
+    { key: "J", color: "yellow", cx: 71,  anchor: true },
+    { key: "K", color: "blue",   cx: 105 },
+    { key: "L", color: "green",  cx: 138 },
+    { key: ";", color: "red",    cx: 170 },
+  ];
+
+  const renderHand = (side: "left" | "right", tx: number) => {
+    const fdefs = side === "left" ? L_FINGER_DEFS : R_FINGER_DEFS;
+    const thumb = side === "left" ? L_THUMB : R_THUMB;
+    const palmX = side === "left" ? 26 : 34;
+    const tf = `translate(${thumb.pivotX},${thumb.pivotY}) rotate(${thumb.angle}) translate(-${thumb.pivotX},-${thumb.pivotY})`;
+    return (
+      <g transform={`translate(${tx},${TY}) scale(${SC})`}>
+        <rect x={palmX} y={148} width={158} height={90} rx={22}
+          fill="rgba(42,55,90,0.88)" stroke="rgba(255,255,255,0.14)" strokeWidth={2} />
+        {fdefs.map((f, i) => {
+          const fc = FINGER_COLORS[f.color];
+          return (
+            <path key={i}
+              d={fingerPill(f.cx, f.tipY, f.baseY, f.hw)}
+              fill={fc.bg} stroke="rgba(255,255,255,0.30)" strokeWidth={2.2}
+              strokeLinejoin="round"
+              style={{ filter: `drop-shadow(0 0 9px ${fc.glow})` }}
+            />
+          );
+        })}
+        <g transform={tf}>
+          <path d={fingerPill(thumb.cx, thumb.tipY, thumb.baseY, thumb.hw)}
+            fill={FINGER_COLORS.gray.bg} stroke="rgba(255,255,255,0.18)"
+            strokeWidth={2} strokeLinejoin="round" />
+        </g>
+      </g>
+    );
+  };
+
+  const renderKeys = (keys: KE[], tx: number) =>
+    keys.map((k) => {
+      const x = tx + k.cx * SC;
+      const fc = FINGER_COLORS[k.color];
+      return (
+        <g key={`${tx}-${k.key}`}>
+          <rect x={x - KW / 2} y={KEY_Y} width={KW} height={KW} rx={5}
+            fill={k.anchor ? "rgba(245,158,11,0.20)" : KEY_BG[k.color]}
+            stroke={k.anchor ? "rgba(245,158,11,0.65)" : fc.glow}
+            strokeWidth={k.anchor ? 1.8 : 1} />
+          {k.anchor && (
+            <rect x={x - 5} y={KEY_Y + KW - 7} width={10} height={3.5} rx={1.8}
+              fill="rgba(245,158,11,0.82)" />
+          )}
+          <text x={x} y={KEY_Y + KW / 2 + 4.5}
+            textAnchor="middle" fontSize={11} fontWeight="bold"
+            fill={k.anchor ? "#F59E0B" : fc.bg}
+            fontFamily="system-ui,monospace">
+            {k.key}
+          </text>
+        </g>
+      );
+    });
+
+  const midX = (LX + 149 * SC + RX + 71 * SC) / 2;
+
+  return (
+    <svg viewBox={`0 0 ${Math.round(SVG_W)} ${Math.round(SVG_H)}`} className="w-full">
+      {renderHand("left",  LX)}
+      {renderHand("right", RX)}
+      {renderKeys(leftKeys,  LX)}
+      {renderKeys(rightKeys, RX)}
+      <text x={LX + 84 * SC} y={SVG_H - 8} textAnchor="middle"
+        fontSize={9} fill="rgba(255,255,255,0.28)" fontFamily="system-ui,sans-serif">
+        اليد اليسرى
+      </text>
+      <text x={RX + 110 * SC} y={SVG_H - 8} textAnchor="middle"
+        fontSize={9} fill="rgba(255,255,255,0.28)" fontFamily="system-ui,sans-serif">
+        اليد اليمنى
+      </text>
+      <text x={midX} y={KEY_Y + KW / 2 + 4.5} textAnchor="middle"
+        fontSize={8.5} fill="rgba(255,255,255,0.18)" fontFamily="system-ui,sans-serif">
+        الإبهامان
+      </text>
+    </svg>
+  );
+}
+
 function VirtualKeyboard({ nextChar }: { nextChar: string }) {
   const activeKey  = KEY_MAP.get(nextChar.toLowerCase());
   const needsShift = activeKey != null && (
@@ -537,7 +644,7 @@ export default function TypingLesson() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [phase, typed, errors, text, currentIndex, startTime, id]);
+  }, [phase, typed, errors, text, currentIndex, startTime, id, showIntro]);
 
   async function saveProgress(lessonId: number, stars: 1 | 2 | 3, wpm: number, accuracy: number) {
     try {
@@ -881,37 +988,16 @@ export default function TypingLesson() {
                 </div>
 
                 <div
-                  className="flex items-start gap-3.5 rounded-2xl px-4 py-3.5"
+                  className="rounded-2xl px-4 py-3"
                   style={{ background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.16)" }}
                 >
-                  <span className="text-xl mt-0.5 flex-shrink-0">🖐️</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-bold mb-1.5" style={{ color: "#10B981" }}>
-                      أصابعك على الصف الرئيسي
-                    </div>
-                    <div className="flex gap-1 mb-2 flex-wrap">
-                      {(["A","S","D","F","G","H","J","K","L",";"] as const).map((k) => {
-                        const isAnchor = k === "F" || k === "J";
-                        const isHome   = ["A","S","D","F","J","K","L",";"].includes(k);
-                        return (
-                          <span
-                            key={k}
-                            className="inline-flex items-center justify-center rounded-lg text-xs font-bold"
-                            style={{
-                              width: 28, height: 28,
-                              background: isAnchor ? "rgba(245,158,11,0.22)" : isHome ? "rgba(16,185,129,0.14)" : "rgba(255,255,255,0.04)",
-                              border: isAnchor ? "1.5px solid rgba(245,158,11,0.55)" : isHome ? "1px solid rgba(16,185,129,0.32)" : "1px solid rgba(255,255,255,0.06)",
-                              color: isAnchor ? "#F59E0B" : isHome ? "#10B981" : "rgba(255,255,255,0.22)",
-                            }}
-                          >
-                            {k}
-                          </span>
-                        );
-                      })}
-                    </div>
-                    <div className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
-                      مفتاحا <span style={{ color: "#F59E0B" }}>F</span> و <span style={{ color: "#F59E0B" }}>J</span> بهما نتوء صغير — ابحث عنهما بإصبعيك دون النظر
-                    </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">🖐️</span>
+                    <span className="text-sm font-bold" style={{ color: "#10B981" }}>أصابعك على الصف الرئيسي</span>
+                  </div>
+                  <HomeRowDiagram />
+                  <div className="text-xs mt-2 text-center" style={{ color: "rgba(255,255,255,0.38)" }}>
+                    كل إصبع له لون — <span style={{ color: "#F59E0B" }}>F</span> و <span style={{ color: "#F59E0B" }}>J</span> بهما نتوء تحسّه دون النظر
                   </div>
                 </div>
 
