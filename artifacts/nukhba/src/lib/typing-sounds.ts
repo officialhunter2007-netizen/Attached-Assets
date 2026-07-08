@@ -5,56 +5,67 @@ function getCtx(): AudioContext {
   return ctx;
 }
 
-function makeDecayedNoise(
-  c: AudioContext,
-  durationSec: number,
-  decayFraction: number,
-): AudioBuffer {
-  const len = Math.ceil(c.sampleRate * durationSec);
-  const buf = c.createBuffer(1, len, c.sampleRate);
+function buildClickBuffer(c: AudioContext): AudioBuffer {
+  const SR  = c.sampleRate;
+  const len = Math.ceil(SR * 0.042);
+  const buf = c.createBuffer(1, len, SR);
   const d   = buf.getChannelData(0);
+
   for (let i = 0; i < len; i++) {
-    d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (len * decayFraction));
+    const t = i / SR;
+
+    const click =
+      Math.exp(-t / 0.00035) *
+      Math.cos(2 * Math.PI * 4800 * t) *
+      0.95;
+
+    const snap =
+      Math.exp(-t / 0.0022) *
+      Math.sin(2 * Math.PI * 2600 * t) *
+      0.40;
+
+    const td = Math.max(0, t - 0.0008);
+    const thud =
+      Math.exp(-td / 0.0065) *
+      Math.sin(2 * Math.PI * 420 * t) *
+      0.30;
+
+    const noise =
+      (Math.random() * 2 - 1) *
+      Math.exp(-t / 0.0025) *
+      0.18;
+
+    d[i] = click + snap + thud + noise;
   }
+
+  let peak = 0;
+  for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(d[i]));
+  if (peak > 0) {
+    const norm = 0.82 / peak;
+    for (let i = 0; i < len; i++) d[i] *= norm;
+  }
+
   return buf;
 }
+
+let cachedClickBuf: AudioBuffer | null = null;
 
 export function playKeyClick() {
   try {
     const c   = getCtx();
     const now = c.currentTime;
 
-    const tickSrc = c.createBufferSource();
-    tickSrc.buffer = makeDecayedNoise(c, 0.005, 0.10);
+    if (!cachedClickBuf) cachedClickBuf = buildClickBuffer(c);
 
-    const hpf = c.createBiquadFilter();
-    hpf.type = "highpass";
-    hpf.frequency.value = 3800;
-    hpf.Q.value = 0.6;
+    const src = c.createBufferSource();
+    src.buffer = cachedClickBuf;
 
-    const tickGain = c.createGain();
-    tickGain.gain.value = 0.85;
+    const gain = c.createGain();
+    gain.gain.value = 0.72;
 
-    tickSrc.connect(hpf);
-    hpf.connect(tickGain);
-    tickGain.connect(c.destination);
-    tickSrc.start(now);
-
-    const thudSrc = c.createBufferSource();
-    thudSrc.buffer = makeDecayedNoise(c, 0.018, 0.22);
-
-    const lpf = c.createBiquadFilter();
-    lpf.type = "lowpass";
-    lpf.frequency.value = 1400;
-    lpf.Q.value = 0.8;
-
-    const thudGain = c.createGain();
-    thudGain.gain.value = 0.32;
-
-    thudSrc.connect(lpf);
-    lpf.connect(thudGain);
-    thudGain.connect(c.destination);
-    thudSrc.start(now + 0.0008);
+    src.connect(gain);
+    gain.connect(c.destination);
+    src.start(now);
   } catch {}
 }
 
@@ -81,7 +92,7 @@ export function playLessonComplete() {
     const notes = [523.25, 659.25, 783.99, 1046.5];
     const times = [0, 0.12, 0.24, 0.36];
     notes.forEach((freq, i) => {
-      const osc = c.createOscillator();
+      const osc  = c.createOscillator();
       const gain = c.createGain();
       osc.connect(gain);
       gain.connect(c.destination);
