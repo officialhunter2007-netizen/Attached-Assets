@@ -266,8 +266,8 @@ function HandGroup({
           style={{ filter: thumbOn ? `drop-shadow(0 0 12px ${grayFc.glow})` : undefined }}
         />
       </g>
-      <text x={110} y={252} textAnchor="middle" fontSize={11}
-        fill={isActive ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.07)"}
+      <text x={110} y={245} textAnchor="middle" fontSize={11}
+        fill="rgba(255,255,255,0.30)"
         fontFamily="system-ui,sans-serif"
       >
         {side === "left" ? "اليسرى" : "اليمنى"}
@@ -289,80 +289,81 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
     : null;
   const leftActive  = handSide === "left"  || handSide === "both";
   const rightActive = handSide === "right" || handSide === "both";
+  const isIdle      = !nextChar || !handSide;
 
-  const HSCALE = 0.66;
-  const HAND_Y = 226;
-  const L_TX   = 58;
-  const R_TX   = Math.round(716 - L_TX - 220 * HSCALE);
+  const SCALE  = 0.636;
+  const HAND_Y = 59;
 
   return (
-    <div className="w-full overflow-x-auto">
+    <div className="w-full overflow-x-auto select-none">
       <svg
-        viewBox="0 0 716 408"
-        className="w-full max-w-2xl mx-auto block"
-        style={{ minWidth: 400 }}
+        viewBox="0 0 996 220"
+        className="w-full max-w-4xl mx-auto block"
+        style={{ minWidth: 520 }}
       >
-        {KEYBOARD_KEYS.map((k) => {
-          const isActive      = activeKey === k;
-          const isShiftActive = (k.key === "LShift" || k.key === "RShift") && needsShift;
-          const finger        = k.finger;
-          const colors        = FINGER_COLORS[finger];
-          const highlighted   = isActive || isShiftActive;
+        <g
+          transform={`translate(0,${HAND_Y}) scale(${SCALE})`}
+          opacity={isIdle ? 0.5 : leftActive ? 1 : 0.2}
+        >
+          <HandGroup
+            side="left"
+            fingerColor={leftActive ? fingerColor : null}
+            isActive={true}
+            shiftPinky={needsShift && handSide === "right"}
+          />
+        </g>
 
-          return (
-            <g key={k.key} style={{ filter: highlighted ? `drop-shadow(0 0 6px ${colors.glow})` : undefined }}>
-              <rect
-                x={k.x + 1} y={k.y + 1} width={k.w - 2} height={k.h - 2} rx={5}
-                fill={highlighted ? colors.bg : "rgba(30,36,56,0.9)"}
-                stroke={highlighted ? colors.bg : "rgba(255,255,255,0.08)"}
-                strokeWidth={highlighted ? 1.5 : 1}
-              />
-              <text
-                x={k.x + k.w / 2} y={k.y + k.h / 2 + 5}
-                textAnchor="middle"
-                fontSize={k.w >= 68 ? 9 : 12}
-                fill={highlighted ? colors.text : "rgba(255,255,255,0.7)"}
-                fontFamily="monospace"
-                fontWeight={highlighted ? "700" : "400"}
-              >
-                {k.label}
-              </text>
-              {k.shiftLabel && k.w < 68 && (
+        <g transform="translate(140, 0)">
+          {KEYBOARD_KEYS.map((k) => {
+            const isActive      = activeKey === k;
+            const isShiftActive = (k.key === "LShift" || k.key === "RShift") && needsShift;
+            const finger        = k.finger;
+            const colors        = FINGER_COLORS[finger];
+            const highlighted   = isActive || isShiftActive;
+
+            return (
+              <g key={k.key} style={{ filter: highlighted ? `drop-shadow(0 0 6px ${colors.glow})` : undefined }}>
+                <rect
+                  x={k.x + 1} y={k.y + 1} width={k.w - 2} height={k.h - 2} rx={5}
+                  fill={highlighted ? colors.bg : "rgba(30,36,56,0.9)"}
+                  stroke={highlighted ? colors.bg : "rgba(255,255,255,0.08)"}
+                  strokeWidth={highlighted ? 1.5 : 1}
+                />
                 <text
-                  x={k.x + k.w - 5} y={k.y + 12}
-                  textAnchor="end" fontSize={8}
-                  fill="rgba(255,255,255,0.3)" fontFamily="monospace"
+                  x={k.x + k.w / 2} y={k.y + k.h / 2 + 5}
+                  textAnchor="middle"
+                  fontSize={k.w >= 68 ? 9 : 12}
+                  fill={highlighted ? colors.text : "rgba(255,255,255,0.7)"}
+                  fontFamily="monospace"
+                  fontWeight={highlighted ? "700" : "400"}
                 >
-                  {k.shiftLabel}
+                  {k.label}
                 </text>
-              )}
-            </g>
-          );
-        })}
+                {k.shiftLabel && k.w < 68 && (
+                  <text
+                    x={k.x + k.w - 5} y={k.y + 12}
+                    textAnchor="end" fontSize={8}
+                    fill="rgba(255,255,255,0.3)" fontFamily="monospace"
+                  >
+                    {k.shiftLabel}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </g>
 
-        {handSide && (
-          <>
-            <line x1={20} y1={221} x2={696} y2={221}
-              stroke="rgba(255,255,255,0.04)" strokeWidth={1}
-            />
-            <g transform={`translate(${L_TX},${HAND_Y}) scale(${HSCALE})`}>
-              <HandGroup
-                side="left"
-                fingerColor={leftActive  ? fingerColor : null}
-                isActive={leftActive}
-                shiftPinky={needsShift && handSide === "right"}
-              />
-            </g>
-            <g transform={`translate(${R_TX},${HAND_Y}) scale(${HSCALE})`}>
-              <HandGroup
-                side="right"
-                fingerColor={rightActive ? fingerColor : null}
-                isActive={rightActive}
-                shiftPinky={needsShift && handSide === "left"}
-              />
-            </g>
-          </>
-        )}
+        <g
+          transform={`translate(856,${HAND_Y}) scale(${SCALE})`}
+          opacity={isIdle ? 0.5 : rightActive ? 1 : 0.2}
+        >
+          <HandGroup
+            side="right"
+            fingerColor={rightActive ? fingerColor : null}
+            isActive={true}
+            shiftPinky={needsShift && handSide === "left"}
+          />
+        </g>
       </svg>
     </div>
   );
