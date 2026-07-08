@@ -1,0 +1,801 @@
+You are a curriculum engineer. Your task: create a file called `uni-it-instruction.json` in this repository containing a complete, valid v4.1 Nukhba instruction file for the IT specialty.
+
+Output ONLY raw JSON — no markdown fences, no code blocks, no explanations, no comments.
+
+════════════════════════════════════════════════════
+SECTION A — ZERO-TOLERANCE VALIDATION RULES
+(Each rule maps to a hard error that blocks publishing)
+════════════════════════════════════════════════════
+
+A1. LESSON CODES — Unit at position L.S.U contains lessons with lesson_index 1,2,3,4,5 in order. Do not skip or repeat numbers. Example: unit 2.1.3 → lessons are 2.1.3.1, 2.1.3.2, 2.1.3.3, 2.1.3.4, 2.1.3.5.
+
+A2. PREREQUISITE CODES — Every string inside prerequisite_lessons, enables_lessons, prerequisite_units, enables_units MUST be a code that exists in this file. Safest rule: use empty arrays [] for ALL of these fields everywhere.
+
+A3. LAB QUESTIONS — Every lab has EXACTLY 5 questions. The "kind" values must be all five of these, each appearing EXACTLY ONCE, in this exact order:
+  position 0: "diagnostic"
+  position 1: "decision"
+  position 2: "application"
+  position 3: "analysis"
+  position 4: "connection"
+  ANY other order, ANY repetition, ANY omission = hard error.
+
+A4. CONCEPT NAMES — Within a single lesson, no two concepts may share the same name (case-insensitive). If you want two concepts about "IP", name them differently: "عنوان IP" and "نطاق IP".
+
+A5. REQUIRED FIELDS — Every common_mistakes item MUST contain all three fields:
+  "mistake": what the student does wrong
+  "correction": the correct version
+  "treatment": HOW the teacher pedagogically addresses this mistake (NOT a repetition of correction)
+  Missing "treatment" = hard error.
+
+A6. GOAL LENGTH — The "goal" field on levels, stages, and units must be at minimum 10 characters. Write a real sentence.
+
+A7. LAB SCENARIO — The "scenario" field must be at least 20 characters. Write a real Yemeni professional scenario.
+
+A8. BRIDGE SENTENCE — Must be at minimum 10 WORDS (not characters). Count carefully.
+  TOO SHORT (5 words): "مثلما المعالج هو عقل الحاسوب"
+  CORRECT (14 words): "مثلما المطبخ يحتاج طباخاً وأدوات ووقوداً لصنع الوجبة، الحاسوب يحتاج معالجاً وذاكرة وكهرباء ليُنجز أي مهمة"
+
+A9. EXAM BANKS — Every key in unit_banks MUST match a unit_code that exists in this file. Every key in stage_banks MUST match a stage_code. Keys in level_banks are the level_index as a string ("1","2","3"). Using any other key = hard error.
+
+A10. PLACEMENT QUESTIONS — Every placement question with a target_unit_code: the target_level_index MUST equal the first number of that code. Example: target_unit_code "2.3.1" → target_level_index MUST be 2. Mismatch = hard error.
+
+A11. MCQ QUESTIONS — Every MCQ question (in exam_banks and placement_test_questions) must have:
+  "choices": array of at least 2 strings
+  "correct_index": integer >= 0 and < choices.length
+
+════════════════════════════════════════════════════
+SECTION B — COMPLETE REFERENCE EXAMPLE
+(Follow this exact structure for EVERY unit. Do not deviate.)
+════════════════════════════════════════════════════
+
+Below is a complete, valid example for one unit. Replicate this exact pattern for all 27 units:
+
+EXAMPLE UNIT STRUCTURE:
+{
+  "unit_index": 1,
+  "name": "مكونات الجهاز والأجهزة الطرفية",
+  "goal": "يتعرف الطالب على المكونات الداخلية للحاسوب ووظيفة كل مكون منها",
+  "key_concepts": ["المعالج CPU", "الذاكرة RAM", "القرص الصلب", "لوحة الأم"],
+  "prerequisite_units": [],
+  "enables_units": [],
+  "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+  "lessons": [
+    {
+      "lesson_index": 1,
+      "name": "ما هو الحاسوب؟ — قلب كل تقنية",
+      "goal": "يشرح الطالب تعريف الحاسوب ومكوناته الأساسية الثلاث بكلماته الخاصة",
+      "bridge_sentence": "مثلما السيارة تحتاج محركاً وعجلاً وبنزيناً لتتحرك، الحاسوب يحتاج معالجاً وذاكرة وكهرباء ليُنجز أي مهمة تطلبها منه",
+      "prerequisite_lessons": [],
+      "enables_lessons": [],
+      "concepts": [
+        {
+          "name": "تعريف الحاسوب",
+          "explanation": "الحاسوب جهاز إلكتروني يستقبل البيانات ويعالجها ويخرج نتائج وفق تعليمات مبرمجة مسبقاً",
+          "mastery_criterion": "يُعرّف الطالب الحاسوب بجملة واحدة تشمل الإدخال والمعالجة والإخراج بدون مراجعة",
+          "weight": 1
+        },
+        {
+          "name": "المكونات الرئيسية الثلاث",
+          "explanation": "كل حاسوب مؤلف من ثلاثة عناصر: المكونات المادية Hardware والبرمجيات Software والبيانات Data",
+          "mastery_criterion": "يُميّز الطالب بين الثلاثة بأمثلة من جهازه الشخصي أو هاتفه",
+          "weight": 2
+        }
+      ],
+      "common_mistakes": [
+        {
+          "mistake": "الطالب يخلط بين الحاسوب والشاشة ويظن أن الشاشة هي الحاسوب",
+          "correction": "الشاشة مجرد جهاز إخراج، والحاسوب الفعلي هو الصندوق أو الجهاز الذي يحمل المعالج والذاكرة",
+          "treatment": "اسأل الطالب: إذا أطفأنا الشاشة فقط هل سيتوقف الحاسوب عن العمل؟ دعه يُجرّب ثم يستنتج الفرق بنفسه",
+          "severity": "major"
+        }
+      ],
+      "yemeni_examples": [
+        "حاسوب كاتب العدل في محكمة صنعاء الذي يحفظ عقود البيع والإيجار",
+        "جهاز الصراف الآلي في بنك اليمن والخليج بشارع حدة — هو حاسوب متخصص"
+      ],
+      "final_check_question": "ما الفرق بين Hardware وSoftware؟ أعطِ مثالاً على كل منهما من هاتفك أو من بيتك",
+      "session_complete_criterion": "يُعدّد الطالب ثلاثة مكونات رئيسية للحاسوب ويشرح وظيفة كل منها بجملة واحدة",
+      "expected_duration_minutes": 25,
+      "motivation_hook": "كل وظيفة IT في اليمن والخليج تبدأ من هذه المعلومات — متخصص IT لا يعرف مكونات الحاسوب كمهندس لا يعرف اسم الأدوات",
+      "learning_objectives": [
+        { "statement": "يُعرّف الطالب الحاسوب ويذكر مكوناته الأساسية", "bloom_level": "remember" },
+        { "statement": "يُميّز الطالب بين Hardware وSoftware بأمثلة حقيقية", "bloom_level": "understand" }
+      ]
+    },
+    {
+      "lesson_index": 2,
+      "name": "المعالج CPU — عقل الحاسوب",
+      "goal": "يشرح الطالب وظيفة المعالج ويفهم مفهومي السرعة بالـGHz وعدد الأنوية",
+      "bridge_sentence": "مثلما المدير الناجح يوزع المهام على موظفيه ويُنسق بينهم في وقت واحد، المعالج يوزع العمليات على أنويته ويُنجزها بالتوازي بسرعة مذهلة",
+      "prerequisite_lessons": [],
+      "enables_lessons": [],
+      "concepts": [
+        {
+          "name": "وظيفة المعالج",
+          "explanation": "المعالج هو الدائرة الإلكترونية التي تنفّذ تعليمات البرامج وتحسب العمليات الحسابية والمنطقية",
+          "mastery_criterion": "يشرح الطالب ما يحدث داخل المعالج عند فتح برنامج بخطوتين",
+          "weight": 2
+        },
+        {
+          "name": "السرعة والأنوية في المعالج",
+          "explanation": "سرعة المعالج تُقاس بـGHz وتعني عدد العمليات في الثانية. الأنوية Cores تعني قدرة المعالج على تنفيذ عدة مهام في نفس الوقت",
+          "mastery_criterion": "يُفسّر الطالب لماذا معالج 4 أنوية أفضل من معالج 2 أنوية بمثال من الحياة",
+          "weight": 1
+        }
+      ],
+      "common_mistakes": [
+        {
+          "mistake": "الطالب يظن أن سرعة المعالج الأعلى دائماً أفضل بغض النظر عن عدد الأنوية",
+          "correction": "المعالج 3GHz ذو 8 أنوية قد يكون أفضل من 4GHz ذي نواتين في مهام التعدد",
+          "treatment": "أعطِ الطالب سيناريو: تريد تشغيل 8 برامج معاً، أيهما تختار؟ دعه يُفكر ثم ناقش معه نتيجة تفكيره قبل الإجابة",
+          "severity": "minor"
+        }
+      ],
+      "yemeni_examples": [
+        "شركة MTN اليمن تستخدم خوادم بمعالجات عالية الأنوية لمعالجة آلاف المكالمات في آنٍ واحد",
+        "الحاسوب المحمول في جامعة صنعاء بمعالج Core i5 يكفي لمشاريع الطلاب البرمجية"
+      ],
+      "final_check_question": "صديقك يريد شراء حاسوب للتصميم الجرافيكي. ماذا يراعي في المعالج؟ السرعة أم الأنوية أم الاثنين معاً ولماذا؟",
+      "session_complete_criterion": "يختار الطالب المعالج المناسب لحالة استخدام معينة ويُبرر اختياره بمعطيات تقنية",
+      "expected_duration_minutes": 25,
+      "motivation_hook": "فهم المعالج يُساعدك على توصية العملاء باختيار الأجهزة الصحيحة — مهارة يحتاجها كل موظف IT يومياً",
+      "learning_objectives": [
+        { "statement": "يشرح الطالب وظيفة المعالج وكيف يُنفّذ العمليات", "bloom_level": "understand" },
+        { "statement": "يُقارن بين معالجات بناءً على المواصفات ويختار الأنسب", "bloom_level": "analyze" }
+      ]
+    },
+    {
+      "lesson_index": 3,
+      "name": "الذاكرة RAM — مكتب العمل",
+      "goal": "يُميّز الطالب بين RAM والتخزين الدائم ويفهم تأثير حجم RAM على أداء الجهاز",
+      "bridge_sentence": "مثلما الموظف يحتاج مكتباً واسعاً لفرد أوراق عمله بسهولة والتنقل بينها، الحاسوب يحتاج RAM كافية ليُشغّل عدة برامج معاً دون تباطؤ مُزعج",
+      "prerequisite_lessons": [],
+      "enables_lessons": [],
+      "concepts": [
+        {
+          "name": "ذاكرة الوصول العشوائي RAM",
+          "explanation": "RAM هي الذاكرة المؤقتة التي يخزن فيها الحاسوب البيانات التي يعمل عليها الآن. تُمسح بالكامل عند إيقاف التشغيل",
+          "mastery_criterion": "يُفسر الطالب لماذا يتباطأ الحاسوب عند فتح برامج كثيرة باستخدام مفهوم امتلاء RAM",
+          "weight": 3
+        },
+        {
+          "name": "الفرق بين RAM والتخزين الدائم",
+          "explanation": "RAM سريعة ومؤقتة تُمسح عند الإغلاق. HDD/SSD أبطأ نسبياً لكن دائم يحتفظ بالبيانات. الذاكرة كمكتب العمل والتخزين كخزانة الملفات",
+          "mastery_criterion": "يضع الطالب بيانات حقيقية في التصنيف الصحيح: مستند مفتوح الآن؟ RAM. فيلم محفوظ؟ HDD",
+          "weight": 2
+        }
+      ],
+      "common_mistakes": [
+        {
+          "mistake": "الطالب يخلط بين GB في RAM وGB في القرص الصلب ويظن أنهما نفس الشيء",
+          "correction": "8GB RAM لا تساوي 8GB HDD. الأولى سرعة العمل الآنية والثانية مساحة التخزين الدائمة",
+          "treatment": "اطلب من الطالب أن يصف ما يحدث لجهازه إذا امتلأت RAM وإذا امتلأ القرص — الأعراض مختلفة وستُوضح الفرق بشكل ملموس",
+          "severity": "critical"
+        }
+      ],
+      "yemeni_examples": [
+        "موظف في وزارة الاتصالات اليمنية يشتكي من بطء جهازه عند فتح Excel وWord معاً — الحل زيادة RAM",
+        "محل الإلكترونيات في شارع الستين بصنعاء يبيع أجهزة 4GB RAM بسعر أقل — مناسبة للاستخدام البسيط فقط"
+      ],
+      "final_check_question": "جهازك عنده 4GB RAM و1TB HDD. في أي منهما تحفظ ملفاتك الدائمة؟ ولماذا؟",
+      "session_complete_criterion": "يُصنّف الطالب بيانات حقيقية بين RAM وHDD بدون تردد ويُبرر اختياره",
+      "expected_duration_minutes": 25,
+      "motivation_hook": "80% من شكاوى المستخدمين عن بطء الأجهزة سببها RAM — تشخيصها في ثوانٍ يجعلك خبير IT يُثق به",
+      "learning_objectives": [
+        { "statement": "يُميّز الطالب بين RAM والتخزين الدائم", "bloom_level": "understand" },
+        { "statement": "يُشخّص مشكلة بطء الجهاز بناءً على نوع الذاكرة المشبعة", "bloom_level": "analyze" }
+      ]
+    },
+    {
+      "lesson_index": 4,
+      "name": "التخزين HDD وSSD — مستودع البيانات",
+      "goal": "يقارن الطالب بين HDD وSSD ويختار نوع التخزين المناسب لكل حالة استخدام",
+      "bridge_sentence": "مثلما الكتب في خزانة مرتبة يمكن الوصول إليها أسرع من الكتب في صناديق متراكمة في المخزن، SSD يصل إلى البيانات أسرع من HDD بسبب فرق التصميم الجوهري بينهما",
+      "prerequisite_lessons": [],
+      "enables_lessons": [],
+      "concepts": [
+        {
+          "name": "القرص الصلب الدوار HDD",
+          "explanation": "HDD يخزن البيانات على أقراص مغناطيسية دوارة. أرخص في السعر لكل GB لكن أبطأ وأكثر عرضة للتلف بسبب الأجزاء المتحركة",
+          "mastery_criterion": "يُحدد الطالب متى يفضل HDD على SSD بمبرر اقتصادي أو تقني صحيح",
+          "weight": 1
+        },
+        {
+          "name": "القرص الصلب الإلكتروني SSD",
+          "explanation": "SSD يخزن البيانات على شرائح إلكترونية بدون أجزاء متحركة. أسرع 5-10 أضعاف من HDD وأكثر متانة لكن أغلى سعراً لكل GB",
+          "mastery_criterion": "يُفسّر الطالب لماذا يبدأ الحاسوب بـSSD أسرع من HDD بربطه بمفهوم الأجزاء المتحركة",
+          "weight": 2
+        }
+      ],
+      "common_mistakes": [
+        {
+          "mistake": "الطالب يظن أن SSD دائماً أفضل في كل الحالات وبصرف النظر عن السعر والحجم",
+          "correction": "للتخزين الضخم بميزانية محدودة HDD عملي جداً. SSD للسرعة في نظام التشغيل والبرامج الأساسية",
+          "treatment": "أعطِ الطالب ميزانية 100 دولار وقل: تحتاج 1TB تخزين وسرعة تشغيل — كيف توزع؟ ناقش اختياره قبل إعطاء الإجابة",
+          "severity": "minor"
+        }
+      ],
+      "yemeni_examples": [
+        "صاحب استوديو تصوير في إب يحتاج تخزين 2TB للصور والفيديو — HDD الاقتصادي أنسب له",
+        "مبرمج في شركة يمنية للبرمجيات يحتاج تشغيل سريع لـVS Code وDocker — SSD ضرورة لإنتاجيته"
+      ],
+      "final_check_question": "عميل يريد حاسوب للمحاسبة وعنده ميزانية 300 دولار فقط. ماذا تنصحه: SSD صغير أم HDD كبير؟ بررّ إجابتك",
+      "session_complete_criterion": "يختار الطالب نوع التخزين المناسب ويُبرر بمعطيات السرعة والسعر والحجم المطلوب",
+      "expected_duration_minutes": 25,
+      "motivation_hook": "توصية التخزين الصحيحة توفر على العميل مئات الدولارات وتبني ثقته بك كمتخصص IT موثوق",
+      "learning_objectives": [
+        { "statement": "يُقارن الطالب بين HDD وSSD من حيث السرعة والسعر والمتانة", "bloom_level": "analyze" },
+        { "statement": "يختار نوع التخزين المناسب لحالة استخدام محددة", "bloom_level": "apply" }
+      ]
+    },
+    {
+      "lesson_index": 5,
+      "name": "لوحة الأم والأجهزة الطرفية",
+      "goal": "يفهم الطالب دور لوحة الأم كناقل رئيسي ويُصنّف الأجهزة الطرفية إدخالاً وإخراجاً",
+      "bridge_sentence": "مثلما شبكة الطرق الرئيسية في اليمن تربط المدن بعضها ببعض وتُتيح نقل البضائع بينها، لوحة الأم تربط كل مكونات الحاسوب وتُتيح تبادل البيانات بينها بسرعة وانسجام",
+      "prerequisite_lessons": [],
+      "enables_lessons": [],
+      "concepts": [
+        {
+          "name": "لوحة الأم Motherboard",
+          "explanation": "لوحة إلكترونية رئيسية تحمل المعالج وفتحات RAM والموصلات التي تربط كل مكونات الحاسوب معاً وتُتيح تواصلها",
+          "mastery_criterion": "يُوضح الطالب ماذا يحدث للحاسوب إذا تلفت لوحة الأم وما الحل الممكن",
+          "weight": 2
+        },
+        {
+          "name": "الأجهزة الطرفية وتصنيفها",
+          "explanation": "أجهزة تتصل بالحاسوب من الخارج: إدخال كلوحة المفاتيح والفأرة أو إخراج كالشاشة والطابعة أو الاثنان معاً كشاشة اللمس",
+          "mastery_criterion": "يُصنّف الطالب 5 أجهزة طرفية مختلفة كمدخل أو مخرج أو مدخل-مخرج بدون تردد",
+          "weight": 1
+        }
+      ],
+      "common_mistakes": [
+        {
+          "mistake": "الطالب يعتقد أن كل منافذ USB متساوية في السرعة ويتوقع نفس الأداء من أي منفذ",
+          "correction": "USB 2.0 وUSB 3.0 وUSB-C مختلفة في السرعة — USB 3.0 أزرق اللون في معظم الأجهزة وأسرع بعشر مرات",
+          "treatment": "أحضر صورة للوحة خلفية حاسوب حقيقي واطلب من الطالب تحديد كل منفذ ووظيفته قبل شرح الفرق",
+          "severity": "minor"
+        }
+      ],
+      "yemeni_examples": [
+        "طابعة مكتب الضرائب في المكلا متصلة بالحاسوب عبر USB — جهاز إخراج نقي",
+        "ماسح ضوئي في بنك التضامن الإسلامي لمسح بطاقة الهوية — جهاز إدخال نقي"
+      ],
+      "final_check_question": "ما الفرق بين جهاز الإدخال وجهاز الإخراج؟ أعطِ مثالاً على جهاز يؤدي الوظيفتين معاً",
+      "session_complete_criterion": "يُعدّد الطالب 3 أجهزة طرفية ويُصنّف كل منها بشكل صحيح بدون تردد",
+      "expected_duration_minutes": 25,
+      "motivation_hook": "خبير IT يعرف كل منفذ ووظيفته يوفر وقت التشخيص وكلفة استدعاء تقني آخر — فارق بين المبتدئ والمحترف",
+      "learning_objectives": [
+        { "statement": "يُعرّف الطالب لوحة الأم ودورها في ربط المكونات", "bloom_level": "understand" },
+        { "statement": "يُصنّف الأجهزة الطرفية إلى إدخال وإخراج بأمثلة حقيقية", "bloom_level": "apply" }
+      ]
+    }
+  ],
+  "labs": [
+    {
+      "lab_index": 1,
+      "title": "مختبر: تشخيص جهاز بطيء في مكتب حكومي بصنعاء",
+      "scenario": "موظف في مكتب السجل التجاري بأمانة العاصمة صنعاء يشتكي من بطء جهازه الشديد عند فتح ملفات Excel الكبيرة وتطبيق الطباعة في نفس الوقت. طُلب منك كمتخصص IT زيارة المكتب وتشخيص المشكلة واقتراح الحل المناسب ضمن ميزانية محدودة لا تتجاوز 80 دولاراً.",
+      "pedagogical_sequence": "الطالب يبدأ بجمع المعلومات (تشخيص) ثم يختار من بين حلول بميزانيات مختلفة (قرار) ثم يُطبق الحل خطوة بخطوة (تطبيق) ثم يُحلل النتيجة ويفهم السبب الجذري (تحليل) ثم يربط بمواقف مشابهة سيواجهها في مسيرته المهنية (ربط)",
+      "questions": [
+        {
+          "kind": "diagnostic",
+          "prompt": "قبل أن تبدأ التشخيص، ما هي الأسئلة الثلاث الأولى التي ستسألها للموظف لفهم طبيعة المشكلة؟ وما المعلومات التقنية التي ستجمعها من الجهاز نفسه مباشرة؟",
+          "rubric": "الإجابة الجيدة تسأل عن: متى يحدث البطء (دائماً أم عند برامج معينة)، عمر الجهاز، كم RAM مثبت. ثم تفحص Task Manager لنسبة استخدام RAM والـCPU",
+          "solution_outline": "الأسئلة: 1) متى يبدأ البطء بالضبط؟ 2) كم RAM في الجهاز؟ 3) كم برنامج مفتوح عادة؟. من الجهاز: RAM usage في Task Manager، CPU usage، حجم ملفات Excel المفتوحة",
+          "points": 2
+        },
+        {
+          "kind": "decision",
+          "prompt": "بعد الفحص وجدت أن الجهاز يملك 4GB RAM وعمره 5 سنوات وهو Core i5. الميزانية 80 دولار. لديك ثلاثة خيارات: أ) تبديل RAM بـ8GB بتكلفة 35 دولار، ب) تثبيت SSD 256GB بتكلفة 70 دولار، ج) تنظيف الجهاز وحذف البرامج غير الضرورية مجاناً. أيها تختار أولاً ولماذا؟",
+          "rubric": "الخيار المثالي: ج أولاً (مجاني وسريع)، ثم أ (RAM) لأن Excel يستهلك RAM بشكل كبير عند الملفات الكبيرة. ب (SSD) يُحسن سرعة الإقلاع لا معالجة الملفات",
+          "solution_outline": "الترتيب الصحيح: ج أولاً (لا تكلفة) + تقييم التحسن. إذا لم يكتفِ → أ (RAM زيادة) هو الأنسب للمشكلة المحددة. ب كخيار إضافي إذا تبقى من الميزانية",
+          "points": 2
+        },
+        {
+          "kind": "application",
+          "prompt": "قررت تركيب RAM إضافية. اكتب الخطوات التفصيلية الكاملة التي ستتبعها من شراء القطعة حتى التحقق من نجاح التركيب وعمل الجهاز بشكل صحيح",
+          "rubric": "الخطوات الكاملة: التحقق من نوع RAM المتوافق، إيقاف الجهاز وفصل الكهرباء، تفريغ الشحن الكهروستاتيكي، تركيب RAM بشكل صحيح، التشغيل والتحقق من Task Manager",
+          "solution_outline": "1. تحقق من نوع RAM عبر CPU-Z (DDR3/DDR4 والسرعة). 2. اشترِ نفس النوع والسرعة. 3. أطفئ وافصل الكهرباء تماماً. 4. افتح الغطاء وحرر مشبك الذاكرة القديم. 5. ركّب الجديد حتى تسمع صوت التثبيت. 6. شغّل وتحقق: Task Manager → Performance → Memory يجب أن يظهر 8GB",
+          "points": 3
+        },
+        {
+          "kind": "analysis",
+          "prompt": "بعد تركيب RAM الجديدة لاحظت تحسناً كبيراً في سرعة Excel لكن سرعة فتح Windows نفسه عند بدء التشغيل لم تتغير أبداً. ماذا يعني ذلك؟ وما الذي تغيّر وما الذي لم يتغير ولماذا؟",
+          "rubric": "الفهم الصحيح: RAM تُحسّن أداء التطبيقات الجارية في الذاكرة لا سرعة إقلاع النظام من القرص. الطالب يفهم أن كل مشكلة أداء لها سبب مختلف يحتاج حلاً مختلفاً",
+          "solution_outline": "سرعة فتح Windows تعتمد على سرعة القرص HDD/SSD. RAM تُحسن تشغيل التطبيقات المتعددة في الوقت نفسه. التحسن في Excel صحيح ومتوقع. بطء الإقلاع يحتاج SSD لا RAM",
+          "points": 2
+        },
+        {
+          "kind": "connection",
+          "prompt": "كيف تُطبّق منهجية التشخيص التي تعلمتها على حالات مختلفة؟ مثل: خادم شركة يبطئ في ساعة الذروة، أو حاسوب مصمم جرافيك يتجمد عند معالجة الصور الكبيرة",
+          "rubric": "الطالب يُعمّم المبدأ: Task Manager أولاً لتحديد الاختناق (CPU أم RAM أم Disk) ثم الحل المناسب. يربط بأمثلة حقيقية من سياقات مختلفة بشكل منطقي",
+          "solution_outline": "المنهجية الثابتة: 1. Task Manager لتحديد الاختناق. 2. خادم ذروة = RAM أو CPU غالباً. 3. تجمد التصميم = RAM أو GPU. المبدأ: شخّص بدقة قبل أي ترقية عشوائية",
+          "points": 1
+        }
+      ],
+      "completion_criterion": "يُشخّص الطالب مشكلة أداء مشابهة بمنهجية منطقية ويقترح الحل المناسب مع تبرير اقتصادي وتقني"
+    }
+  ]
+}
+
+════════════════════════════════════════════════════
+SECTION C — COMPLETE FILE TO GENERATE
+════════════════════════════════════════════════════
+
+Generate the complete file below. Replace every <<...>> placeholder with real content following Section B example exactly. All 27 units must be fully populated with 5 lessons and 1 lab each.
+
+{
+  "schema_version": "v4.1",
+  "specialty": {
+    "slug": "uni-it",
+    "name": "تقنية المعلومات",
+    "description": "مسار شامل يأخذ الطالب اليمني من أساسيات الحاسوب حتى الأمن السيبراني والسحابة، بأسلوب عملي مرتبط بسوق العمل اليمني والعربي",
+    "icon": "💻",
+    "target_persona": "طالب يمني مبتدئ لا خلفية تقنية مسبقة، يريد دخول مجال IT والحصول على وظيفة أو عمل حر في اليمن أو دول الخليج",
+    "teacher_tone": "صديق خبير يشرح بمثال يمني من الحياة اليومية قبل أي مفهوم تقني، يسأل قبل أن يشرح، يُشجع الاستنتاج الذاتي ولا يُعطي الإجابة مباشرة",
+    "allowed_viz_templates": ["flowchart", "network_diagram", "timeline", "comparison_table"],
+    "allowed_tools": ["nukhba_ide_js", "nukhba_ide_python", "nukhba_ide_bash", "regex_playground"]
+  },
+  "levels": [
+    {
+      "level_index": 1,
+      "name": "أساسيات تقنية المعلومات",
+      "goal": "يمتلك الطالب فهماً عملياً لمكونات الحاسوب والشبكات والأمان الرقمي يؤهله للانتقال لمستوى أعمق",
+      "bloom_focus": "understand",
+      "exam": { "pass_threshold_percent": 60, "time_limit_minutes": 50 },
+      "stages": [
+        {
+          "stage_index": 1,
+          "name": "مكونات الحاسوب والأجهزة",
+          "goal": "يتعرف الطالب على مكونات الحاسوب ويفهم كيفية تعاملها مع أنظمة التشغيل",
+          "bloom_focus": "remember",
+          "exam": { "pass_threshold_percent": 65, "time_limit_minutes": 35 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "مكونات الجهاز والأجهزة الطرفية",
+              "goal": "يتعرف الطالب على المكونات الداخلية للحاسوب ووظيفة كل مكون منها",
+              "key_concepts": ["المعالج CPU", "الذاكرة RAM", "القرص الصلب", "لوحة الأم"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+              "lessons": [<<COPY THE 5 LESSONS FROM SECTION B EXAMPLE EXACTLY AS-IS FOR THIS UNIT>>],
+              "labs": [<<COPY THE LAB FROM SECTION B EXAMPLE EXACTLY AS-IS FOR THIS UNIT>>]
+            },
+            {
+              "unit_index": 2,
+              "name": "نظام التشغيل Windows",
+              "goal": "يتمكن الطالب من استخدام Windows بكفاءة وإدارة الملفات والبرامج والإعدادات",
+              "key_concepts": ["واجهة Windows", "إدارة الملفات والمجلدات", "لوحة التحكم", "Task Manager وإدارة العمليات"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+              "lessons": [
+                <<GENERATE 5 LESSONS for unit 1.1.2 — نظام Windows. lesson_index: 1,2,3,4,5. Topics: واجهة Windows وسطح المكتب / إدارة الملفات والمجلدات / البرامج والتثبيت / لوحة التحكم والإعدادات / Task Manager وحل مشاكل الأداء. Each lesson needs: lesson_index, name, goal, bridge_sentence>=10words, prerequisite_lessons:[], enables_lessons:[], concepts>=2 with unique names, common_mistakes with mistake+correction+treatment, yemeni_examples>=2 with real Yemeni context, final_check_question, session_complete_criterion, expected_duration_minutes, motivation_hook, learning_objectives>>
+              ],
+              "labs": [
+                <<GENERATE 1 LAB for unit 1.1.2 — Yemeni professional scenario about Windows administration. lab_index:1, title, scenario>=20chars, pedagogical_sequence, questions: EXACTLY 5 with kinds in order diagnostic/decision/application/analysis/connection, each with prompt+rubric+solution_outline+points, completion_criterion>>
+              ]
+            },
+            {
+              "unit_index": 3,
+              "name": "مدخل إلى نظام Linux",
+              "goal": "يتعرف الطالب على نظام Linux ويفهم أهميته في عالم IT ويُقارنه بـWindows",
+              "key_concepts": ["توزيعات Linux", "الـKernel", "المصدر المفتوح", "الفلسفة الأساسية لـLinux"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 1.1.3 — مدخل Linux. lesson_index: 1,2,3,4,5. Topics: تاريخ Linux وأهميته / توزيعات Linux Ubuntu/CentOS / الفلسفة المفتوحة المصدر / Linux في حياتنا اليومية / مقارنة Linux وWindows. Follow all Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 1.1.3 — 5 questions in order: diagnostic/decision/application/analysis/connection. Yemeni scenario about choosing OS for a Yemeni organization.>>]
+            }
+          ]
+        },
+        {
+          "stage_index": 2,
+          "name": "الشبكات والإنترنت",
+          "goal": "يفهم الطالب كيف تتواصل الأجهزة عبر الشبكات والإنترنت ويستطيع إعداد شبكة منزلية",
+          "bloom_focus": "understand",
+          "exam": { "pass_threshold_percent": 65, "time_limit_minutes": 35 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "أساسيات الشبكات ونموذج OSI",
+              "goal": "يفهم الطالب مفهوم الشبكة ونموذج OSI السبع طبقات وكيف تنتقل البيانات عبرها",
+              "key_concepts": ["نموذج OSI السبع طبقات", "التغليف Encapsulation", "البروتوكولات", "الوسائط السلكية واللاسلكية"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 1.2.1. Topics: ما هي الشبكة ولماذا نحتاجها / نموذج OSI والطبقات السبع / كيف تنتقل البيانات عبر الشبكة / البروتوكولات وأهميتها / الوسائط السلكية واللاسلكية. All Section A rules apply.>>],
+              "labs": [<<GENERATE 1 LAB for unit 1.2.1 — 5 questions diagnostic/decision/application/analysis/connection. Yemeni scenario about network planning for a Yemeni school or company.>>]
+            },
+            {
+              "unit_index": 2,
+              "name": "الإنترنت والبروتوكولات الأساسية",
+              "goal": "يفهم الطالب كيف يعمل الإنترنت والبروتوكولات TCP/IP وHTTP وDNS",
+              "key_concepts": ["TCP/IP وكيفية عمله", "HTTP وHTTPS", "عنوان IP ووظيفته", "DNS وترجمة الأسماء"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 1.2.2. Topics: IP addresses والتعامل معها / TCP مقابل UDP / HTTP وHTTPS وأمان الاتصال / DNS كيف يعمل / المنافذ Ports وما وظيفتها. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 1.2.2 — 5 questions in order. Yemeni scenario about troubleshooting internet connectivity in a Yemeni office.>>]
+            },
+            {
+              "unit_index": 3,
+              "name": "الشبكات المنزلية والواي فاي",
+              "goal": "يُعدّ الطالب شبكة منزلية ويفهم إعدادات الراوتر وتوزيع عناوين IP",
+              "key_concepts": ["الراوتر Router ووظيفته", "DHCP وتوزيع العناوين", "تأمين الواي فاي", "عنوان IP الخاص والعام"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 1.2.3. Topics: مكونات الشبكة المنزلية / الراوتر وإعداداته / DHCP وتوزيع العناوين / تأمين الواي فاي / مشاكل الشبكة المنزلية الشائعة. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 1.2.3 — 5 questions in order. Yemeni scenario about setting up home network for a Yemeni family or small office.>>]
+            }
+          ]
+        },
+        {
+          "stage_index": 3,
+          "name": "الأمان الرقمي الأساسي",
+          "goal": "يكتسب الطالب عادات الأمان الرقمي ويحمي بياناته وحساباته من التهديدات الشائعة",
+          "bloom_focus": "apply",
+          "exam": { "pass_threshold_percent": 65, "time_limit_minutes": 35 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "التهديدات الإلكترونية والفيروسات",
+              "goal": "يتعرف الطالب على أنواع البرمجيات الخبيثة ويطبق إجراءات الحماية الأساسية",
+              "key_concepts": ["الفيروسات وأنواعها", "برامج الفدية Ransomware", "أحصنة طروادة", "برامج مكافحة الفيروسات"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 1.3.1. Topics: أنواع البرمجيات الخبيثة / كيف تنتشر الفيروسات / برامج الفدية والتعامل معها / برامج مكافحة الفيروسات / الوقاية خير من العلاج. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 1.3.1 — 5 questions in order. Yemeni scenario about responding to a malware infection in a Yemeni organization.>>]
+            },
+            {
+              "unit_index": 2,
+              "name": "حماية الحسابات وكلمات المرور",
+              "goal": "يُنشئ الطالب كلمات مرور قوية ويُفعّل المصادقة الثنائية على حساباته الأساسية",
+              "key_concepts": ["كلمة المرور القوية ومعاييرها", "المصادقة الثنائية 2FA", "مدير كلمات المرور", "التصيد الاحتيالي Phishing"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 1.3.2. Topics: معايير كلمة المرور القوية / مدير كلمات المرور / المصادقة الثنائية 2FA / التصيد الاحتيالي وكيف تتجنبه / استرداد الحسابات المخترقة. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 1.3.2 — 5 questions in order. Yemeni scenario about securing accounts for a Yemeni employee or student.>>]
+            },
+            {
+              "unit_index": 3,
+              "name": "النسخ الاحتياطي والخصوصية الرقمية",
+              "goal": "يُطبّق الطالب استراتيجية النسخ الاحتياطي ويفهم حقوق الخصوصية الرقمية",
+              "key_concepts": ["قاعدة 3-2-1 للنسخ الاحتياطي", "التشفير ولماذا نستخدمه", "الخصوصية الرقمية وحقوقها", "حذف البيانات بأمان"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 20 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 1.3.3. Topics: قاعدة 3-2-1 للنسخ الاحتياطي / التشفير وأهميته / الخصوصية الرقمية وحقوق المستخدم / حذف البيانات بأمان / أدوات النسخ الاحتياطي العملية. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 1.3.3 — 5 questions in order. Yemeni scenario about implementing backup strategy for a Yemeni small business.>>]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "level_index": 2,
+      "name": "المهارات التقنية المتوسطة",
+      "goal": "يكتسب الطالب مهارات عملية في Linux والبرمجة وقواعد البيانات مما يؤهله لوظائف IT المبتدئة",
+      "bloom_focus": "apply",
+      "exam": { "pass_threshold_percent": 60, "time_limit_minutes": 60 },
+      "stages": [
+        {
+          "stage_index": 1,
+          "name": "Linux وسطر الأوامر",
+          "goal": "يتقن الطالب استخدام سطر الأوامر في Linux ويكتب سكريبتات أتمتة بسيطة",
+          "bloom_focus": "apply",
+          "exam": { "pass_threshold_percent": 65, "time_limit_minutes": 40 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "أوامر Linux الأساسية وإدارة الملفات",
+              "goal": "يتنقل الطالب في نظام ملفات Linux ويُنفّذ عمليات الملفات والمجلدات عبر Terminal",
+              "key_concepts": ["هيكل نظام الملفات /", "أوامر ls وcd وcp وmv وrm", "المسارات المطلقة والنسبية", "أوامر البحث grep وfind"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 25 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 2.1.1. Topics: هيكل نظام الملفات في Linux / التنقل cd وعرض ls / نسخ ونقل وحذف الملفات / البحث بـgrep وfind / الأوامر المركبة والـPipe. All Section A rules. Yemeni examples must mention Linux terminal use in Yemeni IT context.>>],
+              "labs": [<<GENERATE 1 LAB for unit 2.1.1 — 5 questions diagnostic/decision/application/analysis/connection. Yemeni scenario: managing files on a Linux server for a Yemeni company.>>]
+            },
+            {
+              "unit_index": 2,
+              "name": "الصلاحيات والعمليات في Linux",
+              "goal": "يُدير الطالب صلاحيات الملفات والمستخدمين والعمليات الجارية في النظام",
+              "key_concepts": ["chmod وchown للصلاحيات", "المستخدمون والمجموعات", "العمليات ps وkill وtop", "الـService والـDaemon"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 25 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 2.1.2. Topics: نظام الصلاحيات rwx / chmod وchown عملياً / إدارة المستخدمين والمجموعات / عرض وإيقاف العمليات / إدارة الـServices. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 2.1.2 — 5 questions in order. Yemeni scenario: security incident on Linux server requires permission management.>>]
+            },
+            {
+              "unit_index": 3,
+              "name": "Bash Scripting والأتمتة",
+              "goal": "يكتب الطالب سكريبتات Bash تُؤتمت المهام المتكررة وتُجدوَل عبر Cron",
+              "key_concepts": ["المتغيرات والمعاملات في Bash", "الشروط if وelse", "حلقات for وwhile", "Cron Jobs للجدولة"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 25 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 2.1.3. Topics: هيكل Bash Script الأساسي / المتغيرات والمعاملات / الشروط والحلقات / الدوال في Bash / Cron Jobs وجدولة المهام. All Section A rules. Code examples in English identifiers.>>],
+              "labs": [<<GENERATE 1 LAB for unit 2.1.3 — 5 questions in order. Yemeni scenario: automating daily backup tasks using Bash script for a Yemeni organization.>>]
+            }
+          ]
+        },
+        {
+          "stage_index": 2,
+          "name": "البرمجة بـPython للـIT",
+          "goal": "يستخدم الطالب Python لكتابة أدوات IT عملية تحل مشاكل الشبكات والملفات والأتمتة",
+          "bloom_focus": "apply",
+          "exam": { "pass_threshold_percent": 65, "time_limit_minutes": 45 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "Python الأساسية لمهندسي IT",
+              "goal": "يكتب الطالب برامج Python بسيطة تحل مشاكل IT باستخدام المتغيرات والدوال والاستثناءات",
+              "key_concepts": ["المتغيرات والأنواع في Python", "القوائم list والقواميس dict", "الدوال def وكيفية استخدامها", "معالجة الاستثناءات try/except"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 2.2.1. Topics: Python للـIT لماذا / المتغيرات والأنواع / القوائم والقواميس / الدوال / الاستثناءات والأخطاء. All Section A rules. Code must use English identifiers.>>],
+              "labs": [<<GENERATE 1 LAB for unit 2.2.1 — 5 questions in order. Yemeni scenario: writing a Python tool to help manage an IT inventory for a Yemeni company.>>]
+            },
+            {
+              "unit_index": 2,
+              "name": "Python للتعامل مع الملفات والشبكات",
+              "goal": "يستخدم الطالب Python لقراءة الملفات ومعالجة CSV وJSON وإرسال طلبات HTTP",
+              "key_concepts": ["قراءة وكتابة الملفات open()", "معالجة ملفات CSV", "التعامل مع JSON", "مكتبة requests لطلبات HTTP"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 2.2.2. Topics: قراءة وكتابة الملفات النصية / ملفات CSV وقراءتها / JSON وتحليله / مكتبة requests والـHTTP / استهلاك REST APIs بـPython. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 2.2.2 — 5 questions in order. Yemeni scenario: building a Python script to process and report on IT data from CSV files for a Yemeni organization.>>]
+            },
+            {
+              "unit_index": 3,
+              "name": "أتمتة مهام IT بـPython",
+              "goal": "يبني الطالب أدوات Python تُحل مشاكل IT يومية حقيقية في الشبكة والتخزين",
+              "key_concepts": ["فحص الشبكة بـSocket وping", "Paramiko للاتصال بـSSH", "أتمتة النسخ الاحتياطي", "تقارير مراقبة النظام"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 2.2.3. Topics: فحص الشبكة بـSocket / Paramiko والـSSH / أتمتة النسخ الاحتياطي / مراقبة النظام بـpsutil / بناء أداة IT متكاملة. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 2.2.3 — 5 questions in order. Yemeni scenario: automating network monitoring and backup for a Yemeni IT department.>>]
+            }
+          ]
+        },
+        {
+          "stage_index": 3,
+          "name": "قواعد البيانات وإدارتها",
+          "goal": "يتمكن الطالب من إنشاء قواعد البيانات وإدارتها واستعلامها وحمايتها",
+          "bloom_focus": "apply",
+          "exam": { "pass_threshold_percent": 65, "time_limit_minutes": 40 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "SQL الأساسية وتصميم قواعد البيانات",
+              "goal": "يكتب الطالب استعلامات SQL ويصمم جداول قاعدة بيانات بمفاتيح ومعرّفات صحيحة",
+              "key_concepts": ["SELECT وINSERT وUPDATE وDELETE", "الـJOIN وأنواعه", "المفتاح الأساسي Primary Key", "المفتاح الأجنبي Foreign Key"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 2.3.1. Topics: مفهوم قاعدة البيانات العلائقية / SELECT والاستعلام / INSERT وUPDATE وDELETE / تصميم الجداول والمفاتيح / الـJOIN وربط الجداول. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 2.3.1 — 5 questions in order. Yemeni scenario: designing a database for a Yemeni small business like a store or clinic.>>]
+            },
+            {
+              "unit_index": 2,
+              "name": "إدارة MySQL وصيانتها",
+              "goal": "يُدير الطالب خادم MySQL وينشئ المستخدمين ويضبط الصلاحيات ويُحسّن الأداء",
+              "key_concepts": ["تثبيت MySQL وإعداده", "إنشاء المستخدمين وGRANT", "الـIndexes وتأثيرها على السرعة", "EXPLAIN لتحليل الاستعلامات"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 2.3.2. Topics: تثبيت MySQL وإعداده / إنشاء قواعد البيانات والجداول / إدارة المستخدمين والصلاحيات / الـIndexes وتحسين السرعة / مراقبة قاعدة البيانات. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 2.3.2 — 5 questions in order. Yemeni scenario: setting up and securing MySQL for a Yemeni company's web application.>>]
+            },
+            {
+              "unit_index": 3,
+              "name": "النسخ الاحتياطي والاسترداد لقواعد البيانات",
+              "goal": "يُطبّق الطالب استراتيجيات النسخ الاحتياطي لقواعد البيانات ويسترد البيانات عند الحوادث",
+              "key_concepts": ["mysqldump والاستيراد", "النسخ الكامل والجزئي والتزايدي", "نقطة الاسترداد Point-in-time", "اختبار صحة النسخ الاحتياطي"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 2.3.3. Topics: استراتيجيات النسخ الاحتياطي / mysqldump عملياً / جدولة النسخ الاحتياطي تلقائياً / اختبار استرداد البيانات / التعامل مع كارثة فقدان البيانات. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 2.3.3 — 5 questions in order. Yemeni scenario: recovering from database loss incident in a Yemeni company.>>]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "level_index": 3,
+      "name": "البنية التحتية والأمن والسحابة",
+      "goal": "يُصمّم الطالب بنى تحتية آمنة ويستخدم أدوات السحابة والـDevOps في مشاريع حقيقية",
+      "bloom_focus": "analyze",
+      "exam": { "pass_threshold_percent": 65, "time_limit_minutes": 60 },
+      "stages": [
+        {
+          "stage_index": 1,
+          "name": "الشبكات المتقدمة",
+          "goal": "يضبط الطالب بروتوكولات الشبكات المتقدمة ويُصمّم مخططات عناوين IP للمؤسسات",
+          "bloom_focus": "apply",
+          "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 45 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "TCP/IP المتقدم والـSubnetting",
+              "goal": "يحسب الطالب الـSubnets ويُصمّم مخططات عناوين IP باستخدام CIDR وVLSM",
+              "key_concepts": ["CIDR Notation /24 /16 /8", "حساب Subnetting يدوياً", "VLSM للتصميم المرن", "عناوين الشبكة والـBroadcast والـUsable Hosts"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 75, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 3.1.1. Topics: مراجعة IP وأصناف الشبكات / CIDR وكيفية القراءة / حساب Subnet يدوياً / VLSM وتصميم عناوين فعّال / تمارين عملية على Subnetting. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 3.1.1 — 5 questions in order. Yemeni scenario: designing IP address scheme for a Yemeni government network.>>]
+            },
+            {
+              "unit_index": 2,
+              "name": "خدمات الشبكة DNS وDHCP",
+              "goal": "يُثبّت الطالب ويضبط خوادم DNS وDHCP على Linux ويُشخّص مشاكلها",
+              "key_concepts": ["كيفية عمل DNS خطوة بخطوة", "سجلات DNS الأساسية A/CNAME/MX/PTR", "DHCP وتوزيع العناوين ديناميكياً", "BIND9 وisc-dhcp-server"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 75, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 3.1.2. Topics: كيف يعمل DNS تفصيلاً / سجلات DNS وأنواعها / تثبيت BIND9 / إعداد DHCP Server / تشخيص مشاكل DNS وDHCP. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 3.1.2 — 5 questions in order. Yemeni scenario: setting up DNS and DHCP for a Yemeni university campus network.>>]
+            },
+            {
+              "unit_index": 3,
+              "name": "أساسيات Cisco والـRouting",
+              "goal": "يضبط الطالب أجهزة Cisco الأساسية ويفهم بروتوكولات التوجيه الديناميكي",
+              "key_concepts": ["Cisco IOS وواجهة الـCLI", "VLAN وتقسيم الشبكة", "Static Routing الإعداد", "بروتوكول OSPF مبادئه"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 75, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 3.1.3. Topics: Cisco IOS والأوامر الأساسية / VLAN إنشاء وإعداد / Static Routing / مقدمة OSPF / محاكاة Cisco بـPacket Tracer. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 3.1.3 — 5 questions in order. Yemeni scenario: configuring routing between departments in a Yemeni company using Cisco devices.>>]
+            }
+          ]
+        },
+        {
+          "stage_index": 2,
+          "name": "الأمن السيبراني",
+          "goal": "يُطبّق الطالب منهجيات اختبار الاختراق الأخلاقي الأساسية ويبني دفاعات فعالة",
+          "bloom_focus": "analyze",
+          "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 45 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "أنواع الهجمات ومنهجية الاختراق الأخلاقي",
+              "goal": "يتعرف الطالب على مراحل اختبار الاختراق وأنواع الهجمات ضمن إطار أخلاقي وقانوني",
+              "key_concepts": ["مراحل Penetration Testing الخمس", "الـReconnaissance السلبي والنشط", "OWASP Top 10 للويب", "اتفاقية الاختراق الأخلاقي وأهميتها"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 75, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 3.2.1. Topics: الاختراق الأخلاقي مقابل الاختراق الإجرامي / مراحل Penetration Testing / Reconnaissance وجمع المعلومات / OWASP Top 10 / الإطار القانوني والأخلاقي. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 3.2.1 — 5 questions in order. Yemeni scenario: planning an ethical penetration test for a Yemeni financial institution.>>]
+            },
+            {
+              "unit_index": 2,
+              "name": "Kali Linux وأدوات الفحص الأمني",
+              "goal": "يستخدم الطالب Kali Linux وأدوات الفحص الأساسية بمسؤولية على بيئات مصرّح بها فقط",
+              "key_concepts": ["Nmap وفحص المنافذ والخدمات", "Wireshark وتحليل الحزم", "Nikto لفحص تطبيقات الويب", "Metasploit الأساسي للتعلم"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 75, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 3.2.2. Topics: Kali Linux وإعداده / Nmap وفحص الشبكة / Wireshark وتحليل الحركة / أدوات فحص الويب / استخدام Metasploit بمسؤولية. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 3.2.2 — 5 questions in order. Yemeni scenario: conducting authorized security scan on a Yemeni company's test environment.>>]
+            },
+            {
+              "unit_index": 3,
+              "name": "الدفاع والاستجابة للحوادث الأمنية",
+              "goal": "يبني الطالب آليات دفاع شبكي ويستجيب للحوادث الأمنية بمنهجية موثقة",
+              "key_concepts": ["Firewall وIPTables وUFW", "IDS/IPS والفرق بينهما", "تحليل سجلات الأحداث", "خطة الاستجابة للحوادث IRP"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 75, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 3.2.3. Topics: Firewall وIPTables إعداد / IDS/IPS وأدواتها Snort / تحليل سجلات الأحداث / بناء خطة استجابة للحوادث / تمرين استجابة لحادثة أمنية. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 3.2.3 — 5 questions in order. Yemeni scenario: responding to a security incident at a Yemeni organization including containment and recovery.>>]
+            }
+          ]
+        },
+        {
+          "stage_index": 3,
+          "name": "السحابة والـDevOps",
+          "goal": "يستخدم الطالب أدوات السحابة والـDevOps لبناء ونشر وتشغيل التطبيقات بكفاءة",
+          "bloom_focus": "apply",
+          "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 45 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "أساسيات الحوسبة السحابية وAWS",
+              "goal": "يفهم الطالب مفهوم السحابة ويستخدم خدمات AWS الأساسية EC2 وS3 وVPC",
+              "key_concepts": ["IaaS وPaaS وSaaS والفروق", "AWS EC2 إنشاء وإدارة الـInstances", "AWS S3 للتخزين السحابي", "VPC وIAM وإدارة الهوية"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 75, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 3.3.1. Topics: مفهوم السحابة والنماذج الثلاثة / AWS والخدمات الأساسية / EC2 إنشاء وإدارة / S3 التخزين / IAM والصلاحيات. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 3.3.1 — 5 questions in order. Yemeni scenario: migrating a Yemeni company's infrastructure to AWS cloud.>>]
+            },
+            {
+              "unit_index": 2,
+              "name": "Docker والـContainers",
+              "goal": "يبني الطالب صور Docker وينشر تطبيقات في Containers بـdocker-compose",
+              "key_concepts": ["Container مقابل Virtual Machine", "Dockerfile وكيفية كتابته", "docker-compose للتطبيقات المتعددة", "Docker Hub والـRegistry"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 75, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 3.3.2. Topics: مفهوم Container ولماذا هو ثورة / تثبيت Docker وأوامره الأساسية / كتابة Dockerfile / docker-compose للبيئات المتعددة / نشر التطبيق على Docker Hub. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 3.3.2 — 5 questions in order. Yemeni scenario: containerizing a web application for a Yemeni startup.>>]
+            },
+            {
+              "unit_index": 3,
+              "name": "Git وCI/CD الأساسي",
+              "goal": "يستخدم الطالب Git بكفاءة ويضبط pipeline CI/CD بسيطاً في GitLab",
+              "key_concepts": ["Git branching وMerge وRebase", "Pull Request وCode Review", "ملف .gitlab-ci.yml", "مراحل Pipeline: build/test/deploy"],
+              "prerequisite_units": [],
+              "enables_units": [],
+              "exam": { "pass_threshold_percent": 75, "time_limit_minutes": 30 },
+              "lessons": [<<GENERATE 5 LESSONS for unit 3.3.3. Topics: Git الأساسي والـBranching / التعاون عبر Pull Request / مفهوم CI/CD ولماذا نحتاجه / كتابة .gitlab-ci.yml / نشر تلقائي عبر Pipeline. All Section A rules.>>],
+              "labs": [<<GENERATE 1 LAB for unit 3.3.3 — 5 questions in order. Yemeni scenario: setting up CI/CD pipeline for a Yemeni software development team.>>]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "exam_banks": {
+    "unit_banks": {
+      "1.1.1": { "variants": [[<<5 MCQ about مكونات الجهاز. Each: kind:"mcq", prompt, choices:["أ...","ب...","ج...","د..."], correct_index:0-3, explanation, difficulty:1-3. Mix of easy/medium/hard.>>]] },
+      "1.1.2": { "variants": [[<<5 MCQ about نظام Windows>>]] },
+      "1.1.3": { "variants": [[<<5 MCQ about مدخل Linux>>]] },
+      "1.2.1": { "variants": [[<<5 MCQ about نموذج OSI والشبكات>>]] },
+      "1.2.2": { "variants": [[<<5 MCQ about TCP/IP والبروتوكولات>>]] },
+      "1.2.3": { "variants": [[<<5 MCQ about الشبكات المنزلية>>]] },
+      "1.3.1": { "variants": [[<<5 MCQ about التهديدات والفيروسات>>]] },
+      "1.3.2": { "variants": [[<<5 MCQ about حماية الحسابات>>]] },
+      "1.3.3": { "variants": [[<<5 MCQ about النسخ الاحتياطي والخصوصية>>]] },
+      "2.1.1": { "variants": [[<<5 MCQ about أوامر Linux الأساسية>>]] },
+      "2.1.2": { "variants": [[<<5 MCQ about الصلاحيات والعمليات Linux>>]] },
+      "2.1.3": { "variants": [[<<5 MCQ about Bash Scripting>>]] },
+      "2.2.1": { "variants": [[<<5 MCQ about Python الأساسية>>]] },
+      "2.2.2": { "variants": [[<<5 MCQ about Python الملفات والشبكات>>]] },
+      "2.2.3": { "variants": [[<<5 MCQ about أتمتة IT بـPython>>]] },
+      "2.3.1": { "variants": [[<<5 MCQ about SQL الأساسية>>]] },
+      "2.3.2": { "variants": [[<<5 MCQ about إدارة MySQL>>]] },
+      "2.3.3": { "variants": [[<<5 MCQ about النسخ الاحتياطي لقواعد البيانات>>]] },
+      "3.1.1": { "variants": [[<<5 MCQ about Subnetting وTCP/IP المتقدم>>]] },
+      "3.1.2": { "variants": [[<<5 MCQ about DNS وDHCP>>]] },
+      "3.1.3": { "variants": [[<<5 MCQ about Cisco والـRouting>>]] },
+      "3.2.1": { "variants": [[<<5 MCQ about الهجمات ومنهجية الاختراق>>]] },
+      "3.2.2": { "variants": [[<<5 MCQ about Kali Linux وأدوات الفحص>>]] },
+      "3.2.3": { "variants": [[<<5 MCQ about الدفاع والاستجابة للحوادث>>]] },
+      "3.3.1": { "variants": [[<<5 MCQ about السحابة وAWS>>]] },
+      "3.3.2": { "variants": [[<<5 MCQ about Docker والـContainers>>]] },
+      "3.3.3": { "variants": [[<<5 MCQ about Git وCI/CD>>]] }
+    },
+    "stage_banks": {
+      "1.1": { "variants": [[<<8 MCQ covering all of stage 1.1: مكونات الحاسوب والأجهزة>>]] },
+      "1.2": { "variants": [[<<8 MCQ covering stage 1.2: الشبكات والإنترنت>>]] },
+      "1.3": { "variants": [[<<8 MCQ covering stage 1.3: الأمان الرقمي>>]] },
+      "2.1": { "variants": [[<<8 MCQ covering stage 2.1: Linux وسطر الأوامر>>]] },
+      "2.2": { "variants": [[<<8 MCQ covering stage 2.2: Python للـIT>>]] },
+      "2.3": { "variants": [[<<8 MCQ covering stage 2.3: قواعد البيانات>>]] },
+      "3.1": { "variants": [[<<8 MCQ covering stage 3.1: الشبكات المتقدمة>>]] },
+      "3.2": { "variants": [[<<8 MCQ covering stage 3.2: الأمن السيبراني>>]] },
+      "3.3": { "variants": [[<<8 MCQ covering stage 3.3: السحابة والـDevOps>>]] }
+    },
+    "level_banks": {
+      "1": { "variants": [[<<15 MCQ covering all Level 1 topics comprehensively>>]] },
+      "2": { "variants": [[<<15 MCQ covering all Level 2 topics comprehensively>>]] },
+      "3": { "variants": [[<<15 MCQ covering all Level 3 topics comprehensively>>]] }
+    }
+  },
+  "placement_test_questions": [
+    <<GENERATE EXACTLY 18 MCQ placement questions. MANDATORY: if target_unit_code is "X.Y.Z" then target_level_index MUST equal X and target_stage_code MUST equal "X.Y". Valid codes only from the 27 units above. Distribute evenly: 6 questions for level 1 (use units from 1.1.1 to 1.3.3), 6 for level 2 (units 2.1.1 to 2.3.3), 6 for level 3 (units 3.1.1 to 3.3.3). Format each: { "target_level_index": X, "target_stage_code": "X.Y", "target_unit_code": "X.Y.Z", "kind": "mcq", "prompt": "...", "choices": ["أ...","ب...","ج...","د..."], "correct_index": 0-3, "difficulty": 1-3 }>>
+  ]
+}

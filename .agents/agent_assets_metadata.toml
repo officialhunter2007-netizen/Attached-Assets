@@ -24,3 +24,9 @@ id = "inPghiyeowJCUqTEsPDQd"
 uri = "file://nukhba_prompt_engineering_report.md"
 type = "text"
 title = "تقرير هندسة التوجيهات — نُخبة"
+
+[[outputs]]
+id = "BmbWdA3TNJoE2ct1mI5BE"
+uri = "file://uni-it-gitlab-duo-prompt.txt"
+type = "text"
+title = "برومت GitLab Duo — ملف IT الكامل"
