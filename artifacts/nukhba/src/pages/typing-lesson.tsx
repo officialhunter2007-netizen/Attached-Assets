@@ -212,7 +212,7 @@ const R_THUMB: FingerDef & { pivotX: number; pivotY: number; angle: number } = {
   pivotX: 57, pivotY: 232, angle: -28,
 };
 
-function HandSVG({
+function HandGroup({
   side,
   fingerColor,
   isActive,
@@ -224,135 +224,104 @@ function HandSVG({
   shiftPinky: boolean;
 }) {
   const fingerDefs = side === "left" ? L_FINGER_DEFS : R_FINGER_DEFS;
-  const thumb = side === "left" ? L_THUMB : R_THUMB;
-  const palmX = side === "left" ? 26 : 34;
+  const thumb      = side === "left" ? L_THUMB       : R_THUMB;
+  const palmX      = side === "left" ? 26 : 34;
 
-  const palmFill   = isActive ? "rgba(42,52,84,0.72)" : "rgba(18,24,48,0.35)";
-  const palmStroke = isActive ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.04)";
+  const palmFill      = isActive ? "rgba(50,62,100,0.78)" : "rgba(18,24,48,0.28)";
+  const palmStroke    = isActive ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.04)";
+  const inactiveFill  = isActive ? "rgba(52,65,105,0.85)" : "rgba(16,22,44,0.25)";
+  const inactiveStroke= isActive ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.04)";
 
-  const inactiveFill   = isActive ? "rgba(44,54,86,0.80)" : "rgba(16,22,44,0.32)";
-  const inactiveStroke = isActive ? "rgba(255,255,255,0.11)" : "rgba(255,255,255,0.04)";
-
-  const grayFc   = FINGER_COLORS["gray"];
-  const thumbOn  = isActive && fingerColor === "gray";
-  const thumbTransform = `translate(${thumb.pivotX},${thumb.pivotY}) rotate(${thumb.angle}) translate(-${thumb.pivotX},-${thumb.pivotY})`;
+  const grayFc  = FINGER_COLORS["gray"];
+  const thumbOn = isActive && fingerColor === "gray";
+  const thumbTf = `translate(${thumb.pivotX},${thumb.pivotY}) rotate(${thumb.angle}) translate(-${thumb.pivotX},-${thumb.pivotY})`;
 
   return (
-    <svg viewBox="0 0 220 258" width={130} height={153} aria-hidden="true">
+    <>
       <rect x={palmX} y={148} width={158} height={90} rx={20}
         fill={palmFill} stroke={palmStroke} strokeWidth={1.5}
       />
-
       {fingerDefs.map((f, i) => {
-        const on = isActive && fingerColor === f.color;
-        const sp = shiftPinky && f.color === "red";
-        const lit = on || sp;
+        const lit = (isActive && fingerColor === f.color) || (shiftPinky && f.color === "red");
         const fc  = FINGER_COLORS[f.color];
         return (
           <path
             key={i}
             d={fingerPill(f.cx, f.tipY, f.baseY, f.hw)}
             fill={lit ? fc.bg : inactiveFill}
-            stroke={lit ? "rgba(255,255,255,0.32)" : inactiveStroke}
-            strokeWidth={lit ? 1.8 : 1.2}
+            stroke={lit ? "rgba(255,255,255,0.35)" : inactiveStroke}
+            strokeWidth={lit ? 2 : 1.2}
             strokeLinejoin="round"
-            style={{ filter: lit ? `drop-shadow(0 0 10px ${fc.glow})` : undefined }}
+            style={{ filter: lit ? `drop-shadow(0 0 12px ${fc.glow})` : undefined }}
           />
         );
       })}
-
-      <g transform={thumbTransform}>
+      <g transform={thumbTf}>
         <path
           d={fingerPill(thumb.cx, thumb.tipY, thumb.baseY, thumb.hw)}
           fill={thumbOn ? grayFc.bg : inactiveFill}
-          stroke={thumbOn ? "rgba(255,255,255,0.32)" : inactiveStroke}
-          strokeWidth={thumbOn ? 1.8 : 1.2}
+          stroke={thumbOn ? "rgba(255,255,255,0.35)" : inactiveStroke}
+          strokeWidth={thumbOn ? 2 : 1.2}
           strokeLinejoin="round"
-          style={{ filter: thumbOn ? `drop-shadow(0 0 10px ${grayFc.glow})` : undefined }}
+          style={{ filter: thumbOn ? `drop-shadow(0 0 12px ${grayFc.glow})` : undefined }}
         />
       </g>
-
-      <text x={110} y={253} textAnchor="middle" fontSize={9}
-        fill={isActive ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.08)"}
+      <text x={110} y={252} textAnchor="middle" fontSize={11}
+        fill={isActive ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.07)"}
         fontFamily="system-ui,sans-serif"
       >
         {side === "left" ? "اليسرى" : "اليمنى"}
       </text>
-    </svg>
-  );
-}
-
-function HandsDisplay({ nextChar, needsShift }: { nextChar: string; needsShift: boolean }) {
-  const handSide = nextChar ? (KEY_HAND_MAP[nextChar] ?? null) : null;
-  const fingerColor: FingerColor | null = nextChar
-    ? (keyFingerMap[nextChar] ?? keyFingerMap[nextChar.toLowerCase()] ?? null)
-    : null;
-
-  if (!handSide) return null;
-
-  const leftActive  = handSide === "left"  || handSide === "both";
-  const rightActive = handSide === "right" || handSide === "both";
-
-  return (
-    <div className="flex items-end justify-center gap-4 mt-1 select-none">
-      <HandSVG side="left"  fingerColor={leftActive  ? fingerColor : null} isActive={leftActive}  shiftPinky={needsShift && handSide === "right"} />
-      <HandSVG side="right" fingerColor={rightActive ? fingerColor : null} isActive={rightActive} shiftPinky={needsShift && handSide === "left"}  />
-    </div>
+    </>
   );
 }
 
 function VirtualKeyboard({ nextChar }: { nextChar: string }) {
-  const activeKey = KEY_MAP.get(nextChar.toLowerCase());
+  const activeKey  = KEY_MAP.get(nextChar.toLowerCase());
   const needsShift = activeKey != null && (
     (nextChar.length === 1 && nextChar >= "A" && nextChar <= "Z") ||
     (activeKey.shiftLabel != null && activeKey.shiftLabel === nextChar)
   );
 
+  const handSide: "left" | "right" | "both" | null = nextChar ? (KEY_HAND_MAP[nextChar] ?? null) : null;
+  const fingerColor: FingerColor | null = nextChar
+    ? (keyFingerMap[nextChar] ?? keyFingerMap[nextChar.toLowerCase()] ?? null)
+    : null;
+  const leftActive  = handSide === "left"  || handSide === "both";
+  const rightActive = handSide === "right" || handSide === "both";
+
+  const HSCALE = 0.66;
+  const HAND_Y = 226;
+  const L_TX   = 58;
+  const R_TX   = Math.round(716 - L_TX - 220 * HSCALE);
+
   return (
     <div className="w-full overflow-x-auto">
       <svg
-        viewBox="0 0 716 220"
+        viewBox="0 0 716 408"
         className="w-full max-w-2xl mx-auto block"
         style={{ minWidth: 400 }}
       >
         {KEYBOARD_KEYS.map((k) => {
-          const isActive = activeKey === k;
+          const isActive      = activeKey === k;
           const isShiftActive = (k.key === "LShift" || k.key === "RShift") && needsShift;
-          const finger = k.finger;
-          const colors = FINGER_COLORS[finger];
-          const highlighted = isActive || isShiftActive;
-
-          const baseColor = highlighted
-            ? colors.bg
-            : "rgba(30,36,56,0.9)";
-          const borderColor = highlighted
-            ? colors.bg
-            : "rgba(255,255,255,0.08)";
-          const textColor = highlighted
-            ? colors.text
-            : "rgba(255,255,255,0.7)";
-          const glowFilter = highlighted
-            ? `drop-shadow(0 0 6px ${colors.glow})`
-            : undefined;
+          const finger        = k.finger;
+          const colors        = FINGER_COLORS[finger];
+          const highlighted   = isActive || isShiftActive;
 
           return (
-            <g key={k.key} style={{ filter: glowFilter }}>
+            <g key={k.key} style={{ filter: highlighted ? `drop-shadow(0 0 6px ${colors.glow})` : undefined }}>
               <rect
-                x={k.x + 1}
-                y={k.y + 1}
-                width={k.w - 2}
-                height={k.h - 2}
-                rx={5}
-                fill={baseColor}
-                stroke={borderColor}
+                x={k.x + 1} y={k.y + 1} width={k.w - 2} height={k.h - 2} rx={5}
+                fill={highlighted ? colors.bg : "rgba(30,36,56,0.9)"}
+                stroke={highlighted ? colors.bg : "rgba(255,255,255,0.08)"}
                 strokeWidth={highlighted ? 1.5 : 1}
               />
               <text
-                x={k.x + k.w / 2}
-                y={k.y + k.h / 2 + 5}
+                x={k.x + k.w / 2} y={k.y + k.h / 2 + 5}
                 textAnchor="middle"
                 fontSize={k.w >= 68 ? 9 : 12}
-                fill={textColor}
+                fill={highlighted ? colors.text : "rgba(255,255,255,0.7)"}
                 fontFamily="monospace"
                 fontWeight={highlighted ? "700" : "400"}
               >
@@ -360,12 +329,9 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
               </text>
               {k.shiftLabel && k.w < 68 && (
                 <text
-                  x={k.x + k.w - 5}
-                  y={k.y + 12}
-                  textAnchor="end"
-                  fontSize={8}
-                  fill="rgba(255,255,255,0.3)"
-                  fontFamily="monospace"
+                  x={k.x + k.w - 5} y={k.y + 12}
+                  textAnchor="end" fontSize={8}
+                  fill="rgba(255,255,255,0.3)" fontFamily="monospace"
                 >
                   {k.shiftLabel}
                 </text>
@@ -373,8 +339,31 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
             </g>
           );
         })}
+
+        {handSide && (
+          <>
+            <line x1={20} y1={221} x2={696} y2={221}
+              stroke="rgba(255,255,255,0.04)" strokeWidth={1}
+            />
+            <g transform={`translate(${L_TX},${HAND_Y}) scale(${HSCALE})`}>
+              <HandGroup
+                side="left"
+                fingerColor={leftActive  ? fingerColor : null}
+                isActive={leftActive}
+                shiftPinky={needsShift && handSide === "right"}
+              />
+            </g>
+            <g transform={`translate(${R_TX},${HAND_Y}) scale(${HSCALE})`}>
+              <HandGroup
+                side="right"
+                fingerColor={rightActive ? fingerColor : null}
+                isActive={rightActive}
+                shiftPinky={needsShift && handSide === "left"}
+              />
+            </g>
+          </>
+        )}
       </svg>
-      <HandsDisplay nextChar={nextChar} needsShift={needsShift} />
     </div>
   );
 }
@@ -582,8 +571,8 @@ export default function TypingLesson() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen py-6 px-4" style={{ direction: "ltr" }}>
-        <div className="max-w-3xl mx-auto space-y-5">
+      <div className="min-h-screen pt-2 pb-2 px-4" style={{ direction: "ltr" }}>
+        <div className="max-w-3xl mx-auto space-y-2">
           <div className="flex items-center gap-3">
             <Link href="/typing">
               <button className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white transition-colors">
