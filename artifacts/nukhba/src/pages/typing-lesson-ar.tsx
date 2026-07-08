@@ -140,7 +140,7 @@ const AR_KEYBOARD_KEYS: KeyDef[] = [
   makeArKey("و", 112+STEP*7, 3),
   makeArKey("ز", 112+STEP*8, 3),
   makeArKey("ظ", 112+STEP*9, 3),
-  { key: "RShift", label: "⇧", x: 112+STEP*10, y: 3*(H+G), w: 152, h: H, finger: "red" },
+  { key: "RShift", label: "⇧", x: 112+STEP*10, y: 3*(H+G), w: 124, h: H, finger: "red" },
 
   { key: " ", label: "مسافة", x: 176, y: 4*(H+G), w: 352, h: H, finger: "gray" },
 ];
@@ -234,52 +234,12 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
   const leftActive  = !isIdle && (handSide === "left"  || handSide === "both");
   const rightActive = !isIdle && (handSide === "right" || handSide === "both");
 
-  const KB_W = 736;
-  const HAND_Y = 20;
-  const SCALE = 0.88;
+  const SCALE  = 0.636;
+  const HAND_Y = 59;
 
   return (
-    <div
-      className="rounded-2xl overflow-hidden"
-      style={{ background: "rgba(8,11,22,0.85)", border: "1px solid rgba(255,255,255,0.05)" }}
-    >
-      <svg
-        viewBox={`-8 -8 ${KB_W + 16} 270`}
-        className="w-full"
-        style={{ maxHeight: 260 }}
-      >
-        <g>
-          {AR_KEYBOARD_KEYS.map((k) => {
-            const isActive = kd ? k.key === kd.key : false;
-            const { bg, glow } = FINGER_COLORS[k.finger];
-            return (
-              <g key={k.key}>
-                <rect
-                  x={k.x} y={k.y} width={k.w} height={k.h}
-                  rx={6}
-                  fill={isActive ? bg : "rgba(22,28,48,0.95)"}
-                  stroke={isActive ? glow : "rgba(255,255,255,0.07)"}
-                  strokeWidth={isActive ? 2 : 1}
-                  style={{ filter: isActive ? `drop-shadow(0 0 10px ${glow})` : undefined, transition: "all 0.10s" }}
-                />
-                <text
-                  x={k.x + k.w / 2}
-                  y={k.y + k.h / 2 + 1}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fontSize={k.key === " " ? 9 : 13}
-                  fontFamily="Tajawal, Cairo, sans-serif"
-                  fill={isActive ? (FINGER_COLORS[k.finger].text) : "rgba(255,255,255,0.45)"}
-                  fontWeight={isActive ? "bold" : "normal"}
-                  style={{ userSelect: "none", transition: "fill 0.10s" }}
-                >
-                  {k.label}
-                </text>
-              </g>
-            );
-          })}
-        </g>
-
+    <div className="w-full overflow-x-auto select-none">
+      <svg viewBox="0 0 996 220" className="w-full block" style={{ minWidth: 0 }}>
         <g
           transform={`translate(0,${HAND_Y}) scale(${SCALE})`}
           opacity={isIdle ? 0.5 : leftActive ? 1 : 0.2}
@@ -290,6 +250,35 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
             isActive={true}
             shiftPinky={false}
           />
+        </g>
+
+        <g transform="translate(140, 0)">
+          {AR_KEYBOARD_KEYS.map((k) => {
+            const isActive = kd ? k.key === kd.key : false;
+            const colors = FINGER_COLORS[k.finger];
+            return (
+              <g key={k.key} style={{ filter: isActive ? `drop-shadow(0 0 6px ${colors.glow})` : undefined }}>
+                <rect
+                  x={k.x + 1} y={k.y + 1} width={k.w - 2} height={k.h - 2}
+                  rx={5}
+                  fill={isActive ? colors.bg : "rgba(30,36,56,0.9)"}
+                  stroke={isActive ? colors.bg : "rgba(255,255,255,0.08)"}
+                  strokeWidth={isActive ? 1.5 : 1}
+                />
+                <text
+                  x={k.x + k.w / 2}
+                  y={k.y + k.h / 2 + 5}
+                  textAnchor="middle"
+                  fontSize={k.key === " " ? 9 : k.w >= 68 ? 9 : 12}
+                  fontFamily="Tajawal, Cairo, sans-serif"
+                  fill={isActive ? colors.text : "rgba(255,255,255,0.7)"}
+                  fontWeight={isActive ? "700" : "400"}
+                >
+                  {k.label}
+                </text>
+              </g>
+            );
+          })}
         </g>
 
         <g
