@@ -624,6 +624,7 @@ export default function TypingLesson() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.35 }}
+                dir="rtl"
                 className="flex items-start gap-3 rounded-2xl px-4 py-3"
                 style={{
                   background: "rgba(245,158,11,0.06)",
@@ -700,6 +701,7 @@ export default function TypingLesson() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.97 }}
                 transition={{ duration: 0.28 }}
+                dir="rtl"
                 className="flex items-center gap-3 rounded-2xl px-4 py-2.5"
                 style={{
                   background: guidanceMsg.kind === "warn"
