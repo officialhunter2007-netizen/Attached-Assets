@@ -298,8 +298,8 @@ function VirtualKeyboard({ nextChar }: { nextChar: string }) {
     <div className="w-full overflow-x-auto select-none">
       <svg
         viewBox="0 0 996 220"
-        className="w-full max-w-4xl mx-auto block"
-        style={{ minWidth: 520 }}
+        className="w-full block"
+        style={{ minWidth: 0 }}
       >
         <g
           transform={`translate(0,${HAND_Y}) scale(${SCALE})`}
@@ -576,7 +576,7 @@ export default function TypingLesson() {
   return (
     <AppLayout>
       <div className="min-h-screen pt-2 pb-2 px-4" style={{ direction: "ltr" }}>
-        <div className="max-w-3xl mx-auto space-y-2">
+        <div className="space-y-2">
           <div className="flex items-center gap-3">
             <Link href="/typing">
               <button className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white transition-colors">
