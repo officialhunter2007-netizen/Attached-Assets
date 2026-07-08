@@ -77,6 +77,9 @@ const DICT: Record<string, string> = {
   "قائمة": "list", "جدول": "table", "صفحة": "page", "ملف": "file", "مجلد": "folder",
   "مفتاح": "key", "عنصر": "item", "عناصر": "items", "فهرس": "index", "عداد": "counter",
   "مجموعة": "group", "نوع": "type", "حالة": "status", "لون": "color",
+  // units / measures
+  "وحدة": "unit", "وحدات": "units", "عينة": "sample", "نموذج": "model",
+  "حد": "limit", "قيد": "constraint", "معامل": "coefficient", "دقة": "precision",
   // sizes / geometry
   "حجم": "size", "طول": "length", "عرض": "width", "ارتفاع": "height",
   "مساحة": "area", "محيط": "perimeter", "نصف": "radius", "قطر": "diameter",
