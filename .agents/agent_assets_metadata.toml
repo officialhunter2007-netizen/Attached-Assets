@@ -42,3 +42,9 @@ id = "YG2UCf5EQXMGCa4KEIbzI"
 uri = "file://scripts/java-instruction-prompt.md"
 type = "text"
 title = "Prompt توليد منهج Java v4.1"
+
+[[outputs]]
+id = "enGvWeuubxVIC2cRigkYD"
+uri = "file://scripts/js-instruction-prompt.md"
+type = "text"
+title = "Prompt توليد منهج JavaScript v4.1"
