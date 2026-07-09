@@ -60,3 +60,39 @@ id = "D0WDn3Ftdy0pZ6xwQbrmX"
 uri = "file://scripts/html-instruction-prompt.md"
 type = "text"
 title = "Prompt توليد منهج HTML v4.1"
+
+[[outputs]]
+id = "OOqEr0Qf3pbF5p4FCthTw"
+uri = "file://scripts/business-admin-instruction-prompt.md"
+type = "text"
+title = "إدارة الأعمال — Prompt"
+
+[[outputs]]
+id = "7rgSALWgacbWqwyEdX_PE"
+uri = "file://scripts/software-engineering-instruction-prompt.md"
+type = "text"
+title = "هندسة البرمجيات — Prompt"
+
+[[outputs]]
+id = "TvOyOFgvkdmvpGYsFsEad"
+uri = "file://scripts/mobile-dev-instruction-prompt.md"
+type = "text"
+title = "تطوير Mobile — Prompt"
+
+[[outputs]]
+id = "cdxyO-OSTXfW8fTK4217m"
+uri = "file://scripts/cloud-computing-instruction-prompt.md"
+type = "text"
+title = "الحوسبة السحابية — Prompt"
+
+[[outputs]]
+id = "u0k-tj6dAB4At4iePT2EQ"
+uri = "file://scripts/advanced-networking-instruction-prompt.md"
+type = "text"
+title = "الشبكات المتقدمة — Prompt"
+
+[[outputs]]
+id = "hXmub5c7QzipnuWVLAoIO"
+uri = "file://scripts/food-engineering-instruction-prompt.md"
+type = "text"
+title = "هندسة الغذاء — Prompt"
