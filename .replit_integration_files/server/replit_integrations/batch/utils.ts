@@ -2,28 +2,31 @@ import pLimit from "p-limit";
 import pRetry from "p-retry";
 
 /**
- * Batch Processing Utilities
+ * Batch Processing Utilities for Anthropic
  *
- * This module provides a generic batch processing function with built-in
- * rate limiting and automatic retries. Use it for any task that requires
- * processing multiple items through an LLM or external API.
+ * Supported models: claude-opus-4-8 (most capable), claude-sonnet-4-6 (balanced), claude-haiku-4-5 (fastest)
  *
  * USAGE:
  * ```typescript
- * import { batchProcess, isRateLimitError } from "./replit_integrations/batch";
+ * import { batchProcess } from "./replit_integrations/batch";
+ * import Anthropic from "@anthropic-ai/sdk";
+ *
+ * const anthropic = new Anthropic({
+ *   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
+ *   baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
+ * });
  *
  * const results = await batchProcess(
- *   artworks,
- *   async (artwork) => {
- *     // Your custom LLM logic here
- *     const response = await openai.chat.completions.create({
- *       model: "gpt-5.4",
- *       messages: [{ role: "user", content: `Categorize: ${artwork.name}` }],
- *       response_format: { type: "json_object" },
+ *   items,
+ *   async (item) => {
+ *     const message = await anthropic.messages.create({
+ *       model: "claude-sonnet-4-6",
+ *       max_tokens: 8192,
+ *       messages: [{ role: "user", content: `Process: ${item.name}` }],
  *     });
- *     return JSON.parse(response.choices[0]?.message?.content || "{}");
- *   },
- *   { concurrency: 2, retries: 5 }
+ *     const content = message.content[0];
+ *     return content.type === "text" ? content.text : "";
+ *   }
  * );
  * ```
  */
@@ -43,7 +46,6 @@ export interface BatchOptions {
 
 /**
  * Check if an error is a rate limit or quota violation.
- * Use this in custom error handling if needed.
  */
 export function isRateLimitError(error: unknown): boolean {
   const errorMsg = error instanceof Error ? error.message : String(error);
@@ -62,20 +64,6 @@ export function isRateLimitError(error: unknown): boolean {
  * @param processor - Async function to process each item (write your LLM logic here)
  * @param options - Concurrency and retry settings
  * @returns Promise resolving to array of results in the same order as input
- *
- * @example
- * // Process CSV artwork data with custom categorization
- * const categorized = await batchProcess(
- *   csvRows,
- *   async (row) => {
- *     const response = await openai.chat.completions.create({
- *       model: "gpt-5.4", // the newest OpenAI model
- *       messages: [{ role: "user", content: `Categorize artwork: ${row.name}` }],
- *       response_format: { type: "json_object" },
- *     });
- *     return { ...row, category: JSON.parse(response.choices[0]?.message?.content || "{}") };
- *   }
- * );
  */
 export async function batchProcess<T, R>(
   items: T[],
@@ -104,9 +92,8 @@ export async function batchProcess<T, R>(
             return result;
           } catch (error: unknown) {
             if (isRateLimitError(error)) {
-              throw error; // Rethrow to trigger p-retry
+              throw error;
             }
-            // For non-rate-limit errors, abort immediately
             throw new pRetry.AbortError(
               error instanceof Error ? error : new Error(String(error))
             );
@@ -122,12 +109,6 @@ export async function batchProcess<T, R>(
 
 /**
  * Process items sequentially with SSE progress streaming.
- * Use this when you need real-time progress updates to the client.
- *
- * @param items - Array of items to process
- * @param processor - Async function to process each item
- * @param sendEvent - Function to send SSE events to the client
- * @param options - Retry settings (concurrency is always 1 for sequential)
  */
 export async function batchProcessWithSSE<T, R>(
   items: T[],
@@ -147,27 +128,24 @@ export async function batchProcessWithSSE<T, R>(
     sendEvent({ type: "processing", index, item });
 
     try {
-      const result = await pRetry(
-        () => processor(item, index),
-        {
-          retries,
-          minTimeout,
-          maxTimeout,
-          factor: 2,
-          onFailedAttempt: (error) => {
-            if (!isRateLimitError(error)) {
-              throw new pRetry.AbortError(
-                error instanceof Error ? error : new Error(String(error))
-              );
-            }
-          },
-        }
-      );
+      const result = await pRetry(() => processor(item, index), {
+        retries,
+        minTimeout,
+        maxTimeout,
+        factor: 2,
+        onFailedAttempt: (error) => {
+          if (!isRateLimitError(error)) {
+            throw new pRetry.AbortError(
+              error instanceof Error ? error : new Error(String(error))
+            );
+          }
+        },
+      });
       results.push(result);
       sendEvent({ type: "progress", index, result });
     } catch (error) {
       errors++;
-      results.push(undefined as R); // Placeholder for failed items
+      results.push(undefined as R);
       sendEvent({
         type: "progress",
         index,
@@ -179,4 +157,3 @@ export async function batchProcessWithSSE<T, R>(
   sendEvent({ type: "complete", processed: items.length, errors });
   return results;
 }
-
