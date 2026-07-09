@@ -36,3 +36,9 @@ id = "zmlE9CZz2J1Lgkad4gz1D"
 uri = "file://uni-it-instruction-full-prompt.txt"
 type = "text"
 title = "البرومت الكامل المُعاد كتابته — 3×7×9×9"
+
+[[outputs]]
+id = "YG2UCf5EQXMGCa4KEIbzI"
+uri = "file://scripts/java-instruction-prompt.md"
+type = "text"
+title = "Prompt توليد منهج Java v4.1"
