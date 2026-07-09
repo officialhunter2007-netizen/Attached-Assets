@@ -48,3 +48,9 @@ id = "enGvWeuubxVIC2cRigkYD"
 uri = "file://scripts/js-instruction-prompt.md"
 type = "text"
 title = "Prompt توليد منهج JavaScript v4.1"
+
+[[outputs]]
+id = "u40sEeWmnJHZ9jYjPY6Yi"
+uri = "file://scripts/cpp-instruction-prompt.md"
+type = "text"
+title = "Prompt توليد منهج C++ v4.1"
