@@ -1,0 +1,620 @@
+Prompt: توليد ملف تعليمات HTML v4.1 لمنصة نُخبة
+دورك
+أنت مهندس منهج خبير في تعليم تطوير الويب. مهمتك إنشاء ملف تعليمات v4.1 كامل لمهارة HTML يُنشر مباشرةً على منصة تعليمية ذكية.
+
+شروط النجاح الصارمة
+الملف JSON صالح syntactically بنسبة 100% — يُحقَّق بـ JSON.parse() بدون استثناء.
+لا خطأ واحد يمنع النشر في المدقق — راجع قسم «قواعد التحقق الصارمة» سطراً بسطر.
+كل prerequisite_units / enables_units / prerequisite_lessons / enables_lessons يشير لكود موجود فعلاً في الملف.
+كل معمل يحتوي بالضبط 5 أسئلة — نوع واحد من كل: diagnostic, decision, application, analysis, connection.
+كل MCQ يحتوي choices (≥ 2 عناصر) وcorrect_index صالح.
+لا دورات (cycles) في رسوم الـ prerequisites.
+هيكل الملف المطلوب
+2 مستويات × 7 مراحل × 10 وحدات × 10 دروس = 1,400 درس
+لكل وحدة: معمل واحد (5 أسئلة بأنواع محددة)
+بنوك أسئلة: unit_banks + stage_banks + level_banks
+اختبار تحديد مستوى: 18 سؤالاً MCQ
+
+مخطط المنهج الكامل
+المستوى الأول: أساسيات HTML وبناء صفحات الويب
+#	اسم المرحلة	الموضوع الجوهري
+1.1	البيئة والتركيب	المتصفح وDOM، بنية وثيقة HTML5، DOCTYPE، head/body، charset، viewport، DevTools
+1.2	النصوص والمحتوى	headings (h1-h6)، paragraphs، lists (ul/ol/dl)، blockquote، pre/code، strong/em/mark
+1.3	الروابط والصور والوسائط	anchor (href/target/download)، img (src/alt/loading)، figure/figcaption، picture، source
+1.4	الجداول	table/thead/tbody/tfoot، tr/th/td، colspan/rowspan، caption، scope، جداول مُتجاوبة
+1.5	النماذج والمدخلات	form/action/method، input types (text/email/password/number/date/…)، label/for، select/option، textarea، button، fieldset/legend، datalist
+1.6	HTML الدلالي (Semantic HTML5)	header/nav/main/article/section/aside/footer، time/address، figure/figcaption، details/summary، dialog
+1.7	مشروع شامل للمستوى الأول	موقع شخصي متعدد الصفحات بـ HTML خالص — صفحة رئيسية، سيرة ذاتية، معرض أعمال، نموذج تواصل
+المستوى الثاني: HTML الاحترافي والمتقدم
+#	اسم المرحلة	الموضوع الجوهري
+2.1	وسائط غنية	audio/video/track، canvas (رسم 2D أساسي)، SVG مدمج، iframe وقيوده الأمنية
+2.2	إمكانية الوصول (Accessibility)	ARIA roles/attributes، keyboard navigation، focus management، color contrast، screen reader testing
+2.3	SEO وأداء التحميل	meta tags (title/description/og)، structured data (JSON-LD)، lazy loading، preload/prefetch، Core Web Vitals
+2.4	HTML APIs	Drag & Drop API، Geolocation API، History API، Clipboard API، Notifications API
+2.5	التكامل العميق مع CSS وJS	data-* attributes، custom elements مقدمة، template/slot، shadow DOM مفهوم، Web Components
+2.6	أدوات الاحتراف	Emmet، W3C Validator، Lighthouse، HTML Tidy، DevTools Elements Panel عميق، مولّدات HTML
+2.7	مشروع حقيقي شامل	بوابة إلكترونية كاملة (portal): صفحات متعددة، تنقل بـ History API، نماذج إرسال، وسائط، ARIA كامل، Lighthouse 100
+المخطط التفصيلي لكل مرحلة (10 وحدات × 10 دروس)
+المستوى 1
+المرحلة 1.1 — البيئة والتركيب (10 وحدات)
+الوحدة	الاسم	الدروس الـ10 (مواضيع)
+1.1.1	ما هو HTML وكيف يعمل المتصفح؟	HTML كلغة ترميز لا برمجة، كيف يُحوّل المتصفح HTML لشاشة مرئية، DOM الشجرة الحية، HTTP Request/Response دورة بسيطة، المتصفحات الكبرى ومحركات التصيير، تثبيت VS Code وإضافاته الأساسية، أول ملف .html وفتحه في المتصفح، فهم الـ source code برؤية حقيقية، ما الذي يُعرض في المتصفح وما الذي يُخفى، DevTools وأداة View Source
+1.1.2	بنية وثيقة HTML5	DOCTYPE وسببه التاريخي، العنصر html ومعامل lang، العنصر head وما يحتويه، العنصر body والمحتوى المرئي، تداخل العناصر (Nesting) والقواعد، العناصر الكتلية (Block) مقابل السطرية (Inline)، Elements وAttributes والقيم، فراغات التعليمات البيضاء (Whitespace)، Entities الخاصة (& <  )، هيكل HTML كامل ومتكامل
+1.1.3	charset وviewport والـ meta الأساسية	charset=UTF-8 وأهميته للعربية، viewport: width=device-width/initial-scale، meta description للـ SEO، meta author وmeta robots، title الصفحة وأهميته، الفرق بين http-equiv وname في meta، Open Graph tags مقدمة، canonical URL وmeta robots، favicon.ico وأنواعه، head مثالي لموقع عربي
+1.1.4	DevTools العميق للـ HTML	Elements Panel: شجرة DOM تفاعلية، تعديل HTML لحظياً من المتصفح، Computed Styles وBox Model، Accessibility Panel في DevTools، Device Emulation للمحمول، Network Panel وحجم الملفات، Performance Panel مقدمة، نقل عناصر DOM بالسحب، البحث عن عنصر من الصفحة لـ Elements، حفظ التغييرات للملف (Chrome Workspaces)
+1.1.5	أدوات التطوير والسير العمل	VS Code: Live Server extension وأهميته، Emmet اختصارات التكرار والتوسيع، تنسيق HTML تلقائياً بـ Prettier، اختصارات VS Code الأكثر استخداماً، هيكل مشروع ويب احترافي، Git: init/add/commit لمشروع HTML، .gitignore لمشروع ويب، GitHub Pages للنشر المجاني، W3C Validator للتحقق، أفضل ممارسات تسمية الملفات (lowercase, hyphens)
+1.1.6	التعليقات والمحتوى المخفي	تعليق HTML واستخداماته، متى تكتب تعليقاً ومتى لا، الـ conditional comments القديمة، إخفاء محتوى مؤقت بالتعليق، التعليقات في الـ head مقابل body، الفرق بين التعليق واستخدام hidden attribute، display:none مقابل visibility:hidden مقابل hidden، تعليقات الـ HTML في الـ Production، توثيق هيكل الصفحة للفريق، best practices للتعليقات في فرق العمل
+1.1.7	التحقق والمعايير	W3C HTML Validator: كيف تستخدمه وتفسر نتائجه، الفرق بين errors وwarnings، HTML5 vs XHTML: الفروق العملية، Polyglot HTML ومتى يُستخدم، Browser Quirks Mode وStandards Mode، التحقق التلقائي في CI/CD، html-validate npm package، الأخطاء الشائعة التي يرفضها Validator، كيف يؤثر HTML غير صالح على الـ SEO، ثقافة الكود النظيف في فرق الويب
+1.1.8	HTML للغات RTL والعربية	مُعامل dir="rtl" على مستوى المستند، lang="ar" وأثره على Screen Readers وSEO، خلط LTR وRTL في نفس الصفحة، عنصر bdi وbdo والـ Unicode bidirectional algorithm، خطوط عربية عبر Google Fonts في HTML، meta charset للنصوص العربية، textarea وinput للنص العربي، HTML Entities للحروف العربية الخاصة، قراءة RTL لـ Tables وLists، اختبار RTL في المتصفح
+1.1.9	أداء التحميل الأولي	وزن ملف HTML وأثره على FCP، تحسين ترتيب العناصر في head، defer وasync للسكريبتات، Render-blocking Resources ما هي، مبدأ Critical Rendering Path، الـ Preconnect لمصادر خارجية، تقليص HTML (minification) في الإنتاج، HTTP/2 وتأثيره على تحميل الملفات، PageSpeed Insights لقياس HTML، أفضل ممارسات ترتيب العناصر
+1.1.10	مشروع ترحيبي: صفحة مقدمة شخصية	بناء صفحة مقدمة شخصية كاملة، head كامل بـ charset وviewport وtitle وdescription، هيكل دلالي (header/main/footer)، استخدام عنصر واحد على الأقل من كل فئة تعلمناها، التحقق من W3C بدون أخطاء، اختبار على 3 أحجام شاشة، Git commit منظم، نشر على GitHub Pages، اختبار ARIA بـ DevTools Accessibility Panel، تقرير Lighthouse
+المرحلة 1.2 — النصوص والمحتوى (10 وحدات)
+الوحدة	الاسم
+1.2.1	العناوين h1-h6: التسلسل الهرمي الصحيح
+1.2.2	الفقرات والنص الأساسي: p وspan وdiv
+1.2.3	القوائم: ul وol وdl والقوائم المتداخلة
+1.2.4	الاقتباسات: blockquote وcite وq
+1.2.5	الكود والنص المُهيَّأ مسبقاً: code وpre وkbd وsamp
+1.2.6	التنسيق الدلالي: strong وem وmark وdel وins وsub وsup
+1.2.7	الفواصل والخطوط: hr وbr ومتى نتجنبهما
+1.2.8	التواريخ والأوقات: عنصر time والصياغة الصحيحة
+1.2.9	الاختصارات والتعريفات: abbr وdfn وacronym
+1.2.10	مشروع: مقال إخباري منسّق بـ HTML خالص
+المرحلة 1.3 — الروابط والصور والوسائط (10 وحدات)
+الوحدة	الاسم
+1.3.1	الرابط anchor: href المطلق والنسبي
+1.3.2	خصائص الرابط: target/rel/download/title
+1.3.3	روابط البريد والهاتف والقسم: mailto/tel/#
+1.3.4	الصورة img: src وalt وwidth وheight
+1.3.5	الصور المتجاوبة: srcset وsizes وpicture وsource
+1.3.6	تنسيقات الصور: JPEG وPNG وWebP وSVG وAVIF
+1.3.7	Lazy Loading وتحميل الصور بكفاءة
+1.3.8	figure وfigcaption والصور الدلالية
+1.3.9	تضمين خرائط وفيديو YouTube بـ iframe
+1.3.10	مشروع: معرض صور متجاوب بدون CSS خارجي
+المرحلة 1.4 — الجداول (10 وحدات)
+الوحدة	الاسم
+1.4.1	هيكل الجدول الأساسي: table/tr/th/td
+1.4.2	thead/tbody/tfoot وتنظيم الجدول
+1.4.3	caption ووصف الجدول
+1.4.4	colspan وrowspan لدمج الخلايا
+1.4.5	scope وheaders لجداول معقدة
+1.4.6	colgroup وcol لتنسيق الأعمدة
+1.4.7	متى نستخدم الجدول ومتى لا (Layout Tables خطأ)
+1.4.8	الجداول الكبيرة والمتجاوبة
+1.4.9	جداول البيانات المالية بـ HTML دلالي
+1.4.10	مشروع: جدول جداول دراسية كامل
+المرحلة 1.5 — النماذج والمدخلات (10 وحدات)
+الوحدة	الاسم
+1.5.1	عنصر form: action وmethod وenctype
+1.5.2	input types النصية: text/email/url/tel/search/password
+1.5.3	input types الرقمية والزمنية: number/range/date/time/datetime-local
+1.5.4	input types الاختيارية: checkbox/radio
+1.5.5	label وfor: الربط الصحيح مع المدخلات
+1.5.6	select وoption وoptgroup وmultiple
+1.5.7	textarea: rows/cols/resize
+1.5.8	button: submit/reset/button والفرق
+1.5.9	التحقق المدمج: required/pattern/min/max/maxlength
+1.5.10	مشروع: نموذج تسجيل كامل مع fieldset وlegend
+المرحلة 1.6 — HTML الدلالي (Semantic HTML5) (10 وحدات)
+الوحدة	الاسم
+1.6.1	لماذا الـ Semantics مهمة (SEO + Accessibility + Maintenance)
+1.6.2	header وnav وmain: هيكل الصفحة الكبرى
+1.6.3	article وsection: متى نستخدم كلاً منهما
+1.6.4	aside وfooter
+1.6.5	address وtime للمعلومات التواصلية والزمنية
+1.6.6	details وsummary للمحتوى القابل للطي
+1.6.7	dialog وPopover API
+1.6.8	Landmark Roles وكيف تُحسّن HTML الدلالي
+1.6.9	الفرق بين div/span وعناصر HTML5 الدلالية
+1.6.10	مشروع: إعادة هيكلة صفحة div-soup لـ HTML دلالي
+المرحلة 1.7 — مشروع شامل للمستوى الأول (10 وحدات)
+الوحدة	الاسم
+1.7.1	تحليل متطلبات الموقع ورسم Wireframe بسيط
+1.7.2	بناء head مثالي لكل صفحة
+1.7.3	صفحة رئيسية (Home) بـ HTML دلالي كامل
+1.7.4	صفحة سيرة ذاتية (About) بجدول ومحتوى
+1.7.5	صفحة معرض أعمال (Portfolio) بصور متجاوبة
+1.7.6	صفحة نموذج تواصل (Contact) كاملة
+1.7.7	التنقل بين الصفحات وروابط نسبية
+1.7.8	التحقق من جميع الصفحات بـ W3C Validator
+1.7.9	اختبار Lighthouse على كل صفحة
+1.7.10	النشر على GitHub Pages
+المستوى 2
+المرحلة 2.1 — وسائط غنية (10 وحدات)
+الوحدة	الاسم
+2.1.1	عنصر audio: src/controls/autoplay/loop/preload
+2.1.2	عنصر video: src/poster/controls/muted/playsinline
+2.1.3	track وWebVTT للترجمة والتعليق على الفيديو
+2.1.4	Canvas: الرسم ثنائي الأبعاد الأساسي
+2.1.5	Canvas: الأشكال والنصوص والصور
+2.1.6	SVG المدمج: الأشكال الأساسية والمسارات
+2.1.7	SVG: تحريك وتفاعل
+2.1.8	iframe: تضمين آمن وخصائص sandbox
+2.1.9	object وembed (التوافق القديم)
+2.1.10	مشروع: صفحة ميديا غنية بأمان كامل
+المرحلة 2.2 — إمكانية الوصول (Accessibility) (10 وحدات)
+الوحدة	الاسم
+2.2.1	ما هي الـ Accessibility ولماذا إلزامية قانونياً؟
+2.2.2	WCAG: المعايير الدولية ومستوياتها A/AA/AAA
+2.2.3	ARIA roles: banner/navigation/main/complementary/contentinfo
+2.2.4	ARIA attributes: aria-label/aria-labelledby/aria-describedby
+2.2.5	aria-hidden وaria-live وaria-expanded
+2.2.6	Keyboard Navigation وtrapping focus
+2.2.7	Skip Links للتنقل السريع
+2.2.8	Color Contrast وعدم الاعتماد على اللون وحده
+2.2.9	اختبار بـ Screen Readers (NVDA/VoiceOver)
+2.2.10	مشروع: تدقيق وإصلاح موقع غير مُتاح
+المرحلة 2.3 — SEO وأداء التحميل (10 وحدات)
+الوحدة	الاسم
+2.3.1	كيف تفهرس محركات البحث صفحات HTML
+2.3.2	meta tags الأساسية للـ SEO
+2.3.3	Open Graph وTwitter Cards
+2.3.4	Structured Data بـ JSON-LD (Schema.org)
+2.3.5	Canonical URLs وإدارة المحتوى المكرر
+2.3.6	Core Web Vitals: LCP/INP/CLS
+2.3.7	Lazy Loading للصور والـ iframes
+2.3.8	Resource Hints: preload/prefetch/preconnect
+2.3.9	Critical HTML وتقليل Render Blocking
+2.3.10	مشروع: تحسين صفحة من 50 لـ 90+ في Lighthouse
+المرحلة 2.4 — HTML APIs (10 وحدات)
+الوحدة	الاسم
+2.4.1	Drag & Drop API
+2.4.2	Geolocation API
+2.4.3	History API: pushState/popState
+2.4.4	Clipboard API: copy/paste برمجياً
+2.4.5	Web Storage: localStorage وsessionStorage
+2.4.6	Notifications API
+2.4.7	Fullscreen API
+2.4.8	IntersectionObserver API
+2.4.9	ResizeObserver وMutationObserver
+2.4.10	مشروع: لوح مهام بـ Drag & Drop وLocalStorage
+المرحلة 2.5 — التكامل العميق مع CSS وJS (10 وحدات)
+الوحدة	الاسم
+2.5.1	data-* attributes: تخزين بيانات في HTML
+2.5.2	Custom Elements: تعريف عنصر HTML خاص
+2.5.3	HTML template وslot
+2.5.4	Shadow DOM: مفهوم العزل
+2.5.5	Web Components: دمج الثلاثة
+2.5.6	CSS Custom Properties من HTML
+2.5.7	HTML المُولَّد بـ JavaScript (innerHTML vs createElement)
+2.5.8	Server-Side Rendering مقدمة: HTML من الخادم
+2.5.9	HTML في بيئات مختلفة: Email HTML وAMP
+2.5.10	مشروع: Web Component إعادة استخدام كاملة
+المرحلة 2.6 — أدوات الاحتراف (10 وحدات)
+الوحدة	الاسم
+2.6.1	Emmet: إتقان تسريع كتابة HTML
+2.6.2	W3C Validator وHTML Tidy
+2.6.3	Prettier لـ HTML: إعداد وتفعيل
+2.6.4	Lighthouse: فهم كل Score وتحسينه
+2.6.5	DevTools Elements Panel: التعمق
+2.6.6	axe DevTools للـ Accessibility
+2.6.7	HTML في سياق فرق العمل وTemplating Engines
+2.6.8	إنشاء HTML بـ Templates: Handlebars/EJS نظرة
+2.6.9	Static Site Generators: 11ty/Jekyll مفهوم
+2.6.10	مشروع: أتمتة التحقق في CI/CD
+المرحلة 2.7 — مشروع حقيقي شامل (10 وحدات)
+الوحدة	الاسم
+2.7.1	تصميم بوابة إلكترونية: متطلبات وهيكل
+2.7.2	نظام التنقل بـ History API (SPA-style)
+2.7.3	الصفحة الرئيسية: Semantic HTML + OG tags
+2.7.4	صفحة عرض المنتجات: بيانات من JSON-LD
+2.7.5	نموذج تسجيل متكامل: Validation + Accessibility
+2.7.6	صفحة وسائط: audio + video + SVG
+2.7.7	تطبيق ARIA الكامل على جميع الصفحات
+2.7.8	اختبار Cross-Browser وMobile
+2.7.9	Lighthouse 90+ على جميع المعايير
+2.7.10	التوثيق النهائي والنشر
+المخطط الكامل للـ JSON المطلوب
+{
+  "schema_version": "v4.1",
+  "specialty": {
+    "slug": "html",
+    "name": "أساسيات HTML",
+    "icon": "🌐",
+    "description": "مسار متكامل لإتقان HTML من بناء أول صفحة حتى Web Components والـ Accessibility المتقدمة — يُخرج مطوراً يفهم لغة الويب من الداخل ويبني صفحات صحيحة ودلالية وقابلة للوصول",
+    "target_persona": "...",
+    "teacher_tone": "...",
+    "allowed_viz_templates": ["flowchart", "comparison_table", "architecture_diagram", "timeline", "tree_diagram"],
+    "allowed_tools": ["nukhba_ide_html", "nukhba_ide_js"],
+    "glossary": [...]
+  },
+  "levels": [
+    {
+      "level_index": 1,
+      "name": "أساسيات HTML وبناء صفحات الويب",
+      "goal": "...",
+      "bloom_focus": "apply",
+      "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 60 },
+      "stages": [
+        {
+          "stage_index": 1,
+          "name": "البيئة والتركيب",
+          "goal": "...",
+          "bloom_focus": "understand",
+          "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 30 },
+          "units": [
+            {
+              "unit_index": 1,
+              "name": "ما هو HTML وكيف يعمل المتصفح؟",
+              "goal": "...",
+              "prerequisite_units": [],
+              "enables_units": ["1.1.2"],
+              "key_concepts": ["DOM", "Browser Rendering Engine", "HTTP Request/Response", "View Source"],
+              "motivation_hook": "...",
+              "learning_objectives": [
+                { "statement": "...", "bloom_level": "understand" }
+              ],
+              "exam": { "pass_threshold_percent": 70, "time_limit_minutes": 15 },
+              "labs": [
+                {
+                  "lab_index": 1,
+                  "title": "...",
+                  "scenario": "...",
+                  "completion_criterion": "...",
+                  "pedagogical_sequence": "...",
+                  "questions": [
+                    { "kind": "diagnostic",  "prompt": "...", "rubric": "...", "solution_outline": "...", "points": 1 },
+                    { "kind": "decision",    "prompt": "...", "rubric": "...", "solution_outline": "...", "points": 2 },
+                    { "kind": "application", "prompt": "...", "rubric": "...", "solution_outline": "...", "points": 3 },
+                    { "kind": "analysis",    "prompt": "...", "rubric": "...", "solution_outline": "...", "points": 2 },
+                    { "kind": "connection",  "prompt": "...", "rubric": "...", "solution_outline": "...", "points": 2 }
+                  ]
+                }
+              ],
+              "lessons": [
+                {
+                  "lesson_index": 1,
+                  "name": "ما هو HTML وكيف يُحوّل المتصفح النص لصفحة؟",
+                  "goal": "...",
+                  "bridge_sentence": "...",
+                  "prerequisite_lessons": [],
+                  "enables_lessons": ["1.1.1.2"],
+                  "motivation_hook": "...",
+                  "learning_objectives": [
+                    { "statement": "...", "bloom_level": "understand" }
+                  ],
+                  "concepts": [
+                    {
+                      "name": "HTML as Markup Language",
+                      "explanation": "...",
+                      "mastery_criterion": "...",
+                      "weight": 3
+                    }
+                  ],
+                  "common_mistakes": [
+                    {
+                      "mistake": "...",
+                      "correction": "...",
+                      "treatment": "...",
+                      "severity": "major"
+                    }
+                  ],
+                  "yemeni_examples": ["..."],
+                  "final_check_question": "...",
+                  "session_complete_criterion": "...",
+                  "solution_outline": "...",
+                  "expected_duration_minutes": 20,
+                  "glossary": [
+                    { "term": "DOM", "definition": "..." }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "exam_banks": {
+    "unit_banks": {
+      "1.1.1": { "variants": [[ { "kind": "mcq", "prompt": "...", "choices": ["...","...","...","..."], "correct_index": 0, "explanation": "...", "difficulty": 1, "points": 1 } ]] }
+    },
+    "stage_banks": {
+      "1.1": { "variants": [[...]] }
+    },
+    "level_banks": {
+      "1": { "variants": [[...]] }
+    }
+  },
+  "placement_test_questions": [...]
+}
+
+قواعد التحقق الصارمة — افحص كل سطر قبل التسليم
+✅ قاعدة 1: ترقيم صارم بدون تكرار
+level_index:  1 و2 فقط — لا تكرار
+stage_index:  1..7 داخل كل مستوى — لا تكرار داخل نفس المستوى
+unit_index:   1..10 داخل كل مرحلة — لا تكرار
+lesson_index: 1..10 داخل كل وحدة — لا تكرار
+
+✅ قاعدة 2: رموز الكيانات
+كود المرحلة  = "L.S"       مثل "1.1"
+كود الوحدة   = "L.S.U"     مثل "1.1.1"
+كود الدرس    = "L.S.U.N"   مثل "1.1.1.1"
+
+✅ قاعدة 3: الروابط — كل كود مرجعي يجب أن يوجد في الملف
+prerequisite_units ← كود وحدة موجود فعلاً
+enables_units ← كود وحدة موجود فعلاً
+prerequisite_lessons ← كود درس موجود فعلاً
+enables_lessons ← كود درس موجود فعلاً
+تحقق يدوياً: ابحث عن كل كود أضفته في prerequisites قبل الكتابة وتأكد وجوده.
+✅ قاعدة 4: المعمل — بالضبط 5 أسئلة، 5 أنواع مختلفة
+"questions": [
+  { "kind": "diagnostic",  ... },
+  { "kind": "decision",    ... },
+  { "kind": "application", ... },
+  { "kind": "analysis",    ... },
+  { "kind": "connection",  ... }
+]
+
+لا يجوز نوعان متماثلان في نفس المعمل.
+ترتيب الأنواع غير إلزامي لكن كل نوع يجب أن يظهر مرة واحدة.
+✅ قاعدة 5: MCQ
+choices: مصفوفة بـ ≥ 2 عناصر نصية
+correct_index: عدد صحيح بين 0 و (choices.length - 1)
+
+✅ قاعدة 6: الحقول الإلزامية لكل درس
+name (نص ≥ 3 أحرف)
+goal (نص ≥ 10 أحرف)
+bridge_sentence (نص ≥ 10 أحرف، ≥ 10 كلمات)
+prerequisite_lessons (مصفوفة — يمكن فارغة [])
+enables_lessons (مصفوفة — يمكن فارغة [])
+concepts (مصفوفة ≥ 1 عنصر)
+common_mistakes (مصفوفة ≥ 1 عنصر)
+yemeni_examples (مصفوفة ≥ 1 عنصر)
+final_check_question (نص ≥ 5 أحرف)
+session_complete_criterion (نص ≥ 5 أحرف)
+
+✅ قاعدة 7: كل مفهوم (concept)
+name: نص فريد داخل نفس الدرس
+explanation: نص
+mastery_criterion: نص
+weight: رقم ≥ 1 (افتراضي 1)
+
+لا تكرار في name داخل نفس الدرس.
+مجموع الأوزان > 0.
+✅ قاعدة 8: بنك الأسئلة
+"exam_banks": {
+  "unit_banks":  { "1.1.1": { "variants": [[ ... ]] } },
+  "stage_banks": { "1.1":   { "variants": [[ ... ]] } },
+  "level_banks": { "1":     { "variants": [[ ... ]] } }
+}
+
+كل بنك يحتاج variants مصفوفة من مصفوفات — كل variant مصفوفة أسئلة.
+يكفي variant واحد per بنك.
+✅ قاعدة 9: أسئلة تحديد المستوى
+{
+  "target_level_index": 1,
+  "target_unit_code": "1.1.1",
+  "kind": "mcq",
+  "prompt": "...",
+  "choices": ["...","...","...","..."],
+  "correct_index": 2,
+  "difficulty": 2
+}
+
+target_unit_code يجب أن يوجد في الملف.
+kind: "mcq" يستلزم وجود choices وcorrect_index.
+اختبار تحديد المستوى (18 سؤالاً)
+#	target_level_index	target_unit_code	الموضوع
+1	1	1.1.2	بنية وثيقة HTML5 (DOCTYPE/head/body)
+2	1	1.2.1	التسلسل الهرمي الصحيح للعناوين h1-h6
+3	1	1.2.3	القوائم: ul/ol/dl الاستخدام الصحيح
+4	1	1.3.1	الرابط anchor: href النسبي والمطلق
+5	1	1.3.4	الصورة img: alt الإلزامي وأهميته
+6	1	1.4.1	هيكل الجدول الأساسي
+7	1	1.5.2	input types وأنسبها
+8	1	1.5.5	label/for وربط الحقل
+9	1	1.6.1	Semantic HTML: لماذا نستخدمه؟
+10	1	1.6.2	header/nav/main الاستخدام الصحيح
+11	2	2.1.1	audio: الخصائص الأساسية
+12	2	2.2.1	Accessibility: WCAG المعايير
+13	2	2.2.3	ARIA roles الشائعة
+14	2	2.3.2	meta tags للـ SEO
+15	2	2.3.6	Core Web Vitals: LCP/INP/CLS
+16	2	2.4.5	localStorage مقابل sessionStorage
+17	2	2.5.1	data-* attributes
+18	2	2.6.1	Emmet: اختصارات HTML
+معايير الجودة
+الدرس المثالي لـ HTML
+goal ≥ 20 كلمة: يصف ما يستطيع الطالب بناءه بعد الدرس.
+bridge_sentence ≥ 10 كلمات: تربط الدرس السابق بالحالي بمنطق واضح.
+motivation_hook: يصف موقعاً أو خدمة حقيقية يفهمها الطالب وكيف يُستخدم فيها هذا العنصر.
+concepts:
+weight: 3 للمفاهيم الأساسية (Semantic HTML، Accessibility، DOM).
+weight: 2 للمهمة (form validation، responsive images).
+weight: 1 للتكميلية.
+common_mistakes — أخطاء HTML الحرجة بـ severity: "critical":
+استخدام الجداول للـ layout.
+غياب alt على الصور المعلوماتية.
+تداخل عناصر block داخل inline.
+form بدون label.
+h1 متعددة في نفس الصفحة.
+استخدام div بدل عنصر دلالي متاح.
+yemeni_examples: مواقع تجارة إلكترونية، منصات تعليمية، صحف إلكترونية، خدمات حكومية عربية.
+solution_outline: HTML snippet صغير يُجيب على final_check_question.
+المعمل المثالي لـ HTML
+application: يطلب كتابة HTML يُعطي كوداً صالحاً لـ W3C Validator.
+analysis: يُقدّم HTML فيه خطأ شائع (مثل: صورة بدون alt، جدول بدون caption، form بدون label) ويطلب التحديد والتصحيح.
+connection: يربط عنصر HTML بـ CSS أو JavaScript أو Accessibility أو SEO.
+بنك الأسئلة
+وحدة: 5-8 MCQ per variant.
+مرحلة: 10-15 MCQ per variant.
+مستوى: 15-20 MCQ per variant.
+الأسئلة تشمل: كود HTML صغير ويُسأل عن سلوكه أو خطئه.
+explanation: يشرح لماذا الإجابة صحيحة ويذكر المعيار المرجعي (HTML5 spec / WCAG).
+تعليمات الكود
+كل الكود HTML في نماذج الدروس يجب أن يكون صالحاً بدون أخطاء.
+أسماء classes وids وdata attributes بالإنجليزية (kebab-case):
+<section class="product-card" id="featured-section" data-product-id="42">
+
+المحتوى النصي (ما يراه المستخدم) يمكن أن يكون عربياً:
+<h1>أهلاً بك في متجرنا</h1>
+<img src="logo.png" alt="شعار متجر النور">
+
+لا تستخدم عناصر مهجورة (deprecated): <center>, <font>, <b> للتنسيق فقط (استخدم <strong> أو CSS), <i> للتنسيق فقط.
+كل صفحة HTML كاملة تبدأ بـ <!DOCTYPE html> وتنتهي بـ </html>.
+نموذج درس مكتمل
+{
+  "lesson_index": 1,
+  "name": "ما هو HTML وكيف يُحوّل المتصفح النص لصفحة مرئية؟",
+  "goal": "يفهم الطالب دور HTML كلغة ترميز لا برمجة ويستطيع شرح كيف يُحوّل المتصفح ملف .html لشجرة DOM ثم لصفحة مرئية ويفتح DevTools لرؤية هذه العملية مباشرةً",
+  "bridge_sentence": "كل صفحة رأيتها على الإنترنت تبدأ كنص بسيط في ملف .html — سنكتشف كيف يقرأ المتصفح هذا النص ويُحوّله لعالم بصري تفاعلي خطوةً بخطوة",
+  "prerequisite_lessons": [],
+  "enables_lessons": ["1.1.1.2"],
+  "motivation_hook": "موقع أمازون العربي فيه ملايين صفحات HTML — كل صفحة منتج، كل نتيجة بحث، كل صفحة دفع: كلها HTML. من يفهم HTML يفهم ما يحدث خلف كل موقع يستخدمه يومياً",
+  "learning_objectives": [
+    { "statement": "يُعرّف الطالب HTML كلغة ترميز ويُميّزها عن لغات البرمجة بمثال", "bloom_level": "understand" },
+    { "statement": "يشرح الطالب مراحل تحويل ملف HTML لصفحة مرئية (parsing → DOM → rendering)", "bloom_level": "understand" },
+    { "statement": "يفتح الطالب DevTools ويرى شجرة DOM لأي صفحة ويُحدد عنصراً فيها", "bloom_level": "apply" }
+  ],
+  "concepts": [
+    {
+      "name": "HTML as Markup Language",
+      "explanation": "HTML (HyperText Markup Language) لغة ترميز لا برمجة — تُخبر المتصفح بهيكل المحتوى ومعناه، لا بمنطق التنفيذ. علامات HTML (Tags) تُغلف المحتوى بين < > لتصف نوعه: <h1> للعنوان الرئيسي، <p> للفقرة، <img> للصورة. المتصفح يقرأ هذه العلامات ويُقرّر كيف يعرض كل عنصر.",
+      "mastery_criterion": "يستطيع الطالب التمييز بين HTML (ترميز هيكل) وCSS (تصميم) وJavaScript (سلوك) ويشرح دور كل واحدة بمثال من موقع حقيقي",
+      "weight": 3
+    },
+    {
+      "name": "DOM: Document Object Model",
+      "explanation": "عندما يقرأ المتصفح ملف HTML يبني منه شجرة في الذاكرة تُسمى DOM. كل عنصر HTML يُصبح node في هذه الشجرة. الـ DOM هو ما يُعدّله JavaScript لاحقاً لتغيير الصفحة ديناميكياً. يمكنك رؤية DOM الحالي في DevTools تحت Elements — وهو قد يختلف عن HTML الأصلي إذا عدّله JavaScript.",
+      "mastery_criterion": "يفتح الطالب DevTools على أي صفحة ويُحدد عنصراً في Elements Panel ويُغيّر نصه مؤقتاً",
+      "weight": 2
+    },
+    {
+      "name": "Browser Rendering Pipeline",
+      "explanation": "المتصفح يمر بمراحل لتحويل HTML لصفحة: (1) Parsing: يقرأ HTML ويبني DOM Tree، (2) Style: يُطبّق CSS ويبني CSSOM، (3) Layout: يحسب موضع وحجم كل عنصر، (4) Paint: يرسم البكسلات، (5) Composite: يدمج الطبقات. فهم هذه المراحل يُفسّر لماذا بعض تغييرات CSS أسرع من غيرها.",
+      "mastery_criterion": "يذكر الطالب المراحل الرئيسية الخمس بترتيب صحيح ويربط كل مرحلة بمثال عملي",
+      "weight": 2
+    }
+  ],
+  "common_mistakes": [
+    {
+      "mistake": "الطالب يعتقد أن HTML لغة برمجة وأن فيها منطق (if/else/loops)",
+      "correction": "HTML لغة ترميز declarative — تصف ماذا تريد عرضه لا كيف تعالج البيانات. المنطق يأتي لاحقاً بـ JavaScript",
+      "treatment": "اسأل: 'هل تستطيع كتابة if-else في HTML؟' ثم أرِ مثالاً على قيود HTML واجعله يُقارن بـ JavaScript",
+      "severity": "major"
+    },
+    {
+      "mistake": "الطالب يخلط بين شجرة DOM وملف HTML الأصلي ويظن أنهما دائماً متطابقان",
+      "correction": "DOM هو تمثيل حي في الذاكرة قد يُعدّله JavaScript — ما تراه في Elements Panel ليس بالضرورة ما في ملف .html",
+      "treatment": "اطلب من الطالب فتح موقع يستخدم React أو Vue وقارن View Source (HTML الأصلي) مع DevTools Elements (DOM الحالي)",
+      "severity": "minor"
+    }
+  ],
+  "yemeni_examples": [
+    "موقع أسواق العربية أو متجر إلكتروني عربي: كل صفحة منتج هي ملف HTML — العنوان h1، الوصف p، الصورة img، زر الشراء button. افتح DevTools على أي منتج وانظر هيكل HTML خلف الصفحة"
+  ],
+  "final_check_question": "أُغلقت علامة <p> بـ </div> خطأً. ماذا سيفعل المتصفح؟ هل سيرفض الصفحة أم سيُكملها؟ وما الفرق بين HTML وXML في معالجة هذا الخطأ؟",
+  "session_complete_criterion": "يستطيع الطالب شرح دور HTML، وفتح DevTools على أي موقع ورؤية DOM Tree، وتمييز الفرق بين HTML الأصلي والـ DOM الحالي",
+  "solution_outline": "المتصفح لا يرفض HTML الخاطئ — يحاول إصلاحه تلقائياً بـ error recovery (يُغلق العلامة المفتوحة أو يتجاهل الخاطئة). XML صارم: أي خطأ = توقف كامل. هذا يفسر لماذا مواقع بـ HTML 'خاطئ' تعمل في المتصفح لكن لا تتوافق مع المعايير.",
+  "expected_duration_minutes": 20,
+  "glossary": [
+    { "term": "DOM", "definition": "Document Object Model — شجرة الكائنات التي يبنيها المتصفح من HTML ليُمكّن JavaScript وCSS من التفاعل معها" },
+    { "term": "Markup Language", "definition": "لغة تستخدم علامات (tags) لوصف بنية المحتوى — لا تحتوي منطقاً تنفيذياً" },
+    { "term": "Rendering Pipeline", "definition": "سلسلة المراحل التي يمر بها المتصفح لتحويل HTML+CSS لبكسلات مرئية على الشاشة" }
+  ]
+}
+
+نموذج معمل مكتمل
+{
+  "lab_index": 1,
+  "title": "بناء أول صفحة HTML صالحة وتشريح بنيتها في DevTools",
+  "scenario": "طُلب منك بناء صفحة HTML بسيطة لعرض معلومات شركة ناشئة. مديرك يشترط: الصفحة تجتاز W3C Validator بلا أخطاء، وتظهر بشكل صحيح في Chrome وFirefox، وشجرة DOM فيها واضحة المعالم.",
+  "completion_criterion": "يكتب الطالب صفحة HTML5 كاملة (DOCTYPE + head كامل + body دلالي) تمر W3C Validator بلا أخطاء",
+  "pedagogical_sequence": "نبدأ بما يعرفه الطالب عن HTML، ثم نطلب قراراً حول أولوية الـ head، ثم تطبيق بكتابة صفحة كاملة، ثم تحليل كود ناقص، ثم ربط بـ SEO وAccessibility",
+  "questions": [
+    {
+      "kind": "diagnostic",
+      "prompt": "قبل أن نبدأ: اكتب ما تعرفه عن هيكل وثيقة HTML — حتى لو كان مجرد تخمين. ما العناصر التي تتوقع أن تكون في كل صفحة HTML؟",
+      "rubric": "يُقيَّم على: ذكر أي من (DOCTYPE، html، head، body) بشكل صحيح ولو جزئياً. الصدق في عدم المعرفة مقبول تماماً.",
+      "solution_outline": "الهيكل الأساسي: <!DOCTYPE html> + <html lang='ar'> + <head> (charset, viewport, title) + <body> (المحتوى المرئي). كل صفحة HTML5 كاملة تحتاج هذه العناصر.",
+      "points": 1
+    },
+    {
+      "kind": "decision",
+      "prompt": "عندك صفحة بدون <title> في head. أي مشكلتَين تحدثان؟ (أ) لا مشكلة — الصفحة تعمل عادي، (ب) مشكلة SEO فقط، (ج) مشكلة SEO + Accessibility + تجربة المستخدم (tab name فارغ). علّل.",
+      "rubric": "الإجابة (ج) مع تعليل: غياب title يُؤثر على محركات البحث (لا عنوان للفهرسة) + screen readers تُعلن العنوان عند فتح الصفحة + اسم Tab في المتصفح يكون فارغاً.",
+      "solution_outline": "ج — ثلاث مشاكل: (1) SEO: محركات البحث تعتمد title كعنوان رئيسي في نتائجها. (2) Accessibility: screen readers تُعلن title عند تحميل الصفحة. (3) UX: Tab في المتصفح يظهر عنوان الموقع.",
+      "points": 2
+    },
+    {
+      "kind": "application",
+      "prompt": "اكتب صفحة HTML5 كاملة لشركة 'النور للتقنية' تحتوي: (1) DOCTYPE صحيح، (2) html بـ lang='ar' وdir='rtl'، (3) head بـ charset=UTF-8 وviewport وtitle وصف مناسب، (4) body بـ header يحتوي h1 باسم الشركة + main يحتوي فقرة ترحيب + footer بحقوق النشر.",
+      "rubric": "DOCTYPE صحيح، lang='ar' dir='rtl' على html، charset وviewport وtitle في head، هيكل دلالي header/main/footer، محتوى عربي صحيح، لا أخطاء W3C",
+      "solution_outline": "<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>النور للتقنية</title></head><body><header><h1>شركة النور للتقنية</h1></header><main><p>أهلاً بك في موقعنا الرسمي. نُقدم حلولاً تقنية متكاملة.</p></main><footer><p>© 2025 النور للتقنية. جميع الحقوق محفوظة.</p></footer></body></html>",
+      "points": 3
+    },
+    {
+      "kind": "analysis",
+      "prompt": "هذا الكود يعمل في المتصفح لكن W3C Validator يُعطي أخطاء. حدّد خطأين على الأقل:\n```html\n<HTML>\n<Head><title>موقعي</Title></Head>\n<Body>\n<H1>مرحباً</H1>\n<p>هذا <b>نص</b></p>\n</Body>\n</HTML>\n```",
+      "rubric": "يُحدد: (1) غياب DOCTYPE، (2) HTML ليست lowercase (HTML5 تفضّل lowercase)، (3) غياب charset وviewport في head، (4) `<b>` للتنسيق بدون معنى دلالي (استخدم strong).",
+      "solution_outline": "الأخطاء: (1) مفقود <!DOCTYPE html> — الأهم. (2) HTML5 تفضّل lowercase tags (<html> لا <HTML>). (3) مفقود <meta charset='UTF-8'> و<meta name='viewport'>. (4) <b> تنسيقي لا دلالي — إذا أردت تأكيداً دلالياً استخدم <strong>.",
+      "points": 2
+    },
+    {
+      "kind": "connection",
+      "prompt": "تعلّمنا أن HTML يُبنى DOM منه. كيف يرتبط هذا بأداء موقعك؟ لماذا يُؤثر حجم ومعقدية HTML على سرعة ظهور الصفحة (FCP: First Contentful Paint)؟",
+      "rubric": "يربط: HTML أكبر = وقت parsing أطول = DOM يُبنى لاحقاً = FCP يتأخر. يذكر مبدأ Critical HTML وضرورة وجود المحتوى المرئي أولاً في HTML.",
+      "solution_outline": "المتصفح لا يبدأ العرض حتى يُكمل parsing لـ HTML الحرج. HTML أكبر وأعمق شجرة DOM = وقت parsing أطول = FCP يتأخر. الحل: وضع المحتوى المرئي المهم أولاً، وتأجيل السكريبتات بـ defer، وتقليص HTML في الإنتاج.",
+      "points": 2
+    }
+  ]
+}
+
+نموذج سؤال بنك اختبار (MCQ)
+{
+  "kind": "mcq",
+  "prompt": "ما الصياغة الصحيحة لصورة يجب أن تكون مخفية عن Screen Readers (صورة زخرفية لا تحمل معلومة)؟",
+  "choices": [
+    "<img src='bg.jpg'>",
+    "<img src='bg.jpg' alt='صورة زخرفية'>",
+    "<img src='bg.jpg' alt=''>",
+    "<img src='bg.jpg' aria-hidden='true'>"
+  ],
+  "correct_index": 2,
+  "explanation": "الصورة الزخرفية يجب أن تحمل alt فارغاً (alt='') لا أن تُحذف alt كلياً. (أ) خاطئ: غياب alt خطأ HTML + يُسبب screen reader يقرأ اسم الملف. (ب) خاطئ: إضافة نص في alt تجعل screen reader يُعلنها. (د) aria-hidden يُخفيها أيضاً لكن WCAG تفضّل alt='' كأسلوب قياسي للصور الزخرفية.",
+  "difficulty": 2,
+  "points": 1,
+  "time_limit_seconds": 75
+}
+
+الحجم المتوقع للملف النهائي
+العنصر	العدد
+مستويات	2
+مراحل	14 (7 × 2)
+وحدات	140 (10 × 14)
+دروس	1,400 (10 × 140)
+معامل	140
+أسئلة معامل	700 (5 × 140)
+بنوك وحدات	140
+بنوك مراحل	14
+بنوك مستويات	2
+أسئلة تحديد المستوى	18
+الملف بين 7-12 ميجابايت. الناشر يدعم حتى 64MB.
+
+قائمة التحقق النهائية — لا تُسلّم الملف قبل إتمامها
+ الملف يُوزَّع بـ JSON.parse() بدون استثناء
+ schema_version = "v4.1"
+ specialty.slug = "html" (lowercase, no spaces)
+ 2 مستويات، 7 مراحل في كل مستوى، 10 وحدات في كل مرحلة، 10 دروس في كل وحدة
+ لا تكرار في level_index / stage_index / unit_index / lesson_index
+ كل وحدة فيها مصفوفة labs بعنصر واحد على الأقل
+ كل معمل فيه بالضبط 5 أسئلة: diagnostic, decision, application, analysis, connection (كل واحد مرة فقط)
+ كل prerequisite_units يشير لكود وحدة موجود
+ كل enables_units يشير لكود وحدة موجود
+ كل prerequisite_lessons يشير لكود درس موجود
+ كل enables_lessons يشير لكود درس موجود
+ لا دورات في روابط الوحدات (A → B → A)
+ لا دورات في روابط الدروس
+ كل MCQ: choices مصفوفة ≥ 2 عناصر + correct_index بين 0 و (length-1)
+ كل درس: bridge_sentence ≥ 10 كلمات
+ كل درس: yemeni_examples مصفوفة ≥ 1 عنصر
+ كل درس: concepts مصفوفة ≥ 1 عنصر
+ كل مفهوم: name فريد داخل نفس الدرس
+ مجموع أوزان concepts في كل درس > 0
+ كل درس: common_mistakes مصفوفة ≥ 1 عنصر
+ exam_banks يحتوي unit_banks + stage_banks + level_banks
+ placement_test_questions: 18 سؤالاً، كل target_unit_code موجود في الملف
+ كل class/id/data-attribute في كود HTML بالإنجليزية (kebab-case)
+ لا عناصر مهجورة: لا لا لا
