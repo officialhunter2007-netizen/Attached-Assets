@@ -19,13 +19,15 @@
 // uses raw fetch with cookie auth, which is how other admin tabs that
 // pre-date the spec also work.
 // ─────────────────────────────────────────────────────────────────────────────
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import Editor from "@monaco-editor/react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
+type EditorInstance = Parameters<OnMount>[0];
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { BookOpen, CheckCircle2, AlertTriangle, XCircle, FileJson, Rocket, RotateCcw, Trash2, Download, Loader2, Sparkles, Upload, Wrench, Wand2 } from "lucide-react";
+import { BookOpen, CheckCircle2, AlertTriangle, XCircle, FileJson, Rocket, RotateCcw, Trash2, Download, Loader2, Sparkles, Upload, Wrench, Wand2, Zap } from "lucide-react";
 import { university, skills } from "@/lib/curriculum";
+import { runClientAutofix, type FixProgress } from "@/lib/v4-autofix-engine";
 
 // Flat catalog of every legacy specialty/skill the platform knows about,
 // so the admin can pick a slug from a single dropdown instead of typing it
@@ -204,12 +206,18 @@ export function AdminV4Instructions() {
   const [validating, setValidating] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [autoFixing, setAutoFixing] = useState(false);
+  const [fixProgress, setFixProgress] = useState<FixProgress | null>(null);
   const [cacheToken, setCacheToken] = useState<string | null>(null);
   const [autofixChanges, setAutofixChanges] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
   const [genLevel, setGenLevel] = useState<string>("");
   const [genPerUnit, setGenPerUnit] = useState<number>(2);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<EditorInstance | null>(null);
+
+  const handleEditorMount = useCallback((editor: EditorInstance, _monaco: Monaco) => {
+    editorRef.current = editor;
+  }, []);
 
   const errorCount = useMemo(() => issues.filter((i) => i.severity === "error").length, [issues]);
   const warningCount = useMemo(() => issues.filter((i) => i.severity === "warning").length, [issues]);
@@ -297,39 +305,70 @@ export function AdminV4Instructions() {
     }
   }
 
-  // ── Autofix all errors ───────────────────────────────────────────────────
+  // ── Autofix all errors — client-side engine (zero network round-trip) ────
   async function runAutofix() {
     setAutoFixing(true);
     setIssues([]);
     setAutofixChanges([]);
-    let parsed: unknown;
+    setFixProgress({ phase: "تحليل الملف…", pct: 0 });
+
+    let parsed: any;
     try {
       parsed = JSON.parse(editorJson);
     } catch (e: any) {
       setIssues([{ severity: "error", path: "(root)", message: `JSON غير صالح: ${e.message}` }]);
       setAutoFixing(false);
+      setFixProgress(null);
       return;
     }
+
     try {
-      const res = await postInstructionFile("/api/admin/v4/autofix", parsed);
-      const data = await res.json().catch(() => ({} as any));
-      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      // Replace editor content with the fixed JSON.
-      setEditorJson(JSON.stringify(data.fixedJson, null, 2));
-      setIssues(data.issues ?? []);
-      setLastSummary(data.summary ?? null);
-      setCacheToken(data.cacheToken ?? null);
-      setAutofixChanges(data.changes ?? []);
-      const changeCount = (data.changes ?? []).length;
+      const result = await runClientAutofix(parsed, (p) => setFixProgress(p));
+
+      const fixedStr = JSON.stringify(result.fixedDoc, null, 2);
+
+      const editor = editorRef.current;
+      if (editor) {
+        const model = editor.getModel();
+        if (model) {
+          model.pushEditOperations(
+            [],
+            [{ range: model.getFullModelRange(), text: fixedStr }],
+            () => null,
+          );
+          editor.setScrollPosition({ scrollTop: 0 });
+        } else {
+          setEditorJson(fixedStr);
+        }
+      } else {
+        setEditorJson(fixedStr);
+      }
+
+      setAutofixChanges(result.changes);
+      setIssues([]);
+      setCacheToken(null);
+      setLastSummary(null);
+      setFixProgress({ phase: "اكتمل — جارٍ التحقق في الخلفية…", pct: 100 });
+
       toast({
-        title: data.report?.ok ? "✓ تم الإصلاح التلقائي" : "تم الإصلاح — راجع التحذيرات",
-        description: changeCount > 0
-          ? `${changeCount} إصلاحات — اضغط "نشر إصدار جديد" مباشرةً`
-          : "الملف كان صالحاً بالفعل — لم تُجرَ أي إصلاحات",
-        variant: "default",
+        title: result.changes.length > 0 ? "✓ اكتمل الإصلاح" : "الملف سليم — لا إصلاحات مطلوبة",
+        description: result.changes.length > 0
+          ? `${result.changes.length} نوع إصلاح — اضغط "تحقق" ثم "نشر إصدار جديد"`
+          : "لم يُعثر على أخطاء هيكلية",
       });
+
+      postInstructionFile("/api/admin/v4/validate", result.fixedDoc)
+        .then((res) => res.json().catch(() => ({} as any)))
+        .then((data) => {
+          if (data?.cacheToken) setCacheToken(data.cacheToken);
+          if (data?.issues) setIssues(data.issues);
+          if (data?.summary) setLastSummary(data.summary);
+        })
+        .catch(() => {})
+        .finally(() => setFixProgress(null));
     } catch (e: any) {
       toast({ title: "فشل الإصلاح التلقائي", description: e.message, variant: "destructive" });
+      setFixProgress(null);
     } finally {
       setAutoFixing(false);
     }
@@ -754,7 +793,7 @@ export function AdminV4Instructions() {
               تحقق
             </Button>
             <Button size="sm" variant="outline" onClick={runAutofix} disabled={validating || publishing || autoFixing || generating} className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10">
-              {autoFixing ? <Loader2 className="w-3.5 h-3.5 animate-spin ml-1" /> : <Wrench className="w-3.5 h-3.5 ml-1" />}
+              {autoFixing ? <Loader2 className="w-3.5 h-3.5 animate-spin ml-1" /> : <Zap className="w-3.5 h-3.5 ml-1" />}
               إصلاح كل الأخطاء
             </Button>
             <Button size="sm" onClick={publish} disabled={validating || publishing || autoFixing || generating} className="bg-emerald-600 hover:bg-emerald-700">
@@ -810,6 +849,28 @@ export function AdminV4Instructions() {
           </div>
         )}
 
+        {/* ── Autofix progress bar ─────────────────────────────────────── */}
+        {fixProgress && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-amber-300 font-semibold flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 animate-pulse" />
+                {fixProgress.phase}
+              </span>
+              <span className="font-mono text-amber-400">{fixProgress.pct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-amber-500/15 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-amber-400 transition-all duration-200"
+                style={{ width: `${fixProgress.pct}%` }}
+              />
+            </div>
+            {fixProgress.detail && (
+              <div className="text-[10px] text-muted-foreground truncate" dir="rtl">{fixProgress.detail}</div>
+            )}
+          </div>
+        )}
+
         {/* Summary strip */}
         {lastSummary && (
           <div className="flex flex-wrap gap-2 text-xs">
@@ -833,6 +894,7 @@ export function AdminV4Instructions() {
             theme="vs-dark"
             value={editorJson}
             onChange={(v) => setEditorJson(v ?? "")}
+            onMount={handleEditorMount}
             options={{
               minimap: { enabled: false },
               fontSize: 13,
@@ -840,6 +902,7 @@ export function AdminV4Instructions() {
               wordWrap: "on",
               automaticLayout: true,
               fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+              largeFileOptimizations: true,
             }}
           />
         </div>
