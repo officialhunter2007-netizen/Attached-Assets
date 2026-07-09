@@ -2,10 +2,7 @@ import fs from "fs";
 import path from "path";
 
 const FILES = [
-  "uni-cybersec-instruction.json",
-  "uni-datascience-instruction.json",
-  "uni-ai-instruction.json",
-  "uni-it-instruction.json",
+  "python-instruction.json",
 ];
 
 const ROOT = path.resolve(new URL(import.meta.url).pathname, "..", "..");

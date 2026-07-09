@@ -5,10 +5,7 @@ import { publishV4InstructionFile } from "../artifacts/api-server/src/lib/v4-ins
 const ROOT = path.resolve(new URL(import.meta.url).pathname, "..", "..");
 
 const FILES = [
-  { file: path.join(ROOT, "uni-cybersec-instruction.json"), slug: "uni-cybersec" },
-  { file: path.join(ROOT, "uni-datascience-instruction.json"), slug: "uni-datascience" },
-  { file: path.join(ROOT, "uni-ai-instruction.json"), slug: "uni-ai" },
-  { file: path.join(ROOT, "uni-it-instruction.json"), slug: "uni-it" },
+  { file: path.join(ROOT, "python-instruction.json"), slug: "python" },
 ];
 
 async function main() {
