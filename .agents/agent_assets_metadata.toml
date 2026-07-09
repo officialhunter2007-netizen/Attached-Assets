@@ -54,3 +54,9 @@ id = "u40sEeWmnJHZ9jYjPY6Yi"
 uri = "file://scripts/cpp-instruction-prompt.md"
 type = "text"
 title = "Prompt توليد منهج C++ v4.1"
+
+[[outputs]]
+id = "D0WDn3Ftdy0pZ6xwQbrmX"
+uri = "file://scripts/html-instruction-prompt.md"
+type = "text"
+title = "Prompt توليد منهج HTML v4.1"
