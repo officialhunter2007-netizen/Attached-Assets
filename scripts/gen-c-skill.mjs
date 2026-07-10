@@ -2451,7 +2451,13 @@ function makeBridge(lessonName, lessonIndex, unitName) {
 }
 
 function makeConcepts(primary, lessonName) {
-  const terms = primary.split(" ").filter(t => t.length > 2).slice(0, 5);
+  const seen = new Set();
+  const terms = primary.split(" ").filter(t => t.length > 2).filter(t => {
+    const key = `${t} في C`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 5);
   return terms.map((term, i) => ({
     name: `${term} في C`,
     explanation: `${term} هو مفهوم جوهري في "${lessonName}" يُستخدم يومياً في مشاريع C الحقيقية لكتابة كود صحيح وفعّال`,
@@ -2531,69 +2537,69 @@ function makeUnitExamQuestions(unitCode, unitDef, passThreshold, timeLimit) {
   const c = unitDef.key_concepts;
   const questions = [
     {
-      question: `ما الاستخدام الصحيح لـ "${c[0]}" في C؟`,
-      options: [
+      prompt: `ما الاستخدام الصحيح لـ "${c[0]}" في C؟`,
+      choices: [
         `استخدامه في كل حالة بغض النظر عن السياق`,
         `استخدامه عندما يكون السياق مناسباً وفق أفضل ممارسات C`,
         `تجنبه دائماً لصالح البدائل في C++`,
         `استخدامه فقط في المشاريع الكبيرة`
       ],
-      correctIndex: 1,
+      correct_index: 1,
       explanation: `"${c[0]}" يُستخدم في C عندما يكون السياق مناسباً وفق أفضل الممارسات وقواعد الأمان`
     },
     {
-      question: `ما الفرق الجوهري بين "${c[0]}" و "${c[1] || c[0]}" في C؟`,
-      options: [
+      prompt: `ما الفرق الجوهري بين "${c[0]}" و "${c[1] || c[0]}" في C؟`,
+      choices: [
         `لا فرق بينهما عملياً`,
         `"${c[0]}" و"${c[1] || c[0]}" يخدمان أغراضاً مختلفة والاختيار يعتمد على السياق والمتطلبات`,
         `"${c[1] || c[0]}" دائماً أحدث وأفضل`,
         `كلاهما مهمل في C الحديثة`
       ],
-      correctIndex: 1,
+      correct_index: 1,
       explanation: `الاختيار الصحيح بين "${c[0]}" و"${c[1] || c[0]}" يعتمد على السياق والمتطلبات المحددة`
     },
     {
-      question: `ما الخطأ الأكثر شيوعاً عند استخدام "${c[0]}" في مشاريع C؟`,
-      options: [
+      prompt: `ما الخطأ الأكثر شيوعاً عند استخدام "${c[0]}" في مشاريع C؟`,
+      choices: [
         `استخدامه في المشاريع الكبيرة`,
         `تجاهل التوثيق الرسمي`,
         `تطبيقه دون التحقق من نجاحه ودون معالجة الأخطاء`,
         `استخدامه مع C11 فقط`
       ],
-      correctIndex: 2,
+      correct_index: 2,
       explanation: `الخطأ الأكثر شيوعاً هو تطبيق "${c[0]}" دون التحقق من نجاحه مما يؤدي لسلوك غير محدد`
     },
     {
-      question: `في أي حالة يكون "${c[c.length > 2 ? 2 : 0]}" الخيار الأمثل؟`,
-      options: [
+      prompt: `في أي حالة يكون "${c[c.length > 2 ? 2 : 0]}" الخيار الأمثل؟`,
+      choices: [
         `في كل الحالات دون استثناء`,
         `عندما نحتاج سرعة تطوير فقط`,
         `عندما يكون الأداء هو الأولوية الوحيدة`,
         `عندما يتوافق مع متطلبات المشروع وقواعد الأمان الصحيحة`
       ],
-      correctIndex: 3,
+      correct_index: 3,
       explanation: `"${c[c.length > 2 ? 2 : 0]}" هو الخيار الأمثل عندما يتوافق مع متطلبات المشروع وقواعد C الآمنة`
     },
     {
-      question: `كيف تتحقق من صحة تطبيقك لـ "${c[0]}" في كود C؟`,
-      options: [
+      prompt: `كيف تتحقق من صحة تطبيقك لـ "${c[0]}" في كود C؟`,
+      choices: [
         `تشغيل الكود مرة واحدة والافتراض بأنه يعمل`,
         `كتابة اختبار يغطي الحالات الطبيعية والحدية وتشغيل Valgrind`,
         `مراجعة الكود بصرياً فقط`,
         `الاعتماد على المترجم في اكتشاف كل الأخطاء`
       ],
-      correctIndex: 1,
+      correct_index: 1,
       explanation: `الاختبار مع Valgrind يضمن صحة "${c[0]}" ويكشف تسربات الذاكرة وأخطاء الوصول`
     },
     {
-      question: `ما أفضل طريقة لتنظيم كود "${unitDef.name}" في مشروع C كبير؟`,
-      options: [
+      prompt: `ما أفضل طريقة لتنظيم كود "${unitDef.name}" في مشروع C كبير؟`,
+      choices: [
         `وضع كل الكود في ملف .c واحد لسهولة الإدارة`,
         `فصل الكود إلى وحدات .c و.h مع واجهات واضحة ومحددة`,
         `تجنب التنظيم وتركيز الجهد على الأداء`,
         `استخدام كل الوظائف كـ static دون ترويسات`
       ],
-      correctIndex: 1,
+      correct_index: 1,
       explanation: `فصل "${unitDef.name}" لوحدات بواجهات محددة يُحسّن الصيانة ويُخفي التفاصيل`
     }
   ];
@@ -2613,14 +2619,14 @@ function makeStageExamQuestions(stageDef) {
     const uName = uNames[i % uNames.length];
     const uName2 = uNames[(i + 3) % uNames.length];
     questions.push({
-      question: `كيف تجمع بين "${uName}" و"${uName2}" لبناء كود C احترافي في ${stageDef.name}؟`,
-      options: [
+      prompt: `كيف تجمع بين "${uName}" و"${uName2}" لبناء كود C احترافي في ${stageDef.name}؟`,
+      choices: [
         `يُعالَجان بشكل منفصل دائماً`,
         `"${uName}" يُوفّر الأساس بينما "${uName2}" يُكمله بعمق تطبيقي في سياق "${stageDef.name}"`,
         `كلاهما يؤديان نفس الوظيفة تماماً`,
         `يُستخدم أحدهما فقط في كل مشروع`
       ],
-      correctIndex: 1,
+      correct_index: 1,
       explanation: `في "${stageDef.name}"، الجمع بين "${uName}" و"${uName2}" يبني كفاءة C متكاملة`
     });
   }
@@ -2651,14 +2657,14 @@ function makeLevelExamQuestions(levelDef) {
   ];
 
   const questions = stems.map(stem => ({
-    question: stem,
-    options: [
+    prompt: stem,
+    choices: [
       `التركيز على حفظ الدوال والأوامر دون فهم كيف تعمل الذاكرة`,
       `بناء فهم متين للأسس مع تطبيق عملي مستمر وكتابة كود آمن وقابل للصيانة`,
       `التخصص الضيق جداً في جانب واحد فقط من C`,
       `الانتقال السريع لـ Rust أو C++ دون إتقان C أولاً`
     ],
-    correctIndex: 1,
+    correct_index: 1,
     explanation: `التميز في "${lName}" يأتي من فهم عميق لإدارة الذاكرة والتطبيق المستمر`
   }));
 
