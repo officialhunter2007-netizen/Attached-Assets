@@ -7,6 +7,7 @@ const ROOT = path.resolve(new URL(import.meta.url).pathname, "..", "..");
 const FILES = [
   { file: path.join(ROOT, "python-instruction.json"), slug: "python" },
   { file: path.join(ROOT, "c-instruction.json"), slug: "skill-c" },
+  { file: path.join(ROOT, "sql-instruction.json"), slug: "skill-sql" },
 ];
 
 async function main() {
