@@ -1041,6 +1041,9 @@ export default function Admin() {
             <TabsTrigger value="v4-podcasts" className="flex items-center gap-1.5 bg-gradient-to-l from-violet-500/10 to-purple-500/10 data-[state=active]:from-violet-500/25 data-[state=active]:to-purple-500/20 data-[state=active]:border-violet-400/40">
               🎙️ بودكاستات
             </TabsTrigger>
+            <TabsTrigger value="lab-preview" className="flex items-center gap-1.5 bg-gradient-to-l from-emerald-500/10 to-teal-500/10 data-[state=active]:from-emerald-500/25 data-[state=active]:to-teal-500/20 data-[state=active]:border-emerald-400/40">
+              🧪 معامل (تجريبي)
+            </TabsTrigger>
             <TabsTrigger value="ai-teacher-provider" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-sky-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-sky-500/20 data-[state=active]:border-amber-400/40">
               <Cpu className="w-3.5 h-3.5 text-sky-400" />
               مزوّد المعلم (AI)
@@ -1898,6 +1901,34 @@ export default function Admin() {
 
           <TabsContent value="v4-podcasts">
             <AdminPodcasts />
+          </TabsContent>
+
+          <TabsContent value="lab-preview">
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-4 p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
+                <div className="text-2xl shrink-0">🧪</div>
+                <div>
+                  <div className="font-bold text-white mb-1">معمل نموذجي — عمليات الملفات وتحرير النصوص</div>
+                  <div className="text-sm text-white/50 mb-3">وحدة 1.4.2 · أساسيات Linux · المستوى الأول · بيئة Linux محاكاة كاملة في المتصفح</div>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {["mkdir / rmdir", "cp / mv / rm", "cat / head / tail", "nano / vim", "wc / stat / file", "echo + redirect"].map(s => (
+                      <span key={s} className="text-xs px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono">{s}</span>
+                    ))}
+                  </div>
+                  <a
+                    href="/lab-preview/linux-file-ops"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-colors"
+                  >
+                    🚀 فتح المعمل للمراجعة
+                  </a>
+                </div>
+              </div>
+              <div className="text-xs text-white/30 px-1">
+                هذا معمل نموذجي لمراجعة الفكرة قبل بناء المنظومة الكاملة. يعمل بالكامل في المتصفح بدون خادم.
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="ai-teacher-provider">
