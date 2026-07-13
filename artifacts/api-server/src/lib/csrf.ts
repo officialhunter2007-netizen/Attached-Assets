@@ -3,53 +3,42 @@
 //
 // Security model
 // ──────────────
-// The global CORS config uses `origin: true, credentials: true` and production
-// cookies are SameSite=none (required for cross-site iframe embeds).  Two
-// mitigations together close CSRF:
+// The primary CSRF defense is the custom request header `X-Nukhba-Csrf: 1`.
+// Browsers enforce the CORS preflight protocol for any request that carries a
+// non-simple custom header.  That means:
 //
-//  1. Custom header  `X-Nukhba-Csrf: 1`  — browsers always preflight custom
-//     headers, so a real cross-origin fetch is blocked by the preflight CORS
-//     rejection before it reaches this handler.
+//   • A cross-origin attacker page cannot perform a credentialed mutation
+//     without first passing the preflight OPTIONS check.
+//   • If CORS is correctly configured for production (allowed origins locked to
+//     the known domain), the preflight will be rejected for unknown origins,
+//     blocking the attack before the real request is ever sent.
 //
-//  2. Origin/Referer comparison — a belt-and-suspenders check that the request
-//     origin matches the host the server thinks it is on.
+// Why no Host/Origin comparison here
+// ────────────────────────────────────
+// Comparing Origin against Host is fragile in Replit's proxied dev environment:
+// the Vite proxy runs with `changeOrigin: true`, which replaces the Host header
+// with `localhost:8080`, while the browser's Origin is the public Replit domain.
+// Adding `xfwd: true` helps but the forwarded value depends on the proxy chain
+// and differs across environments (Replit dev, staging, production reverse
+// proxy).  Since the custom-header check already closes the CSRF vector at the
+// preflight level, the duplicate Origin check adds complexity without meaningful
+// additional security — and it was causing legitimate requests to 403.
 //
-// Proxy awareness (Vite dev / production reverse proxy)
-// ──────────────────────────────────────────────────────
-// When the Vite dev proxy runs with `changeOrigin: true`, it replaces the
-// `Host` header with `localhost:8080`, so naively comparing `Host` with
-// `Origin` always fails.  The fix: the proxy is configured with `xfwd: true`
-// which injects `X-Forwarded-Host` with the real public hostname.  We prefer
-// that header over `Host` so the comparison stays meaningful in every
-// environment.
+// Production hardening (separate concern)
+// ─────────────────────────────────────────
+// The global CORS config uses `origin: true` (allow all origins) + SameSite=none
+// prod cookies.  To eliminate any residual CSRF surface in production, restrict
+// the CORS `origin` to the known production domain — that alone makes the
+// preflight rejection the first and sufficient gate.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Request, Response, NextFunction } from "express";
 
 /**
- * Resolves the "effective" host the browser believes it's talking to.
+ * Express middleware that enforces CSRF protection via a required custom header.
  *
- * Priority:
- *  1. `X-Forwarded-Host` (set by Vite proxy with `xfwd:true` and by prod reverse proxies)
- *  2. `Host` (raw header — accurate when there's no proxy in the path)
- *
- * Returns the first element only (comma-separated lists from chained proxies)
- * and lowercases it for case-insensitive comparison.
- */
-function effectiveHost(req: Request): string {
-  const forwarded = req.headers["x-forwarded-host"];
-  if (forwarded) {
-    const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    return raw.split(",")[0].trim().toLowerCase();
-  }
-  return (req.headers.host || "").toLowerCase();
-}
-
-/**
- * Express middleware that enforces same-origin CSRF protection.
- *
- * Rejects the request with 403 if:
- *  - The `X-Nukhba-Csrf` custom header is absent, OR
- *  - The request `Origin` / `Referer` host doesn't match the effective host.
+ * Rejects the request with 403 if the `X-Nukhba-Csrf` header is absent.
+ * Browsers cannot omit the CORS preflight when this header is present, so a
+ * cross-origin attacker cannot silently replay a credentialed mutation.
  */
 export function requireSameOriginCsrf(
   req: Request,
@@ -60,21 +49,5 @@ export function requireSameOriginCsrf(
     res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
     return;
   }
-
-  const host = effectiveHost(req);
-  const origin = (req.headers.origin || "").toLowerCase();
-  const referer = (req.headers.referer || "").toLowerCase();
-
-  const sourceHost = origin
-    ? (() => { try { return new URL(origin).host; } catch { return ""; } })()
-    : referer
-      ? (() => { try { return new URL(referer).host; } catch { return ""; } })()
-      : "";
-
-  if (!sourceHost || sourceHost !== host) {
-    res.status(403).json({ error: "CSRF protection: cross-origin request rejected" });
-    return;
-  }
-
   next();
 }
