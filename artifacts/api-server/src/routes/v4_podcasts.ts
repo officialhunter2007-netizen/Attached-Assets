@@ -104,11 +104,11 @@ router.get("/admin/v4/units", requireAdminMw, async (req: any, res: any): Promis
   if (!specialtyId) return res.status(400).json({ error: "specialtyId required" });
 
   const [specialty] = await db
-    .select({ activeVersionId: v4SpecialtiesTable.activeVersionId })
+    .select({ versionId: v4SpecialtiesTable.activeInstructionVersionId })
     .from(v4SpecialtiesTable)
     .where(eq(v4SpecialtiesTable.slug, specialtyId));
 
-  if (!specialty?.activeVersionId) return res.json([]);
+  if (!specialty?.versionId) return res.json([]);
 
   const result = await db.execute(sql`
     SELECT
@@ -121,7 +121,7 @@ router.get("/admin/v4/units", requireAdminMw, async (req: any, res: any): Promis
       (SELECT COUNT(*) FROM v4_lab_scenarios ls WHERE ls.unit_id = u.id) AS lab_count
     FROM v4_units u
     JOIN v4_stages s ON s.id = u.stage_id
-    WHERE u.version_id = ${specialty.activeVersionId}
+    WHERE u.version_id = ${specialty.versionId}
     ORDER BY s.stage_index, u.unit_index
   `);
 
