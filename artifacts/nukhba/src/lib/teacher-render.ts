@@ -17,16 +17,36 @@ export function extractMathBlocks(raw: string): MathPlaceholderResult {
   const blocks: Array<{ tex: string; display: boolean }> = [];
   let pre = raw.replace(/\\\$/g, ESCAPED_DOLLAR);
 
+  // ── Display math: $…$ (primary) ─────────────────────────────────────────
   pre = pre.replace(/\$\$([\s\S]+?)\$\$/g, (_m, tex) => {
     const idx = blocks.length;
     blocks.push({ tex: String(tex).trim(), display: true });
     return `${MATH_PLACEHOLDER_PREFIX}${idx}${MATH_PLACEHOLDER_SUFFIX}`;
   });
 
+  // ── Display math: \[…\] (AI models often emit this despite the prompt) ────
+  pre = pre.replace(/\\\[([\s\S]+?)\\\]/g, (_m, tex) => {
+    const t = String(tex).trim();
+    if (!t) return _m;
+    const idx = blocks.length;
+    blocks.push({ tex: t, display: true });
+    return `${MATH_PLACEHOLDER_PREFIX}${idx}${MATH_PLACEHOLDER_SUFFIX}`;
+  });
+
+  // ── Inline math: \(…\) (AI models often emit this instead of $…$) ─────────
+  pre = pre.replace(/\\\((.{1,400}?)\\\)/gs, (_m, tex) => {
+    const t = String(tex).trim();
+    if (!t) return _m;
+    const idx = blocks.length;
+    blocks.push({ tex: t, display: false });
+    return `${MATH_PLACEHOLDER_PREFIX}${idx}${MATH_PLACEHOLDER_SUFFIX}`;
+  });
+
+  // ── Inline math: $…$ (with smart currency guard) ──────────────────────────
   pre = pre.replace(/(?<![\\\w])\$([^\n$]{1,400}?)\$(?!\w)/g, (_m, tex) => {
     const t = String(tex).trim();
-    if (!t) return `$${tex}$`;
-    if (!/[\\^_=+\-*/<>()[\]{}|]/.test(t) && !/[a-zA-Z]/.test(t)) return `$${tex}$`;
+    if (!t) return "$" + tex + "$";
+    if (!/[\\^_=+\-*/<>()[\]{}|]/.test(t) && !/[a-zA-Z]/.test(t)) return "$" + tex + "$";
     const idx = blocks.length;
     blocks.push({ tex: t, display: false });
     return `${MATH_PLACEHOLDER_PREFIX}${idx}${MATH_PLACEHOLDER_SUFFIX}`;
