@@ -199,11 +199,13 @@ function renderHtml(raw: string): string {
   const withNoComments = stripFenceCommentsBooklet(withFences);
   const { text: stripped, blocks } = extractMathBlocks(withNoComments);
   const html = marked.parse(ensureMarkdownBlockGaps(stripped ?? ""), { async: false }) as string;
-  const withMath = restoreMathPlaceholders(html, blocks);
-  return DOMPurify.sanitize(withMath, {
+  // Sanitize FIRST so DOMPurify never sees KaTeX's complex span tree,
+  // then restore math — placeholders are plain ASCII and survive sanitization.
+  const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ["target", "aria-label", "aria-hidden", "type"],
     ADD_TAGS: ["figure", "figcaption", "button"],
   });
+  return restoreMathPlaceholders(sanitized, blocks);
 }
 
 // ─── TeacherBubble ────────────────────────────────────────────────────────────

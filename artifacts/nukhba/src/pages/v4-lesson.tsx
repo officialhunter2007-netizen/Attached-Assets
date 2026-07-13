@@ -446,11 +446,13 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   const merged = mergeSplitCodeTokens(stripped);
 
   const html = marked.parse(ensureMarkdownBlockGaps(merged ?? ""), { async: false }) as string;
-  const withMath = restoreMathPlaceholders(html, blocks);
-  return DOMPurify.sanitize(withMath, {
+  // Sanitize FIRST so DOMPurify never sees KaTeX's complex span tree,
+  // then restore math — placeholders are plain ASCII and survive sanitization.
+  const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ["target", "data-image-id", "loading", "data-viz-mount", "data-viz-template", "data-viz-payload"],
     ADD_TAGS: ["figure", "figcaption"],
   });
+  return restoreMathPlaceholders(sanitized, blocks);
 }
 
 function TeacherBubble({ html, isStreaming, imageMap, lessonName, slug }: { html: string; isStreaming: boolean; imageMap: Map<string, V4ImageState>; lessonName?: string; slug?: string }) {
