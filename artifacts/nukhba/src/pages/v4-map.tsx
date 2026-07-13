@@ -641,8 +641,8 @@ function LockedLevelBox({ level }: { level: { levelIndex: number; name: string }
 }
 
 // ─── Podcast Node ─────────────────────────────────────────────────────────────
-// Supplemental audio episode attached to a curriculum unit. Appears inline
-// between lesson/lab nodes. Tap to expand a compact audio player.
+// Supplemental audio episode — rendered as a circle node matching the map style.
+// Tap the circle to expand a compact player below it.
 function PodcastNode({ podcast }: { podcast: PodcastItem }) {
   const [expanded, setExpanded] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -655,62 +655,64 @@ function PodcastNode({ podcast }: { podcast: PodcastItem }) {
     return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
   };
 
-  const togglePlay = () => {
+  const togglePlay = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!audioRef.current) return;
     playing ? audioRef.current.pause() : audioRef.current.play();
   };
 
   return (
-    <div className="w-full max-w-[268px] mx-auto my-2" dir="rtl">
+    <div className="relative flex flex-col items-center select-none" dir="rtl">
+      {/* Circle button — matches map node sizing */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl border border-violet-500/30 bg-gradient-to-l from-violet-500/10 to-purple-500/5 text-right transition-all hover:border-violet-400/50 hover:bg-violet-500/15 active:scale-[0.97]"
+        className="relative w-14 h-14 rounded-full bg-gradient-to-br from-violet-500/70 to-purple-700/80 border-2 border-violet-400/60 shadow-lg shadow-violet-500/30 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
       >
-        <div className="w-8 h-8 rounded-xl bg-violet-500/30 border border-violet-400/30 flex items-center justify-center shrink-0">
-          <Headphones className="w-4 h-4 text-violet-300" />
-        </div>
-        <div className="flex-1 min-w-0 text-right">
-          <div className="text-[9px] font-bold text-violet-400/70 tracking-widest">بودكاست</div>
-          <div className="text-[11px] font-bold text-white/80 truncate">{podcast.title}</div>
-        </div>
-        <ChevronDown
-          className={`w-3.5 h-3.5 text-violet-300/50 transition-transform duration-200 shrink-0 ${expanded ? "rotate-180" : ""}`}
-        />
+        <Headphones className="w-6 h-6 text-white" />
+        {/* tiny "live" dot when playing */}
+        {playing && (
+          <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full bg-violet-300 border border-violet-900 animate-pulse" />
+        )}
       </button>
+
+      {/* label below — same style as LessonNode */}
+      <span className="text-[10px] text-violet-300/70 text-center max-w-[72px] mt-1 leading-tight line-clamp-2">
+        {podcast.title}
+      </span>
+
+      {/* Expanded player — appears below, centred under the circle */}
       {expanded && (
-        <div className="mt-1.5 px-1">
-          <div className="px-3 py-2.5 rounded-xl bg-black/40 border border-violet-500/20">
-            <audio
-              ref={audioRef}
-              src={podcast.audioSrc}
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={() => { setPlaying(false); setCur(0); }}
-              onTimeUpdate={() => setCur(audioRef.current?.currentTime ?? 0)}
-              onLoadedMetadata={() => setDur(audioRef.current?.duration ?? 0)}
-              preload="metadata"
-            />
-            <div className="flex items-center gap-2.5">
-              <button
-                onClick={togglePlay}
-                className="w-8 h-8 rounded-full bg-violet-500/80 hover:bg-violet-500 flex items-center justify-center shrink-0 transition-colors"
-              >
-                {playing
-                  ? <Pause className="w-3.5 h-3.5 text-white fill-white" />
-                  : <Play className="w-3.5 h-3.5 text-white fill-white" />}
-              </button>
-              <div className="flex-1 flex flex-col gap-1">
-                <input
-                  type="range" min={0} max={dur || 1} value={cur} step={0.5}
-                  onChange={(e) => {
-                    if (audioRef.current) audioRef.current.currentTime = parseFloat(e.target.value);
-                  }}
-                  className="w-full h-1.5 accent-violet-400 cursor-pointer"
-                />
-                <div className="flex justify-between text-[9px] text-white/35 tabular-nums">
-                  <span>{fmt(cur)}</span>
-                  <span>{fmt(dur)}</span>
-                </div>
+        <div className="mt-2 w-[220px] px-3 py-2.5 rounded-2xl bg-black/60 border border-violet-500/25 shadow-xl shadow-violet-900/30 backdrop-blur-sm">
+          <audio
+            ref={audioRef}
+            src={podcast.audioSrc}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => { setPlaying(false); setCur(0); }}
+            onTimeUpdate={() => setCur(audioRef.current?.currentTime ?? 0)}
+            onLoadedMetadata={() => setDur(audioRef.current?.duration ?? 0)}
+            preload="metadata"
+          />
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={togglePlay}
+              className="w-8 h-8 rounded-full bg-violet-500/80 hover:bg-violet-500 flex items-center justify-center shrink-0 transition-colors"
+            >
+              {playing
+                ? <Pause className="w-3.5 h-3.5 text-white fill-white" />
+                : <Play className="w-3.5 h-3.5 text-white fill-white" />}
+            </button>
+            <div className="flex-1 flex flex-col gap-1 min-w-0">
+              <input
+                type="range" min={0} max={dur || 1} value={cur} step={0.5}
+                onChange={(e) => {
+                  if (audioRef.current) audioRef.current.currentTime = parseFloat(e.target.value);
+                }}
+                className="w-full h-1.5 accent-violet-400 cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-white/35 tabular-nums">
+                <span>{fmt(cur)}</span>
+                <span>{fmt(dur)}</span>
               </div>
             </div>
           </div>
