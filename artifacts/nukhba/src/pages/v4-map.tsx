@@ -15,8 +15,8 @@ import { useRoute, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2, Lock, Star, FlaskConical, Trophy, Crown, BookOpen,
-  CheckCircle, Play, ChevronRight, ChevronDown, Sparkles, Map, ArrowRight,
-  XCircle, RotateCcw, Zap, GraduationCap,
+  CheckCircle, Play, Pause, ChevronRight, ChevronDown, Sparkles, Map, ArrowRight,
+  XCircle, RotateCcw, Zap, GraduationCap, Headphones,
 } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { PathSwitcher } from "@/components/path-switcher";
@@ -97,13 +97,23 @@ interface TestOutWeakArea {
 }
 
 // Discriminated union for the accordion-structured render list.
+// Podcast audio episode attached to a unit by an admin.
+type PodcastItem = {
+  id: number;
+  title: string;
+  sortOrder: number;
+  audioSrc: string;
+};
+
 // Each entry is either a stage header (always visible), a unit header
 // (visible when its stage is expanded), or a lesson/lab/test node
-// (visible when its unit is expanded).
+// (visible when its unit is expanded). Podcast items are supplemental
+// audio episodes that appear inline between lesson/lab nodes.
 type RenderItem =
   | { type: "stage"; stage: StageTree; expanded: boolean }
   | { type: "unit"; unit: UnitTree; stageIndex: number; expanded: boolean }
-  | { type: "node"; node: FlatNode; xOff: number; showConnector: boolean };
+  | { type: "node"; node: FlatNode; xOff: number; showConnector: boolean }
+  | { type: "podcast"; podcast: PodcastItem };
 
 function flattenMap(mapData: MapData): FlatNode[] {
   const nodes: FlatNode[] = [];
@@ -630,6 +640,86 @@ function LockedLevelBox({ level }: { level: { levelIndex: number; name: string }
   );
 }
 
+// ─── Podcast Node ─────────────────────────────────────────────────────────────
+// Supplemental audio episode attached to a curriculum unit. Appears inline
+// between lesson/lab nodes. Tap to expand a compact audio player.
+function PodcastNode({ podcast }: { podcast: PodcastItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [cur, setCur] = useState(0);
+  const [dur, setDur] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const fmt = (s: number) => {
+    if (!s || !isFinite(s)) return "0:00";
+    return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
+  };
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    playing ? audioRef.current.pause() : audioRef.current.play();
+  };
+
+  return (
+    <div className="w-full max-w-[268px] mx-auto my-2" dir="rtl">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl border border-violet-500/30 bg-gradient-to-l from-violet-500/10 to-purple-500/5 text-right transition-all hover:border-violet-400/50 hover:bg-violet-500/15 active:scale-[0.97]"
+      >
+        <div className="w-8 h-8 rounded-xl bg-violet-500/30 border border-violet-400/30 flex items-center justify-center shrink-0">
+          <Headphones className="w-4 h-4 text-violet-300" />
+        </div>
+        <div className="flex-1 min-w-0 text-right">
+          <div className="text-[9px] font-bold text-violet-400/70 tracking-widest">بودكاست</div>
+          <div className="text-[11px] font-bold text-white/80 truncate">{podcast.title}</div>
+        </div>
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-violet-300/50 transition-transform duration-200 shrink-0 ${expanded ? "rotate-180" : ""}`}
+        />
+      </button>
+      {expanded && (
+        <div className="mt-1.5 px-1">
+          <div className="px-3 py-2.5 rounded-xl bg-black/40 border border-violet-500/20">
+            <audio
+              ref={audioRef}
+              src={podcast.audioSrc}
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={() => { setPlaying(false); setCur(0); }}
+              onTimeUpdate={() => setCur(audioRef.current?.currentTime ?? 0)}
+              onLoadedMetadata={() => setDur(audioRef.current?.duration ?? 0)}
+              preload="metadata"
+            />
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={togglePlay}
+                className="w-8 h-8 rounded-full bg-violet-500/80 hover:bg-violet-500 flex items-center justify-center shrink-0 transition-colors"
+              >
+                {playing
+                  ? <Pause className="w-3.5 h-3.5 text-white fill-white" />
+                  : <Play className="w-3.5 h-3.5 text-white fill-white" />}
+              </button>
+              <div className="flex-1 flex flex-col gap-1">
+                <input
+                  type="range" min={0} max={dur || 1} value={cur} step={0.5}
+                  onChange={(e) => {
+                    if (audioRef.current) audioRef.current.currentTime = parseFloat(e.target.value);
+                  }}
+                  className="w-full h-1.5 accent-violet-400 cursor-pointer"
+                />
+                <div className="flex justify-between text-[9px] text-white/35 tabular-nums">
+                  <span>{fmt(cur)}</span>
+                  <span>{fmt(dur)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Connector path between nodes (SVG) ──────────────────────────────────────
 // Renders a curved dotted line connecting consecutive node positions.
 function ConnectorLine({ fromX, toX, color }: { fromX: number; toX: number; color: string }) {
@@ -942,6 +1032,12 @@ export default function V4Map() {
   // Tap a unit → reveals its lessons/labs/tests.
   const [expandedStages, setExpandedStages] = useState<Set<number>>(new Set());
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
+
+  // ── Podcasts: audio episodes attached to units (fetched after map loads) ──
+  // Stored keyed by unit_code so the renderItems useMemo can interleave them
+  // with lesson/lab nodes based on sort_order. Fetched once per slug load;
+  // silently empty on error — podcasts are supplemental, not blocking.
+  const [podcastsByUnit, setPodcastsByUnit] = useState<Record<string, PodcastItem[]>>({});
   // Guards re-running auto-expand on SSE events (only re-run when the viewed
   // level actually changes, not on incremental node-status updates).
   const lastAutoExpandedForLevel = useRef<number | null>(null);
@@ -961,6 +1057,11 @@ export default function V4Map() {
         if (cancelled) return;
         setData(d);
         setErr(null);
+        // Fetch podcasts for this specialty — supplemental; silent on error.
+        fetch(`/api/v4/podcasts?slug=${encodeURIComponent(slug)}`, { credentials: "include" })
+          .then(r2 => r2.ok ? r2.json() : null)
+          .then(j => { if (j?.byUnit && !cancelled) setPodcastsByUnit(j.byUnit as Record<string, PodcastItem[]>); })
+          .catch(() => {/* podcasts are supplemental */});
       } catch (e: any) {
         if (cancelled) return;
         setErr(String(e?.message ?? "unknown"));
@@ -1184,15 +1285,45 @@ export default function V4Map() {
         items.push({ type: "unit", unit, stageIndex: stage.stageIndex, expanded: unitExpanded });
         if (!unitExpanded) continue;
 
-        for (const lesson of unit.lessons) {
-          pushNode({ id: lesson.code, label: lesson.name, kind: "lesson", status: lesson.status, stars: lesson.stars });
-        }
-        for (const lab of unit.labs) {
-          pushNode({ id: lab.code, label: lab.title, kind: "lab", status: lab.status });
-        }
+        // Collect all unit content with sort positions, then interleave.
+        // Lessons occupy positions 1, 2, 3...; labs come after at
+        // lessonCount+j+1; unit test is last at lessonCount+labCount+1.
+        // Podcasts insert at their admin-set sort_order (0 = before lessons,
+        // 1.5 = between lessons 1 and 2, 999 = end, etc.).
+        const contentItems: Array<{ sort: number; run: () => void }> = [];
+
+        unit.lessons.forEach((lesson, i) => {
+          const l = lesson;
+          contentItems.push({
+            sort: i + 1,
+            run: () => pushNode({ id: l.code, label: l.name, kind: "lesson", status: l.status, stars: l.stars }),
+          });
+        });
+        unit.labs.forEach((lab, j) => {
+          const lb = lab;
+          contentItems.push({
+            sort: unit.lessons.length + j + 1,
+            run: () => pushNode({ id: lb.code, label: lb.title, kind: "lab", status: lb.status }),
+          });
+        });
         if (unit.hasUnitTest && unit.unitTest) {
-          pushNode({ id: unit.unitTest.code, label: "اختبار الوحدة", sublabel: unit.name, kind: "unit_test", status: unit.unitTest.status });
+          const ut = unit.unitTest;
+          contentItems.push({
+            sort: unit.lessons.length + unit.labs.length + 1,
+            run: () => pushNode({ id: ut.code, label: "اختبار الوحدة", sublabel: unit.name, kind: "unit_test", status: ut.status }),
+          });
         }
+        // Podcasts: admin places them at any fractional position
+        for (const podcast of (podcastsByUnit[unit.code] ?? [])) {
+          const pod = podcast;
+          contentItems.push({
+            sort: pod.sortOrder,
+            run: () => items.push({ type: "podcast", podcast: pod }),
+          });
+        }
+        // Emit in sort_order, stable (equal sort → insertion order)
+        contentItems.sort((a, b) => a.sort - b.sort);
+        for (const ci of contentItems) ci.run();
       }
       if (stage.hasStageTest && stage.stageTest) {
         pushNode({ id: stage.stageTest.code, label: "اختبار المرحلة", sublabel: stage.name, kind: "stage_test", status: stage.stageTest.status });
@@ -1202,7 +1333,7 @@ export default function V4Map() {
       pushNode({ id: m.levelTest.code, label: "اختبار المستوى", sublabel: m.levelName, kind: "level_test", status: m.levelTest.status });
     }
     return items;
-  }, [data, expandedStages, expandedUnits]);
+  }, [data, expandedStages, expandedUnits, podcastsByUnit]);
 
   // Open the adaptive test-out exam for a locked lesson/lab. Demo mode has no
   // backend, so it falls back to a hint.
@@ -1507,6 +1638,9 @@ export default function V4Map() {
                   onToggle={() => toggleUnit(item.unit.code)}
                 />
               );
+            }
+            if (item.type === "podcast") {
+              return <PodcastNode key={`podcast-${item.podcast.id}`} podcast={item.podcast} />;
             }
             const { node, xOff, showConnector } = item;
             return (

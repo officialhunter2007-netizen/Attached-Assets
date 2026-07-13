@@ -47,6 +47,7 @@ import { AdminV4Instructions } from "@/components/admin-v4-instructions";
 import { AdminV4Booklets } from "@/components/admin-v4-booklets";
 import { AdminV4Wallets } from "@/components/admin-v4-wallets";
 import { AdminCurriculumChat } from "@/components/admin-curriculum-chat";
+import { AdminPodcasts } from "@/components/admin-podcasts";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -1037,6 +1038,9 @@ export default function Admin() {
               <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
               ملازم (v4)
             </TabsTrigger>
+            <TabsTrigger value="v4-podcasts" className="flex items-center gap-1.5 bg-gradient-to-l from-violet-500/10 to-purple-500/10 data-[state=active]:from-violet-500/25 data-[state=active]:to-purple-500/20 data-[state=active]:border-violet-400/40">
+              🎙️ بودكاستات
+            </TabsTrigger>
             <TabsTrigger value="ai-teacher-provider" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-sky-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-sky-500/20 data-[state=active]:border-amber-400/40">
               <Cpu className="w-3.5 h-3.5 text-sky-400" />
               مزوّد المعلم (AI)
@@ -1890,6 +1894,10 @@ export default function Admin() {
 
           <TabsContent value="v4-booklets">
             <AdminV4Booklets />
+          </TabsContent>
+
+          <TabsContent value="v4-podcasts">
+            <AdminPodcasts />
           </TabsContent>
 
           <TabsContent value="ai-teacher-provider">

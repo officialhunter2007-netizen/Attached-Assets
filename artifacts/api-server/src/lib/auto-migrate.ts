@@ -1136,6 +1136,29 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE INDEX IF NOT EXISTS "material_page_status_status_idx" ON "material_page_status" ("material_id", "status")`,
     ],
   },
+  // ── Podcasts: admin-authored audio clips attached to any unit ──────────────
+  // Tied to specialty_id + unit_code (not a specific version) so they survive
+  // instruction file re-publishes. sort_order lets admins place a podcast
+  // before all lessons (0), between lessons (e.g. 1.5 = after lesson 1),
+  // or at the end (high numbers like 999).
+  {
+    table: "v4_unit_podcasts",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "v4_unit_podcasts" (
+        "id" serial PRIMARY KEY,
+        "specialty_id" text NOT NULL,
+        "unit_code" text NOT NULL,
+        "title" text NOT NULL,
+        "audio_url" text,
+        "audio_filename" text,
+        "sort_order" real NOT NULL DEFAULT 0,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_v4_unit_podcasts_specialty_unit" ON "v4_unit_podcasts" ("specialty_id", "unit_code")`,
+    ],
+  },
 ];
 
 // Best-effort: ensure the FTS index over `material_chunks.content_normalized`

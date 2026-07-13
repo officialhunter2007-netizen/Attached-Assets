@@ -26,6 +26,7 @@ import notificationsRouter from "./notifications";
 import typingRouter from "./typing";
 import v4ReferralRouter from "./v4_referral";
 import { adminCurriculumRouter } from "./admin_curriculum";
+import v4PodcastsRouter from "./v4_podcasts";
 
 const router: IRouter = Router();
 
@@ -56,5 +57,6 @@ router.use(notificationsRouter);
 router.use(typingRouter);
 router.use(v4ReferralRouter);
 router.use(adminCurriculumRouter);
+router.use(v4PodcastsRouter);
 
 export default router;
