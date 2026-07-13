@@ -1,4 +1,0 @@
-[  319521ms] [ERROR] Failed to load resource: the server responded with a status of 402 () @ https://learnukhba.com/api/v4/booklet/upload:0
-[  371166ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://learnukhba.com/api/me:0
-[  400752ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://learnukhba.com/api/v4/wallet/balance/uni-it:0
-[  490548ms] [ERROR] Failed to load resource: the server responded with a status of 402 () @ https://learnukhba.com/api/v4/booklet/upload:0
