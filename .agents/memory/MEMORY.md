@@ -1,3 +1,4 @@
+- [Artifact TOML port fix](artifact-toml-port-fix.md) — artifact localPort/PORT env lives in .replit-artifact/artifact.toml; use verifyAndReplaceArtifactToml (absolute paths) to update it; configureWorkflow is blocked on artifact workflows.
 - [DB migration in Replit](db-migration-replit.md) — drizzle-kit push is interactive; use raw psql SQL to create missing tables; when whole tables are missing, restore from a repo pg_dump instead.
 - [Mermaid VIZ template](mermaid-viz-template.md) — new diagram capability extends VIZ (no 2nd AI call) via cumulative-snapshot stepper; `pnpm add` at monorepo root fails, use `--filter <pkg>`.
 - [v4 mastery tag invariants](v4-mastery-tag-invariants.md) — GREATEST monotonicity on mastery upsert; NEEDS_REVIEW floors at 60 (not 40) for mastered concepts; phantom conceptIndex validated against DB before write.
