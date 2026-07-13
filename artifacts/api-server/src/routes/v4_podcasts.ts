@@ -115,11 +115,14 @@ router.get("/admin/v4/units", requireAdminMw, async (req: any, res: any): Promis
       u.code,
       u.name,
       u.unit_index,
+      s.stage_index,
+      s.name  AS stage_name,
       (SELECT COUNT(*) FROM v4_lessons l WHERE l.unit_id = u.id)        AS lesson_count,
       (SELECT COUNT(*) FROM v4_lab_scenarios ls WHERE ls.unit_id = u.id) AS lab_count
     FROM v4_units u
+    JOIN v4_stages s ON s.id = u.stage_id
     WHERE u.version_id = ${specialty.activeVersionId}
-    ORDER BY u.code
+    ORDER BY s.stage_index, u.unit_index
   `);
 
   return res.json(result.rows);

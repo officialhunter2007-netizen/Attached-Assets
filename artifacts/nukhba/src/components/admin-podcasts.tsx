@@ -30,6 +30,8 @@ type UnitInfo = {
   code: string;
   name: string;
   unit_index: number;
+  stage_index: number;
+  stage_name: string;
   lesson_count: number;
   lab_count: number;
 };
@@ -149,8 +151,21 @@ export function AdminPodcasts() {
   const filteredUnits = units.filter((u) =>
     !unitSearch ||
     u.name.includes(unitSearch) ||
-    u.code.includes(unitSearch),
+    u.code.includes(unitSearch) ||
+    u.stage_name.includes(unitSearch),
   );
+
+  // Group filtered units by stage for the picker
+  const unitsByStage: { stageIndex: number; stageName: string; units: UnitInfo[] }[] = [];
+  for (const u of filteredUnits) {
+    const group = unitsByStage.find((g) => g.stageIndex === u.stage_index);
+    if (group) {
+      group.units.push(u);
+    } else {
+      unitsByStage.push({ stageIndex: u.stage_index, stageName: u.stage_name, units: [u] });
+    }
+  }
+  unitsByStage.sort((a, b) => a.stageIndex - b.stageIndex);
 
   // ── Fetch units when specialty changes ──────────────────────────────────────
   useEffect(() => {
@@ -410,21 +425,33 @@ export function AdminPodcasts() {
                     onChange={(e) => setUnitSearch(e.target.value)}
                   />
                 </div>
-                {filteredUnits.map((u) => (
-                  <button
-                    key={u.code}
-                    onClick={() => {
-                      setSelectedUnit(u);
-                      setShowUnitPicker(false);
-                      setUnitSearch("");
-                      setAddSortOrder(0);
-                    }}
-                    className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-white/5 text-sm text-right"
-                  >
-                    <span className="font-mono text-xs text-white/40 shrink-0 w-12">{u.code}</span>
-                    <span className="flex-1 truncate">{u.name}</span>
-                    <span className="text-[10px] text-white/30 shrink-0">{u.lesson_count} درس</span>
-                  </button>
+                {unitsByStage.map((group) => (
+                  <div key={group.stageIndex}>
+                    {/* Stage header */}
+                    <div className="px-2.5 py-1 mt-1 first:mt-0 flex items-center gap-2">
+                      <div className="h-px flex-1 bg-white/8" />
+                      <span className="text-[9px] font-black tracking-widest text-violet-300/60 uppercase whitespace-nowrap">
+                        المرحلة {group.stageIndex} — {group.stageName}
+                      </span>
+                      <div className="h-px flex-1 bg-white/8" />
+                    </div>
+                    {group.units.map((u) => (
+                      <button
+                        key={u.code}
+                        onClick={() => {
+                          setSelectedUnit(u);
+                          setShowUnitPicker(false);
+                          setUnitSearch("");
+                          setAddSortOrder(0);
+                        }}
+                        className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-white/5 text-sm text-right"
+                      >
+                        <span className="font-mono text-[10px] text-white/30 shrink-0 w-5 text-center">{u.unit_index}</span>
+                        <span className="flex-1 truncate">{u.name}</span>
+                        <span className="text-[10px] text-white/30 shrink-0">{u.lesson_count} درس</span>
+                      </button>
+                    ))}
+                  </div>
                 ))}
               </div>
             )}
