@@ -25,6 +25,7 @@ import codingRoomsRouter from "./coding_rooms";
 import notificationsRouter from "./notifications";
 import typingRouter from "./typing";
 import v4ReferralRouter from "./v4_referral";
+import { adminCurriculumRouter } from "./admin_curriculum";
 
 const router: IRouter = Router();
 
@@ -54,5 +55,6 @@ router.use(codingRoomsRouter);
 router.use(notificationsRouter);
 router.use(typingRouter);
 router.use(v4ReferralRouter);
+router.use(adminCurriculumRouter);
 
 export default router;

@@ -46,6 +46,7 @@ import { AdminAiTeacherProvider } from "@/components/admin-ai-teacher-provider";
 import { AdminV4Instructions } from "@/components/admin-v4-instructions";
 import { AdminV4Booklets } from "@/components/admin-v4-booklets";
 import { AdminV4Wallets } from "@/components/admin-v4-wallets";
+import { AdminCurriculumChat } from "@/components/admin-curriculum-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -1023,6 +1024,11 @@ export default function Admin() {
               <Wallet className="w-3.5 h-3.5 text-gold" />
               محافظ v4
             </TabsTrigger>
+            <TabsTrigger value="curriculum-explorer" className="flex items-center gap-1.5 bg-gradient-to-l from-emerald-500/15 to-teal-500/10 data-[state=active]:from-emerald-500/30 data-[state=active]:to-teal-500/20 data-[state=active]:border-emerald-400/40">
+              <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
+              مستكشف المنهج
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gradient-to-l from-emerald-500 to-teal-500 text-white">DB</span>
+            </TabsTrigger>
             <TabsTrigger value="v4-instructions" className="flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-emerald-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-emerald-500/20 data-[state=active]:border-amber-400/40">
               <BookOpen className="w-3.5 h-3.5 text-amber-400" />
               ملفات التعليمات (v4)
@@ -1870,6 +1876,11 @@ export default function Admin() {
 
           <TabsContent value="v4-wallets">
             <AdminV4Wallets />
+          </TabsContent>
+
+          {/* Curriculum Explorer Tab */}
+          <TabsContent value="curriculum-explorer">
+            <AdminCurriculumChat />
           </TabsContent>
 
           {/* v4 Instruction Files Tab */}
