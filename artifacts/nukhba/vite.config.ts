@@ -48,10 +48,12 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,
+        xfwd: true,
       },
       "/ws": {
         target: "http://localhost:8080",
         changeOrigin: true,
+        xfwd: true,
         ws: true,
       },
     },

@@ -31,6 +31,7 @@ import { applyDailyGemsRollover, applyDailyGemsRolloverForSubjectSub } from "../
 import { writeGemLedger } from "../lib/gem-ledger";
 import { purchaseV4GemsTx } from "../lib/v4-gem-wallet";
 import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
+import { requireSameOriginCsrf } from "../lib/csrf";
 import {
   computeGemsForPrice,
   computePricingBreakdown,
@@ -49,33 +50,6 @@ import {
 } from "../lib/pricing-formula";
 
 const router: IRouter = Router();
-
-// ── CSRF guard (same pattern as v4_admin_instructions / v4_teach / v4_path) ──
-// Admin mutating routes (approve/reject/incomplete/card-create/plan-prices)
-// must be triggered from the same origin. A custom header that browsers
-// cannot attach cross-origin without a CORS preflight is sufficient proof.
-function requireSameOriginCsrf(req: any, res: any, next: any): void {
-  if (!req.headers["x-nukhba-csrf"]) {
-    res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
-    return;
-  }
-  // Global CORS is permissive (origin:true, credentials:true) and prod cookies are
-  // SameSite=none, so the custom header alone is not enough — a same-origin check on
-  // Origin/Referer is required to match the v4 mutating-endpoint security contract.
-  const host = (req.headers.host || "").toLowerCase();
-  const origin = (req.headers.origin || "").toLowerCase();
-  const referer = (req.headers.referer || "").toLowerCase();
-  const sourceHost = origin
-    ? (() => { try { return new URL(origin).host; } catch { return ""; } })()
-    : referer
-      ? (() => { try { return new URL(referer).host; } catch { return ""; } })()
-      : "";
-  if (!sourceHost || sourceHost !== host) {
-    res.status(403).json({ error: "CSRF protection: cross-origin request rejected" });
-    return;
-  }
-  next();
-}
 
 // NOTE: Gem amounts are no longer hardcoded. They are computed dynamically from
 // the price paid (YER) and region via `computeGemsForPrice` in pricing-formula.ts.

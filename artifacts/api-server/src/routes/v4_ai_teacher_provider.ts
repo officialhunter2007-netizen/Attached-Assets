@@ -28,6 +28,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { eq } from "drizzle-orm";
 import { db, usersTable, aiTeacherProviderSettingsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { requireSameOriginCsrf } from "../lib/csrf";
 import {
   getTeacherProviderStatus,
   normaliseEndpoint,
@@ -52,26 +53,6 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction): Pr
   if (!uid) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (!(await isAdmin(uid))) { res.status(403).json({ error: "Forbidden" }); return; }
   (req as any).adminUserId = uid;
-  next();
-}
-
-function requireSameOriginCsrf(req: Request, res: Response, next: NextFunction): void {
-  if (!req.headers["x-nukhba-csrf"]) {
-    res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
-    return;
-  }
-  const host       = (req.headers.host    || "").toLowerCase();
-  const origin     = (req.headers.origin  || "").toLowerCase();
-  const referer    = (req.headers.referer || "").toLowerCase();
-  const sourceHost = origin
-    ? (() => { try { return new URL(origin).host;  } catch { return ""; } })()
-    : referer
-      ? (() => { try { return new URL(referer).host; } catch { return ""; } })()
-      : "";
-  if (!sourceHost || sourceHost !== host) {
-    res.status(403).json({ error: "CSRF protection: cross-origin request rejected" });
-    return;
-  }
   next();
 }
 

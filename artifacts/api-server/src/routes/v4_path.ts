@@ -61,6 +61,7 @@ import { capturePersonalDictionaryFromDiagnostic } from "../lib/v4-memory";
 import { subscribeProgressEvents } from "../lib/v4-progress-events";
 import { runV4PaidWork } from "../lib/v4-gem-wallet";
 import { studentGemWalletsTable } from "@workspace/db";
+import { requireSameOriginCsrf } from "../lib/csrf";
 import {
   resolveTestoutScope,
   resolveTestoutTarget,
@@ -94,29 +95,6 @@ function requireUser(req: Request, res: Response, next: NextFunction): void {
   const uid = getUserId(req);
   if (!uid) { res.status(401).json({ error: "Unauthorized" }); return; }
   (req as any).userId = uid;
-  next();
-}
-
-// Same custom-header + same-origin CSRF defense as v4 admin routes.
-// Cookie-session + permissive CORS means we must NOT accept simple
-// cross-site POSTs without the FE-supplied custom header.
-function requireSameOriginCsrf(req: Request, res: Response, next: NextFunction): void {
-  if (!req.headers["x-nukhba-csrf"]) {
-    res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
-    return;
-  }
-  const host = (req.headers.host || "").toLowerCase();
-  const origin = (req.headers.origin || "").toLowerCase();
-  const referer = (req.headers.referer || "").toLowerCase();
-  const sourceHost = origin
-    ? (() => { try { return new URL(origin).host; } catch { return ""; } })()
-    : referer
-      ? (() => { try { return new URL(referer).host; } catch { return ""; } })()
-      : "";
-  if (!sourceHost || sourceHost !== host) {
-    res.status(403).json({ error: "CSRF protection: cross-origin request rejected" });
-    return;
-  }
   next();
 }
 

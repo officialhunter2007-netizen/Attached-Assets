@@ -76,6 +76,7 @@ import {
 import { streamGeminiTeaching, type GeminiMessage } from "../lib/gemini-stream";
 import { V4_TEACHING_MODEL, assertGeminiForTeaching } from "../lib/v4-teaching-core";
 import { emitFriendlyAiFailure } from "./ai";
+import { requireSameOriginCsrf } from "../lib/csrf";
 
 const router: IRouter = Router();
 
@@ -91,25 +92,6 @@ function requireUser(req: Request, res: Response, next: NextFunction): void {
   const uid = getUserId(req);
   if (!uid) { res.status(401).json({ error: "Unauthorized" }); return; }
   (req as any).userId = uid;
-  next();
-}
-function requireSameOriginCsrf(req: Request, res: Response, next: NextFunction): void {
-  if (!req.headers["x-nukhba-csrf"]) {
-    res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
-    return;
-  }
-  const host = (req.headers.host || "").toLowerCase();
-  const origin = (req.headers.origin || "").toLowerCase();
-  const referer = (req.headers.referer || "").toLowerCase();
-  const sourceHost = origin
-    ? (() => { try { return new URL(origin).host; } catch { return ""; } })()
-    : referer
-      ? (() => { try { return new URL(referer).host; } catch { return ""; } })()
-      : "";
-  if (!sourceHost || sourceHost !== host) {
-    res.status(403).json({ error: "CSRF protection: cross-origin request rejected" });
-    return;
-  }
   next();
 }
 

@@ -39,6 +39,7 @@ import { generateGeminiJson, hasGeminiProvider, GenerateGeminiError } from "../l
 import { compareCodes } from "../lib/v4-path-engine";
 import { prewarmLessonContentForVersion } from "../lib/v4-teaching-core";
 import { recordAiUsage, extractGeminiUsage } from "../lib/ai-usage";
+import { requireSameOriginCsrf } from "../lib/csrf";
 
 const router: IRouter = Router();
 
@@ -61,50 +62,6 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction): Pr
   if (!uid) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (!(await isAdmin(uid))) { res.status(403).json({ error: "Forbidden" }); return; }
   (req as any).adminUserId = uid;
-  next();
-}
-
-// CSRF defense for v4 mutating endpoints (POST/DELETE).
-//
-// The app-wide CORS config is `{ origin: true, credentials: true }` and
-// production cookies are SameSite=none — meaning a malicious site could
-// otherwise issue a request with the admin's session cookie attached.
-// Code review (architect) flagged this as SEVERE on 2026-05-28.
-//
-// We don't widen the blast radius of this fix to the whole app (that
-// requires user sign-off — touching CORS could break other admin tabs and
-// the FE). Instead this middleware enforces two defenses *locally* on v4
-// mutating routes:
-//
-//   1. Origin / Referer must equal the request's own Host (same-origin).
-//      Cross-origin requests are rejected outright.
-//   2. The custom `X-Nukhba-Csrf` header must be present. Browsers can
-//      only attach custom headers cross-origin via a CORS preflight, and
-//      our FE sends it on every v4 admin call. A simple-cross-site form
-//      POST from a malicious page has no way to add it.
-//
-// The header check is the strong defense (custom-header pattern is the
-// modern CSRF safeguard for cookie-auth APIs). The Origin check is a
-// belt-and-suspenders fallback.
-function requireSameOriginCsrf(req: Request, res: Response, next: NextFunction): void {
-  // Strong defense — custom header.
-  if (!req.headers["x-nukhba-csrf"]) {
-    res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
-    return;
-  }
-  // Belt-and-suspenders — Origin/Referer must match Host.
-  const host = (req.headers.host || "").toLowerCase();
-  const origin = (req.headers.origin || "").toLowerCase();
-  const referer = (req.headers.referer || "").toLowerCase();
-  const sourceHost = origin
-    ? new URL(origin).host
-    : referer
-      ? (() => { try { return new URL(referer).host; } catch { return ""; } })()
-      : "";
-  if (!sourceHost || sourceHost !== host) {
-    res.status(403).json({ error: "CSRF protection: cross-origin request rejected" });
-    return;
-  }
   next();
 }
 
