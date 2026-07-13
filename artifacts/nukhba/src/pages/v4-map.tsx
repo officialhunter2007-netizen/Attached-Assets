@@ -113,7 +113,7 @@ type RenderItem =
   | { type: "stage"; stage: StageTree; expanded: boolean }
   | { type: "unit"; unit: UnitTree; stageIndex: number; expanded: boolean }
   | { type: "node"; node: FlatNode; xOff: number; showConnector: boolean }
-  | { type: "podcast"; podcast: PodcastItem };
+  | { type: "podcast"; podcast: PodcastItem; xOff: number };
 
 function flattenMap(mapData: MapData): FlatNode[] {
   const nodes: FlatNode[] = [];
@@ -1267,10 +1267,12 @@ export default function V4Map() {
     const m = data.map;
     const items: RenderItem[] = [];
     let nodeIdx = 0;
+    let lastXOff = 0; // tracks the most-recent node's xOff so podcasts can inherit it
 
     // Push a node item, marking the previous node item as connector-visible.
     const pushNode = (node: FlatNode) => {
       const xOff = ZIGZAG_PX[nodeIdx % ZIGZAG_PX.length];
+      lastXOff = xOff;
       nodeIdx++;
       const last = items.length > 0 ? items[items.length - 1] : null;
       if (last && last.type === "node") last.showConnector = true;
@@ -1320,7 +1322,7 @@ export default function V4Map() {
           const pod = podcast;
           contentItems.push({
             sort: pod.sortOrder,
-            run: () => items.push({ type: "podcast", podcast: pod }),
+            run: () => items.push({ type: "podcast", podcast: pod, xOff: lastXOff }),
           });
         }
         // Emit in sort_order, stable (equal sort → insertion order)
@@ -1642,7 +1644,13 @@ export default function V4Map() {
               );
             }
             if (item.type === "podcast") {
-              return <PodcastNode key={`podcast-${item.podcast.id}`} podcast={item.podcast} />;
+              return (
+                <div key={`podcast-${item.podcast.id}`} className="flex flex-col items-center w-full">
+                  <div className="my-2 transition-transform duration-300" style={{ transform: `translateX(${item.xOff}px)` }}>
+                    <PodcastNode podcast={item.podcast} />
+                  </div>
+                </div>
+              );
             }
             const { node, xOff, showConnector } = item;
             return (
