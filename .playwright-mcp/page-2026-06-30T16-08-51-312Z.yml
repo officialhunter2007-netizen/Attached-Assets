@@ -1,0 +1,266 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - banner [ref=e4]:
+        - generic [ref=e7]:
+          - generic [ref=e8]:
+            - img "شعار نُخبة" [ref=e9]:
+              - generic [ref=e16]: ن
+            - generic [ref=e19]: نُخبة
+          - generic [ref=e20]:
+            - button "Switch to English" [ref=e21]:
+              - img [ref=e22]
+              - generic [ref=e25]: EN
+            - link "دخول" [ref=e26] [cursor=pointer]:
+              - /url: /login
+              - button "دخول" [ref=e27]
+            - link "ابدأ مجاناً" [ref=e28] [cursor=pointer]:
+              - /url: /register
+              - button "ابدأ مجاناً" [ref=e29]
+      - main [ref=e30]:
+        - generic [ref=e31]:
+          - generic:
+            - generic:
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - generic:
+                  - img
+              - generic:
+                - generic:
+                  - img
+              - generic:
+                - generic:
+                  - img
+              - generic:
+                - generic:
+                  - img
+          - generic [ref=e33]:
+            - generic [ref=e34]:
+              - generic [ref=e35]: ✨
+              - text: منصة تعليمية ذكية مصممة لليمن
+              - generic [ref=e36]: 🇾🇪
+            - heading "تعلّم بطريقة مختلفة تماماً" [level=1] [ref=e37]:
+              - text: تعلّم بطريقة
+              - generic [ref=e38]: مختلفة تماماً
+            - paragraph [ref=e40]: معلّم ذكاء اصطناعي يعرفك شخصياً — يبني خطتك، يتذكر تقدمك، ويرافقك خطوة بخطوة حتى الإتقان.
+            - generic [ref=e41]:
+              - link "انضم للنخبة الآن" [ref=e42] [cursor=pointer]:
+                - /url: /register
+                - button "انضم للنخبة الآن" [ref=e44]:
+                  - generic [ref=e45]:
+                    - text: انضم للنخبة الآن
+                    - img
+              - link "استعرض الباقات" [ref=e47] [cursor=pointer]:
+                - /url: "#pricing"
+                - button "استعرض الباقات" [ref=e49]
+            - generic [ref=e50]:
+              - generic [ref=e51]:
+                - generic [ref=e53]: ٠+
+                - generic [ref=e54]: طالب مستفيد
+              - generic [ref=e55]:
+                - generic [ref=e57]: ٠+
+                - generic [ref=e58]: درس تفاعلي
+              - generic [ref=e59]:
+                - generic [ref=e61]: ٠+
+                - generic [ref=e62]: تخصص دراسي
+          - img [ref=e65]
+        - generic [ref=e67]:
+          - generic [ref=e68]:
+            - heading "اختر مسارك" [level=2] [ref=e69]
+            - paragraph [ref=e70]: مسارات مبنية على الاحتياجات الحقيقية للطالب اليمني
+          - generic [ref=e71]:
+            - generic [ref=e73] [cursor=pointer]:
+              - img [ref=e75]
+              - heading "الجامعي" [level=3] [ref=e78]
+              - paragraph [ref=e79]: مسارات مخصصة لتخصصات تقنية المعلومات، الهندسة، المحاسبة، وإدارة الأعمال — مع كتب جامعية تفاعلية.
+              - generic [ref=e80]:
+                - generic [ref=e81]: هندسة الغذاء
+                - generic [ref=e82]: محاسبة
+                - generic [ref=e83]: تقنية معلومات
+                - generic [ref=e84]: و أكثر...
+            - generic [ref=e86] [cursor=pointer]:
+              - img [ref=e88]
+              - heading "المهارات" [level=3] [ref=e90]
+              - paragraph [ref=e91]: تعلّم البرمجة، تطوير الويب، والأمن السيبراني — مع بيئة كود تفاعلية مدمجة ومحرر أكواد احترافي.
+              - generic [ref=e92]:
+                - generic [ref=e93]: برمجة
+                - generic [ref=e94]: أمن سيبراني
+                - generic [ref=e95]: تطوير ويب
+                - generic [ref=e96]: و أكثر...
+        - generic [ref=e100]:
+          - generic [ref=e101]:
+            - generic [ref=e102]:
+              - img [ref=e103]
+              - text: لماذا نُخبة
+            - heading "تجربة لا تقارن بـ أي منصة أخرى" [level=2] [ref=e106]
+            - paragraph [ref=e107]: نستخدم أحدث تقنيات الذكاء الاصطناعي لتقديم تجربة تعليمية لم تكن ممكنة من قبل
+          - generic [ref=e108]:
+            - generic [ref=e109]:
+              - img [ref=e111]
+              - heading "خطة مخصصة لك وحدك" [level=4] [ref=e119]
+              - paragraph [ref=e120]: الذكاء الاصطناعي يجري معك مقابلة تشخيصية ويبني خطة دراسية تناسب مستواك بدقة متناهية.
+            - generic [ref=e121]:
+              - img [ref=e123]
+              - heading "تعلم تفاعلي حقيقي" [level=4] [ref=e125]
+              - paragraph [ref=e126]: لست مستمعاً فقط. ناقش، اسأل، وحل التحديات مع معلمك الذكي في أي وقت.
+            - generic [ref=e127]:
+              - img [ref=e129]
+              - heading "بيئة تطبيق مدمجة" [level=4] [ref=e131]
+              - paragraph [ref=e132]: محرر أكواد احترافي + بيئات تطبيقية تبنى لك تلقائياً داخل المنصة — بدون إعداد أي برامج.
+            - generic [ref=e133]:
+              - img [ref=e135]
+              - heading "يتذكر أخطاءك ويصحّحها" [level=4] [ref=e137]
+              - paragraph [ref=e138]: بنك خاص بأخطائك يُحقن في كل جلسة حتى تتغلب عليها نهائياً.
+            - generic [ref=e139]:
+              - img [ref=e141]
+              - heading "كتبك الجامعية بالذكاء الاصطناعي" [level=4] [ref=e143]
+              - paragraph [ref=e144]: ارفع كتابك واستعرضه فصلاً بفصل مع معلم يشرح لك كل مفهوم بأسلوبك.
+            - generic [ref=e145]:
+              - img [ref=e147]
+              - heading "مختبرات تطبيقية فريدة" [level=4] [ref=e149]
+              - paragraph [ref=e150]: مختبرات تفاعلية متخصصة للمحاسبة، الهندسة الغذائية، والأمن السيبراني.
+        - generic [ref=e151]:
+          - generic [ref=e152]:
+            - heading "نُخبة vs ChatGPT / DeepSeek" [level=2] [ref=e153]
+            - paragraph [ref=e154]: المساعدات العامة ممتازة للأسئلة العابرة، لكنها لا تعرفك. نُخبة بُنيت لتكون معلّمك المتخصّص.
+          - generic [ref=e155]:
+            - table [ref=e158]:
+              - rowgroup [ref=e159]:
+                - row "الميزة نُخبة ChatGPT DeepSeek" [ref=e160]:
+                  - columnheader "الميزة" [ref=e161]
+                  - columnheader "نُخبة" [ref=e162]:
+                    - generic [ref=e163]:
+                      - img [ref=e164]
+                      - generic [ref=e166]: نُخبة
+                  - columnheader "ChatGPT" [ref=e167]
+                  - columnheader "DeepSeek" [ref=e168]
+              - rowgroup [ref=e169]:
+                - row "يتذكّر تقدّمك ونقاط ضعفك بين الجلسات" [ref=e170]:
+                  - cell "يتذكّر تقدّمك ونقاط ضعفك بين الجلسات" [ref=e171]
+                  - cell [ref=e172]:
+                    - img [ref=e174]
+                  - cell [ref=e176]:
+                    - img [ref=e177]
+                  - cell [ref=e180]:
+                    - img [ref=e181]
+                - row "خطة تعلّم شخصية لمادتك" [ref=e184]:
+                  - cell "خطة تعلّم شخصية لمادتك" [ref=e185]
+                  - cell [ref=e186]:
+                    - img [ref=e188]
+                  - cell [ref=e190]:
+                    - img [ref=e191]
+                  - cell [ref=e194]:
+                    - img [ref=e195]
+                - row "مختبرات تطبيقية تفاعلية داخل المنصة" [ref=e198]:
+                  - cell "مختبرات تطبيقية تفاعلية داخل المنصة" [ref=e199]
+                  - cell [ref=e200]:
+                    - img [ref=e202]
+                  - cell [ref=e204]:
+                    - img [ref=e205]
+                  - cell [ref=e208]:
+                    - img [ref=e209]
+                - row "محتوى مبني على المنهج اليمني والجامعي المحلي" [ref=e212]:
+                  - cell "محتوى مبني على المنهج اليمني والجامعي المحلي" [ref=e213]
+                  - cell [ref=e214]:
+                    - img [ref=e216]
+                  - cell [ref=e218]:
+                    - img [ref=e219]
+                  - cell [ref=e222]:
+                    - img [ref=e223]
+                - row "معلم يصحح أخطاءك المتكررة تلقائياً" [ref=e226]:
+                  - cell "معلم يصحح أخطاءك المتكررة تلقائياً" [ref=e227]
+                  - cell [ref=e228]:
+                    - img [ref=e230]
+                  - cell [ref=e232]:
+                    - img [ref=e233]
+                  - cell [ref=e236]:
+                    - img [ref=e237]
+            - paragraph [ref=e241]: "الخلاصة: أنت لا تشترك في \"محادثة\" — أنت تشترك في معلّم متخصّص يرافقك خطوة بخطوة."
+        - generic [ref=e245]:
+          - generic [ref=e246]:
+            - heading "باقات الاشتراك" [level=2] [ref=e247]
+            - paragraph [ref=e248]: الدفع عبر محفظة كريمي — اختر الباقة المناسبة لك
+          - generic [ref=e249]:
+            - generic [ref=e250]:
+              - generic [ref=e251]: مجاني
+              - generic [ref=e252]: ٠ ريال
+              - paragraph [ref=e253]: ابدأ بالتجربة
+              - list [ref=e254]:
+                - listitem [ref=e255]:
+                  - img [ref=e256]
+                  - text: درس واحد مجاني لكل تخصص
+                - listitem [ref=e258]:
+                  - img [ref=e259]
+                  - text: تصفح المنهج الدراسي
+              - link "جرّب الآن" [ref=e261] [cursor=pointer]:
+                - /url: /learn
+                - button "جرّب الآن" [ref=e262]
+            - generic [ref=e263]:
+              - generic [ref=e264]: الفضية
+              - generic [ref=e265]: ٢٬٠٠٠ 💎
+              - paragraph [ref=e266]: ١٤ يوماً • ١٤٢ جوهرة/يوم
+              - list [ref=e267]:
+                - listitem [ref=e268]:
+                  - img [ref=e269]
+                  - text: لجميع التخصصات بلا استثناء
+                - listitem [ref=e271]:
+                  - img [ref=e272]
+                  - text: ملخصات الدروس التلقائية
+                - listitem [ref=e274]:
+                  - img [ref=e275]
+                  - text: جواهر تتجدد منتصف الليل
+              - link "اشترك الآن" [ref=e277] [cursor=pointer]:
+                - /url: /subscription
+                - button "اشترك الآن" [ref=e278]
+            - generic [ref=e279]:
+              - generic [ref=e280]: ⭐ الأكثر طلباً
+              - generic [ref=e281]:
+                - generic [ref=e282]: الذهبية
+                - generic [ref=e283]: ٣٬٠٠٠ 💎
+                - paragraph [ref=e284]: ١٤ يوماً • ٢١٤ جوهرة/يوم
+                - list [ref=e285]:
+                  - listitem [ref=e286]:
+                    - img [ref=e287]
+                    - text: لجميع التخصصات بلا استثناء
+                  - listitem [ref=e289]:
+                    - img [ref=e290]
+                    - text: ملخصات الدروس التلقائية
+                  - listitem [ref=e292]:
+                    - img [ref=e293]
+                    - text: جواهر تتجدد منتصف الليل
+                  - listitem [ref=e295]:
+                    - img [ref=e296]
+                    - text: أولوية الدعم الفني
+                - link "اشترك الذهبية" [ref=e298] [cursor=pointer]:
+                  - /url: /subscription
+                  - button "اشترك الذهبية" [ref=e299]
+          - generic [ref=e301]:
+            - img [ref=e303]
+            - generic [ref=e305]:
+              - paragraph [ref=e306]: الباقة البرونزية — ابدأ بأقل تكلفة
+              - paragraph [ref=e307]: ١٬٠٠٠ 💎 جوهرة (٧١ يومياً) لجميع التخصصات لمدة ١٤ يوماً. مثالية للبداية.
+            - link "اشترك الآن" [ref=e308] [cursor=pointer]:
+              - /url: /subscription
+              - button "اشترك الآن" [ref=e309]
+      - contentinfo [ref=e310]:
+        - generic [ref=e312]:
+          - generic [ref=e314]:
+            - img "شعار نُخبة" [ref=e315]:
+              - generic [ref=e322]: ن
+            - generic [ref=e325]: نُخبة
+          - paragraph [ref=e326]: صُنع بشغف لطلاب اليمن · جميع الحقوق محفوظة 2026 ©
+    - region "Notifications (F8)":
+      - list
+  - generic [ref=e327]:
+    - generic [ref=e328]:
+      - text: This is a temporary development preview, and these links are not for public use.
+      - link "Publish your app" [ref=e329] [cursor=pointer]:
+        - /url: https://docs.replit.com/category/replit-deployments?ref=replit-dev-banner
+      - text: for secure sharing or use an invite link.
+    - button "Close banner" [ref=e330] [cursor=pointer]:
+      - img [ref=e331]

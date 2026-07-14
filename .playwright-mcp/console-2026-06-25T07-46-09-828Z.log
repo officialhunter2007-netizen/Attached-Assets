@@ -1,0 +1,2 @@
+[   30865ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[   34107ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0

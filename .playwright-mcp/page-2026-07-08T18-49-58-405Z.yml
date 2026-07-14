@@ -1,0 +1,12 @@
+- generic [active] [ref=f7e1]:
+  - generic [ref=f7e2]:
+    - region "Notifications (F8)":
+      - list
+  - generic [ref=f7e5]:
+    - generic [ref=f7e6]:
+      - text: This is a temporary development preview, and these links are not for public use.
+      - link "Publish your app" [ref=f7e7] [cursor=pointer]:
+        - /url: https://docs.replit.com/category/replit-deployments?ref=replit-dev-banner
+      - text: for secure sharing or use an invite link.
+    - button "Close banner" [ref=f7e8] [cursor=pointer]:
+      - img [ref=f7e9]

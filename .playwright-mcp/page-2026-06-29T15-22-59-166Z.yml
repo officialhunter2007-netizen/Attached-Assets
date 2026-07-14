@@ -1,0 +1,31 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - generic [ref=e7]:
+      - button "رجوع للخريطة" [ref=e8]:
+        - img [ref=e9]
+      - generic [ref=e11]: 📚
+      - generic [ref=e12]:
+        - generic [ref=e13]: درس · 1.1.1.2
+        - generic [ref=e14]: "أول برنامج: print"
+      - button "100" [ref=e15]:
+        - img [ref=e16]
+        - generic [ref=e19]: "100"
+      - button "محرر الأكواد" [ref=e21]:
+        - img [ref=e22]
+      - button "الجلسات السابقة" [ref=e27]:
+        - img [ref=e28]
+    - generic [ref=e33]:
+      - generic [ref=e35]: ابدأ معي شرح الدرس بأسلوبك التفاعلي.
+      - paragraph [ref=e61]:
+        - emphasis [ref=e62]: ⚠️ تعذّر الردّ بسبب خلل مؤقّت 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.
+    - generic [ref=e44]:
+      - button "إرفاق صورة" [active] [ref=e45]:
+        - img [ref=e46]
+      - button "كتابة كود" [ref=e50]:
+        - img [ref=e51]
+        - generic [ref=e55]: كود
+      - textbox "اكتب ردّك للمعلم..." [ref=e56]: مرحبا، اشرح لي درس print
+      - button "إرسال" [ref=e57]:
+        - img [ref=e58]
+  - region "Notifications (F8)":
+    - list

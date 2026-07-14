@@ -1,0 +1,68 @@
+[    9291ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[    9995ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[  367264ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[  600939ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[  601651ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[ 1785353ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[ 5016521ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[ 5017722ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[ 7801682ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[ 7813370ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[ 7814355ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[ 8169351ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[ 8181536ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[ 8182733ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[ 8387013ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[ 8398056ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[ 8399691ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[ 8543790ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[ 8555871ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[ 8556844ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[ 8851428ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[ 8862680ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[ 8866044ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[ 9067459ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[ 9077396ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[ 9078509ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[ 9522756ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[ 9533372ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[ 9534958ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[ 9709317ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[ 9720689ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[ 9721258ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[10286400ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[10300327ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[10301293ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[12554406ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[13934862ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[13936488ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[17334072ms] Error: useAuth must be used within an AuthProvider
+    at useAuth (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/src/lib/use-auth.ts:7:11)
+    at GuestRoute (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/src/App.tsx:177:31)
+    at react-stack-bottom-frame (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17424:20)
+    at renderWithHooks (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:4206:24)
+    at updateFunctionComponent (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:6619:21)
+    at beginWork (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:7654:20)
+    at runWithFiberInDEV (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:1485:72)
+    at performUnitOfWork (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:10868:98)
+    at workLoopSync (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:10728:43)
+    at renderRootSync (https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:10711:13)
+[17334047ms] [WARNING] %s
+
+%s
+ An error occurred in the <GuestRoute> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:6228
+[17336612ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[19904616ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[20166046ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[20168629ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[21331187ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[21762928ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[21763822ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[28478462ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[32521597ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[32522446ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[35697757ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864
+[75519540ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/node_modules/.vite/deps/react-dom_client.js?v=bac889bf:17986
+[75520959ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/api/auth/me:0
+[77656220ms] [LOG] [vite] server connection lost. Polling for restart... @ https://298c2663-0398-454f-927c-d28bc153983a-00-2nn10r6jkgf47.sisko.replit.dev/@vite/client:864

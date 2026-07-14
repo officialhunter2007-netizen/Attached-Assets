@@ -25,6 +25,7 @@ import PathChoice from "@/pages/path-choice";
 import PathCustom from "@/pages/path-custom";
 import V4Map from "@/pages/v4-map";
 import V4Lab from "@/pages/v4-lab";
+import V4ImmersiveLab from "@/pages/v4-immersive-lab";
 import V4Exam from "@/pages/v4-exam";
 import V4Lesson from "@/pages/v4-lesson";
 import PathBooklet from "@/pages/path-booklet";
@@ -222,7 +223,7 @@ function Router() {
       <Route path="/booklet/:id" component={() => <ProtectedRoute component={BookletSession} />} />
       <Route path="/specialty/demo/map" component={V4Map} />
       <Route path="/specialty/:slug/map" component={() => <ProtectedRoute component={V4Map} />} />
-      <Route path="/lab/:slug/:labCode" component={() => <ProtectedRoute component={V4Lab} />} />
+      <Route path="/lab/:slug/:labCode" component={() => <ProtectedRoute component={V4ImmersiveLab} />} />
       <Route path="/exam/:slug/:examCode" component={() => <ProtectedRoute component={V4Exam} />} />
       <Route path="/specialty/:slug/lesson/:code" component={() => <ProtectedRoute component={V4Lesson} />} />
       <Route path="/subject/:subjectId" component={() => <ProtectedRoute component={SubjectGate} />} />

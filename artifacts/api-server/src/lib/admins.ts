@@ -11,7 +11,7 @@ function parseEmailEnv(value: string | undefined, fallback: string[]): Set<strin
 }
 
 const DEFAULT_ADMIN_EMAILS = ["officialhunter2007@gmail.com"];
-const DEFAULT_UNLIMITED_EMAILS = ["7amr7ahmed7@gmail.com"];
+const DEFAULT_UNLIMITED_EMAILS = ["7amr7ahmed7@gmail.com", "officialhunter2007@gmail.com"];
 
 const adminEmails = parseEmailEnv(process.env.ADMIN_EMAILS, DEFAULT_ADMIN_EMAILS);
 const unlimitedEmails = parseEmailEnv(

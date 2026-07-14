@@ -1,0 +1,120 @@
+- generic [active] [ref=f14e1]:
+  - generic [ref=f14e2]:
+    - generic [ref=f14e202]:
+      - banner [ref=f14e203]:
+        - button "خروج" [ref=f14e204]:
+          - img [ref=f14e205]
+          - generic [ref=f14e207]: خروج
+        - generic [ref=f14e209]:
+          - img [ref=f14e211]
+          - generic [ref=f14e213]:
+            - generic [ref=f14e214]:
+              - generic [ref=f14e215]: Multi-Language IDE Test
+              - generic [ref=f14e216]:
+                - img [ref=f14e217]
+                - text: مشرف
+            - generic [ref=f14e221]: متصل
+        - generic [ref=f14e222]:
+          - button "صامت" [ref=f14e223]:
+            - img [ref=f14e224]
+            - generic [ref=f14e230]: صامت
+          - button "دردشة" [ref=f14e231]:
+            - img [ref=f14e232]
+            - generic [ref=f14e234]: دردشة
+          - button "تحميل" [ref=f14e235]:
+            - img [ref=f14e236]
+            - generic [ref=f14e239]: تحميل
+          - button "تشغيل" [ref=f14e241]:
+            - img [ref=f14e242]
+            - text: تشغيل
+          - button "تنزيل مكتبة" [ref=f14e244]:
+            - img [ref=f14e245]
+            - generic [ref=f14e249]: تنزيل مكتبة
+          - button "دليل" [ref=f14e250]:
+            - img [ref=f14e251]
+            - generic [ref=f14e254]: دليل
+          - button "إغلاق" [ref=f14e255]:
+            - img [ref=f14e256]
+            - generic [ref=f14e259]: إغلاق
+      - generic [ref=f14e260]:
+        - complementary [ref=f14e261]:
+          - generic [ref=f14e262]:
+            - generic [ref=f14e263]:
+              - generic [ref=f14e264]:
+                - img [ref=f14e265]
+                - generic [ref=f14e270]: الملفات
+                - generic [ref=f14e271]: "1"
+              - button "ملف / مجلد جديد" [ref=f14e272]:
+                - img [ref=f14e273]
+            - generic [ref=f14e276]:
+              - button "main.js" [ref=f14e277]:
+                - img [ref=f14e278]
+                - generic [ref=f14e283]: main.js
+              - generic [ref=f14e284]:
+                - button "إعادة تسمية" [ref=f14e285]:
+                  - img [ref=f14e286]
+                - button "حذف" [ref=f14e289]:
+                  - img [ref=f14e290]
+          - generic [ref=f14e293]:
+            - generic [ref=f14e294]:
+              - generic [ref=f14e295]:
+                - img [ref=f14e296]
+                - generic [ref=f14e301]: الأعضاء
+              - generic [ref=f14e302]: "1"
+            - generic [ref=f14e304]:
+              - generic [ref=f14e306]: ع
+              - generic [ref=f14e308]:
+                - generic [ref=f14e309]:
+                  - generic [ref=f14e310]: عمرو خالد
+                  - img [ref=f14e311]
+                  - generic [ref=f14e313]: (أنا)
+                - generic [ref=f14e314]:
+                  - generic [ref=f14e315]: كتابة
+                  - generic [ref=f14e316]: تشغيل
+        - generic [ref=f14e319]:
+          - generic "main.js" [ref=f14e321] [cursor=pointer]:
+            - img [ref=f14e322]
+            - generic [ref=f14e327]: main.js
+            - button [ref=f14e328]:
+              - img [ref=f14e329]
+          - code [ref=f14e336]:
+            - generic [ref=f14e337]:
+              - textbox "Editor content" [ref=f14e338]
+              - textbox [ref=f14e339]
+              - generic [ref=f14e341]:
+                - generic [ref=f14e344]: "1"
+                - generic [ref=f14e346]: "2"
+                - generic [ref=f14e391]:
+                  - generic [ref=f14e392] [cursor=pointer]: 
+                  - generic [ref=f14e393]: "3"
+                - generic [ref=f14e350]: "4"
+              - generic [ref=f14e358]:
+                - generic [ref=f14e360]: console.log("مرحباً من نُخبة! 👋");
+                - generic [ref=f14e363]: "function greet(name) {"
+                - generic [ref=f14e365]: "return `أهلاً ${name}`;"
+          - generic [ref=f14e371]:
+            - generic [ref=f14e372]:
+              - button "التيرمنال" [ref=f14e373]:
+                - img [ref=f14e374]
+                - text: التيرمنال
+              - button "معاينة HTML" [ref=f14e377]:
+                - img [ref=f14e378]
+                - text: معاينة HTML
+              - button "طي اللوحة" [ref=f14e381]:
+                - img [ref=f14e382]
+            - generic [ref=f14e386]:
+              - img [ref=f14e387]
+              - generic [ref=f14e389]: شغّل الكود لرؤية الناتج هنا
+    - region "Notifications (F8)":
+      - list
+  - generic [ref=f14e5]:
+    - generic [ref=f14e6]:
+      - text: This is a temporary development preview, and these links are not for public use.
+      - link "Publish your app" [ref=f14e7] [cursor=pointer]:
+        - /url: https://docs.replit.com/category/replit-deployments?ref=replit-dev-banner
+      - text: for secure sharing or use an invite link.
+    - button "Close banner" [ref=f14e8] [cursor=pointer]:
+      - img [ref=f14e9]
+  - generic [ref=f14e390]:
+    - alert
+    - alert
