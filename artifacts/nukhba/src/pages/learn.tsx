@@ -223,12 +223,12 @@ export default function Learn() {
             </p>
           </motion.div>
 
-          {/* Quick-access cards: Typing + Coding Rooms */}
+          {/* Quick-access cards: Typing + Coding Rooms + Certificates */}
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="mb-6 md:mb-8 grid grid-cols-1 sm:grid-cols-2 gap-3"
+            className="mb-6 md:mb-8 grid grid-cols-1 sm:grid-cols-3 gap-3"
           >
             <Link href="/typing">
               <div
@@ -285,6 +285,36 @@ export default function Learn() {
                     </p>
                   </div>
                   <ArrowLeft className="w-4 h-4 flex-shrink-0 rotate-180 group-hover:translate-x-1 transition-transform" style={{ color: "#6366f1" }} />
+                </div>
+              </div>
+            </Link>
+
+            <Link href="/certificates">
+              <div
+                className="relative rounded-2xl overflow-hidden cursor-pointer group h-full"
+                style={{
+                  background: "linear-gradient(135deg, rgba(212,175,55,0.08), rgba(245,158,11,0.05))",
+                  border: "1px solid rgba(212,175,55,0.25)",
+                }}
+              >
+                <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 80% 50%, rgba(212,175,55,0.08), transparent 60%)" }} />
+                <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(212,175,55,0.4), transparent)" }} />
+                <div className="relative flex items-center gap-4 px-5 py-4">
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: "linear-gradient(135deg, rgba(212,175,55,0.2), rgba(212,175,55,0.08))", border: "1px solid rgba(212,175,55,0.3)" }}
+                  >
+                    <GraduationCap className="w-6 h-6" style={{ color: "#D4AF37" }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-bold text-sm text-white">شهاداتي</span>
+                    </div>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      عرض وتنزيل شهاداتك الرسمية
+                    </p>
+                  </div>
+                  <ArrowLeft className="w-4 h-4 flex-shrink-0 rotate-180 group-hover:translate-x-1 transition-transform" style={{ color: "#D4AF37" }} />
                 </div>
               </div>
             </Link>

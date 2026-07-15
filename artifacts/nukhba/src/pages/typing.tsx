@@ -5,7 +5,32 @@ import { Keyboard, ChevronRight } from "lucide-react";
 import { sections as enSections, totalLessons as enTotal } from "@/lib/typing-curriculum";
 import { sections as arSections, totalLessons as arTotal } from "@/lib/typing-curriculum-ar";
 
+function MobileBlock() {
+  return (
+    <AppLayout>
+      <div className="flex flex-col items-center justify-center min-h-[70vh] px-6 text-center gap-4" style={{ direction: "rtl" }}>
+        <div className="text-5xl mb-1">⌨️</div>
+        <h2 className="text-xl font-black text-white">تدريب الكتابة</h2>
+        <p className="text-sm max-w-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.5)" }}>
+          هذه الميزة تعمل على الكمبيوتر فقط — تحتاج إلى لوحة مفاتيح فيزيائية
+        </p>
+        <Link href="/learn">
+          <button
+            className="mt-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-opacity hover:opacity-80"
+            style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)", color: "#F59E0B" }}
+          >
+            ← العودة للتعلم
+          </button>
+        </Link>
+      </div>
+    </AppLayout>
+  );
+}
+
 export default function TypingChoice() {
+  const isMobile = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+  if (isMobile) return <MobileBlock />;
+
   return (
     <AppLayout>
       <div className="min-h-screen" style={{ direction: "rtl" }}>

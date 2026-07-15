@@ -27,6 +27,13 @@ import typingRouter from "./typing";
 import v4ReferralRouter from "./v4_referral";
 import { adminCurriculumRouter } from "./admin_curriculum";
 import v4PodcastsRouter from "./v4_podcasts";
+import v4StoriesRouter from "./v4_stories";
+import v4CertificatesRouter from "./v4_certificates";
+import v4UnitQuizzesRouter from "./v4_unit_quizzes";
+import v4LevelQuizzesRouter from "./v4_level_quizzes";
+import v4StageQuizzesRouter from "./v4_stage_quizzes";
+import v4QuizScoresRouter from "./v4_quiz_scores";
+import v4AdminStudentMonitorRouter from "./v4_admin_student_monitor";
 
 const router: IRouter = Router();
 
@@ -58,5 +65,12 @@ router.use(typingRouter);
 router.use(v4ReferralRouter);
 router.use(adminCurriculumRouter);
 router.use(v4PodcastsRouter);
+router.use(v4StoriesRouter);
+router.use(v4CertificatesRouter);
+router.use(v4UnitQuizzesRouter);
+router.use(v4LevelQuizzesRouter);
+router.use(v4StageQuizzesRouter);
+router.use(v4QuizScoresRouter);
+router.use(v4AdminStudentMonitorRouter);
 
 export default router;

@@ -16,7 +16,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2, Lock, Star, FlaskConical, Trophy, Crown, BookOpen,
   CheckCircle, Play, Pause, ChevronRight, ChevronDown, Sparkles, Map, ArrowRight,
-  XCircle, RotateCcw, Zap, GraduationCap, Headphones,
+  XCircle, RotateCcw, Zap, GraduationCap, Headphones, ScrollText,
 } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { PathSwitcher } from "@/components/path-switcher";
@@ -105,6 +105,13 @@ type PodcastItem = {
   audioSrc: string;
 };
 
+// Story — self-contained HTML page attached to a unit by an admin.
+type StoryItem = {
+  id: number;
+  title: string;
+  sortOrder: number;
+};
+
 // Each entry is either a stage header (always visible), a unit header
 // (visible when its stage is expanded), or a lesson/lab/test node
 // (visible when its unit is expanded). Podcast items are supplemental
@@ -113,7 +120,8 @@ type RenderItem =
   | { type: "stage"; stage: StageTree; expanded: boolean }
   | { type: "unit"; unit: UnitTree; stageIndex: number; expanded: boolean }
   | { type: "node"; node: FlatNode; xOff: number; showConnector: boolean }
-  | { type: "podcast"; podcast: PodcastItem; xOff: number };
+  | { type: "podcast"; podcast: PodcastItem; xOff: number }
+  | { type: "story"; story: StoryItem; xOff: number; showConnector: boolean };
 
 function flattenMap(mapData: MapData): FlatNode[] {
   const nodes: FlatNode[] = [];
@@ -722,6 +730,97 @@ function PodcastNode({ podcast }: { podcast: PodcastItem }) {
   );
 }
 
+// ─── Story Node ───────────────────────────────────────────────────────────────
+// Supplemental HTML story — tap to open in a full-screen sandboxed overlay.
+function StoryNode({ story, onOpen }: { story: StoryItem; onOpen: () => void }) {
+  return (
+    <div className="relative flex flex-col items-center select-none" dir="rtl">
+      {/* Outer ambient glow */}
+      <div
+        className="absolute w-[76px] h-[76px] rounded-full blur-xl opacity-60 pointer-events-none"
+        style={{ background: "radial-gradient(circle, rgba(232,121,249,0.5) 0%, rgba(168,85,247,0.2) 60%, transparent 100%)" }}
+      />
+      {/* Main button */}
+      <button
+        onClick={onOpen}
+        className="relative w-[58px] h-[58px] rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 overflow-hidden"
+        style={{
+          background: "linear-gradient(145deg, #e879f9 0%, #a855f7 45%, #7c3aed 100%)",
+          boxShadow: "0 0 22px rgba(232,121,249,0.55), 0 6px 16px rgba(124,58,237,0.45), inset 0 1px 0 rgba(255,255,255,0.25)",
+          border: "2px solid rgba(232,121,249,0.65)",
+        }}
+      >
+        {/* Inner shimmer */}
+        <div
+          className="absolute top-1 left-2 w-5 h-3 rounded-full opacity-30 pointer-events-none"
+          style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.8), transparent)" }}
+        />
+        <ScrollText className="w-[26px] h-[26px] text-white relative z-10 drop-shadow" strokeWidth={1.75} />
+      </button>
+      {/* Label */}
+      <span
+        className="text-[10px] text-center max-w-[76px] mt-1.5 leading-tight line-clamp-2 font-medium"
+        style={{ color: "rgba(240,171,252,0.85)" }}
+      >
+        {story.title}
+      </span>
+    </div>
+  );
+}
+
+// ─── Story Modal ──────────────────────────────────────────────────────────────
+// Full-screen overlay that fetches the story HTML and renders it in a sandboxed
+// iframe. Fetches on mount so the map doesn't pre-load all stories.
+function StoryModal({ storyId, title, onClose }: { storyId: number; title: string; onClose: () => void }) {
+  const [html, setHtml] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/v4/stories/${storyId}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((d: any) => setHtml(d.html_content ?? ""))
+      .catch(() => setErr(true));
+  }, [storyId]);
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-black/90 backdrop-blur-sm" dir="rtl">
+      {/* Header bar */}
+      <div className="flex items-center gap-3 px-4 py-3 bg-black/60 border-b border-amber-500/20 shrink-0">
+        <BookOpen className="w-5 h-5 text-amber-400 shrink-0" />
+        <span className="flex-1 text-sm font-bold text-white truncate">{title}</span>
+        <button
+          onClick={onClose}
+          className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors shrink-0"
+          aria-label="إغلاق"
+        >
+          <XCircle className="w-4 h-4 text-white/70" />
+        </button>
+      </div>
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        {!html && !err && (
+          <div className="flex h-full items-center justify-center">
+            <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
+          </div>
+        )}
+        {err && (
+          <div className="flex h-full items-center justify-center text-white/50 text-sm">
+            تعذّر تحميل القصة
+          </div>
+        )}
+        {html && (
+          <iframe
+            srcDoc={html}
+            sandbox="allow-scripts allow-same-origin"
+            className="w-full h-full border-0"
+            title={title}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Connector path between nodes (SVG) ──────────────────────────────────────
 // Renders a curved dotted line connecting consecutive node positions.
 function ConnectorLine({ fromX, toX, color }: { fromX: number; toX: number; color: string }) {
@@ -1040,6 +1139,8 @@ export default function V4Map() {
   // with lesson/lab nodes based on sort_order. Fetched once per slug load;
   // silently empty on error — podcasts are supplemental, not blocking.
   const [podcastsByUnit, setPodcastsByUnit] = useState<Record<string, PodcastItem[]>>({});
+  const [storiesByUnit, setStoriesByUnit] = useState<Record<string, StoryItem[]>>({});
+  const [storyModal, setStoryModal] = useState<{ id: number; title: string } | null>(null);
   // Guards re-running auto-expand on SSE events (only re-run when the viewed
   // level actually changes, not on incremental node-status updates).
   const lastAutoExpandedForLevel = useRef<number | null>(null);
@@ -1064,6 +1165,19 @@ export default function V4Map() {
           .then(r2 => r2.ok ? r2.json() : null)
           .then(j => { if (j?.byUnit && !cancelled) setPodcastsByUnit(j.byUnit as Record<string, PodcastItem[]>); })
           .catch(() => {/* podcasts are supplemental */});
+        // Fetch stories for this specialty — supplemental; silent on error.
+        fetch(`/api/v4/stories?slug=${encodeURIComponent(slug)}`, { credentials: "include" })
+          .then(r3 => r3.ok ? r3.json() : null)
+          .then((rows: any[]) => {
+            if (!rows || cancelled) return;
+            const byUnit: Record<string, StoryItem[]> = {};
+            for (const row of rows) {
+              if (!byUnit[row.unit_code]) byUnit[row.unit_code] = [];
+              byUnit[row.unit_code].push({ id: row.id, title: row.title, sortOrder: row.sort_order });
+            }
+            setStoriesByUnit(byUnit);
+          })
+          .catch(() => {/* stories are supplemental */});
       } catch (e: any) {
         if (cancelled) return;
         setErr(String(e?.message ?? "unknown"));
@@ -1269,14 +1383,24 @@ export default function V4Map() {
     let nodeIdx = 0;
     let lastXOff = 0; // tracks the most-recent node's xOff so podcasts can inherit it
 
-    // Push a node item, marking the previous node item as connector-visible.
+    // Push a node item, marking the previous node/story item as connector-visible.
     const pushNode = (node: FlatNode) => {
       const xOff = ZIGZAG_PX[nodeIdx % ZIGZAG_PX.length];
       lastXOff = xOff;
       nodeIdx++;
       const last = items.length > 0 ? items[items.length - 1] : null;
-      if (last && last.type === "node") last.showConnector = true;
+      if (last && (last.type === "node" || last.type === "story")) (last as any).showConnector = true;
       items.push({ type: "node", node, xOff, showConnector: false });
+    };
+
+    // Push a story item on the zigzag path (same cadence as lessons/labs).
+    const pushStory = (s: StoryItem) => {
+      const xOff = ZIGZAG_PX[nodeIdx % ZIGZAG_PX.length];
+      lastXOff = xOff;
+      nodeIdx++;
+      const last = items.length > 0 ? items[items.length - 1] : null;
+      if (last && (last.type === "node" || last.type === "story")) (last as any).showConnector = true;
+      items.push({ type: "story", story: s, xOff, showConnector: false });
     };
 
     for (const stage of m.stages) {
@@ -1290,10 +1414,8 @@ export default function V4Map() {
         if (!unitExpanded) continue;
 
         // Collect all unit content with sort positions, then interleave.
-        // Lessons occupy positions 1, 2, 3...; labs come after at
-        // lessonCount+j+1; unit test is last at lessonCount+labCount+1.
-        // Podcasts insert at their admin-set sort_order (0 = before lessons,
-        // 1.5 = between lessons 1 and 2, 999 = end, etc.).
+        // Lessons occupy positions 1, 2, 3...; unit test is last.
+        // Podcasts/stories insert at their admin-set sort_order.
         const contentItems: Array<{ sort: number; run: () => void }> = [];
 
         unit.lessons.forEach((lesson, i) => {
@@ -1303,17 +1425,10 @@ export default function V4Map() {
             run: () => pushNode({ id: l.code, label: l.name, kind: "lesson", status: l.status, stars: l.stars }),
           });
         });
-        unit.labs.forEach((lab, j) => {
-          const lb = lab;
-          contentItems.push({
-            sort: unit.lessons.length + j + 1,
-            run: () => pushNode({ id: lb.code, label: lb.title, kind: "lab", status: lb.status }),
-          });
-        });
         if (unit.hasUnitTest && unit.unitTest) {
           const ut = unit.unitTest;
           contentItems.push({
-            sort: unit.lessons.length + unit.labs.length + 1,
+            sort: unit.lessons.length + 1,
             run: () => pushNode({ id: ut.code, label: "اختبار الوحدة", sublabel: unit.name, kind: "unit_test", status: ut.status }),
           });
         }
@@ -1323,6 +1438,14 @@ export default function V4Map() {
           contentItems.push({
             sort: pod.sortOrder,
             run: () => items.push({ type: "podcast", podcast: pod, xOff: lastXOff }),
+          });
+        }
+        // Stories: zigzag node — advances nodeIdx like lessons/labs
+        for (const story of (storiesByUnit[unit.code] ?? [])) {
+          const s = story;
+          contentItems.push({
+            sort: s.sortOrder,
+            run: () => pushStory(s),
           });
         }
         // Emit in sort_order, stable (equal sort → insertion order)
@@ -1337,7 +1460,7 @@ export default function V4Map() {
       pushNode({ id: m.levelTest.code, label: "اختبار المستوى", sublabel: m.levelName, kind: "level_test", status: m.levelTest.status });
     }
     return items;
-  }, [data, expandedStages, expandedUnits, podcastsByUnit]);
+  }, [data, expandedStages, expandedUnits, podcastsByUnit, storiesByUnit]);
 
   // Open the adaptive test-out exam for a locked lesson/lab. Demo mode has no
   // backend, so it falls back to a hint.
@@ -1652,6 +1775,22 @@ export default function V4Map() {
                 </div>
               );
             }
+            if (item.type === "story") {
+              return (
+                <div key={`story-${item.story.id}`} className="flex flex-col items-center w-full">
+                  <div className="my-2 transition-transform duration-300" style={{ transform: `translateX(${item.xOff}px)` }}>
+                    <StoryNode story={item.story} onOpen={() => setStoryModal({ id: item.story.id, title: item.story.title })} />
+                  </div>
+                  {item.showConnector && (
+                    <div className="w-1 h-6 flex flex-col items-center justify-between py-1 pointer-events-none">
+                      {[0, 1, 2].map((d) => (
+                        <div key={d} className="w-1 h-1 rounded-full bg-fuchsia-400/60" />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
             const { node, xOff, showConnector } = item;
             return (
               <div key={node.id} className="flex flex-col items-center w-full">
@@ -1673,9 +1812,6 @@ export default function V4Map() {
                     )}
                     {node.kind === "lesson" && (
                       <LessonNode node={node} onClick={() => handleNodeClick(node, 0, 0)} />
-                    )}
-                    {node.kind === "lab" && (
-                      <LabNodeComp node={node} onClick={() => handleNodeClick(node, 0, 0)} />
                     )}
                     {(node.kind === "unit_test" || node.kind === "stage_test" || node.kind === "level_test") && (
                       <TestNodeComp node={node} onClick={() => handleNodeClick(node, 0, 0)} />
@@ -1762,6 +1898,13 @@ export default function V4Map() {
           }
         }}
       />
+      {storyModal && (
+        <StoryModal
+          storyId={storyModal.id}
+          title={storyModal.title}
+          onClose={() => setStoryModal(null)}
+        />
+      )}
     </div>
   );
 }

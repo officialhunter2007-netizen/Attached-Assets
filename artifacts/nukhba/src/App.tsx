@@ -39,7 +39,7 @@ import Dashboard from "@/pages/dashboard";
 import { ReferralGemsModal } from "@/components/referral-gems-modal";
 import TypingEn from "@/pages/typing-en";
 import TypingLesson from "@/pages/typing-lesson";
-import LabLinuxFileOps from "@/pages/lab-linux-file-ops";
+import Certificates from "@/pages/certificates";
 
 const queryClient = new QueryClient();
 
@@ -237,7 +237,7 @@ function Router() {
       <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
       <Route path="/typing" component={() => <ProtectedRoute component={TypingEn} />} />
       <Route path="/typing/lesson/:id" component={() => <ProtectedRoute component={TypingLesson} />} />
-      <Route path="/lab-preview/linux-file-ops" component={() => <ProtectedRoute component={LabLinuxFileOps} />} />
+      <Route path="/certificates" component={() => <ProtectedRoute component={Certificates} />} />
       <Route component={NotFound} />
     </Switch>
   );

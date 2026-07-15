@@ -3,6 +3,7 @@ import {
   BookOpen, Send, Loader2, Search, ChevronRight, ChevronDown,
   FlaskConical, AlertTriangle, CheckCircle2, Brain, Lightbulb,
   GraduationCap, Layers, BookMarked, HelpCircle, X, MessageSquarePlus,
+  Copy, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -296,6 +297,123 @@ function LabCard({ lab }: { lab: Lab }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Serialize result to plain text for copying ────────────────────────────────
+function serializeResult(r: ContentResult): string {
+  const lines: string[] = [];
+  const sep = (char = "─", len = 50) => char.repeat(len);
+
+  const addLesson = (l: Lesson, indent = "") => {
+    lines.push(`${indent}📖 درس ${l.lessonIndex}: ${l.name}`);
+    lines.push(`${indent}   الكود: ${l.code}`);
+    lines.push(`${indent}   الهدف: ${l.goal}`);
+    lines.push(`${indent}   جملة الربط: "${l.bridgeSentence}"`);
+    if (l.concepts.length > 0) {
+      lines.push(`${indent}   المفاهيم (${l.concepts.length}):`);
+      l.concepts.forEach((c) => {
+        lines.push(`${indent}     [${c.conceptIndex}] ${c.name}`);
+        lines.push(`${indent}         الشرح: ${c.explanation}`);
+        lines.push(`${indent}         معيار الإتقان: ${c.masteryCriterion}`);
+      });
+    }
+    if (l.mistakes.length > 0) {
+      lines.push(`${indent}   الأخطاء الشائعة (${l.mistakes.length}):`);
+      l.mistakes.forEach((m) => {
+        lines.push(`${indent}     ❌ ${m.mistake}`);
+        lines.push(`${indent}     ✅ ${m.correction}`);
+        if (m.treatment) lines.push(`${indent}     🔧 ${m.treatment}`);
+      });
+    }
+    lines.push(`${indent}   سؤال الفحص النهائي: ${l.finalCheckQuestion}`);
+    lines.push(`${indent}   معيار اكتمال الجلسة: ${l.sessionCompleteCriterion}`);
+    if (l.solutionOutline) lines.push(`${indent}   نموذج الإجابة: ${l.solutionOutline}`);
+    if (l.yemeniExamples && l.yemeniExamples.length > 0) {
+      lines.push(`${indent}   أمثلة يمنية:`);
+      l.yemeniExamples.forEach((ex) => lines.push(`${indent}     • ${ex}`));
+    }
+  };
+
+  const addLab = (lab: Lab, indent = "") => {
+    lines.push(`${indent}🧪 معمل ${lab.labIndex}: ${lab.title} (${lab.code})`);
+    lines.push(`${indent}   السيناريو: ${lab.scenario}`);
+    if (lab.completionCriterion) lines.push(`${indent}   معيار الإتمام: ${lab.completionCriterion}`);
+    if (lab.questions.length > 0) {
+      lines.push(`${indent}   أسئلة المعمل (${lab.questions.length}):`);
+      lab.questions.forEach((q) => {
+        lines.push(`${indent}     [${q.questionIndex}] ${q.prompt}`);
+        if (q.rubric) lines.push(`${indent}         📋 ${q.rubric}`);
+        if (q.solutionOutline) lines.push(`${indent}         💡 ${q.solutionOutline}`);
+      });
+    }
+  };
+
+  // Header
+  lines.push(`التخصص: ${r.specialty.name} (${r.specialty.slug})`);
+  lines.push(`النطاق: ${r.scope} | الإصدار: ${r.versionId}`);
+  lines.push(sep("═"));
+
+  if (r.scope === "lesson" && r.lesson) {
+    addLesson(r.lesson);
+  } else if (r.scope === "unit" && r.unit) {
+    lines.push(`📦 وحدة ${r.unit.unitIndex}: ${r.unit.name} (${r.unit.code})`);
+    lines.push(`   الهدف: ${r.unit.goal}`);
+    if (r.unit.keyConcepts?.length) lines.push(`   المفاهيم الرئيسية: ${r.unit.keyConcepts.join("، ")}`);
+    lines.push(sep());
+    (r.lessons ?? []).forEach((l) => { addLesson(l, ""); lines.push(sep("·")); });
+    (r.labs ?? []).forEach((lab) => { addLab(lab, ""); lines.push(sep("·")); });
+  } else if (r.scope === "stage" && r.stage) {
+    lines.push(`🗂 مرحلة ${r.stage.stageIndex}: ${r.stage.name} (${r.stage.code})`);
+    lines.push(`   الهدف: ${r.stage.goal}`);
+    lines.push(sep());
+    (r.units ?? []).forEach((u) => {
+      lines.push(`  📦 وحدة ${u.unitIndex}: ${u.name} (${u.code})`);
+      lines.push(`     الهدف: ${u.goal}`);
+      if (u.keyConcepts?.length) lines.push(`     المفاهيم: ${u.keyConcepts.join("، ")}`);
+      lines.push("");
+    });
+  } else if (r.scope === "level" && r.level) {
+    lines.push(`🎓 مستوى ${r.level.levelIndex}: ${r.level.name}`);
+    lines.push(`   الهدف: ${r.level.goal}`);
+    lines.push(sep());
+    (r.stages ?? []).forEach((s) => {
+      lines.push(`  🗂 مرحلة ${s.stageIndex}: ${s.name} (${s.code})`);
+      lines.push(`     الهدف: ${s.goal}`);
+      lines.push("");
+    });
+  } else if (r.scope === "specialty") {
+    (r.levels ?? []).forEach((lv) => {
+      lines.push(`🎓 مستوى ${lv.levelIndex}: ${lv.name}`);
+      lines.push(`   الهدف: ${lv.goal}`);
+      lines.push("");
+    });
+  }
+
+  return lines.join("\n");
+}
+
+// ── Copy button with transient feedback ───────────────────────────────────────
+function CopyButton({ result }: { result: ContentResult }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(serializeResult(result)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      title="نسخ كل المحتوى"
+      className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg border transition-all duration-200 ${
+        copied
+          ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
+          : "border-white/10 text-white/35 hover:text-white/70 hover:border-white/20 hover:bg-white/5"
+      }`}
+    >
+      {copied ? <><Check className="w-3 h-3" /> تم النسخ</> : <><Copy className="w-3 h-3" /> نسخ المحتوى</>}
+    </button>
   );
 }
 
@@ -764,7 +882,10 @@ export function AdminCurriculumChat() {
                   <span className="text-[11px] font-bold text-emerald-400/80">
                     نتيجة البحث · نطاق: {scopeLabel(msg.result.scope)}
                   </span>
-                  <span className="text-[10px] text-white/25 mr-auto">إصدار {msg.result.versionId}</span>
+                  <span className="text-[10px] text-white/25">إصدار {msg.result.versionId}</span>
+                  <div className="mr-auto">
+                    <CopyButton result={msg.result} />
+                  </div>
                 </div>
                 <ResultView result={msg.result} />
               </div>

@@ -1,0 +1,1722 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بروتوكول NTLM – الشرح الكامل</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap');
+
+  :root {
+    --bg:        #070B14;
+    --card:      #0D1424;
+    --card2:     #111D33;
+    --cyan:      #00D4FF;
+    --purple:    #7C3AED;
+    --amber:     #F59E0B;
+    --red:       #EF4444;
+    --green:     #10B981;
+    --text:      #CBD5E1;
+    --textbright:#F1F5F9;
+    --border:    rgba(0,212,255,0.15);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    font-family: 'Cairo', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    direction: rtl;
+    overflow-x: hidden;
+  }
+
+  /* ========= NAV ========= */
+  nav {
+    position: fixed; top:0; left:0; right:0; z-index:100;
+    background: rgba(7,11,20,0.95);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex; align-items:center; justify-content:space-between;
+    height: 60px;
+  }
+  .nav-logo { color:var(--cyan); font-weight:900; font-size:1.1rem; letter-spacing:2px; }
+  .nav-pages { display:flex; gap:6px; }
+  .nav-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-family:'Cairo',sans-serif;
+    font-size: 0.78rem;
+    transition: all 0.25s;
+  }
+  .nav-btn:hover, .nav-btn.active {
+    background: var(--cyan);
+    color: #000;
+    border-color: var(--cyan);
+    font-weight:700;
+  }
+
+  /* ========= PAGES ========= */
+  .page { display:none; min-height:100vh; padding: 80px 0 60px; }
+  .page.active { display:block; }
+
+  .container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+
+  /* ========= HERO ========= */
+  .hero {
+    text-align:center;
+    padding: 60px 24px 40px;
+  }
+  .hero-badge {
+    display:inline-block;
+    background: rgba(124,58,237,0.2);
+    border: 1px solid var(--purple);
+    color: #A78BFA;
+    padding: 4px 16px;
+    border-radius:20px;
+    font-size:0.8rem;
+    margin-bottom:20px;
+    letter-spacing:2px;
+  }
+  .hero h1 {
+    font-size: clamp(2rem, 6vw, 3.5rem);
+    font-weight:900;
+    color: var(--textbright);
+    line-height:1.2;
+    margin-bottom:16px;
+  }
+  .hero h1 span { color: var(--cyan); }
+  .hero p {
+    font-size:1.1rem;
+    color: var(--text);
+    max-width:600px;
+    margin:0 auto 30px;
+    line-height:1.9;
+  }
+
+  /* ========= CARDS ========= */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content:'';
+    position:absolute; top:0; right:0;
+    width:120px; height:120px;
+    background: radial-gradient(circle, rgba(0,212,255,0.08) 0%, transparent 70%);
+    pointer-events:none;
+  }
+  .card h2 {
+    font-size:1.4rem;
+    font-weight:700;
+    color: var(--textbright);
+    margin-bottom: 14px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .card h3 {
+    font-size:1.1rem;
+    font-weight:600;
+    color: var(--cyan);
+    margin: 18px 0 10px;
+  }
+  .card p, .card li {
+    line-height:2;
+    font-size:1rem;
+    margin-bottom:8px;
+  }
+  .card ul, .card ol { padding-right: 22px; }
+  .card li { margin-bottom:6px; }
+
+  .highlight {
+    background: rgba(0,212,255,0.08);
+    border-right: 3px solid var(--cyan);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size:1rem;
+    line-height:1.9;
+  }
+  .highlight.amber {
+    background: rgba(245,158,11,0.08);
+    border-color: var(--amber);
+  }
+  .highlight.red {
+    background: rgba(239,68,68,0.08);
+    border-color: var(--red);
+  }
+  .highlight.green {
+    background: rgba(16,185,129,0.08);
+    border-color: var(--green);
+  }
+  .highlight.purple {
+    background: rgba(124,58,237,0.08);
+    border-color: var(--purple);
+  }
+
+  .icon-lg { font-size: 2rem; }
+  .tag {
+    display:inline-block;
+    padding: 2px 10px;
+    border-radius:12px;
+    font-size:0.78rem;
+    font-weight:700;
+    margin: 2px;
+  }
+  .tag.cyan { background:rgba(0,212,255,0.15); color:var(--cyan); border:1px solid rgba(0,212,255,0.3); }
+  .tag.purple { background:rgba(124,58,237,0.15); color:#A78BFA; border:1px solid rgba(124,58,237,0.3); }
+  .tag.amber { background:rgba(245,158,11,0.15); color:var(--amber); border:1px solid rgba(245,158,11,0.3); }
+  .tag.red { background:rgba(239,68,68,0.15); color:#FCA5A5; border:1px solid rgba(239,68,68,0.3); }
+  .tag.green { background:rgba(16,185,129,0.15); color:#6EE7B7; border:1px solid rgba(16,185,129,0.3); }
+
+  /* ========= SVG DIAGRAMS ========= */
+  .diagram-wrap {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius:12px;
+    padding: 20px;
+    margin: 20px 0;
+    overflow-x: auto;
+  }
+  .diagram-wrap svg { display:block; margin:0 auto; }
+
+  /* ========= STEPS ========= */
+  .steps { counter-reset: step; }
+  .step {
+    display:flex; gap:16px; align-items:flex-start;
+    padding:16px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .step:last-child { border-bottom:none; }
+  .step-num {
+    counter-increment: step;
+    min-width:36px; height:36px;
+    background: linear-gradient(135deg, var(--purple), var(--cyan));
+    border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:900; color:#fff; font-size:0.85rem;
+    flex-shrink:0;
+  }
+  .step-content h4 { color:var(--textbright); font-size:1rem; margin-bottom:4px; }
+  .step-content p { color:var(--text); font-size:0.95rem; line-height:1.9; }
+
+  /* ========= CODE BOX ========= */
+  .codebox {
+    background: #000d1a;
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius:8px;
+    padding:16px 20px;
+    font-family: 'Courier New', monospace;
+    font-size:0.88rem;
+    margin:14px 0;
+    direction:ltr;
+    color: #7DD3FC;
+    overflow-x:auto;
+    line-height:1.7;
+  }
+  .codebox .comment { color:#4B5563; }
+  .codebox .key { color:#A78BFA; }
+  .codebox .val { color:#86EFAC; }
+
+  /* ========= COMPARISON TABLE ========= */
+  table.compare {
+    width:100%; border-collapse:collapse; margin:16px 0;
+    font-size:0.92rem;
+  }
+  table.compare th {
+    background: rgba(0,212,255,0.1);
+    color:var(--cyan);
+    padding:10px 16px;
+    text-align:right;
+    border:1px solid var(--border);
+  }
+  table.compare td {
+    padding:10px 16px;
+    border:1px solid var(--border);
+    vertical-align:top;
+    line-height:1.8;
+  }
+  table.compare tr:nth-child(even) td { background:rgba(255,255,255,0.02); }
+
+  /* ========= PERSONA BOXES ========= */
+  .personas { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:16px; margin:20px 0; }
+  .persona {
+    background: var(--card2);
+    border-radius:12px;
+    padding:20px;
+    text-align:center;
+    border: 1px solid var(--border);
+    transition: transform 0.2s;
+  }
+  .persona:hover { transform:translateY(-4px); }
+  .persona .avatar { font-size:2.8rem; margin-bottom:10px; }
+  .persona h4 { color:var(--textbright); font-size:1rem; margin-bottom:6px; }
+  .persona p { font-size:0.85rem; line-height:1.8; }
+
+  /* ========= PROGRESS BAR ========= */
+  .page-indicator {
+    text-align:center;
+    padding:16px 0 0;
+    color: rgba(255,255,255,0.3);
+    font-size:0.8rem;
+  }
+
+  /* ========= SECTION TITLE ========= */
+  .section-title {
+    font-size:clamp(1.4rem,3vw,2rem);
+    font-weight:900;
+    color:var(--textbright);
+    margin-bottom:6px;
+    text-align:center;
+  }
+  .section-sub {
+    text-align:center;
+    color:var(--text);
+    margin-bottom:32px;
+    font-size:1rem;
+  }
+  .divider {
+    width:60px; height:3px;
+    background:linear-gradient(to left, var(--cyan), var(--purple));
+    border-radius:2px;
+    margin: 10px auto 28px;
+  }
+
+  /* ========= ANIMATED HANDSHAKE ========= */
+  @keyframes move-right { 0%{transform:translateX(0)} 50%{transform:translateX(80px)} 100%{transform:translateX(0)} }
+  @keyframes move-left  { 0%{transform:translateX(0)} 50%{transform:translateX(-80px)} 100%{transform:translateX(0)} }
+  @keyframes fade-pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  @keyframes slideIn { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+  .page.active .card { animation: slideIn 0.4s ease both; }
+  .page.active .card:nth-child(2) { animation-delay:0.1s; }
+  .page.active .card:nth-child(3) { animation-delay:0.2s; }
+  .page.active .card:nth-child(4) { animation-delay:0.3s; }
+
+  .next-btn {
+    display:inline-block;
+    background: linear-gradient(135deg, var(--purple), var(--cyan));
+    color:#fff; border:none;
+    padding: 12px 32px;
+    border-radius:30px;
+    font-family:'Cairo',sans-serif;
+    font-size:1rem;
+    font-weight:700;
+    cursor:pointer;
+    transition:transform 0.2s, box-shadow 0.2s;
+    margin: 20px auto; display:block; width:fit-content;
+  }
+  .next-btn:hover { transform:scale(1.05); box-shadow:0 0 24px rgba(0,212,255,0.3); }
+
+  footer {
+    background: var(--card);
+    border-top:1px solid var(--border);
+    text-align:center;
+    padding:20px;
+    font-size:0.8rem;
+    color:rgba(255,255,255,0.3);
+    margin-top:20px;
+  }
+
+  /* ===== HASH VISUAL ===== */
+  .hash-demo {
+    display:flex; flex-direction:column; align-items:center;
+    gap:10px; padding:20px 0;
+  }
+  .hash-input, .hash-output {
+    padding:10px 20px;
+    border-radius:8px;
+    font-size:0.9rem;
+    text-align:center;
+    max-width:340px; width:100%;
+  }
+  .hash-input {background:rgba(16,185,129,0.1);border:1px solid var(--green); color:#6EE7B7;}
+  .hash-arrow { font-size:1.4rem; color:var(--amber); }
+  .hash-box {
+    background:rgba(124,58,237,0.1);
+    border:1px solid var(--purple);
+    border-radius:8px;
+    padding:12px 16px;
+    font-family:monospace;
+    font-size:0.78rem;
+    color:#A78BFA;
+    text-align:center;
+    word-break:break-all;
+    max-width:340px; width:100%;
+  }
+
+  /* ===== ATTACK CARDS ===== */
+  .attack-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin:16px 0; }
+  .attack-card {
+    background:rgba(239,68,68,0.06);
+    border:1px solid rgba(239,68,68,0.2);
+    border-radius:12px;
+    padding:20px;
+  }
+  .attack-card h4 { color:#FCA5A5; font-size:0.95rem; margin-bottom:8px; }
+  .attack-card p { font-size:0.88rem; line-height:1.9; }
+
+  /* ===== TIMELINE ===== */
+  .timeline { position:relative; padding-right:30px; }
+  .timeline::before {
+    content:'';
+    position:absolute; right:10px; top:0; bottom:0;
+    width:2px; background:linear-gradient(to bottom,var(--cyan),var(--purple));
+    border-radius:1px;
+  }
+  .tl-item { position:relative; margin-bottom:28px; }
+  .tl-dot {
+    position:absolute; right:-24px; top:4px;
+    width:14px; height:14px;
+    background:var(--cyan); border-radius:50%;
+    border:3px solid var(--bg);
+    box-shadow:0 0 8px var(--cyan);
+  }
+  .tl-item h4 { color:var(--textbright); margin-bottom:4px; }
+  .tl-item p { font-size:0.92rem; line-height:1.9; }
+  .tl-year { color:var(--amber); font-size:0.8rem; font-weight:700; margin-bottom:4px; }
+
+  /* Responsive */
+  @media(max-width:600px){
+    nav { padding:0 12px; }
+    .nav-btn { padding:4px 8px; font-size:0.7rem; }
+    .card { padding:18px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ======== NAVIGATION ======== -->
+<nav>
+  <div class="nav-logo">NTLM 🔐</div>
+  <div class="nav-pages">
+    <button class="nav-btn active" onclick="showPage(0)">مقدمة</button>
+    <button class="nav-btn" onclick="showPage(1)">المشكلة</button>
+    <button class="nav-btn" onclick="showPage(2)">الشخصيات</button>
+    <button class="nav-btn" onclick="showPage(3)">الهاش</button>
+    <button class="nav-btn" onclick="showPage(4)">التحقق</button>
+    <button class="nav-btn" onclick="showPage(5)">v1 vs v2</button>
+    <button class="nav-btn" onclick="showPage(6)">الثغرات</button>
+    <button class="nav-btn" onclick="showPage(7)">الخلاصة</button>
+  </div>
+</nav>
+
+<!-- ================================================================
+     PAGE 0 – INTRODUCTION
+================================================================ -->
+<div class="page active" id="page-0">
+<div class="container">
+  <div class="hero">
+    <div class="hero-badge">🎓 دورة أمن الشبكات</div>
+    <h1>بروتوكول <span>NTLM</span><br>من الصفر حتى الاحتراف</h1>
+    <p>لا تحتاج أي خلفية مسبقة. سنبني الفهم معاً كأننا نحكي قصة حقيقية خطوةً بخطوة.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">📖</span> ما الذي ستتعلمه في هذا الشرح؟</h2>
+    <p>بنهاية هذا الشرح ستفهم تماماً:</p>
+    <ul>
+      <li>ما هو بروتوكول NTLM وماذا يفعل بالضبط</li>
+      <li>لماذا احتاجه العالم أصلاً – ما المشكلة التي يحلها؟</li>
+      <li>من هم الأطراف الثلاثة في القصة وما دور كل منهم</li>
+      <li>ما هو الـ Hash وكيف يحوّل كلمة المرور إلى شيء غير قابل للقراءة</li>
+      <li>خطوات التحقق من الهوية خطوةً بخطوة مع رسومات توضيحية</li>
+      <li>الفرق بين NTLMv1 و NTLMv2</li>
+      <li>أخطر الهجمات على NTLM وكيف تعمل</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🌍</span> تخيّل أنك في مبنى شركة كبيرة</h2>
+    <p>
+      تخيّل أنك موظف جديد في شركة ضخمة فيها مئات الموظفين وعشرات الخوادم (الحواسيب الكبيرة).
+      كل صباح تأتي وتجلس على حاسوبك وتكتب اسمك وكلمة مرورك.
+    </p>
+    <div class="highlight">
+      💡 السؤال الذي يطرحه كل مبرمج: كيف يعرف الحاسوب أنك <strong>أنت فعلاً</strong>؟
+      وكيف يتأكد من ذلك دون أن يرسل كلمة مرورك عبر الشبكة ليراها المتنصتون؟
+    </div>
+    <p>
+      الجواب هو بروتوكول <strong>NTLM</strong> — وهو نظام ذكي طورته شركة ميكروسوفت 
+      لحل بالضبط هذه المشكلة.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">📅</span> من أين جاء NTLM؟</h2>
+    <div class="timeline">
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-year">1993</div>
+        <h4>ولادة LAN Manager (LM)</h4>
+        <p>أول محاولة من ميكروسوفت وIBM لتأمين الشبكات المحلية. كانت ضعيفة جداً لكنها بداية.</p>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-year">1993</div>
+        <h4>ظهور NTLMv1</h4>
+        <p>ميكروسوفت طورت LM وأضافت خوارزمية تشفير أقوى. ظهر مع Windows NT — ومن هنا جاء الاسم NT LAN Manager.</p>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-year">1998</div>
+        <h4>NTLMv2 – الإصدار الأقوى</h4>
+        <p>ميكروسوفت اكتشفت ثغرات كثيرة في v1 فطورت v2 مع Windows NT 4.0 SP4. أكثر أماناً بكثير.</p>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-year">2000+</div>
+        <h4>ظهور Kerberos كبديل</h4>
+        <p>بدأت ميكروسوفت تشجّع على استخدام Kerberos بدلاً من NTLM في البيئات الكبيرة، لكن NTLM ما زال موجوداً حتى اليوم في ملايين الأجهزة!</p>
+      </div>
+    </div>
+    <div class="highlight amber">
+      ⚠️ رغم أن NTLM قديم وفيه ثغرات، إلا أنه لا يزال مستخدماً في <strong>2025</strong> في بيئات كثيرة. لهذا دراسته ضرورية لكل متخصص أمن معلومات.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🔤</span> ماذا يعني الاسم؟</h2>
+    <div class="codebox">
+<span class="key">NTLM</span> = <span class="val">NT LAN Manager</span>
+
+<span class="comment"># NT = New Technology (نظام Windows NT)</span>
+<span class="comment"># LAN = Local Area Network (شبكة محلية)</span>
+<span class="comment"># Manager = المدير / المنظّم</span>
+    </div>
+    <p>إذاً هو: <strong>"مدير الشبكة المحلية لنظام ويندوز NT"</strong> — بروتوكول مصادقة (Authentication Protocol).</p>
+    <div class="highlight purple">
+      🤔 <strong>مصادقة = Authentication</strong>: هي عملية التحقق من هوية شخص أو جهاز. 
+      مثل: البنك يطلب منك بطاقتك الشخصية قبل أن يعطيك فلوسك — يتحقق من هويتك.
+    </div>
+  </div>
+
+  <button class="next-btn" onclick="showPage(1)">التالي: المشكلة الأساسية ◀</button>
+</div>
+</div>
+
+<!-- ================================================================
+     PAGE 1 – THE PROBLEM
+================================================================ -->
+<div class="page" id="page-1">
+<div class="container">
+  <div class="hero">
+    <h1>المشكلة <span>الأساسية</span></h1>
+    <p>لماذا احتجنا NTLM أصلاً؟ ما المشكلة التي أرّقت المهندسين؟</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🤔</span> الطريقة الساذجة – البسيطة لكن الخطيرة</h2>
+    <p>لنتخيّل الحل الأبسط أولاً: لماذا لا ترسل كلمة المرور مباشرةً عبر الشبكة؟</p>
+    <div class="highlight red">
+      👦 <strong>المستخدم:</strong> "اسمي أحمد وكلمة مروري هي <code>Ahmed2024!</code>"<br>
+      📡 <strong>الشبكة:</strong> ترسل الرسالة عبر الكابل أو Wi-Fi<br>
+      🖥️ <strong>الخادم:</strong> "حسناً، صح — تفضّل!"
+    </div>
+    <p>
+      <strong>المشكلة؟</strong> أي شخص يستطيع <strong>"الاستماع"</strong> على الشبكة سيرى كلمة مرورك بالكامل! 
+      هذا مثل كتابة رقم بطاقتك البنكية على ورقة وإعطائها لشخص غريب ليوصّلها للبنك.
+    </p>
+
+    <div class="diagram-wrap">
+      <!-- Simple network sniffing illustration -->
+      <svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg" width="100%" max-width="700">
+        <!-- background -->
+        <rect width="700" height="220" fill="#0D1424" rx="8"/>
+
+        <!-- Computer (Alice) -->
+        <rect x="30" y="70" width="80" height="60" rx="6" fill="#1E3A5F" stroke="#00D4FF" stroke-width="1.5"/>
+        <rect x="50" y="75" width="40" height="30" rx="3" fill="#0A1A2E"/>
+        <rect x="42" y="124" width="56" height="6" rx="3" fill="#1E3A5F"/>
+        <text x="70" y="155" text-anchor="middle" fill="#94A3B8" font-size="10" font-family="Cairo">أحمد</text>
+
+        <!-- Server -->
+        <rect x="590" y="60" width="70" height="80" rx="6" fill="#1A1F35" stroke="#7C3AED" stroke-width="1.5"/>
+        <rect x="598" y="68" width="54" height="8" rx="2" fill="#7C3AED" opacity="0.4"/>
+        <rect x="598" y="80" width="54" height="8" rx="2" fill="#7C3AED" opacity="0.3"/>
+        <rect x="598" y="92" width="54" height="8" rx="2" fill="#7C3AED" opacity="0.2"/>
+        <text x="625" y="158" text-anchor="middle" fill="#94A3B8" font-size="10" font-family="Cairo">الخادم</text>
+
+        <!-- Network cable line -->
+        <line x1="110" y1="100" x2="590" y2="100" stroke="#1E3A5F" stroke-width="3" stroke-dasharray="8,4"/>
+
+        <!-- Password packet moving -->
+        <rect x="230" y="82" width="160" height="36" rx="18" fill="#EF4444" opacity="0.15" stroke="#EF4444" stroke-width="1"/>
+        <text x="310" y="105" text-anchor="middle" fill="#FCA5A5" font-size="12" font-family="Cairo, monospace">كلمة المرور: Ahmed2024!</text>
+
+        <!-- Arrow -->
+        <polygon points="400,96 415,100 400,104" fill="#EF4444"/>
+
+        <!-- Hacker -->
+        <text x="300" y="175" text-anchor="middle" fill="#F59E0B" font-size="28">🕵️</text>
+        <text x="300" y="205" text-anchor="middle" fill="#F59E0B" font-size="10" font-family="Cairo">المتنصّت يرى كل شيء!</text>
+
+        <!-- Arrow from hacker to line -->
+        <line x1="310" y1="160" x2="310" y2="118" stroke="#F59E0B" stroke-width="1.5" stroke-dasharray="3,3"/>
+        <polygon points="306,118 310,108 314,118" fill="#F59E0B"/>
+      </svg>
+    </div>
+    <div class="highlight red">
+      ❌ <strong>هذه الطريقة خطيرة جداً!</strong> المتنصّت (Sniffer) يرى كلمة المرور كاملةً بنص صريح.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">💡</span> الحل الذكي – لا ترسل كلمة المرور أبداً!</h2>
+    <p>
+      فكّر معي: بدلاً من إرسال كلمة المرور، ماذا لو <strong>أثبتنا</strong> للخادم أننا نعرفها 
+      دون أن نكشفها؟
+    </p>
+    <div class="highlight green">
+      🎯 <strong>الفكرة الذهبية وراء NTLM:</strong><br>
+      الخادم يعطيك "لغزاً" يمكن حله فقط إذا كنت تعرف كلمة المرور.
+      أنت تحل اللغز وترسل الجواب، ليتحقق الخادم من الجواب دون رؤية كلمة مرورك.
+    </div>
+    <p>هذا بالضبط ما يسميه المهندسون <strong>Challenge-Response Authentication</strong></p>
+    <div class="highlight purple">
+      📝 <strong>مثال واقعي من حياتنا:</strong><br>
+      تخيّل أن صديقك يريد يتحقق أنك تعرف وصفة "كبسة أمك السرية". بدلاً من أن تقول له الوصفة، يقول لك: "أضف تابل إلى بهارات البصل المقلي". إذا أجبت صح، يعني تعرف الوصفة. الوصفة ما اتكشفت!
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🔑</span> المبدأ الأساسي في NTLM</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h4>تحويل كلمة المرور إلى "بصمة" (Hash)</h4>
+          <p>بدلاً من تخزين كلمة المرور كما هي، يتم تشغيلها عبر دالة رياضية تحوّلها إلى سلسلة غريبة من الأرقام والحروف لا يمكن فكّها.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h4>الخادم يرسل "تحدياً" عشوائياً</h4>
+          <p>رقم عشوائي كبير جداً — مختلف في كل مرة. يسمى الـ Challenge.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h4>المستخدم يخلط الـ Hash مع التحدي</h4>
+          <p>يستخدم بصمة كلمة مروره ليجيب على التحدي ويرسل الجواب (Response).</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h4>الخادم يتحقق من الجواب</h4>
+          <p>لأنه يعرف بصمة كلمة مرورك، يحسب هو أيضاً الجواب الصحيح ويقارن. إذا تطابقا = دخلت!</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button class="next-btn" onclick="showPage(2)">التالي: شخصيات القصة ◀</button>
+</div>
+</div>
+
+<!-- ================================================================
+     PAGE 2 – THE CHARACTERS
+================================================================ -->
+<div class="page" id="page-2">
+<div class="container">
+  <div class="hero">
+    <h1><span>الشخصيات</span> الثلاث</h1>
+    <p>في كل قصة مصادقة NTLM هناك ثلاثة أطراف لا بد من معرفتهم</p>
+  </div>
+
+  <div class="personas">
+    <div class="persona">
+      <div class="avatar">💻</div>
+      <h4>العميل (Client)</h4>
+      <p>حاسوب المستخدم — الشخص الذي يريد الدخول. مثل: لابتوب أحمد في البيت أو المكتب.</p>
+    </div>
+    <div class="persona">
+      <div class="avatar">🖥️</div>
+      <h4>الخادم (Server)</h4>
+      <p>الجهاز الذي يريد المستخدم الوصول إليه. مثل: خادم الملفات أو خادم الويب داخل الشركة.</p>
+    </div>
+    <div class="persona">
+      <div class="avatar">🏦</div>
+      <h4>وحدة التحكم بالنطاق (DC)</h4>
+      <p>Domain Controller — هو "بنك الهويات" في الشركة. يحفظ معلومات كل موظف ويتحقق منها.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">💻</span> أولاً: العميل (Client)</h2>
+    <p>
+      هو حاسوب المستخدم — الذي يريد الوصول إلى شيء ما على الشبكة.
+      مثلاً: أحمد يريد فتح ملفات الشركة الموجودة على خادم بعيد.
+    </p>
+    <p>مهمة العميل:</p>
+    <ul>
+      <li>يعرف اسم المستخدم وكلمة المرور</li>
+      <li>يحسب الـ Hash من كلمة المرور</li>
+      <li>يرد على تحدي الخادم باستخدام الـ Hash</li>
+    </ul>
+    <div class="highlight">
+      📌 <strong>مهم:</strong> العميل لا يحتفظ بكلمة المرور في الذاكرة طويلاً — يحوّلها فوراً إلى Hash ويستخدم الـ Hash.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🖥️</span> ثانياً: الخادم (Server)</h2>
+    <p>
+      هو الجهاز الذي يملك الموارد (ملفات، طابعات، قواعد بيانات...). 
+      مهمته إذن هو التحقق من هوية من يطرق بابه.
+    </p>
+    <p>لكن الخادم لا يعرف كلمات مرور المستخدمين! فماذا يفعل؟</p>
+    <div class="highlight amber">
+      🔄 <strong>يحوّل المهمة للـ DC!</strong><br>
+      الخادم يقول للـ DC: "عندي شخص يدّعي أنه أحمد. هذا هو جوابه على التحدي. أنت تحقق — هل هو أحمد؟"
+    </div>
+    <p>مهام الخادم:</p>
+    <ul>
+      <li>يستقبل طلب الدخول</li>
+      <li>يولّد رقماً عشوائياً (التحدي / Challenge)</li>
+      <li>يرسله للعميل</li>
+      <li>يستقبل الجواب (Response) من العميل</li>
+      <li>يمرّر كل شيء للـ DC للتحقق</li>
+      <li>يسمح أو يمنع الدخول بناءً على جواب الـ DC</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🏦</span> ثالثاً: وحدة التحكم بالنطاق (Domain Controller – DC)</h2>
+    <p>
+      هذا هو الأهم والأخطر في البنية التحتية. تخيّله كـ<strong>وزارة الداخلية</strong> في الشركة — 
+      يحفظ بيانات كل موظف ويتحقق من هويتهم.
+    </p>
+    <div class="highlight green">
+      🗄️ <strong>ماذا يحفظ الـ DC؟</strong><br>
+      لكل مستخدم: اسمه، الـ NT Hash الخاص بكلمة مروره، صلاحياته، مجموعاته... إلخ.
+      <strong>لا يحفظ كلمة المرور الأصلية أبداً!</strong> فقط الـ Hash.
+    </div>
+    <p>مهام الـ DC:</p>
+    <ul>
+      <li>يحفظ قاعدة بيانات كل المستخدمين (تسمى: NTDS.dit)</li>
+      <li>يستقبل من الخادم: [اسم المستخدم + التحدي + الجواب]</li>
+      <li>يسحب الـ Hash المخزن لهذا المستخدم</li>
+      <li>يحسب الجواب الصحيح ويقارنه بما أرسله الخادم</li>
+      <li>يرد على الخادم: "اقبله" أو "ارفضه"</li>
+    </ul>
+    <div class="highlight red">
+      ⚠️ <strong>لماذا الـ DC هدف رئيسي للهاكرز؟</strong><br>
+      لأن من يسيطر على الـ DC يسيطر على كل شيء في الشبكة — كل الحسابات وكل الصلاحيات.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🗺️</span> خريطة العلاقات بصرياً</h2>
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" width="100%">
+        <rect width="700" height="300" fill="#0D1424" rx="8"/>
+
+        <!-- Client -->
+        <rect x="30" y="110" width="130" height="80" rx="10" fill="#0A1A2E" stroke="#00D4FF" stroke-width="2"/>
+        <text x="95" y="142" text-anchor="middle" fill="#00D4FF" font-size="24">💻</text>
+        <text x="95" y="162" text-anchor="middle" fill="#E2E8F0" font-size="11" font-family="Cairo">العميل (Client)</text>
+        <text x="95" y="178" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">حاسوب أحمد</text>
+
+        <!-- Server -->
+        <rect x="285" y="110" width="130" height="80" rx="10" fill="#0A1A2E" stroke="#7C3AED" stroke-width="2"/>
+        <text x="350" y="142" text-anchor="middle" fill="#A78BFA" font-size="24">🖥️</text>
+        <text x="350" y="162" text-anchor="middle" fill="#E2E8F0" font-size="11" font-family="Cairo">الخادم (Server)</text>
+        <text x="350" y="178" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">خادم الملفات</text>
+
+        <!-- DC -->
+        <rect x="540" y="110" width="130" height="80" rx="10" fill="#0A1A2E" stroke="#F59E0B" stroke-width="2"/>
+        <text x="605" y="142" text-anchor="middle" fill="#F59E0B" font-size="24">🏦</text>
+        <text x="605" y="162" text-anchor="middle" fill="#E2E8F0" font-size="11" font-family="Cairo">الـ DC</text>
+        <text x="605" y="178" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">وحدة التحكم</text>
+
+        <!-- Arrows Client → Server -->
+        <line x1="160" y1="148" x2="284" y2="148" stroke="#00D4FF" stroke-width="2" stroke-dasharray="5,3"/>
+        <polygon points="278,144 288,148 278,152" fill="#00D4FF"/>
+        <text x="222" y="138" text-anchor="middle" fill="#00D4FF" font-size="9" font-family="Cairo">طلب الدخول</text>
+        <text x="222" y="168" text-anchor="middle" fill="#00D4FF" font-size="9" font-family="Cairo">الجواب</text>
+
+        <!-- Arrow Server → DC -->
+        <line x1="415" y1="140" x2="539" y2="140" stroke="#F59E0B" stroke-width="2" stroke-dasharray="5,3"/>
+        <polygon points="533,136 543,140 533,144" fill="#F59E0B"/>
+        <text x="477" y="130" text-anchor="middle" fill="#F59E0B" font-size="9" font-family="Cairo">للتحقق</text>
+
+        <!-- Arrow DC → Server return -->
+        <line x1="540" y1="160" x2="416" y2="160" stroke="#10B981" stroke-width="2"/>
+        <polygon points="422,156 412,160 422,164" fill="#10B981"/>
+        <text x="477" y="175" text-anchor="middle" fill="#10B981" font-size="9" font-family="Cairo">قبول / رفض</text>
+
+        <!-- Labels at top -->
+        <text x="350" y="40" text-anchor="middle" fill="#E2E8F0" font-size="14" font-weight="bold" font-family="Cairo">مسار التحقق في NTLM</text>
+
+        <!-- Legend -->
+        <rect x="30" y="250" width="640" height="30" rx="6" fill="rgba(0,212,255,0.04)" stroke="rgba(0,212,255,0.1)" stroke-width="1"/>
+        <text x="350" y="270" text-anchor="middle" fill="#94A3B8" font-size="10" font-family="Cairo">العميل يتحدث مع الخادم ← الخادم يتحدث مع الـ DC ← الـ DC يعطي القرار النهائي</text>
+      </svg>
+    </div>
+  </div>
+
+  <button class="next-btn" onclick="showPage(3)">التالي: ما هو الـ Hash؟ ◀</button>
+</div>
+</div>
+
+<!-- ================================================================
+     PAGE 3 – THE HASH
+================================================================ -->
+<div class="page" id="page-3">
+<div class="container">
+  <div class="hero">
+    <h1>ما هو <span>الـ Hash</span>؟</h1>
+    <p>المفهوم الأساسي الذي يقوم عليه NTLM بالكامل</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🧬</span> البصمة الرقمية – تعريف بسيط</h2>
+    <p>
+      الـ Hash هو دالة رياضية تأخذ أي نص مهما كان طوله 
+      وتحوّله إلى سلسلة ثابتة الطول من الأرقام والحروف.
+    </p>
+    <div class="highlight">
+      🔁 <strong>تشبيه:</strong> كأنك تضع أي شيء في "آلة طحن" — سواء أدخلت تفاحة أو شاحنة كاملة، دائماً يخرج نفس الحجم من المسحوق! لكن لا يمكنك إعادة بناء التفاحة أو الشاحنة من المسحوق.
+    </div>
+
+    <div class="hash-demo">
+      <div class="hash-input">🔤  النص الأصلي: <strong>Ahmed2024!</strong></div>
+      <div class="hash-arrow">⬇️ دالة NT Hash (MD4)</div>
+      <div class="hash-box">8846F7EAEE8FB117AD06BDD830B7586C</div>
+    </div>
+
+    <div class="hash-demo">
+      <div class="hash-input">🔤  نص مختلف: <strong>Ahmed2024!!</strong> (حرف زيادة واحد)</div>
+      <div class="hash-arrow">⬇️ نفس الدالة</div>
+      <div class="hash-box">A9A6B35BCFFC50EFF3E1CC3B13C4A45F</div>
+    </div>
+
+    <p style="text-align:center; margin-top:10px;">
+      <span class="tag red">مختلف تماماً!</span> تغيير حرف واحد يغيّر الـ Hash كلياً
+    </p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">⚖️</span> خصائص الـ Hash الأربع الأساسية</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h4>ثابت الطول (Fixed Length)</h4>
+          <p>مهما كانت كلمة مرورك — حرف واحد أو ألف حرف — الـ NT Hash دائماً 32 حرفاً هيكساديسيمال (128 بت). لا أكثر، لا أقل.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h4>حتمي (Deterministic)</h4>
+          <p>نفس الإدخال يعطيك دائماً نفس النتيجة. كلمة "Ahmed2024!" ستعطي نفس الـ Hash في كل مرة، في أي حاسوب، في أي وقت.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h4>أحادي الاتجاه (One-Way)</h4>
+          <p>يمكنك الحساب من كلمة المرور إلى الـ Hash، لكن لا يمكنك رياضياً العودة من الـ Hash إلى كلمة المرور. مستحيل حتى بأقوى حاسوب في العالم.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h4>حساس للتغيير (Avalanche Effect)</h4>
+          <p>تغيير حرف واحد في كلمة المرور يغيّر الـ Hash بالكامل — لا يمكنك تخمين الـ Hash الجديد من القديم.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🔬</span> الـ NT Hash – كيف يُحسب بالضبط؟</h2>
+    <p>NTLM يستخدم خوارزمية تسمى <strong>MD4</strong> لحساب الـ Hash.</p>
+    <div class="codebox">
+<span class="comment"># الخطوات الفعلية لحساب NT Hash</span>
+
+<span class="key">الخطوة 1:</span> <span class="val">خذ كلمة المرور كنص</span>
+  "Ahmed2024!"
+
+<span class="key">الخطوة 2:</span> <span class="val">حوّلها إلى Unicode (UTF-16LE)</span>
+  كل حرف يصبح بيتَين بدل بيت واحد
+  A  → 41 00
+  h  → 68 00
+  m  → 6D 00
+  ...
+
+<span class="key">الخطوة 3:</span> <span class="val">طبّق خوارزمية MD4 على البايتات الناتجة</span>
+  الناتج: 8846F7EAEE8FB117AD06BDD830B7586C
+
+<span class="comment"># هذا هو NT Hash — ما يُخزَّن في الـ DC وما يُستخدَّم في NTLM</span>
+    </div>
+    <div class="highlight amber">
+      ⚠️ <strong>ملاحظة أمنية:</strong> MD4 خوارزمية قديمة وضعيفة نسبياً. لا توجد "ملح" (Salt) في NT Hash — نفس كلمة المرور تعطي دائماً نفس الـ Hash! هذا يجعله عرضة لهجمات "قاموس الـ Hash" (Rainbow Tables).
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">📚</span> أنواع الـ Hash في بيئة ويندوز</h2>
+    <table class="compare">
+      <tr>
+        <th>النوع</th>
+        <th>الخوارزمية</th>
+        <th>مستوى الأمان</th>
+        <th>ملاحظات</th>
+      </tr>
+      <tr>
+        <td><strong>LM Hash</strong></td>
+        <td>DES</td>
+        <td><span class="tag red">ضعيف جداً</span></td>
+        <td>قديم جداً، لا يزال موجوداً للتوافق. يقطّع كلمة المرور إلى نصفين.</td>
+      </tr>
+      <tr>
+        <td><strong>NT Hash</strong></td>
+        <td>MD4</td>
+        <td><span class="tag amber">متوسط</span></td>
+        <td>هذا ما يستخدمه NTLM فعلاً. أقوى من LM لكن لا يوجد Salt.</td>
+      </tr>
+      <tr>
+        <td><strong>NTLMv2 Hash</strong></td>
+        <td>HMAC-MD5</td>
+        <td><span class="tag green">جيد نسبياً</span></td>
+        <td>يضيف طبقات حماية إضافية. سنشرحه لاحقاً.</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🗄️</span> أين يُخزَّن الـ Hash في الويندوز؟</h2>
+    <div class="highlight purple">
+      📁 <strong>على الجهاز المحلي (Local):</strong><br>
+      ملف اسمه <code>SAM (Security Account Manager)</code><br>
+      مسار: <code>C:\Windows\System32\config\SAM</code><br>
+      محمي ومشفّر — لا يمكن قراءته وويندوز شغّال.
+    </div>
+    <div class="highlight">
+      🏦 <strong>على الـ Domain Controller:</strong><br>
+      ملف اسمه <code>NTDS.dit</code><br>
+      مسار: <code>C:\Windows\NTDS\ntds.dit</code><br>
+      يحتوي على hash كل مستخدم في الشركة بأكملها!
+    </div>
+    <div class="highlight red">
+      ☠️ <strong>لماذا الـ NTDS.dit خطير جداً؟</strong><br>
+      من يسرق هذا الملف يحصل على hash جميع المستخدمين في الشركة — 
+      يستطيع الدخول بهوية أي شخص دون معرفة كلمة مروره الحقيقية 
+      (هجوم يسمى Pass-The-Hash — سنشرحه لاحقاً).
+    </div>
+  </div>
+
+  <button class="next-btn" onclick="showPage(4)">التالي: عملية التحقق خطوةً بخطوة ◀</button>
+</div>
+</div>
+
+<!-- ================================================================
+     PAGE 4 – THE NTLM HANDSHAKE
+================================================================ -->
+<div class="page" id="page-4">
+<div class="container">
+  <div class="hero">
+    <h1>عملية <span>التحقق</span> كاملةً</h1>
+    <p>المصافحة الثلاثية (Three-Way Handshake) في NTLM — خطوةً بخطوة مع كل التفاصيل</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🎬</span> القصة الكاملة – أحمد يريد الدخول</h2>
+    <p>
+      أحمد يفتح لابتوبه في الشركة ويريد الوصول إلى خادم الملفات. 
+      دعنا نتابع بالضبط ما يحدث من لحظة كتابة كلمة المرور حتى الدخول.
+    </p>
+  </div>
+
+  <!-- FULL DIAGRAM -->
+  <div class="card">
+    <h2><span class="icon-lg">📊</span> مخطط المصافحة الكاملة</h2>
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 750 580" xmlns="http://www.w3.org/2000/svg" width="100%">
+        <rect width="750" height="580" fill="#070B14" rx="8"/>
+
+        <!-- Column headers -->
+        <rect x="30" y="15" width="150" height="35" rx="6" fill="rgba(0,212,255,0.1)" stroke="#00D4FF" stroke-width="1"/>
+        <text x="105" y="38" text-anchor="middle" fill="#00D4FF" font-size="12" font-weight="bold" font-family="Cairo">💻 العميل</text>
+
+        <rect x="295" y="15" width="160" height="35" rx="6" fill="rgba(124,58,237,0.1)" stroke="#7C3AED" stroke-width="1"/>
+        <text x="375" y="38" text-anchor="middle" fill="#A78BFA" font-size="12" font-weight="bold" font-family="Cairo">🖥️ الخادم</text>
+
+        <rect x="560" y="15" width="160" height="35" rx="6" fill="rgba(245,158,11,0.1)" stroke="#F59E0B" stroke-width="1"/>
+        <text x="640" y="38" text-anchor="middle" fill="#F59E0B" font-size="12" font-weight="bold" font-family="Cairo">🏦 الـ DC</text>
+
+        <!-- Vertical dashed lines -->
+        <line x1="105" y1="50" x2="105" y2="570" stroke="#00D4FF" stroke-width="1" stroke-dasharray="4,4" opacity="0.3"/>
+        <line x1="375" y1="50" x2="375" y2="570" stroke="#7C3AED" stroke-width="1" stroke-dasharray="4,4" opacity="0.3"/>
+        <line x1="640" y1="50" x2="640" y2="570" stroke="#F59E0B" stroke-width="1" stroke-dasharray="4,4" opacity="0.3"/>
+
+        <!-- -------- STEP 1: NEGOTIATE -------- -->
+        <rect x="30" y="65" width="150" height="40" rx="6" fill="#0A1A2E" stroke="#00D4FF" stroke-width="1"/>
+        <text x="105" y="89" text-anchor="middle" fill="#E2E8F0" font-size="10" font-family="Cairo">① NEGOTIATE_MESSAGE</text>
+
+        <line x1="180" y1="85" x2="294" y2="85" stroke="#00D4FF" stroke-width="2"/>
+        <polygon points="289,81 299,85 289,89" fill="#00D4FF"/>
+        <text x="237" y="78" text-anchor="middle" fill="#00D4FF" font-size="9" font-family="Cairo">اسمي أحمد + قدراتي</text>
+
+        <!-- -------- STEP 2: CHALLENGE -------- -->
+        <rect x="295" y="115" width="160" height="45" rx="6" fill="#110A24" stroke="#7C3AED" stroke-width="1"/>
+        <text x="375" y="133" text-anchor="middle" fill="#E2E8F0" font-size="10" font-family="Cairo">② CHALLENGE_MESSAGE</text>
+        <text x="375" y="151" text-anchor="middle" fill="#A78BFA" font-size="9" font-family="Cairo">يولّد رقم عشوائي (Challenge)</text>
+
+        <line x1="295" y1="138" x2="181" y2="138" stroke="#7C3AED" stroke-width="2"/>
+        <polygon points="186,134 176,138 186,142" fill="#7C3AED"/>
+        <text x="237" y="131" text-anchor="middle" fill="#A78BFA" font-size="9" font-family="Cairo">Challenge (8 بايت)</text>
+
+        <!-- -------- STEP 3: CLIENT COMPUTES -------- -->
+        <rect x="30" y="175" width="150" height="60" rx="6" fill="#0A1A2E" stroke="#00D4FF" stroke-width="1"/>
+        <text x="105" y="196" text-anchor="middle" fill="#E2E8F0" font-size="10" font-family="Cairo">③ يحسب الجواب</text>
+        <text x="105" y="212" text-anchor="middle" fill="#6EE7B7" font-size="8.5" font-family="Cairo">NT_Hash + Challenge</text>
+        <text x="105" y="227" text-anchor="middle" fill="#6EE7B7" font-size="8.5" font-family="Cairo">↓ خوارزمية DES/HMAC</text>
+
+        <!-- -------- STEP 4: AUTHENTICATE -------- -->
+        <rect x="30" y="255" width="150" height="45" rx="6" fill="#0A1A2E" stroke="#10B981" stroke-width="1"/>
+        <text x="105" y="273" text-anchor="middle" fill="#E2E8F0" font-size="10" font-family="Cairo">④ AUTHENTICATE_MSG</text>
+        <text x="105" y="289" text-anchor="middle" fill="#6EE7B7" font-size="9" font-family="Cairo">اسمي + Domain + Response</text>
+
+        <line x1="180" y1="277" x2="294" y2="277" stroke="#10B981" stroke-width="2"/>
+        <polygon points="289,273 299,277 289,281" fill="#10B981"/>
+        <text x="237" y="270" text-anchor="middle" fill="#10B981" font-size="9" font-family="Cairo">الجواب (Response)</text>
+
+        <!-- -------- STEP 5: SERVER VERIFIES WITH DC -------- -->
+        <rect x="295" y="310" width="160" height="50" rx="6" fill="#110A24" stroke="#F59E0B" stroke-width="1"/>
+        <text x="375" y="330" text-anchor="middle" fill="#E2E8F0" font-size="10" font-family="Cairo">⑤ يمرّر للـ DC</text>
+        <text x="375" y="348" text-anchor="middle" fill="#F5A623" font-size="9" font-family="Cairo">اسم أحمد + Challenge + Response</text>
+
+        <line x1="455" y1="335" x2="559" y2="335" stroke="#F59E0B" stroke-width="2"/>
+        <polygon points="554,331 564,335 554,339" fill="#F59E0B"/>
+        <text x="507" y="328" text-anchor="middle" fill="#F59E0B" font-size="9" font-family="Cairo">NetLogon</text>
+
+        <!-- -------- STEP 6: DC CHECKS -------- -->
+        <rect x="560" y="365" width="160" height="65" rx="6" fill="#1A1204" stroke="#F59E0B" stroke-width="1"/>
+        <text x="640" y="385" text-anchor="middle" fill="#E2E8F0" font-size="10" font-family="Cairo">⑥ يتحقق الـ DC</text>
+        <text x="640" y="401" text-anchor="middle" fill="#94A3B8" font-size="8.5" font-family="Cairo">يسحب NT Hash أحمد</text>
+        <text x="640" y="415" text-anchor="middle" fill="#94A3B8" font-size="8.5" font-family="Cairo">يحسب الجواب المتوقع</text>
+        <text x="640" y="429" text-anchor="middle" fill="#94A3B8" font-size="8.5" font-family="Cairo">يقارن مع الجواب المستلم</text>
+
+        <!-- -------- STEP 7: DC RESPONSE -------- -->
+        <line x1="560" y1="450" x2="456" y2="450" stroke="#10B981" stroke-width="2"/>
+        <polygon points="461,446 451,450 461,454" fill="#10B981"/>
+        <text x="508" y="443" text-anchor="middle" fill="#10B981" font-size="9" font-family="Cairo">✓ مصادق عليه</text>
+
+        <!-- -------- STEP 8: SERVER GRANTS ACCESS -------- -->
+        <rect x="295" y="465" width="160" height="40" rx="6" fill="#061A0E" stroke="#10B981" stroke-width="1"/>
+        <text x="375" y="490" text-anchor="middle" fill="#10B981" font-size="10" font-family="Cairo">⑧ السماح بالدخول</text>
+
+        <line x1="295" y1="485" x2="181" y2="485" stroke="#10B981" stroke-width="2"/>
+        <polygon points="186,481 176,485 186,489" fill="#10B981"/>
+        <text x="237" y="478" text-anchor="middle" fill="#10B981" font-size="9" font-family="Cairo">✅ تفضّل!</text>
+
+        <!-- ACCESS GRANTED at bottom -->
+        <rect x="30" y="520" width="150" height="40" rx="6" fill="rgba(16,185,129,0.1)" stroke="#10B981" stroke-width="2"/>
+        <text x="105" y="545" text-anchor="middle" fill="#10B981" font-size="11" font-weight="bold" font-family="Cairo">🎉 دخل أحمد!</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- STEP BY STEP EXPLANATION -->
+  <div class="card">
+    <h2><span class="icon-lg">📝</span> شرح كل خطوة بالتفصيل</h2>
+
+    <h3>① رسالة التفاوض (NEGOTIATE_MESSAGE)</h3>
+    <p>
+      أحمد يكتب اسمه وكلمة مروره. الحاسوب يرسل للخادم رسالة أولى تقول:
+      "مرحباً، أنا عميل، أريد الدخول، اسمي أحمد، وهذه هي الميزات التي أدعمها (NTLMv1 أو v2، اللغة، إلخ)."
+    </p>
+    <div class="codebox">
+<span class="comment"># ما تحتويه رسالة التفاوض</span>
+- Signature: "NTLMSSP\0"  <span class="comment"># توقيع ثابت للتعريف بالبروتوكول</span>
+- MessageType: 1           <span class="comment"># نوع الرسالة (1 = Negotiate)</span>
+- NegotiateFlags: ...      <span class="comment"># ما الخصائص المدعومة</span>
+- DomainName: "COMPANY"    <span class="comment"># اسم الشركة / النطاق</span>
+- Workstation: "AHMED-PC"  <span class="comment"># اسم جهاز أحمد</span>
+    </div>
+
+    <h3>② رسالة التحدي (CHALLENGE_MESSAGE)</h3>
+    <p>
+      الخادم يستقبل الطلب ويولّد رقماً عشوائياً كبيراً (8 بايت = 64 بت) يسمى الـ <strong>Server Challenge</strong>. يرسله لأحمد.
+    </p>
+    <div class="highlight">
+      🎲 <strong>لماذا عشوائي؟</strong> لأن لو كان ثابتاً، يستطيع المهاجم التقاط جواب قديم وإعادة إرساله (Replay Attack). الرقم العشوائي يضمن أن كل جلسة فريدة.
+    </div>
+    <div class="codebox">
+<span class="comment"># رسالة التحدي</span>
+- MessageType: 2
+- ServerChallenge: A3F2B7C9D4E10A5B  <span class="comment"># الرقم العشوائي</span>
+- TargetName: "COMPANY"
+- NegotiateFlags: ...
+    </div>
+
+    <h3>③ أحمد يحسب الجواب</h3>
+    <p>الحاسوب يأخذ NT Hash لكلمة مرور أحمد ويستخدمه مع الـ Challenge لحساب الـ Response.</p>
+    <div class="codebox">
+<span class="comment"># في NTLMv1 (مبسّط)</span>
+NT_Hash = <span class="val">MD4("Ahmed2024!" بترميز Unicode)</span>
+<span class="comment"># = 8846F7EAEE8FB117AD06BDD830B7586C</span>
+
+<span class="comment"># يُوسَّع الـ Hash من 16 بايت إلى 21 بايت بإضافة أصفار</span>
+NT_Hash_Extended = NT_Hash + 00 00 00 00 00
+
+<span class="comment"># ينقسم إلى 3 أجزاء × 7 بايت</span>
+<span class="comment"># كل جزء يُشفَّر بخوارزمية DES مع الـ Challenge</span>
+
+Response = DES(K1, Challenge) + DES(K2, Challenge) + DES(K3, Challenge)
+<span class="comment"># الناتج: 24 بايت → هذا هو الـ NT Response</span>
+    </div>
+
+    <h3>④ رسالة المصادقة (AUTHENTICATE_MESSAGE)</h3>
+    <p>أحمد يرسل للخادم: اسمه المستخدم + اسم النطاق + اسم الجهاز + الـ NT Response.</p>
+    <div class="highlight">
+      🔐 <strong>لاحظ:</strong> كلمة المرور نفسها <em>لا تُرسَل أبداً</em> — فقط الـ Response المحسوب منها.
+    </div>
+
+    <h3>⑤-⑥ الخادم يتحقق عبر الـ DC</h3>
+    <p>
+      الخادم يرسل للـ DC: [اسم المستخدم + Server Challenge + NT Response].
+      الـ DC يفعل نفس الحساب: يسحب NT Hash أحمد من قاعدة بياناته، يحسب الجواب المتوقع،
+      يقارنه بما أرسله الخادم.
+    </p>
+    <div class="codebox">
+<span class="comment"># الـ DC يحسب</span>
+Expected_Response = DES(K1, ServerChallenge) + DES(K2, ...) + DES(K3, ...)
+
+if Expected_Response == Received_Response:
+    return <span class="val">"ACCESS_GRANTED"</span>  <span class="comment"># ✅ صح!</span>
+else:
+    return <span class="key">"ACCESS_DENIED"</span>   <span class="comment"># ❌ خطأ</span>
+    </div>
+
+    <h3>⑦-⑧ النتيجة النهائية</h3>
+    <p>
+      الـ DC يرسل قراره للخادم عبر بروتوكول يسمى <strong>NetLogon</strong>. 
+      الخادم يبلّغ أحمد بالنتيجة.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">⏱️</span> كل هذا في أجزاء من الثانية!</h2>
+    <p>
+      هذه العملية كلها تحدث في أقل من ثانية واحدة. أنت تكتب كلمة مرورك وبينما لم ترفع إصبعك عن Enter، 
+      كل هذه الرسائل تطير ذهاباً وإياباً وتعود لك بالإجابة.
+    </p>
+    <div class="highlight green">
+      ✅ <strong>ملخص ما أُرسل عبر الشبكة:</strong><br>
+      ✓ اسم المستخدم (نص واضح)<br>
+      ✓ الـ Server Challenge (عشوائي من الخادم)<br>
+      ✓ الـ NT Response (محسوب من Hash + Challenge)<br>
+      ✗ <strong>كلمة المرور الأصلية: لم تُرسَل قط!</strong><br>
+      ✗ <strong>الـ NT Hash الأصلي: لم يُرسَل قط!</strong>
+    </div>
+  </div>
+
+  <button class="next-btn" onclick="showPage(5)">التالي: NTLMv1 مقابل NTLMv2 ◀</button>
+</div>
+</div>
+
+<!-- ================================================================
+     PAGE 5 – v1 vs v2
+================================================================ -->
+<div class="page" id="page-5">
+<div class="container">
+  <div class="hero">
+    <h1><span>NTLMv1</span> مقابل <span>NTLMv2</span></h1>
+    <p>ما الذي تغيّر وما الذي أُضيف لتقوية الأمان؟</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🔍</span> لماذا نسختان؟</h2>
+    <p>
+      بعد انتشار NTLMv1 في التسعينيات، بدأ الباحثون يكتشفون ثغرات خطيرة فيه. 
+      ميكروسوفت طوّرت NTLMv2 عام 1998 لسدّ هذه الثغرات.
+    </p>
+    <div class="highlight red">
+      ❌ <strong>أكبر مشكلة في NTLMv1:</strong> 
+      استخدام خوارزمية DES ضعيفة، وعدم وجود تنويع كافٍ في الجواب. 
+      يمكن كسر الـ NTLMv1 Response في دقائق بالأجهزة الحديثة.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">⚔️</span> المقارنة التفصيلية</h2>
+    <table class="compare">
+      <tr>
+        <th>الخاصية</th>
+        <th>NTLMv1</th>
+        <th>NTLMv2</th>
+      </tr>
+      <tr>
+        <td><strong>سنة الظهور</strong></td>
+        <td>1993</td>
+        <td>1998</td>
+      </tr>
+      <tr>
+        <td><strong>خوارزمية الـ Response</strong></td>
+        <td>DES</td>
+        <td>HMAC-MD5</td>
+      </tr>
+      <tr>
+        <td><strong>طول الـ Challenge</strong></td>
+        <td>8 بايت (من الخادم فقط)</td>
+        <td>8 بايت (خادم) + 8+ بايت (عميل)</td>
+      </tr>
+      <tr>
+        <td><strong>Client Challenge</strong></td>
+        <td>❌ لا يوجد</td>
+        <td>✅ موجود (Blob)</td>
+      </tr>
+      <tr>
+        <td><strong>الطابع الزمني</strong></td>
+        <td>❌ لا يوجد</td>
+        <td>✅ موجود (يمنع Replay)</td>
+      </tr>
+      <tr>
+        <td><strong>مستوى الأمان</strong></td>
+        <td><span class="tag red">ضعيف</span></td>
+        <td><span class="tag amber">متوسط-جيد</span></td>
+      </tr>
+      <tr>
+        <td><strong>قابلية الكسر</strong></td>
+        <td>دقائق على GPU حديث</td>
+        <td>أصعب بكثير (لكن ممكن)</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🆕</span> ما الجديد في NTLMv2 بالتفصيل؟</h2>
+
+    <h3>١. إضافة Client Challenge (Blob)</h3>
+    <p>
+      في v1، فقط الخادم يولّد الـ Challenge. في v2، العميل أيضاً يولّد رقماً عشوائياً خاصاً به (يسمى Client Challenge أو Blob).
+      الجواب النهائي يعتمد على <strong>كليهما معاً</strong>.
+    </p>
+    <div class="highlight">
+      🔒 <strong>لماذا مهم؟</strong> حتى لو تمكّن مهاجم من التحكم بالـ Server Challenge، لا يستطيع التنبؤ بالجواب الصحيح لأن الـ Client Challenge عشوائي أيضاً.
+    </div>
+
+    <h3>٢. إضافة الطابع الزمني (Timestamp)</h3>
+    <p>
+      الـ Blob يحتوي على وقت دقيق. الخادم والـ DC يتحققان أن الجواب "جديد". 
+      لو المهاجم التقط جواباً قديماً وحاول إعادة إرساله بعد 5 دقائق — سيُرفض.
+    </p>
+
+    <h3>٣. خوارزمية HMAC-MD5 بدل DES</h3>
+    <div class="codebox">
+<span class="comment"># NTLMv1 Response (بسيط وضعيف)</span>
+v1_Response = DES(NT_Hash, ServerChallenge)
+
+<span class="comment"># NTLMv2 Response (أقوى)</span>
+NT_Hash_v2 = HMAC_MD5(NT_Hash, Username + Domain)
+v2_Response = HMAC_MD5(NT_Hash_v2, ServerChallenge + Blob)
+<span class="comment"># الـ Blob يحتوي: Timestamp + ClientChallenge + TargetInfo</span>
+    </div>
+
+    <h3>٤. Target Information (TargetInfo)</h3>
+    <p>
+      الـ Blob في v2 يحتوي أيضاً على معلومات النطاق والخادم المستهدف.
+      هذا يمنع هجوم يسمى <strong>Relay Attack</strong> (سنشرحه) — لأن الجواب مرتبط بخادم معين.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">📊</span> مقارنة مرئية للـ Response</h2>
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" width="100%">
+        <rect width="700" height="300" fill="#0D1424" rx="8"/>
+
+        <!-- NTLMv1 -->
+        <text x="175" y="30" text-anchor="middle" fill="#EF4444" font-size="14" font-weight="bold" font-family="Cairo">NTLMv1 Response</text>
+
+        <rect x="30" y="45" width="120" height="40" rx="6" fill="rgba(16,185,129,0.15)" stroke="#10B981" stroke-width="1"/>
+        <text x="90" y="70" text-anchor="middle" fill="#6EE7B7" font-size="10" font-family="Cairo">NT Hash (16B)</text>
+
+        <text x="160" y="70" text-anchor="middle" fill="#94A3B8" font-size="16">+</text>
+
+        <rect x="170" y="45" width="120" height="40" rx="6" fill="rgba(124,58,237,0.15)" stroke="#7C3AED" stroke-width="1"/>
+        <text x="230" y="70" text-anchor="middle" fill="#A78BFA" font-size="10" font-family="Cairo">Server Challenge</text>
+
+        <text x="300" y="70" text-anchor="middle" fill="#94A3B8" font-size="16">→</text>
+        <rect x="310" y="45" width="60" height="40" rx="4" fill="#1A0A0A" stroke="#EF4444" stroke-width="1"/>
+        <text x="340" y="63" text-anchor="middle" fill="#FCA5A5" font-size="9" font-family="Cairo">DES</text>
+        <text x="300" y="105" text-anchor="middle" fill="#EF4444" font-size="8" font-family="Cairo">خوارزمية ضعيفة</text>
+
+        <text x="380" y="70" text-anchor="middle" fill="#94A3B8" font-size="16">→</text>
+        <rect x="390" y="45" width="100" height="40" rx="6" fill="rgba(239,68,68,0.1)" stroke="#EF4444" stroke-width="1.5"/>
+        <text x="440" y="70" text-anchor="middle" fill="#FCA5A5" font-size="10" font-family="Cairo">Response 24B</text>
+
+        <!-- Divider -->
+        <line x1="30" y1="140" x2="670" y2="140" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+
+        <!-- NTLMv2 -->
+        <text x="350" y="165" text-anchor="middle" fill="#10B981" font-size="14" font-weight="bold" font-family="Cairo">NTLMv2 Response</text>
+
+        <rect x="30" y="180" width="90" height="36" rx="5" fill="rgba(16,185,129,0.15)" stroke="#10B981" stroke-width="1"/>
+        <text x="75" y="202" text-anchor="middle" fill="#6EE7B7" font-size="9" font-family="Cairo">NT Hash</text>
+
+        <text x="130" y="202" fill="#94A3B8" font-size="12">→</text>
+
+        <rect x="140" y="180" width="100" height="36" rx="5" fill="rgba(0,212,255,0.1)" stroke="#00D4FF" stroke-width="1"/>
+        <text x="190" y="198" text-anchor="middle" fill="#7DD3FC" font-size="8.5" font-family="Cairo">HMAC-MD5</text>
+        <text x="190" y="212" text-anchor="middle" fill="#7DD3FC" font-size="8" font-family="Cairo">+ User + Domain</text>
+
+        <text x="250" y="202" fill="#94A3B8" font-size="12">→</text>
+
+        <rect x="258" y="180" width="90" height="36" rx="5" fill="rgba(245,158,11,0.1)" stroke="#F59E0B" stroke-width="1"/>
+        <text x="303" y="202" text-anchor="middle" fill="#FCD34D" font-size="9" font-family="Cairo">NTv2 Hash</text>
+
+        <text x="358" y="202" fill="#94A3B8" font-size="12">→</text>
+
+        <rect x="366" y="180" width="110" height="36" rx="5" fill="rgba(124,58,237,0.1)" stroke="#7C3AED" stroke-width="1"/>
+        <text x="421" y="196" text-anchor="middle" fill="#A78BFA" font-size="8" font-family="Cairo">HMAC-MD5 +</text>
+        <text x="421" y="211" text-anchor="middle" fill="#A78BFA" font-size="8" font-family="Cairo">SC + CC + Time</text>
+
+        <text x="486" y="202" fill="#94A3B8" font-size="12">→</text>
+
+        <rect x="494" y="180" width="110" height="36" rx="5" fill="rgba(16,185,129,0.1)" stroke="#10B981" stroke-width="1.5"/>
+        <text x="549" y="202" text-anchor="middle" fill="#6EE7B7" font-size="9" font-family="Cairo">Response أقوى</text>
+
+        <!-- Legend -->
+        <text x="30" y="255" fill="#94A3B8" font-size="9" font-family="Cairo">SC = Server Challenge</text>
+        <text x="30" y="270" fill="#94A3B8" font-size="9" font-family="Cairo">CC = Client Challenge</text>
+        <text x="30" y="285" fill="#94A3B8" font-size="9" font-family="Cairo">Time = Timestamp</text>
+      </svg>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🤷</span> إذن أيهما يُستخدَم اليوم؟</h2>
+    <p>
+      نظرياً: NTLMv2 هو المعيار منذ Windows Vista.
+      عملياً: كثير من المؤسسات لا تزال تسمح بـ v1 لأسباب التوافق مع أجهزة قديمة.
+    </p>
+    <div class="highlight amber">
+      ⚙️ <strong>الإعداد في الجروب بوليسي:</strong><br>
+      يمكن للمدير تحديد مستوى الأمان عبر:<br>
+      <code>Network Security: LAN Manager authentication level</code><br>
+      القيمة الآمنة: <code>Send NTLMv2 response only. Refuse LM & NTLM</code>
+    </div>
+  </div>
+
+  <button class="next-btn" onclick="showPage(6)">التالي: الثغرات والهجمات ◀</button>
+</div>
+</div>
+
+<!-- ================================================================
+     PAGE 6 – ATTACKS
+================================================================ -->
+<div class="page" id="page-6">
+<div class="container">
+  <div class="hero">
+    <h1>ثغرات و<span>هجمات</span> NTLM</h1>
+    <p>لأن الدفاع الحقيقي يبدأ بفهم طريقة تفكير المهاجم</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">⚠️</span> لماذا نتعلم الهجمات؟</h2>
+    <p>
+      فهم الهجمات لا يعني نيّة الإيذاء — بل هو الطريق الوحيد لبناء دفاعات حقيقية.
+      متخصص الأمن الذي لا يعرف كيف يهاجم، لا يستطيع الدفاع.
+    </p>
+    <div class="highlight amber">
+      🎓 <strong>تعلّم هذا لـ:</strong> اختبار الاختراق (Penetration Testing)، تأمين الشبكات، 
+      فهم التهديدات، وإعداد تقارير الأمان.
+    </div>
+  </div>
+
+  <div class="attack-grid">
+
+    <div class="attack-card">
+      <h4>🔑 هجوم Pass-The-Hash (PTH)</h4>
+      <p>
+        <strong>الفكرة:</strong> لا تحتاج كلمة المرور — فقط الـ Hash!<br><br>
+        إذا سرق المهاجم الـ NT Hash من ملف SAM أو NTDS.dit، 
+        يستطيع مباشرةً استخدامه بدل كلمة المرور للدخول إلى أي نظام.
+        <br><br>
+        لأن NTLM يتحقق من الـ Hash وليس كلمة المرور الأصلية!
+      </p>
+    </div>
+
+    <div class="attack-card">
+      <h4>🔄 هجوم NTLM Relay</h4>
+      <p>
+        <strong>الفكرة:</strong> المهاجم يجلس في المنتصف!<br><br>
+        يجعل الضحية تتحقق من هويتها للمهاجم، ثم المهاجم يمرّر نفس الـ Response لخادم آخر.
+        الضحية "تفتح الباب" للمهاجم دون أن تعلم.
+      </p>
+    </div>
+
+    <div class="attack-card">
+      <h4>📡 هجوم NTLM Capture</h4>
+      <p>
+        <strong>الفكرة:</strong> خادم مزيّف!<br><br>
+        ينصب المهاجم خادماً وهمياً (Rogue Server) يلتقط الـ NTLMv2 Hash عندما يحاول ضحية 
+        الاتصال به. ثم يحاول كسر الـ Hash بهجوم القاموس.
+      </p>
+    </div>
+
+    <div class="attack-card">
+      <h4>🌈 هجوم Rainbow Tables</h4>
+      <p>
+        <strong>الفكرة:</strong> جداول محسوبة مسبقاً!<br><br>
+        لأن NT Hash لا يستخدم Salt، يمكن حساب Hash لملايين كلمات المرور الشائعة مسبقاً، 
+        ثم مقارنة الـ Hash المسروق بهذه الجداول فوراً.
+      </p>
+    </div>
+
+    <div class="attack-card">
+      <h4>🔁 هجوم Replay Attack</h4>
+      <p>
+        <strong>الفكرة:</strong> إعادة التشغيل!<br><br>
+        في v1، لا يوجد طابع زمني. المهاجم يلتقط الـ Response الصحيح من الشبكة ويعيد إرساله 
+        لاحقاً للدخول. v2 يحل هذه المشكلة بالطابع الزمني.
+      </p>
+    </div>
+
+    <div class="attack-card">
+      <h4>💀 هجوم DCSync</h4>
+      <p>
+        <strong>الفكرة:</strong> انتحال هوية الـ DC!<br><br>
+        إذا امتلك المهاجم صلاحيات كافية، يستطيع "يتظاهر" بأنه DC آخر ويطلب مزامنة 
+        بيانات NTDS.dit — يحصل على Hash جميع المستخدمين!
+      </p>
+    </div>
+
+  </div>
+
+  <!-- RELAY ATTACK DIAGRAM -->
+  <div class="card">
+    <h2><span class="icon-lg">🔄</span> شرح تفصيلي لهجوم NTLM Relay</h2>
+    <p>هذا أخطر هجوم على NTLM وأكثرها استخداماً في الاختراقات الحقيقية.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 700 380" xmlns="http://www.w3.org/2000/svg" width="100%">
+        <rect width="700" height="380" fill="#070B14" rx="8"/>
+
+        <!-- Title -->
+        <text x="350" y="30" text-anchor="middle" fill="#EF4444" font-size="13" font-weight="bold" font-family="Cairo">هجوم NTLM Relay</text>
+
+        <!-- Victim -->
+        <rect x="30" y="80" width="110" height="60" rx="8" fill="#0A1A2E" stroke="#00D4FF" stroke-width="1.5"/>
+        <text x="85" y="110" text-anchor="middle" fill="#00D4FF" font-size="22">👤</text>
+        <text x="85" y="132" text-anchor="middle" fill="#E2E8F0" font-size="10" font-family="Cairo">الضحية</text>
+
+        <!-- Attacker -->
+        <rect x="295" y="150" width="110" height="70" rx="8" fill="#1A0808" stroke="#EF4444" stroke-width="1.5"/>
+        <text x="350" y="180" text-anchor="middle" fill="#EF4444" font-size="22">😈</text>
+        <text x="350" y="200" text-anchor="middle" fill="#FCA5A5" font-size="10" font-family="Cairo">المهاجم</text>
+        <text x="350" y="214" text-anchor="middle" fill="#94A3B8" font-size="8" font-family="Cairo">(Man-in-the-Middle)</text>
+
+        <!-- Target Server -->
+        <rect x="560" y="80" width="110" height="60" rx="8" fill="#0A1A2E" stroke="#7C3AED" stroke-width="1.5"/>
+        <text x="615" y="110" text-anchor="middle" fill="#A78BFA" font-size="22">🖥️</text>
+        <text x="615" y="132" text-anchor="middle" fill="#E2E8F0" font-size="10" font-family="Cairo">الخادم المستهدف</text>
+
+        <!-- Step 1: Victim → Attacker -->
+        <line x1="140" y1="100" x2="294" y2="175" stroke="#EF4444" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <polygon points="288,171 298,177 290,183" fill="#EF4444"/>
+        <text x="200" y="125" text-anchor="middle" fill="#EF4444" font-size="9" font-family="Cairo">① يتصل بـ"خادم وهمي"</text>
+        <text x="200" y="139" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">NEGOTIATE</text>
+
+        <!-- Step 2: Attacker → Target (forward negotiate) -->
+        <line x1="405" y1="165" x2="559" y2="105" stroke="#F59E0B" stroke-width="1.5"/>
+        <polygon points="553,101 563,107 557,115" fill="#F59E0B"/>
+        <text x="500" y="120" text-anchor="middle" fill="#F59E0B" font-size="9" font-family="Cairo">② يمرّر للخادم الحقيقي</text>
+
+        <!-- Step 3: Target → Attacker (challenge) -->
+        <line x1="560" y1="120" x2="406" y2="173" stroke="#A78BFA" stroke-width="1.5"/>
+        <polygon points="413,169 403,175 413,181" fill="#A78BFA"/>
+        <text x="510" y="155" text-anchor="middle" fill="#A78BFA" font-size="9" font-family="Cairo">③ Server Challenge</text>
+
+        <!-- Step 4: Attacker → Victim -->
+        <line x1="295" y1="178" x2="141" y2="110" stroke="#A78BFA" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <polygon points="147,106 137,112 147,118" fill="#A78BFA"/>
+        <text x="195" y="160" text-anchor="middle" fill="#A78BFA" font-size="9" font-family="Cairo">④ يمرّر الـ Challenge للضحية</text>
+
+        <!-- Step 5: Victim → Attacker (response) -->
+        <line x1="140" y1="122" x2="294" y2="182" stroke="#10B981" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <polygon points="288,177 298,183 291,190" fill="#10B981"/>
+        <text x="190" y="195" text-anchor="middle" fill="#10B981" font-size="9" font-family="Cairo">⑤ Response الصحيح!</text>
+
+        <!-- Step 6: Attacker → Target (relay) -->
+        <line x1="405" y1="190" x2="559" y2="130" stroke="#EF4444" stroke-width="2"/>
+        <polygon points="553,126 563,132 557,140" fill="#EF4444"/>
+        <text x="510" y="185" text-anchor="middle" fill="#EF4444" font-size="9" font-family="Cairo">⑥ يرسل Response للخادم!</text>
+
+        <!-- Target grants access to attacker -->
+        <rect x="490" y="265" width="180" height="35" rx="6" fill="rgba(239,68,68,0.1)" stroke="#EF4444" stroke-width="1"/>
+        <text x="580" y="287" text-anchor="middle" fill="#FCA5A5" font-size="10" font-family="Cairo">✓ الخادم يقبل المهاجم!</text>
+
+        <line x1="560" y1="140" x2="560" y2="264" stroke="#EF4444" stroke-width="1.5" stroke-dasharray="3,3"/>
+        <polygon points="556,258 560,268 564,258" fill="#EF4444"/>
+
+        <!-- Note -->
+        <rect x="30" y="310" width="420" height="50" rx="6" fill="rgba(245,158,11,0.06)" stroke="rgba(245,158,11,0.2)" stroke-width="1"/>
+        <text x="240" y="330" text-anchor="middle" fill="#F59E0B" font-size="10" font-family="Cairo">🔑 النتيجة: المهاجم دخل بهوية الضحية</text>
+        <text x="240" y="348" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">دون معرفة كلمة المرور أو الـ Hash — فقط "ترحيل" الاستجابة!</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- DEFENSES -->
+  <div class="card">
+    <h2><span class="icon-lg">🛡️</span> كيف ندافع؟ الإجراءات الحماية</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h4>تفعيل SMB Signing و LDAP Signing</h4>
+          <p>يجعل كل رسالة "موقّعة" — المهاجم لا يستطيع إعادة استخدام Response لأنه سيكون غير موقّع. هذا يمنع معظم هجمات Relay.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h4>تعطيل NTLM واستخدام Kerberos</h4>
+          <p>في بيئات الـ Domain الحديثة، NTLM غير ضروري. تعطيله يزيل المخاطر كلها. Kerberos أكثر أماناً ولا يتأثر بهجمات Relay بنفس الطريقة.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h4>تفعيل EPA (Extended Protection for Authentication)</h4>
+          <p>يربط جلسة المصادقة بالـ TLS Channel — المهاجم لا يستطيع relay لأن الـ TLS Channel مختلف.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h4>اتّباع مبدأ Least Privilege</h4>
+          <p>لا تعطِ حسابات الـ Admin صلاحيات أكثر من اللازم. هجوم PTH لا قيمة له إذا كان الـ Hash مسروقاً من حساب محدود الصلاحيات.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-content">
+          <h4>مراقبة الشبكة (Network Monitoring)</h4>
+          <p>اكتشف هجمات Relay بمراقبة محاولات المصادقة غير الطبيعية. أدوات SIEM مثل Splunk وMicrosoft Sentinel ممتازة لهذا.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button class="next-btn" onclick="showPage(7)">التالي: الخلاصة الكاملة ◀</button>
+</div>
+</div>
+
+<!-- ================================================================
+     PAGE 7 – SUMMARY
+================================================================ -->
+<div class="page" id="page-7">
+<div class="container">
+  <div class="hero">
+    <h1>الخلاصة <span>الشاملة</span></h1>
+    <p>كل ما تعلمناه في صفحة واحدة</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🗺️</span> خريطة المفاهيم</h2>
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 700 400" xmlns="http://www.w3.org/2000/svg" width="100%">
+        <rect width="700" height="400" fill="#070B14" rx="8"/>
+
+        <!-- Center: NTLM -->
+        <circle cx="350" cy="200" r="55" fill="rgba(0,212,255,0.1)" stroke="#00D4FF" stroke-width="2"/>
+        <text x="350" y="195" text-anchor="middle" fill="#00D4FF" font-size="16" font-weight="bold" font-family="Cairo">NTLM</text>
+        <text x="350" y="215" text-anchor="middle" fill="#7DD3FC" font-size="10" font-family="Cairo">بروتوكول مصادقة</text>
+
+        <!-- Surrounding concepts -->
+        <!-- Hash -->
+        <rect x="30" y="60" width="130" height="50" rx="8" fill="rgba(16,185,129,0.1)" stroke="#10B981" stroke-width="1.5"/>
+        <text x="95" y="82" text-anchor="middle" fill="#10B981" font-size="12" font-weight="bold" font-family="Cairo">NT Hash</text>
+        <text x="95" y="100" text-anchor="middle" fill="#6EE7B7" font-size="9" font-family="Cairo">MD4 — بصمة كلمة المرور</text>
+        <line x1="160" y1="85" x2="296" y2="170" stroke="#10B981" stroke-width="1" stroke-dasharray="4,3"/>
+
+        <!-- Challenge-Response -->
+        <rect x="540" y="60" width="140" height="50" rx="8" fill="rgba(124,58,237,0.1)" stroke="#7C3AED" stroke-width="1.5"/>
+        <text x="610" y="82" text-anchor="middle" fill="#A78BFA" font-size="12" font-weight="bold" font-family="Cairo">Challenge-Response</text>
+        <text x="610" y="100" text-anchor="middle" fill="#C4B5FD" font-size="9" font-family="Cairo">لا ترسل كلمة المرور أبداً</text>
+        <line x1="540" y1="85" x2="404" y2="170" stroke="#7C3AED" stroke-width="1" stroke-dasharray="4,3"/>
+
+        <!-- Three parties -->
+        <rect x="30" y="320" width="140" height="55" rx="8" fill="rgba(0,212,255,0.05)" stroke="rgba(0,212,255,0.3)" stroke-width="1.5"/>
+        <text x="100" y="342" text-anchor="middle" fill="#7DD3FC" font-size="11" font-weight="bold" font-family="Cairo">الأطراف الثلاثة</text>
+        <text x="100" y="358" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">العميل + الخادم</text>
+        <text x="100" y="372" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">+ وحدة التحكم DC</text>
+        <line x1="170" y1="330" x2="300" y2="238" stroke="rgba(0,212,255,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+
+        <!-- Attacks -->
+        <rect x="540" y="320" width="140" height="55" rx="8" fill="rgba(239,68,68,0.08)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+        <text x="610" y="342" text-anchor="middle" fill="#FCA5A5" font-size="11" font-weight="bold" font-family="Cairo">الهجمات</text>
+        <text x="610" y="358" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">PTH · Relay · Capture</text>
+        <text x="610" y="372" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">Rainbow Tables</text>
+        <line x1="540" y1="330" x2="403" y2="238" stroke="rgba(239,68,68,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+
+        <!-- v1 vs v2 -->
+        <rect x="270" y="345" width="160" height="45" rx="8" fill="rgba(245,158,11,0.08)" stroke="rgba(245,158,11,0.3)" stroke-width="1.5"/>
+        <text x="350" y="367" text-anchor="middle" fill="#FCD34D" font-size="11" font-weight="bold" font-family="Cairo">NTLMv1 مقابل v2</text>
+        <text x="350" y="383" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">v2 أقوى + Client Challenge</text>
+        <line x1="350" y1="345" x2="350" y2="256" stroke="rgba(245,158,11,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+
+        <!-- Defenses -->
+        <rect x="270" y="30" width="160" height="45" rx="8" fill="rgba(16,185,129,0.06)" stroke="rgba(16,185,129,0.3)" stroke-width="1.5"/>
+        <text x="350" y="52" text-anchor="middle" fill="#6EE7B7" font-size="11" font-weight="bold" font-family="Cairo">الدفاعات</text>
+        <text x="350" y="68" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Cairo">SMB Signing · Kerberos</text>
+        <line x1="350" y1="75" x2="350" y2="145" stroke="rgba(16,185,129,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">📋</span> ملخص نقطة بنقطة</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">✓</div>
+        <div class="step-content">
+          <h4>NTLM = NT LAN Manager</h4>
+          <p>بروتوكول مصادقة طورته ميكروسوفت للتحقق من هوية المستخدمين على الشبكة دون إرسال كلمة المرور.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">✓</div>
+        <div class="step-content">
+          <h4>يعمل بمبدأ Challenge-Response</h4>
+          <p>الخادم يرسل تحدياً، العميل يحله باستخدام Hash كلمة مروره، الخادم يتحقق عبر الـ DC.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">✓</div>
+        <div class="step-content">
+          <h4>الـ NT Hash هو القلب</h4>
+          <p>كلمة المرور تُحوَّل إلى Hash بخوارزمية MD4. هذا الـ Hash هو ما يُستخدم في كل العمليات.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">✓</div>
+        <div class="step-content">
+          <h4>ثلاثة أطراف: العميل + الخادم + الـ DC</h4>
+          <p>كل طرف له دور محدد. الـ DC هو صاحب القرار النهائي وهدف الهاكرز الأول.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">✓</div>
+        <div class="step-content">
+          <h4>v2 أقوى من v1 بكثير</h4>
+          <p>يضيف Client Challenge، Timestamp، وخوارزمية HMAC-MD5 — يصعّب هجمات Relay وReplay.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">✓</div>
+        <div class="step-content">
+          <h4>الهجمات الشهيرة: PTH، Relay، Rainbow Tables</h4>
+          <p>كلها تستغل طبيعة الـ Hash ونقاط الضعف في آلية التحقق.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">✓</div>
+        <div class="step-content">
+          <h4>الحل: انتقل إلى Kerberos + فعّل SMB Signing</h4>
+          <p>في بيئات حديثة، الهدف هو تعطيل NTLM والانتقال الكامل لـ Kerberos مع تأمين القنوات.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon-lg">🚀</span> ما التالي؟ مسارك التعليمي</h2>
+    <div class="highlight purple">
+      📚 <strong>لتعميق الفهم، ادرس التالي بهذا الترتيب:</strong>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h4>بروتوكول Kerberos</h4>
+          <p>البديل الأحدث والأكثر أماناً من NTLM. يعمل بمنطق مختلف تماماً (Tickets بدل Challenge-Response).</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h4>Active Directory المتعمق</h4>
+          <p>فهم بنية الـ DC والـ Domain والـ Forest وكيف تعمل الصلاحيات في مؤسسة حقيقية.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h4>أدوات: Responder, Impacket, Mimikatz</h4>
+          <p>أدوات المهنة لتجربة الهجمات في بيئة معزولة. Responder لهجمات Capture، Impacket للـ Relay، Mimikatz لاستخراج الـ Hash.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h4>اختبار الاختراق العملي (OSCP, CEH)</h4>
+          <p>ضع معرفتك النظرية في بيئة عملية آمنة. TryHackMe وHackTheBox مثاليان للبداية.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="text-align:center; background: linear-gradient(135deg, rgba(0,212,255,0.05), rgba(124,58,237,0.05));">
+    <div style="font-size:3rem; margin-bottom:10px;">🎓</div>
+    <h2 style="justify-content:center; color: var(--cyan);">أحسنت!</h2>
+    <p style="font-size:1.1rem; line-height:2;">
+      أتممت شرح بروتوكول NTLM بالكامل — من الصفر حتى فهم الثغرات والدفاعات.
+      <br>
+      تذكّر: الأمن مسار، وليس وجهة. استمر في التعلم!
+    </p>
+    <div style="margin-top:16px;">
+      <span class="tag cyan">NT Hash</span>
+      <span class="tag purple">Challenge-Response</span>
+      <span class="tag amber">Domain Controller</span>
+      <span class="tag green">SMB Signing</span>
+      <span class="tag red">Pass-The-Hash</span>
+    </div>
+  </div>
+
+  <button class="next-btn" onclick="showPage(0)">◀ العودة للبداية</button>
+</div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  شرح بروتوكول NTLM | للأغراض التعليمية فقط | جميع الحقوق محفوظة
+</footer>
+
+<script>
+  const pages = document.querySelectorAll('.page');
+  const btns  = document.querySelectorAll('.nav-btn');
+
+  function showPage(n) {
+    pages.forEach((p, i) => {
+      p.classList.toggle('active', i === n);
+    });
+    btns.forEach((b, i) => {
+      b.classList.toggle('active', i === n);
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+</script>
+</body>
+</html>

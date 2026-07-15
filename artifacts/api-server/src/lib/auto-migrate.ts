@@ -1159,6 +1159,23 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE INDEX IF NOT EXISTS "idx_v4_unit_podcasts_specialty_unit" ON "v4_unit_podcasts" ("specialty_id", "unit_code")`,
     ],
   },
+  {
+    table: "v4_unit_stories",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "v4_unit_stories" (
+        "id" serial PRIMARY KEY,
+        "specialty_id" text NOT NULL,
+        "unit_code" text NOT NULL,
+        "title" text NOT NULL,
+        "html_content" text NOT NULL,
+        "sort_order" real NOT NULL DEFAULT 0,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_v4_unit_stories_specialty_unit" ON "v4_unit_stories" ("specialty_id", "unit_code")`,
+    ],
+  },
 ];
 
 // Best-effort: ensure the FTS index over `material_chunks.content_normalized`
@@ -1606,6 +1623,15 @@ const REQUIRED_COLUMNS: TableSpec[] = [
     ],
   },
   {
+    // v4_certificates — columns added after initial table creation
+    table: "v4_certificates",
+    columns: [
+      { name: "key_topics",  ddl: "jsonb NOT NULL DEFAULT '[]'::jsonb" },
+      { name: "updated_at",  ddl: "timestamp with time zone NOT NULL DEFAULT NOW()" },
+      { name: "scope_goal",  ddl: "text NOT NULL DEFAULT ''" },
+    ],
+  },
+  {
     table: "v4_lessons",
     columns: [
       { name: "meta", ddl: "jsonb NOT NULL DEFAULT '{}'::jsonb" },
@@ -1900,6 +1926,149 @@ export async function runStartupMigrations(): Promise<void> {
     }
     // Hands-on "التطبيق العملي" system — permanently removed. Drop the cache
     // table and the mastery column it depended on. Best-effort, run last, one-
+    // ── v4_certificates ────────────────────────────────────────────────────────
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS "v4_certificates" (
+          "id"                serial PRIMARY KEY,
+          "user_id"           integer NOT NULL,
+          "exam_pass_id"      integer,
+          "type"              text NOT NULL DEFAULT 'level_exam',
+          "specialty_slug"    text NOT NULL,
+          "specialty_name"    text NOT NULL,
+          "scope_label"       text NOT NULL DEFAULT '',
+          "exam_code"         text,
+          "score_pct"         integer NOT NULL DEFAULT 0,
+          "verification_code" text NOT NULL,
+          "issued_at"         timestamp with time zone NOT NULL DEFAULT NOW()
+        )
+      `));
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_certificates_verification_code"
+         ON "v4_certificates" ("verification_code")`
+      ));
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_certificates_exam_pass"
+         ON "v4_certificates" ("exam_pass_id") WHERE "exam_pass_id" IS NOT NULL`
+      ));
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_certificates_specialty_complete"
+         ON "v4_certificates" ("user_id", "specialty_slug")
+         WHERE "type" = 'specialty_complete'`
+      ));
+      await db.execute(sql.raw(
+        `CREATE INDEX IF NOT EXISTS "idx_v4_certificates_user"
+         ON "v4_certificates" ("user_id", "issued_at" DESC)`
+      ));
+    } catch (err: any) {
+      logger.error({ err: err?.message }, "auto-migrate: v4_certificates setup failed");
+    }
+
+    // ── v4_stage_quizzes (اختبارات المستويات) ────────────────────────────────────
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS "v4_stage_quizzes" (
+          "id"              serial PRIMARY KEY,
+          "specialty_slug"  text NOT NULL,
+          "level_index"     integer NOT NULL,
+          "stage_index"     integer NOT NULL,
+          "title"           text NOT NULL DEFAULT '',
+          "html_content"    text NOT NULL DEFAULT '',
+          "created_at"      timestamp with time zone NOT NULL DEFAULT NOW(),
+          "updated_at"      timestamp with time zone NOT NULL DEFAULT NOW()
+        )
+      `));
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_stage_quizzes_slug_level_stage"
+         ON "v4_stage_quizzes" ("specialty_slug", "level_index", "stage_index")`
+      ));
+      await db.execute(sql.raw(
+        `CREATE INDEX IF NOT EXISTS "idx_v4_stage_quizzes_slug"
+         ON "v4_stage_quizzes" ("specialty_slug")`
+      ));
+    } catch (err: any) {
+      logger.error({ err: err?.message }, "auto-migrate: v4_stage_quizzes setup failed");
+    }
+
+    // ── v4_level_quizzes ─────────────────────────────────────────────────────────
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS "v4_level_quizzes" (
+          "id"              serial PRIMARY KEY,
+          "specialty_slug"  text NOT NULL,
+          "level_index"     integer NOT NULL,
+          "title"           text NOT NULL DEFAULT '',
+          "html_content"    text NOT NULL DEFAULT '',
+          "created_at"      timestamp with time zone NOT NULL DEFAULT NOW(),
+          "updated_at"      timestamp with time zone NOT NULL DEFAULT NOW()
+        )
+      `));
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_level_quizzes_slug_index"
+         ON "v4_level_quizzes" ("specialty_slug", "level_index")`
+      ));
+      await db.execute(sql.raw(
+        `CREATE INDEX IF NOT EXISTS "idx_v4_level_quizzes_slug"
+         ON "v4_level_quizzes" ("specialty_slug")`
+      ));
+    } catch (err: any) {
+      logger.error({ err: err?.message }, "auto-migrate: v4_level_quizzes setup failed");
+    }
+
+    // ── v4_unit_quizzes ──────────────────────────────────────────────────────────
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS "v4_unit_quizzes" (
+          "id"              serial PRIMARY KEY,
+          "unit_code"       text NOT NULL,
+          "specialty_slug"  text NOT NULL,
+          "title"           text NOT NULL DEFAULT '',
+          "html_content"    text NOT NULL DEFAULT '',
+          "created_at"      timestamp with time zone NOT NULL DEFAULT NOW(),
+          "updated_at"      timestamp with time zone NOT NULL DEFAULT NOW()
+        )
+      `));
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_unit_quizzes_unit_specialty"
+         ON "v4_unit_quizzes" ("unit_code", "specialty_slug")`
+      ));
+      await db.execute(sql.raw(
+        `CREATE INDEX IF NOT EXISTS "idx_v4_unit_quizzes_slug"
+         ON "v4_unit_quizzes" ("specialty_slug")`
+      ));
+    } catch (err: any) {
+      logger.error({ err: err?.message }, "auto-migrate: v4_unit_quizzes setup failed");
+    }
+
+    // ── v4_quiz_scores — student scores on HTML quizzes ──────────────────────────
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS "v4_quiz_scores" (
+          "id"                serial PRIMARY KEY,
+          "user_id"           integer NOT NULL,
+          "quiz_type"         text NOT NULL,
+          "quiz_id"           integer NOT NULL,
+          "score"             integer NOT NULL,
+          "best_score"        integer NOT NULL,
+          "attempts"          integer NOT NULL DEFAULT 1,
+          "last_attempted_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+          "created_at"        timestamp with time zone NOT NULL DEFAULT NOW(),
+          CONSTRAINT "v4_quiz_scores_score_range" CHECK ("score" >= 0 AND "score" <= 100),
+          CONSTRAINT "v4_quiz_scores_best_range"  CHECK ("best_score" >= 0 AND "best_score" <= 100)
+        )
+      `));
+      await db.execute(sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_quiz_scores_user_quiz"
+         ON "v4_quiz_scores" ("user_id", "quiz_type", "quiz_id")`
+      ));
+      await db.execute(sql.raw(
+        `CREATE INDEX IF NOT EXISTS "idx_v4_quiz_scores_user_type"
+         ON "v4_quiz_scores" ("user_id", "quiz_type")`
+      ));
+    } catch (err: any) {
+      logger.error({ err: err?.message }, "auto-migrate: v4_quiz_scores setup failed");
+    }
+
     // time cleanup on already-migrated DBs (fresh DBs never had these).
     try {
       await db.execute(sql.raw(`DROP TABLE IF EXISTS "v4_concept_hands_on"`));
