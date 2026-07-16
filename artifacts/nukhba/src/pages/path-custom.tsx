@@ -495,40 +495,7 @@ export default function PathCustom() {
                 </div>
               </motion.button>
 
-              {/* Placement test */}
-              <motion.button
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.18 }}
-                onClick={startPlacement}
-                disabled={placementBusy}
-                className="group text-right relative overflow-hidden rounded-2xl border border-gold/25 hover:border-gold/50 p-5 transition-all duration-300 disabled:opacity-50 hover:shadow-[0_0_30px_rgba(245,158,11,0.12)]"
-                style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.07) 0%, rgba(255,255,255,0.02) 100%)" }}
-              >
-                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-gold/60 to-gold/10 rounded-l-2xl" />
-                <div className="flex items-start gap-4">
-                  <div className="shrink-0 w-11 h-11 rounded-xl bg-gold/15 border border-gold/25 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Target className="w-5 h-5 text-gold" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-black text-base text-white">اختبار تحديد المستوى</h3>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-gold/15 border border-gold/25 text-gold/80 font-bold">مُوصى به</span>
-                    </div>
-                    <p className="text-sm text-white/50 leading-relaxed">
-                      أسئلة ذكية متدرّجة تكتشف مستواك بدقة وتوصلك لنقطة بدايتك المثالية.
-                    </p>
-                  </div>
-                </div>
-              </motion.button>
             </div>
-
-            {placementBusy && (
-              <div className="flex items-center justify-center gap-2 text-white/40 text-sm py-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>جارٍ التجهيز…</span>
-              </div>
-            )}
           </motion.div>
         )}
 
