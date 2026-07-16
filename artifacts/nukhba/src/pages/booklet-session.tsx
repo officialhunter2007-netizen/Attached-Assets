@@ -932,7 +932,7 @@ export default function BookletSession() {
                   isStreaming={streaming && isLast}
                   onCite={openCitation}
                   onAnswerOption={isLastAi && !streaming ? (ans) => { void sendMessage(ans); } : undefined}
-                  onVisualExplain={() => handleVisualExplain(m.content)}
+                  onVisualExplain={!m.content.trim().startsWith("⚠️") ? () => handleVisualExplain(m.content) : undefined}
                 />
               );
             })}

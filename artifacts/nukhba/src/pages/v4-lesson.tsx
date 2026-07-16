@@ -1625,7 +1625,7 @@ export default function V4Lesson() {
                     : undefined
                 }
                 onVisualExplain={
-                  m.role === "assistant" && !streaming && m.content.trim()
+                  m.role === "assistant" && !streaming && m.content.trim() && !m.content.trim().startsWith("⚠️")
                     ? () => handleVisualExplain(m.content)
                     : undefined
                 }

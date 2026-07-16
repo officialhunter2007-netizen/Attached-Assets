@@ -5720,7 +5720,7 @@ function SubjectPathChat({
                           content={msg.content}
                           ratingKey={`${subject.id}:${i}`}
                           onRegenerate={handleRegenerateLast}
-                          onVisualExplain={() => handleVisualExplain(msg.content)}
+                          onVisualExplain={!(msg.content || '').trim().startsWith("⚠️") ? () => handleVisualExplain(msg.content) : undefined}
                           canRegenerate={isLastMsg && !isStreaming && !sessionPaused}
                           onRate={(value) => {
                             try {
