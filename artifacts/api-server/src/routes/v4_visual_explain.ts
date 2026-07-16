@@ -257,6 +257,55 @@ async function ensureLoggedIn(page: Page): Promise<void> {
   console.log("[visual-explain] Login successful");
 }
 
+// ── New Task button ───────────────────────────────────────────────────────────
+/**
+ * Clicks the "New Task" button in manus.im to always get a fresh, clean input.
+ * A completed task hides its input entirely (focus-trap + read-only state).
+ * Creating a new task guarantees a visible, interactable input field.
+ */
+async function clickNewTask(page: Page): Promise<boolean> {
+  console.log("[visual-explain] Looking for New Task button…");
+
+  const candidates = [
+    // Text-based (most reliable — rarely changes)
+    'button:has-text("New Task")',
+    'button:has-text("New task")',
+    'button:has-text("مهمة جديدة")',
+    'button:has-text("New Chat")',
+    'button:has-text("New")',
+    'a:has-text("New Task")',
+    'a:has-text("مهمة جديدة")',
+    // Role / aria
+    '[aria-label*="New Task" i]',
+    '[aria-label*="New Chat" i]',
+    '[aria-label*="New" i][class*="task"]',
+    // Common class patterns
+    '[class*="new-task"]',
+    '[class*="new-chat"]',
+    '[class*="create-task"]',
+    '[class*="compose"]',
+    // Pencil / plus icon buttons in sidebars
+    'aside button:first-child',
+    'nav button:first-child',
+    '[class*="sidebar"] button:first-child',
+  ];
+
+  for (const sel of candidates) {
+    try {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 1_500 }).catch(() => false)) {
+        await btn.click();
+        await page.waitForTimeout(2_500); // wait for new task page to load
+        console.log(`[visual-explain] New Task clicked via: ${sel}`);
+        return true;
+      }
+    } catch {}
+  }
+
+  console.warn("[visual-explain] New Task button not found — will use current page");
+  return false;
+}
+
 // ── Sidebar task navigation ───────────────────────────────────────────────────
 /**
  * After login, find the task by name in the manus.im sidebar and click it.
@@ -432,40 +481,77 @@ async function dismissOverlays(page: Page): Promise<void> {
     } catch {}
   }
 
-  // Press Escape as last resort to close any open modal
-  try {
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
-  } catch {}
+  // Press Escape TWICE — some modals (rating, focus-trap overlays) need two
+  // presses to fully release the focus trap before the input becomes reachable
+  for (let i = 0; i < 2; i++) {
+    try {
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(400);
+    } catch {}
+  }
 }
 
 async function findInput(page: Page): Promise<Locator> {
-  // First: dismiss any overlays that may block the textarea
+  // Step 1 — dismiss rating overlays / focus-traps with two Escape presses
   await dismissOverlays(page);
 
-  // Wait up to 12s for ANY known input selector to appear
-  const combinedSelector = INPUT_SELECTORS.join(", ");
-  await page
-    .waitForSelector(combinedSelector, { timeout: 12_000, state: "visible" })
-    .catch(() => {
-      console.warn("[visual-explain] waitForSelector timed out — proceeding with manual check");
-    });
+  // Step 2 — resilient role/semantic strategies (DOM-structure-independent)
+  // These use role, tag name, and placeholder — far more stable than CSS classes.
+  // Use .last() because in manus.im the chat input is always the LAST textbox/textarea
+  // on the page (above any previous messages, at the bottom of the viewport).
+  const resilientStrategies: Array<{ label: string; loc: () => Locator }> = [
+    {
+      label: "getByRole(textbox).last",
+      loc:   () => page.getByRole("textbox").last(),
+    },
+    {
+      label: "textarea.last",
+      loc:   () => page.locator("textarea").last(),
+    },
+    {
+      label: "contenteditable.last",
+      loc:   () => page.locator('[contenteditable="true"]').last(),
+    },
+    {
+      label: "placeholder*=message.first",
+      loc:   () => page.locator(
+        'input[placeholder*="message" i], textarea[placeholder*="message" i]'
+      ).first(),
+    },
+    {
+      label: "placeholder*=Manus.first",
+      loc:   () => page.locator(
+        'textarea[placeholder*="Manus" i], input[placeholder*="Manus" i]'
+      ).first(),
+    },
+  ];
 
+  for (const { label, loc } of resilientStrategies) {
+    try {
+      const locator = loc();
+      // 5 s per strategy — fast enough to fail-fast without a huge cumulative wait
+      await locator.waitFor({ state: "visible", timeout: 5_000 });
+      console.log(`[visual-explain] Input found via resilient strategy: ${label}`);
+      return locator;
+    } catch {
+      console.log(`[visual-explain] Strategy "${label}" not visible — trying next…`);
+    }
+  }
+
+  // Step 3 — CSS-class fallback (may break when manus.im redesigns, but kept as last resort)
   for (const sel of INPUT_SELECTORS) {
     try {
-      const count = await page.locator(sel).count();
-      if (count === 0) continue;
       const loc = page.locator(sel).first();
-      const visible = await loc.isVisible().catch(() => false);
-      if (visible) {
-        console.log(`[visual-explain] Chat input found via: ${sel}`);
+      if (await loc.isVisible({ timeout: 1_000 }).catch(() => false)) {
+        console.log(`[visual-explain] Input found via CSS fallback: ${sel}`);
         return loc;
       }
     } catch {}
   }
+
   throw new Error(
-    "لم يتم العثور على حقل الإدخال في manus.im — " +
-    "قد يكون تغيّر تصميم الموقع"
+    "لم يتم العثور على حقل الإدخال في manus.im بأي استراتيجية — " +
+    "قد يكون تصميم الموقع تغيّر أو المهمة في حالة قراءة فقط"
   );
 }
 

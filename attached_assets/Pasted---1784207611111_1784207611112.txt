@@ -1,0 +1,60 @@
+شكراً لك على هذا التقرير التقني الشامل والاحترافي. هذا التقرير يضع أيدينا على الجرح تماماً.
+بناءً على البنية التي تفضلت بمشاركتها، المشكلة تقع تحديداً في القسم 5 (الخطوة 8: findInput → waitForSelector)، وتؤكدها نقطة الضعف المذكورة في القسم 14 (تغيّر هيكل manus.im).
+بما أن منصة manus.im (التي أمثلها أنا) هي منصة ديناميكية حديثة، فإن أسماء الفئات (CSS Classes) أو هيكل الـ DOM يتغير باستمرار مع التحديثات، مما يؤدي إلى كسر محددات Playwright (Selectors) التي تعتمد عليها.
+إليك الحل الجذري والعملي مقسماً إلى 3 خطوات برمجية ومنطقية لتحديث ملف v4_visual_explain.ts:
+1. التخلي عن الـ CSS Selectors واستخدام "المحددات المرنة" (Resilient Locators)
+بدلاً من البحث عن حقل الإدخال باستخدام class أو id (والتي تتغير)، يجب استخدام محددات Playwright التي تعتمد على دور العنصر (Role) أو النص المؤقت (Placeholder)، لأنها نادراً ما تتغير.
+التعديل المطلوب في الكود:
+TypeScript
+// بدلاً من هذا الكود القديم المعرض للكسر:
+// const input = await page.waitForSelector('.chat-input-class', { timeout: 12000 });
+
+// استخدم استراتيجية المحددات المرنة (Resilient Locators):
+const input = page.getByRole('textbox').last(); 
+// أو
+const input = page.getByPlaceholder('Type a message', { exact: false }).first();
+// أو
+const input = page.locator('textarea, [contenteditable="true"]').last();
+2. معالجة حالة "المهمة المكتملة" (Read-Only State)
+في القسم 13، ذكرت أن السكربت يبحث عن مهمة سابقة باسم "تفاعل بصري".
+السبب الخفي للمشكلة: في نظام Manus، إذا اعتبر النظام أن المهمة "اكتملت" (Completed)، فإنه يقوم بإخفاء حقل الإدخال تماماً وتظهر نافذة التقييم، وتصبح الصفحة للقراءة فقط.
+الحل الجذري: بدلاً من البحث عن مهمة قديمة قد تكون أُغلقت، اجعل السكربت يضغط دائماً على زر "مهمة جديدة" (New Task / New Chat). هذا يضمن 100% ظهور حقل إدخال جديد ونظيف.
+3. بناء دالة "متعددة الاستراتيجيات" للعثور على حقل الإدخال
+بما أنك تستخدم استراتيجيات متعددة لاستخراج النص (القسم 8)، يجب تطبيق نفس المنطق للعثور على حقل الإدخال. إليك دالة مقترحة يمكنك إضافتها لملف v4_visual_explain.ts:
+TypeScript
+async function findAndFillInput(page: Page, prompt: string): Promise<boolean> {
+  const strategies = [
+    // الاستراتيجية 1: البحث عن الـ Textbox الافتراضي (الأكثر موثوقية)
+    () => page.getByRole('textbox').last(),
+    // الاستراتيجية 2: البحث عن أي Textarea في أسفل الصفحة
+    () => page.locator('textarea').last(),
+    // الاستراتيجية 3: البحث عن حقل الإدخال الغني (Rich Text)
+    () => page.locator('[contenteditable="true"]').last(),
+    // الاستراتيجية 4: البحث عبر الـ Placeholder الشائع
+    () => page.locator('input[placeholder*="message" i], textarea[placeholder*="message" i]').first()
+  ];
+
+  for (let i = 0; i < strategies.length; i++) {
+    try {
+      const inputLocator = strategies[i]();
+      // ننتظر 3 ثوانٍ فقط لكل استراتيجية لتسريع العملية
+      await inputLocator.waitFor({ state: 'visible', timeout: 3000 }); 
+      
+      // إذا وجدناه، نقوم بتعبئته
+      await inputLocator.click();
+      await inputLocator.fill(prompt);
+      return true; // نجاح
+    } catch (e) {
+      console.log(`فشلت استراتيجية الإدخال رقم ${i + 1}، جاري تجربة التالية...`);
+      continue;
+    }
+  }
+  
+  throw new Error("لم يتم العثور على حقل الإدخال في manus.im بأي استراتيجية - قد يكون تغيّر تصميم الموقع أو المهمة مغلقة.");
+}
+4. تحديث دالة dismissOverlays (مهم جداً)
+تأكد من أن دالة إغلاق النوافذ المنبثقة تضغط على زر Escape مرتين على الأقل قبل محاولة البحث عن حقل الإدخال، لأن بعض النوافذ (مثل نافذة التقييم) تمنع التفاعل مع الـ DOM الخلفي (Focus Trap).
+TypeScript
+await page.keyboard.press('Escape');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');

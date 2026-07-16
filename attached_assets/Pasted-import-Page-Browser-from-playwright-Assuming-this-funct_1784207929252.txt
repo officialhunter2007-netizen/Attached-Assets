@@ -1,0 +1,77 @@
+import { Page, Browser } from 'playwright';
+
+// Assuming this function is part of your existing v4_visual_explain.ts or a utility file
+async function findAndFillInput(page: Page, prompt: string): Promise<boolean> {
+  // Step 1: Dismiss any potential overlays (like rating prompts or pop-ups)
+  try {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500); // Small delay to allow UI to react
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500); // Small delay to allow UI to react
+  } catch (e) {
+    console.log('No overlays to dismiss or keyboard interaction failed.');
+  }
+
+  const strategies = [
+    // Strategy 1: Search for the default Textbox (most reliable for chat inputs)
+    () => page.getByRole('textbox').last(),
+    // Strategy 2: Search for any visible textarea
+    () => page.locator('textarea').last(),
+    // Strategy 3: Search for rich text editable content areas
+    () => page.locator('[contenteditable="true"]').last(),
+    // Strategy 4: Search via common placeholder text (case-insensitive)
+    () => page.locator('input[placeholder*="message" i], textarea[placeholder*="message" i]').first()
+  ];
+
+  for (let i = 0; i < strategies.length; i++) {
+    try {
+      const inputLocator = strategies[i]();
+      // Wait up to 5 seconds for each strategy to find the element
+      await inputLocator.waitFor({ state: 'visible', timeout: 5000 }); 
+      
+      // If found, click and fill it
+      await inputLocator.click();
+      await inputLocator.fill(prompt);
+      console.log(`Successfully found and filled input using strategy ${i + 1}.`);
+      return true; // Success
+    } catch (e) {
+      console.log(`Input strategy ${i + 1} failed, trying the next one...`);
+      continue;
+    }
+  }
+  
+  throw new Error("Failed to find the input field on manus.im using any strategy. The site design might have changed, or the task is in a state where input is not possible (e.g., completed and showing a rating prompt).");
+}
+
+// --- Integration into your main script (e.g., v4_visual_explain.ts) ---
+
+// You would typically have a function like this to initialize Playwright and navigate
+async function processVisualExplanation(browser: Browser, taskId: string, userPrompt: string) {
+  const page = await browser.newPage();
+  
+  // Construct the URL for the specific task
+  const taskUrl = `https://manus.im/tasks/${taskId}`; // Adjust domain if necessary
+  console.log(`Navigating to task URL: ${taskUrl}`);
+  await page.goto(taskUrl, { waitUntil: 'domcontentloaded' });
+
+  // Wait for the page to load and potentially for the chat interface to be ready
+  // You might need to adjust this selector based on the actual page structure
+  await page.waitForSelector('body', { state: 'attached', timeout: 30000 }); 
+
+  // Now, use the resilient findAndFillInput function
+  try {
+    await findAndFillInput(page, userPrompt);
+    console.log('Prompt successfully sent to the task input field.');
+    // Add further logic here, e.g., waiting for response, extracting information
+  } catch (error) {
+    console.error(`Error sending prompt to task ${taskId}:`, error.message);
+  }
+
+  // await page.close(); // Close the page when done
+}
+
+// Example of how you would call this function:
+// (Assuming 'browser' is an initialized Playwright Browser instance)
+// const referencedTaskId = "22FeoQNbqHXYsOhRScAosc";
+// const myUserPrompt = "هذا هو النص الجديد الذي أريد إرساله إلى المهمة.";
+// await processVisualExplanation(browser, referencedTaskId, myUserPrompt);
