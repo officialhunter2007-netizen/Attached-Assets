@@ -194,7 +194,7 @@ export function emitFriendlyAiFailure(
     // for a turn that failed at this layer (deduction code is gated by
     // `chargeable` which goes false on the catch path).
     try {
-      const friendly = `<p><em>⚠️ تعذّر الردّ بسبب خلل مؤقّت 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.</em></p>`;
+      const friendly = `⚠️ تعذّر الردّ بسبب خلل مؤقّت 🙏 — أعد إرسال رسالتك بعد لحظات. لم يُحسب لك هذا الطلب من رصيد الرسائل.`;
       res.write(`data: ${JSON.stringify({ content: friendly })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true, error: true })}\n\n`);
       res.end();
