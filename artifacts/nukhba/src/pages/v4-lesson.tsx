@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, createElement } from
 import { motion, AnimatePresence } from "framer-motion";
 import { useRoute, useLocation } from "wouter";
 import { createRoot, type Root } from "react-dom/client";
-import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, ClipboardList, Minus, Play } from "lucide-react";
+import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, ClipboardList, Minus, Play, Eye } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { enhanceTeacherDom, ensureMarkdownBlockGaps, extractMathBlocks, restoreMathPlaceholders, sanitizeStrayMarkdown } from "@/lib/teacher-render";
@@ -701,6 +701,11 @@ export default function V4Lesson() {
   const [codeTaskCardCollapsed, setCodeTaskCardCollapsed] = useState(false);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [codeMode, setCodeMode] = useState(false);
+  const [visualOverlay, setVisualOverlay] = useState<{
+    html: string | null;
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -755,6 +760,42 @@ export default function V4Lesson() {
       try { inflightRef.current?.abort(); } catch {}
       inflightRef.current = null;
     };
+  }, []);
+
+  // ── Visual Explain ────────────────────────────────────────────────────────
+  const handleVisualExplain = useCallback(async (messageContent: string) => {
+    setVisualOverlay({ html: null, loading: true, error: null });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 160_000);
+    try {
+      const res = await fetch("/api/v4/visual-explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message: messageContent }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.status === 429) {
+        const errData = await res.json().catch(() => ({}));
+        setVisualOverlay({ html: null, loading: false, error: errData.error || "جارٍ إنشاء شرح بصري آخر — انتظر لحظات." });
+        return;
+      }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "تعذّر إنشاء الشرح البصري.");
+      }
+      const { html } = await res.json();
+      setVisualOverlay({ html, loading: false, error: null });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const isAbort = err instanceof DOMException && err.name === "AbortError";
+      setVisualOverlay({
+        html: null,
+        loading: false,
+        error: isAbort ? "انتهت مهلة الانتظار — حاول مرة أخرى" : err instanceof Error ? err.message : "تعذّر إنشاء الشرح البصري.",
+      });
+    }
   }, []);
 
   // Re-read the authoritative wallet balance from the server. Used after a
@@ -1372,6 +1413,7 @@ export default function V4Lesson() {
   }
 
   return (
+    <>
     <div
       className="min-h-[100dvh] bg-background text-white flex flex-col"
       style={{ direction: "rtl", fontFamily: "Tajawal, Cairo, sans-serif" }}
@@ -1580,6 +1622,11 @@ export default function V4Lesson() {
                 onAnswerOption={
                   isLast && m.role === "assistant" && !streaming
                     ? (ans: string) => void sendMessage(ans)
+                    : undefined
+                }
+                onVisualExplain={
+                  m.role === "assistant" && !streaming && m.content.trim()
+                    ? () => handleVisualExplain(m.content)
                     : undefined
                 }
               />
@@ -1845,6 +1892,95 @@ export default function V4Lesson() {
         </div>
       )}
     </div>
+
+      {/* ── Visual Explain Overlay ─────────────────────────────────────────── */}
+      {visualOverlay && (
+        <div
+          className="fixed inset-0 z-[9998] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.88)", backdropFilter: "blur(6px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setVisualOverlay(null); }}
+        >
+          <div
+            className="relative flex flex-col rounded-2xl overflow-hidden shadow-2xl"
+            style={{
+              width: "min(96vw, 960px)",
+              height: "min(92vh, 720px)",
+              background: "#0d111e",
+              border: "1px solid rgba(245,158,11,0.3)",
+            }}
+          >
+            {/* Header */}
+            <div
+              className="flex items-center justify-between px-4 py-2.5 shrink-0"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.07)", background: "#0a0e1a" }}
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
+                  <Eye className="w-3.5 h-3.5 text-black" />
+                </div>
+                <span className="text-sm font-bold text-amber-200" style={{ direction: "rtl" }}>
+                  الشرح البصري التفاعلي
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVisualOverlay(null)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-all"
+                aria-label="إغلاق"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 relative overflow-hidden">
+              {visualOverlay.loading && (
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6"
+                  style={{ direction: "rtl" }}
+                >
+                  <div className="relative w-20 h-20">
+                    <div className="absolute inset-0 rounded-full border-2 border-amber-400/30 animate-ping" />
+                    <div className="absolute inset-2 rounded-full border-2 border-amber-400/50 animate-ping" style={{ animationDelay: "0.3s" }} />
+                    <div className="absolute inset-4 rounded-full bg-amber-500/20 flex items-center justify-center">
+                      <Sparkles className="w-6 h-6 text-amber-400 animate-pulse" />
+                    </div>
+                  </div>
+                  <p className="text-white font-semibold text-base">جارٍ إنشاء الشرح البصري…</p>
+                  <p className="text-white/45 text-xs text-center max-w-xs leading-relaxed">
+                    يُنشئ الذكاء الاصطناعي الآن صفحة تفاعلية لشرح هذا المفهوم بصرياً. قد يستغرق ذلك دقيقة أو دقيقتين.
+                  </p>
+                </div>
+              )}
+              {visualOverlay.error && !visualOverlay.loading && (
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6"
+                  style={{ direction: "rtl" }}
+                >
+                  <div className="text-4xl">⚠️</div>
+                  <p className="text-rose-300 font-semibold text-center">{visualOverlay.error}</p>
+                  <button
+                    type="button"
+                    onClick={() => setVisualOverlay(null)}
+                    className="px-5 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/15 text-white/80 hover:text-white text-sm font-medium transition-all"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+              )}
+              {visualOverlay.html && !visualOverlay.loading && (
+                <iframe
+                  srcDoc={visualOverlay.html}
+                  className="w-full h-full border-none"
+                  sandbox="allow-scripts"
+                  title="الشرح البصري التفاعلي"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1855,6 +1991,7 @@ const MessageBubble = ({
   lessonName,
   slug,
   onAnswerOption,
+  onVisualExplain,
 }: {
   msg: ChatMsg;
   isStreaming: boolean;
@@ -1862,6 +1999,7 @@ const MessageBubble = ({
   lessonName?: string;
   slug?: string;
   onAnswerOption?: (answer: string) => void;
+  onVisualExplain?: () => void;
 }) => {
   // Normalise Arabic text (stuck words, missing spaces) on assistant messages.
   const normalizedContent = useMemo(() => {
@@ -1950,6 +2088,18 @@ const MessageBubble = ({
               allowOther={askResult.ask!.allowOther}
               onAnswer={(ans) => onAnswerOption?.(ans)}
             />
+          </div>
+        )}
+        {onVisualExplain && !isStreaming && (
+          <div className="mt-3 pt-3 border-t border-white/5 flex">
+            <button
+              type="button"
+              onClick={onVisualExplain}
+              className="flex items-center gap-1.5 text-[12px] text-amber-400/75 hover:text-amber-300 transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>شرح بصري</span>
+            </button>
           </div>
         )}
       </div>
