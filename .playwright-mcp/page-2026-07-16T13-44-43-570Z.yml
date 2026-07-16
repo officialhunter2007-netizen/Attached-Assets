@@ -1,0 +1,29 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - link [ref=f1e39] [cursor=pointer]:
+      - /url: /?index=1
+    - generic [ref=f1e61]:
+      - generic [ref=f1e63]:
+        - heading "Sign in or sign up" [level=1] [ref=f1e72]
+        - heading "Start creating with Manus" [level=2] [ref=f1e73]
+      - generic [ref=f1e76]:
+        - generic [ref=f1e77]:
+          - button "Continue with Facebook" [disabled] [ref=f1e80]
+          - button "Continue with Google" [disabled] [ref=f1e87]
+          - button "Continue with Microsoft" [disabled] [ref=f1e96]
+          - button "Continue with Apple" [disabled] [ref=f1e105]
+        - generic [ref=f1e112]: Or
+        - generic [ref=f1e113]:
+          - textbox "Enter your email address" [ref=f1e115]: taywb698@gmail.com
+          - button "Continue" [ref=f1e120]
+          - button [disabled] [ref=f1e122]
+    - paragraph [ref=f1e139]:
+      - text: By continuing, you agree to our
+      - link "Terms of Service" [ref=f1e140] [cursor=pointer]:
+        - /url: /terms
+      - text: and have read our
+      - link "Privacy Policy" [ref=f1e141] [cursor=pointer]:
+        - /url: /privacy
+      - text: . ©2026 Meta
+  - list
+  - alert [ref=f1e142]
