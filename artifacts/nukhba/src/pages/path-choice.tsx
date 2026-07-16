@@ -119,11 +119,7 @@ export default function PathChoice() {
               </div>
               <ChevronRight className="w-5 h-5 text-gold/60 group-hover:translate-x-[-2px] transition-transform" />
             </div>
-            <p className="text-sm text-white/70 leading-relaxed">
-              نسألك ٥ أسئلة سريعة (طموحك، مستواك، وقتك)، وبعدها اختياري:
-              اختبار تحديد مستوى تدرّجي يفتحلك المنهج من النقطة المناسبة لك،
-              أو تبدأ من الصفر إذا أحبيت.
-            </p>
+            <p className="text-sm text-white/70 leading-relaxed">نسألك ٥ أسئلة سريعة (طموحك، مستواك، وقتك)، وبعدها  تبدأ من الصفر </p>
           </motion.button>
 
           {/* مسار الملازم — task #8 */}
