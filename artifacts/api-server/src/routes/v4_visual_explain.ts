@@ -22,10 +22,10 @@ function getUserId(req: any): number | null {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const OPENROUTER_API_URL  = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL               = "google/gemini-2.5-flash";
-const REQUEST_TIMEOUT_MS  = 90_000;
-const MAX_TOKENS          = 12_000;
+const MANUS_API_BASE      = "https://api.manus.ai";
+const REQUEST_TIMEOUT_MS  = 3 * 60_000 + 30_000; // 3.5 min — Manus tasks take ~1–3 min
+const POLL_INTERVAL_MS    = 4_000;
+const POLL_TIMEOUT_MS     = 3 * 60_000;           // 3 min poll deadline
 const MAX_MESSAGE_CHARS   = 5_000;
 
 // ── Simple in-memory cache ────────────────────────────────────────────────────
@@ -434,28 +434,159 @@ function resetAll() {
 - **المحاكاة حية**: استخدم CSS @keyframes لتحريك الأشياء فعلاً (انتقال، حركة، ظهور)
 - **الكود آخراً**: أظهر الكود فقط في الخطوة قبل الأخيرة أو الأخيرة بعد أن فهم الطالب المفهوم من الواقع`;
 
-// ── Build user prompt ─────────────────────────────────────────────────────────
-function buildUserPrompt(message: string): string {
+// ── Build task prompt (system spec + user message combined) ───────────────────
+function buildTaskPrompt(message: string): string {
   const truncated =
     message.length > MAX_MESSAGE_CHARS
       ? message.slice(0, MAX_MESSAGE_CHARS) + "\n\n[... تم اختصار الرسالة لأن طولها تجاوز الحد]"
       : message;
 
-  return `## رسالة المعلم المراد شرحها بصرياً:
+  return `${SYSTEM_PROMPT}
+
+---
+
+## رسالة المعلم المراد شرحها بصرياً:
 
 ${truncated}
 
 ---
 
 أنشئ صفحة HTML تفاعلية تشرح المفهوم الرئيسي في هذه الرسالة بصرياً.
-التزم بالمواصفات الثابتة تماماً، وابتكر طريقة عرض بصرية مناسبة لطبيعة هذا المفهوم.`;
+التزم بالمواصفات الثابتة تماماً، وابتكر طريقة عرض بصرية مناسبة لطبيعة هذا المفهوم.
+أخرج صفحة HTML واحدة فقط — لا نص خارج الكود إطلاقاً.`;
 }
 
-// ── OpenRouter call ───────────────────────────────────────────────────────────
-async function generateVisualHtml(message: string): Promise<string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY غير محدد في الـ Secrets");
+// ── Manus: create task ────────────────────────────────────────────────────────
+async function createManusTask(prompt: string): Promise<string> {
+  const apiKey = process.env.MANUS_API_KEY;
+  if (!apiKey) throw new Error("MANUS_API_KEY غير محدد في الـ Secrets");
 
+  const response = await fetch(`${MANUS_API_BASE}/v2/task.create`, {
+    method:  "POST",
+    headers: {
+      "Content-Type":   "application/json",
+      "x-manus-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      message: {
+        content: [{ type: "text", text: prompt }],
+      },
+      structured_output_schema: {
+        type: "object",
+        properties: {
+          html: { type: "string" },
+        },
+        required: ["html"],
+        additionalProperties: false,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    const sanitized = errText.slice(0, 300);
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("خطأ في مفتاح Manus API — تحقق من MANUS_API_KEY في الـ Secrets");
+    }
+    throw new Error(`Manus task.create فشل (${response.status}): ${sanitized}`);
+  }
+
+  const data = await response.json() as { ok: boolean; task_id?: string; error?: { message: string } };
+  if (!data.ok || !data.task_id) {
+    throw new Error(`Manus task.create خطأ: ${data.error?.message ?? JSON.stringify(data).slice(0, 200)}`);
+  }
+
+  console.log("[visual-explain] Manus task created:", data.task_id);
+  return data.task_id;
+}
+
+// ── Manus: poll until stopped ─────────────────────────────────────────────────
+async function pollManusTask(taskId: string): Promise<string> {
+  const apiKey = process.env.MANUS_API_KEY!;
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+  let cursor: string | undefined;
+  let agentStatus = "running";
+  let lastAssistantText = "";
+  let structuredHtml: string | null = null;
+
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+    const url = new URL(`${MANUS_API_BASE}/v2/task.listMessages`);
+    url.searchParams.set("task_id", taskId);
+    url.searchParams.set("limit",   "200");
+    url.searchParams.set("order",   "asc");
+    if (cursor) url.searchParams.set("cursor", cursor);
+
+    let response: Response;
+    try {
+      response = await fetch(url.toString(), {
+        headers: { "x-manus-api-key": apiKey },
+      });
+    } catch (netErr) {
+      console.warn("[visual-explain] poll network error:", netErr);
+      continue;
+    }
+
+    if (!response.ok) continue;
+
+    const data = await response.json() as {
+      ok: boolean;
+      data?: any[];
+      next_cursor?: string;
+    };
+    if (!data.ok || !Array.isArray(data.data)) continue;
+
+    if (data.next_cursor) cursor = data.next_cursor;
+
+    for (const event of data.data) {
+      const t: string = event.type ?? "";
+
+      if (t === "status_update") {
+        const status: string = event.status_update?.agent_status ?? "";
+        if (status) agentStatus = status;
+      } else if (t === "assistant_message") {
+        const content = event.message?.content;
+        if (typeof content === "string") {
+          lastAssistantText = content;
+        } else if (Array.isArray(content)) {
+          lastAssistantText = content
+            .filter((p: any) => p.type === "text")
+            .map((p: any) => p.text as string)
+            .join("\n");
+        }
+      } else if (t === "structured_output_result") {
+        const result = event.structured_output_result;
+        if (result?.success && typeof result?.value?.html === "string") {
+          structuredHtml = result.value.html;
+        }
+      }
+    }
+
+    console.log(`[visual-explain] Manus status=${agentStatus} (${taskId})`);
+
+    if (agentStatus === "error") {
+      throw new Error("مهمة Manus انتهت بخطأ — تحقق من رصيد حسابك على manus.im");
+    }
+
+    if (agentStatus === "stopped") {
+      // 1. Prefer structured output
+      if (structuredHtml && structuredHtml.length > 200) return structuredHtml;
+      // 2. Fallback: extract HTML from assistant text
+      if (lastAssistantText) {
+        const extracted = extractHtml(lastAssistantText);
+        if (extracted) return extracted;
+      }
+      throw new Error("Manus أنهى المهمة لكن لم يُرجع HTML صالحاً");
+    }
+  }
+
+  throw new Error("انتهت مهلة انتظار Manus (3 دقائق) — حاول مرة أخرى");
+}
+
+// ── Main entry ────────────────────────────────────────────────────────────────
+async function generateVisualHtml(message: string): Promise<string> {
   const key = cacheKey(message);
   const cached = htmlCache.get(key);
   if (cached) {
@@ -463,78 +594,14 @@ async function generateVisualHtml(message: string): Promise<string> {
     return cached;
   }
 
-  console.log("[visual-explain] Calling", MODEL, "via OpenRouter…");
+  console.log("[visual-explain] Starting Manus task…");
   const t0 = Date.now();
 
-  const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const prompt  = buildTaskPrompt(message);
+  const taskId  = await createManusTask(prompt);
+  const html    = await pollManusTask(taskId);
 
-  let html: string;
-  try {
-    const response = await fetch(OPENROUTER_API_URL, {
-      method:  "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type":  "application/json",
-        "HTTP-Referer":  "https://nukhba.app",
-        "X-Title":       "Nukhba Visual Explain",
-      },
-      body: JSON.stringify({
-        model:      MODEL,
-        max_tokens: MAX_TOKENS,
-        temperature: 0.75,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user",   content: buildUserPrompt(message) },
-        ],
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(tid);
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      // Sanitize error — strip key URLs/hashes before surfacing to client
-      const sanitized = errText
-        .replace(/https?:\/\/[^\s"]+keys\/[a-f0-9]{20,}[^\s""]*/gi, "[key-url]")
-        .replace(/"code":\s*\d+/g, "")
-        .slice(0, 300);
-      if (response.status === 403) {
-        // Key limit exceeded or auth error
-        const isLimitExceeded = errText.toLowerCase().includes("limit exceeded");
-        if (isLimitExceeded) {
-          throw new Error("تجاوز مفتاح OpenRouter الحد المالي المحدد — يرجى رفع الحد من لوحة openrouter.ai");
-        }
-        throw new Error(`خطأ في مصادقة OpenRouter (403): ${sanitized}`);
-      }
-      throw new Error(`OpenRouter ${response.status}: ${sanitized}`);
-    }
-
-    const data = await response.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-      error?:   { message: string };
-    };
-
-    if (data.error) throw new Error(`OpenRouter: ${data.error.message}`);
-
-    const raw = data.choices?.[0]?.message?.content ?? "";
-    if (!raw) throw new Error("النموذج أعاد محتوى فارغاً");
-
-    console.log(`[visual-explain] Got ${raw.length} chars in ${Date.now() - t0} ms`);
-
-    const extracted = extractHtml(raw);
-    if (!extracted) {
-      console.error("[visual-explain] Raw response sample:", raw.slice(0, 600));
-      throw new Error(
-        "لم يتمكن النموذج من توليد صفحة HTML صالحة — حاول مرة أخرى"
-      );
-    }
-
-    html = extracted;
-  } finally {
-    clearTimeout(tid);
-  }
+  console.log(`[visual-explain] Done in ${Math.round((Date.now() - t0) / 1000)}s — ${html.length} chars`);
 
   // Cache — evict oldest when > 100 entries
   htmlCache.set(key, html);
