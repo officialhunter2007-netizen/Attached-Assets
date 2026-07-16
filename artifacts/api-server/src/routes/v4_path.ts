@@ -1078,6 +1078,35 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
     // banks — so every specialty gets them, mirroring the unit test-out.
     const unitExamSet = new Set<number>((examRows as any[]).filter((e: any) => e.scope === "unit" && e.unitId).map((e: any) => e.unitId as number));
 
+    // Also account for admin-authored HTML unit quizzes (v4_unit_quizzes).
+    // These are keyed by unit_code + specialty_slug, so we must match them
+    // to unit.code (not unit.id) and carry the quiz id to the FE so it can
+    // open QuizViewer instead of navigating to the AI-exam route.
+    // Both fetches are best-effort — if the table is empty or absent the
+    // maps are simply empty and no HTML quiz nodes are added.
+    let unitHtmlQuizMap = new Map<string, number>(); // unit_code → quiz_id
+    let completedHtmlQuizSet = new Set<number>();    // quiz_ids already scored
+    try {
+      const [htmlQuizRows, htmlScoreRows] = await Promise.all([
+        db.execute(sql`
+          SELECT id, unit_code FROM v4_unit_quizzes
+          WHERE specialty_slug = ${slug}
+        `),
+        db.execute(sql`
+          SELECT quiz_id FROM v4_quiz_scores
+          WHERE user_id = ${uid} AND quiz_type = 'unit'
+        `),
+      ]);
+      unitHtmlQuizMap = new Map<string, number>(
+        (htmlQuizRows.rows as any[]).map((r: any) => [String(r.unit_code), Number(r.id)]),
+      );
+      completedHtmlQuizSet = new Set<number>(
+        (htmlScoreRows.rows as any[]).map((r: any) => Number(r.quiz_id)),
+      );
+    } catch {
+      // Non-fatal — HTML quizzes are supplemental. Map renders without them.
+    }
+
     // ── 4. Helper: determine lesson status ───────────────────────────────
     // Lesson codes follow the canonical dotted form L.S.U.Lesson (e.g.
     // "1.2.3.10"). A plain string compare misorders "1.2.3.10" < "1.2.3.2"
@@ -1171,11 +1200,23 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
           return { code: lab.code, title: lab.title, kind: "lab", status, score: comp?.score ?? null };
         });
 
-        const hasUnitTest = unitExamSet.has(unit.id);
+        const hasAiExam  = unitExamSet.has(unit.id);
+        const htmlQuizId = unitHtmlQuizMap.get(unit.code) ?? null;
+        const hasUnitTest = hasAiExam || htmlQuizId !== null;
         let unitTestStatus: "completed" | "available" | "locked" | "placement_mastered" = "locked";
         if (hasUnitTest) {
           totalNodes++;
-          unitTestStatus = examStatus("unit", unit.id, progression.unitExamAvailable(unit.id));
+          if (hasAiExam) {
+            // AI MCQ exam: driven by the test-out progression engine.
+            unitTestStatus = examStatus("unit", unit.id, progression.unitExamAvailable(unit.id));
+          } else {
+            // HTML quiz: non-blocking. Available as soon as any lesson in the
+            // unit is unlocked (same trigger as labs). Completed once the
+            // student has submitted at least one score for this quiz id.
+            if (isPlacementMasteredLevel)           unitTestStatus = "placement_mastered";
+            else if (completedHtmlQuizSet.has(htmlQuizId!)) unitTestStatus = "completed";
+            else if (unitAnyLessonUnlocked)          unitTestStatus = "available";
+          }
           if (unitTestStatus === "completed" || unitTestStatus === "placement_mastered") completedNodes++;
         }
         return {
@@ -1186,7 +1227,14 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
           labs: unitLabs,
           hasUnitTest,
           unitTest: hasUnitTest
-            ? { code: `${unit.code}.exam`, kind: "unit_test" as const, status: unitTestStatus }
+            ? {
+                code: `${unit.code}.exam`,
+                kind: "unit_test" as const,
+                status: unitTestStatus,
+                // quizId is present only for HTML quizzes so the FE can open
+                // QuizViewer instead of navigating to the AI-exam route.
+                ...(htmlQuizId !== null ? { quizId: htmlQuizId } : {}),
+              }
             : null,
         };
       });

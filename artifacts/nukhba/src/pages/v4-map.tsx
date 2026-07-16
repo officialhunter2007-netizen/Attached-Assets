@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { PathSwitcher } from "@/components/path-switcher";
+import QuizViewer from "@/components/quiz-viewer";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type NodeStatus = "completed" | "active" | "available" | "locked" | "placement_mastered";
@@ -27,7 +28,7 @@ type NodeKind = "lesson" | "lab" | "unit_test" | "stage_test" | "level_test";
 
 interface LessonNode { code: string; name: string; kind: "lesson"; status: NodeStatus; stars: 0 | 1 | 2 | 3 }
 interface LabNode { code: string; title: string; kind: "lab"; status: NodeStatus }
-interface TestNode { code: string; kind: "unit_test" | "stage_test" | "level_test"; status: NodeStatus }
+interface TestNode { code: string; kind: "unit_test" | "stage_test" | "level_test"; status: NodeStatus; quizId?: number }
 
 interface UnitTree {
   unitIndex: number; code: string; name: string;
@@ -69,6 +70,8 @@ interface FlatNode {
   stageStart?: { stageIndex: number; stageName: string };
   unitStart?: { unitIndex: number; unitName: string };
   isLastInStage?: boolean;
+  /** Present only for HTML-quiz unit_test nodes (not AI-exam ones). */
+  quizId?: number;
 }
 
 // ─── Locked-node adaptive test-out exam ─────────────────────────────────────
@@ -146,7 +149,14 @@ function flattenMap(mapData: MapData): FlatNode[] {
         nodes.push({ id: lab.code, label: lab.title, kind: "lab", status: lab.status });
       }
       if (unit.hasUnitTest && unit.unitTest) {
-        nodes.push({ id: unit.unitTest.code, label: "اختبار الوحدة", sublabel: unit.name, kind: "unit_test", status: unit.unitTest.status });
+        nodes.push({
+          id: unit.unitTest.code,
+          label: "اختبار الوحدة",
+          sublabel: unit.name,
+          kind: "unit_test",
+          status: unit.unitTest.status,
+          quizId: unit.unitTest.quizId,
+        });
       }
     }
     if (stage.hasStageTest && stage.stageTest) {
@@ -1110,6 +1120,8 @@ export default function V4Map() {
   // lesson/lab we open ONE adaptive exam covering all prerequisite units;
   // passing it (≥70%) unlocks the whole prior path up to the tapped node.
   const [testOut, setTestOut] = useState<TestOutTarget | null>(null);
+  // HTML quiz viewer (unit quizzes authored by admin as self-grading HTML pages).
+  const [activeHtmlQuiz, setActiveHtmlQuiz] = useState<{ id: number; title: string; examCode: string } | null>(null);
   // Scroll-to-active: after a precise placement the student's current node can
   // sit deep in the map (e.g. unit 3.2.1). Center it on first load so they land
   // exactly where they start instead of at the top of the curriculum.
@@ -1429,7 +1441,7 @@ export default function V4Map() {
           const ut = unit.unitTest;
           contentItems.push({
             sort: unit.lessons.length + 1,
-            run: () => pushNode({ id: ut.code, label: "اختبار الوحدة", sublabel: unit.name, kind: "unit_test", status: ut.status }),
+            run: () => pushNode({ id: ut.code, label: "اختبار الوحدة", sublabel: unit.name, kind: "unit_test", status: ut.status, quizId: ut.quizId }),
           });
         }
         // Podcasts: admin places them at any fractional position
@@ -1517,8 +1529,13 @@ export default function V4Map() {
     }
     if (node.kind === "unit_test" &&
         (node.status === "available" || node.status === "completed")) {
-      // Unit exams still use the authored-bank exam page.
-      navigate(`/exam/${encodeURIComponent(slug)}/${encodeURIComponent(node.id)}`);
+      if (node.quizId) {
+        // HTML quiz authored by admin → open QuizViewer inline.
+        setActiveHtmlQuiz({ id: node.quizId, title: node.sublabel ?? "اختبار الوحدة", examCode: node.id });
+      } else {
+        // AI MCQ exam bank → navigate to full exam page.
+        navigate(`/exam/${encodeURIComponent(slug)}/${encodeURIComponent(node.id)}`);
+      }
       return;
     }
     if ((node.kind === "stage_test" || node.kind === "level_test") &&
@@ -1898,6 +1915,23 @@ export default function V4Map() {
           }
         }}
       />
+
+      {/* ── HTML Quiz Viewer (unit quizzes authored by admin) ────────────── */}
+      <AnimatePresence>
+        {activeHtmlQuiz && (
+          <QuizViewer
+            quizId={activeHtmlQuiz.id}
+            quizType="unit"
+            title={activeHtmlQuiz.title}
+            onClose={() => setActiveHtmlQuiz(null)}
+            onScoreSubmitted={(score) => {
+              setData((prev) => prev ? bumpNodeStatus(prev, activeHtmlQuiz.examCode, score) : prev);
+              setActiveHtmlQuiz(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {storyModal && (
         <StoryModal
           storyId={storyModal.id}
