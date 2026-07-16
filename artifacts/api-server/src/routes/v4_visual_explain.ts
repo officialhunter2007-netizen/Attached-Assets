@@ -26,7 +26,11 @@ function getUserId(req: any): number | null {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const MANUS_APP_URL        = "https://manus.im/app/22FeoQNbqHXYsOhRScAosc";
+// Always navigate to the manus.im home page so we always get a fresh task
+// with a clean, unobstructed "Message Manus" input. Using a completed-task
+// URL caused the rating overlay ("How well did Manus answer?") to appear on
+// top of the input, making it impossible to find/interact with.
+const MANUS_APP_URL        = "https://manus.im";
 const SESSION_FILE         = "/tmp/manus-session.json";
 const RESPONSE_TIMEOUT_MS  = 120_000;  // max wait for manus to finish writing
 const STABILITY_POLLS      = 4;        // consecutive identical DOM snapshots needed
@@ -255,6 +259,11 @@ async function ensureLoggedIn(page: Page): Promise<void> {
 
 // ── Chat input helpers ────────────────────────────────────────────────────────
 const INPUT_SELECTORS = [
+  // manus.im specific — most precise first
+  'textarea[placeholder*="Message" i]',
+  'textarea[placeholder*="Manus" i]',
+  'textarea[placeholder*="رسالة" i]',
+  // generic textarea (visible, not readonly/disabled)
   'textarea:not([readonly]):not([disabled])',
   '[contenteditable="true"][role="textbox"]',
   '[contenteditable="true"]',
@@ -291,7 +300,57 @@ const LOADING_SELECTORS = [
   '[class*="typing-indicator"]',
 ];
 
+/**
+ * Dismiss any overlay dialogs that manus.im shows (rating, feedback, etc.)
+ * These block interaction with the main chat input.
+ */
+async function dismissOverlays(page: Page): Promise<void> {
+  const dismissSelectors = [
+    // Rating / feedback dialogs
+    'button:has-text("Skip")',
+    'button:has-text("تخطى")',
+    'button:has-text("Close")',
+    'button:has-text("إغلاق")',
+    'button:has-text("Later")',
+    'button:has-text("No thanks")',
+    '[aria-label="Close"]',
+    '[aria-label="Dismiss"]',
+    // Rating stars area — click outside to dismiss
+    '[class*="modal"] button:last-child',
+    '[class*="dialog"] button:last-child',
+    '[class*="overlay"] button:last-child',
+  ];
+
+  for (const sel of dismissSelectors) {
+    try {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 800 }).catch(() => false)) {
+        await btn.click().catch(() => {});
+        await page.waitForTimeout(500);
+        console.log(`[visual-explain] Dismissed overlay via: ${sel}`);
+      }
+    } catch {}
+  }
+
+  // Press Escape as last resort to close any open modal
+  try {
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+  } catch {}
+}
+
 async function findInput(page: Page): Promise<Locator> {
+  // First: dismiss any overlays that may block the textarea
+  await dismissOverlays(page);
+
+  // Wait up to 12s for ANY known input selector to appear
+  const combinedSelector = INPUT_SELECTORS.join(", ");
+  await page
+    .waitForSelector(combinedSelector, { timeout: 12_000, state: "visible" })
+    .catch(() => {
+      console.warn("[visual-explain] waitForSelector timed out — proceeding with manual check");
+    });
+
   for (const sel of INPUT_SELECTORS) {
     try {
       const count = await page.locator(sel).count();
@@ -698,9 +757,9 @@ async function generateVisualHtml(teacherMessage: string): Promise<string> {
     await ensureLoggedIn(page);
     await page.waitForTimeout(1_000);
 
-    // If we still aren't at the app page, navigate again
-    if (!page.url().includes("/app/")) {
-      console.log("[visual-explain] Not at app URL — navigating again…");
+    // If login redirected us away from manus.im entirely, navigate back
+    if (!page.url().includes("manus.im")) {
+      console.log("[visual-explain] Not at manus.im — navigating again…");
       await page.goto(MANUS_APP_URL, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await page.waitForTimeout(2_000);
     }
