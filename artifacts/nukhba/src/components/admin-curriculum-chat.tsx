@@ -503,7 +503,7 @@ function CopyButton({ result }: { result: ContentResult }) {
 
 // ── Main result renderer ──────────────────────────────────────────────────────
 function ResultView({ result }: { result: ContentResult }) {
-  const { specialty, scope, level, stage, unit, lesson, levels, stages, units, lessons, labs } = result;
+  const { specialty, scope, level, stage, unit, lesson, levels, stages, units, unitsDetail, lessons, labs } = result;
 
   const scopeBreadcrumb = [
     specialty.name,
