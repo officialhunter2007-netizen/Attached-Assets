@@ -26,11 +26,11 @@ function getUserId(req: any): number | null {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-// Always navigate to the manus.im home page so we always get a fresh task
-// with a clean, unobstructed "Message Manus" input. Using a completed-task
-// URL caused the rating overlay ("How well did Manus answer?") to appear on
-// top of the input, making it impossible to find/interact with.
 const MANUS_APP_URL        = "https://manus.im";
+// The exact sidebar task name to enter. We navigate to manus.im, then click
+// this task in the history sidebar — re-using an existing persistent task
+// rather than creating a new one on every request.
+const MANUS_TASK_NAME      = "تفاعل بصري";
 const SESSION_FILE         = "/tmp/manus-session.json";
 const RESPONSE_TIMEOUT_MS  = 120_000;  // max wait for manus to finish writing
 const STABILITY_POLLS      = 4;        // consecutive identical DOM snapshots needed
@@ -255,6 +255,106 @@ async function ensureLoggedIn(page: Page): Promise<void> {
 
   await saveSession(page.context());
   console.log("[visual-explain] Login successful");
+}
+
+// ── Sidebar task navigation ───────────────────────────────────────────────────
+/**
+ * After login, find the task by name in the manus.im sidebar and click it.
+ * Tries multiple selector strategies from most-specific to least-specific.
+ * Falls back gracefully — if not found, we stay on the current page.
+ */
+async function navigateToTask(page: Page, taskName: string): Promise<boolean> {
+  console.log(`[visual-explain] Searching sidebar for task: "${taskName}"…`);
+
+  // Give the sidebar time to load after login/navigation
+  await page.waitForTimeout(2_500);
+
+  // Ordered strategies — most precise first
+  const strategies: Array<() => Promise<boolean>> = [
+
+    // 1. Exact text match via Playwright's getByText (matches innerText exactly)
+    async () => {
+      const loc = page.getByText(taskName, { exact: true }).first();
+      if (await loc.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        await loc.click();
+        return true;
+      }
+      return false;
+    },
+
+    // 2. Any element whose text content STARTS WITH the task name
+    //    (covers truncated labels like "تفاعل بصري…")
+    async () => {
+      const el = await page.evaluateHandle((name: string) => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+        let node: Element | null;
+        while ((node = walker.nextNode() as Element | null)) {
+          const text = (node.textContent ?? "").trim();
+          if (
+            text.startsWith(name) &&
+            text.length < name.length + 30 // not a giant container
+          ) {
+            return node;
+          }
+        }
+        return null;
+      }, taskName);
+
+      const jsEl = el.asElement();
+      if (jsEl) {
+        const loc = page.locator(`:scope`).locator(jsEl as any);
+        // Use evaluate to click directly since we have a JSHandle
+        await (jsEl as any).click().catch(() => {});
+        await el.dispose();
+        return true;
+      }
+      await el.dispose();
+      return false;
+    },
+
+    // 3. CSS :has-text() on common sidebar wrappers
+    async () => {
+      const candidates = [
+        `[class*="sidebar"] a:has-text("${taskName}")`,
+        `[class*="history"] *:has-text("${taskName}")`,
+        `[class*="task"] *:has-text("${taskName}")`,
+        `[class*="conversation"] *:has-text("${taskName}")`,
+        `[class*="thread"] *:has-text("${taskName}")`,
+        `[class*="list"] *:has-text("${taskName}")`,
+        `[role="listitem"]:has-text("${taskName}")`,
+        `nav *:has-text("${taskName}")`,
+        `aside *:has-text("${taskName}")`,
+        `li:has-text("${taskName}")`,
+      ];
+      for (const sel of candidates) {
+        try {
+          const loc = page.locator(sel).first();
+          if (await loc.isVisible({ timeout: 1_000 }).catch(() => false)) {
+            await loc.click();
+            return true;
+          }
+        } catch {}
+      }
+      return false;
+    },
+  ];
+
+  for (let i = 0; i < strategies.length; i++) {
+    try {
+      const found = await strategies[i]();
+      if (found) {
+        console.log(`[visual-explain] Task "${taskName}" clicked via strategy ${i + 1}`);
+        // Wait for the task page to load
+        await page.waitForTimeout(3_000);
+        return true;
+      }
+    } catch (e) {
+      console.warn(`[visual-explain] Strategy ${i + 1} threw: ${(e as Error).message?.slice(0, 80)}`);
+    }
+  }
+
+  console.warn(`[visual-explain] Task "${taskName}" not found in sidebar — will use current page`);
+  return false;
 }
 
 // ── Chat input helpers ────────────────────────────────────────────────────────
@@ -763,6 +863,11 @@ async function generateVisualHtml(teacherMessage: string): Promise<string> {
       await page.goto(MANUS_APP_URL, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await page.waitForTimeout(2_000);
     }
+
+    // ── Find and enter the "تفاعل بصري" task in the sidebar ──────────────────
+    await navigateToTask(page, MANUS_TASK_NAME);
+    // Dismiss any overlay that appeared after switching tasks
+    await dismissOverlays(page);
 
     // Build the prompt
     const plainText = teacherMessage
