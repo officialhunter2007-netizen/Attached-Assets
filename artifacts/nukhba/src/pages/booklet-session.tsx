@@ -31,7 +31,7 @@ import { OptionsQuestion } from "@/components/dynamic-env/options-question";
 import {
   Loader2, Send, BookOpen, FileText, X,
   AlertTriangle, ChevronRight, ChevronDown, ChevronUp,
-  LayoutList, Map, Sparkles, Code2,
+  LayoutList, Map, Sparkles, Code2, Eye,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeEditorPanel } from "@/components/code-editor-panel";
@@ -214,11 +214,13 @@ function TeacherBubble({
   isStreaming,
   onCite,
   onAnswerOption,
+  onVisualExplain,
 }: {
   content: string;
   isStreaming: boolean;
   onCite: (p: number, pe?: number) => void;
   onAnswerOption?: (answer: string) => void;
+  onVisualExplain?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -287,6 +289,33 @@ function TeacherBubble({
             />
           </div>
         )}
+        {/* ── شرح بصري button — shown after streaming is done ── */}
+        {!isStreaming && onVisualExplain && html && (
+          <div className="max-w-[92%] flex">
+            <button
+              type="button"
+              onClick={onVisualExplain}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold transition-all"
+              style={{
+                background: "rgba(251,191,36,0.1)",
+                border: "1px solid rgba(251,191,36,0.25)",
+                color: "rgba(251,191,36,0.8)",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = "rgba(251,191,36,0.18)";
+                (e.currentTarget as HTMLButtonElement).style.color = "rgba(251,191,36,1)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = "rgba(251,191,36,0.1)";
+                (e.currentTarget as HTMLButtonElement).style.color = "rgba(251,191,36,0.8)";
+              }}
+            >
+              <Eye className="w-3 h-3" />
+              شرح بصري
+            </button>
+          </div>
+        )}
+
         {/* Render ASK_OPTIONS as clickable buttons (only when streaming is done) */}
         {ask && !isStreaming && onAnswerOption && (
           <div className="max-w-[92%]">
@@ -324,6 +353,11 @@ export default function BookletSession() {
   const [drawer, setDrawer] = useState<DrawerState>({ kind: "closed" });
   const [lessonsOpen, setLessonsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(true);
+  const [visualOverlay, setVisualOverlay] = useState<{
+    html: string | null;
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Track in-flight SSE so we can abort on lesson switch
@@ -384,6 +418,41 @@ export default function BookletSession() {
     setIdeOpen(false);
     void sendMessage(shareMsg);
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Visual Explain ───────────────────────────────────────────────────────
+  const handleVisualExplain = useCallback(async (messageContent: string) => {
+    setVisualOverlay({ html: null, loading: true, error: null });
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 160_000);
+    try {
+      const res = await fetch("/api/v4/visual-explain", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body:   JSON.stringify({ message: messageContent }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.status === 429) {
+        const d = await res.json().catch(() => ({}));
+        setVisualOverlay({ html: null, loading: false, error: d.error || "جارٍ إنشاء شرح بصري آخر — انتظر لحظات." });
+        return;
+      }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
+      }
+      const { html } = await res.json();
+      setVisualOverlay({ html, loading: false, error: null });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const isAbort = err instanceof DOMException && err.name === "AbortError";
+      setVisualOverlay({
+        html: null, loading: false,
+        error: isAbort ? "انتهت مهلة الانتظار — حاول مرة أخرى" : (err instanceof Error ? err.message : "تعذّر إنشاء الشرح البصري."),
+      });
+    }
+  }, []);
 
   // ── Auto-scroll ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -863,6 +932,7 @@ export default function BookletSession() {
                   isStreaming={streaming && isLast}
                   onCite={openCitation}
                   onAnswerOption={isLastAi && !streaming ? (ans) => { void sendMessage(ans); } : undefined}
+                  onVisualExplain={() => handleVisualExplain(m.content)}
                 />
               );
             })}
@@ -1083,6 +1153,88 @@ export default function BookletSession() {
                     <p className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap">{c.chunkText}</p>
                   </div>
                 ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Visual Explain Overlay ──────────────────────────────────────────── */}
+      {visualOverlay && (
+        <div
+          className="fixed inset-0 z-[9998] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.88)", backdropFilter: "blur(6px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setVisualOverlay(null); }}
+        >
+          <div
+            className="relative flex flex-col rounded-2xl overflow-hidden shadow-2xl"
+            style={{
+              width: "min(96vw, 960px)",
+              height: "min(92vh, 720px)",
+              background: "#0d111e",
+              border: "1px solid rgba(245,158,11,0.3)",
+            }}
+          >
+            {/* Header */}
+            <div
+              className="flex items-center justify-between px-4 py-2.5 shrink-0"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.07)", background: "#0a0e1a" }}
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
+                  <Eye className="w-3.5 h-3.5 text-black" />
+                </div>
+                <span className="text-sm font-bold text-amber-200" style={{ direction: "rtl" }}>
+                  الشرح البصري التفاعلي
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVisualOverlay(null)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-all"
+                aria-label="إغلاق"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 relative overflow-hidden">
+              {visualOverlay.loading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6" style={{ direction: "rtl" }}>
+                  <div className="relative w-20 h-20">
+                    <div className="absolute inset-0 rounded-full border-2 border-amber-400/30 animate-ping" />
+                    <div className="absolute inset-2 rounded-full border-2 border-amber-400/50 animate-ping" style={{ animationDelay: "0.3s" }} />
+                    <div className="absolute inset-4 rounded-full bg-amber-500/20 flex items-center justify-center">
+                      <Sparkles className="w-6 h-6 text-amber-400 animate-pulse" />
+                    </div>
+                  </div>
+                  <p className="text-white font-semibold text-base">جارٍ إنشاء الشرح البصري…</p>
+                  <p className="text-white/45 text-xs text-center max-w-xs leading-relaxed">
+                    يُنشئ الذكاء الاصطناعي صفحة تفاعلية لشرح هذا المفهوم بصرياً. قد يستغرق ذلك دقيقة أو دقيقتين.
+                  </p>
+                </div>
+              )}
+              {visualOverlay.error && !visualOverlay.loading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6" style={{ direction: "rtl" }}>
+                  <div className="text-4xl">⚠️</div>
+                  <p className="text-rose-300 font-semibold text-center">{visualOverlay.error}</p>
+                  <button
+                    type="button"
+                    onClick={() => setVisualOverlay(null)}
+                    className="px-5 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/15 text-white/80 hover:text-white text-sm font-medium transition-all"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+              )}
+              {visualOverlay.html && !visualOverlay.loading && (
+                <iframe
+                  srcDoc={visualOverlay.html}
+                  className="w-full h-full border-none"
+                  sandbox="allow-scripts"
+                  title="الشرح البصري التفاعلي"
+                />
+              )}
             </div>
           </div>
         </div>
