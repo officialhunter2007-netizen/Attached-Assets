@@ -765,12 +765,32 @@ async function scrapeAllAssistantText(page: Page): Promise<string> {
       return parts.filter(Boolean).join("\n\n");
     },
 
-    // 2. All code blocks combined
+    // 2. All code blocks — use textContent (not innerText) because syntax highlighters
+    //    split text into many <span> elements; innerText on a virtualized code block
+    //    can return empty or scrambled text while textContent returns the raw source.
     async () => {
-      const codes = await page.$$("pre code, code[class*='language-html'], pre[class*='language-html']");
-      if (!codes.length) return null;
-      const parts = await Promise.all(codes.map((c) => c.innerText().catch(() => "")));
-      return parts.filter(Boolean).join("\n\n");
+      const text = await page.evaluate(() => {
+        const selectors = [
+          "pre code",
+          "code[class*='language']",
+          "pre[class*='language']",
+          "[class*='code-block'] pre",
+          "[class*='code-block'] code",
+          "[class*='syntax'] pre",
+          "[class*='highlight'] pre",
+          "[class*='CodeMirror'] .cm-content",
+          "[class*='monaco'] .view-lines",
+        ];
+        const results: string[] = [];
+        for (const sel of selectors) {
+          document.querySelectorAll(sel).forEach((el) => {
+            const t = (el as HTMLElement).textContent ?? "";
+            if (t.trim().length > 50) results.push(t);
+          });
+        }
+        return results.length ? results.join("\n\n") : null;
+      }).catch(() => null);
+      return text && text.length > 50 ? text : null;
     },
 
     // 3. Message containers (exclude user/input)
@@ -974,6 +994,24 @@ async function generateVisualHtml(teacherMessage: string): Promise<string> {
       `• مناسبة للعرض في iframe بدون scroll خارجي`;
 
     await sendMessage(page, prompt);
+
+    // ── Wait for manus.im to navigate to the task page after message is sent ──
+    // On the home page, sending a message creates a new task and the URL changes
+    // from "/" to "/tasks/{id}" or "/app/{id}". We must wait for this navigation
+    // before polling for the response, otherwise we scrape the pre-task home page.
+    const urlBefore = page.url();
+    await page.waitForFunction(
+      (before: string) =>
+        location.href !== before &&
+        (location.href.includes("/tasks/") || location.href.includes("/app/")),
+      urlBefore,
+      { timeout: 30_000 }
+    ).catch(() => {
+      // If no navigation happened (already on a task page), just continue
+      console.log("[visual-explain] URL did not change (already on task page or no navigation)");
+    });
+    console.log(`[visual-explain] Task URL: ${page.url()}`);
+
     await waitForResponseComplete(page);
 
     let accumulatedText = await scrapeAllAssistantText(page);
@@ -995,12 +1033,21 @@ async function generateVisualHtml(teacherMessage: string): Promise<string> {
     }
 
     if (htmlBlocks.length === 0) {
-      // Last resort: maybe the whole page IS the HTML (some manus.im modes render it directly)
+      // Last resort: maybe the whole page IS the HTML (some manus.im modes render it directly).
+      // IMPORTANT: only use this if the source is small — the manus.im SPA itself is ~1.7 MB
+      // and would cause the iframe to show "This page couldn't load".
       const pageSource = await page.content().catch(() => "");
-      const pBlocks    = extractHtmlBlocks(pageSource);
-      if (pBlocks.length > 0) {
-        htmlBlocks = pBlocks;
-        console.log("[visual-explain] Extracted HTML from page source (fallback)");
+      if (pageSource.length < 200_000) {
+        const pBlocks = extractHtmlBlocks(pageSource);
+        if (pBlocks.length > 0) {
+          htmlBlocks = pBlocks;
+          console.log("[visual-explain] Extracted HTML from page source (fallback)");
+        }
+      } else {
+        console.warn(
+          `[visual-explain] page.content() is ${pageSource.length} bytes — skipping ` +
+          `(this is the manus.im SPA, not the generated HTML)`
+        );
       }
     }
 
