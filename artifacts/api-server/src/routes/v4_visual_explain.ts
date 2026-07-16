@@ -430,9 +430,94 @@ async function generateVisualHtml(teacherMessage: string): Promise<string> {
     console.log(
       `[visual-explain] Extracted HTML (${best.length} chars, continuations=${continuations})`
     );
-    return best;
+
+    // ── AI Doctor: verify + fix the HTML before serving it ──────────────────
+    const fixed = await fixHtmlWithAI(best);
+    return fixed;
   } finally {
     await page.close().catch(() => {});
+  }
+}
+
+// ── HTML Doctor (fast AI fix + completion) ───────────────────────────────────
+/**
+ * Passes the raw HTML from manus.im through a fast AI model that:
+ *   1. Checks completeness (proper <!DOCTYPE>, <head>, <body>, </html>)
+ *   2. Fixes any syntax / JavaScript errors
+ *   3. Fills in any truncated sections
+ *   4. Returns a single, self-contained, error-free HTML string
+ *
+ * Uses google/gemini-2.5-flash-lite via OpenRouter (fastest + cheapest option).
+ * Falls back to the raw HTML if the key is missing or the call fails.
+ */
+async function fixHtmlWithAI(rawHtml: string): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey || !apiKey.startsWith("sk-or-")) {
+    console.warn("[visual-explain/doctor] OPENROUTER_API_KEY missing — skipping AI fix");
+    return rawHtml;
+  }
+
+  const sysPrompt =
+    "أنت خبير في HTML/CSS/JavaScript. مهمتك الوحيدة: استلام كود HTML قد يكون ناقصاً أو فيه أخطاء، " +
+    "وإعادته كاملاً صحيحاً بدون أي خطأ. القواعد الصارمة:\n" +
+    "• أعد الكود بالكامل داخل ```html ... ``` فقط — لا شرح ولا تعليق خارجها\n" +
+    "• الصفحة يجب أن تبدأ بـ <!DOCTYPE html> وتنتهي بـ </html>\n" +
+    "• أصلح أي أخطاء JavaScript أو CSS أو HTML\n" +
+    "• إذا كان الكود مقطوعاً أكمله بشكل منطقي يتناسب مع السياق\n" +
+    "• لا تُضف أي مكتبات خارجية — كل شيء inline\n" +
+    "• حافظ على اتجاه RTL والنصوص العربية\n" +
+    "• إذا كان الكود سليماً 100% أعده كما هو بدون أي تعديل";
+
+  const userPrompt = `الكود المستلم:\n\n\`\`\`html\n${rawHtml}\n\`\`\`\n\nأعد الكود كاملاً وصحيحاً:`;
+
+  try {
+    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "HTTP-Referer": "https://learnukhba.replit.app",
+        "X-Title": "Nukhba Visual Explain Doctor",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        max_tokens: 16_000,
+        temperature: 0.1,
+        messages: [
+          { role: "system", content: sysPrompt },
+          { role: "user",   content: userPrompt },
+        ],
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text().catch(() => resp.statusText);
+      console.error(`[visual-explain/doctor] OpenRouter error ${resp.status}: ${err.slice(0, 200)}`);
+      return rawHtml;
+    }
+
+    const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const content = data?.choices?.[0]?.message?.content ?? "";
+
+    // Extract fixed HTML from the model's response
+    const fixedBlocks = extractHtmlBlocks(content);
+    if (fixedBlocks.length > 0) {
+      const best = fixedBlocks.find(isHtmlComplete) ?? fixedBlocks[0];
+      console.log(`[visual-explain/doctor] Fixed HTML: ${rawHtml.length} → ${best.length} chars`);
+      return best;
+    }
+
+    // If the model returned bare HTML (no fences), use it directly
+    const bare = content.match(/<!DOCTYPE html[\s\S]*<\/html>/i)?.[0];
+    if (bare && isHtmlComplete(bare)) return bare;
+
+    console.warn("[visual-explain/doctor] Could not extract fixed HTML — using raw");
+    return rawHtml;
+
+  } catch (err) {
+    console.error("[visual-explain/doctor] Call failed:", (err as Error).message);
+    return rawHtml;
   }
 }
 
