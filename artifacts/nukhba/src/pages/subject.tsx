@@ -4231,22 +4231,44 @@ function SubjectPathChat({
   // Shows an overlay modal with a self-contained interactive HTML page.
   const handleVisualExplain = useCallback(async (messageContent: string) => {
     setVisualOverlay({ html: null, loading: true, error: null });
+
+    // AbortController with manual timeout — compatible with all browsers
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 160_000);
+
     try {
       const res = await fetch("/api/v4/visual-explain", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ message: messageContent }),
-        signal: AbortSignal.timeout(155_000),
+        body:   JSON.stringify({ message: messageContent }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+
+      // 429 = another request in flight
+      if (res.status === 429) {
+        const errData = await res.json().catch(() => ({}));
+        setVisualOverlay({ html: null, loading: false, error: errData.error || tr.subject.visualExplainBusy });
+        return;
+      }
+
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || tr.subject.visualExplainError);
       }
+
       const { html } = await res.json();
       setVisualOverlay({ html, loading: false, error: null });
+
     } catch (err) {
-      const msg = err instanceof Error ? err.message : tr.subject.visualExplainError;
+      clearTimeout(timeoutId);
+      const isAbort = err instanceof DOMException && err.name === "AbortError";
+      const msg = isAbort
+        ? "انتهت مهلة الانتظار — حاول مرة أخرى"
+        : err instanceof Error
+          ? err.message
+          : tr.subject.visualExplainError;
       setVisualOverlay({ html: null, loading: false, error: msg });
     }
   }, [tr.subject]);
@@ -6281,7 +6303,7 @@ function SubjectPathChat({
                 <iframe
                   srcDoc={visualOverlay.html}
                   className="w-full h-full border-none"
-                  sandbox="allow-scripts allow-same-origin"
+                  sandbox="allow-scripts"
                   title={tr.subject.visualExplainModalTitle}
                 />
               )}

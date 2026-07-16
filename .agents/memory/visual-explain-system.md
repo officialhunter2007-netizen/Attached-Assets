@@ -1,37 +1,82 @@
 ---
 name: Visual Explain System
-description: Playwright + manus.im + AI Doctor pipeline that generates interactive HTML pages from teacher messages, triggered by a "شرح بصري" button in the chat UI.
+description: Playwright + manus.im + AI Doctor pipeline for interactive HTML visual explanations. Triggered by "شرح بصري" button. Hardened for maximum resilience.
 ---
 
 ## Architecture
 
 **Route**: `POST /api/v4/visual-explain` — `artifacts/api-server/src/routes/v4_visual_explain.ts`
 
-**Pipeline (3 stages)**:
-1. **Playwright → manus.im**: Headless Chromium (Nix `chromium` package) logs into manus.im using `MANUS_EMAIL`/`MANUS_PASSWORD` secrets, sends teacher message as prompt to `https://manus.im/app/22FeoQNbqHXYsOhRScAosc`, collects HTML response. Handles multi-part responses by sending "أكمل" up to 3 times.
-2. **HTML Doctor**: `fixHtmlWithAI()` sends raw HTML to `google/gemini-2.5-flash-lite` via OpenRouter. Prompt instructs it to fix errors, complete truncated code, and return a self-contained page. Falls back to raw HTML if key missing or call fails.
-3. **Frontend overlay**: `<iframe srcDoc={html} sandbox="allow-scripts allow-same-origin">` inside a full-screen dark modal.
+## Pipeline
 
-## Key Implementation Details
+```
+Student clicks button
+      ↓
+[1] Playwright → manus.im
+      ↓
+[2] AI Doctor (3-model fallback)
+      ↓
+[3] Frontend overlay (iframe)
+```
 
-- **Singleton browser**: one `BrowserContext` reused across requests; invalidated on error
-- **Session persistence**: cookies saved to `/tmp/manus-session.json` to avoid re-login
-- **Busy guard**: `_busy` flag — 429 if a request is already in flight
-- **Timeouts**: 100s wait for manus response; 45s for AI Doctor; 150s overall hard timeout
-- **Chromium path**: auto-detected via `which chromium` or env `CHROMIUM_PATH`; added via `[nix] packages` in `.replit`
-- **Build**: `playwright-core` added to `external` list in `build.mjs`
+## Critical Build Notes
 
-## Frontend Changes (subject.tsx)
+- **Import**: `import("playwright")` NOT `import("playwright-core")` — playwright-core is NOT installed; playwright IS installed in `artifacts/api-server/node_modules/playwright`
+- **build.mjs external**: `playwright`, `playwright-core`, `playwright-chromium` all marked external
+- **Chromium**: Nix package `chromium` added to `.replit [nix] packages`; path auto-detected via `which chromium`
 
-- `Eye` icon added to lucide imports
-- `onVisualExplain?: () => void` prop added to `MessageToolbar`
-- "شرح بصري" button (amber color) added to toolbar — appears under EVERY AI message
-- `visualOverlay` state: `{ html, loading, error } | null`
-- `handleVisualExplain(messageContent)` callback — POSTs, sets state
-- Overlay modal: animated loading rings → iframe → error state; closes on X or backdrop click
+## Resilience Mechanisms
 
-## Translation Keys Added
+### Browser lifecycle
+- `_browser.on("disconnected")` handler → auto-clears `_browser`, `_context`, `_contextValid` on crash
+- `_contextValid` flag → `getContext()` rebuilds context if stale without crashing
+- `invalidateContext(alsoCloseBrowser?)` — clean teardown on error
 
-`toolbarVisualExplain`, `toolbarVisualExplainTitle`, `visualExplainModalTitle`, `visualExplainLoading`, `visualExplainLoadingHint`, `visualExplainClose`, `visualExplainError`, `visualExplainRetry`, `visualExplainBusy`
+### Retry
+- `withRetry(fn)` — 1 automatic retry with full browser+context reset + 2.5s pause on any Playwright error
 
-**Why:** No shared `requireAuth` middleware exists — auth is done locally via `getUserId(req)` pattern (session.userId).
+### Input detection
+- `sendMessage` has 3 strategies: fill → JS evaluate+dispatch → keyboard type
+- `trySend` has 3 strategies: button selectors → Ctrl+Enter → Enter
+
+### Response waiting
+- Phase 1: wait for loading indicators to disappear
+- Phase 2: DOM stability — `STABILITY_POLLS=4` consecutive identical `body.innerText` snapshots × `STABILITY_INTERVAL=1500ms`
+
+### HTML scraping
+- `scrapeAllAssistantText` — 5 strategies, returns ALL assistant messages (not just last) for continuations
+- `extractHtmlBlocks` — 4 patterns: ```html fenced, generic fenced, bare DOCTYPE, partial `<html` fallback
+- `isHtmlComplete` — checks DOCTYPE/html + `<body` + `</html>`
+- Picks largest complete block; falls back to page.content() as last resort
+
+### Continuations
+- `MAX_CONTINUATIONS=4` — sends "أكمل الكود من حيث توقفت"
+- `responseSeemsPartial` checks open fences + Arabic partial signals
+
+### AI Doctor (3-model fallback chain)
+- `google/gemini-2.5-flash-lite` → `google/gemini-2.5-flash` → `openai/gpt-4o-mini`
+- `max_tokens: 32_768`, `temperature: 0.05`
+- Skips if `OPENROUTER_API_KEY` missing or HTML > 400KB
+- Returns raw HTML if all 3 models fail (never throws to caller)
+
+## Frontend Notes (subject.tsx)
+
+- `AbortController` + `setTimeout(160_000)` — NOT `AbortSignal.timeout()` (browser compat)
+- iframe sandbox: `"allow-scripts"` ONLY — `allow-same-origin` removed (security: AI HTML cannot steal session)
+- 429 → shows `visualExplainBusy` message (not generic error)
+- Abort → shows "انتهت مهلة الانتظار" message
+
+## Auth pattern
+
+No shared `requireAuth` middleware — use `getUserId(req)` from `(req.session as any)?.userId`
+
+## Session persistence
+
+Cookies saved to `/tmp/manus-session.json` — survives restarts but lost on container recycle (triggers re-login on next request)
+
+## Timeouts
+
+- `RESPONSE_TIMEOUT_MS = 120_000` — manus.im response wait
+- `REQUEST_TIMEOUT_MS = 160_000` — hard HTTP ceiling
+- Doctor per-model: `50_000ms`
+- Frontend abort: `160_000ms`
