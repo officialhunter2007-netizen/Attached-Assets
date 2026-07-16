@@ -25,7 +25,7 @@ import { getSubjectName } from "@/lib/curriculum-en";
 import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@workspace/api-client-react";
 import { useGetLessonViews } from "@workspace/api-client-react";
-import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical, MoreHorizontal, BookMarked, GraduationCap, Lightbulb, Copy, Check, Volume2, VolumeX, ThumbsUp, ThumbsDown, Share2, Mic, MicOff, ImagePlus, Pause, Play, RotateCcw, Download, ZoomIn, ZoomOut, Map as MapIcon, Gauge } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, Lock, FileText, ChevronDown, ChevronUp, Plus, Clock, Trophy, RefreshCw, Calendar, Code2, ArrowRight, CheckCircle2, X, FlaskConical, MoreHorizontal, BookMarked, GraduationCap, Lightbulb, Copy, Check, Volume2, VolumeX, ThumbsUp, ThumbsDown, Share2, Mic, MicOff, ImagePlus, Pause, Play, RotateCcw, Download, ZoomIn, ZoomOut, Map as MapIcon, Gauge, Eye } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2170,6 +2170,7 @@ const MessageToolbar = memo(function MessageToolbar({
   onRegenerate,
   onShare,
   onRate,
+  onVisualExplain,
   canRegenerate,
   ratingKey,
 }: {
@@ -2177,6 +2178,7 @@ const MessageToolbar = memo(function MessageToolbar({
   onRegenerate?: () => void;
   onShare?: () => void;
   onRate?: (value: "up" | "down") => void;
+  onVisualExplain?: () => void;
   canRegenerate: boolean;
   ratingKey?: string;
 }) {
@@ -2316,6 +2318,19 @@ const MessageToolbar = memo(function MessageToolbar({
         <Share2 className="w-3.5 h-3.5" />
         <span className="msg-toolbar-label">{shared ? t.toolbarShared : t.toolbarShare}</span>
       </button>
+      {onVisualExplain && (
+        <button
+          type="button"
+          className="msg-toolbar-btn"
+          style={{ color: "rgb(251 191 36 / 0.85)" }}
+          title={t.toolbarVisualExplainTitle}
+          aria-label={t.toolbarVisualExplainTitle}
+          onClick={onVisualExplain}
+        >
+          <Eye className="w-3.5 h-3.5" />
+          <span className="msg-toolbar-label">{t.toolbarVisualExplain}</span>
+        </button>
+      )}
     </div>
   );
 });
@@ -3186,6 +3201,11 @@ function SubjectPathChat({
   const [showCurriculumDrawer, setShowCurriculumDrawer] = useState(false);
   const [quizPanel, setQuizPanel] = useState<{ open: boolean; kind: QuizKind }>({ open: false, kind: "chapter" });
   const [showSourcesPanel, setShowSourcesPanel] = useState(initialSourcesMaterialId != null);
+  const [visualOverlay, setVisualOverlay] = useState<{
+    html: string | null;
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
   const consumedSourcesParamRef = useRef(false);
   useEffect(() => {
     if (initialSourcesMaterialId == null || consumedSourcesParamRef.current) return;
@@ -4205,6 +4225,31 @@ function SubjectPathChat({
     if (isStreaming || sessionPaused) return;
     sendTeachMessageRef.current(`${tr.subject.reExplainImageMsg}${imageUrl})`);
   }, [isStreaming, sessionPaused]);
+
+  // ── Visual Explain ────────────────────────────────────────────────────────
+  // Posts the teacher message to the backend → Playwright → manus.im pipeline.
+  // Shows an overlay modal with a self-contained interactive HTML page.
+  const handleVisualExplain = useCallback(async (messageContent: string) => {
+    setVisualOverlay({ html: null, loading: true, error: null });
+    try {
+      const res = await fetch("/api/v4/visual-explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message: messageContent }),
+        signal: AbortSignal.timeout(155_000),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || tr.subject.visualExplainError);
+      }
+      const { html } = await res.json();
+      setVisualOverlay({ html, loading: false, error: null });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : tr.subject.visualExplainError;
+      setVisualOverlay({ html: null, loading: false, error: msg });
+    }
+  }, [tr.subject]);
 
   // ── Copy share link ──────────────────────────────────────────────────────
   const handleCopyShareLink = useCallback(async () => {
@@ -5653,6 +5698,7 @@ function SubjectPathChat({
                           content={msg.content}
                           ratingKey={`${subject.id}:${i}`}
                           onRegenerate={handleRegenerateLast}
+                          onVisualExplain={() => handleVisualExplain(msg.content)}
                           canRegenerate={isLastMsg && !isStreaming && !sessionPaused}
                           onRate={(value) => {
                             try {
@@ -6148,6 +6194,97 @@ function SubjectPathChat({
               >
                 ابقَ في هذه المرحلة
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Visual Explain Overlay ───────────────────────────────────────── */}
+      {visualOverlay && (
+        <div
+          className="fixed inset-0 z-[9998] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.88)", backdropFilter: "blur(6px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setVisualOverlay(null); }}
+        >
+          <div
+            className="relative flex flex-col rounded-2xl overflow-hidden shadow-2xl"
+            style={{
+              width: "min(96vw, 960px)",
+              height: "min(92vh, 720px)",
+              background: "#0d111e",
+              border: "1px solid rgba(245,158,11,0.3)",
+            }}
+          >
+            {/* Header */}
+            <div
+              className="flex items-center justify-between px-4 py-2.5 shrink-0"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.07)", background: "#0a0e1a" }}
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
+                  <Eye className="w-3.5 h-3.5 text-black" />
+                </div>
+                <span className="text-sm font-bold text-amber-200" style={{ direction: "rtl" }}>
+                  {tr.subject.visualExplainModalTitle}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVisualOverlay(null)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-all"
+                aria-label={tr.subject.visualExplainClose}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 relative overflow-hidden">
+              {visualOverlay.loading && (
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6"
+                  style={{ direction: "rtl" }}
+                >
+                  {/* Animated rings */}
+                  <div className="relative w-20 h-20">
+                    <div className="absolute inset-0 rounded-full border-2 border-amber-400/30 animate-ping" />
+                    <div className="absolute inset-2 rounded-full border-2 border-amber-400/50 animate-ping" style={{ animationDelay: "0.3s" }} />
+                    <div className="absolute inset-4 rounded-full bg-amber-500/20 flex items-center justify-center">
+                      <Sparkles className="w-6 h-6 text-amber-400 animate-pulse" />
+                    </div>
+                  </div>
+                  <p className="text-white font-semibold text-base">{tr.subject.visualExplainLoading}</p>
+                  <p className="text-white/45 text-xs text-center max-w-xs leading-relaxed">
+                    {tr.subject.visualExplainLoadingHint}
+                  </p>
+                </div>
+              )}
+
+              {visualOverlay.error && !visualOverlay.loading && (
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6"
+                  style={{ direction: "rtl" }}
+                >
+                  <div className="text-4xl">⚠️</div>
+                  <p className="text-rose-300 font-semibold text-center">{visualOverlay.error}</p>
+                  <button
+                    type="button"
+                    onClick={() => setVisualOverlay(null)}
+                    className="px-5 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/15 text-white/80 hover:text-white text-sm font-medium transition-all"
+                  >
+                    {tr.subject.visualExplainClose}
+                  </button>
+                </div>
+              )}
+
+              {visualOverlay.html && !visualOverlay.loading && (
+                <iframe
+                  srcDoc={visualOverlay.html}
+                  className="w-full h-full border-none"
+                  sandbox="allow-scripts allow-same-origin"
+                  title={tr.subject.visualExplainModalTitle}
+                />
+              )}
             </div>
           </div>
         </div>

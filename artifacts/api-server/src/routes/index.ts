@@ -34,6 +34,7 @@ import v4LevelQuizzesRouter from "./v4_level_quizzes";
 import v4StageQuizzesRouter from "./v4_stage_quizzes";
 import v4QuizScoresRouter from "./v4_quiz_scores";
 import v4AdminStudentMonitorRouter from "./v4_admin_student_monitor";
+import v4VisualExplainRouter from "./v4_visual_explain";
 
 const router: IRouter = Router();
 
@@ -72,5 +73,6 @@ router.use(v4LevelQuizzesRouter);
 router.use(v4StageQuizzesRouter);
 router.use(v4QuizScoresRouter);
 router.use(v4AdminStudentMonitorRouter);
+router.use(v4VisualExplainRouter);
 
 export default router;
