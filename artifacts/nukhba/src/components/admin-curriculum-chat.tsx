@@ -28,6 +28,9 @@ interface UnitDetail extends Unit {
   lessons: Lesson[];
   labs: Lab[];
 }
+interface StageDetail extends Stage {
+  unitsDetail: UnitDetail[];
+}
 
 interface ContentResult {
   specialty: Specialty;
@@ -39,6 +42,7 @@ interface ContentResult {
   lesson?: Lesson;
   levels?: Level[];
   stages?: Stage[];
+  stagesDetail?: StageDetail[]; // level scope: full per-stage content
   units?: Unit[];
   unitsDetail?: UnitDetail[]; // stage scope: full per-unit content
   lessons?: Lesson[];
@@ -460,12 +464,30 @@ function serializeResult(r: ContentResult): string {
   } else if (r.scope === "level" && r.level) {
     lines.push(`🎓 مستوى ${r.level.levelIndex}: ${r.level.name}`);
     lines.push(`   الهدف: ${r.level.goal}`);
-    lines.push(sep());
-    (r.stages ?? []).forEach((s) => {
-      lines.push(`  🗂 مرحلة ${s.stageIndex}: ${s.name} (${s.code})`);
-      lines.push(`     الهدف: ${s.goal}`);
-      lines.push("");
-    });
+    lines.push(sep("═"));
+    if (r.stagesDetail && r.stagesDetail.length > 0) {
+      r.stagesDetail.forEach((s) => {
+        lines.push(`🗂 مرحلة ${s.stageIndex}: ${s.name} (${s.code})`);
+        lines.push(`   الهدف: ${s.goal}`);
+        lines.push(sep());
+        (s.unitsDetail ?? []).forEach((u) => {
+          lines.push(`  📦 وحدة ${u.unitIndex}: ${u.name} (${u.code})`);
+          lines.push(`     الهدف: ${u.goal}`);
+          if (u.keyConcepts?.length) lines.push(`     المفاهيم الرئيسية: ${u.keyConcepts.join("، ")}`);
+          lines.push(sep("·", 40));
+          (u.lessons ?? []).forEach((l) => { addLesson(l, "    "); lines.push(sep("·", 30)); });
+          (u.labs ?? []).forEach((lab) => { addLab(lab, "    "); lines.push(sep("·", 30)); });
+          lines.push("");
+        });
+        lines.push(sep("═"));
+      });
+    } else {
+      (r.stages ?? []).forEach((s) => {
+        lines.push(`  🗂 مرحلة ${s.stageIndex}: ${s.name} (${s.code})`);
+        lines.push(`     الهدف: ${s.goal}`);
+        lines.push("");
+      });
+    }
   } else if (r.scope === "specialty") {
     (r.levels ?? []).forEach((lv) => {
       lines.push(`🎓 مستوى ${lv.levelIndex}: ${lv.name}`);
@@ -501,9 +523,47 @@ function CopyButton({ result }: { result: ContentResult }) {
   );
 }
 
+// ── Stage detail card (level scope) ──────────────────────────────────────────
+function StageDetailCard({ stage }: { stage: StageDetail }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="border border-purple-500/25 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-start gap-3 px-4 py-3.5 text-right hover:bg-purple-500/5 transition-colors"
+      >
+        <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 shrink-0 mt-0.5">
+          مرحلة {stage.stageIndex}
+        </span>
+        <div className="flex-1 text-right">
+          <p className="text-sm font-semibold text-white/90">{stage.name}</p>
+          <p className="text-[11px] text-white/50 mt-0.5 line-clamp-1">{stage.goal}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 mt-0.5">
+          <span className="text-[10px] text-purple-400/60 font-mono">{stage.code}</span>
+          {stage.unitsDetail.length > 0 && (
+            <span className="text-[10px] text-amber-400/70">{stage.unitsDetail.length} وحدة</span>
+          )}
+          {open ? <ChevronDown className="w-3.5 h-3.5 text-white/30" /> : <ChevronRight className="w-3.5 h-3.5 text-white/30" />}
+        </div>
+      </button>
+      {open && stage.unitsDetail.length > 0 && (
+        <div className="border-t border-white/5 px-3 py-3 space-y-2">
+          {stage.unitsDetail.map((u) => <UnitDetailCard key={u.id} unit={u} />)}
+        </div>
+      )}
+      {open && stage.unitsDetail.length === 0 && (
+        <div className="border-t border-white/5 px-4 py-3">
+          <p className="text-[11px] text-white/30">لا توجد وحدات في هذه المرحلة بعد.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main result renderer ──────────────────────────────────────────────────────
 function ResultView({ result }: { result: ContentResult }) {
-  const { specialty, scope, level, stage, unit, lesson, levels, stages, units, unitsDetail, lessons, labs } = result;
+  const { specialty, scope, level, stage, unit, lesson, levels, stages, stagesDetail, units, unitsDetail, lessons, labs } = result;
 
   const scopeBreadcrumb = [
     specialty.name,
@@ -703,7 +763,18 @@ function ResultView({ result }: { result: ContentResult }) {
               <p className="text-[11px] text-white/40 mt-2">تركيز بلوم: {level.meta.bloom_focus}</p>
             )}
           </div>
-          {stages && stages.length > 0 && (
+
+          {/* Full detail — one collapsible card per stage with all units + lessons + labs */}
+          {stagesDetail && stagesDetail.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-[11px] text-white/35 flex items-center gap-1.5">
+                <GraduationCap className="w-3 h-3" />
+                {stagesDetail.length} مرحلة — المحتوى الكامل
+              </p>
+              {stagesDetail.map((s) => <StageDetailCard key={s.id} stage={s} />)}
+            </div>
+          ) : stages && stages.length > 0 ? (
+            /* Fallback for old responses */
             <Section title="المراحل" icon={<GraduationCap className="w-4 h-4 text-purple-400" />} count={stages.length} defaultOpen>
               <div className="space-y-2">
                 {stages.map((s) => (
@@ -720,7 +791,7 @@ function ResultView({ result }: { result: ContentResult }) {
                 ))}
               </div>
             </Section>
-          )}
+          ) : null}
         </div>
       )}
 
