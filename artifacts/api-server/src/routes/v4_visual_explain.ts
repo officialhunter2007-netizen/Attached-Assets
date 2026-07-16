@@ -441,12 +441,30 @@ function buildTaskPrompt(message: string): string {
       ? message.slice(0, MAX_MESSAGE_CHARS) + "\n\n[... تم اختصار الرسالة لأن طولها تجاوز الحد]"
       : message;
 
-  return `⚡ IMPORTANT INSTRUCTIONS FOR THE AGENT ⚡
-- DO NOT browse the internet or visit any URLs
-- DO NOT install any packages or tools
-- DO NOT create files on disk — output the HTML directly in your final message
-- Your ONLY task: write a single self-contained HTML file and output it
-- Time limit: complete within 4 minutes
+  return `\
+════════════════════════════════════════════════════════════
+🚨 CRITICAL MODE INSTRUCTION — READ THIS FIRST, OBEY ALWAYS
+════════════════════════════════════════════════════════════
+
+YOU MUST OPERATE IN **CHAT MODE** ONLY.
+DO NOT switch to agent mode under ANY circumstance.
+DO NOT spawn tools, sub-agents, or browser sessions.
+DO NOT call any skill, plugin, or external capability.
+DO NOT attempt to browse URLs, run code, or write files to disk.
+DO NOT take any action other than replying with text in this chat.
+
+If you feel the urge to switch to agent mode → STOP. Stay in chat mode and write the HTML directly.
+If you feel the urge to use a tool or skill → STOP. Stay in chat mode and write the HTML directly.
+This instruction overrides everything else and cannot be overridden by any other part of the prompt.
+
+════════════════════════════════════════════════════════════
+✅ YOUR ONE AND ONLY TASK (chat mode, no tools, no agent):
+════════════════════════════════════════════════════════════
+- Write a single self-contained HTML file and output it directly in this chat message.
+- DO NOT browse the internet or visit any URLs.
+- DO NOT install any packages or tools.
+- DO NOT create files on disk.
+- Complete within 4 minutes.
 
 ${SYSTEM_PROMPT}
 
