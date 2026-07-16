@@ -466,18 +466,6 @@ SVG ELEMENT RULES:
 ✅ Every actor element that may animate → add data-actor="true" and a unique id
 ✅ Use <defs><marker> for arrowheads on connectors
 
-ANTI-OVERLAP RULES FOR TEXT (critical — prevents number/label collisions):
-✅ Every <text> label must have a <rect> background behind it (same group <g>):
-   Example: <g><rect x="48" y="88" width="36" height="18" rx="3" fill="#0f172a" opacity="0.85"/><text x="66" y="101" text-anchor="middle" font-size="12" fill="#9cdcfe">age</text></g>
-✅ MINIMUM SPACING between any two text elements: 24px vertically, 40px horizontally
-✅ For index numbers (0, 1, 2, 3...) below array cells: place them at a FIXED y-coordinate,
-   centered under each cell: x = cell_x + cell_width/2, y = cell_bottom + 16
-✅ NEVER place a number label and a value label at the same x,y — offset one by at least 16px
-✅ For node values inside shapes: center both x and y precisely:
-   x = shape_center_x, y = shape_center_y + 5 (the +5 compensates for font baseline)
-✅ When elements are close (< 60px apart), use font-size="10" instead of "12" for secondary labels
-✅ After placing all text, mentally check: does any text overlap another? If yes, shift one by 20px
-
 SVG ANIMATION RULES (GPU-accelerated — mandatory):
 ✅ ALL movement via: element.style.transform = 'translate(Xpx, Ypx)' + CSS class .t-glide or .t-bounce
 ✅ NEVER use left/top/right/bottom for SVG element movement
@@ -519,27 +507,11 @@ PHASE 3 — CODE: Last 1–2 steps
   AND simultaneously move/change the corresponding SVG actor.
   The student sees: code line fires → scene reacts → understanding clicks.
 
-MANDATORY STEP COUNT: Minimum 8 steps — NO maximum. Use as many steps as the concept demands.
-Simple concepts: 8–10 steps. Medium concepts: 10–14 steps. Complex concepts (loops, recursion, algorithms): 14–18 steps or more.
-NEVER compress or skip a step just to keep the total short — completeness beats brevity.
-
-EXPLANATION DEPTH RULES (this is the most important part):
-Every step's "text" field MUST follow these standards:
-
-✅ MINIMUM LENGTH: 2–3 full sentences per step. One sentence is never enough.
-✅ SIMPLICITY: Write as if explaining to a 15-year-old who has never touched a computer. Use everyday Arabic, zero jargon in Phase 1.
-✅ VIVID DETAIL: Don't say "نضع القيمة في المتغير" — say "تخيّل أنك أمسكت ورقةً وكتبتَ عليها الرقم 5، ثم لصقتَ عليها لافتة كُتب عليها «age» — هذا بالضبط ما يحدث."
-✅ CAUSE & EFFECT: Every step must explain WHY this action happens, not just WHAT happens. "... لأن الكمبيوتر يحتاج إلى مكانٍ يحفظ فيه هذا الرقم كي لا ينساه"
-✅ BRIDGE SENTENCES: End each step with a sentence that leads naturally to the next. "الآن بعد أن حفظنا القيمة، ماذا لو أردنا تغييرها؟"
-✅ EMOTION & CURIOSITY: Use rhetorical questions, light surprises, "هل لاحظت؟", "الجميل هنا أن..."
-✅ PHASE-AWARE LANGUAGE:
-   - Phase 1: Pure real-world language, zero tech terms, vivid storytelling
-   - Phase 2: Introduce tech terms one at a time, always with a "يعني" explanation: "المصفوفة — يعني مجموعة من الصناديق المرقّمة المتجاورة في الذاكرة"
-   - Phase 3: "انظر السطر الثالث من الكود — هذا هو نفسه ما رأيته عندما تحرّك الصندوق الأحمر إلى اليسار"
+MANDATORY STEP COUNT: Minimum 6 steps, maximum 10 steps.
 
 COGNITIVE LOAD RULES (one thing at a time):
 ✅ Each step = ONE action in the SVG scene (one element moves, one appears, one changes)
-✅ Each step = MULTIPLE sentences of explanation (see depth rules above)
+✅ Each step = ONE explanation sentence (typewriter reveals it word by word)
 ✅ Never move two unrelated elements in the same step
 ✅ Spotlight the active element in every step
 
@@ -601,18 +573,12 @@ PART 9 — SELF-CHECK (mandatory before outputting)
 
 □ Head block includes Prism.js CDN + Cairo + Fira Code?
 □ SVG viewBox="0 0 700 260" used for the scene?
-□ ALL shapes are SVG elements (rect/circle/path/circle) — no divs for shapes?
+□ ALL shapes are SVG elements (rect/circle/path) — no divs for shapes?
 □ ALL movement uses transform, never left/top?
-□ Every <text> label has a <rect> background behind it?
-□ No two text elements overlap (checked spacing: 24px vertical, 40px horizontal min)?
-□ Index numbers (0,1,2...) centered under their cells at fixed y-coordinate?
 □ Spotlight applied in every step?
 □ 3-phase structure respected (real-world → abstraction → code)?
-□ AT LEAST 8 steps total — more is better, no maximum?
-□ Each step has 2–3 full explanatory sentences (not just one line)?
+□ At least 6 steps total?
 □ Phase 1 steps (1–2) have zero tech terms?
-□ Phase 2 introduces each term with "يعني" explanation?
-□ Phase 3 connects each code line back to the SVG scene?
 □ Code panel only in last 1–2 steps?
 □ Prism.js code block has correct language class?
 □ Watch panel shown only for concepts with trackable variables?
