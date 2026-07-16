@@ -4231,45 +4231,38 @@ function SubjectPathChat({
   // Shows an overlay modal with a self-contained interactive HTML page.
   const handleVisualExplain = useCallback(async (messageContent: string) => {
     setVisualOverlay({ html: null, loading: true, error: null });
-
-    // AbortController with manual timeout — compatible with all browsers
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), 160_000);
-
+    const POLL_MS  = 4_000;
+    const DEADLINE = Date.now() + 5 * 60_000; // 5 min max
     try {
-      const res = await fetch("/api/v4/visual-explain", {
-        method:  "POST",
+      const startRes = await fetch("/api/v4/visual-explain/start", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body:   JSON.stringify({ message: messageContent }),
-        signal: controller.signal,
+        body: JSON.stringify({ message: messageContent }),
       });
-      clearTimeout(timeoutId);
-
-      // 429 = another request in flight
-      if (res.status === 429) {
-        const errData = await res.json().catch(() => ({}));
-        setVisualOverlay({ html: null, loading: false, error: errData.error || tr.subject.visualExplainBusy });
-        return;
+      if (!startRes.ok) {
+        const d = await startRes.json().catch(() => ({}));
+        throw new Error(d.error || tr.subject.visualExplainError);
       }
+      const { jobId } = await startRes.json();
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || tr.subject.visualExplainError);
+      while (Date.now() < DEADLINE) {
+        await new Promise(r => setTimeout(r, POLL_MS));
+        const statusRes = await fetch(`/api/v4/visual-explain/status/${jobId}`, { credentials: "include" });
+        if (!statusRes.ok) {
+          const d = await statusRes.json().catch(() => ({}));
+          throw new Error(d.error || tr.subject.visualExplainError);
+        }
+        const data = await statusRes.json();
+        if (data.status === "done")  { setVisualOverlay({ html: data.html, loading: false, error: null }); return; }
+        if (data.status === "error") { throw new Error(data.error || tr.subject.visualExplainError); }
       }
-
-      const { html } = await res.json();
-      setVisualOverlay({ html, loading: false, error: null });
-
+      throw new Error("انتهت مهلة الانتظار (5 دقائق) — حاول مرة أخرى");
     } catch (err) {
-      clearTimeout(timeoutId);
-      const isAbort = err instanceof DOMException && err.name === "AbortError";
-      const msg = isAbort
-        ? "انتهت مهلة الانتظار — حاول مرة أخرى"
-        : err instanceof Error
-          ? err.message
-          : tr.subject.visualExplainError;
-      setVisualOverlay({ html: null, loading: false, error: msg });
+      setVisualOverlay({
+        html: null, loading: false,
+        error: err instanceof Error ? err.message : tr.subject.visualExplainError,
+      });
     }
   }, [tr.subject]);
 

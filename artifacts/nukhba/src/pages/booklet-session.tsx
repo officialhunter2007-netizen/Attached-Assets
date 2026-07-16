@@ -422,34 +422,37 @@ export default function BookletSession() {
   // ── Visual Explain ───────────────────────────────────────────────────────
   const handleVisualExplain = useCallback(async (messageContent: string) => {
     setVisualOverlay({ html: null, loading: true, error: null });
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), 160_000);
+    const POLL_MS  = 4_000;
+    const DEADLINE = Date.now() + 5 * 60_000;
     try {
-      const res = await fetch("/api/v4/visual-explain", {
-        method:  "POST",
+      const startRes = await fetch("/api/v4/visual-explain/start", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body:   JSON.stringify({ message: messageContent }),
-        signal: controller.signal,
+        body: JSON.stringify({ message: messageContent }),
       });
-      clearTimeout(timeoutId);
-      if (res.status === 429) {
-        const d = await res.json().catch(() => ({}));
-        setVisualOverlay({ html: null, loading: false, error: d.error || "جارٍ إنشاء شرح بصري آخر — انتظر لحظات." });
-        return;
-      }
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
+      if (!startRes.ok) {
+        const d = await startRes.json().catch(() => ({}));
         throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
       }
-      const { html } = await res.json();
-      setVisualOverlay({ html, loading: false, error: null });
+      const { jobId } = await startRes.json();
+
+      while (Date.now() < DEADLINE) {
+        await new Promise(r => setTimeout(r, POLL_MS));
+        const statusRes = await fetch(`/api/v4/visual-explain/status/${jobId}`, { credentials: "include" });
+        if (!statusRes.ok) {
+          const d = await statusRes.json().catch(() => ({}));
+          throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
+        }
+        const data = await statusRes.json();
+        if (data.status === "done")  { setVisualOverlay({ html: data.html, loading: false, error: null }); return; }
+        if (data.status === "error") { throw new Error(data.error || "تعذّر إنشاء الشرح البصري."); }
+      }
+      throw new Error("انتهت مهلة الانتظار (5 دقائق) — حاول مرة أخرى");
     } catch (err) {
-      clearTimeout(timeoutId);
-      const isAbort = err instanceof DOMException && err.name === "AbortError";
       setVisualOverlay({
         html: null, loading: false,
-        error: isAbort ? "انتهت مهلة الانتظار — حاول مرة أخرى" : (err instanceof Error ? err.message : "تعذّر إنشاء الشرح البصري."),
+        error: err instanceof Error ? err.message : "تعذّر إنشاء الشرح البصري.",
       });
     }
   }, []);

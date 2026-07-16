@@ -613,33 +613,91 @@ async function generateVisualHtml(message: string): Promise<string> {
   return html;
 }
 
+// ── Job store (async Manus tasks) ─────────────────────────────────────────────
+// Manus tasks take 1–4 min → we can't hold an HTTP connection open (proxy kills
+// at 2 min). Instead: POST /start → jobId, then GET /status/:jobId polling.
+
+interface Job {
+  status:    "pending" | "done" | "error";
+  html?:     string;
+  error?:    string;
+  createdAt: number;
+}
+
+const jobs = new Map<string, Job>();
+
+function cleanOldJobs(): void {
+  const cutoff = Date.now() - 30 * 60_000; // 30 min
+  for (const [id, job] of jobs) {
+    if (job.createdAt < cutoff) jobs.delete(id);
+  }
+}
+
+function makeJobId(): string {
+  return crypto.randomBytes(12).toString("hex");
+}
+
+// Run Manus in background — never awaited at the route level
+function startBackgroundJob(jobId: string, message: string): void {
+  (async () => {
+    try {
+      const html = await generateVisualHtml(message);
+      const job = jobs.get(jobId);
+      if (job) jobs.set(jobId, { ...job, status: "done", html });
+    } catch (err: any) {
+      const job = jobs.get(jobId);
+      const errMsg = err?.message ?? "خطأ غير معروف";
+      if (job) jobs.set(jobId, { ...job, status: "error", error: errMsg });
+      console.error("[visual-explain] background job failed:", errMsg);
+    }
+  })();
+}
+
 // ── Router ────────────────────────────────────────────────────────────────────
 const router = Router();
 
-router.post("/v4/visual-explain", async (req, res) => {
+// POST /v4/visual-explain/start — returns { jobId } immediately
+router.post("/v4/visual-explain/start", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "يجب تسجيل الدخول أولاً" });
 
-  // Frontend sends { message: "..." }
   const { message } = req.body as { message?: string };
   if (!message?.trim()) {
     return res.status(400).json({ error: "حقل message مطلوب" });
   }
 
-  res.setTimeout(REQUEST_TIMEOUT_MS + 15_000);
+  const msg = message.trim();
+  cleanOldJobs();
 
-  try {
-    const html = await generateVisualHtml(message.trim());
-    return res.json({ html });
-  } catch (err: any) {
-    const msg: string = err?.message ?? "خطأ غير معروف";
-    console.error("[visual-explain] Error:", msg);
-
-    if (err?.name === "AbortError") {
-      return res.status(504).json({ error: "انتهت المهلة — النموذج استغرق وقتاً طويلاً، حاول مرة أخرى" });
-    }
-    return res.status(500).json({ error: msg });
+  // If already cached → return a pre-resolved job immediately
+  const key = cacheKey(msg);
+  const cached = htmlCache.get(key);
+  if (cached) {
+    const jobId = makeJobId();
+    jobs.set(jobId, { status: "done", html: cached, createdAt: Date.now() });
+    console.log("[visual-explain] Cache hit — returning immediately");
+    return res.json({ jobId });
   }
+
+  // Start a fresh Manus task in the background
+  const jobId = makeJobId();
+  jobs.set(jobId, { status: "pending", createdAt: Date.now() });
+  startBackgroundJob(jobId, msg);
+
+  return res.json({ jobId });
+});
+
+// GET /v4/visual-explain/status/:jobId — poll until done/error
+router.get("/v4/visual-explain/status/:jobId", (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "يجب تسجيل الدخول أولاً" });
+
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: "المهمة غير موجودة أو انتهت صلاحيتها" });
+
+  if (job.status === "pending") return res.json({ status: "pending" });
+  if (job.status === "done")    return res.json({ status: "done",  html: job.html });
+  return res.status(500).json({ status: "error", error: job.error });
 });
 
 export default router;
