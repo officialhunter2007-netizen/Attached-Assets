@@ -1896,18 +1896,12 @@ export default function V4Lesson() {
       {/* ── Visual Explain Overlay ─────────────────────────────────────────── */}
       {visualOverlay && (
         <div
-          className="fixed inset-0 z-[9998] flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.88)", backdropFilter: "blur(6px)" }}
-          onClick={(e) => { if (e.target === e.currentTarget) setVisualOverlay(null); }}
+          className="fixed inset-0 z-[9998] flex flex-col"
+          style={{ background: "#0d111e" }}
         >
           <div
-            className="relative flex flex-col rounded-2xl overflow-hidden shadow-2xl"
-            style={{
-              width: "min(96vw, 960px)",
-              height: "min(92vh, 720px)",
-              background: "#0d111e",
-              border: "1px solid rgba(245,158,11,0.3)",
-            }}
+            className="relative flex flex-col w-full h-full overflow-hidden"
+            style={{ background: "#0d111e" }}
           >
             {/* Header */}
             <div
