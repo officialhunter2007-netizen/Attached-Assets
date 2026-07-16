@@ -178,13 +178,83 @@ router.post("/admin/curriculum/content", async (req, res): Promise<any> => {
 
     // ── 4. Unit ───────────────────────────────────────────────────────────
     if (unitIndex == null) {
-      // Return all units in this stage with lesson count
+      // Return ALL units in this stage with their FULL lesson + lab detail
+      // (concepts, mistakes, lab questions) so the frontend can render the
+      // entire stage without a second request.
       const units = await db
         .select()
         .from(v4UnitsTable)
         .where(and(eq(v4UnitsTable.versionId, versionId), eq(v4UnitsTable.stageId, stage.id)))
         .orderBy(asc(v4UnitsTable.unitIndex));
-      result.units = units;
+
+      if (units.length === 0) {
+        result.units = [];
+        result.unitsDetail = [];
+        return res.json(result);
+      }
+
+      const unitIds = units.map((u) => u.id);
+
+      // Fetch all lessons for every unit in the stage in one query
+      const allLessons = await db
+        .select()
+        .from(v4LessonsTable)
+        .where(and(eq(v4LessonsTable.versionId, versionId), inArray(v4LessonsTable.unitId, unitIds)))
+        .orderBy(asc(v4LessonsTable.lessonIndex));
+
+      const lessonIds = allLessons.map((l) => l.id);
+
+      // Fetch concepts, mistakes, labs, lab questions — all in parallel
+      const [concepts, mistakes, labs] = await Promise.all([
+        lessonIds.length > 0
+          ? db
+              .select()
+              .from(v4LessonConceptsTable)
+              .where(inArray(v4LessonConceptsTable.lessonId, lessonIds))
+              .orderBy(asc(v4LessonConceptsTable.conceptIndex))
+          : Promise.resolve([]),
+        lessonIds.length > 0
+          ? db
+              .select()
+              .from(v4LessonCommonMistakesTable)
+              .where(inArray(v4LessonCommonMistakesTable.lessonId, lessonIds))
+              .orderBy(asc(v4LessonCommonMistakesTable.mistakeIndex))
+          : Promise.resolve([]),
+        db
+          .select()
+          .from(v4LabScenariosTable)
+          .where(and(eq(v4LabScenariosTable.versionId, versionId), inArray(v4LabScenariosTable.unitId, unitIds)))
+          .orderBy(asc(v4LabScenariosTable.labIndex)),
+      ]);
+
+      const labIds = labs.map((l) => l.id);
+      const labQuestions =
+        labIds.length > 0
+          ? await db
+              .select()
+              .from(v4LabQuestionsTable)
+              .where(inArray(v4LabQuestionsTable.labId, labIds))
+              .orderBy(asc(v4LabQuestionsTable.questionIndex))
+          : [];
+
+      // Build rich per-unit objects
+      const unitsDetail = units.map((unit) => {
+        const unitLessons = allLessons.filter((l) => l.unitId === unit.id);
+        const lessonsWithDetail = unitLessons.map((lesson) => ({
+          ...lesson,
+          concepts: concepts.filter((c) => c.lessonId === lesson.id),
+          mistakes: mistakes.filter((m) => m.lessonId === lesson.id),
+        }));
+        const unitLabs = labs.filter((lab) => lab.unitId === unit.id);
+        const labsWithQuestions = unitLabs.map((lab) => ({
+          ...lab,
+          questions: labQuestions.filter((q) => q.labId === lab.id),
+        }));
+        return { ...unit, lessons: lessonsWithDetail, labs: labsWithQuestions };
+      });
+
+      result.units = units;          // kept for backward compat
+      result.unitsDetail = unitsDetail;
       return res.json(result);
     }
 

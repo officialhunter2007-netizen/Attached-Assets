@@ -24,6 +24,11 @@ interface Lesson {
   solutionOutline?: string | null; meta?: any;
   concepts: Concept[]; mistakes: Mistake[];
 }
+interface UnitDetail extends Unit {
+  lessons: Lesson[];
+  labs: Lab[];
+}
+
 interface ContentResult {
   specialty: Specialty;
   scope: "specialty" | "level" | "stage" | "unit" | "lesson";
@@ -35,6 +40,7 @@ interface ContentResult {
   levels?: Level[];
   stages?: Stage[];
   units?: Unit[];
+  unitsDetail?: UnitDetail[]; // stage scope: full per-unit content
   lessons?: Lesson[];
   labs?: Lab[];
 }
@@ -238,6 +244,70 @@ function LessonCard({ lesson, lessonNum }: { lesson: Lesson; lessonNum: number }
   );
 }
 
+// ── Unit detail card (used inside stage view) ─────────────────────────────────
+function UnitDetailCard({ unit }: { unit: UnitDetail }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="border border-amber-500/25 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-start gap-3 px-4 py-3.5 text-right hover:bg-amber-500/5 transition-colors"
+      >
+        <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 shrink-0 mt-0.5">
+          وحدة {unit.unitIndex}
+        </span>
+        <div className="flex-1 text-right">
+          <p className="text-sm font-semibold text-white/90">{unit.name}</p>
+          <p className="text-[11px] text-white/50 mt-0.5 line-clamp-1">{unit.goal}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 mt-0.5">
+          {unit.lessons.length > 0 && (
+            <span className="text-[10px] text-sky-400/70">{unit.lessons.length} درس</span>
+          )}
+          {unit.labs.length > 0 && (
+            <span className="text-[10px] text-violet-400/70">{unit.labs.length} معمل</span>
+          )}
+          {open ? <ChevronDown className="w-3.5 h-3.5 text-white/30" /> : <ChevronRight className="w-3.5 h-3.5 text-white/30" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-white/5 px-4 py-4 space-y-4">
+          {/* Key concepts chips */}
+          {Array.isArray(unit.keyConcepts) && unit.keyConcepts.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-white/40 mb-1.5">المفاهيم الرئيسية</p>
+              <div className="flex flex-wrap gap-1.5">
+                {unit.keyConcepts.map((kc, i) => (
+                  <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/20">{kc}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Lessons */}
+          {unit.lessons.length > 0 && (
+            <Section title="الدروس" icon={<BookOpen className="w-4 h-4 text-sky-400" />} count={unit.lessons.length} defaultOpen>
+              <div className="space-y-2">
+                {unit.lessons.map((l) => <LessonCard key={l.id} lesson={l} lessonNum={l.lessonIndex} />)}
+              </div>
+            </Section>
+          )}
+
+          {/* Labs */}
+          {unit.labs.length > 0 && (
+            <Section title="المعامل التطبيقية" icon={<FlaskConical className="w-4 h-4 text-violet-400" />} count={unit.labs.length} defaultOpen>
+              <div className="space-y-2">
+                {unit.labs.map((lab) => <LabCard key={lab.id} lab={lab} />)}
+              </div>
+            </Section>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Lab card ──────────────────────────────────────────────────────────────────
 function LabCard({ lab }: { lab: Lab }) {
   const [open, setOpen] = useState(false);
@@ -366,13 +436,27 @@ function serializeResult(r: ContentResult): string {
   } else if (r.scope === "stage" && r.stage) {
     lines.push(`🗂 مرحلة ${r.stage.stageIndex}: ${r.stage.name} (${r.stage.code})`);
     lines.push(`   الهدف: ${r.stage.goal}`);
-    lines.push(sep());
-    (r.units ?? []).forEach((u) => {
-      lines.push(`  📦 وحدة ${u.unitIndex}: ${u.name} (${u.code})`);
-      lines.push(`     الهدف: ${u.goal}`);
-      if (u.keyConcepts?.length) lines.push(`     المفاهيم: ${u.keyConcepts.join("، ")}`);
-      lines.push("");
-    });
+    lines.push(sep("═"));
+    if (r.unitsDetail && r.unitsDetail.length > 0) {
+      // Full detail (new)
+      r.unitsDetail.forEach((u) => {
+        lines.push(`📦 وحدة ${u.unitIndex}: ${u.name} (${u.code})`);
+        lines.push(`   الهدف: ${u.goal}`);
+        if (u.keyConcepts?.length) lines.push(`   المفاهيم الرئيسية: ${u.keyConcepts.join("، ")}`);
+        lines.push(sep());
+        (u.lessons ?? []).forEach((l) => { addLesson(l, "  "); lines.push(sep("·")); });
+        (u.labs ?? []).forEach((lab) => { addLab(lab, "  "); lines.push(sep("·")); });
+        lines.push(sep("═"));
+      });
+    } else {
+      // Fallback: summary only
+      (r.units ?? []).forEach((u) => {
+        lines.push(`  📦 وحدة ${u.unitIndex}: ${u.name} (${u.code})`);
+        lines.push(`     الهدف: ${u.goal}`);
+        if (u.keyConcepts?.length) lines.push(`     المفاهيم: ${u.keyConcepts.join("، ")}`);
+        lines.push("");
+      });
+    }
   } else if (r.scope === "level" && r.level) {
     lines.push(`🎓 مستوى ${r.level.levelIndex}: ${r.level.name}`);
     lines.push(`   الهدف: ${r.level.goal}`);
@@ -569,7 +653,18 @@ function ResultView({ result }: { result: ContentResult }) {
             <h3 className="text-base font-bold text-white mb-2">{stage.name}</h3>
             <p className="text-sm text-white/70 leading-relaxed">{stage.goal}</p>
           </div>
-          {units && units.length > 0 && (
+
+          {/* Full detail — one collapsible card per unit with lessons + labs */}
+          {unitsDetail && unitsDetail.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-[11px] text-white/35 flex items-center gap-1.5">
+                <Layers className="w-3 h-3" />
+                {unitsDetail.length} وحدة — المحتوى الكامل
+              </p>
+              {unitsDetail.map((u) => <UnitDetailCard key={u.id} unit={u} />)}
+            </div>
+          ) : units && units.length > 0 ? (
+            /* Fallback for old responses */
             <Section title="الوحدات" icon={<Layers className="w-4 h-4 text-amber-400" />} count={units.length} defaultOpen>
               <div className="space-y-2">
                 {units.map((u) => (
@@ -593,7 +688,7 @@ function ResultView({ result }: { result: ContentResult }) {
                 ))}
               </div>
             </Section>
-          )}
+          ) : null}
         </div>
       )}
 
