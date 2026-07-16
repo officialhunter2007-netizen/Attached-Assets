@@ -137,6 +137,7 @@ export function AdminPodcasts() {
   const [addUrl, setAddUrl] = useState("");
   const [addSortOrder, setAddSortOrder] = useState<number>(0);
   const [isAdding, setIsAdding] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0); // 0-100 during file upload
 
   // Deleting
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -219,6 +220,10 @@ export function AdminPodcasts() {
   }
 
   // ── Add podcast ────────────────────────────────────────────────────────────
+  // Uses XMLHttpRequest instead of fetch so we can track upload progress for
+  // large audio files. fetch() gives no progress events and the dev proxy
+  // drops connections after ~5 min if no progress indication is given to the
+  // user, making the spinner appear stuck forever.
   async function handleAdd() {
     if (!selectedSpecialty || !selectedUnit) return;
     if (!addTitle.trim()) { toast({ variant: "destructive", title: "أدخل عنوان البودكاست" }); return; }
@@ -226,6 +231,7 @@ export function AdminPodcasts() {
     if (addSourceType === "url" && !addUrl.trim()) { toast({ variant: "destructive", title: "أدخل رابط البودكاست" }); return; }
 
     setIsAdding(true);
+    setUploadProgress(0);
     try {
       const formData = new FormData();
       formData.append("specialtyId", selectedSpecialty.id);
@@ -238,14 +244,34 @@ export function AdminPodcasts() {
         formData.append("audioUrl", addUrl.trim());
       }
 
-      const r = await fetch("/api/admin/v4/podcasts", {
-        method: "POST",
-        credentials: "include",
-        headers: CSRF,
-        body: formData,
+      // XHR lets us track upload progress and set an explicit timeout.
+      const j = await new Promise<any>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.withCredentials = true;
+        xhr.open("POST", "/api/admin/v4/podcasts");
+        xhr.setRequestHeader("X-Nukhba-Csrf", "1");
+        // 15-minute timeout — large audio files can be tens of MB.
+        xhr.timeout = 900_000;
+
+        // Show live upload percentage while the file is sending.
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            setUploadProgress(Math.round((e.loaded / e.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          try {
+            const parsed = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) resolve(parsed);
+            else reject(new Error(parsed?.error ?? `HTTP ${xhr.status}`));
+          } catch {
+            reject(new Error(`HTTP ${xhr.status}`));
+          }
+        };
+        xhr.onerror   = () => reject(new Error("فشل الاتصال بالخادم"));
+        xhr.ontimeout = () => reject(new Error("انتهت مهلة الرفع (15 دقيقة)"));
+        xhr.send(formData);
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
 
       setPodcasts((prev) => [...prev, j].sort((a, b) => a.sortOrder - b.sortOrder));
       setAddTitle("");
@@ -258,6 +284,7 @@ export function AdminPodcasts() {
       toast({ variant: "destructive", title: "فشل الإضافة", description: e?.message });
     } finally {
       setIsAdding(false);
+      setUploadProgress(0);
     }
   }
 
@@ -575,6 +602,25 @@ export function AdminPodcasts() {
             </select>
           </div>
 
+          {/* Upload progress bar — visible only while sending a file */}
+          {isAdding && addSourceType === "file" && addFile && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-white/50">
+                <span>جاري رفع الملف...</span>
+                <span className="font-mono tabular-nums">{uploadProgress}%</span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-violet-400 transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              {uploadProgress === 100 && (
+                <p className="text-[11px] text-violet-300/70">جاري المعالجة...</p>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-2 pt-1">
             <Button
               onClick={handleAdd}
@@ -582,12 +628,17 @@ export function AdminPodcasts() {
               className="flex-1 bg-violet-500/80 hover:bg-violet-500 text-white border-none font-bold"
             >
               {isAdding ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : <Plus className="w-4 h-4 ml-1" />}
-              {isAdding ? "جاري الإضافة..." : "إضافة"}
+              {isAdding
+                ? addSourceType === "file" && uploadProgress > 0 && uploadProgress < 100
+                  ? `${uploadProgress}% — جاري الرفع`
+                  : "جاري الإضافة..."
+                : "إضافة"}
             </Button>
             <Button
               variant="outline"
               onClick={() => setShowAddForm(false)}
-              className="border-white/10"
+              disabled={isAdding}
+              className="border-white/10 disabled:opacity-40"
             >
               إلغاء
             </Button>

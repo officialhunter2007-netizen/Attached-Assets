@@ -49,6 +49,11 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
         xfwd: true,
+        // Large file uploads (podcasts, booklets) can take several minutes.
+        // Without a long timeout the proxy drops the connection before the
+        // upload completes, leaving the frontend spinner stuck forever.
+        timeout: 900000,       // 15 min socket idle timeout
+        proxyTimeout: 900000,  // 15 min outgoing request timeout
       },
       "/ws": {
         target: "http://localhost:8080",
