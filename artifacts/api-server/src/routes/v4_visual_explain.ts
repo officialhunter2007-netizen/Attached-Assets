@@ -21,7 +21,7 @@ function getUserId(req: any): number | null {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const OPENROUTER_API_BASE = "https://openrouter.ai/api/v1";
-const OPENROUTER_MODEL    = "deepseek/deepseek-r1";
+const OPENROUTER_MODEL    = "deepseek/deepseek-chat-v3-0324";
 const OPENROUTER_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
 const MAX_MESSAGE_CHARS   = 5_000;
 
