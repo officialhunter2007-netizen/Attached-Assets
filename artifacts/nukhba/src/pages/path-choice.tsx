@@ -107,8 +107,13 @@ export default function PathChoice() {
           <motion.button
             whileHover={{ y: -2 }}
             onClick={() => navigate(`/path/${encodeURIComponent(slug)}/custom`)}
-            className="text-right glass rounded-2xl border border-gold/30 hover:border-gold/60 p-5 transition-colors group"
+            className="relative text-right glass rounded-2xl border border-gold/30 hover:border-gold/60 p-5 transition-colors group"
           >
+            {/* Recommended badge */}
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-500 to-yellow-400 text-black shadow-lg shadow-amber-500/30 whitespace-nowrap">
+              <Sparkles className="w-3 h-3" />
+              موصى به
+            </span>
             <div className="flex items-center gap-3 mb-3">
               <div className="w-12 h-12 rounded-xl bg-gold/15 border border-gold/40 flex items-center justify-center">
                 <Sparkles className="w-6 h-6 text-gold" />
