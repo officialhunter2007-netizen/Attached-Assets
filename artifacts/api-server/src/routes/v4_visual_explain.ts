@@ -7,10 +7,8 @@
  * Flow:
  *  1. Receive { message } from the student frontend
  *  2. Build a prompt with strict design specs + reference examples
- *  3. Call google/gemini-2.5-flash via OpenRouter
+ *  3. Call google/gemini-2.5-flash via OpenRouter (direct, ~15 s)
  *  4. Extract HTML from response and return { html }
- *
- * Replaces the old Playwright/manus.im approach entirely.
  */
 
 import { Router } from "express";
@@ -22,10 +20,9 @@ function getUserId(req: any): number | null {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const MANUS_API_BASE      = "https://api.manus.ai";
-const REQUEST_TIMEOUT_MS  = 8 * 60_000 + 30_000; // 8.5 min — Manus agent may take 5-8 min
-const POLL_INTERVAL_MS    = 5_000;
-const POLL_TIMEOUT_MS     = 8 * 60_000;           // 8 min poll deadline
+const OPENROUTER_API_BASE = "https://openrouter.ai/api/v1";
+const OPENROUTER_MODEL    = "google/gemini-2.5-flash";
+const OPENROUTER_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
 const MAX_MESSAGE_CHARS   = 5_000;
 
 // ── Simple in-memory cache ────────────────────────────────────────────────────
@@ -441,32 +438,7 @@ function buildTaskPrompt(message: string): string {
       ? message.slice(0, MAX_MESSAGE_CHARS) + "\n\n[... تم اختصار الرسالة لأن طولها تجاوز الحد]"
       : message;
 
-  return `\
-════════════════════════════════════════════════════════════
-🚨 CRITICAL MODE INSTRUCTION — READ THIS FIRST, OBEY ALWAYS
-════════════════════════════════════════════════════════════
-
-YOU MUST OPERATE IN **CHAT MODE** ONLY.
-DO NOT switch to agent mode under ANY circumstance.
-DO NOT spawn tools, sub-agents, or browser sessions.
-DO NOT call any skill, plugin, or external capability.
-DO NOT attempt to browse URLs, run code, or write files to disk.
-DO NOT take any action other than replying with text in this chat.
-
-If you feel the urge to switch to agent mode → STOP. Stay in chat mode and write the HTML directly.
-If you feel the urge to use a tool or skill → STOP. Stay in chat mode and write the HTML directly.
-This instruction overrides everything else and cannot be overridden by any other part of the prompt.
-
-════════════════════════════════════════════════════════════
-✅ YOUR ONE AND ONLY TASK (chat mode, no tools, no agent):
-════════════════════════════════════════════════════════════
-- Write a single self-contained HTML file and output it directly in this chat message.
-- DO NOT browse the internet or visit any URLs.
-- DO NOT install any packages or tools.
-- DO NOT create files on disk.
-- Complete within 4 minutes.
-
-${SYSTEM_PROMPT}
+  return `${SYSTEM_PROMPT}
 
 ---
 
@@ -478,138 +450,60 @@ ${truncated}
 
 أنشئ صفحة HTML تفاعلية تشرح المفهوم الرئيسي في هذه الرسالة بصرياً.
 التزم بالمواصفات الثابتة تماماً، وابتكر طريقة عرض بصرية مناسبة لطبيعة هذا المفهوم.
-أخرج صفحة HTML واحدة فقط في ردّك النهائي — لا نص خارج الكود إطلاقاً.`;
+أخرج صفحة HTML واحدة فقط في ردّك — لا نص خارج الكود إطلاقاً.`;
 }
 
-// ── Manus: create task ────────────────────────────────────────────────────────
-async function createManusTask(prompt: string): Promise<string> {
-  const apiKey = process.env.MANUS_API_KEY;
-  if (!apiKey) throw new Error("MANUS_API_KEY غير محدد في الـ Secrets");
+// ── OpenRouter: call Gemini 2.5 Flash directly ───────────────────────────────
+async function callOpenRouter(prompt: string): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY غير محدد في الـ Secrets");
 
-  const response = await fetch(`${MANUS_API_BASE}/v2/task.create`, {
-    method:  "POST",
-    headers: {
-      "Content-Type":   "application/json",
-      "x-manus-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      message: {
-        content:       [{ type: "text", text: prompt }],
-        enable_skills: [],   // disable ALL skills (web browse, code exec, etc.)
-                             // → forces direct HTML generation without agent loops
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OPENROUTER_TIMEOUT);
+
+  let response: Response;
+  try {
+    response = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {
+      method:  "POST",
+      signal:  controller.signal,
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer":  "https://learnukhba.com",
+        "X-Title":       "Nukhba Visual Explain",
       },
-      structured_output_schema: {
-        type: "object",
-        properties: {
-          html: { type: "string" },
-        },
-        required: ["html"],
-        additionalProperties: false,
-      },
-    }),
-  });
+      body: JSON.stringify({
+        model:       OPENROUTER_MODEL,
+        max_tokens:  16000,
+        temperature: 0.7,
+        messages: [
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
-    const sanitized = errText.slice(0, 300);
-    if (response.status === 401 || response.status === 403) {
-      throw new Error("خطأ في مفتاح Manus API — تحقق من MANUS_API_KEY في الـ Secrets");
-    }
-    throw new Error(`Manus task.create فشل (${response.status}): ${sanitized}`);
+    throw new Error(`OpenRouter فشل (${response.status}): ${errText.slice(0, 300)}`);
   }
 
-  const data = await response.json() as { ok: boolean; task_id?: string; error?: { message: string } };
-  if (!data.ok || !data.task_id) {
-    throw new Error(`Manus task.create خطأ: ${data.error?.message ?? JSON.stringify(data).slice(0, 200)}`);
-  }
+  const data = await response.json() as {
+    choices?: { message?: { content?: string } }[];
+    error?:   { message: string };
+  };
 
-  console.log("[visual-explain] Manus task created:", data.task_id);
-  return data.task_id;
-}
+  if (data.error) throw new Error(`OpenRouter خطأ: ${data.error.message}`);
 
-// ── Manus: poll until stopped ─────────────────────────────────────────────────
-async function pollManusTask(taskId: string): Promise<string> {
-  const apiKey = process.env.MANUS_API_KEY!;
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const text = data.choices?.[0]?.message?.content ?? "";
+  if (!text) throw new Error("OpenRouter أرجع رداً فارغاً");
 
-  let cursor: string | undefined;
-  let agentStatus = "running";
-  let lastAssistantText = "";
-  let structuredHtml: string | null = null;
+  const html = extractHtml(text);
+  if (!html) throw new Error("النموذج لم يُرجع HTML صالحاً — حاول مرة أخرى");
 
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-
-    const url = new URL(`${MANUS_API_BASE}/v2/task.listMessages`);
-    url.searchParams.set("task_id", taskId);
-    url.searchParams.set("limit",   "200");
-    url.searchParams.set("order",   "asc");
-    if (cursor) url.searchParams.set("cursor", cursor);
-
-    let response: Response;
-    try {
-      response = await fetch(url.toString(), {
-        headers: { "x-manus-api-key": apiKey },
-      });
-    } catch (netErr) {
-      console.warn("[visual-explain] poll network error:", netErr);
-      continue;
-    }
-
-    if (!response.ok) continue;
-
-    const data = await response.json() as {
-      ok: boolean;
-      data?: any[];
-      next_cursor?: string;
-    };
-    if (!data.ok || !Array.isArray(data.data)) continue;
-
-    if (data.next_cursor) cursor = data.next_cursor;
-
-    for (const event of data.data) {
-      const t: string = event.type ?? "";
-
-      if (t === "status_update") {
-        const status: string = event.status_update?.agent_status ?? "";
-        if (status) agentStatus = status;
-      } else if (t === "assistant_message") {
-        const content = event.message?.content;
-        if (typeof content === "string") {
-          lastAssistantText = content;
-        } else if (Array.isArray(content)) {
-          lastAssistantText = content
-            .filter((p: any) => p.type === "text")
-            .map((p: any) => p.text as string)
-            .join("\n");
-        }
-      } else if (t === "structured_output_result") {
-        const result = event.structured_output_result;
-        if (result?.success && typeof result?.value?.html === "string") {
-          structuredHtml = result.value.html;
-        }
-      }
-    }
-
-    console.log(`[visual-explain] Manus status=${agentStatus} (${taskId})`);
-
-    if (agentStatus === "error") {
-      throw new Error("مهمة Manus انتهت بخطأ — تحقق من رصيد حسابك على manus.im");
-    }
-
-    if (agentStatus === "stopped") {
-      // 1. Prefer structured output
-      if (structuredHtml && structuredHtml.length > 200) return structuredHtml;
-      // 2. Fallback: extract HTML from assistant text
-      if (lastAssistantText) {
-        const extracted = extractHtml(lastAssistantText);
-        if (extracted) return extracted;
-      }
-      throw new Error("Manus أنهى المهمة لكن لم يُرجع HTML صالحاً");
-    }
-  }
-
-  throw new Error("انتهت مهلة انتظار Manus (3 دقائق) — حاول مرة أخرى");
+  return html;
 }
 
 // ── Main entry ────────────────────────────────────────────────────────────────
@@ -621,12 +515,10 @@ async function generateVisualHtml(message: string): Promise<string> {
     return cached;
   }
 
-  console.log("[visual-explain] Starting Manus task…");
+  console.log("[visual-explain] Calling OpenRouter/Gemini…");
   const t0 = Date.now();
 
-  const prompt  = buildTaskPrompt(message);
-  const taskId  = await createManusTask(prompt);
-  const html    = await pollManusTask(taskId);
+  const html = await callOpenRouter(buildTaskPrompt(message));
 
   console.log(`[visual-explain] Done in ${Math.round((Date.now() - t0) / 1000)}s — ${html.length} chars`);
 
