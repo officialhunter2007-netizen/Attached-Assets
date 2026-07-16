@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مسار البيانات: اختصار اللوب</title>
+    <script src="https://cdn.tailwindcss.com">
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+
+        .code-editor {
+            direction: ltr !important;
+            text-align: left !important;
+            font-family: 'Fira Code', monospace;
+            background-color: #1e1e1e;
+            font-size: 1.25rem;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            border: 1px solid #334155;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+            white-space: nowrap;
+            overflow-x: auto;
+        }
+
+        .code-chunk {
+            transition: all 0.3s ease;
+            border-radius: 6px;
+            padding: 4px 8px;
+            display: inline-block;
+            white-space: nowrap;
+        }
+        .code-chunk.active {
+            background-color: rgba(56, 189, 248, 0.2);
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+            border-bottom: 2px solid #38bdf8;
+        }
+
+        .pipeline-node {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 2px solid #334155;
+            background-color: #1e293b;
+        }
+        .pipeline-node.active {
+            border-color: #38bdf8;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+            transform: scale(1.05);
+            background-color: #0f172a;
+        }
+        .pipeline-node.success {
+            border-color: #22c55e;
+            background-color: rgba(34, 197, 94, 0.1);
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+        }
+        .pipeline-node.fail {
+            border-color: #ef4444;
+            background-color: rgba(239, 68, 68, 0.1);
+            opacity: 0.7;
+        }
+
+        .arrow {
+            transition: all 0.3s;
+            color: #475569;
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+        .arrow.active {
+            color: #38bdf8;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+        }
+
+        .math-text {
+            direction: ltr !important;
+            display: inline-block;
+            font-family: 'Fira Code', monospace;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+    <header class="text-center mb-8 w-full max-w-5xl">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-blue-400 mb-2">كيف يتدفق الكود؟ (List Comprehension)</h1>
+        <p class="text-slate-400">شرح مفصل مع الحفاظ على الشكل الطبيعي للكود في سطر واحد</p>
+    </header>
+
+    <main class="w-full max-w-5xl bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
+
+        <div class="p-6 md:p-8">
+            <!-- الكود في سطر واحد بالضبط -->
+            <div class="code-editor mb-8">
+                <span id="chunk-var" class="code-chunk text-[#9cdcfe]">even_squares</span><span class="text-[#d4d4d4]"> = </span><span id="chunk-list" class="code-chunk text-[#ffd700]">[</span><span id="chunk-math" class="code-chunk text-[#d4d4d4]"><span class="text-[#9cdcfe]">x</span> ** <span class="text-[#b5cea8]">2</span></span><span id="chunk-loop" class="code-chunk text-[#c586c0]"> for <span class="text-[#9cdcfe]">x</span> in <span class="text-[#dcdcaa]">range</span><span class="text-[#ffd700]">(</span><span class="text-[#b5cea8]">3</span><span class="text-[#ffd700]">)</span></span><span id="chunk-cond" class="code-chunk text-[#c586c0]"> if <span class="text-[#9cdcfe]">x</span> <span class="text-[#d4d4d4]">%</span> <span class="text-[#b5cea8]">2</span> <span class="text-[#d4d4d4]">==</span> <span class="text-[#b5cea8]">0</span></span><span id="chunk-list-end" class="code-chunk text-[#ffd700]">]</span>
+            </div>
+
+            <!-- صندوق الشرح -->
+            <div class="bg-blue-900/30 border-r-4 border-blue-500 rounded-xl p-6 mb-10 min-h-[120px] flex items-center shadow-inner">
+                <p id="explanation" class="text-xl text-blue-50 leading-relaxed">
+                    مرحباً! الكود يظهر بشكله الطبيعي في سطر واحد. اضغط على <b>"الخطوة التالية"</b> لنرى كيف تتدفق البيانات داخله.
+                </p>
+            </div>
+
+            <!-- مسار التدفق -->
+            <div id="pipeline-area" class="flex flex-col md:flex-row items-center justify-between gap-4 mb-10 opacity-30 pointer-events-none transition-opacity duration-500">
+
+                <div id="node-source" class="pipeline-node rounded-xl p-4 w-full md:w-1/4 text-center relative">
+                    <div class="text-sm text-slate-400 mb-2"><i class="fas fa-database text-blue-400"></i> مصدر الأرقام</div>
+                    <div class="math-text text-2xl font-bold text-blue-300" id="val-source">[0, 1, 2]</div>
+                    <div class="mt-2 text-xs text-slate-500">range(3)</div>
+                </div>
+
+                <i id="arrow-1" class="fas fa-arrow-left arrow hidden md:block"></i>
+                <i class="fas fa-arrow-down arrow md:hidden"></i>
+
+                <div id="node-cond" class="pipeline-node rounded-xl p-4 w-full md:w-1/4 text-center relative">
+                    <div class="text-sm text-slate-400 mb-2"><i class="fas fa-filter text-pink-400"></i> الفلتر (الشرط)</div>
+                    <div class="math-text text-xl font-bold text-pink-300" id="val-cond">x % 2 == 0</div>
+                    <div id="cond-status" class="mt-2 text-sm font-bold h-5"></div>
+                </div>
+
+                <i id="arrow-2" class="fas fa-arrow-left arrow hidden md:block"></i>
+                <i class="fas fa-arrow-down arrow md:hidden"></i>
+
+                <div id="node-math" class="pipeline-node rounded-xl p-4 w-full md:w-1/4 text-center relative">
+                    <div class="text-sm text-slate-400 mb-2"><i class="fas fa-bolt text-purple-400"></i> المعالج</div>
+                    <div class="math-text text-2xl font-bold text-purple-300" id="val-math">x ** 2</div>
+                    <div id="math-result" class="mt-2 text-sm font-bold h-5 text-purple-200"></div>
+                </div>
+
+                <i id="arrow-3" class="fas fa-arrow-left arrow hidden md:block"></i>
+                <i class="fas fa-arrow-down arrow md:hidden"></i>
+
+                <div id="node-result" class="pipeline-node rounded-xl p-4 w-full md:w-1/4 text-center relative">
+                    <div class="text-sm text-slate-400 mb-2"><i class="fas fa-box-open text-green-400"></i> القائمة النهائية</div>
+                    <div class="math-text text-2xl font-bold text-green-400" id="val-result">[]</div>
+                    <div class="mt-2 text-xs text-slate-500">even_squares</div>
+                </div>
+
+            </div>
+
+            <!-- أزرار التحكم -->
+            <div class="flex justify-between items-center border-t border-slate-700 pt-6">
+                <div id="step-counter" class="text-slate-400 font-bold bg-slate-900 px-4 py-2 rounded-lg border border-slate-700">مرحلة الشرح العام</div>
+                <div class="flex gap-3">
+                    <button id="btn-reset" onclick="resetAll()" class="bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 px-6 rounded-xl text-lg transition-all shadow-lg">
+                        🔄 إعادة
+                    </button>
+                    <button id="btn-next" onclick="nextStep()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-xl text-lg transition-all shadow-[0_0_15px_rgba(37,99,235,0.4)] flex items-center gap-2">
+                        الخطوة التالية <i class="fas fa-step-forward"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let audioCtx = null;
+
+        function playSound(type) {
+            try {
+                if (!audioCtx) audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                const now = audioCtx.currentTime;
+
+                if (type === 'click') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(800, now);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                    osc.start(now);
+                    osc.stop(now + 0.1);
+                } else if (type === 'success') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(400, now);
+                    osc.frequency.setValueAtTime(600, now + 0.1);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+                    osc.start(now);
+                    osc.stop(now + 0.2);
+                } else if (type === 'fail') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(200, now);
+                    osc.frequency.linearRampToValueAtTime(150, now + 0.2);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+                    osc.start(now);
+                    osc.stop(now + 0.2);
+                }
+            } catch (e) {}
+        }
+
+        let currentStep = 0;
+        let finalArray = [];
+
+        function resetVisuals() {
+            document.querySelectorAll('.code-chunk').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.pipeline-node').forEach(n => n.classList.remove('active', 'success', 'fail'));
+            document.querySelectorAll('.arrow').forEach(a => a.classList.remove('active'));
+            document.getElementById('cond-status').innerText = "";
+            document.getElementById('math-result').innerText = "";
+        }
+
+        function resetAll() {
+            currentStep = 0;
+            finalArray = [];
+            resetVisuals();
+            document.getElementById('val-source').innerHTML = "[0, 1, 2]";
+            document.getElementById('val-cond').innerHTML = "x % 2 == 0";
+            document.getElementById('val-math').innerHTML = "x ** 2";
+            document.getElementById('val-result').innerHTML = "[]";
+            document.getElementById('val-result').classList.remove('text-4xl');
+            document.getElementById('explanation').innerHTML =
+                "مرحباً! الكود يظهر بشكله الطبيعي في سطر واحد. اضغط على <b>'الخطوة التالية'</b> لنرى كيف تتدفق البيانات داخله.";
+            document.getElementById('pipeline-area').classList.add('opacity-30', 'pointer-events-none');
+            document.getElementById('btn-next').style.display = '';
+            const counter = document.getElementById('step-counter');
+            counter.innerHTML = 'مرحلة الشرح العام';
+            counter.className = "text-slate-400 font-bold bg-slate-900 px-4 py-2 rounded-lg border border-slate-700";
+            playSound('click');
+        }
+
+        const steps = [{
+            chunks: ['chunk-var', 'chunk-list', 'chunk-list-end'],
+            text: "<b>1. الهدف النهائي:</b> نحن نقوم بإنشاء قائمة جديدة <bdi dir='ltr' class='text-yellow-400'>[ ]</bdi> وسنحفظها في المتغير <bdi dir='ltr' class='text-blue-300'>even_squares</bdi>."
+        }, {
+            chunks: ['chunk-loop'],
+            text: "<b>2. مصدر البيانات (اللوب):</b> المقطع <bdi dir='ltr' class='text-purple-300'>for x in range(3)</bdi> هو المحرك. سيقوم بتوليد الأرقام <bdi dir='ltr' class='text-blue-300'>0, 1, 2</bdi> ويسحبها واحداً تلو الآخر."
+        }, {
+            chunks: ['chunk-cond'],
+            text: "<b>3. الفلتر (الشرط):</b> المقطع <bdi dir='ltr' class='text-purple-300'>if x % 2 == 0</bdi> هو حارس البوابة. لن يسمح بمرور الرقم إلا إذا كان زوجياً."
+        }, {
+            chunks: ['chunk-math'],
+            text: "<b>4. المعالج (العملية):</b> المقطع <bdi dir='ltr' class='text-blue-300'>x ** 2</bdi> هو المصنع. الأرقام التي تنجح في المرور من الفلتر، سيتم ضربها في نفسها (تربيعها)."
+        }, {
+            chunks: [],
+            text: "<b>رائع!</b> فهمنا المقاطع. الآن سنشغل مسار التدفق (Pipeline) لنرى كيف تتحرك الأرقام فعلياً.",
+            action: () => {
+                document.getElementById('pipeline-area').classList.remove('opacity-30',
+                'pointer-events-none');
+                const counter = document.getElementById('step-counter');
+                counter.innerText = "مرحلة تدفق البيانات";
+                counter.className =
+                    "text-green-900 font-bold bg-green-400 px-4 py-2 rounded-lg border border-green-500";
+            }
+        }, {
+            chunks: ['chunk-loop'],
+            text: "<b>سحب الرقم الأول:</b> اللوب يسحب الرقم <bdi dir='ltr' class='font-bold text-white'>0</bdi> من المصدر لتبدأ رحلته.",
+            action: () => {
+                document.getElementById('node-source').classList.add('active');
+                document.getElementById('val-source').innerHTML =
+                    "<bdi dir='ltr'>[<span class='text-white bg-blue-600 px-1 rounded'>0</span>, 1, 2]</bdi>";
+                document.getElementById('val-cond').innerHTML = "<bdi dir='ltr'>x % 2 == 0</bdi>";
+                document.getElementById('val-math').innerHTML = "<bdi dir='ltr'>x ** 2</bdi>";
+            }
+        }, {
+            chunks: ['chunk-cond'],
+            text: "<b>مرحلة الفلترة:</b> هل الرقم 0 زوجي؟ <bdi dir='ltr'>0 % 2 == 0</bdi>. نعم، الشرط صحيح!",
+            action: () => {
+                document.getElementById('arrow-1').classList.add('active');
+                document.getElementById('node-cond').classList.add('success');
+                document.getElementById('val-cond').innerHTML = "<bdi dir='ltr'>0 % 2 == 0</bdi>";
+                document.getElementById('cond-status').innerHTML =
+                "<span class='text-green-400'>مقبول ✔️</span>";
+                playSound('success');
+            }
+        }, {
+            chunks: ['chunk-math'],
+            text: "<b>مرحلة المعالجة:</b> بما أنه مقبول، يمر للمعالج ليتم تربيعه: <bdi dir='ltr'>0 ** 2 = 0</bdi>.",
+            action: () => {
+                document.getElementById('arrow-2').classList.add('active');
+                document.getElementById('node-math').classList.add('active');
+                document.getElementById('val-math').innerHTML = "<bdi dir='ltr'>0 ** 2</bdi>";
+                document.getElementById('math-result').innerHTML = "النتيجة: 0";
+            }
+        }, {
+            chunks: ['chunk-list'],
+            text: "<b>مرحلة الحفظ:</b> تتم إضافة النتيجة (0) إلى القائمة النهائية.",
+            action: () => {
+                document.getElementById('arrow-3').classList.add('active');
+                document.getElementById('node-result').classList.add('success');
+                finalArray.push(0);
+                document.getElementById('val-result').innerHTML = "<bdi dir='ltr'>[" + finalArray.join(
+                    ", ") + "]</bdi>";
+                playSound('success');
+            }
+        }, {
+            chunks: ['chunk-loop'],
+            text: "<b>سحب الرقم الثاني:</b> اللوب يسحب الرقم <bdi dir='ltr' class='font-bold text-white'>1</bdi> من المصدر.",
+            action: () => {
+                document.getElementById('node-source').classList.add('active');
+                document.getElementById('val-source').innerHTML =
+                    "<bdi dir='ltr'>[0, <span class='text-white bg-blue-600 px-1 rounded'>1</span>, 2]</bdi>";
+                document.getElementById('val-cond').innerHTML = "<bdi dir='ltr'>x % 2 == 0</bdi>";
+                document.getElementById('val-math').innerHTML = "<bdi dir='ltr'>x ** 2</bdi>";
+                document.getElementById('cond-status').innerHTML = "";
+                document.getElementById('math-result').innerHTML = "";
+                document.getElementById('node-cond').classList.remove('success', 'fail');
+                document.getElementById('node-math').classList.remove('active', 'fail');
+                document.getElementById('node-result').classList.remove('success');
+                document.getElementById('arrow-1').classList.remove('active');
+                document.getElementById('arrow-2').classList.remove('active');
+                document.getElementById('arrow-3').classList.remove('active');
+            }
+        }, {
+            chunks: ['chunk-cond'],
+            text: "<b>مرحلة الفلترة:</b> هل الرقم 1 زوجي؟ <bdi dir='ltr'>1 % 2 == 0</bdi>. لا، الشرط خاطئ!",
+            action: () => {
+                document.getElementById('arrow-1').classList.add('active');
+                document.getElementById('node-cond').classList.add('fail');
+                document.getElementById('val-cond').innerHTML = "<bdi dir='ltr'>1 % 2 == 0</bdi>";
+                document.getElementById('cond-status').innerHTML =
+                "<span class='text-red-400'>مرفوض ❌</span>";
+                playSound('fail');
+            }
+        }, {
+            chunks: [],
+            text: "<b>توقف المسار:</b> لأن الرقم مرفوض، يتوقف المسار هنا. لن يمر للمعالج ولن يضاف للقائمة.",
+            action: () => {
+                document.getElementById('node-math').classList.add('fail');
+                document.getElementById('math-result').innerHTML =
+                "<span class='text-red-400'>تم التجاهل</span>";
+            }
+        }, {
+            chunks: ['chunk-loop'],
+            text: "<b>سحب الرقم الأخير:</b> اللوب يسحب الرقم <bdi dir='ltr' class='font-bold text-white'>2</bdi> من المصدر.",
+            action: () => {
+                document.getElementById('node-source').classList.add('active');
+                document.getElementById('val-source').innerHTML =
+                    "<bdi dir='ltr'>[0, 1, <span class='text-white bg-blue-600 px-1 rounded'>2</span>]</bdi>";
+                document.getElementById('val-cond').innerHTML = "<bdi dir='ltr'>x % 2 == 0</bdi>";
+                document.getElementById('val-math').innerHTML = "<bdi dir='ltr'>x ** 2</bdi>";
+                document.getElementById('cond-status').innerHTML = "";
+                document.getElementById('math-result').innerHTML = "";
+                document.getElementById('node-cond').classList.remove('success', 'fail');
+                document.getElementById('node-math').classList.remove('active', 'fail');
+                document.getElementById('node-result').classList.remove('success');
+                document.getElementById('arrow-1').classList.remove('active');
+                document.getElementById('arrow-2').classList.remove('active');
+                document.getElementById('arrow-3').classList.remove('active');
+            }
+        }, {
+            chunks: ['chunk-cond'],
+            text: "<b>مرحلة الفلترة:</b> هل الرقم 2 زوجي؟ <bdi dir='ltr'>2 % 2 == 0</bdi>. نعم، الشرط صحيح!",
+            action: () => {
+                document.getElementById('arrow-1').classList.add('active');
+                document.getElementById('node-cond').classList.add('success');
+                document.getElementById('val-cond').innerHTML = "<bdi dir='ltr'>2 % 2 == 0</bdi>";
+                document.getElementById('cond-status').innerHTML =
+                "<span class='text-green-400'>مقبول ✔️</span>";
+                playSound('success');
+            }
+        }, {
+            chunks: ['chunk-math'],
+            text: "<b>مرحلة المعالجة:</b> يمر الرقم للمعالج ليتم تربيعه: <bdi dir='ltr'>2 ** 2 = 4</bdi>.",
+            action: () => {
+                document.getElementById('arrow-2').classList.add('active');
+                document.getElementById('node-math').classList.add('active');
+                document.getElementById('val-math').innerHTML = "<bdi dir='ltr'>2 ** 2</bdi>";
+                document.getElementById('math-result').innerHTML = "النتيجة: 4";
+            }
+        }, {
+            chunks: ['chunk-list'],
+            text: "<b>مرحلة الحفظ:</b> تتم إضافة النتيجة (4) إلى القائمة النهائية.",
+            action: () => {
+                document.getElementById('arrow-3').classList.add('active');
+                document.getElementById('node-result').classList.add('success');
+                finalArray.push(4);
+                document.getElementById('val-result').innerHTML = "<bdi dir='ltr'>[" + finalArray.join(
+                    ", ") + "]</bdi>";
+                playSound('success');
+            }
+        }, {
+            chunks: ['chunk-var'],
+            text: "<b>اكتملت المهمة!</b> انتهت الأرقام. القائمة النهائية المحفوظة هي <bdi dir='ltr' class='font-bold text-green-300'>[0, 4]</bdi>.",
+            action: () => {
+                document.getElementById('btn-next').style.display = 'none';
+                document.getElementById('node-result').classList.add('active', 'success');
+                document.getElementById('val-result').classList.add('text-4xl');
+                document.getElementById('step-counter').innerHTML = '✅ اكتمل الدرس';
+                document.getElementById('step-counter').className =
+                    "text-white font-bold bg-green-500 px-4 py-2 rounded-lg border border-green-600";
+                playSound('success');
+                setTimeout(() => playSound('success'), 200);
+            }
+        }];
+
+        function nextStep() {
+            if (document.getElementById('btn-next').style.display === 'none') return;
+            playSound('click');
+            if (currentStep < steps.length) {
+                resetVisuals();
+                const stepData = steps[currentStep];
+
+                if (stepData.chunks) {
+                    stepData.chunks.forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.classList.add('active');
+                    });
+                }
+
+                document.getElementById('explanation').innerHTML = stepData.text;
+
+                if (stepData.action) {
+                    stepData.action();
+                }
+
+                currentStep++;
+            }
+        }
+    </script>
+</body>
+</html>

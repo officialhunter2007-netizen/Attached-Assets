@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مختبر الوسائط: كيف يفهم الكمبيوتر الصور والصوت؟</title>
+    <script src="https://cdn.tailwindcss.com">
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+
+        .math-text {
+            direction: ltr !important;
+            display: inline-block;
+            font-family: 'Fira Code', monospace;
+        }
+
+        .lab-box {
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 2px solid #334155;
+            background-color: #1e293b;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            position: relative;
+        }
+        .lab-box.active {
+            border-color: #38bdf8;
+            box-shadow: 0 0 25px rgba(56, 189, 248, 0.2);
+            transform: translateY(-5px);
+            background-color: #0f172a;
+        }
+
+        .pixel-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 2px;
+            width: 100px;
+            height: 100px;
+            margin: 0 auto;
+        }
+        .pixel {
+            background-color: #334155;
+            transition: all 0.3s;
+        }
+        .pixel.highlight {
+            background-color: #ef4444;
+            box-shadow: 0 0 15px #ef4444;
+            transform: scale(1.2);
+            z-index: 10;
+        }
+
+        .rgb-channel {
+            transition: all 0.5s;
+            opacity: 0.3;
+            filter: grayscale(100%);
+        }
+        .rgb-channel.active {
+            opacity: 1;
+            filter: grayscale(0%);
+            transform: scale(1.1);
+        }
+
+        .wave-path {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            transition: stroke-dashoffset 2s ease-in-out;
+        }
+        .wave-path.drawn {
+            stroke-dashoffset: 0;
+        }
+        .sample-line {
+            transform: scaleY(0);
+            transform-origin: bottom;
+            transition: transform 0.5s ease;
+        }
+        .sample-line.drawn {
+            transform: scaleY(1);
+        }
+
+        @keyframes vibrate {
+            0% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1) translateX(2px);
+            }
+            100% {
+                transform: scale(1);
+            }
+        }
+        .speaker-playing {
+            animation: vibrate 0.1s infinite;
+            color: #38bdf8;
+            text-shadow: 0 0 20px #38bdf8;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+    <header class="text-center mb-8 w-full max-w-5xl">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400 mb-2">
+            السر كله في "التقسيم والأرقام"
+        </h1>
+        <p class="text-slate-400 text-lg">كيف يحول الكمبيوتر الصور والأصوات إلى أصفار وآحاد؟</p>
+    </header>
+
+    <main class="w-full max-w-5xl bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
+
+        <div class="bg-blue-900/30 border-b-4 border-blue-500 p-6 min-h-[130px] flex items-center justify-center text-center shadow-inner">
+            <p id="explanation" class="text-xl md:text-2xl text-blue-50 leading-relaxed">
+                مرحباً بك في مختبر الوسائط الرقمية! اضغط على <b>"الخطوة التالية"</b> لنبدأ باكتشاف كيف تتكون <b>الصور</b> داخل الشاشة.
+            </p>
+        </div>
+
+        <div class="p-6 md:p-8 relative min-h-[400px]">
+
+            <div id="section-image" class="flex flex-col md:flex-row items-center justify-between gap-6 transition-opacity duration-500">
+
+                <div id="box-screen" class="lab-box w-full md:w-1/3 text-center">
+                    <h3 class="text-slate-400 mb-4 font-bold"><i class="fas fa-tv text-blue-400"></i> الشاشة
+                    (البيكسلات)</h3>
+                    <div class="pixel-grid" id="pixel-grid"></div>
+                    <div id="pixel-desc" class="mt-4 text-sm text-slate-500 opacity-0 transition-opacity">نقطة واحدة
+                    (Pixel)</div>
+                </div>
+
+                <i class="fas fa-arrow-left text-2xl text-slate-600 hidden md:block"></i>
+                <i class="fas fa-arrow-down text-2xl text-slate-600 md:hidden"></i>
+
+                <div id="box-rgb" class="lab-box w-full md:w-1/3 text-center opacity-30">
+                    <h3 class="text-slate-400 mb-4 font-bold"><i class="fas fa-palette text-pink-400"></i> الألوان
+                    (RGB)</h3>
+                    <div class="flex justify-center gap-3 mb-4">
+                        <div id="rgb-r"
+                        class="rgb-channel w-12 h-12 rounded-full bg-red-500 flex items-center justify-center font-bold shadow-[0_0_15px_rgba(239,68,68,0.5)]">
+                        R</div>
+                        <div id="rgb-g"
+                        class="rgb-channel w-12 h-12 rounded-full bg-green-500 flex items-center justify-center font-bold shadow-[0_0_15px_rgba(34,197,94,0.5)]">
+                        G</div>
+                        <div id="rgb-b"
+                        class="rgb-channel w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center font-bold shadow-[0_0_15px_rgba(59,130,246,0.5)]">
+                        B</div>
+                    </div>
+                    <div id="rgb-values" class="math-text text-xl font-bold text-white opacity-0 transition-opacity">
+                        <bdi dir="ltr">R:255, G:0, B:0</bdi>
+                    </div>
+                </div>
+
+                <i class="fas fa-arrow-left text-2xl text-slate-600 hidden md:block"></i>
+                <i class="fas fa-arrow-down text-2xl text-slate-600 md:hidden"></i>
+
+                <div id="box-binary-img" class="lab-box w-full md:w-1/3 text-center opacity-30">
+                    <h3 class="text-slate-400 mb-4 font-bold"><i class="fas fa-microchip text-emerald-400"></i> لغة الآلة
+                    (Binary)</h3>
+                    <div id="binary-values"
+                    class="math-text text-lg font-bold text-emerald-400 opacity-0 transition-opacity flex flex-col gap-1">
+                    <bdi dir="ltr" class="text-red-400">11111111</bdi>
+                    <bdi dir="ltr" class="text-green-400">00000000</bdi>
+                    <bdi dir="ltr" class="text-blue-400">00000000</bdi>
+                </div>
+                <div id="gpu-desc" class="mt-3 text-xs text-slate-400 opacity-0 transition-opacity">كرت الشاشة يقرأ هذه
+                الأرقام ويضيء النقطة!</div>
+            </div>
+        </div>
+
+        <div id="section-sound"
+        class="hidden flex-col md:flex-row items-center justify-between gap-6 transition-opacity duration-500 opacity-0 absolute top-8 left-8 right-8">
+
+        <div id="box-wave" class="lab-box w-full md:w-1/3 text-center">
+            <h3 class="text-slate-400 mb-4 font-bold"><i class="fas fa-water text-blue-400"></i> الصوت الطبيعي
+            (موجة)</h3>
+            <svg width="100%" height="100" viewBox="0 0 200 100"
+            class="bg-slate-900 rounded-lg border border-slate-700">
+            <line x1="0" y1="50" x2="200" y2="50" stroke="#334155" stroke-width="1" />
+            <path id="sound-wave" class="wave-path"
+            d="M 0 50 Q 25 10, 50 50 T 100 50 T 150 50 T 200 50" fill="transparent"
+            stroke="#38bdf8" stroke-width="3" />
+        </svg>
+    </div>
+
+    <i class="fas fa-arrow-left text-2xl text-slate-600 hidden md:block"></i>
+    <i class="fas fa-arrow-down text-2xl text-slate-600 md:hidden"></i>
+
+    <div id="box-sample" class="lab-box w-full md:w-1/3 text-center opacity-30">
+        <h3 class="text-slate-400 mb-4 font-bold"><i class="fas fa-ruler-vertical text-pink-400"></i> أخذ اللقطات
+        (Sampling)</h3>
+        <svg width="100%" height="100" viewBox="0 0 200 100"
+        class="bg-slate-900 rounded-lg border border-slate-700 relative">
+        <line x1="0" y1="50" x2="200" y2="50" stroke="#334155" stroke-width="1" />
+        <path d="M 0 50 Q 25 10, 50 50 T 100 50 T 150 50 T 200 50" fill="transparent"
+        stroke="#38bdf8" stroke-width="1" opacity="0.3" />
+        <g id="samples-group">
+            <line class="sample-line" x1="25" y1="50" x2="25" y2="10" stroke="#ef4444"
+            stroke-width="4" />
+            <line class="sample-line" x1="75" y1="50" x2="75" y2="90" stroke="#ef4444"
+            stroke-width="4" />
+            <line class="sample-line" x1="125" y1="50" x2="125" y2="10" stroke="#ef4444"
+            stroke-width="4" />
+            <line class="sample-line" x1="175" y1="50" x2="175" y2="90" stroke="#ef4444"
+            stroke-width="4" />
+        </g>
+    </svg>
+    <div id="sample-value" class="math-text text-lg font-bold text-pink-400 mt-2 opacity-0 transition-opacity">
+        <bdi dir="ltr">Height = 128</bdi>
+    </div>
+</div>
+
+<i class="fas fa-arrow-left text-2xl text-slate-600 hidden md:block"></i>
+<i class="fas fa-arrow-down text-2xl text-slate-600 md:hidden"></i>
+
+<div id="box-speaker" class="lab-box w-full md:w-1/3 text-center opacity-30 relative overflow-hidden">
+    <h3 class="text-slate-400 mb-4 font-bold"><i class="fas fa-volume-up text-emerald-400"></i> التشغيل (DAC)</h3>
+
+    <div id="binary-sound" class="math-text text-xl font-bold text-emerald-400 mb-4 opacity-0 transition-opacity">
+        <bdi dir="ltr">10000000</bdi>
+    </div>
+
+    <div class="flex justify-center items-center h-16">
+        <i id="speaker-icon" class="fas fa-volume-up text-5xl text-slate-600 transition-colors duration-300"></i>
+    </div>
+
+    <div id="dac-desc" class="mt-2 text-xs text-slate-400 opacity-0 transition-opacity">تحويل الأرقام لكهرباء تهز
+    السماعة!</div>
+</div>
+</div>
+
+</div>
+
+<div class="flex justify-between items-center border-t border-slate-700 p-6 bg-slate-900">
+    <div id="step-counter" class="text-slate-400 font-bold px-4 py-2 rounded-lg border border-slate-700">مرحلة الصورة
+    (Pixels)</div>
+    <div class="flex gap-3">
+        <button id="btn-reset" onclick="resetAll()"
+        class="bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 px-6 rounded-xl text-lg transition-all shadow-lg">
+        🔄 إعادة
+    </button>
+    <button id="btn-next" onclick="nextStep()"
+    class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-xl text-lg transition-all shadow-[0_0_15px_rgba(37,99,235,0.4)] flex items-center gap-2">
+    الخطوة التالية <i class="fas fa-step-forward"></i>
+</button>
+</div>
+</div>
+</main>
+
+<script>
+    const grid = document.getElementById('pixel-grid');
+    for (let i = 0; i < 25; i++) {
+        const p = document.createElement('div');
+        p.className = 'pixel';
+        p.id = 'pixel-' + i;
+        grid.appendChild(p);
+    }
+
+    let audioCtx = null;
+
+    function playSound(type) {
+        try {
+            if (!audioCtx) audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+
+            if (type === 'click') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, now);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.1);
+            } else if (type === 'success') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.setValueAtTime(600, now + 0.1);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            } else if (type === 'real-sound') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.5);
+                gain.gain.setValueAtTime(0, now);
+                gain.gain.linearRampToValueAtTime(0.3, now + 0.1);
+                gain.gain.linearRampToValueAtTime(0, now + 0.8);
+                osc.start(now);
+                osc.stop(now + 0.8);
+            }
+        } catch (e) {}
+    }
+
+    let currentStep = 0;
+
+    function resetAll() {
+        currentStep = 0;
+        document.getElementById('explanation').innerHTML =
+            "مرحباً بك في مختبر الوسائط الرقمية! اضغط على <b>'الخطوة التالية'</b> لنبدأ باكتشاف كيف تتكون <b>الصور</b> داخل الشاشة.";
+        document.getElementById('btn-next').style.display = '';
+
+        document.querySelectorAll('.lab-box').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.pixel').forEach(p => p.classList.remove('highlight'));
+        document.getElementById('pixel-desc').style.opacity = '0';
+        document.getElementById('box-rgb').classList.add('opacity-30');
+        document.querySelectorAll('.rgb-channel').forEach(el => el.classList.remove('active'));
+        document.getElementById('rgb-values').style.opacity = '0';
+        document.getElementById('box-binary-img').classList.add('opacity-30');
+        document.getElementById('binary-values').style.opacity = '0';
+        document.getElementById('gpu-desc').style.opacity = '0';
+
+        document.getElementById('section-image').style.opacity = '1';
+        document.getElementById('section-image').style.display = '';
+        const soundSec = document.getElementById('section-sound');
+        soundSec.style.display = 'none';
+        soundSec.style.opacity = '0';
+        document.getElementById('sound-wave').classList.remove('drawn');
+        document.querySelectorAll('.sample-line').forEach(l => l.classList.remove('drawn'));
+        document.getElementById('sample-value').style.opacity = '0';
+        document.getElementById('box-sample').classList.add('opacity-30');
+        document.getElementById('binary-sound').style.opacity = '0';
+        document.getElementById('dac-desc').style.opacity = '0';
+        document.getElementById('box-speaker').classList.add('opacity-30');
+        document.getElementById('speaker-icon').classList.remove('speaker-playing');
+
+        document.getElementById('step-counter').innerText = "مرحلة الصورة (Pixels)";
+        document.getElementById('step-counter').className =
+            "text-slate-400 font-bold px-4 py-2 rounded-lg border border-slate-700";
+        playSound('click');
+    }
+
+    const steps = [{
+        text: "<b>1. الشاشة والبيكسل:</b> الشاشة مقسمة لملايين النقاط الصغيرة جداً. كل نقطة تسمى <b>(بيكسل - Pixel)</b>.",
+        action: () => {
+            document.getElementById('box-screen').classList.add('active');
+            document.getElementById('pixel-12').classList.add('highlight');
+            document.getElementById('pixel-desc').style.opacity = '1';
+        }
+    }, {
+        text: "<b>2. الألوان (RGB):</b> كل بيكسل ليس لوناً واحداً، بل هو مزيج من 3 ألوان أساسية: <b>الأحمر، الأخضر، الأزرق (RGB)</b>.",
+        action: () => {
+            document.getElementById('box-screen').classList.remove('active');
+            document.getElementById('box-rgb').classList.remove('opacity-30');
+            document.getElementById('box-rgb').classList.add('active');
+            document.querySelectorAll('.rgb-channel').forEach(el => el.classList.add('active'));
+        }
+    }, {
+        text: "<b>3. الأرقام (0 إلى 255):</b> الكمبيوتر لا يفهم كلمة 'أحمر'. بل يعطيه رقماً من 0 إلى 255. مثلاً: أحمر ناصع يعني <bdi dir='ltr' class='text-red-400 font-mono'>R: 255</bdi>.",
+        action: () => {
+            document.getElementById('rgb-values').style.opacity = '1';
+            playSound('success');
+        }
+    }, {
+        text: "<b>4. لغة الآلة (Binary):</b> أخيراً، يتم تحويل الرقم 255 إلى أصفار وآحاد <bdi dir='ltr' class='text-emerald-400 font-mono'>11111111</bdi>. يقرأ كرت الشاشة هذا الكود ويضيء النقطة باللون المطلوب لتتكون الصورة!",
+        action: () => {
+            document.getElementById('box-rgb').classList.remove('active');
+            document.getElementById('box-binary-img').classList.remove('opacity-30');
+            document.getElementById('box-binary-img').classList.add('active');
+            document.getElementById('binary-values').style.opacity = '1';
+            document.getElementById('gpu-desc').style.opacity = '1';
+            playSound('success');
+        }
+    }, {
+        text: "<b>رائع!</b> فهمنا كيف تتكون الصورة من أرقام. الآن، ماذا عن <b>الصوت</b>؟ اضغط التالي لننتقل لمختبر الصوتيات.",
+        action: () => {
+            document.getElementById('box-binary-img').classList.remove('active');
+            document.getElementById('step-counter').innerText = "مرحلة الصوت (Waves)";
+            document.getElementById('step-counter').className =
+                "text-pink-900 font-bold bg-pink-400 px-4 py-2 rounded-lg border border-pink-500";
+        }
+    }, {
+        text: "<b>1. الصوت الطبيعي (موجات):</b> الصوت في الطبيعة ليس نقاطاً، بل هو <b>موجات مستمرة</b> تهتز في الهواء.",
+        action: () => {
+            document.getElementById('section-image').style.opacity = '0';
+            setTimeout(() => {
+                document.getElementById('section-image').style.display = 'none';
+                const soundSec = document.getElementById('section-sound');
+                soundSec.style.display = 'flex';
+                void soundSec.offsetWidth;
+                soundSec.style.opacity = '1';
+                document.getElementById('box-wave').classList.add('active');
+                document.getElementById('sound-wave').classList.add('drawn');
+            }, 500);
+        }
+    }, {
+        text: "<b>2. أخذ اللقطات (Sampling):</b> لأن الكمبيوتر لا يفهم الموجة المستمرة، يقوم بأخذ آلاف <b>'اللقطات'</b> لارتفاع الموجة في الثانية الواحدة.",
+        action: () => {
+            document.getElementById('box-wave').classList.remove('active');
+            document.getElementById('box-sample').classList.remove('opacity-30');
+            document.getElementById('box-sample').classList.add('active');
+            const lines = document.querySelectorAll('.sample-line');
+            lines.forEach((line, index) => {
+                setTimeout(() => {
+                    line.classList.add('drawn');
+                    playSound('click');
+                }, index * 200);
+            });
+        }
+    }, {
+        text: "<b>3. تحويل اللقطة لرقم:</b> كل لقطة (خط أحمر) يتم قياس طولها وتسجيلها كرقم. مثلاً: ارتفاع الموجة هنا هو <bdi dir='ltr' class='text-pink-400 font-mono'>128</bdi>.",
+        action: () => {
+            document.getElementById('sample-value').style.opacity = '1';
+            playSound('success');
+        }
+    }, {
+        text: "<b>4. التشغيل (DAC):</b> يتحول الرقم 128 إلى <bdi dir='ltr' class='text-emerald-400 font-mono'>10000000</bdi>. تقوم قطعة (DAC) بتحويل هذه الأصفار والآحاد إلى إشارات كهربائية تجعل السماعة تهتز وتصدر الصوت!",
+        action: () => {
+            document.getElementById('box-sample').classList.remove('active');
+            document.getElementById('box-speaker').classList.remove('opacity-30');
+            document.getElementById('box-speaker').classList.add('active');
+            document.getElementById('binary-sound').style.opacity = '1';
+            document.getElementById('dac-desc').style.opacity = '1';
+            const speaker = document.getElementById('speaker-icon');
+            speaker.classList.add('speaker-playing');
+            playSound('real-sound');
+            setTimeout(() => {
+                speaker.classList.remove('speaker-playing');
+            }, 800);
+        }
+    }, {
+        text: "<b>الخلاصة:</b> السر كله في <b>التقسيم والأرقام</b>. الصور تُقسم لبيكسلات، والصوت يُقسم للقطات، وكل شيء يتحول لأصفار وآحاد! لقد أتممت الدرس بنجاح.",
+        action: () => {
+            document.getElementById('btn-next').style.display = 'none';
+            document.getElementById('box-speaker').classList.remove('active');
+            document.getElementById('step-counter').innerHTML = '✅ اكتمل الدرس';
+            document.getElementById('step-counter').className =
+                "text-white font-bold bg-green-500 px-4 py-2 rounded-lg border border-green-600";
+            playSound('success');
+            setTimeout(() => playSound('success'), 200);
+        }
+    }];
+
+    function nextStep() {
+        if (document.getElementById('btn-next').style.display === 'none') return;
+        playSound('click');
+        if (currentStep < steps.length) {
+            const stepData = steps[currentStep];
+            document.getElementById('explanation').innerHTML = stepData.text;
+            if (stepData.action) {
+                stepData.action();
+            }
+            currentStep++;
+        }
+    }
+</script>
+</body>
+</html>

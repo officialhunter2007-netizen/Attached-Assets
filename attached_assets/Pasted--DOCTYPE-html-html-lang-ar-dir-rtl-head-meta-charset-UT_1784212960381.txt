@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>دمج القوائم والترقيم - zip & enumerate</title>
+    <script src="https://cdn.tailwindcss.com">
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+
+        .code-editor {
+            direction: ltr !important;
+            text-align: left !important;
+            font-family: 'Fira Code', monospace;
+            background-color: #1e1e1e;
+            font-size: 1.25rem;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            border: 1px solid #334155;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+            line-height: 1.8;
+            white-space: nowrap;
+            overflow-x: auto;
+        }
+
+        .code-chunk {
+            transition: all 0.3s ease;
+            border-radius: 6px;
+            padding: 4px 8px;
+            display: inline-block;
+            white-space: nowrap;
+        }
+        .code-chunk.active {
+            background-color: rgba(56, 189, 248, 0.25);
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+            border-bottom: 2px solid #38bdf8;
+        }
+
+        .math-text {
+            direction: ltr !important;
+            display: inline-block;
+            font-family: 'Fira Code', monospace;
+        }
+
+        .simple-box {
+            transition: all 0.4s ease;
+            border: 2px solid #334155;
+            background-color: #1e293b;
+            border-radius: 0.75rem;
+            padding: 1rem;
+        }
+        .simple-box.active {
+            border-color: #38bdf8;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+            transform: translateY(-3px);
+            background-color: #0f172a;
+        }
+
+        .list-item {
+            transition: all 0.3s;
+            border: 1px solid #475569;
+            background-color: #0f172a;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            text-align: center;
+            font-weight: bold;
+        }
+        .list-item.highlight-blue {
+            background-color: #2563eb;
+            border-color: #60a5fa;
+            color: white;
+            transform: scale(1.05);
+        }
+        .list-item.highlight-pink {
+            background-color: #db2777;
+            border-color: #f472b6;
+            color: white;
+            transform: scale(1.05);
+        }
+
+        .var-box {
+            border: 2px dashed #475569;
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            text-align: center;
+            min-height: 3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .var-box.filled {
+            border-style: solid;
+            border-color: #10b981;
+            background-color: rgba(16, 185, 129, 0.1);
+            color: #34d399;
+        }
+
+        .console-output {
+            font-family: 'Fira Code', monospace;
+            background-color: #000;
+            color: #22c55e;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid #334155;
+            min-height: 6rem;
+            text-align: left;
+            direction: ltr;
+        }
+        button {
+            cursor: pointer;
+            font-family: 'Cairo', sans-serif;
+        }
+        button:active {
+            transform: scale(0.96);
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+    <header class="text-center mb-8 w-full max-w-5xl">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-emerald-400 mb-2">دمج القوائم والترقيم</h1>
+        <p class="text-slate-400">شرح مبسط لعمل <bdi dir="ltr" class="font-mono text-emerald-300">zip</bdi> و <bdi dir="ltr" class="font-mono text-emerald-300">enumerate</bdi></p>
+    </header>
+
+    <main class="w-full max-w-5xl bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
+
+        <div class="p-6 md:p-8">
+            <div class="code-editor mb-8">
+                <span id="chunk-for" class="code-chunk text-[#c586c0]">for</span> <span id="chunk-vars" class="code-chunk text-[#9cdcfe]">index, (name, age)</span> <span id="chunk-in" class="code-chunk text-[#c586c0]">in</span> <span id="chunk-enum" class="code-chunk text-[#dcdcaa]">enumerate</span><span class="text-[#ffd700]">(</span><span id="chunk-zip" class="code-chunk text-[#dcdcaa]">zip</span><span class="text-[#da70d6]">(</span><span id="chunk-names" class="code-chunk text-[#9cdcfe]">names</span><span class="text-[#d4d4d4]">,</span> <span id="chunk-ages" class="code-chunk text-[#9cdcfe]">ages</span><span class="text-[#da70d6]">)</span><span class="text-[#ffd700]">)</span><span class="text-[#d4d4d4]">:</span> <span id="chunk-print" class="code-chunk text-[#dcdcaa]">print</span><span class="text-[#ffd700]">(</span><span class="text-[#ce9178]">f"{</span><span class="text-[#9cdcfe]">index</span><span class="text-[#ce9178]">}- {</span><span class="text-[#9cdcfe]">name</span><span class="text-[#ce9178]">} عمره {</span><span class="text-[#9cdcfe]">age</span><span class="text-[#ce9178]">}"</span><span class="text-[#ffd700]">)</span>
+            </div>
+
+            <div class="bg-emerald-900/30 border-r-4 border-emerald-500 rounded-xl p-6 mb-10 min-h-[120px] flex items-center shadow-inner">
+                <p id="explanation" class="text-xl text-emerald-50 leading-relaxed">
+                    مرحباً! في هذا الدرس سنتعلم كيف نمر على قائمتين في نفس الوقت، ونعطي كل عنصر رقماً تسلسلياً. اضغط على <b>"الخطوة التالية"</b> لنشرح الكود مقطعاً بمقطع.
+                </p>
+            </div>
+
+            <div id="visual-area" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10 opacity-30 pointer-events-none transition-opacity duration-500">
+
+                <div id="box-lists" class="simple-box flex flex-col gap-4">
+                    <div class="text-center text-slate-400 font-bold mb-2"><i class="fas fa-database"></i> القوائم الأصلية</div>
+                    <div>
+                        <div class="text-sm text-blue-300 mb-1 math-text">names</div>
+                        <div class="flex gap-2">
+                            <div id="name-0" class="list-item flex-1">"أحمد"</div>
+                            <div id="name-1" class="list-item flex-1">"سارة"</div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-sm text-pink-300 mb-1 math-text">ages</div>
+                        <div class="flex gap-2">
+                            <div id="age-0" class="list-item flex-1 math-text">25</div>
+                            <div id="age-1" class="list-item flex-1 math-text">22</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="box-process" class="simple-box flex flex-col items-center justify-center gap-4 relative">
+                    <div class="text-center text-slate-400 font-bold mb-2"><i class="fas fa-cogs"></i> المعالجة</div>
+                    <div class="flex items-center gap-2">
+                        <div id="process-zip" class="bg-slate-800 border border-slate-600 rounded-lg p-3 text-center transition-all">
+                            <div class="text-xs text-slate-400 mb-1 math-text">zip()</div>
+                            <div id="val-zip" class="math-text font-bold text-white h-6"><bdi dir="ltr">---</bdi></div>
+                        </div>
+                        <i class="fas fa-plus text-slate-600"></i>
+                        <div id="process-enum" class="bg-slate-800 border border-slate-600 rounded-lg p-3 text-center transition-all">
+                            <div class="text-xs text-slate-400 mb-1 math-text">enumerate()</div>
+                            <div id="val-enum" class="math-text font-bold text-yellow-400 h-6"><bdi dir="ltr">---</bdi></div>
+                        </div>
+                    </div>
+                    <div id="val-combined" class="mt-2 math-text text-lg font-bold text-emerald-400 h-8 transition-all"><bdi dir="ltr">---</bdi></div>
+                </div>
+
+                <div id="box-vars" class="simple-box flex flex-col gap-4">
+                    <div class="text-center text-slate-400 font-bold mb-2"><i class="fas fa-box-open"></i> المتغيرات</div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <div class="text-xs text-slate-400 text-center mb-1 math-text">index</div>
+                            <div id="var-index" class="var-box math-text"></div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-400 text-center mb-1 math-text">name</div>
+                            <div id="var-name" class="var-box math-text"></div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-400 text-center mb-1 math-text">age</div>
+                            <div id="var-age" class="var-box math-text"></div>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <div class="text-xs text-slate-400 mb-1"><i class="fas fa-terminal"></i> شاشة المخرجات</div>
+                        <div id="console-out" class="console-output"></div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="flex justify-between items-center border-t border-slate-700 pt-6">
+                <div id="step-counter" class="text-slate-400 font-bold bg-slate-900 px-4 py-2 rounded-lg border border-slate-700">مرحلة الشرح العام</div>
+                <div class="flex gap-3">
+                    <button id="btn-reset" onclick="resetAll()" class="bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 px-6 rounded-xl text-lg transition-all shadow-lg">
+                        🔄 إعادة
+                    </button>
+                    <button id="btn-next" onclick="nextStep()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-8 rounded-xl text-lg transition-all shadow-[0_0_15px_rgba(16,185,129,0.4)] flex items-center gap-2">
+                        الخطوة التالية <i class="fas fa-step-forward"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        (function() {
+            let audioCtx = null;
+
+            function playSound(type) {
+                try {
+                    if (!audioCtx) audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+                    if (audioCtx.state === 'suspended') audioCtx.resume();
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    const now = audioCtx.currentTime;
+
+                    if (type === 'click') {
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(800, now);
+                        gain.gain.setValueAtTime(0.1, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                        osc.start(now);
+                        osc.stop(now + 0.1);
+                    } else if (type === 'zip') {
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(300, now);
+                        osc.frequency.linearRampToValueAtTime(600, now + 0.15);
+                        gain.gain.setValueAtTime(0.1, now);
+                        gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now);
+                        osc.stop(now + 0.15);
+                    } else if (type === 'enum') {
+                        osc.type = 'square';
+                        osc.frequency.setValueAtTime(800, now);
+                        osc.frequency.setValueAtTime(1200, now + 0.1);
+                        gain.gain.setValueAtTime(0.05, now);
+                        gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+                        osc.start(now);
+                        osc.stop(now + 0.2);
+                    } else if (type === 'print') {
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(400, now);
+                        osc.frequency.setValueAtTime(600, now + 0.1);
+                        gain.gain.setValueAtTime(0.1, now);
+                        gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+                        osc.start(now);
+                        osc.stop(now + 0.2);
+                    }
+                } catch (e) {}
+            }
+
+            let currentStep = 0;
+            let isAnimating = false;
+
+            function resetVisuals() {
+                document.querySelectorAll('.code-chunk').forEach(c => c.classList.remove('active'));
+                document.querySelectorAll('.simple-box').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.list-item').forEach(i => {
+                    i.classList.remove('highlight-blue', 'highlight-pink');
+                });
+                document.getElementById('process-zip').style.borderColor = '#475569';
+                document.getElementById('process-enum').style.borderColor = '#475569';
+            }
+
+            function clearVars() {
+                ['var-index', 'var-name', 'var-age'].forEach(id => {
+                    const el = document.getElementById(id);
+                    el.innerHTML = '';
+                    el.classList.remove('filled');
+                });
+                document.getElementById('val-zip').innerHTML = '<bdi dir="ltr">---</bdi>';
+                document.getElementById('val-enum').innerHTML = '<bdi dir="ltr">---</bdi>';
+                document.getElementById('val-combined').innerHTML = '<bdi dir="ltr">---</bdi>';
+            }
+
+            function resetAll() {
+                if (isAnimating) return;
+                currentStep = 0;
+                resetVisuals();
+                clearVars();
+                document.getElementById('console-out').innerHTML = '';
+                document.getElementById('visual-area').classList.add('opacity-30', 'pointer-events-none');
+                document.getElementById('btn-next').style.display = 'flex';
+                document.getElementById('explanation').innerHTML =
+                    "مرحباً! في هذا الدرس سنتعلم كيف نمر على قائمتين في نفس الوقت، ونعطي كل عنصر رقماً تسلسلياً. اضغط على <b>'الخطوة التالية'</b> لنشرح الكود مقطعاً بمقطع.";
+                document.getElementById('step-counter').innerText = "مرحلة الشرح العام";
+                document.getElementById('step-counter').className =
+                    "text-slate-400 font-bold bg-slate-900 px-4 py-2 rounded-lg border border-slate-700";
+                playSound('click');
+            }
+
+            const steps = [{
+                chunks: ['chunk-zip', 'chunk-names', 'chunk-ages'],
+                text: "<b>1. دمج القوائم (zip):</b> المقطع <bdi dir='ltr' class='text-emerald-300'>zip(names, ages)</bdi> يعمل كالسحّاب. يأخذ عنصراً من القائمة الأولى وعنصراً من القائمة الثانية ويربطهما معاً في حزمة واحدة."
+            }, {
+                chunks: ['chunk-enum'],
+                text: "<b>2. الترقيم (enumerate):</b> المقطع <bdi dir='ltr' class='text-emerald-300'>enumerate(...)</bdi> يعمل كختّامة الأرقام. يمر على الحزم المدمجة ويعطي كل حزمة رقماً تسلسلياً يبدأ من الصفر."
+            }, {
+                chunks: ['chunk-for', 'chunk-vars', 'chunk-in'],
+                text: "<b>3. تفريغ المتغيرات:</b> اللوب <bdi dir='ltr' class='text-purple-300'>for index, (name, age)</bdi> يستقبل الحزمة المرقمة، ويفرغ محتوياتها داخل هذه المتغيرات الثلاثة لنستخدمها."
+            }, {
+                chunks: [],
+                text: "<b>رائع!</b> فهمنا وظيفة كل مقطع. الآن سنبدأ <b>التشغيل الفعلي</b> لنرى كيف تتحرك البيانات خطوة بخطوة.",
+                action: () => {
+                    document.getElementById('visual-area').classList.remove('opacity-30',
+                        'pointer-events-none');
+                    const counter = document.getElementById('step-counter');
+                    counter.innerText = "مرحلة التشغيل الفعلي";
+                    counter.className =
+                        "text-emerald-900 font-bold bg-emerald-400 px-4 py-2 rounded-lg border border-emerald-500";
+                }
+            }, {
+                chunks: ['chunk-zip'],
+                text: "<b>الدورة الأولى (الدمج):</b> دالة <bdi dir='ltr'>zip</bdi> تسحب العنصر الأول من الأسماء والأعمار وتدمجهما.",
+                action: () => {
+                    document.getElementById('box-lists').classList.add('active');
+                    document.getElementById('box-process').classList.add('active');
+                    document.getElementById('name-0').classList.add('highlight-blue');
+                    document.getElementById('age-0').classList.add('highlight-pink');
+                    document.getElementById('process-zip').style.borderColor = '#38bdf8';
+                    document.getElementById('val-zip').innerHTML = '<bdi dir="ltr">("أحمد", 25)</bdi>';
+                    playSound('zip');
+                }
+            }, {
+                chunks: ['chunk-enum'],
+                text: "<b>الدورة الأولى (الترقيم):</b> دالة <bdi dir='ltr'>enumerate</bdi> تضيف الرقم التسلسلي <bdi dir='ltr' class='text-yellow-400'>0</bdi> لهذه الحزمة.",
+                action: () => {
+                    document.getElementById('box-process').classList.add('active');
+                    document.getElementById('process-enum').style.borderColor = '#fbbf24';
+                    document.getElementById('val-enum').innerHTML = '<bdi dir="ltr">0</bdi>';
+                    document.getElementById('val-combined').innerHTML =
+                        '<bdi dir="ltr">(0, ("أحمد", 25))</bdi>';
+                    playSound('enum');
+                }
+            }, {
+                chunks: ['chunk-vars'],
+                text: "<b>الدورة الأولى (التفريغ):</b> يتم توزيع الحزمة على المتغيرات: <bdi dir='ltr'>index=0</bdi>، <bdi dir='ltr'>name="أحمد"</bdi>، <bdi dir='ltr'>age=25</bdi>.",
+                action: () => {
+                    document.getElementById('box-vars').classList.add('active');
+                    const vIdx = document.getElementById('var-index');
+                    vIdx.innerHTML = '<bdi dir="ltr">0</bdi>';
+                    vIdx.classList.add('filled');
+                    const vName = document.getElementById('var-name');
+                    vName.innerHTML = '<bdi dir="ltr">"أحمد"</bdi>';
+                    vName.classList.add('filled');
+                    const vAge = document.getElementById('var-age');
+                    vAge.innerHTML = '<bdi dir="ltr">25</bdi>';
+                    vAge.classList.add('filled');
+                    playSound('click');
+                }
+            }, {
+                chunks: ['chunk-print'],
+                text: "<b>الدورة الأولى (الطباعة):</b> يتم طباعة النص باستخدام المتغيرات المعبأة.",
+                action: () => {
+                    document.getElementById('box-vars').classList.add('active');
+                    const consoleOut = document.getElementById('console-out');
+                    consoleOut.innerHTML += '<div><bdi dir="ltr">> 0- أحمد عمره 25</bdi></div>';
+                    playSound('print');
+                }
+            }, {
+                chunks: ['chunk-zip'],
+                text: "<b>الدورة الثانية (الدمج):</b> دالة <bdi dir='ltr'>zip</bdi> تسحب العنصر الثاني من القائمتين.",
+                action: () => {
+                    clearVars();
+                    document.getElementById('box-lists').classList.add('active');
+                    document.getElementById('box-process').classList.add('active');
+                    document.getElementById('name-0').classList.remove('highlight-blue');
+                    document.getElementById('age-0').classList.remove('highlight-pink');
+                    document.getElementById('name-1').classList.add('highlight-blue');
+                    document.getElementById('age-1').classList.add('highlight-pink');
+                    document.getElementById('process-zip').style.borderColor = '#38bdf8';
+                    document.getElementById('val-zip').innerHTML = '<bdi dir="ltr">("سارة", 22)</bdi>';
+                    playSound('zip');
+                }
+            }, {
+                chunks: ['chunk-enum'],
+                text: "<b>الدورة الثانية (الترقيم):</b> دالة <bdi dir='ltr'>enumerate</bdi> تضيف الرقم التسلسلي <bdi dir='ltr' class='text-yellow-400'>1</bdi> لهذه الحزمة.",
+                action: () => {
+                    document.getElementById('box-process').classList.add('active');
+                    document.getElementById('process-enum').style.borderColor = '#fbbf24';
+                    document.getElementById('val-enum').innerHTML = '<bdi dir="ltr">1</bdi>';
+                    document.getElementById('val-combined').innerHTML =
+                        '<bdi dir="ltr">(1, ("سارة", 22))</bdi>';
+                    playSound('enum');
+                }
+            }, {
+                chunks: ['chunk-vars'],
+                text: "<b>الدورة الثانية (التفريغ):</b> يتم توزيع الحزمة على المتغيرات الجديدة.",
+                action: () => {
+                    document.getElementById('box-vars').classList.add('active');
+                    const vIdx = document.getElementById('var-index');
+                    vIdx.innerHTML = '<bdi dir="ltr">1</bdi>';
+                    vIdx.classList.add('filled');
+                    const vName = document.getElementById('var-name');
+                    vName.innerHTML = '<bdi dir="ltr">"سارة"</bdi>';
+                    vName.classList.add('filled');
+                    const vAge = document.getElementById('var-age');
+                    vAge.innerHTML = '<bdi dir="ltr">22</bdi>';
+                    vAge.classList.add('filled');
+                    playSound('click');
+                }
+            }, {
+                chunks: ['chunk-print'],
+                text: "<b>الدورة الثانية (الطباعة):</b> يتم طباعة النص الثاني.",
+                action: () => {
+                    document.getElementById('box-vars').classList.add('active');
+                    const consoleOut = document.getElementById('console-out');
+                    consoleOut.innerHTML += '<div><bdi dir="ltr">> 1- سارة عمره 22</bdi></div>';
+                    playSound('print');
+                }
+            }, {
+                chunks: [],
+                text: "<b>اكتملت المهمة!</b> انتهت العناصر في القوائم. هكذا نستخدم <bdi dir='ltr' class='text-emerald-300'>zip</bdi> و <bdi dir='ltr' class='text-emerald-300'>enumerate</bdi> معاً لدمج وترقيم أي عدد من القوائم بسهولة واحترافية.",
+                action: () => {
+                    document.getElementById('btn-next').style.display = 'none';
+                    const counter = document.getElementById('step-counter');
+                    counter.innerHTML = '✅ اكتمل الدرس';
+                    counter.className =
+                        "text-white font-bold bg-green-500 px-4 py-2 rounded-lg border border-green-600";
+                    playSound('click');
+                    setTimeout(() => playSound('click'), 200);
+                }
+            }];
+
+            window.nextStep = function() {
+                if (isAnimating) return;
+                const btnNext = document.getElementById('btn-next');
+                if (!btnNext || btnNext.style.display === 'none') return;
+                isAnimating = true;
+                playSound('click');
+                if (currentStep < steps.length) {
+                    resetVisuals();
+                    const stepData = steps[currentStep];
+                    if (stepData.chunks) {
+                        stepData.chunks.forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el) el.classList.add('active');
+                        });
+                    }
+                    document.getElementById('explanation').innerHTML = stepData.text;
+                    if (stepData.action) {
+                        stepData.action();
+                    }
+                    currentStep++;
+                }
+                setTimeout(() => { isAnimating = false; }, 300);
+            };
+
+            window.resetAll = resetAll;
+
+            document.getElementById('btn-next').addEventListener('click', window.nextStep);
+            document.getElementById('btn-reset').addEventListener('click', window.resetAll);
+        })();
+    </script>
+</body>
+</html>

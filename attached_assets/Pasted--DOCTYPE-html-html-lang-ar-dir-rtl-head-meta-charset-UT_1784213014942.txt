@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>البوابات المنطقية - عقل الكمبيوتر</title>
+    <script src="https://cdn.tailwindcss.com">
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Fira+Code:wght@500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+
+        .math-text {
+            direction: ltr !important;
+            display: inline-block;
+            font-family: 'Fira Code', monospace;
+        }
+
+        .simple-box {
+            background-color: #1e293b;
+            border: 2px solid #334155;
+            border-radius: 0.75rem;
+            transition: all 0.3s ease;
+        }
+
+        .input-node {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            font-family: 'Fira Code', monospace;
+            border-radius: 0.5rem;
+            transition: all 0.3s;
+        }
+        .input-0 {
+            background-color: #334155;
+            color: #94a3b8;
+            border: 2px solid #475569;
+        }
+        .input-1 {
+            background-color: #0ea5e9;
+            color: #ffffff;
+            border: 2px solid #38bdf8;
+            box-shadow: 0 0 15px rgba(14, 165, 233, 0.4);
+        }
+
+        .gate-box {
+            padding: 1rem 2rem;
+            font-size: 1.5rem;
+            font-weight: bold;
+            border-radius: 0.5rem;
+            color: white;
+            transition: all 0.3s;
+        }
+        .gate-and {
+            background-color: #3b82f6;
+            border: 2px solid #60a5fa;
+        }
+        .gate-or {
+            background-color: #10b981;
+            border: 2px solid #34d399;
+        }
+        .gate-not {
+            background-color: #f43f5e;
+            border: 2px solid #fb7185;
+        }
+
+        .bulb {
+            font-size: 4rem;
+            transition: all 0.3s;
+        }
+        .bulb-off {
+            color: #334155;
+            text-shadow: none;
+        }
+        .bulb-on {
+            color: #fbbf24;
+            text-shadow: 0 0 30px rgba(251, 191, 36, 0.8);
+            transform: scale(1.1);
+        }
+
+        .arrow-line {
+            height: 4px;
+            background-color: #475569;
+            flex-grow: 1;
+            position: relative;
+            transition: all 0.3s;
+        }
+        .arrow-line.active {
+            background-color: #fbbf24;
+            box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+        }
+        .arrow-line::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: -4px;
+            border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent;
+            border-right: 10px solid #475569;
+            transition: all 0.3s;
+        }
+        .arrow-line.active::after {
+            border-right-color: #fbbf24;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+    <header class="text-center mb-8 w-full max-w-4xl">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-blue-400 mb-2">البوابات المنطقية (Logic Gates)</h1>
+        <p class="text-slate-400 text-lg">عقل الكمبيوتر المبسط - خطوة بخطوة</p>
+    </header>
+
+    <main class="w-full max-w-4xl bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
+
+        <div class="bg-blue-900/30 border-b-4 border-blue-500 p-6 min-h-[140px] flex items-center shadow-inner">
+            <p id="explanation" class="text-xl text-blue-50 leading-relaxed w-full">
+                مرحباً بك! الكمبيوتر يفكر باستخدام دوائر بسيطة جداً تسمى <b>البوابات المنطقية</b>. هذه البوابات تستقبل إشارات (0 أو 1) وتُخرج نتيجة بناءً على شرط معين. اضغط على <b>"الخطوة التالية"</b> لنبدأ بأول وأشهر بوابة.
+            </p>
+        </div>
+
+        <div class="p-8 md:p-12 flex flex-col items-center justify-center min-h-[300px] opacity-30 transition-opacity duration-500" id="visual-area">
+
+            <h2 id="gate-title" class="text-2xl font-bold text-slate-300 mb-8 math-text">---</h2>
+
+            <div class="flex items-center justify-center w-full max-w-2xl gap-4">
+
+                <div class="flex flex-col gap-6" id="inputs-container">
+                    <div class="flex items-center gap-2">
+                        <span class="text-slate-400 text-sm">المدخل 1</span>
+                        <div id="input-a" class="input-node input-0"><bdi dir="ltr">0</bdi></div>
+                    </div>
+                    <div class="flex items-center gap-2" id="input-b-container">
+                        <span class="text-slate-400 text-sm">المدخل 2</span>
+                        <div id="input-b" class="input-node input-0"><bdi dir="ltr">0</bdi></div>
+                    </div>
+                </div>
+
+                <div id="wire-in" class="arrow-line w-16 md:w-24"></div>
+
+                <div id="gate-box" class="gate-box gate-and math-text">
+                    AND
+                </div>
+
+                <div id="wire-out" class="arrow-line w-16 md:w-24"></div>
+
+                <div class="flex flex-col items-center gap-2">
+                    <span class="text-slate-400 text-sm">النتيجة</span>
+                    <i id="output-bulb" class="fas fa-lightbulb bulb bulb-off"></i>
+                    <div id="output-val" class="math-text text-xl font-bold text-slate-500 mt-2"><bdi dir="ltr">0</bdi></div>
+                </div>
+
+            </div>
+
+            <div id="math-equation" class="mt-10 text-2xl font-bold text-slate-400 math-text opacity-0 transition-opacity">
+                <bdi dir="ltr">0 AND 0 = 0</bdi>
+            </div>
+
+        </div>
+
+        <div class="flex justify-between items-center border-t border-slate-700 p-6 bg-slate-900">
+            <div id="step-counter" class="text-slate-400 font-bold px-4 py-2 rounded-lg border border-slate-700">مقدمة</div>
+            <div class="flex gap-3">
+                <button id="btn-reset" onclick="resetAll()" class="bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 px-6 rounded-xl text-lg transition-all shadow-lg">
+                    🔄 إعادة
+                </button>
+                <button id="btn-next" onclick="nextStep()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-xl text-lg transition-all shadow-lg flex items-center gap-2">
+                    الخطوة التالية <i class="fas fa-step-forward"></i>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let audioCtx = null;
+
+        function playSound(type) {
+            try {
+                if (!audioCtx) audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                const now = audioCtx.currentTime;
+
+                if (type === 'click') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(600, now);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                    osc.start(now);
+                    osc.stop(now + 0.1);
+                } else if (type === 'on') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(400, now);
+                    osc.frequency.setValueAtTime(800, now + 0.1);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
+                    osc.start(now);
+                    osc.stop(now + 0.3);
+                } else if (type === 'off') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(300, now);
+                    osc.frequency.linearRampToValueAtTime(150, now + 0.2);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+                    osc.start(now);
+                    osc.stop(now + 0.2);
+                }
+            } catch (e) {}
+        }
+
+        function setInput(id, val) {
+            const el = document.getElementById(id);
+            el.innerHTML = `<bdi dir="ltr">${val}</bdi>`;
+            if (val === 1) {
+                el.className = 'input-node input-1';
+            } else {
+                el.className = 'input-node input-0';
+            }
+        }
+
+        function setOutput(val) {
+            const bulb = document.getElementById('output-bulb');
+            const outVal = document.getElementById('output-val');
+            const wireOut = document.getElementById('wire-out');
+
+            outVal.innerHTML = `<bdi dir="ltr">${val}</bdi>`;
+
+            if (val === 1) {
+                bulb.className = 'fas fa-lightbulb bulb bulb-on';
+                outVal.className = 'math-text text-xl font-bold text-yellow-400 mt-2';
+                wireOut.classList.add('active');
+                playSound('on');
+            } else {
+                bulb.className = 'fas fa-lightbulb bulb bulb-off';
+                outVal.className = 'math-text text-xl font-bold text-slate-500 mt-2';
+                wireOut.classList.remove('active');
+                playSound('off');
+            }
+        }
+
+        function setGate(name, colorClass) {
+            const gate = document.getElementById('gate-box');
+            gate.innerHTML = name;
+            gate.className = `gate-box ${colorClass} math-text`;
+            document.getElementById('gate-title').innerHTML = `بوابة ${name}`;
+        }
+
+        function setEquation(eq) {
+            const eqEl = document.getElementById('math-equation');
+            eqEl.innerHTML = `<bdi dir="ltr">${eq}</bdi>`;
+            eqEl.style.opacity = '1';
+        }
+
+        let currentStep = 0;
+
+        function resetAll() {
+            currentStep = 0;
+            document.getElementById('explanation').innerHTML =
+                "مرحباً بك! الكمبيوتر يفكر باستخدام دوائر بسيطة جداً تسمى <b>البوابات المنطقية</b>. هذه البوابات تستقبل إشارات (0 أو 1) وتُخرج نتيجة بناءً على شرط معين. اضغط على <b>'الخطوة التالية'</b> لنبدأ بأول وأشهر بوابة.";
+            document.getElementById('visual-area').classList.add('opacity-30');
+            document.getElementById('btn-next').style.display = '';
+            document.getElementById('step-counter').innerText = "مقدمة";
+            document.getElementById('step-counter').className =
+                "text-slate-400 font-bold px-4 py-2 rounded-lg border border-slate-700";
+            document.getElementById('input-b-container').style.display = '';
+            document.getElementById('wire-in').classList.remove('active');
+            document.getElementById('wire-out').classList.remove('active');
+            document.getElementById('math-equation').style.opacity = '0';
+            setInput('input-a', 0);
+            setInput('input-b', 0);
+            setGate('AND', 'gate-and');
+            const bulb = document.getElementById('output-bulb');
+            bulb.className = 'fas fa-lightbulb bulb bulb-off';
+            const outVal = document.getElementById('output-val');
+            outVal.innerHTML = '<bdi dir="ltr">0</bdi>';
+            outVal.className = 'math-text text-xl font-bold text-slate-500 mt-2';
+            playSound('click');
+        }
+
+        const steps = [{
+            text: "<b>1. بوابة AND (و):</b> هذه البوابة صارمة جداً. لا تُخرج (1) إلا إذا كانت <b>كل</b> المدخلات (1). تخيل أنك تحتاج (المفتاح) <b>و</b> (الرقم السري) معاً ليفتح الباب.",
+            action: () => {
+                document.getElementById('visual-area').classList.remove('opacity-30');
+                document.getElementById('step-counter').innerText = "بوابة AND";
+                setGate('AND', 'gate-and');
+                setInput('input-a', 0);
+                setInput('input-b', 0);
+                setOutput(0);
+                setEquation("0 AND 0 = 0");
+            }
+        }, {
+            text: "<b>تجربة بوابة AND:</b> ماذا لو أدخلنا (1) في المدخل الأول فقط؟ (معك المفتاح ولكن ليس معك الرقم السري). النتيجة: المصباح يبقى مطفأ (0).",
+            action: () => {
+                setInput('input-a', 1);
+                setInput('input-b', 0);
+                document.getElementById('wire-in').classList.add('active');
+                setOutput(0);
+                setEquation("1 AND 0 = 0");
+            }
+        }, {
+            text: "<b>نجاح بوابة AND:</b> الآن أدخلنا (1) في كلا المدخلين. (معك المفتاح <b>و</b> الرقم السري). النتيجة: الشرط تحقق! المصباح يضيء (1).",
+            action: () => {
+                setInput('input-a', 1);
+                setInput('input-b', 1);
+                setOutput(1);
+                setEquation("1 AND 1 = 1");
+            }
+        }, {
+            text: "<b>2. بوابة OR (أو):</b> هذه البوابة متساهلة. تُخرج (1) إذا كان <b>أي</b> مدخل يساوي (1). تخيل أن الباب يفتح إذا كان معك (المفتاح) <b>أو</b> (الرقم السري).",
+            action: () => {
+                document.getElementById('step-counter').innerText = "بوابة OR";
+                setGate('OR', 'gate-or');
+                setInput('input-a', 0);
+                setInput('input-b', 0);
+                document.getElementById('wire-in').classList.remove('active');
+                setOutput(0);
+                setEquation("0 OR 0 = 0");
+            }
+        }, {
+            text: "<b>تجربة بوابة OR:</b> أدخلنا (1) في المدخل الأول فقط. (معك المفتاح فقط). النتيجة: هذا يكفي! المصباح يضيء (1).",
+            action: () => {
+                setInput('input-a', 1);
+                setInput('input-b', 0);
+                document.getElementById('wire-in').classList.add('active');
+                setOutput(1);
+                setEquation("1 OR 0 = 1");
+            }
+        }, {
+            text: "<b>3. بوابة NOT (النفي):</b> هذه البوابة غريبة، فهي تمتلك <b>مدخلاً واحداً فقط</b>، ووظيفتها هي (العكس). إذا دخل (0) يخرج (1)، وإذا دخل (1) يخرج (0).",
+            action: () => {
+                document.getElementById('step-counter').innerText = "بوابة NOT";
+                setGate('NOT', 'gate-not');
+                document.getElementById('input-b-container').style.display = 'none';
+                setInput('input-a', 0);
+                document.getElementById('wire-in').classList.remove('active');
+                setOutput(1);
+                setEquation("NOT 0 = 1");
+            }
+        }, {
+            text: "<b>تجربة بوابة NOT:</b> الآن سندخل (1). النتيجة: البوابة تعكسه فوراً، فينطفئ المصباح (0).",
+            action: () => {
+                setInput('input-a', 1);
+                document.getElementById('wire-in').classList.add('active');
+                setOutput(0);
+                setEquation("NOT 1 = 0");
+            }
+        }, {
+            text: "<b>الخلاصة:</b> باستخدام ملايين من هذه البوابات البسيطة (AND, OR, NOT) وربطها معاً، يستطيع الكمبيوتر جمع الأرقام، تشغيل الألعاب، وعرض هذا الموقع! لقد أتممت الدرس بنجاح.",
+            action: () => {
+                document.getElementById('btn-next').style.display = 'none';
+                document.getElementById('step-counter').innerText = "النهاية";
+                document.getElementById('step-counter').className =
+                    "text-green-900 font-bold bg-green-400 px-4 py-2 rounded-lg border border-green-500";
+                playSound('on');
+                setTimeout(() => playSound('on'), 200);
+            }
+        }];
+
+        function nextStep() {
+            if (document.getElementById('btn-next').style.display === 'none') return;
+            playSound('click');
+            if (currentStep < steps.length) {
+                const stepData = steps[currentStep];
+                document.getElementById('explanation').innerHTML = stepData.text;
+                if (stepData.action) {
+                    stepData.action();
+                }
+                currentStep++;
+            }
+        }
+    </script>
+</body>
+</html>
