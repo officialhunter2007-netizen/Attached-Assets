@@ -422,8 +422,8 @@ export default function BookletSession() {
   // ── Visual Explain ───────────────────────────────────────────────────────
   const handleVisualExplain = useCallback(async (messageContent: string) => {
     setVisualOverlay({ html: null, loading: true, error: null });
-    const POLL_MS  = 4_000;
-    const DEADLINE = Date.now() + 5 * 60_000;
+    const POLL_MS  = 5_000;
+    const DEADLINE = Date.now() + 10 * 60_000;
     try {
       const startRes = await fetch("/api/v4/visual-explain/start", {
         method: "POST",

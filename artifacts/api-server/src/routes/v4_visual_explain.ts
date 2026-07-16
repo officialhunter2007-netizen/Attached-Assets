@@ -23,9 +23,9 @@ function getUserId(req: any): number | null {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MANUS_API_BASE      = "https://api.manus.ai";
-const REQUEST_TIMEOUT_MS  = 3 * 60_000 + 30_000; // 3.5 min — Manus tasks take ~1–3 min
-const POLL_INTERVAL_MS    = 4_000;
-const POLL_TIMEOUT_MS     = 3 * 60_000;           // 3 min poll deadline
+const REQUEST_TIMEOUT_MS  = 8 * 60_000 + 30_000; // 8.5 min — Manus agent may take 5-8 min
+const POLL_INTERVAL_MS    = 5_000;
+const POLL_TIMEOUT_MS     = 8 * 60_000;           // 8 min poll deadline
 const MAX_MESSAGE_CHARS   = 5_000;
 
 // ── Simple in-memory cache ────────────────────────────────────────────────────
@@ -441,7 +441,14 @@ function buildTaskPrompt(message: string): string {
       ? message.slice(0, MAX_MESSAGE_CHARS) + "\n\n[... تم اختصار الرسالة لأن طولها تجاوز الحد]"
       : message;
 
-  return `${SYSTEM_PROMPT}
+  return `⚡ IMPORTANT INSTRUCTIONS FOR THE AGENT ⚡
+- DO NOT browse the internet or visit any URLs
+- DO NOT install any packages or tools
+- DO NOT create files on disk — output the HTML directly in your final message
+- Your ONLY task: write a single self-contained HTML file and output it
+- Time limit: complete within 4 minutes
+
+${SYSTEM_PROMPT}
 
 ---
 
@@ -453,7 +460,7 @@ ${truncated}
 
 أنشئ صفحة HTML تفاعلية تشرح المفهوم الرئيسي في هذه الرسالة بصرياً.
 التزم بالمواصفات الثابتة تماماً، وابتكر طريقة عرض بصرية مناسبة لطبيعة هذا المفهوم.
-أخرج صفحة HTML واحدة فقط — لا نص خارج الكود إطلاقاً.`;
+أخرج صفحة HTML واحدة فقط في ردّك النهائي — لا نص خارج الكود إطلاقاً.`;
 }
 
 // ── Manus: create task ────────────────────────────────────────────────────────
@@ -469,7 +476,9 @@ async function createManusTask(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       message: {
-        content: [{ type: "text", text: prompt }],
+        content:       [{ type: "text", text: prompt }],
+        enable_skills: [],   // disable ALL skills (web browse, code exec, etc.)
+                             // → forces direct HTML generation without agent loops
       },
       structured_output_schema: {
         type: "object",

@@ -765,8 +765,8 @@ export default function V4Lesson() {
   // ── Visual Explain ────────────────────────────────────────────────────────
   const handleVisualExplain = useCallback(async (messageContent: string) => {
     setVisualOverlay({ html: null, loading: true, error: null });
-    const POLL_MS  = 4_000;
-    const DEADLINE = Date.now() + 5 * 60_000; // 5 min max
+    const POLL_MS  = 5_000;
+    const DEADLINE = Date.now() + 10 * 60_000; // 10 min max
     try {
       // Step 1: Start the Manus job (returns immediately with a jobId)
       const startRes = await fetch("/api/v4/visual-explain/start", {

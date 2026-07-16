@@ -4231,8 +4231,8 @@ function SubjectPathChat({
   // Shows an overlay modal with a self-contained interactive HTML page.
   const handleVisualExplain = useCallback(async (messageContent: string) => {
     setVisualOverlay({ html: null, loading: true, error: null });
-    const POLL_MS  = 4_000;
-    const DEADLINE = Date.now() + 5 * 60_000; // 5 min max
+    const POLL_MS  = 5_000;
+    const DEADLINE = Date.now() + 10 * 60_000; // 10 min max
     try {
       const startRes = await fetch("/api/v4/visual-explain/start", {
         method: "POST",
