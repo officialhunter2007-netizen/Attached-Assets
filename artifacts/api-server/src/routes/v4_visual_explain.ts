@@ -517,7 +517,20 @@ async function generateVisualHtml(message: string): Promise<string> {
 
     if (!response.ok) {
       const errText = await response.text().catch(() => "");
-      throw new Error(`OpenRouter ${response.status}: ${errText.slice(0, 300)}`);
+      // Sanitize error — strip key URLs/hashes before surfacing to client
+      const sanitized = errText
+        .replace(/https?:\/\/[^\s"]+keys\/[a-f0-9]{20,}[^\s""]*/gi, "[key-url]")
+        .replace(/"code":\s*\d+/g, "")
+        .slice(0, 300);
+      if (response.status === 403) {
+        // Key limit exceeded or auth error
+        const isLimitExceeded = errText.toLowerCase().includes("limit exceeded");
+        if (isLimitExceeded) {
+          throw new Error("تجاوز مفتاح OpenRouter الحد المالي المحدد — يرجى رفع الحد من لوحة openrouter.ai");
+        }
+        throw new Error(`خطأ في مصادقة OpenRouter (403): ${sanitized}`);
+      }
+      throw new Error(`OpenRouter ${response.status}: ${sanitized}`);
     }
 
     const data = await response.json() as {
