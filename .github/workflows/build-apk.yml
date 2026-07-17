@@ -41,7 +41,7 @@ jobs:
         working-directory: apps/nukhba-student
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace --info 2>&1 | tail -50
+          ./gradlew assembleDebug --stacktrace
 
       - name: Print debug keystore fingerprint
         run: |
@@ -95,7 +95,7 @@ jobs:
         working-directory: apps/nukhba-admin
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace --info 2>&1 | tail -50
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload Admin Debug APK
         uses: actions/upload-artifact@v4
