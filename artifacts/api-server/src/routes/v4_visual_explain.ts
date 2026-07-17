@@ -166,6 +166,30 @@ let _twTimer=null;
 function typewrite(html,targetId='explanation',speed=22){clearTimeout(_twTimer);const el=document.getElementById(targetId);if(!el)return;el.innerHTML='<span class="cursor"></span>';const tmp=document.createElement('div');tmp.innerHTML=html;const text=tmp.textContent||'';let i=0;function tick(){if(i<=text.length){el.innerHTML=text.slice(0,i)+'<span class="cursor"></span>';i++;_twTimer=setTimeout(tick,speed);}else{el.innerHTML=html;}}tick();}
 function spotlight(ids){const all=document.querySelectorAll('#scene [data-actor]');all.forEach(el=>{if(ids.length===0||ids.includes(el.id)){el.classList.remove('svg-dim');if(ids.length>0)el.classList.add('svg-focus');else el.classList.remove('svg-focus');}else{el.classList.remove('svg-focus');el.classList.add('svg-dim');}});}
 function updateWatch(vars){const panel=document.getElementById('watch');if(panel)panel.style.display='block';Object.entries(vars).forEach(([k,v])=>{const el=document.getElementById('wv-'+k);if(!el)return;el.classList.remove('changed');void el.offsetWidth;el.textContent=v;el.classList.add('changed');setTimeout(()=>el.classList.remove('changed'),600);});}
+// ── showCode helper — safe code panel renderer ────────────────────────────────
+// Usage: showCode('python', myCodeVar)
+// Always pass code as a variable defined with String.raw above the steps array.
+// Never inline code strings directly inside action() — escaping will break.
+function showCode(lang, code){
+  const block=document.getElementById('code-block');
+  const panel=document.getElementById('code-panel');
+  if(!block||!panel)return;
+  block.className='language-'+(lang||'javascript');
+  block.textContent=code; // textContent = safe, no HTML-escaping issues
+  if(window.Prism)Prism.highlightElement(block);
+  panel.style.display='block';
+}
+// ── highlightLine helper — add blue glow to one code line ─────────────────────
+// Usage: highlightLine(3)  ← 1-based line number
+function highlightLine(n){
+  const block=document.getElementById('code-block');
+  if(!block)return;
+  const lines=block.innerHTML.split('\n');
+  const idx=n-1;
+  if(idx<0||idx>=lines.length)return;
+  lines[idx]='<span class="code-line-hl">'+lines[idx]+'</span>';
+  block.innerHTML=lines.join('\n');
+}
 let currentStep=0;
 {{STEPS_AND_RESET}}
 function applyStep(i){if(i<0||i>=steps.length)return;const s=steps[i];typewrite(s.text);if(s.action)s.action();const badge=document.getElementById('step-badge');const done=i===steps.length-1;if(badge){badge.textContent=done?'✅ اكتمل':(i+1)+' / '+steps.length;badge.classList.toggle('done',done);}const nb=document.getElementById('btn-next'),pb=document.getElementById('btn-prev');if(nb)nb.disabled=done;if(pb)pb.disabled=(i===0);if(done)playSound('success');}
@@ -197,26 +221,37 @@ const SYSTEM_PROMPT = `You are an Arabic educational visualization expert. Your 
 === END_SVG_SCENE ===
 
 === JS_CODE ===
+// ── RULE: define ALL code strings ABOVE the steps array using a multiline string ──
+// Example:
+//   const CODE_PYTHON = "def example(x):\\n    return x * 2\\nprint(example(3))";
+// Then in action(): showCode('python', CODE_PYTHON); highlightLine(1);
+
 const steps = [
   {
-    text: "Arabic HTML explanation — use <bdi class=\\"ltr code-font\\">identifier</bdi> for code, <bdi class=\\"ltr\\" style=\\"color:#38bdf8\\">Term</bdi> for English terms",
+    text: "Arabic HTML — use <bdi class=\"ltr code-font\">identifier</bdi> for identifiers, <bdi class=\"ltr\" style=\"color:#38bdf8\">Term</bdi> for English terms",
     action: () => {
-      // SVG manipulation only:
-      // Movement: el.style.transform = 'translate(Xpx,Ypx)'; el.classList.add('t-glide');
-      // Opacity:  el.style.opacity = '0';
-      // Spotlight: spotlight(['actor-id']) or spotlight([]) to clear
-      // Watch panel: updateWatch({varName: value})
-      // Code panel: document.getElementById('code-panel').style.display='block';
+      // SVG movement:   el.style.transform='translate(Xpx,Ypx)'; el.classList.add('t-glide');
+      // SVG opacity:    el.style.opacity='0';
+      // Spotlight:      spotlight(['actor-id'])  or  spotlight([]) to clear
+      // Watch panel:    updateWatch({i: 3, total: 10})
+      // Show code:      showCode('python', CODE_EXAMPLE)   ← use the variable above
+      // Highlight line: highlightLine(2)                   ← 1-based line number
     }
   },
   // ... 6 to 8 steps total
 ];
 function resetVisuals() {
-  // Restore ALL animated elements to initial SVG position/opacity/style
+  // Restore ALL animated elements: clear transform, reset opacity, reset fill
 }
 === END_JS_CODE ===
 
-STEP RULES: 6-8 steps. Phase 1 (steps 1-2): real-world SVG, warm colors, ZERO tech terms. Phase 2 (steps 3-5): morph real-world to abstract data structure, cool colors. Phase 3 (steps 6-8): explain code logic in text. Each step: ONE action, spotlight the active actor.`;
+STEP RULES: 6-8 steps. Phase 1 (steps 1-2): real-world SVG, warm colors, ZERO tech terms. Phase 2 (steps 3-5): morph real-world → abstract data structure, cool colors. Phase 3 (steps 6-8): reveal code with showCode(), highlight lines with highlightLine(). Each step: ONE action, spotlight the active actor.
+
+CODE PANEL RULES (CRITICAL):
+- ALWAYS declare code as a plain string variable BEFORE the steps array — never paste raw code inside action()
+- Call showCode('language', VARIABLE_NAME) — supported langs: python, javascript, java, c, cpp, sql, bash
+- After showCode(), call highlightLine(n) in the SAME action to glow the relevant line
+- In resetVisuals(): call document.getElementById('code-panel').style.display='none'`;
 
 
 // ── Build user message (short — the system prompt is already concise) ─────────
