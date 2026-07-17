@@ -2,12 +2,12 @@
  * Visual Explain Route — POST /v4/visual-explain
  *
  * Generates a self-contained interactive Arabic HTML page that visually
- * explains a teacher message, using Gemini 2.5 Flash Lite via OpenRouter.
+ * explains a teacher message, using OpenAI GPT-5 via GitHub Models API.
  *
  * Flow:
  *  1. Receive { message } from the student frontend
  *  2. Build a prompt with strict design specs + reference examples
- *  3. Call google/gemini-2.5-flash-lite via OpenRouter (direct, ~15 s)
+ *  3. Call gpt-5 via GitHub Models (models.inference.ai.azure.com)
  *  4. Extract HTML from response and return { html }
  */
 
@@ -20,10 +20,10 @@ function getUserId(req: any): number | null {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const OPENROUTER_API_BASE = "https://openrouter.ai/api/v1";
-const OPENROUTER_MODEL    = "google/gemini-2.5-flash-lite";
-const OPENROUTER_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
-const MAX_MESSAGE_CHARS   = 5_000;
+const GITHUB_MODELS_API_BASE = "https://models.inference.ai.azure.com";
+const GITHUB_MODELS_MODEL    = "gpt-5";
+const GITHUB_MODELS_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
+const MAX_MESSAGE_CHARS      = 5_000;
 
 // ── Simple in-memory cache ────────────────────────────────────────────────────
 // Same teacher message → same HTML, no need to re-generate
@@ -635,33 +635,27 @@ ${truncated}
   return { system: SYSTEM_PROMPT, user };
 }
 
-// ── OpenRouter: call Gemini 2.5 Flash Lite directly ──────────────────────────
-async function callOpenRouter(systemPrompt: string, userPrompt: string): Promise<string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY غير محدد في الـ Secrets");
+// ── GitHub Models: call GPT-5 via OpenAI-compatible API ──────────────────────
+async function callGitHubModels(systemPrompt: string, userPrompt: string): Promise<string> {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error("GITHUB_TOKEN غير محدد في الـ Secrets");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), OPENROUTER_TIMEOUT);
+  const timer = setTimeout(() => controller.abort(), GITHUB_MODELS_TIMEOUT);
 
   let response: Response;
   try {
-    response = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {
+    response = await fetch(`${GITHUB_MODELS_API_BASE}/chat/completions`, {
       method:  "POST",
       signal:  controller.signal,
       headers: {
         "Content-Type":  "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer":  "https://learnukhba.com",
-        "X-Title":       "Nukhba Visual Explain",
+        "Authorization": `Bearer ${token}`,
       },
       body: JSON.stringify({
-        model:       OPENROUTER_MODEL,
+        model:       GITHUB_MODELS_MODEL,
         max_tokens:  16000,
         temperature: 0.7,
-        // Disable extended thinking — we need raw HTML output, not reasoning tokens.
-        // Gemini Flash Lite has built-in thinking; disabling it ensures the full
-        // token budget goes to the HTML page itself.
-        thinking: { type: "disabled" },
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user",   content: userPrompt   },
@@ -705,11 +699,11 @@ async function generateVisualHtml(message: string): Promise<string> {
     return cached;
   }
 
-  console.log("[visual-explain] Calling OpenRouter/Gemini…");
+  console.log("[visual-explain] Calling GitHub Models / GPT-5…");
   const t0 = Date.now();
 
   const { system, user } = buildTaskPrompt(message);
-  const html = await callOpenRouter(system, user);
+  const html = await callGitHubModels(system, user);
 
   console.log(`[visual-explain] Done in ${Math.round((Date.now() - t0) / 1000)}s — ${html.length} chars`);
 
