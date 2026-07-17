@@ -21,7 +21,7 @@ function getUserId(req: any): number | null {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MORPHLLM_API_BASE = "https://openrouter.ai/api/v1";
-const MORPHLLM_MODEL    = "anthropic/claude-sonnet-4-5";
+const MORPHLLM_MODEL    = "google/gemini-2.5-pro";
 const MORPHLLM_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
 const MAX_MESSAGE_CHARS = 5_000;
 
