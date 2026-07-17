@@ -1,0 +1,91 @@
+Skip to content
+officialhunter2007-netizen
+Attached-Assets
+Repository navigation
+Code
+Issues
+Pull requests
+Agents
+Actions
+Projects
+Security and quality
+Insights
+Settings
+Build Android APKs
+أضف إشعارات FCM فورية لتطبيق الأدمن عند وصول طلبات اشتراك جديدة #1
+All jobs
+Run details
+Triggered via push 2 minutes ago
+@officialhunter2007-netizenofficialhunter2007-netizen
+pushed
+ 920b2ae
+main
+Status
+Failure
+Total duration
+1m 29s
+Artifacts
+–
+
+
+📱 Student APK (TWA) summary
+Gradle Root Project	Requested Tasks	Gradle Version	Build Outcome	Build Scan®
+NukhbaStudent	assembleDebug	8.5	❌	Build Scan not published
+Caching for Gradle actions was enabled - expand for details
+Job summary generated at run-time
+🛡️ Admin APK (WebView) summary
+Gradle Root Project	Requested Tasks	Gradle Version	Build Outcome	Build Scan®
+NukhbaAdmin	assembleDebug	8.5	❌	Build Scan not published
+Caching for Gradle actions was enabled - expand for details
+Job summary generated at run-time
+Annotations
+2 errors and 16 warnings
+📱 Student APK (TWA)
+No files were found with the provided path: apps/nukhba-student/app/build/outputs/apk/debug/app-debug.apk. No artifacts will be uploaded.
+🛡️ Admin APK (WebView)
+No files were found with the provided path: apps/nukhba-admin/app/build/outputs/apk/debug/app-debug.apk. No artifacts will be uploaded.
+📱 Student APK (TWA)
+Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-java@v4, actions/upload-artifact@v4, android-actions/setup-android@v3, gradle/actions/setup-gradle@v3. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+📱 Student APK (TWA)
+Failed to save cache entry with path '/home/runner/.gradle/caches,/home/runner/.gradle/notifications,/home/runner/.gradle/.setup-gradle' and key: gradle-home-v1|Linux|build-student[12382c8e9ab9e13fdc92ad3285996be0]-920b2aeb5ed511916191226d384a117f570a39b0: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0knlaagAAAABjWPQJ27joRLKRCCPYTCtZTEFYMzExMDAwMTE0MDMzAEVkZ2U=
+📱 Student APK (TWA)
+Failed to save cache entry with path '/home/runner/.gradle/caches/jars-*/*/' and key: gradle-instrumented-jars-v1-308d0a8a0143cb10efaa1460de66fbbb: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0knlaagAAAAC01LGrjkDDQ4mTa3I135RDTEFYMzExMDAwMTA5MDE3AEVkZ2U=
+📱 Student APK (TWA)
+Failed to save cache entry with path '/home/runner/.gradle/caches/modules-*/files-*/*/*/*/*' and key: gradle-dependencies-v1-9197914f0fd611f9a4ce31f5aa5eb9b6: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0knlaagAAAACfxYQhoNG3QoGFReDh9y3vTEFYRURHRTE4MTUARWRnZQ==
+📱 Student APK (TWA)
+Failed to save cache entry with path '/home/runner/.gradle/wrapper/dists/gradle-8.5-bin/5t9huq95ubn472n8rpzujfbqh' and key: gradle-wrapper-zips-v1-e89a30cff1b7b918cfe1273c9c8e4a34: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0knlaagAAAABOqW6iSaE7T6MTLforQkAATEFYMzExMDAwMTE0MDI5AEVkZ2U=
+📱 Student APK (TWA)
+Save Gradle distribution 8.5 failed: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0VXlaagAAAAC3ebKCQdCyRpcyorrcpmjoTEFYMzExMDAwMTE0MDQ5AEVkZ2U=
+📱 Student APK (TWA)
+Restore Gradle distribution 8.5 failed: Error: Cache service responded with 400
+📱 Student APK (TWA)
+Failed to restore gradle-home-v1|Linux|build-student[12382c8e9ab9e13fdc92ad3285996be0]-920b2aeb5ed511916191226d384a117f570a39b0: Error: Cache service responded with 400
+🛡️ Admin APK (WebView)
+Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-java@v4, actions/upload-artifact@v4, android-actions/setup-android@v3, gradle/actions/setup-gradle@v3. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+🛡️ Admin APK (WebView)
+Failed to save cache entry with path '/home/runner/.gradle/caches,/home/runner/.gradle/notifications,/home/runner/.gradle/.setup-gradle' and key: gradle-home-v1|Linux|build-admin[12382c8e9ab9e13fdc92ad3285996be0]-920b2aeb5ed511916191226d384a117f570a39b0: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0k3laagAAAACkODTXApj1SrzSvx8cIs1FTVNQMzExMDAwMTA2MDIxAEVkZ2U=
+🛡️ Admin APK (WebView)
+Failed to save cache entry with path '/home/runner/.gradle/caches/jars-*/*/' and key: gradle-instrumented-jars-v1-c6af5a28b3e6cceff045237fb58d59f1: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0k3laagAAAADxrCYotQUGSocQcQ1mBsvhTVNQMzExMDAwMTAxMDQ1AEVkZ2U=
+🛡️ Admin APK (WebView)
+Failed to save cache entry with path '/home/runner/.gradle/caches/modules-*/files-*/*/*/*/*' and key: gradle-dependencies-v1-da0f6560eda5fe202d776b010a05b3d5: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0k3laagAAAABaEOouefiySrCakO7zEOn4TVNQMzExMDAwMTA2MDQ1AEVkZ2U=
+🛡️ Admin APK (WebView)
+Failed to save cache entry with path '/home/runner/.gradle/wrapper/dists/gradle-8.5-bin/5t9huq95ubn472n8rpzujfbqh' and key: gradle-wrapper-zips-v1-e89a30cff1b7b918cfe1273c9c8e4a34: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0knlaagAAAAAKXHsPlnL/TYMs2OgXhar4TVNQMzExMDAwMTA1MDM3AEVkZ2U=
+🛡️ Admin APK (WebView)
+Save Gradle distribution 8.5 failed: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0VXlaagAAAADYdx9OUcX7Rr7oloJPYYNFTVNQMzExMDAwMTAxMDUxAEVkZ2U=
+🛡️ Admin APK (WebView)
+Restore Gradle distribution 8.5 failed: Error: Cache service responded with 400
+🛡️ Admin APK (WebView)
+Failed to restore gradle-home-v1|Linux|build-admin[12382c8e9ab9e13fdc92ad3285996be0]-920b2aeb5ed511916191226d384a117f570a39b0: Error: Cache service responded with 400
+Footer
+© 2026 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+شرح
