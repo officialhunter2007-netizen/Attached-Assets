@@ -34,18 +34,41 @@ function cacheKey(message: string): string {
 }
 
 // ── HTML extraction ───────────────────────────────────────────────────────────
-function extractHtml(text: string): string | null {
-  // 1. ```html ... ``` fenced block
-  const fenced = /```html\s*([\s\S]*?)```/i.exec(text);
-  if (fenced?.[1] && fenced[1].trim().length > 500) return fenced[1].trim();
+// Handles all response formats Gemini Flash Lite may produce:
+//   • Extended-thinking tags (<think>…</think> or <thinking>…</thinking>) before HTML
+//   • ```html … ``` fenced blocks (with or without "html" specifier)
+//   • Bare <!DOCTYPE html … </html>
+//   • <html … </html> without doctype
+//   • Truncated HTML (model hit max_tokens before </html>)
+function extractHtml(rawText: string): string | null {
+  // Strip extended-thinking blocks that Gemini may include before the HTML.
+  // These appear as <think>…</think> or <thinking>…</thinking> wrappers.
+  const text = rawText
+    .replace(/<think(?:ing)?[\s\S]*?<\/think(?:ing)?>/gi, "")
+    .trim();
 
-  // 2. Bare <!DOCTYPE html ... </html>
+  const MIN = 500; // minimum plausible HTML size
+
+  // 1. ```html … ``` fenced block (with "html" specifier)
+  const fencedHtml = /```html\s*([\s\S]*?)```/i.exec(text);
+  if (fencedHtml?.[1]?.trim().length > MIN) return fencedHtml[1].trim();
+
+  // 2. Generic ``` … ``` fenced block (model may omit the "html" tag)
+  const fencedAny = /```(?:\w*\s*)?\n?(<!DOCTYPE[\s\S]*?<\/html>)/i.exec(text);
+  if (fencedAny?.[1]?.trim().length > MIN) return fencedAny[1].trim();
+
+  // 3. Bare <!DOCTYPE html … </html>
   const bare = /<!DOCTYPE\s+html[\s\S]*?<\/html>/i.exec(text);
-  if (bare?.[0] && bare[0].length > 500) return bare[0].trim();
+  if (bare?.[0]?.length > MIN) return bare[0].trim();
 
-  // 3. <html ... </html> without doctype
+  // 4. <html … </html> without doctype
   const tag = /<html[\s\S]*?<\/html>/i.exec(text);
-  if (tag?.[0] && tag[0].length > 500) return tag[0].trim();
+  if (tag?.[0]?.length > MIN) return tag[0].trim();
+
+  // 5. Truncated — model hit token limit before </html>; recover everything
+  //    from <!DOCTYPE (or <html) to end-of-text, as long as it's substantial.
+  const partial = /(!DOCTYPE\s+html|<html\b)[\s\S]+/i.exec(text);
+  if (partial?.[0]?.length > MIN) return "<" + partial[0].trim();
 
   return null;
 }
@@ -593,17 +616,13 @@ If any box fails → fix before outputting.`;
 // ── Build user prompt ─────────────────────────────────────────────────────────
 
 // ── Build task prompt (system spec + user message combined) ───────────────────
-function buildTaskPrompt(message: string): string {
+function buildTaskPrompt(message: string): { system: string; user: string } {
   const truncated =
     message.length > MAX_MESSAGE_CHARS
       ? message.slice(0, MAX_MESSAGE_CHARS) + "\n\n[... تم اختصار الرسالة لأن طولها تجاوز الحد]"
       : message;
 
-  return `${SYSTEM_PROMPT}
-
----
-
-## رسالة المعلم المراد شرحها بصرياً:
+  const user = `## رسالة المعلم المراد شرحها بصرياً:
 
 ${truncated}
 
@@ -612,10 +631,12 @@ ${truncated}
 أنشئ صفحة HTML تفاعلية تشرح المفهوم الرئيسي في هذه الرسالة بصرياً.
 التزم بالمواصفات الثابتة تماماً، وابتكر طريقة عرض بصرية مناسبة لطبيعة هذا المفهوم.
 أخرج صفحة HTML واحدة فقط في ردّك — لا نص خارج الكود إطلاقاً.`;
+
+  return { system: SYSTEM_PROMPT, user };
 }
 
-// ── OpenRouter: call Gemini 2.5 Flash directly ───────────────────────────────
-async function callOpenRouter(prompt: string): Promise<string> {
+// ── OpenRouter: call Gemini 2.5 Flash Lite directly ──────────────────────────
+async function callOpenRouter(systemPrompt: string, userPrompt: string): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY غير محدد في الـ Secrets");
 
@@ -637,8 +658,13 @@ async function callOpenRouter(prompt: string): Promise<string> {
         model:       OPENROUTER_MODEL,
         max_tokens:  16000,
         temperature: 0.7,
+        // Disable extended thinking — we need raw HTML output, not reasoning tokens.
+        // Gemini Flash Lite has built-in thinking; disabling it ensures the full
+        // token budget goes to the HTML page itself.
+        thinking: { type: "disabled" },
         messages: [
-          { role: "user", content: prompt },
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: userPrompt   },
         ],
       }),
     });
@@ -662,7 +688,10 @@ async function callOpenRouter(prompt: string): Promise<string> {
   if (!text) throw new Error("OpenRouter أرجع رداً فارغاً");
 
   const html = extractHtml(text);
-  if (!html) throw new Error("النموذج لم يُرجع HTML صالحاً — حاول مرة أخرى");
+  if (!html) {
+    console.error("[visual-explain] extractHtml failed. Response preview:", text.slice(0, 1200));
+    throw new Error("النموذج لم يُرجع HTML صالحاً — حاول مرة أخرى");
+  }
 
   return html;
 }
@@ -679,7 +708,8 @@ async function generateVisualHtml(message: string): Promise<string> {
   console.log("[visual-explain] Calling OpenRouter/Gemini…");
   const t0 = Date.now();
 
-  const html = await callOpenRouter(buildTaskPrompt(message));
+  const { system, user } = buildTaskPrompt(message);
+  const html = await callOpenRouter(system, user);
 
   console.log(`[visual-explain] Done in ${Math.round((Date.now() - t0) / 1000)}s — ${html.length} chars`);
 
