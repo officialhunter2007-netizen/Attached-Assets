@@ -2,12 +2,13 @@
  * Push Notifications — Web Push (VAPID) routes
  * Student subscribe/unsubscribe + Admin send + history + audience count
  */
-import { Router, Request, Response, NextFunction } from "express";
-import { db } from "@workspace/db";
+import { Router, type IRouter } from "express";
+import { eq } from "drizzle-orm";
+import { db, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import webpush from "web-push";
 
-const router = Router();
+const router: IRouter = Router();
 
 // ── VAPID setup ───────────────────────────────────────────────────────────────
 let vapidReady = false;
@@ -30,27 +31,41 @@ function initVapid() {
 }
 vapidReady = initVapid();
 
-// ── Middleware ─────────────────────────────────────────────────────────────────
-function requireUser(req: Request, res: Response, next: NextFunction): void {
-  const uid = (req as any).session?.userId ?? null;
-  if (!uid) { res.status(401).json({ error: "Unauthorized" }); return; }
-  next();
+// ── Auth helpers (match existing route conventions) ───────────────────────────
+function getUserId(req: any): number | null {
+  return (req.session as any)?.userId ?? null;
 }
-function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  const role = (req as any).session?.userRole ?? (req as any).session?.role ?? null;
-  if (role !== "admin") { res.status(403).json({ error: "Admin only" }); return; }
-  next();
+
+async function isAdmin(userId: number | null): Promise<boolean> {
+  if (!userId) return false;
+  const [u] = await db
+    .select({ role: usersTable.role })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId));
+  return u?.role === "admin";
+}
+
+/** CSRF guard for mutation endpoints — mirrors admin-knowledge.ts pattern. */
+function csrfGuard(req: any, res: any): boolean {
+  if (!req.headers["x-nukhba-csrf"]) {
+    res.status(403).json({ error: "CSRF protection: X-Nukhba-Csrf header required" });
+    return false;
+  }
+  return true;
 }
 
 // ── GET /api/push/vapid-public-key ────────────────────────────────────────────
-router.get("/push/vapid-public-key", (_req: Request, res: any) => {
+router.get("/push/vapid-public-key", (_req: any, res: any) => {
   res.json({ publicKey: process.env.VAPID_PUBLIC_KEY ?? "" });
 });
 
 // ── POST /api/push/subscribe ──────────────────────────────────────────────────
-router.post("/push/subscribe", requireUser, async (req: any, res: any) => {
+router.post("/push/subscribe", async (req: any, res: any): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!csrfGuard(req, res)) return;
+
   try {
-    const userId = req.session.userId as number;
     const { subscription, meta = {} } = req.body ?? {};
     if (!subscription?.endpoint) {
       return res.status(400).json({ error: "subscription.endpoint مطلوب" });
@@ -59,10 +74,10 @@ router.post("/push/subscribe", requireUser, async (req: any, res: any) => {
     const p256dh = keys?.p256dh ?? "";
     const auth   = keys?.auth   ?? "";
     const {
-      specialtyIds   = [],
-      currentLevel   = null,
-      currentUnitCode= null,
-      skillIds       = [],
+      specialtyIds    = [],
+      currentLevel    = null,
+      currentUnitCode = null,
+      skillIds        = [],
     } = meta;
 
     await db.execute(sql`
@@ -91,9 +106,12 @@ router.post("/push/subscribe", requireUser, async (req: any, res: any) => {
 });
 
 // ── DELETE /api/push/unsubscribe ──────────────────────────────────────────────
-router.delete("/push/unsubscribe", requireUser, async (req: any, res: any) => {
+router.delete("/push/unsubscribe", async (req: any, res: any): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!csrfGuard(req, res)) return;
+
   try {
-    const userId   = req.session.userId as number;
     const endpoint = req.body?.endpoint ?? null;
     if (endpoint) {
       await db.execute(sql`DELETE FROM push_subscriptions WHERE user_id = ${userId} AND endpoint = ${endpoint}`);
@@ -107,10 +125,16 @@ router.delete("/push/unsubscribe", requireUser, async (req: any, res: any) => {
 });
 
 // ── GET /api/admin/notifications/audience-count ───────────────────────────────
-router.get("/admin/notifications/audience-count", requireAdmin, async (req: any, res: any) => {
+router.get("/admin/notifications/audience-count", async (req: any, res: any): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!(await isAdmin(userId))) return res.status(403).json({ error: "Forbidden" });
+
   try {
     const filter = buildWhereClause(req.query as FilterParams);
-    const q = filter ? `SELECT COUNT(*) AS cnt FROM push_subscriptions WHERE ${filter}` : `SELECT COUNT(*) AS cnt FROM push_subscriptions`;
+    const q = filter
+      ? `SELECT COUNT(*) AS cnt FROM push_subscriptions WHERE ${filter}`
+      : `SELECT COUNT(*) AS cnt FROM push_subscriptions`;
     const row = await db.execute(sql.raw(q));
     return res.json({ count: Number((row.rows[0] as any)?.cnt ?? 0) });
   } catch (err: any) {
@@ -119,14 +143,19 @@ router.get("/admin/notifications/audience-count", requireAdmin, async (req: any,
 });
 
 // ── POST /api/admin/notifications/send ───────────────────────────────────────
-router.post("/admin/notifications/send", requireAdmin, async (req: any, res: any) => {
+router.post("/admin/notifications/send", async (req: any, res: any): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!(await isAdmin(userId))) return res.status(403).json({ error: "Forbidden" });
+  if (!csrfGuard(req, res)) return;
+
   if (!vapidReady) {
     return res.status(503).json({
       error: "مفاتيح VAPID غير مضبوطة. أضف VAPID_PUBLIC_KEY و VAPID_PRIVATE_KEY في Secrets.",
     });
   }
+
   try {
-    const adminId = req.session.userId as number;
     const {
       title, body, url = "/",
       targetType = "all",
@@ -172,7 +201,7 @@ router.post("/admin/notifications/send", requireAdmin, async (req: any, res: any
       })
     );
 
-    // Clean up stale subscriptions silently
+    // Clean up expired subscriptions silently
     for (const ep of staleEndpoints) {
       await db.execute(sql`DELETE FROM push_subscriptions WHERE endpoint = ${ep}`).catch(() => {});
     }
@@ -180,7 +209,7 @@ router.post("/admin/notifications/send", requireAdmin, async (req: any, res: any
     // Log the sent notification
     await db.execute(sql`
       INSERT INTO notification_log (admin_id, title, body, url, target_filter, sent_count, failed_count)
-      VALUES (${adminId}, ${title}, ${body}, ${url}, ${JSON.stringify(filterParams)}::jsonb, ${sent}, ${failed})
+      VALUES (${userId}, ${title}, ${body}, ${url}, ${JSON.stringify(filterParams)}::jsonb, ${sent}, ${failed})
     `).catch((e: any) => console.warn("[push] log insert failed:", e?.message));
 
     return res.json({ ok: true, sent, failed });
@@ -191,7 +220,11 @@ router.post("/admin/notifications/send", requireAdmin, async (req: any, res: any
 });
 
 // ── GET /api/admin/notifications/history ─────────────────────────────────────
-router.get("/admin/notifications/history", requireAdmin, async (_req: any, res: any) => {
+router.get("/admin/notifications/history", async (req: any, res: any): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!(await isAdmin(userId))) return res.status(403).json({ error: "Forbidden" });
+
   try {
     const rows = await db.execute(sql`
       SELECT nl.id, nl.title, nl.body, nl.url, nl.target_filter,
@@ -209,7 +242,11 @@ router.get("/admin/notifications/history", requireAdmin, async (_req: any, res: 
 });
 
 // ── GET /api/admin/notifications/subscribers ─────────────────────────────────
-router.get("/admin/notifications/subscribers", requireAdmin, async (req: any, res: any) => {
+router.get("/admin/notifications/subscribers", async (req: any, res: any): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!(await isAdmin(userId))) return res.status(403).json({ error: "Forbidden" });
+
   try {
     const q = String(req.query.q ?? "");
     const like = "%" + q + "%";
@@ -235,7 +272,7 @@ type FilterParams = {
   level?: string | number;
   unitCode?: string;
   skillId?: string;
-  userIds?: number[];
+  userIds?: number[] | string;
 };
 
 function sanitize(s: string): string {
@@ -243,10 +280,10 @@ function sanitize(s: string): string {
 }
 
 function buildWhereClause(p: FilterParams): string {
-  const { targetType = "all", specialtyId, level, unitCode, skillId, userIds = [] } = p;
+  const { targetType = "all", specialtyId, level, unitCode, skillId, userIds } = p;
   const ids = Array.isArray(userIds)
-    ? userIds.map(Number).filter(n => !isNaN(n))
-    : String(userIds).split(",").map(Number).filter(n => !isNaN(n));
+    ? (userIds as any[]).map(Number).filter((n) => !isNaN(n))
+    : String(userIds ?? "").split(",").map(Number).filter((n) => !isNaN(n));
 
   switch (targetType) {
     case "specialty":
