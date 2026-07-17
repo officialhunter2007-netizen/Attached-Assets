@@ -506,6 +506,8 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
 
       const finalPrice = computeFinalPrice(basePrice, percent);
 
+      const rawPaymentMethod = typeof req.body?.paymentMethod === "string" && req.body.paymentMethod === "jaib" ? "jaib" : "kuraimi";
+
       const [request] = await tx.insert(subscriptionRequestsTable).values({
         userId,
         userEmail: user?.email ?? "",
@@ -516,6 +518,7 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
         subjectId,
         subjectName: subjectName ?? null,
         notes: parsed.data.notes ?? null,
+        paymentMethod: rawPaymentMethod,
         status: "pending",
         discountCodeId: discountCodeRow?.id ?? null,
         discountCode: welcomeApplied ? WELCOME_OFFER_LABEL : (discountCodeRow?.code ?? null),

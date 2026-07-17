@@ -1183,18 +1183,31 @@ export default function Admin() {
                       </TableCell>
                       <TableCell className="text-sm">{regionLabels[req.region] || req.region}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
-                          <span className="text-sm font-medium text-foreground">
-                            {req.accountName || '—'}
-                          </span>
-                          {req.accountName && (
-                            <button
-                              onClick={() => copyCode(req.accountName)}
-                              className="text-muted-foreground hover:text-gold transition-colors"
-                            >
-                              <Copy className="w-3 h-3" />
-                            </button>
+                        <div className="flex flex-col gap-1">
+                          {(req as any).paymentMethod === "jaib" ? (
+                            <div className="flex items-center gap-1.5">
+                              <img src="/jaib-logo.png" alt="جيب" className="w-4 h-4 rounded object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                              <span className="text-[10px] font-bold text-red-400">محفظة جيب</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <img src="/karimi-logo.png" alt="كريمي" className="w-4 h-4 rounded object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                              <span className="text-[10px] font-bold text-gold">كريمي</span>
+                            </div>
                           )}
+                          <div className="flex items-center gap-1">
+                            <span className="text-sm font-medium text-foreground">
+                              {req.accountName || '—'}
+                            </span>
+                            {req.accountName && (
+                              <button
+                                onClick={() => copyCode(req.accountName)}
+                                className="text-muted-foreground hover:text-gold transition-colors"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>

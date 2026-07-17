@@ -1240,6 +1240,8 @@ const DEFAULT_PAYMENT_SETTINGS: Array<{
   { key: "kuraimi.north.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الشمال", category: "payment" },
   { key: "kuraimi.south.number", value: "3167076083",            label: "رقم حساب كريمي — الجنوب", category: "payment" },
   { key: "kuraimi.south.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الجنوب", category: "payment" },
+  { key: "jaib.number",          value: "",                      label: "رقم محفظة جيب",             category: "payment" },
+  { key: "jaib.name",            value: "",                      label: "اسم صاحب محفظة جيب",        category: "payment" },
   // AI charge rate — the single admin knob. "Gems per 1,000,000 teaching-model
   // tokens." Translated to the internal gems-per-USD constant in pricing-formula.
   {
@@ -1716,6 +1718,7 @@ const REQUIRED_COLUMNS: TableSpec[] = [
       { name: "region", ddl: "text" },
       { name: "activation_code", ddl: "text" },
       { name: "notes", ddl: "text" },
+      { name: "payment_method", ddl: "text NOT NULL DEFAULT 'kuraimi'" },
     ],
   },
   {
