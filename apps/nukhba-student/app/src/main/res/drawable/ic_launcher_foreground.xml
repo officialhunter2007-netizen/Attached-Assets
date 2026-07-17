@@ -37,11 +37,9 @@
           C42,62 38,56.5 38,50
           C38,41.2 45.2,34 54,34Z" />
 
-    <!-- نقطة "ن" الذهبية -->
-    <circle
+    <!-- نقطة "ن" الذهبية — دائرة مرسومة كـ path (Android لا يدعم <circle>) -->
+    <path
         android:fillColor="#C8A84B"
-        android:cx="54"
-        android:cy="45"
-        android:r="4" />
+        android:pathData="M50,45 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
 
 </vector>
