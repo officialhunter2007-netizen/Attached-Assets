@@ -1,6 +1,4 @@
 {
-  "_comment": "⚠️ هذا ملف placeholder — استبدله بـ google-services.json الحقيقي من Firebase Console",
-  "_comment2": "https://console.firebase.google.com → إعدادات المشروع → تطبيقات Android → تحميل google-services.json",
   "project_info": {
     "project_number": "000000000000",
     "project_id": "nukhba-admin-placeholder",
@@ -9,7 +7,7 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000aaaaaa",
         "android_client_info": {
           "package_name": "com.learnukhba.admin"
         }
@@ -17,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "REPLACE_WITH_REAL_FIREBASE_API_KEY"
+          "current_key": "AIzaSyPlaceholderReplaceWithRealFirebaseKey00"
         }
       ],
       "services": {
