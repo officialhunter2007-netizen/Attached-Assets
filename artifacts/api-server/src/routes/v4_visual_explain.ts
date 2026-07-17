@@ -20,10 +20,10 @@ function getUserId(req: any): number | null {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const GITHUB_MODELS_API_BASE = "https://models.inference.ai.azure.com";
-const GITHUB_MODELS_MODEL    = "gpt-5";
-const GITHUB_MODELS_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
-const MAX_MESSAGE_CHARS      = 5_000;
+const MORPHLLM_API_BASE = "https://api.morphllm.com/v1";
+const MORPHLLM_MODEL    = "morph-v3-fast";
+const MORPHLLM_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
+const MAX_MESSAGE_CHARS = 5_000;
 
 // ── Simple in-memory cache ────────────────────────────────────────────────────
 // Same teacher message → same HTML, no need to re-generate
@@ -268,25 +268,25 @@ function escapeHtml(s: string): string {
            .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
-// ── GitHub Models: call GPT-5 via OpenAI-compatible API ──────────────────────
-async function callGitHubModels(systemPrompt: string, userPrompt: string): Promise<string> {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) throw new Error("GITHUB_TOKEN غير محدد في الـ Secrets");
+// ── Morph LLM: call morph-v3-fast via OpenAI-compatible API ──────────────────
+async function callMorphLLM(systemPrompt: string, userPrompt: string): Promise<string> {
+  const apiKey = process.env.MORPHLLM_API_KEY;
+  if (!apiKey) throw new Error("MORPHLLM_API_KEY غير محدد في الـ Secrets");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GITHUB_MODELS_TIMEOUT);
+  const timer = setTimeout(() => controller.abort(), MORPHLLM_TIMEOUT);
 
   let response: Response;
   try {
-    response = await fetch(`${GITHUB_MODELS_API_BASE}/chat/completions`, {
+    response = await fetch(`${MORPHLLM_API_BASE}/chat/completions`, {
       method:  "POST",
       signal:  controller.signal,
       headers: {
         "Content-Type":  "application/json",
-        "Authorization": `Bearer ${token}`,
+        "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model:       GITHUB_MODELS_MODEL,
+        model:       MORPHLLM_MODEL,
         max_tokens:  16000,
         temperature: 0.7,
         messages: [
@@ -301,7 +301,7 @@ async function callGitHubModels(systemPrompt: string, userPrompt: string): Promi
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
-    throw new Error(`GitHub Models فشل (${response.status}): ${errText.slice(0, 300)}`);
+    throw new Error(`Morph LLM فشل (${response.status}): ${errText.slice(0, 300)}`);
   }
 
   const data = await response.json() as {
@@ -309,10 +309,10 @@ async function callGitHubModels(systemPrompt: string, userPrompt: string): Promi
     error?:   { message: string };
   };
 
-  if (data.error) throw new Error(`GitHub Models خطأ: ${data.error.message}`);
+  if (data.error) throw new Error(`Morph LLM خطأ: ${data.error.message}`);
 
   const text = data.choices?.[0]?.message?.content ?? "";
-  if (!text) throw new Error("GitHub Models أرجع رداً فارغاً");
+  if (!text) throw new Error("Morph LLM أرجع رداً فارغاً");
 
   return text; // raw model output — caller parses sections and assembles HTML
 }
@@ -326,11 +326,11 @@ async function generateVisualHtml(message: string): Promise<string> {
     return cached;
   }
 
-  console.log("[visual-explain] Calling GitHub Models / GPT-5…");
+  console.log("[visual-explain] Calling Morph LLM / morph-v3-fast…");
   const t0 = Date.now();
 
   const { system, user } = buildTaskPrompt(message);
-  const rawText = await callGitHubModels(system, user);
+  const rawText = await callMorphLLM(system, user);
 
   const sections = parseModelSections(rawText);
   if (!sections) throw new Error("النموذج لم يُرجع الأقسام المطلوبة — حاول مرة أخرى");
