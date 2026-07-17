@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- خلفية بنفسجية داكنة -->
+    <path
+        android:fillColor="#1A1929"
+        android:pathData="M54,54m-46,0a46,46 0,1 1,92 0a46,46 0,1 1,-92 0" />
+
+    <!-- شعار الأدمن: نجمة + "ن" -->
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M54,22 L57.5,44 L78,38 L62,56 L78,70 L57.5,66 L54,86 L50.5,66 L30,70 L46,56 L30,38 L50.5,44Z" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,38 C47,38 41,44 41,51 C41,57 44.5,62 50,64 L50,68 L58,68 L58,64 C63.5,62 67,57 67,51 C67,44 61,38 54,38Z
+          M54,43 C58.5,43 62,46.5 62,51 C62,54.8 59.5,58 56,59.5 L56,63 L52,63 L52,59.5 C48.5,58 46,54.8 46,51 C46,46.5 49.5,43 54,43Z" />
+
+    <circle
+        android:fillColor="#FFFFFF"
+        android:cx="54"
+        android:cy="49"
+        android:r="2.5" />
+
+</vector>

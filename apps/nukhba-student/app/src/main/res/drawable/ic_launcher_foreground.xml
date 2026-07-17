@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  أيقونة نُخبة — حرف "ن" الذهبي على خلفية داكنة
+  مناسب لـ Android Adaptive Icon
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- دائرة خلفية ناعمة -->
+    <path
+        android:fillColor="#1A1929"
+        android:pathData="M54,54m-46,0a46,46 0,1 1,92 0a46,46 0,1 1,-92 0" />
+
+    <!-- حرف ن بالخط الذهبي — مبسّط كـ vector path -->
+    <path
+        android:fillColor="#C8A84B"
+        android:pathData="
+          M54,28
+          C42,28 33,37 33,49
+          C33,58 38,65 46,68
+          L46,75
+          C46,77 47.5,78.5 50,78.5
+          L58,78.5
+          C60.5,78.5 62,77 62,75
+          L62,68
+          C70,65 75,58 75,49
+          C75,37 66,28 54,28Z
+          M54,34
+          C62.8,34 70,41.2 70,50
+          C70,56.5 66,62 60,64.5
+          L60,74
+          L48,74
+          L48,64.5
+          C42,62 38,56.5 38,50
+          C38,41.2 45.2,34 54,34Z" />
+
+    <!-- نقطة "ن" الذهبية -->
+    <circle
+        android:fillColor="#C8A84B"
+        android:cx="54"
+        android:cy="45"
+        android:r="4" />
+
+</vector>

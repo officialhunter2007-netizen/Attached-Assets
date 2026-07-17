@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.learnukhba.student'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.learnukhba.student"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            debuggable true
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // signingConfig signingConfigs.release  // أضف signing config للإنتاج
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Trusted Web Activity — يُشغّل الـ PWA داخل Chrome بشكل كامل
+    // (Service Worker + Push Notifications تعمل تلقائياً)
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+
+    // AppCompat ضروري للـ Theme
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+}

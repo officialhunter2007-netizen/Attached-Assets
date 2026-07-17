@@ -1,0 +1,14 @@
+# Android build artifacts
+.gradle/
+.idea/
+*.iml
+local.properties
+app/build/
+build/
+
+# Keystore — لا تضع keystore الإنتاجي في git
+*.jks
+*.keystore
+
+# لكن احتفظ بـ gradle wrapper jar (مطلوب للبناء)
+!gradle/wrapper/gradle-wrapper.jar
