@@ -1201,6 +1201,25 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    // Admin FCM tokens — one row per (admin_user, device_token).
+    // Used to send push notifications to admin Android devices when new
+    // subscription requests arrive, even when the app is not in the foreground.
+    table: "admin_fcm_tokens",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "admin_fcm_tokens" (
+        "id"         serial PRIMARY KEY,
+        "user_id"    integer NOT NULL,
+        "token"      text NOT NULL,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_admin_fcm_tokens_user_token" ON "admin_fcm_tokens" ("user_id", "token")`,
+      `CREATE INDEX IF NOT EXISTS "idx_admin_fcm_tokens_user" ON "admin_fcm_tokens" ("user_id")`,
+    ],
+  },
+  {
     // Admin-sent push notification log — append-only history.
     table: "notification_log",
     createSql: `

@@ -21,6 +21,15 @@
           - يتحقق من أن المستخدم على صفحة /admin
           - يدعم رفع الملفات والكاميرا وتشغيل الصوت
         -->
+        <!-- FCM service — receives push notifications for new subscription requests -->
+        <service
+            android:name=".NukhbaFcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
