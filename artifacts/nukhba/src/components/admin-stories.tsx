@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   BookOpen, Plus, Trash2, Loader2, ArrowUp, ArrowDown,
-  Eye, EyeOff, Search, Code2, ExternalLink, FileText,
+  Eye, EyeOff, Search, Code2, ExternalLink, FileText, Copy, Check,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { university, skills } from "@/lib/curriculum";
@@ -113,6 +113,10 @@ export function AdminStories() {
 
   // Delete
   const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // Copy HTML
+  const [copyingId, setCopyingId] = useState<number | null>(null);
+  const [copiedId, setCopiedId]   = useState<number | null>(null);
 
   // ── Load units when specialty changes ─────────────────────────────────────
   useEffect(() => {
@@ -240,6 +244,25 @@ export function AdminStories() {
         body: JSON.stringify({ sortOrder: a.sortOrder }),
       }),
     ]);
+  }
+
+  // ── Copy HTML of a saved story ───────────────────────────────────────────
+  async function handleCopy(id: number) {
+    if (copyingId === id) return;
+    setCopyingId(id);
+    try {
+      const r = await fetch(`/api/v4/stories/${id}`, { credentials: "include" });
+      const data = await r.json();
+      const html: string = data.html_content ?? "";
+      await navigator.clipboard.writeText(html);
+      setCopiedId(id);
+      toast({ title: "✓ تم نسخ الكود" });
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      toast({ title: "خطأ في النسخ", variant: "destructive" });
+    } finally {
+      setCopyingId(null);
+    }
   }
 
   // ── Preview a saved story ─────────────────────────────────────────────────
@@ -525,6 +548,18 @@ export function AdminStories() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-1 px-3">
+                    <button
+                      onClick={() => handleCopy(s.id)}
+                      disabled={copyingId === s.id}
+                      className="p-1.5 rounded-lg text-emerald-400/60 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-40"
+                      title="نسخ الكود"
+                    >
+                      {copyingId === s.id
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : copiedId === s.id
+                          ? <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          : <Copy className="w-3.5 h-3.5" />}
+                    </button>
                     <button
                       onClick={() => openPreview(s.id)}
                       disabled={previewLoading === s.id}
