@@ -2,12 +2,12 @@
  * Visual Explain Route — POST /v4/visual-explain
  *
  * Generates a self-contained interactive Arabic HTML page that visually
- * explains a teacher message, using Gemini 2.5 Flash via OpenRouter.
+ * explains a teacher message, using Gemini 2.5 Flash Lite via OpenRouter.
  *
  * Flow:
  *  1. Receive { message } from the student frontend
  *  2. Build a prompt with strict design specs + reference examples
- *  3. Call google/gemini-2.5-flash via OpenRouter (direct, ~15 s)
+ *  3. Call google/gemini-2.5-flash-lite via OpenRouter (direct, ~15 s)
  *  4. Extract HTML from response and return { html }
  */
 
@@ -21,7 +21,7 @@ function getUserId(req: any): number | null {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const OPENROUTER_API_BASE = "https://openrouter.ai/api/v1";
-const OPENROUTER_MODEL    = "deepseek/deepseek-chat-v3-0324";
+const OPENROUTER_MODEL    = "google/gemini-2.5-flash-lite";
 const OPENROUTER_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
 const MAX_MESSAGE_CHARS   = 5_000;
 
