@@ -21,7 +21,7 @@ function getUserId(req: any): number | null {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MORPHLLM_API_BASE = "https://api.morphllm.com/v1";
-const MORPHLLM_MODEL    = "morph-v3-fast";
+const MORPHLLM_MODEL    = "glm-5.2";
 const MORPHLLM_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
 const MAX_MESSAGE_CHARS = 5_000;
 
